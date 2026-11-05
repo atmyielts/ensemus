@@ -12,7 +12,7 @@ import {
 import { openSecretsDatabase } from '@ensemus/database/secrets';
 import { FileKeyProvider, SecretBroker, SecretUnavailable } from '@ensemus/secrets/broker';
 import { storeSecret } from '@ensemus/secrets/seal';
-import { compose, secret, urls } from '../helpers/stack.js';
+import { compose, secret, urls } from '../helpers/stack';
 
 const CANARY = `CANARY-provider-key-${randomUUID()}`;
 

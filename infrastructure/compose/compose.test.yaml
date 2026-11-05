@@ -10,3 +10,13 @@ services:
   web:
     environment:
       ENSEMUS_ALLOW_SIGNUP: 'true'
+  oidc-mock:
+    profiles: ['test-oidc']
+    image: ghcr.io/navikt/mock-oauth2-server:2.3.0
+    ports: ['127.0.0.1:58080:8080']
+    environment:
+      JSON_CONFIG: >-
+        {"interactiveLogin": false, "tokenCallbacks": [{"issuerId": "default",
+        "requestMappings": [{"requestParam": "client_id", "match": "ensemus", "claims": {
+        "sub": "sso-user-1", "email": "sso-user@example.invalid", "name": "SSO User",
+        "email_verified": true}}]}]}

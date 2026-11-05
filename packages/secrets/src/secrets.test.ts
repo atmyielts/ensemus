@@ -1,7 +1,7 @@
 import { generateKeyPairSync, randomUUID } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
-import { FileKeyProvider, openSealed, SecretUnavailable } from './broker.js';
-import { sealSecret } from './seal.js';
+import { FileKeyProvider, openSealed, SecretUnavailable } from './broker';
+import { sealSecret } from './seal';
 
 const makeKeys = () =>
   generateKeyPairSync('rsa', {

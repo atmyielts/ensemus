@@ -1,0 +1,27 @@
+{
+  "name": "@ensemus/web",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "typecheck": "next typegen && tsc --noEmit"
+  },
+  "dependencies": {
+    "@ensemus/auth": "workspace:*",
+    "@ensemus/config": "workspace:*",
+    "@ensemus/contracts": "workspace:*",
+    "@ensemus/database": "workspace:*",
+    "@ensemus/telemetry": "workspace:*",
+    "better-auth": "1.7.17",
+    "next": "16.4.5",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "server-only": "0.0.1"
+  },
+  "devDependencies": {
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0"
+  }
+}

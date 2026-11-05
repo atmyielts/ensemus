@@ -16,7 +16,7 @@ import {
   type TenantContext,
 } from '@ensemus/database';
 import { runMigrations } from '@ensemus/database/migrate';
-import { urls } from '../helpers/stack.js';
+import { urls } from '../helpers/stack';
 
 const client = async (url: string) => {
   const c = new pg.Client({ connectionString: url });

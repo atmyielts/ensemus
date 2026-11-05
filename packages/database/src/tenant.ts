@@ -1,6 +1,6 @@
 import { and, eq, sql } from 'drizzle-orm';
-import { openDatabase, type EnsemusDrizzle } from './connection.js';
-import { memberships } from './schema.js';
+import { openDatabase, type EnsemusDrizzle } from './connection';
+import { memberships } from './schema';
 
 const brand: unique symbol = Symbol('TenantContext');
 
@@ -117,4 +117,9 @@ export async function resolveTenantContext(
     role: membership.role,
     [brand]: true,
   };
+}
+
+/** Confirms the database answers. Reads no tenant data. */
+export async function pingDatabase(database: AppDatabase): Promise<void> {
+  await database.run((tx) => tx.execute(sql`select 1`));
 }

@@ -1,0 +1,37 @@
+import path from 'node:path';
+import type { NextConfig } from 'next';
+
+const release = process.env.ENSEMUS_RELEASE;
+
+const config: NextConfig = {
+  output: 'standalone',
+  outputFileTracingRoot: path.join(import.meta.dirname, '../../'),
+  transpilePackages: [
+    '@ensemus/auth',
+    '@ensemus/config',
+    '@ensemus/contracts',
+    '@ensemus/database',
+    '@ensemus/telemetry',
+  ],
+  serverExternalPackages: ['pg'],
+  poweredByHeader: false,
+  // Nothing may be fetched from an outside host at runtime (ADR-021).
+  images: { unoptimized: true },
+  ...(release ? { deploymentId: release } : {}),
+  async headers() {
+    return [
+      {
+        source: '/:path*',
+        headers: [
+          { key: 'X-Frame-Options', value: 'DENY' },
+          { key: 'X-Content-Type-Options', value: 'nosniff' },
+          { key: 'Referrer-Policy', value: 'same-origin' },
+          { key: 'Strict-Transport-Security', value: 'max-age=31536000' },
+          { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=()' },
+        ],
+      },
+    ];
+  },
+};
+
+export default config;

@@ -3,4 +3,4 @@
 set -eu
 POSTGRES_PWD="$(cat /run/secrets/db_temporal_password)"
 export POSTGRES_PWD
-exec /etc/temporal/entrypoint.sh autosetup
+exec /etc/temporal/entrypoint.sh

@@ -40,9 +40,12 @@ export default tseslint.config(
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {
-    languageOptions: { globals: { process: 'readonly', console: 'readonly' } },
+    languageOptions: { globals: { process: 'readonly', console: 'readonly', fetch: 'readonly' } },
     rules: {
-      '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
+      '@typescript-eslint/no-unused-vars': [
+        'error',
+        { argsIgnorePattern: '^_', ignoreRestSiblings: true },
+      ],
       'no-restricted-properties': [
         'error',
         { object: 'console', property: 'log', message: 'Use the redacting logger.' },

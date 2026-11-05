@@ -3,8 +3,8 @@ import { readFileSync } from 'node:fs';
 import { Ajv2020 } from 'ajv/dist/2020.js';
 import addFormats from 'ajv-formats';
 import { describe, expect, it } from 'vitest';
-import type { paths } from '../generated/openapi.js';
-import { apiErrorSchema, domainEventSchema } from './index.js';
+import type { paths } from '../generated/openapi';
+import { apiErrorSchema, domainEventSchema } from './index';
 
 const json = (path: string) => JSON.parse(readFileSync(new URL(path, import.meta.url), 'utf8'));
 

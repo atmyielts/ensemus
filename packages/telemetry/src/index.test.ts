@@ -1,6 +1,6 @@
 // FOUND-04: secret canaries must not reach default telemetry, whatever a caller passes.
 import { describe, expect, it } from 'vitest';
-import { createLogger, errorCode } from './index.js';
+import { createLogger, errorCode } from './index';
 
 const CANARY = 'sk-CANARY-1234567890';
 

@@ -1,8 +1,8 @@
 // For the secret broker in workers only (enforced by lint). This role can read sealed secrets for
 // the bound tenant and nothing else.
 import { and, eq, isNull, sql } from 'drizzle-orm';
-import { openDatabase, type EnsemusDrizzle } from './connection.js';
-import { sealedSecrets } from './schema.js';
+import { openDatabase, type EnsemusDrizzle } from './connection';
+import { sealedSecrets } from './schema';
 
 export type SealedSecretRow = typeof sealedSecrets.$inferSelect;
 

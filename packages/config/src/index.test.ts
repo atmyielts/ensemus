@@ -2,7 +2,7 @@ import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { ConfigError, loadWebConfig, readSecret } from './index.js';
+import { ConfigError, loadWebConfig, readSecret } from './index';
 
 describe('readSecret', () => {
   it('prefers the mounted file', () => {

@@ -1,14 +1,14 @@
 import { randomUUID } from 'node:crypto';
 import { asc, eq } from 'drizzle-orm';
-import { appendAudit } from './audit.js';
-import { auditEvents, memberships, organizations, users } from './schema.js';
+import { appendAudit } from './audit';
+import { auditEvents, memberships, organizations, users } from './schema';
 import {
   withNewTenantTx,
   withTenantTx,
   withUserTx,
   type AppDatabase,
   type TenantContext,
-} from './tenant.js';
+} from './tenant';
 
 export type CommercialMode = 'cloud' | 'byom' | 'sovereign';
 

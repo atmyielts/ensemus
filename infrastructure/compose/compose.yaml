@@ -34,6 +34,7 @@ services:
       DATABASE_URL_AUTH_FILE: /run/secrets/db_auth_url
       AUTH_SECRET_FILE: /run/secrets/auth_secret
       SECRET_SEALING_PUBLIC_KEY_FILE: /run/secrets/sealing_public_key.pem
+      NEXT_SERVER_ACTIONS_ENCRYPTION_KEY_FILE: /run/secrets/next_server_actions_key
     secrets: [db_app_url, db_auth_url, auth_secret, sealing_public_key.pem, next_server_actions_key]
     depends_on:
       migrate: { condition: service_completed_successfully }
@@ -58,7 +59,7 @@ services:
       SECRET_SEALING_PRIVATE_KEY_FILE: /run/secrets/sealing_private_key.pem
     secrets: [temporal_codec_key, db_app_url, db_secrets_url, sealing_private_key.pem]
     depends_on:
-      temporal: { condition: service_healthy }
+      temporal-namespace: { condition: service_completed_successfully }
       migrate: { condition: service_completed_successfully }
     deploy:
       resources: { limits: { memory: 2G } }
@@ -103,9 +104,19 @@ services:
       timeout: 3s
       retries: 30
 
+  temporal-schema:
+    image: temporalio/admin-tools@sha256:4a95866efba29d7e17ab012df5232795e8b0ad0f7d5f9d1ec4df321f7792a754
+    entrypoint: ['/bin/sh', '/provision/setup-schema.sh']
+    networks: [temporal-db]
+    volumes:
+      - ./temporal/setup-schema.sh:/provision/setup-schema.sh:ro
+    secrets: [db_temporal_password]
+    depends_on:
+      postgres: { condition: service_healthy }
+
   temporal:
     <<: *restart
-    image: temporalio/auto-setup@sha256:9be7b8d98f60d00f4f2ff74731c071a17848d8182bbc8429e314a24c94ea105b
+    image: temporalio/server@sha256:7bf69188a6232fea14869b9cef3d94aa82a1601d99517f7e86c71f22da4e0670
     networks: [temporal, temporal-db]
     entrypoint: ['/bin/sh', '/provision/temporal-start.sh']
     environment:
@@ -113,20 +124,30 @@ services:
       DB_PORT: '5432'
       POSTGRES_SEEDS: postgres
       POSTGRES_USER: temporal
-      SKIP_DB_CREATE: 'true'
-      TEMPORAL_ADDRESS: temporal:7233
+      # On two networks, so bind to all of them. Otherwise it listens on only one address.
+      BIND_ON_IP: 0.0.0.0
     volumes:
       - ./temporal/temporal-start.sh:/provision/temporal-start.sh:ro
+      - ./temporal/dynamicconfig.yaml:/etc/temporal/config/dynamicconfig/docker.yaml:ro
     secrets: [db_temporal_password]
     depends_on:
-      postgres: { condition: service_healthy }
+      temporal-schema: { condition: service_completed_successfully }
     healthcheck:
-      test:
-        ['CMD-SHELL', 'temporal operator cluster health --address temporal:7233 | grep -q SERVING']
+      # Listening on 7233 (0x1C41). The namespace job below proves the server really answers.
+      test: ['CMD-SHELL', "grep -q ':1C41 ' /proc/net/tcp /proc/net/tcp6"]
       interval: 5s
-      timeout: 5s
+      timeout: 3s
       retries: 60
-      start_period: 20s
+      start_period: 10s
+
+  temporal-namespace:
+    image: temporalio/admin-tools@sha256:4a95866efba29d7e17ab012df5232795e8b0ad0f7d5f9d1ec4df321f7792a754
+    entrypoint: ['/bin/sh', '/provision/setup-namespace.sh']
+    networks: [temporal]
+    volumes:
+      - ./temporal/setup-namespace.sh:/provision/setup-namespace.sh:ro
+    depends_on:
+      temporal: { condition: service_healthy }
 
   valkey:
     <<: *restart

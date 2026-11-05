@@ -1,0 +1,27 @@
+{
+  "name": "@ensemus/workflows",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./client": "./src/client.ts",
+    "./codec": "./src/codec.ts",
+    "./failure-converter": "./src/failure-converter.ts",
+    "./constants": "./src/constants.ts",
+    "./safe-logger": "./src/safe-logger.ts",
+    "./schemas": "./src/schemas.ts",
+    "./activities": "./src/activities.ts",
+    "./workflows": "./src/workflows.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@ensemus/telemetry": "workspace:*",
+    "@temporalio/client": "1.25.0",
+    "@temporalio/common": "1.25.0",
+    "@temporalio/proto": "1.25.0",
+    "@temporalio/workflow": "1.25.0",
+    "zod": "4.6.7"
+  }
+}

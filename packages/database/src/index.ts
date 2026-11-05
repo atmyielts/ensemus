@@ -1,4 +1,4 @@
-export { appendAudit, type AuditEntry } from './audit.js';
+export { appendAudit, type AuditEntry } from './audit';
 export {
   createOrganization,
   getOrganization,
@@ -6,9 +6,10 @@ export {
   listMembers,
   listMyOrganizations,
   type CommercialMode,
-} from './organizations.js';
+} from './organizations';
 export {
   openAppDatabase,
+  pingDatabase,
   resolveTenantContext,
   TenantAccessDenied,
   withTenantTx,
@@ -16,5 +17,5 @@ export {
   type AppDatabase,
   type TenantContext,
   type Tx,
-} from './tenant.js';
-export { sealedSecrets } from './schema.js';
+} from './tenant';
+export { sealedSecrets } from './schema';

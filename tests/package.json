@@ -7,7 +7,14 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@ensemus/auth": "workspace:*",
     "@ensemus/database": "workspace:*",
+    "@ensemus/telemetry": "workspace:*",
+    "@ensemus/workflows": "workspace:*",
+    "@temporalio/client": "1.25.0",
+    "@temporalio/worker": "1.25.0",
+    "@temporalio/workflow": "1.25.0",
+    "@temporalio/common": "1.25.0",
     "@ensemus/secrets": "workspace:*",
     "drizzle-orm": "0.45.4",
     "pg": "8.23.1"

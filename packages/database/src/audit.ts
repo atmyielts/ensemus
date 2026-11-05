@@ -1,5 +1,5 @@
-import { auditEvents } from './schema.js';
-import type { Tx } from './tenant.js';
+import { auditEvents } from './schema';
+import type { Tx } from './tenant';
 
 export type AuditEntry = {
   organizationId: string;

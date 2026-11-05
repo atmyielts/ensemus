@@ -13,7 +13,7 @@ import {
   revokeSecret,
   type openSecretsDatabase,
 } from '@ensemus/database/secrets';
-import { additionalData, keyIdOf } from './format.js';
+import { additionalData, keyIdOf } from './format';
 
 export class SecretUnavailable extends Error {
   override name = 'SecretUnavailable';

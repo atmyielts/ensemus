@@ -8,7 +8,7 @@ import {
   type AppDatabase,
   type TenantContext,
 } from '@ensemus/database';
-import { additionalData, keyIdOf, type SealedValue } from './format.js';
+import { additionalData, keyIdOf, type SealedValue } from './format';
 
 export function sealSecret(input: {
   publicKeyPem: string;

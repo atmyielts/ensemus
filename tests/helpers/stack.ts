@@ -28,7 +28,10 @@ export const urls = {
 };
 
 export function compose(...args: string[]): string {
-  const files = composeFiles.flatMap((f) => ['-f', f]);
+  const all = process.env.ENSEMUS_COMPOSE_AIRGAP
+    ? [...composeFiles, 'infrastructure/compose/compose.airgap.yaml']
+    : composeFiles;
+  const files = all.flatMap((f) => ['-f', f]);
   return execFileSync('docker', ['compose', ...files, ...args], {
     cwd: repoRoot,
     encoding: 'utf8',
