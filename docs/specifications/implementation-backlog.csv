@@ -1,19 +1,19 @@
 id,epic,ticket,suggested_owner,depends_on,modes,milestone,acceptance_criteria,status,merged_from
 FOUND-01,FOUND,Initialize strict TypeScript pnpm monorepo and CI,platform/security,,all,M1,"Lint, type-check, unit tests, scan and reproducible build pass; import rules keep server code out of client bundles",partial,PLAT-10
-FOUND-02,FOUND,"Implement embedded authentication, organizations and membership",platform/security,"FOUND-01,FOUND-03",all,M1,Two-tenant identity integration tests pass; a user sees only their own memberships before a tenant is bound,verified_local,
-FOUND-03,FOUND,"Drizzle migrations, database roles, tenant RLS and composite FKs",platform/security,FOUND-01,all,M1,Migration applied once by a single job; roles match ADR-024 D4; with no tenant bound the app role reads zero tenant rows; cross-tenant direct access denied for the non-owner app role,verified_local,PLAT-13
+FOUND-02,FOUND,"Implement embedded authentication, organizations and membership",platform/security,"FOUND-01,FOUND-03",all,M1,Two-tenant identity integration tests pass; a user sees only their own memberships before a tenant is bound,verified_ci,
+FOUND-03,FOUND,"Drizzle migrations, database roles, tenant RLS and composite FKs",platform/security,FOUND-01,all,M1,Migration applied once by a single job; roles match ADR-024 D4; with no tenant bound the app role reads zero tenant rows; cross-tenant direct access denied for the non-owner app role,verified_ci,PLAT-13
 FOUND-04,FOUND,Establish audit and telemetry redaction,platform/security,FOUND-01,all,M1,Secret-canary test shows no raw content in default telemetry or in Temporal persistence,partial,
 FOUND-05,FOUND,Build SecretBroker with envelope encryption,platform/security,FOUND-02,all,M1,"No API key is persisted in standard application tables; with the web tier's full credentials and environment, a stored secret cannot be decrypted; outside review complete before any real credential is stored",awaiting_outside_review,
-FOUND-06,FOUND,Establish API/error/event contract tooling,platform/security,FOUND-01,all,M1,Schemas generate clients and validate fixtures,verified_local,
+FOUND-06,FOUND,Establish API/error/event contract tooling,platform/security,FOUND-01,all,M1,Schemas generate clients and validate fixtures,verified_ci,
 FOUND-07,FOUND,"License and dependency review; signed images, manifest and SBOM",platform/security,"FOUND-01,PLAT-11",all,M1,"Signed SPDX/CycloneDX inventory covers released artifacts; digests, signature and SBOM verify offline; every bundled component passes redistribution review on adoption",partial,PLAT-14
-PLAT-11,PLATFORM,Next.js standalone container with reverse proxy,platform,FOUND-01,all,M1,Built image boots with secrets only at runtime and passes health,verified_local,
-PLAT-12,PLATFORM,Temporal TypeScript SDK process separated from web,platform,FOUND-01,all,M1,Worker executes after web restart and supports cancellation,verified_local,
-PLAT-15,PLATFORM,Cloud-neutral Docker Compose package,platform,"PLAT-11,PLAT-12",all,M1,No mandatory Vercel/hosted Ensemus runtime dependency,verified_local,
-PLAT-16,PLATFORM,Air-gapped Compose CI gate and egress capture,platform,PLAT-15,sovereign,M1,"The current stack runs in CI with outbound traffic blocked, and any outbound attempt fails the build",verified_local,
-SEC-10,SECURITY,Next.js client bundle and RSC leak canary scan,security,PLAT-11,all,M1,No test secret in built JS streamed RSC or diagnostics,verified_local,
-ID-03,IDENTITY,Auth library spike and embedded OIDC plus local accounts,platform/security,FOUND-01,all,M1,Chosen library works offline and against an OIDC provider; decision recorded with license check,verified_local,
-ASSUR-01,ASSURANCE,Prove web has no Temporal path,platform/security,PLAT-15,all,M1,Network test shows the web container cannot open a connection to Temporal,verified_local,
-ASSUR-02,ASSURANCE,Prove database role boundaries,platform/security,"FOUND-03,FOUND-05",all,M1,Dispatcher role cannot read work tables or event payloads; app role cannot read the secrets schema,verified_local,
+PLAT-11,PLATFORM,Next.js standalone container with reverse proxy,platform,FOUND-01,all,M1,Built image boots with secrets only at runtime and passes health,verified_ci,
+PLAT-12,PLATFORM,Temporal TypeScript SDK process separated from web,platform,FOUND-01,all,M1,Worker executes after web restart and supports cancellation,verified_ci,
+PLAT-15,PLATFORM,Cloud-neutral Docker Compose package,platform,"PLAT-11,PLAT-12",all,M1,No mandatory Vercel/hosted Ensemus runtime dependency,verified_ci,
+PLAT-16,PLATFORM,Air-gapped Compose CI gate and egress capture,platform,PLAT-15,sovereign,M1,"The current stack runs in CI with outbound traffic blocked, and any outbound attempt fails the build",verified_ci,
+SEC-10,SECURITY,Next.js client bundle and RSC leak canary scan,security,PLAT-11,all,M1,No test secret in built JS streamed RSC or diagnostics,verified_ci,
+ID-03,IDENTITY,Auth library spike and embedded OIDC plus local accounts,platform/security,FOUND-01,all,M1,Chosen library works offline and against an OIDC provider; decision recorded with license check,verified_ci,
+ASSUR-01,ASSURANCE,Prove web has no Temporal path,platform/security,PLAT-15,all,M1,Network test shows the web container cannot open a connection to Temporal,verified_ci,
+ASSUR-02,ASSURANCE,Prove database role boundaries,platform/security,"FOUND-03,FOUND-05",all,M1,Dispatcher role cannot read work tables or event payloads; app role cannot read the secrets schema,verified_ci,
 WORK-01,WORK,Work Unit CRUD and versions,core/work,FOUND-03,all,M2,Optimistic locking and tenant-safe database constraints pass,not_started,
 WORK-02,WORK,Work dependency DAG and cycle lock,core/work,WORK-01,all,M2,Concurrent reverse-edge insertion cannot create cycle,not_started,
 WORK-03,WORK,Ownership and human/agent assignments,core/work,WORK-01,all,M2,One accountable owner and scoped delegates enforced,not_started,

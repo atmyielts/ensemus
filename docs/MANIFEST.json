@@ -272,8 +272,8 @@
     },
     {
       "path": "06-delivery/evidence/M1-report.md",
-      "size_bytes": 6812,
-      "sha256": "1a8692d5fdcb844eefa5d5efff30f2ce0e9c3715b09b9964cbb79d64461dc9b0"
+      "size_bytes": 7068,
+      "sha256": "32936c8ad78dc7fe11e056510d4f162d3934b259611e798b50287b24f6228d0f"
     },
     {
       "path": "07-commercial/01-license-and-maintenance.md",
@@ -422,8 +422,8 @@
     },
     {
       "path": "specifications/implementation-backlog.csv",
-      "size_bytes": 24616,
-      "sha256": "20bfe8e29581eedce17f95d30e6e74fd61347dd7818b1a107bc5adee3190a345"
+      "size_bytes": 24583,
+      "sha256": "2cfada3c6c571b03e46b3b5b37d1e8730562383620e95c9f3063436ac0a5da1e"
     },
     {
       "path": "specifications/model-conformance-matrix.csv",

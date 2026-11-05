@@ -2,7 +2,7 @@
 
 **Date:** 2026-11-05
 **Status: built and tested, but M1 is not closed.** It needs an outside security review and three owner decisions (see [What stops M1 closing](#what-stops-m1-closing)).
-**Environment:** one Windows 11 machine with Docker Desktop (Linux containers). CI results on Linux are recorded under [CI on Linux](#ci-on-linux).
+**Environment:** a Windows 11 machine with Docker Desktop, and GitHub Actions on Linux. See [CI on Linux](#ci-on-linux).
 
 This is an empty but secure product. You can sign up, create an organization and see its members. It does no real work yet.
 
@@ -29,20 +29,20 @@ From a clean stack, using `infrastructure/scripts/run-all-gates.sh`:
 | Ticket | Status | Evidence, or what is missing |
 |---|---|---|
 | `FOUND-01` Monorepo and CI | **Partial** | Lint, types, tests and CI exist. **Reproducible builds are not proven and images have no vulnerability scan yet** |
-| `FOUND-02` Auth, organizations, membership | Verified locally | Two-tenant tests, and real form posts through Server Actions |
-| `FOUND-03` Migrations, roles, RLS | Verified locally | Tests run as real roles, with negative controls |
+| `FOUND-02` Auth, organizations, membership | Verified, local and CI | Two-tenant tests, and real form posts through Server Actions |
+| `FOUND-03` Migrations, roles, RLS | Verified, local and CI | Tests run as real roles, with negative controls |
 | `FOUND-04` Audit and redaction | **Partial** | Canary absent from logs and Temporal's database. Audit covers two actions so far. OpenTelemetry tracing isn't wired up |
 | `FOUND-05` SecretBroker | **Awaiting outside review** | All tests pass, but no real credential may be stored until it is reviewed |
-| `FOUND-06` Contract tooling | Verified locally | Runtime, generated and specification schemas agree on valid and invalid fixtures |
+| `FOUND-06` Contract tooling | Verified, local and CI | Runtime, generated and specification schemas agree on valid and invalid fixtures |
 | `FOUND-07` License, SBOM, signing | **Partial** | Works with a throwaway key. Needs the owner's custody decision and counsel's review |
-| `ID-03` Auth library | Verified locally | Local accounts and an OIDC round trip. See [ADR-025](../../00-foundation/adr/ADR-025-m1-implementation-decisions.md) D1 |
-| `PLAT-11` Web image and proxy | Verified locally | Built image behind Caddy with TLS; read-only, non-root |
-| `PLAT-12` Temporal worker | Verified locally | Survives web and worker restarts; cancellation works |
-| `PLAT-15` Compose stack | Verified locally | No hosted dependency |
-| `PLAT-16` Air-gap gate | Verified locally | Zero attempts, with a working control |
-| `SEC-10` Secrets in browser output | Verified locally | Test secrets absent from pages, scripts and images |
-| `ASSUR-01` No web path to Temporal | Verified locally | Network membership and connect-by-IP, with a worker control |
-| `ASSUR-02` Role boundaries | Verified locally | Exact grant checks, which will also catch future tables |
+| `ID-03` Auth library | Verified, local and CI | Local accounts and an OIDC round trip. See [ADR-025](../../00-foundation/adr/ADR-025-m1-implementation-decisions.md) D1 |
+| `PLAT-11` Web image and proxy | Verified, local and CI | Built image behind Caddy with TLS; read-only, non-root |
+| `PLAT-12` Temporal worker | Verified, local and CI | Survives web and worker restarts; cancellation works |
+| `PLAT-15` Compose stack | Verified, local and CI | No hosted dependency |
+| `PLAT-16` Air-gap gate | Verified, local and CI | Zero attempts, with a working control |
+| `SEC-10` Secrets in browser output | Verified, local and CI | Test secrets absent from pages, scripts and images |
+| `ASSUR-01` No web path to Temporal | Verified, local and CI | Network membership and connect-by-IP, with a worker control |
+| `ASSUR-02` Role boundaries | Verified, local and CI | Exact grant checks, which will also catch future tables |
 
 ## What testing found
 
@@ -82,4 +82,4 @@ Work on M2 can proceed with test data while these are open.
 
 ## CI on Linux
 
-Not yet recorded. See the pipeline on the `m1-release-skeleton` branch.
+All three jobs (`quality`, `integration`, `stack`) passed on `ubuntu-24.04` at commit `2e78f21`, [run 42057951400](https://github.com/atmyielts/ensemus/actions/runs/42057951400). That includes the air-gap gate on a clean runner, with zero outbound attempts counted from before first boot.
