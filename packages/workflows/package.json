@@ -17,7 +17,11 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@ensemus/application": "workspace:*",
+    "@ensemus/database": "workspace:*",
+    "@ensemus/domain": "workspace:*",
     "@ensemus/telemetry": "workspace:*",
+    "drizzle-orm": "0.45.4",
     "@temporalio/client": "1.25.0",
     "@temporalio/common": "1.25.0",
     "@temporalio/proto": "1.25.0",

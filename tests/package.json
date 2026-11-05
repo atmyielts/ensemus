@@ -12,6 +12,7 @@
     "@ensemus/domain": "workspace:*",
     "@ensemus/database": "workspace:*",
     "@ensemus/telemetry": "workspace:*",
+    "@ensemus/storage": "workspace:*",
     "@ensemus/workflows": "workspace:*",
     "@temporalio/client": "1.25.0",
     "@temporalio/worker": "1.25.0",

@@ -21,6 +21,14 @@ export default defineConfig({
       },
       {
         test: {
+          name: 'replay',
+          include: ['tests/replay/**/*.test.ts'],
+          fileParallelism: false,
+          testTimeout: 60_000,
+        },
+      },
+      {
+        test: {
           name: 'stack',
           include: ['tests/stack/**/*.test.ts'],
           fileParallelism: false,

@@ -30,6 +30,7 @@ gate "backlog and traceability" pnpm check:backlog
 gate "contracts match the spec" pnpm check:contracts
 gate "licenses" pnpm check:licenses
 gate "dependency audit (production, high and above)" pnpm audit --prod --audit-level high
+gate "workflow replay corpus" pnpm test:replay
 gate "integration tests on real PostgreSQL" pnpm test:integration
 docker compose "${compose_files[@]}" --profile test-oidc down -v --remove-orphans >/dev/null 2>&1
 gate "air-gap control detects an attempt" node infrastructure/scripts/air-gap-gate.mjs --control

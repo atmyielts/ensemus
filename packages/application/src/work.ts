@@ -344,6 +344,19 @@ export async function applyTransition(
     safeReason: to.toUpperCase(),
   });
 
+  // A person stopping work must also stop any workflow running it. Activities check status too, so
+  // nothing further happens even if this signal is delayed.
+  if (to === 'cancelled' && context.actorType === 'user' && current.executionPlan) {
+    await emit(tx, context, {
+      eventType: 'work.stop_requested',
+      aggregateType: 'work_unit',
+      aggregateId: current.id,
+      aggregateVersion: nextVersion,
+      classification: current.classification,
+      payload: { work_unit_id: current.id },
+    });
+  }
+
   if (to === 'completed') await promoteDependents(tx, context, current.id);
   return row;
 }

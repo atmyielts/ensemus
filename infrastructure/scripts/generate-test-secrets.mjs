@@ -2,7 +2,7 @@
 // Creates throwaway secrets for local and CI stacks under .local/secrets (ignored by git).
 // These are test values only. Real deployments supply their own through a secret mount.
 import { generateKeyPairSync, randomBytes } from 'node:crypto';
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -25,10 +25,29 @@ for (const [name, role, file] of [
   ['db_app_url', 'ensemus_app', 'db_app_password'],
   ['db_auth_url', 'ensemus_auth', 'db_auth_password'],
   ['db_secrets_url', 'ensemus_secrets', 'db_secrets_password'],
+  ['db_dispatcher_url', 'ensemus_dispatcher', 'db_dispatcher_password'],
 ]) {
   const pw = await read(file);
   put(name, () => `postgres://${role}:${pw}@postgres:5432/ensemus`);
 }
+put('objects_access_key', () => randomBytes(12).toString('hex'));
+put('objects_secret_key', () => randomBytes(24).toString('hex'));
+put('objects_identity.json', () =>
+  JSON.stringify({
+    identities: [
+      {
+        name: 'ensemus',
+        credentials: [
+          {
+            accessKey: readFileSync(join(dir, 'objects_access_key'), 'utf8'),
+            secretKey: readFileSync(join(dir, 'objects_secret_key'), 'utf8'),
+          },
+        ],
+        actions: ['Admin', 'Read', 'Write', 'List', 'Tagging'],
+      },
+    ],
+  }),
+);
 put('auth_secret', () => randomBytes(32).toString('base64'));
 put('temporal_codec_key', () => randomBytes(32).toString('base64'));
 put('next_server_actions_key', () => randomBytes(32).toString('base64'));

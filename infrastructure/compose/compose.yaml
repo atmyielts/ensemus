@@ -33,11 +33,22 @@ services:
       ENSEMUS_PUBLIC_URL: ${ENSEMUS_PUBLIC_URL:-https://localhost:8443}
       ENSEMUS_ALLOW_SIGNUP: ${ENSEMUS_ALLOW_SIGNUP:-false}
       DATABASE_URL_APP_FILE: /run/secrets/db_app_url
+      OBJECT_STORAGE_ENDPOINT: http://objects:8333
+      OBJECT_STORAGE_BUCKET: ensemus
+      OBJECT_STORAGE_ACCESS_KEY_FILE: /run/secrets/objects_access_key
+      OBJECT_STORAGE_SECRET_KEY_FILE: /run/secrets/objects_secret_key
       DATABASE_URL_AUTH_FILE: /run/secrets/db_auth_url
       AUTH_SECRET_FILE: /run/secrets/auth_secret
       SECRET_SEALING_PUBLIC_KEY_FILE: /run/secrets/sealing_public_key.pem
       NEXT_SERVER_ACTIONS_ENCRYPTION_KEY_FILE: /run/secrets/next_server_actions_key
-    secrets: [db_app_url, db_auth_url, auth_secret, sealing_public_key.pem, next_server_actions_key]
+    secrets:
+      - db_app_url
+      - db_auth_url
+      - auth_secret
+      - sealing_public_key.pem
+      - next_server_actions_key
+      - objects_access_key
+      - objects_secret_key
     depends_on:
       migrate: { condition: service_completed_successfully }
     deploy:
@@ -57,14 +68,46 @@ services:
       TEMPORAL_NAMESPACE: default
       TEMPORAL_CODEC_KEY_FILE: /run/secrets/temporal_codec_key
       DATABASE_URL_APP_FILE: /run/secrets/db_app_url
+      OBJECT_STORAGE_ENDPOINT: http://objects:8333
+      OBJECT_STORAGE_BUCKET: ensemus
+      OBJECT_STORAGE_ACCESS_KEY_FILE: /run/secrets/objects_access_key
+      OBJECT_STORAGE_SECRET_KEY_FILE: /run/secrets/objects_secret_key
       DATABASE_URL_SECRETS_FILE: /run/secrets/db_secrets_url
       SECRET_SEALING_PRIVATE_KEY_FILE: /run/secrets/sealing_private_key.pem
-    secrets: [temporal_codec_key, db_app_url, db_secrets_url, sealing_private_key.pem]
+    secrets:
+      - temporal_codec_key
+      - db_app_url
+      - db_secrets_url
+      - sealing_private_key.pem
+      - objects_access_key
+      - objects_secret_key
     depends_on:
       temporal-namespace: { condition: service_completed_successfully }
       migrate: { condition: service_completed_successfully }
     deploy:
       resources: { limits: { memory: 2G } }
+
+  dispatcher:
+    <<: *restart
+    build:
+      context: ../..
+      dockerfile: infrastructure/containers/Dockerfile.worker
+    image: ensemus/worker:local
+    command: ['node', 'dist/dispatcher.js']
+    read_only: true
+    tmpfs: ['/tmp']
+    networks: [data, temporal]
+    environment:
+      TEMPORAL_ADDRESS: temporal:7233
+      TEMPORAL_NAMESPACE: default
+      TEMPORAL_CODEC_KEY_FILE: /run/secrets/temporal_codec_key
+      DATABASE_URL_DISPATCHER_FILE: /run/secrets/db_dispatcher_url
+    secrets: [temporal_codec_key, db_dispatcher_url]
+    depends_on:
+      temporal-namespace: { condition: service_completed_successfully }
+      migrate: { condition: service_completed_successfully }
+    deploy:
+      resources: { limits: { memory: 512M } }
 
   migrate:
     build:
@@ -76,8 +119,12 @@ services:
     tmpfs: ['/tmp']
     networks: [data]
     environment:
+      OBJECT_STORAGE_ENDPOINT: http://objects:8333
+      OBJECT_STORAGE_BUCKET: ensemus
+      OBJECT_STORAGE_ACCESS_KEY_FILE: /run/secrets/objects_access_key
+      OBJECT_STORAGE_SECRET_KEY_FILE: /run/secrets/objects_secret_key
       DATABASE_URL_MIGRATOR_FILE: /run/secrets/db_migrator_url
-    secrets: [db_migrator_url]
+    secrets: [db_migrator_url, objects_access_key, objects_secret_key]
     depends_on:
       postgres: { condition: service_healthy }
 
@@ -180,7 +227,14 @@ services:
   objects:
     <<: *restart
     image: chrislusf/seaweedfs@sha256:c2658820e763294a9e9de7b36c81e59b879e3459148351aee4e31a126ca64860
-    command: ['server', '-dir=/data', '-s3', '-s3.port=8333', '-master.volumeSizeLimitMB=256']
+    command:
+      - server
+      - -dir=/data
+      - -s3
+      - -s3.port=8333
+      - -s3.config=/run/secrets/objects_identity
+      - -master.volumeSizeLimitMB=256
+    secrets: [objects_identity]
     volumes:
       - objects-data:/data
     networks: [data]
@@ -212,6 +266,10 @@ secrets:
   db_migrator_url: { file: ../../.local/secrets/db_migrator_url }
   db_app_url: { file: ../../.local/secrets/db_app_url }
   db_auth_url: { file: ../../.local/secrets/db_auth_url }
+  db_dispatcher_url: { file: ../../.local/secrets/db_dispatcher_url }
+  objects_access_key: { file: ../../.local/secrets/objects_access_key }
+  objects_secret_key: { file: ../../.local/secrets/objects_secret_key }
+  objects_identity: { file: ../../.local/secrets/objects_identity.json }
   db_secrets_url: { file: ../../.local/secrets/db_secrets_url }
   auth_secret: { file: ../../.local/secrets/auth_secret }
   temporal_codec_key: { file: ../../.local/secrets/temporal_codec_key }

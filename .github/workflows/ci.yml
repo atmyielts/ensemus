@@ -27,6 +27,8 @@ jobs:
       - run: pnpm --filter @ensemus/web exec next typegen
       - run: pnpm typecheck
       - run: pnpm test:unit
+      - name: Workflow replay corpus
+        run: pnpm test:replay
       - name: Backlog and traceability
         run: pnpm check:backlog
       - name: Contracts match the specification

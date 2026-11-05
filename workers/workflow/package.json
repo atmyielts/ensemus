@@ -8,6 +8,7 @@
     "build": "node scripts/build.mjs"
   },
   "dependencies": {
+    "@temporalio/client": "1.25.0",
     "@temporalio/common": "1.25.0",
     "@temporalio/proto": "1.25.0",
     "@temporalio/worker": "1.25.0"
@@ -15,6 +16,7 @@
   "devDependencies": {
     "@ensemus/config": "workspace:*",
     "@ensemus/database": "workspace:*",
+    "@ensemus/storage": "workspace:*",
     "@ensemus/telemetry": "workspace:*",
     "@ensemus/workflows": "workspace:*",
     "esbuild": "0.28.2"

@@ -1,7 +1,14 @@
 import { randomUUID } from 'node:crypto';
 import { asc, eq } from 'drizzle-orm';
 import { appendAudit } from './audit';
-import { auditEvents, memberships, organizations, users } from './schema';
+import {
+  auditEvents,
+  domainEvents,
+  memberships,
+  organizations,
+  outboxEvents,
+  users,
+} from './schema';
 import {
   withNewTenantTx,
   withTenantTx,
@@ -30,6 +37,20 @@ export async function createOrganization(
       userId: input.userId,
       role: 'owner',
     });
+    const eventId = randomUUID();
+    await tx.insert(domainEvents).values({
+      organizationId,
+      id: eventId,
+      eventType: 'organization.created',
+      aggregateType: 'organization',
+      aggregateId: organizationId,
+      aggregateVersion: 1,
+      actorType: 'membership',
+      actorId: membershipId,
+      classification: 'internal',
+      payload: { organization_id: organizationId },
+    });
+    await tx.insert(outboxEvents).values({ organizationId, eventId });
     await appendAudit(tx, {
       organizationId,
       actorType: 'user',

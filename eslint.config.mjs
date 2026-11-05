@@ -17,8 +17,13 @@ const temporal = {
   message: 'The web tier has no Temporal path. Commit to the outbox instead (ADR-024 D3).',
 };
 const broker = {
-  group: ['@ensemus/secrets/broker', '@ensemus/database/secrets'],
-  message: 'The web tier can seal secrets but never unseal them (ADR-024 D5).',
+  group: [
+    '@ensemus/secrets/broker',
+    '@ensemus/database/secrets',
+    '@ensemus/database/service',
+    '@ensemus/database/dispatcher',
+  ],
+  message: 'Worker-only: the web tier cannot unseal secrets or act as a service (ADR-024 D5).',
 };
 const authDatabase = {
   group: ['@ensemus/database/auth'],

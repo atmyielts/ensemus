@@ -13,6 +13,7 @@
     "typecheck": "pnpm -r --workspace-concurrency=4 typecheck",
     "test:unit": "vitest run --project unit",
     "test:integration": "vitest run --project integration",
+    "test:replay": "vitest run --project replay",
     "test:stack": "vitest run --project stack",
     "check:backlog": "node docs/specifications/tools/check-backlog.mjs",
     "check:contracts": "pnpm --filter @ensemus/contracts generate && git diff --exit-code packages/contracts/generated",

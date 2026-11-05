@@ -1,6 +1,8 @@
 # Test overlay: lets tests reach PostgreSQL and Temporal on localhost. Never used in a real
 # deployment, where only the proxy is reachable.
 services:
+  objects:
+    ports: ['127.0.0.1:58333:8333']
   postgres:
     ports: ['127.0.0.1:55432:5432']
   # Publishing a port makes Docker accept traffic to that container from other networks, which would
