@@ -2,7 +2,8 @@
 # One-shot job: waits for the server, then creates the namespace if it is not there yet.
 # Retention limits how long workflow history stays in Temporal's database.
 set -eu
-export TEMPORAL_ADDRESS=temporal:7233
+# passthrough skips gRPC's SRV lookup for an internal name, which goes outside and hangs when offline.
+export TEMPORAL_ADDRESS=passthrough:///temporal:7233
 attempt=0
 until temporal operator cluster health >/dev/null 2>&1; do
   attempt=$((attempt + 1))

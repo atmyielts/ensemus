@@ -8,6 +8,8 @@ RUN pnpm install --frozen-lockfile --filter "@ensemus/web..."
 ARG ENSEMUS_RELEASE=local
 ENV ENSEMUS_RELEASE=$ENSEMUS_RELEASE
 RUN pnpm --filter @ensemus/web build
+# Images are unoptimized, so the LGPL image library Next.js traces in is unused. Keep it out.
+RUN find apps/web/.next/standalone -type d \( -path '*@img*' -o -name 'sharp' -o -name 'sharp@*' -o -name '@img+*' \) -prune -exec rm -rf {} +
 
 FROM node:24-slim@sha256:01d566e8d94d8c619591d78652babfccd3c6992a3dffa9ed5ab39e11cf6c70e9
 ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1 HOSTNAME=0.0.0.0 PORT=3000

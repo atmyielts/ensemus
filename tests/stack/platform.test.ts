@@ -1,4 +1,5 @@
 // PLAT-11, PLAT-12, PLAT-15, ASSUR-01, ID-03, SEC-10, NEXT-02, NEXT-04, against built images.
+import { execFileSync, spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -127,7 +128,29 @@ describe('two tenants through the real pages', () => {
 });
 
 describe('web tier isolation (ADR-024 D3, D5)', () => {
-  it('cannot resolve Temporal by name', () => {
+  it('shares no network with Temporal', () => {
+    const networksOf = (service: string) =>
+      Object.keys(
+        JSON.parse(
+          execFileSync(
+            'docker',
+            [
+              'inspect',
+              compose('ps', '-q', service).trim(),
+              '--format',
+              '{{json .NetworkSettings.Networks}}',
+            ],
+            { encoding: 'utf8' },
+          ),
+        ),
+      );
+    const web = networksOf('web');
+    expect(web.length).toBeGreaterThan(0);
+    for (const network of networksOf('temporal')) expect(web).not.toContain(network);
+  });
+
+  // This lookup is itself an outbound DNS query, so the air-gap gate would rightly count it.
+  it.skipIf(process.env.ENSEMUS_COMPOSE_AIRGAP)('cannot resolve Temporal by name', () => {
     const output = nodeIn(
       'web',
       `require('dns').lookup('temporal',(e)=>{process.stdout.write(e?'blocked':'resolved')})`,
@@ -241,19 +264,15 @@ describe('secrets in what the browser receives (SEC-10, NEXT-02)', () => {
     }
   });
 
-  it('uses the per-deployment Server Action key, not one from the build', () => {
-    const output = nodeIn(
-      'web',
-      `process.stdout.write(process.env.NEXT_SERVER_ACTIONS_ENCRYPTION_KEY ? 'unset-in-parent' : 'file-only')`,
-    );
-    expect(output).toBe('file-only');
-    const process1 = inContainer(
-      'web',
-      'sh',
-      '-c',
-      `tr '\\0' '\\n' < /proc/1/environ | grep -c NEXT_SERVER_ACTIONS_ENCRYPTION_KEY_FILE`,
-    );
-    expect(process1.trim()).toBe('1');
+  it('refuses to start without a per-deployment Server Action key', () => {
+    const result = spawnSync('docker', ['run', '--rm', 'ensemus/web:local'], { encoding: 'utf8' });
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('Refusing to start');
+  });
+
+  it('leaves the unused LGPL image library out of the web image', () => {
+    const output = inContainer('web', 'sh', '-c', 'find /app -type d -path "*@img*" | wc -l');
+    expect(output.trim()).toBe('0');
   });
 });
 

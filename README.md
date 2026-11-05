@@ -1,0 +1,62 @@
+# Ensemus
+
+An AI-native company operating system, in which people and permissioned agents coordinate, carry out, verify and remember company work.
+
+**Status: M1, release skeleton. This is a secure foundation, not a usable product yet.** See the [delivery plan](docs/06-delivery/06-end-to-end-delivery-plan.md) and [M1 evidence report](docs/06-delivery/evidence/M1-report.md).
+
+## Layout
+
+| Path               | What it holds                                                                               |
+| ------------------ | ------------------------------------------------------------------------------------------- |
+| `apps/web`         | The only customer-facing server (Next.js)                                                   |
+| `workers/workflow` | Temporal worker and the migration job; serves no HTTP                                       |
+| `packages/*`       | Shared code: `database`, `auth`, `secrets`, `workflows`, `telemetry`, `contracts`, `config` |
+| `infrastructure`   | Dockerfiles, Compose stack and gate scripts                                                 |
+| `tests`            | Integration tests against real PostgreSQL, and stack tests against built images             |
+| `docs`             | The full specification, ADRs and backlog                                                    |
+
+Coding agents must follow [`docs/AGENTS.md`](docs/AGENTS.md).
+
+## Prerequisites
+
+Node 24, pnpm (through Corepack) and Docker.
+
+## Run it
+
+```bash
+corepack enable
+```
+
+```bash
+pnpm install
+```
+
+```bash
+pnpm stack:secrets
+```
+
+```bash
+pnpm stack:up
+```
+
+Then open https://localhost:8443. It uses a local test certificate, so your browser will warn you the first time. Sign-up is on only in this test setup.
+
+```bash
+pnpm stack:down
+```
+
+## Check it
+
+| Command                                         | What it proves                                                                |
+| ----------------------------------------------- | ----------------------------------------------------------------------------- |
+| `pnpm lint`                                     | Code quality and architecture boundaries, such as no Temporal in the web tier |
+| `pnpm typecheck`                                | Strict types across the workspace                                             |
+| `pnpm test:unit`                                | Unit tests, including crypto and redaction                                    |
+| `pnpm test:integration`                         | Tenant isolation, roles, auth and secrets on real PostgreSQL                  |
+| `pnpm test:stack`                               | Durability, isolation and confidentiality against a running stack             |
+| `node infrastructure/scripts/air-gap-gate.mjs`  | The stack passes its tests with outbound traffic blocked, with zero attempts  |
+| `node infrastructure/scripts/build-release.mjs` | SBOMs and a signed manifest, verified with no network                         |
+| `pnpm check:backlog`                            | The backlog and traceability matrix are consistent                            |
+| `pnpm check:licenses`                           | No production dependency has an unreviewed license                            |
+
+Secrets generated here are throwaway test values, kept in `.local/` and ignored by git. Never use them for anything real.

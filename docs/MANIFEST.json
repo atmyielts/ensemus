@@ -32,8 +32,13 @@
     },
     {
       "path": "00-foundation/adr/ADR-024-build-start-runtime-contracts.md",
-      "size_bytes": 23299,
-      "sha256": "3d862d11f06b89c83b4aea2b4f8cbae6f6b197ef69926a1d34c90d01dc1b6c07"
+      "size_bytes": 23137,
+      "sha256": "d322fef5d7702b62839fb05bcb1b34d5128d9d74f4cbc7f495b6f92eddb7d75e"
+    },
+    {
+      "path": "00-foundation/adr/ADR-025-m1-implementation-decisions.md",
+      "size_bytes": 6258,
+      "sha256": "c904229520a39f15572f0122d63025d7b34a03baf9f4a70f9bfeb6284880d21a"
     },
     {
       "path": "01-product/01-product-requirements.md",
@@ -266,6 +271,11 @@
       "sha256": "be135c3746d154322950dd937bb2bfc4058af9811fe3597f670f1c0dbccf8f31"
     },
     {
+      "path": "06-delivery/evidence/M1-report.md",
+      "size_bytes": 5980,
+      "sha256": "0425e8c6bf3109eacfc65475593ba5814b56b8231b5034928a1dbc71ba9453d9"
+    },
+    {
       "path": "07-commercial/01-license-and-maintenance.md",
       "size_bytes": 4417,
       "sha256": "0238360e8d6d71ec4e406357f3962afe388169c7da2e77cfd8a164ede63bbc95"
@@ -292,13 +302,13 @@
     },
     {
       "path": "08-migration/02-change-log.md",
-      "size_bytes": 2052,
-      "sha256": "1d3167949646aa92ffd3d7fa9e083a73c471078c8e2febd288cfac054c78ffb8"
+      "size_bytes": 2462,
+      "sha256": "2f853869b4a9134c9efdb0fc341706333334a445f2df8480502c5f23d9413a37"
     },
     {
       "path": "AGENTS.md",
-      "size_bytes": 3809,
-      "sha256": "3e001b267da35aed419bc76b502b8925ef0dcb54982b9b7fb5b7fd3dc41e0587"
+      "size_bytes": 3868,
+      "sha256": "5534d9e40e9f7df086733bdf9c12ad62cca11632db0be153634244d29f9d78ae"
     },
     {
       "path": "ARCHITECTURE_OVERVIEW.md",
@@ -307,8 +317,8 @@
     },
     {
       "path": "README.md",
-      "size_bytes": 12856,
-      "sha256": "48231144af75224c04493e668ede88105d57c1c3fc1c9f1c54259764e54f7f5c"
+      "size_bytes": 13032,
+      "sha256": "734001dfd4c5c1ce6ffe01ab4e445b150627f7450a423507a4a580797044c799"
     },
     {
       "path": "SOURCES.md",
@@ -412,8 +422,8 @@
     },
     {
       "path": "specifications/implementation-backlog.csv",
-      "size_bytes": 24583,
-      "sha256": "9c933d66acbbc45439efab4a57af41de610fd12ff7b0d5839255a347cf266bc7"
+      "size_bytes": 24616,
+      "sha256": "20bfe8e29581eedce17f95d30e6e74fd61347dd7818b1a107bc5adee3190a345"
     },
     {
       "path": "specifications/model-conformance-matrix.csv",

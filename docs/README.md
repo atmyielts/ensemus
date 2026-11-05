@@ -1,7 +1,7 @@
 # Ensemus 2.0 — Complete Product & Engineering Documentation
 
 **Date:** 2026-11-05  
-**Status:** Approved direction / proposed implementation specification; **not implemented or security-certified**.  
+**Status:** Approved direction. Implementation has started in this repository (M1), and it is **not security-certified**. See the [M1 evidence report](06-delivery/evidence/M1-report.md).  
 **Audience:** Product, architects, TypeScript/Next.js engineers, AI coding agents, security, operations, legal and commercial teams.
 
 > **Mission:** An AI-native company operating system in which people and permissioned agents coordinate, execute, verify, and remember company work. One product that adapts to different organizations—not a pile of disconnected chatbots.
@@ -60,6 +60,7 @@
 - [Canonical glossary and semantics](00-foundation/02-glossary.md)
 - [Architecture decisions — Ensemus 2.0](00-foundation/03-decisions-and-adrs.md)
 - [ADR-024: runtime contracts](00-foundation/adr/ADR-024-build-start-runtime-contracts.md)
+- [ADR-025: decisions made while building M1](00-foundation/adr/ADR-025-m1-implementation-decisions.md)
 - [Document governance and implementation discipline](00-foundation/04-doc-governance.md)
 
 ### Product and commercial UX

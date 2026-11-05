@@ -115,6 +115,7 @@ sequenceDiagram
 |---|---|---|
 | `ensemus_migrator` | One migration job | Owns the schema; never used at runtime |
 | `ensemus_app` | Web and tenant-bound workers | Tenant tables through RLS; no `secrets` schema |
+| `ensemus_auth` | Authentication, in the web process (added by [ADR-025](ADR-025-m1-implementation-decisions.md) D2) | `identity` schema only |
 | `ensemus_dispatcher` | Outbox dispatcher | Outbox state, plus event metadata columns (no `payload`) across tenants; nothing else |
 | `ensemus_secrets` | Secret broker in the worker | `secrets` schema only |
 
@@ -215,9 +216,9 @@ Keep the [build plan's](../../06-delivery/01-build-plan.md) five slices in their
 | Missing dependencies | Same file | `API-10` must depend on `FOUND-02` and `FOUND-03`; its acceptance test needs auth and RLS |
 | Requirements with no ticket | Same file | Add `UX-01` (role-aware home, search, approvals), and clients and projects from Phase 1 |
 
-## Spike needed: Server Action encryption key
+## Spike: Server Action encryption key (closed)
 
-Next.js encrypts Server Action closure variables, and [its self-hosting guide](https://nextjs.org/docs/app/guides/self-hosting) shows the shared key being set at build time. The spec requires one image across all modes and no secrets in images. If the key ends up in the image, Sovereign customers would hold the same key as Ensemus Cloud. **This is unverified.** In `PLAT-11`, confirm whether a per-deployment key can be injected at runtime, and add a lint rule so sensitive values are never captured in closures, whatever the answer. Also set `deploymentId` per release to handle version skew.
+The concern was real, and is now handled: see [ADR-025](ADR-025-m1-implementation-decisions.md) D7. The image does hold a build key, a per-deployment key overrides it at runtime, and the container refuses to start without one. Also set `deploymentId` per release to handle version skew.
 
 ## Action items
 

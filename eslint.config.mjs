@@ -29,6 +29,7 @@ export default tseslint.config(
   {
     ignores: [
       'docs/**',
+      '.local/**',
       '**/node_modules/**',
       '**/.next/**',
       '**/dist/**',
@@ -40,7 +41,9 @@ export default tseslint.config(
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {
-    languageOptions: { globals: { process: 'readonly', console: 'readonly', fetch: 'readonly' } },
+    languageOptions: {
+      globals: { process: 'readonly', console: 'readonly', fetch: 'readonly', Buffer: 'readonly' },
+    },
     rules: {
       '@typescript-eslint/no-unused-vars': [
         'error',

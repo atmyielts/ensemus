@@ -22,6 +22,7 @@ const run = (cmd, args, options = {}) =>
     cwd: root,
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'pipe'],
+    maxBuffer: 256 * 1024 * 1024,
     ...options,
   });
 const compose = (...args) => run('docker', ['compose', ...composeFiles, ...args]);

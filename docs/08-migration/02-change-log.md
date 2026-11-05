@@ -1,5 +1,11 @@
 # Version history
 
+## 2.0 — 2026-11-05 (M1 build)
+
+- Added [ADR-025](../00-foundation/adr/ADR-025-m1-implementation-decisions.md), recording decisions made while building M1, including a fifth database role and the closed Server Action key spike.
+- Moved the suite into the product repository under `docs/`.
+- Added the [M1 evidence report](../06-delivery/evidence/M1-report.md) and updated ticket statuses from test results.
+
 ## 2.0 — 2026-11-05 (M0 reconciliation)
 
 - Accepted [ADR-024](../00-foundation/adr/ADR-024-build-start-runtime-contracts.md) with two corrections: the `SecretBroker` moves to M1, and all three commercial modes are launch targets.

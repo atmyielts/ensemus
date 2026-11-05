@@ -1,6 +1,6 @@
 # AGENTS.md — mandatory implementation rules for AI coding agents
 
-**Project:** Ensemus 2.0 — universal AI-native company operating system. **This is a documentation suite, not an implemented application.** All coding agents must follow these requirements and report actual test status. Product intent: outcomes and humans+agents, company secrets protected, three commercial modes, easy private/cloud deployment.
+**Project:** Ensemus 2.0 — universal AI-native company operating system. **Implementation has started: the code is in this repository, outside `docs/`, at the milestone shown in the delivery plan.** All coding agents must follow these requirements and report actual test status. Product intent: outcomes and humans+agents, company secrets protected, three commercial modes, easy private/cloud deployment.
 
 ## Technology constraints (approved)
 

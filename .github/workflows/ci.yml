@@ -1,0 +1,71 @@
+name: CI
+
+on:
+  push:
+    branches: [main, 'm*-*']
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  NEXT_TELEMETRY_DISABLED: '1'
+
+jobs:
+  quality:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm format:check
+      - run: pnpm lint
+      - run: pnpm --filter @ensemus/web exec next typegen
+      - run: pnpm typecheck
+      - run: pnpm test:unit
+      - name: Backlog and traceability
+        run: pnpm check:backlog
+      - name: Contracts match the specification
+        run: pnpm check:contracts
+      - name: Licenses reviewed
+        run: pnpm check:licenses
+      - name: Docs manifest is current
+        run: node docs/specifications/tools/regenerate-manifest.mjs && git diff --exit-code docs/MANIFEST.json
+
+  integration:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - name: Real PostgreSQL roles, RLS, auth and secrets
+        run: pnpm test:integration
+
+  stack:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm stack:secrets
+      - name: Control - the air-gap gate detects a deliberate outbound attempt
+        run: node infrastructure/scripts/air-gap-gate.mjs --control
+      - name: Air-gap gate - full stack tests with outbound traffic blocked
+        run: node infrastructure/scripts/air-gap-gate.mjs --keep
+      - name: SBOMs and signed manifest, verified with no network
+        run: node infrastructure/scripts/build-release.mjs
+      - name: Show service logs on failure
+        if: failure()
+        run: docker compose -f infrastructure/compose/compose.yaml -f infrastructure/compose/compose.test.yaml -f infrastructure/compose/compose.airgap.yaml logs --tail 50
