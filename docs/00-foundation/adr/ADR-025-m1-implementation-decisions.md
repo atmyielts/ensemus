@@ -66,6 +66,12 @@ This uses Node's built-in crypto, not `cosign`, because pulling the `cosign` ima
 
 They are in the stack and health-checked (Phase 0 asks for them), but no code reads or writes them until M2. SeaweedFS was chosen for its Apache-2.0 license, subject to a real evaluation when artifacts arrive (`WORK-04`).
 
+### D10: Only the proxy publishes a port, and the air-gap gate counts from before boot
+
+Publishing a container port makes Docker accept traffic to that container from other networks, so it silently undoes network isolation. In the deployed configuration only the proxy publishes a port, and a test enforces this. Test access to Temporal goes through a separate sidecar, so Temporal itself is never published. **Operators must not publish Temporal or database ports**, and this belongs in the runbook.
+
+The air-gap gate installs its firewall rule and packet capture before any container starts, because calls made during startup are exactly what such a gate exists to catch. This is how Temporal's version check (`version-info.temporal.io`) was found. It is disabled through both dynamic config and an environment variable.
+
 ## Consequences
 
 - **Footprint:** about 500 MiB of memory at idle, across seven long-running services and four one-shot jobs. This is an idle reading from one machine, not a sizing recommendation.

@@ -1,12 +1,17 @@
-# Test overlay: publishes ports on localhost only so tests can reach the stack. Never used in a
-# real deployment, where only the proxy is reachable.
+# Test overlay: lets tests reach PostgreSQL and Temporal on localhost. Never used in a real
+# deployment, where only the proxy is reachable.
 services:
-  proxy:
-    ports: ['127.0.0.1:8443:443']
   postgres:
     ports: ['127.0.0.1:55432:5432']
-  temporal:
+  # Publishing a port makes Docker accept traffic to that container from other networks, which would
+  # undo the web tier's isolation. So tests reach Temporal through this sidecar instead.
+  temporal-test-port:
+    image: alpine/socat@sha256:466c8a0383e16463fabdb7df01008292fb78d07da60224a46cb5d3142ce122ed
+    command: ['tcp-listen:7233,fork,reuseaddr', 'tcp4-connect:temporal:7233']
+    networks: [temporal]
     ports: ['127.0.0.1:57233:7233']
+    depends_on:
+      temporal-namespace: { condition: service_completed_successfully }
   web:
     environment:
       ENSEMUS_ALLOW_SIGNUP: 'true'

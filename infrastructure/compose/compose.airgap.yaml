@@ -13,6 +13,7 @@ services:
   temporal: *dns
   temporal-schema: *dns
   temporal-namespace: *dns
+  temporal-test-port: *dns
   valkey: *dns
   objects: *dns
 

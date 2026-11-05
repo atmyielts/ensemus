@@ -158,19 +158,46 @@ describe('web tier isolation (ADR-024 D3, D5)', () => {
     expect(output).toBe('blocked');
   });
 
-  it('cannot reach Temporal by IP address', () => {
-    const address = compose('exec', '-T', 'postgres', 'getent', 'hosts', 'temporal')
+  it('cannot reach Temporal by IP address, on any of its networks', () => {
+    // Read from Docker, not looked up in a container: a lookup would itself be outbound DNS.
+    const addresses = execFileSync(
+      'docker',
+      [
+        'inspect',
+        compose('ps', '-q', 'temporal').trim(),
+        '--format',
+        '{{range .NetworkSettings.Networks}}{{.IPAddress}} {{end}}',
+      ],
+      { encoding: 'utf8' },
+    )
       .trim()
-      .split(/\s+/)[0];
-    expect(address).toMatch(/^\d+\.\d+\.\d+\.\d+$/);
-    const output = nodeIn(
-      'web',
-      `const s=require('net').connect({host:'${address}',port:7233,timeout:3000});` +
-        `s.on('connect',()=>{process.stdout.write('connected');s.destroy()});` +
-        `s.on('timeout',()=>{process.stdout.write('blocked');s.destroy()});` +
-        `s.on('error',()=>process.stdout.write('blocked'));`,
-    );
-    expect(output).toBe('blocked');
+      .split(/\s+/);
+    expect(addresses.length).toBeGreaterThanOrEqual(2);
+    for (const address of addresses) {
+      const output = nodeIn(
+        'web',
+        `const s=require('net').connect({host:'${address}',port:7233,timeout:3000});` +
+          `s.on('connect',()=>{process.stdout.write('connected');s.destroy()});` +
+          `s.on('timeout',()=>{process.stdout.write('blocked');s.destroy()});` +
+          `s.on('error',()=>process.stdout.write('blocked'));`,
+      );
+      expect(output, address).toBe('blocked');
+    }
+  });
+
+  it('publishes no port except the proxy, in the deployed configuration', () => {
+    // Asks Compose for the resolved base file, without the test overlay.
+    const config = JSON.parse(
+      execFileSync(
+        'docker',
+        ['compose', '-f', 'infrastructure/compose/compose.yaml', 'config', '--format', 'json'],
+        { cwd: repoRoot, encoding: 'utf8' },
+      ),
+    ) as { services: Record<string, { ports?: unknown[] }> };
+    const publishing = Object.entries(config.services)
+      .filter(([, service]) => service.ports?.length)
+      .map(([name]) => name);
+    expect(publishing).toEqual(['proxy']);
   });
 
   it('control: the worker can reach Temporal the same way', () => {

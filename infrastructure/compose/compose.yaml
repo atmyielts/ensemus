@@ -10,6 +10,8 @@ services:
   proxy:
     <<: *restart
     image: caddy:2-alpine@sha256:f6228111e5fafa1a5238258d0858e103f10599b8d1659a146e7726681a002bb9
+    # The only published port in this file. A test enforces that.
+    ports: ['${ENSEMUS_BIND_ADDRESS:-127.0.0.1}:${ENSEMUS_HTTPS_PORT:-8443}:443']
     volumes:
       - ./proxy/Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy-data:/data
@@ -99,7 +101,7 @@ services:
       - db_secrets_password
       - db_temporal_password
     healthcheck:
-      test: ['CMD-SHELL', 'pg_isready -U postgres -d ensemus']
+      test: ['CMD-SHELL', 'pg_isready -h 127.0.0.1 -U postgres -d ensemus']
       interval: 5s
       timeout: 3s
       retries: 30
@@ -126,6 +128,8 @@ services:
       POSTGRES_USER: temporal
       # On two networks, so bind to all of them. Otherwise it listens on only one address.
       BIND_ON_IP: 0.0.0.0
+      # Stops the server calling version-info.temporal.io. See temporal/dynamicconfig.yaml.
+      TEMPORAL_VERSION_CHECK_DISABLED: '1'
     volumes:
       - ./temporal/temporal-start.sh:/provision/temporal-start.sh:ro
       - ./temporal/dynamicconfig.yaml:/etc/temporal/config/dynamicconfig/docker.yaml:ro

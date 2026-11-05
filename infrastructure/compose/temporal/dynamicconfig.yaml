@@ -1,2 +1,7 @@
-# Temporal requires this file to exist. No runtime overrides are used yet.
-{}
+# Temporal requires this file to exist.
+#
+# The server otherwise phones home to version-info.temporal.io, which Sovereign forbids (ADR-021).
+# The air-gap gate found this. It is also disabled through TEMPORAL_VERSION_CHECK_DISABLED in
+# compose.yaml, so replacing this file cannot silently turn it back on.
+frontend.enableServerVersionCheck:
+  - value: false

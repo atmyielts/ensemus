@@ -113,12 +113,16 @@ let failed = false;
 try {
   run('docker', ['pull', '-q', TOOLS]);
   down();
-  console.log('Building images and starting the stack...');
-  compose('up', '-d', '--build', '--wait', '--wait-timeout', '300');
+  console.log('Building images...');
+  compose('build');
+  // Count from before the first container starts. Version checks and similar calls often fire
+  // during startup, and a rule installed afterwards would never see them.
   installRule();
   const before = attempts();
   const capture = startCapture();
   await new Promise((done) => setTimeout(done, 3000)); // Let the capture start.
+  console.log('Starting the stack with outbound traffic blocked...');
+  compose('up', '-d', '--wait', '--wait-timeout', '300');
 
   if (control) {
     // The rule must see a direct connection and an outside DNS lookup from inside a container.
@@ -168,6 +172,7 @@ try {
     }
   }
 } finally {
+  spawnSync('docker', ['rm', '-f', 'ensemus-airgap-capture']);
   removeRule();
   if (!process.argv.includes('--keep')) down();
 }

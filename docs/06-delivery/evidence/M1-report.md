@@ -21,7 +21,7 @@ From a clean stack, using `infrastructure/scripts/run-all-gates.sh`:
 | Dependency audit, high and above | Pass: 1 moderate advisory remains (below) |
 | Integration tests, real PostgreSQL roles | 36 passed |
 | Air-gap control, deliberate attempt | Detected: 7 packets |
-| Stack tests with outbound traffic blocked | 33 passed, 1 skipped by design, **0 outbound attempts** |
+| Stack tests with outbound traffic blocked, counted from before first boot | 34 passed, 1 skipped by design, **0 outbound attempts** |
 | SBOMs and signed manifest, verified with no network | Pass: tampered manifest and SBOM both rejected |
 
 ## Ticket status
@@ -55,6 +55,9 @@ These were found by running things, not by review:
 5. **A shared key in the image.** Each image really does embed a Server Action key. A per-deployment key now overrides it, and the container refuses to start without one.
 6. **A deprecated image.** `temporalio/auto-setup` was no longer current. Replaced as Temporal's docs recommend.
 7. **An LGPL library in the web image**, unused. Removed.
+8. **A real phone-home.** Temporal Server calls `version-info.temporal.io`. Linux CI caught it, and it exposed a flaw in the gate: the firewall rule went in after startup, so a startup call went uncounted, and an earlier local run wrongly reported zero. The gate now counts from before the first container starts, and the check is disabled in two places.
+9. **The test setup was weakening isolation.** Publishing Temporal's port for tests made Docker accept connections to it from the web tier's network. The production configuration was never affected. Tests now use a sidecar, and a test enforces that only the proxy publishes a port.
+10. **A Postgres startup race.** The health check could pass during the temporary first-boot server. It now checks over TCP, which that server does not listen on.
 
 ## Known gaps
 

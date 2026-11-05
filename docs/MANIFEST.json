@@ -37,8 +37,8 @@
     },
     {
       "path": "00-foundation/adr/ADR-025-m1-implementation-decisions.md",
-      "size_bytes": 6258,
-      "sha256": "c904229520a39f15572f0122d63025d7b34a03baf9f4a70f9bfeb6284880d21a"
+      "size_bytes": 7082,
+      "sha256": "9c677988f2b4f94073d59b35672d8e6c9822054e7dfccee44c2e35587911068d"
     },
     {
       "path": "01-product/01-product-requirements.md",
@@ -272,8 +272,8 @@
     },
     {
       "path": "06-delivery/evidence/M1-report.md",
-      "size_bytes": 5980,
-      "sha256": "0425e8c6bf3109eacfc65475593ba5814b56b8231b5034928a1dbc71ba9453d9"
+      "size_bytes": 6812,
+      "sha256": "1a8692d5fdcb844eefa5d5efff30f2ce0e9c3715b09b9964cbb79d64461dc9b0"
     },
     {
       "path": "07-commercial/01-license-and-maintenance.md",
@@ -332,8 +332,8 @@
     },
     {
       "path": "specifications/data-egress-matrix.csv",
-      "size_bytes": 678,
-      "sha256": "7a69d4a9b5b0070f822c12f4b45d502096b65c612035fdc086226ca29da4958d"
+      "size_bytes": 673,
+      "sha256": "1cb823466dcdad562b8a1447c7f51932fc021b9f460a24bc62fb159d58bcb34d"
     },
     {
       "path": "specifications/deployment/Dockerfile.web.reference",
@@ -427,8 +427,8 @@
     },
     {
       "path": "specifications/model-conformance-matrix.csv",
-      "size_bytes": 547,
-      "sha256": "423c4db039c2eaac15aec5ef9913b237388dd87af1d87976d0134d09f9d390a7"
+      "size_bytes": 543,
+      "sha256": "897f7ac6334ea97a6f6194752f71450a845edcca2107c3c03a5d9b7d8320686f"
     },
     {
       "path": "specifications/openapi.yaml",
@@ -437,8 +437,8 @@
     },
     {
       "path": "specifications/qa-scenarios.csv",
-      "size_bytes": 4931,
-      "sha256": "b9aa5cf1af8e8002a84304f09c86e6b85f90c508f12da6f100572b6649eece13"
+      "size_bytes": 4888,
+      "sha256": "8ec27a9242e0701e4614d7c02462cbdf947da183d5df10b6594be8e54fb0be0a"
     },
     {
       "path": "specifications/schema.sql",
@@ -462,8 +462,8 @@
     },
     {
       "path": "specifications/threat-register.csv",
-      "size_bytes": 3789,
-      "sha256": "72991ae543f789e62cb83592b927cb11993c3e121dbdb979fe48d6fd8b93484c"
+      "size_bytes": 3766,
+      "sha256": "cf71f8a285b6bf528b73f3118d437f905f7581e291c312f106ecbbb27b20495b"
     },
     {
       "path": "specifications/tools/check-backlog.mjs",
