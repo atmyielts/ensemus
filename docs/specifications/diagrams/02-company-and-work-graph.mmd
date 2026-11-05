@@ -1,0 +1,13 @@
+flowchart LR
+  Tenant[Organization] --> Team[Team]
+  Tenant --> Member[Membership]
+  Tenant --> Client[Client]
+  Team -->|owns| Unit1[Work Unit: prepare scope]
+  Member -->|accountable| Unit1
+  Client -->|associated| Project[Project]
+  Project --> Unit1
+  Unit1 -->|prerequisite of| Unit2[Work Unit: legal approval]
+  Unit2 -->|prerequisite of| Unit3[Work Unit: kickoff]
+  Agent[Agent Version] -->|executes bounded run| Run[Agent Run]
+  Run -->|contributes| Unit3
+  Unit3 -->|produces| Artifact[Artifact]

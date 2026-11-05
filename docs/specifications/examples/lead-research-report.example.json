@@ -1,0 +1,18 @@
+{
+  "account_ref": "crm-account-example-001",
+  "summary": "Example account overview using fictional, non-confidential source records.",
+  "findings": [
+    {
+      "claim": "The organization operates in two fictional regions.",
+      "evidence": [
+        {
+          "source_ref": "fixture:fake-company-profile",
+          "source_version": "2026-11-05",
+          "citation_span": "Service Regions section"
+        }
+      ]
+    }
+  ],
+  "limitations": ["Synthetic fixture only; not real-world company research."],
+  "created_at": "2026-11-05T00:00:00Z"
+}

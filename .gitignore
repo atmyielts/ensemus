@@ -1,0 +1,21 @@
+node_modules/
+.next/
+dist/
+build/
+out/
+coverage/
+.turbo/
+*.tsbuildinfo
+*.log
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+.DS_Store
+
+# Local-only files that are not part of the product
+.claude/settings.local.json
+Ensemus_v2_Complete_Handbook.md
+Ensemus_v2_Architecture_Overview.md
+M0-spec-changes.diff

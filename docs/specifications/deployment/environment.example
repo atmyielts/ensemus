@@ -1,0 +1,19 @@
+# DOCUMENTATION ONLY — no real credentials, secrets or actual endpoints.
+NODE_ENV=production
+ENSEMUS_MODE=sovereign
+ENSEMUS_PUBLIC_URL=https://ensemus.example.invalid
+ENSEMUS_REGION=local
+ENSEMUS_LICENSE_FILE=/run/secrets/ensemus-license
+DATABASE_URL_FILE=/run/secrets/database-url
+TEMPORAL_ADDRESS=temporal.internal.invalid:7233
+TEMPORAL_NAMESPACE=ensemus
+OBJECT_STORAGE_ENDPOINT=https://objects.internal.invalid
+OBJECT_STORAGE_BUCKET=ensemus
+OBJECT_STORAGE_CREDENTIAL_REF=/run/secrets/object-store-credentials
+# Key-encryption key for the built-in SecretBroker (ADR-024 D5). Mount for the worker only, never the web tier.
+# An external KMS or vault adapter may replace it.
+SECRET_BROKER_KEK_FILE=/run/secrets/ensemus-kek
+VALKEY_URL=redis://valkey.internal.invalid:6379
+OBSERVABILITY_MODE=local
+MODEL_EGRESS_POLICY=deny-by-default
+# Actual EnvConfig contract must be Zod-validated; *_FILE handling must be built.

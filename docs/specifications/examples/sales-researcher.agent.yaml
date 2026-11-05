@@ -1,0 +1,30 @@
+api_version: ensemus.ai/v1
+id: sales-researcher
+version: 1
+objective: "Produce a source-backed research report for an assigned company account, without contacting the prospect."
+model:
+  required_capabilities: [text, structured_output]
+  quality_tier: balanced
+  fallback: approved_profiles_only
+context:
+  allowed_scopes: [crm.assigned_accounts.read, knowledge.sales.read]
+  memory_write_policy: propose_only
+  max_input_tokens: 12000
+skills:
+  - lead-research@1.2.0
+  - source-verification@1.0.0
+tools:
+  allow: [crm.accounts.read, web.search.approved, documents.draft.create]
+  deny: [email.send, crm.accounts.delete, secrets.read]
+execution:
+  max_model_turns: 12
+  max_tool_calls: 25
+  max_cost_usd: 0.30
+  timeout_seconds: 180
+  max_delegation_depth: 0
+output:
+  schema_ref: schemas/lead-research-report.schema.json
+  verification: [schema_check, source_citation_check, organization_policy_check]
+evaluation:
+  suite_ref: evals/sales-researcher-v1
+  min_pass_rate: 0.95

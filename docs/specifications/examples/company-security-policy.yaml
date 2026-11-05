@@ -1,0 +1,35 @@
+api_version: ensemus.policy/v1
+organization_policy:
+  default_decision: deny
+  data_classes:
+    public:
+      external_inference: approved_profiles_only
+    internal:
+      external_inference: approved_profiles_and_purposes
+    confidential:
+      external_inference: explicit_data_processor_approval
+    restricted:
+      external_inference: deny_by_default
+  provider_egress:
+    no_implicit_fallback: true
+    include_embedding_and_reranker_calls: true
+    require_region_and_retention_terms: true
+    private_endpoints_require_admin_allowlist: true
+  tools:
+    read_only: scoped_allow
+    draft_only: scoped_allow
+    internal_write: scoped_allow_and_audit
+    external_write: require_bound_approval
+    destructive_or_financial: deny_by_default
+  agent_limits:
+    max_concurrent_runs_per_org: 15
+    max_delegation_depth: 2
+    tool_actions_recheck_policy: true
+  audit:
+    raw_prompt_logging: false
+    raw_document_logging: false
+    raw_secrets_logging: false
+  sovereign:
+    offline_use_required: true
+    phone_home_required: false
+    telemetry_default: disabled

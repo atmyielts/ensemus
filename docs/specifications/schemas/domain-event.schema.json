@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.example.ensemus.invalid/domain-event.v1.json",
+  "title": "Ensemus Domain Event v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["event_id", "event_type", "schema_version", "organization_id", "aggregate_type", "aggregate_id", "aggregate_version", "occurred_at", "actor", "classification", "correlation_id", "payload"],
+  "properties": {
+    "event_id": {"type": "string", "format": "uuid"},
+    "event_type": {"type": "string", "pattern": "^[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*$"},
+    "schema_version": {"type": "integer", "minimum": 1},
+    "organization_id": {"type": "string", "format": "uuid"},
+    "aggregate_type": {"type": "string", "minLength": 1},
+    "aggregate_id": {"type": "string", "format": "uuid"},
+    "aggregate_version": {"type": "integer", "minimum": 1},
+    "occurred_at": {"type": "string", "format": "date-time"},
+    "actor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "id"],
+      "properties": {
+        "kind": {"type": "string", "enum": ["membership", "service", "agent", "system"]},
+        "id": {"type": "string"}
+      }
+    },
+    "classification": {"type": "string", "enum": ["public", "internal", "confidential", "restricted"]},
+    "correlation_id": {"type": "string", "format": "uuid"},
+    "causation_id": {"type": ["string", "null"], "format": "uuid"},
+    "payload": {"type": "object", "description": "Versioned by event_type; must not contain secrets."}
+  }
+}

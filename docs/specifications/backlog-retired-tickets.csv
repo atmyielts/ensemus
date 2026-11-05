@@ -1,0 +1,15 @@
+id,merged_into,outcome,reason
+PLAT-10,FOUND-01,retired,Same monorepo setup; client-bundle check moves to FOUND-01
+PLAT-13,FOUND-03,retired,Migration pipeline and RLS are one piece of reviewed SQL work
+PLAT-14,FOUND-07,retired,Signed manifest and SBOM duplicate the inventory work
+AI-10,MODEL-02,retired,Same provider adapter work; local-model scope moves to MODEL-02
+AI-11,MODEL-03,retired,Same policy-first router; wrong-region denial moves to MODEL-03
+AI-12,AGENT-02;AGENT-03,retired,"Split: agent loop to AGENT-02, typed tool gateway to AGENT-03"
+COM-10,COMM-06,retired,Same mode parity suite
+OPS-12,OPS-01,retired,Same load harness; web-versus-agent measurements move to OPS-01
+OPS-10,OPS-02,retired,Same restore drill; receipts and tombstone checks move to OPS-02
+UX-10,AGENT-08,retired,Same Agent Studio publishing work
+OPS-03,,narrowed,Overlapped FOUND-07 on signing. Keeps release rollback only.
+SEC-11,,narrowed,Overlapped COMM-02. Keeps broker integration and SSRF for all modes; COMM-02 keeps no-fallback.
+PLAT-16,,narrowed,Overlapped COMM-04. Keeps the air-gap CI gate from M1; COMM-04 keeps the offline bundle at M6.
+SEC-12,,narrowed,Overlapped SEC-03. Keeps web cache isolation at M2; SEC-03 keeps search and retrieval at M5.

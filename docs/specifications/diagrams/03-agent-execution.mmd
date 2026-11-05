@@ -1,0 +1,16 @@
+flowchart TD
+  START[Next.js mutation request] --> AUTH[Validate actor + tenant + policy]
+  AUTH --> DB[Commit Work Unit and outbox]
+  DB --> TEMP[Temporal schedules Activity]
+  TEMP --> CTX[Authorized context compiler]
+  CTX --> AG[Bounded TS agent runtime]
+  AG --> ROUTE[Model routing after egress policy]
+  ROUTE --> TOOL[Typed tool proposal]
+  TOOL --> CHECK{Authorized and within budget?}
+  CHECK -->|No| DENY[Fail closed / audit]
+  CHECK -->|Yes| APPROVAL{Sensitive action?}
+  APPROVAL -->|Yes| HUMAN[Human approves exact payload]
+  HUMAN --> EFFECT[Idempotent/reconciled tool effect]
+  APPROVAL -->|No| EFFECT
+  EFFECT --> VERIFY[Verify receipt and business outcome]
+  VERIFY --> FINISH[Commit status, evidence, cost]

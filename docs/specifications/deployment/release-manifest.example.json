@@ -1,0 +1,18 @@
+{
+  "release": "2.0.0-design-baseline",
+  "status": "example-not-a-published-release",
+  "source_commit": "REPLACE_WITH_GIT_COMMIT",
+  "web_image": "REPLACE_WITH_SIGNED_SHA256_DIGEST",
+  "worker_image": "REPLACE_WITH_SIGNED_SHA256_DIGEST",
+  "postgres_schema_version": "REPLACE",
+  "api_major": 1,
+  "event_major": 1,
+  "agent_protocol_major": 1,
+  "workflow_compatibility": "REPLACE_WITH_TESTED_RANGE",
+  "minimum_node": "REPLACE_WITH_TESTED_LTS",
+  "requires": ["postgresql", "pgvector", "temporal", "valkey", "s3-compatible-object-store", "identity-provider", "secret-store"],
+  "supported_modes": ["cloud", "byom", "sovereign"],
+  "offline_supported": true,
+  "sbom_digest": "REPLACE",
+  "signature_key_id": "REPLACE"
+}

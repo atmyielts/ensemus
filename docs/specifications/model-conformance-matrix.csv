@@ -1,0 +1,4 @@
+provider_profile_id,mode,provider_model_version,tool_calling,structured_output,vision,context_limit,input_price_as_of,allowed_data_classes,data_region,privacy_contract_verified,evaluation_suite,qualified,notes
+TBD,cloud,TBD,TBD,TBD,TBD,TBD,TBD,TBD,TBD,NO,TBD,NO,Template only; do not assume model features or compliance
+TBD,byom,TBD,TBD,TBD,TBD,TBD,TBD,TBD,TBD,NO,TBD,NO,Template only; do not assume model features or compliance
+TBD,sovereign,TBD,TBD,TBD,TBD,TBD,TBD,TBD,TBD,NO,TBD,NO,Template only; do not assume model features or compliance

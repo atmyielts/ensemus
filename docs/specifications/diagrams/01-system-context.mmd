@@ -1,0 +1,17 @@
+flowchart TB
+  U[Employees / Apps] --> PROXY[TLS proxy]
+  PROXY --> WEB[Next.js Node.js Web + BFF]
+  WEB --> DOM[TypeScript Domain + DAL + Policy]
+  DOM --> DB[(PostgreSQL / pgvector)]
+  DOM --> OUT[Transactional outbox]
+  OUT --> DISP[TS Dispatcher]
+  DISP --> TEMP[Temporal service]
+  TEMP --> W[TypeScript workflow and agent workers]
+  W --> M[Context compiler + memory]
+  W --> T[Policy-gated tool gateway]
+  W --> R[Policy-first model router]
+  M --> DB
+  T --> INT[Approved connectors / MCP]
+  R --> MOD[Approved Cloud / BYOM / Sovereign models]
+  W --> DB
+  WEB --> OBJ[(S3-compatible artifacts)]

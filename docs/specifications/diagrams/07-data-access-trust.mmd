@@ -1,0 +1,11 @@
+flowchart TB
+  Browser --> RSC[Next.js RSC / Action / Route Handler]
+  RSC --> DAL[Server-only DAL]
+  DAL --> A[Actor/tenant/ABAC policy]
+  A --> TX[Drizzle transaction + set_config tenant]
+  TX --> RLS[(PostgreSQL RLS)]
+  RLS --> DTO[Authorized DTO]
+  DTO --> Browser
+  Worker[Temporal Activity with delegated principal] --> A
+  Worker --> Gate[Tool/model egress gate]
+  Gate --> Approved[Approved external effects]

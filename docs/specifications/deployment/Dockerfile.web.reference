@@ -1,0 +1,14 @@
+# REFERENCE ONLY: adapt to actual pnpm workspace build and Next.js output tracing.
+# Use pinned Node LTS base digest and pinned package manager in real build.
+FROM node:lts-alpine AS runner
+WORKDIR /app
+ENV NODE_ENV=production
+RUN addgroup -S ensemus && adduser -S ensemus -G ensemus
+# Copy output from a separately verified build stage in the actual repo.
+COPY --chown=ensemus:ensemus apps/web/.next/standalone ./
+COPY --chown=ensemus:ensemus apps/web/.next/static ./apps/web/.next/static
+COPY --chown=ensemus:ensemus apps/web/public ./apps/web/public
+USER ensemus
+EXPOSE 3000
+ENV PORT=3000
+CMD ["node", "apps/web/server.js"]

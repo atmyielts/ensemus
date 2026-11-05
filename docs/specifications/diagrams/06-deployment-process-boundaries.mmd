@@ -1,0 +1,13 @@
+flowchart TB
+  Proxy[Reverse proxy TLS] --> Web[Next.js standalone container\nOnly application HTTP runtime]
+  Web --> PG[(PostgreSQL + pgvector)]
+  Web --> S3[(Object store)]
+  T[Temporal service] --> Worker[Temporal TS worker container]
+  Worker --> Providers[Approved model/integration endpoints]
+  Worker --> PG
+  Worker --> S3
+  Outbox[TS outbox dispatcher] --> T
+  PG --> Outbox
+  Ingest[TS ingestion worker] --> PG
+  Ingest --> S3
+  Web --> Valkey[(Valkey cache)]

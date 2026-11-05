@@ -1,0 +1,15 @@
+flowchart LR
+  subgraph CLOUD[Ensemus Cloud]
+    CWEB[Next.js web] --> CW[TS workers]
+    CW --> CM[Ensemus approved models]
+  end
+  subgraph BYOM[Ensemus BYOM]
+    BWEB[Next.js web] --> BW[TS workers]
+    BW --> BM[Customer provider/private endpoint]
+  end
+  subgraph SOV[Ensemus Sovereign]
+    SWEB[Local Next.js web] --> SW[Local TS workers]
+    SW --> SM[Local or customer-approved model]
+    SWEB --> SP[Local DB/Store]
+    SW --> SQ[Local Temporal/Keys]
+  end

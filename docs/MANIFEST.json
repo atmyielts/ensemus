@@ -1,0 +1,489 @@
+{
+  "product": "Ensemus",
+  "docs_version": "2.0",
+  "created_on": "2026-11-05",
+  "status": "approved-design-proposed-implementation",
+  "architecture": "Next.js App Router, TypeScript + separate Node/Temporal workers, Drizzle/PostgreSQL",
+  "commercial_modes": [
+    "cloud",
+    "byom",
+    "sovereign"
+  ],
+  "files": [
+    {
+      "path": "00-foundation/01-principles.md",
+      "size_bytes": 4173,
+      "sha256": "0853746257182dd5d0c88cf0ee9d1db1ab637d65afd04245f24033e5e5b482c7"
+    },
+    {
+      "path": "00-foundation/02-glossary.md",
+      "size_bytes": 3363,
+      "sha256": "d71f70c514ab0ca968625b6942526a02fd1370697b1f215e42214cd7359dfcf7"
+    },
+    {
+      "path": "00-foundation/03-decisions-and-adrs.md",
+      "size_bytes": 6366,
+      "sha256": "91038cf7669ae0db9a8736522141d74461e290fc939ac1bc1938fb60e9a3d628"
+    },
+    {
+      "path": "00-foundation/04-doc-governance.md",
+      "size_bytes": 1979,
+      "sha256": "4c232d1275d2ccc6c80d004b51fbb696d0f7cde5ca533d186b158e798f306daf"
+    },
+    {
+      "path": "00-foundation/adr/ADR-024-build-start-runtime-contracts.md",
+      "size_bytes": 23299,
+      "sha256": "3d862d11f06b89c83b4aea2b4f8cbae6f6b197ef69926a1d34c90d01dc1b6c07"
+    },
+    {
+      "path": "01-product/01-product-requirements.md",
+      "size_bytes": 7752,
+      "sha256": "209c3c7ed09b4d2d3c818309b8c573816ed904a5ccc18b20bad11950bf3c49d7"
+    },
+    {
+      "path": "01-product/02-personas-and-journeys.md",
+      "size_bytes": 4984,
+      "sha256": "ebea9e04ec0d586904bf8cdf922a154495de0010999883fd300013a5890e824f"
+    },
+    {
+      "path": "01-product/03-experience-design.md",
+      "size_bytes": 4480,
+      "sha256": "dc45ef458216ad7c44368b2a17b355f288f35b056e8c5e44c8d3a8d567281230"
+    },
+    {
+      "path": "01-product/04-capability-catalog.md",
+      "size_bytes": 4033,
+      "sha256": "6c081a0087ac69f07c3ba7a38ef618392f902eca5b58438aec7c8abe9e3de9d8"
+    },
+    {
+      "path": "01-product/05-commercial-modes.md",
+      "size_bytes": 5842,
+      "sha256": "9286a539534930f43e99153933369cc5aac42f768112f486fd6436ab8facbd80"
+    },
+    {
+      "path": "01-product/06-packaging-and-economics.md",
+      "size_bytes": 3901,
+      "sha256": "0efe60488b6780e757913cd23f70571d2ceef1cb9b0f6e8927a30dbaad839c00"
+    },
+    {
+      "path": "02-architecture/01-system-architecture.md",
+      "size_bytes": 6859,
+      "sha256": "b47b8919864640fb912739b8dfe21dbfdac23cce45d0c1ca35c39839d889ae47"
+    },
+    {
+      "path": "02-architecture/02-domain-model.md",
+      "size_bytes": 5650,
+      "sha256": "5a82c2de1fc2392e46530a4591269ea7ac9109e4d7de9e343d03dcf0698d8892"
+    },
+    {
+      "path": "02-architecture/03-data-model.md",
+      "size_bytes": 7845,
+      "sha256": "dd350135d8249029dd08e1e3dd9537518d4fd3a9bab14ab0379f8b6ad84e05a0"
+    },
+    {
+      "path": "02-architecture/04-work-kernel.md",
+      "size_bytes": 4614,
+      "sha256": "91555d8c4d7e8f399bd91a5e881ee409385ea2e7e0682a679a745fd4e9643288"
+    },
+    {
+      "path": "02-architecture/05-events-and-consistency.md",
+      "size_bytes": 3318,
+      "sha256": "772a5027a1d5cc9e78c1d8ca7e386ec5bb70b67ced2aad3d0eacd6512624ea18"
+    },
+    {
+      "path": "02-architecture/06-api-contracts.md",
+      "size_bytes": 2675,
+      "sha256": "6e78537dcc54066dbaa236b982d0e3edf006e0d02b8eb4ae5c6bdb1eeae85dd1"
+    },
+    {
+      "path": "02-architecture/07-multitenancy.md",
+      "size_bytes": 4017,
+      "sha256": "d3a3d8b81b8cf2d99d5714e57f0f546a07cfa5eca561b8bf934c0442f8d6f1a9"
+    },
+    {
+      "path": "02-architecture/08-deployment-topologies.md",
+      "size_bytes": 5301,
+      "sha256": "04305f5b9070b0c5762cc1a9f7c54d00cdb0f369c57f608db5c85cdef09595a1"
+    },
+    {
+      "path": "02-architecture/09-performance-scaling.md",
+      "size_bytes": 3793,
+      "sha256": "15980ea33bbc8404525811042faa9511e8a0eeb85ceb96f3f1eb3c9004c63590"
+    },
+    {
+      "path": "02-architecture/10-nextjs-application-and-authorization.md",
+      "size_bytes": 3951,
+      "sha256": "2b6d06fc9f9ff2e8bd2623b68ad308040278c686a97e4651d9a2678ca2e6d6e2"
+    },
+    {
+      "path": "02-architecture/11-monorepo-and-module-contracts.md",
+      "size_bytes": 4430,
+      "sha256": "187a4f739040a6bd5cc25108521be24b4e240e937a30ee21735c8a6970ac324d"
+    },
+    {
+      "path": "02-architecture/12-data-consistency-and-migrations.md",
+      "size_bytes": 2759,
+      "sha256": "69caad4f0476966a02f614c140fe4c50783c7b60977fbabf67f0beee9a53b1c8"
+    },
+    {
+      "path": "03-intelligence/01-model-routing.md",
+      "size_bytes": 4802,
+      "sha256": "319d52ac0eec1a60efe4f3b60b59e10d17a2505d426ffcbd5a31fcb82d6e498f"
+    },
+    {
+      "path": "03-intelligence/02-agent-runtime.md",
+      "size_bytes": 4466,
+      "sha256": "6c8eef10afc526f63869414b675e975eb53c045d3cc3d9f73ef82fadde0b7731"
+    },
+    {
+      "path": "03-intelligence/03-agent-studio-and-skills.md",
+      "size_bytes": 2994,
+      "sha256": "0356c35cbcd235454e3c8becb7a793f867b281417f1c7a7f88d85c9bca36cfbe"
+    },
+    {
+      "path": "03-intelligence/04-memory-and-knowledge.md",
+      "size_bytes": 4180,
+      "sha256": "29fb9f330410f5531127e018d33ad221077c9ab0934dae33bd71ca44f0177f2f"
+    },
+    {
+      "path": "03-intelligence/05-context-compiler.md",
+      "size_bytes": 2344,
+      "sha256": "13f524873e28f4cb2bcddc88013e7fb6edc2720d0713147ac7c517cf521330b5"
+    },
+    {
+      "path": "03-intelligence/06-integrations-and-tools.md",
+      "size_bytes": 2310,
+      "sha256": "4d7e8e9753c5045f7e85b4857727f31ba0c0642cb79a320b1ca8904c6cec1e0b"
+    },
+    {
+      "path": "03-intelligence/07-evaluation-and-observability.md",
+      "size_bytes": 3466,
+      "sha256": "769939e9b5eb1d2a7e22f4328d317003b45626913b2241d272d821eef0986f71"
+    },
+    {
+      "path": "03-intelligence/08-agent-safety.md",
+      "size_bytes": 3569,
+      "sha256": "fdd9fb8f02be3aa40ef6b95746550f66d20a2cbac500217556d7599061810244"
+    },
+    {
+      "path": "03-intelligence/09-typescript-worker-runtime.md",
+      "size_bytes": 2379,
+      "sha256": "27f063c29c57418bfe9c22826c1f933ee2886351877d12943062f594e566d28b"
+    },
+    {
+      "path": "04-security/01-security-blueprint.md",
+      "size_bytes": 4224,
+      "sha256": "dfe65acd7109b97f386cd2926c1109a86ba14958228a09202bcb53db6f474b8d"
+    },
+    {
+      "path": "04-security/02-secrets-and-egress.md",
+      "size_bytes": 5675,
+      "sha256": "74ced9071d9ae8d1aea21c30989654b4309eb35a291b78edf6392f8db05866cb"
+    },
+    {
+      "path": "04-security/03-threat-model.md",
+      "size_bytes": 4465,
+      "sha256": "e0af5a43871b7e0ddf116073a0b3be3a9a7d605057545af3bb6baf0d4677d36a"
+    },
+    {
+      "path": "04-security/04-authorization-and-approvals.md",
+      "size_bytes": 3149,
+      "sha256": "792032402f5bd1d5df4d5f36faf0b4783366cb90d03bf032799c4e8bcff0b825"
+    },
+    {
+      "path": "04-security/05-data-lifecycle.md",
+      "size_bytes": 3812,
+      "sha256": "37d64230ca050615064c3e6da3704c7a48eee6c4356b64ce2db3d4e0d640d3d8"
+    },
+    {
+      "path": "04-security/06-assurance-and-incidents.md",
+      "size_bytes": 3376,
+      "sha256": "8e140733d281fab53f2b06a2cd87fbb121ceb7e5e17470be8e163906d13335e4"
+    },
+    {
+      "path": "04-security/07-nextjs-node-security.md",
+      "size_bytes": 3588,
+      "sha256": "f60a2f9d990cd400da6a302b313a770f3d66d3869825246f81a3be52c66447b5"
+    },
+    {
+      "path": "05-operations/01-slos-and-reliability.md",
+      "size_bytes": 3073,
+      "sha256": "83eb6974cff3950028f4a0b77b5931d116349b978d0c8e1a6081586b698fa625"
+    },
+    {
+      "path": "05-operations/02-deployment-and-recovery.md",
+      "size_bytes": 4114,
+      "sha256": "c7f2f06fb3bdcea2e05d8c17ffbadd532a6c17b2b55df7008de26298810dcf81"
+    },
+    {
+      "path": "05-operations/03-testing-quality.md",
+      "size_bytes": 2969,
+      "sha256": "debba17e1c91fb62989e3956c63fc2e72dc03cfc2afbc89d3a23d7baefbb8c13"
+    },
+    {
+      "path": "05-operations/04-cost-and-capacity.md",
+      "size_bytes": 2457,
+      "sha256": "3330f6c349e0c375d934e846a928e545a62807b0d602c27ebb1d14ebc140ed34"
+    },
+    {
+      "path": "05-operations/05-container-deployment-runbook.md",
+      "size_bytes": 4081,
+      "sha256": "162c016c85bf530e1d23d63b71398b7b7f6166af7caeba9e2dd44e9b4139c3a0"
+    },
+    {
+      "path": "05-operations/06-performance-and-load-plan.md",
+      "size_bytes": 1770,
+      "sha256": "fa815b95829c8355bc6d432b868679312e18e0b748d49775064245681c66989c"
+    },
+    {
+      "path": "06-delivery/01-build-plan.md",
+      "size_bytes": 3936,
+      "sha256": "80087fefce4166ae9cb7967e060725bee52a1325f12ea18dc6c1994942e08d66"
+    },
+    {
+      "path": "06-delivery/02-ai-engineering-playbook.md",
+      "size_bytes": 3312,
+      "sha256": "2533bbd305501d3870d0ff2ecfbdb08074ba3ddef830389817dc15c2a3b466f9"
+    },
+    {
+      "path": "06-delivery/03-acceptance-and-dod.md",
+      "size_bytes": 3326,
+      "sha256": "b7cdd4ec228998a9961d07f01a35d06e191414011c9e4510b66986f912167d5e"
+    },
+    {
+      "path": "06-delivery/04-release-checklists.md",
+      "size_bytes": 2548,
+      "sha256": "4a89b791a2e5e1afb378c46f01af77caf0750057f05f7c894aff6ea1409d04a7"
+    },
+    {
+      "path": "06-delivery/05-environment-and-ci-cd.md",
+      "size_bytes": 1915,
+      "sha256": "ad7770914af920beb67b70c78c6b3fa0b0117c6e8a99ee2dfe9ee47285066f64"
+    },
+    {
+      "path": "06-delivery/06-end-to-end-delivery-plan.md",
+      "size_bytes": 19358,
+      "sha256": "be135c3746d154322950dd937bb2bfc4058af9811fe3597f670f1c0dbccf8f31"
+    },
+    {
+      "path": "07-commercial/01-license-and-maintenance.md",
+      "size_bytes": 4417,
+      "sha256": "0238360e8d6d71ec4e406357f3962afe388169c7da2e77cfd8a164ede63bbc95"
+    },
+    {
+      "path": "07-commercial/02-entitlements-and-billing.md",
+      "size_bytes": 3311,
+      "sha256": "d7bccfaa09d8128d276dd72bbf717817cc48b3fe939dd9ec406ff7b8a184e173"
+    },
+    {
+      "path": "07-commercial/03-data-portability-and-exit.md",
+      "size_bytes": 3105,
+      "sha256": "0ed0051ef3ac32a0061c2c6844d370d99b44bfdcbc3779002347252a6d533c02"
+    },
+    {
+      "path": "07-commercial/04-deployment-and-support-matrix.md",
+      "size_bytes": 3299,
+      "sha256": "f050077895a39efd081cbc6e6e29c0a56179a332adffa680a67a41dc702de2bb"
+    },
+    {
+      "path": "08-migration/01-v1-to-v2-architecture-transition.md",
+      "size_bytes": 3442,
+      "sha256": "8a51ac786cf50800e891dada34c1d027494254d4becd72bf8dc4cc82f8fb308b"
+    },
+    {
+      "path": "08-migration/02-change-log.md",
+      "size_bytes": 2052,
+      "sha256": "1d3167949646aa92ffd3d7fa9e083a73c471078c8e2febd288cfac054c78ffb8"
+    },
+    {
+      "path": "AGENTS.md",
+      "size_bytes": 3809,
+      "sha256": "3e001b267da35aed419bc76b502b8925ef0dcb54982b9b7fb5b7fd3dc41e0587"
+    },
+    {
+      "path": "ARCHITECTURE_OVERVIEW.md",
+      "size_bytes": 5285,
+      "sha256": "c5244e200a642cdef95c21fe3362b042ed795edb4e62ceddb2408fd5fcb87a63"
+    },
+    {
+      "path": "README.md",
+      "size_bytes": 12856,
+      "sha256": "48231144af75224c04493e668ede88105d57c1c3fc1c9f1c54259764e54f7f5c"
+    },
+    {
+      "path": "SOURCES.md",
+      "size_bytes": 2989,
+      "sha256": "0c812d7c7c17ed974d92b1e5092b9713ba760e0170c2500af7953508b18fcf4e"
+    },
+    {
+      "path": "specifications/backlog-retired-tickets.csv",
+      "size_bytes": 1240,
+      "sha256": "80b4adc9bd22e5558f21208b7c72d1d86eb4baf8912012ee477b2f4168e81688"
+    },
+    {
+      "path": "specifications/data-egress-matrix.csv",
+      "size_bytes": 678,
+      "sha256": "7a69d4a9b5b0070f822c12f4b45d502096b65c612035fdc086226ca29da4958d"
+    },
+    {
+      "path": "specifications/deployment/Dockerfile.web.reference",
+      "size_bytes": 627,
+      "sha256": "eede495d391f8dba7ab2200b42be951c26890024d75861c4db005dbd9af3ac75"
+    },
+    {
+      "path": "specifications/deployment/Dockerfile.worker.reference",
+      "size_bytes": 481,
+      "sha256": "ab3cf3c37aa54c2cc16bf7a7fcd7d253905c2b34f02db8ab9fb11a7f6e71a7ff"
+    },
+    {
+      "path": "specifications/deployment/SOVEREIGN_OFFLINE_ACCEPTANCE.md",
+      "size_bytes": 1857,
+      "sha256": "0ea320b8eb97cd078751b0ab54cadf0a406b8fe22228085f9beb2408feb5debd"
+    },
+    {
+      "path": "specifications/deployment/compose.reference.yaml",
+      "size_bytes": 1867,
+      "sha256": "37585642abb4c6ad0b69b55295c2655fcb7dbc3a0fc53bd9be82c97666ae35bb"
+    },
+    {
+      "path": "specifications/deployment/environment.example",
+      "size_bytes": 916,
+      "sha256": "5238d73e3b473d579c14b205f2c15004314c123cf506d16fdf7cc2553b5ded27"
+    },
+    {
+      "path": "specifications/deployment/release-manifest.example.json",
+      "size_bytes": 724,
+      "sha256": "32d535617bb25d3b49ac35f1968cbe485ed2e5d11341f38297397f7d15bdc246"
+    },
+    {
+      "path": "specifications/diagrams/01-system-context.mmd",
+      "size_bytes": 604,
+      "sha256": "3729c6d7383aa287637f8c4e3381519d25c04923a139d9eaa8b0ed12ed0874a9"
+    },
+    {
+      "path": "specifications/diagrams/02-company-and-work-graph.mmd",
+      "size_bytes": 505,
+      "sha256": "25ff069159fb970d46350e088a1c88a95cd0d735658d56a4228b13f233130717"
+    },
+    {
+      "path": "specifications/diagrams/03-agent-execution.mmd",
+      "size_bytes": 726,
+      "sha256": "e30429b7b1ffa838469812c2ee4a14dbd9e3e4b283597aa392447c9ce6837def"
+    },
+    {
+      "path": "specifications/diagrams/04-trust-and-egress.mmd",
+      "size_bytes": 618,
+      "sha256": "6385b33174db88bb0ca555885753bdb97df13511fae20124720bc3eb56b9fc05"
+    },
+    {
+      "path": "specifications/diagrams/05-commercial-deployments.mmd",
+      "size_bytes": 466,
+      "sha256": "00c654819e07a9b5e3887b1042baab6e85945f73725f309108c5fc5a9ce1483b"
+    },
+    {
+      "path": "specifications/diagrams/06-deployment-process-boundaries.mmd",
+      "size_bytes": 471,
+      "sha256": "c7e02f4fdfc5b38c5b4162c0295b783f7ae84397b5ebd418db69395125fda1d2"
+    },
+    {
+      "path": "specifications/diagrams/07-data-access-trust.mmd",
+      "size_bytes": 417,
+      "sha256": "68ba5c02154f4070744c2e8a1530ccf55fd0e5d3aa57dc7b2e2cc7242fe74559"
+    },
+    {
+      "path": "specifications/examples/company-security-policy.yaml",
+      "size_bytes": 1079,
+      "sha256": "ba43ef9836ad5616d5a63a19bbcd38feda78bc7bd3e7743f695f997f4cde4ef4"
+    },
+    {
+      "path": "specifications/examples/lead-research-report.example.json",
+      "size_bytes": 559,
+      "sha256": "c7ea352780dacf656b4f466278604278e8b852849e007d18b14f91059b57ed0f"
+    },
+    {
+      "path": "specifications/examples/plan-entitlements.yaml",
+      "size_bytes": 1104,
+      "sha256": "77b76be743b3e21a0ee53f3365caa274b9837b06c7d1cb0103ac5c4c5e0acd19"
+    },
+    {
+      "path": "specifications/examples/sales-researcher.agent.yaml",
+      "size_bytes": 976,
+      "sha256": "23300df946d20fc88b298d9804c9ed1ef4099aca3a7493aeeeddbcec024b22d5"
+    },
+    {
+      "path": "specifications/implementation-backlog.csv",
+      "size_bytes": 24583,
+      "sha256": "9c933d66acbbc45439efab4a57af41de610fd12ff7b0d5839255a347cf266bc7"
+    },
+    {
+      "path": "specifications/model-conformance-matrix.csv",
+      "size_bytes": 547,
+      "sha256": "423c4db039c2eaac15aec5ef9913b237388dd87af1d87976d0134d09f9d390a7"
+    },
+    {
+      "path": "specifications/openapi.yaml",
+      "size_bytes": 12515,
+      "sha256": "23a5dc9c53e76467e6ed569718199040903b1a4856de6deabdd0454fbdf2b874"
+    },
+    {
+      "path": "specifications/qa-scenarios.csv",
+      "size_bytes": 4931,
+      "sha256": "b9aa5cf1af8e8002a84304f09c86e6b85f90c508f12da6f100572b6649eece13"
+    },
+    {
+      "path": "specifications/schema.sql",
+      "size_bytes": 19693,
+      "sha256": "c64602a00ae98e3db3b44dad0dacca3e4c519700965822bef5c8fc4c6f0405a8"
+    },
+    {
+      "path": "specifications/schemas/agent-definition.schema.json",
+      "size_bytes": 2984,
+      "sha256": "1017fc9c505238547d9273ff141bf1cfa2a23b42c231b47e954bf54802136a7f"
+    },
+    {
+      "path": "specifications/schemas/domain-event.schema.json",
+      "size_bytes": 1559,
+      "sha256": "5d9d8ed2c820986178b9201b03c223a652f5de8e2e95c14c7e6c738be2c63264"
+    },
+    {
+      "path": "specifications/schemas/lead-research-report.schema.json",
+      "size_bytes": 1324,
+      "sha256": "df7b53b14f36f4e3f86cf7393bcf5734cd9dc64032b5e0e7a7a8115adb5f82e6"
+    },
+    {
+      "path": "specifications/threat-register.csv",
+      "size_bytes": 3789,
+      "sha256": "72991ae543f789e62cb83592b927cb11993c3e121dbdb979fe48d6fd8b93484c"
+    },
+    {
+      "path": "specifications/tools/check-backlog.mjs",
+      "size_bytes": 5928,
+      "sha256": "639f36bc35c4fd10d38c17b578cd9f2fca01be04ac46a47866fd0ea1fe257aa5"
+    },
+    {
+      "path": "specifications/tools/regenerate-manifest.mjs",
+      "size_bytes": 1221,
+      "sha256": "95f4d79523a929ca1d4ae456260abaa49d4609d0ae565faa830f01b654ba6137"
+    },
+    {
+      "path": "specifications/traceability.csv",
+      "size_bytes": 3160,
+      "sha256": "3be0d7764245422edbf67c39835390548260d171d6d3cec3d1b960b590000a08"
+    },
+    {
+      "path": "specifications/typescript/agent-manifest.reference.ts",
+      "size_bytes": 612,
+      "sha256": "8c641f7a66c33be219a9f53c88312751d8e9382d96743c84656daf1041634864"
+    },
+    {
+      "path": "specifications/typescript/ports.reference.ts",
+      "size_bytes": 1650,
+      "sha256": "153e1498757aa148ad4a186215b6fb63b7b3e023f75a52c3ba9774108334fad2"
+    },
+    {
+      "path": "specifications/typescript/server-action.reference.ts",
+      "size_bytes": 594,
+      "sha256": "4106399eabb93ffb72c4deee1a29a557a56e003b5e60ebc00e237975036ffb7c"
+    }
+  ]
+}

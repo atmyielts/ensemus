@@ -1,0 +1,56 @@
+# REFERENCE TOPOLOGY, NOT A READY-TO-RUN DEPLOYMENT.
+# Requires actual Ensemus builds, external Temporal, S3, a key-encryption key + migration job.
+# No production API keys or DB passwords should be committed here.
+services:
+  web:
+    image: ${ENSEMUS_WEB_IMAGE:?Set digest-pinned Ensemus web image}
+    restart: unless-stopped
+    init: true
+    env_file: [./environment.example]
+    ports:
+      - "127.0.0.1:3000:3000" # reverse proxy terminates TLS
+    networks: [ensemus-private]
+    healthcheck:
+      test: ["CMD", "node", "healthcheck.mjs"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+  worker:
+    image: ${ENSEMUS_WORKER_IMAGE:?Set digest-pinned Ensemus worker image}
+    restart: unless-stopped
+    init: true
+    env_file: [./environment.example]
+    command: ["node", "dist/workflow-worker.js"]
+    networks: [ensemus-private]
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+  ingestion:
+    image: ${ENSEMUS_WORKER_IMAGE:?Set digest-pinned Ensemus worker image}
+    restart: unless-stopped
+    init: true
+    env_file: [./environment.example]
+    command: ["node", "dist/ingestion-worker.js"]
+    networks: [ensemus-private]
+    deploy:
+      resources:
+        limits:
+          memory: 3G
+  dispatcher:
+    image: ${ENSEMUS_WORKER_IMAGE:?Set digest-pinned Ensemus worker image}
+    restart: unless-stopped
+    init: true
+    env_file: [./environment.example]
+    command: ["node", "dist/outbox-dispatcher.js"]
+    networks: [ensemus-private]
+networks:
+  ensemus-private:
+    driver: bridge
+# Required external/local infra not declared here: TLS proxy, PostgreSQL+pgvector,
+# Temporal Server + its persistence, S3 object store, Valkey. External IdP, KMS or vault are optional.
+# Expected commands, healthcheck scripts, and service images are illustrative.

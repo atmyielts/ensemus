@@ -1,0 +1,29 @@
+# Illustrative plan mechanics, not published commercial pricing or SLAs.
+api_version: ensemus.commercial/v1
+plans:
+  - id: cloud-team
+    mode: cloud
+    charge: recurring_subscription
+    provider_billing: ensemus
+    includes_model_allowance: true
+    model_overage: explicit_topup_or_pause
+    max_active_members: 50
+    features: [work, knowledge, agent_studio, connectors, approvals]
+  - id: byom-team
+    mode: byom
+    charge: recurring_platform_subscription
+    provider_billing: customer_direct
+    includes_model_allowance: false
+    no_silent_vendor_fallback: true
+    max_active_members: 50
+    features: [work, knowledge, agent_studio, connectors, approvals]
+  - id: sovereign-perpetual
+    mode: sovereign
+    charge: one_time_perpetual_license
+    provider_billing: customer_direct_or_selfhosted
+    infrastructure_billing: customer
+    recurring_platform_license: false
+    maintenance: separately_optional
+    purchase_release_continues_after_maintenance_lapse: true
+    offline_license_validation: true
+    features: [work, knowledge, agent_studio, connectors, approvals, local_models]

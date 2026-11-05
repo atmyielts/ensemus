@@ -1,0 +1,23 @@
+risk_id,scenario,severity,owner,mitigation,verification,status
+SEC-001,Cross-tenant unauthorized DB access,critical,Identity & Core,Composite FK + RLS + ACL,multi-tenant direct SQL/API test,not_implemented
+SEC-002,Search or cache returns revoked private document,critical,Knowledge,Live auth recheck + invalidation,revocation race test,not_implemented
+SEC-003,Prompt injection exfiltrates company files,critical,Intelligence & Security,Tool grant + egress allowlist + injection boundary,poisoned source test,not_implemented
+SEC-004,Unapproved model provider receives confidential data,critical,Models,Policy before route + egress audit,forced provider failover test,not_implemented
+SEC-005,Secret content appears in traces/logs,critical,Security & SRE,Sanitized telemetry + vault,canary secret test,not_implemented
+SEC-006,External email or payment duplicated after retry,high,Connectors & Work,Idempotency + reconcile unknown state,timeout-after-side-effect test,not_implemented
+SEC-007,Agent escalates own privileges,critical,Security & Agents,Immutable grants + delegated intersection,rogue plan/tool fixture,not_implemented
+SEC-008,Malicious connector steals OAuth token,high,Connectors,Vault broker + scope + allowlist,compromised connector test,not_implemented
+SEC-009,Memory poisoning turns false claim into trusted fact,high,Knowledge,Provenance + trust gate + review,fake policy in document test,not_implemented
+SEC-010,Recursive delegation exhausts inference budget,high,Agents & Finance,Bounded depth/steps/cost,delegation load test,not_implemented
+SEC-011,Support staff accesses customer secrets,critical,Security,No standing privileges + break-glass,support role boundary test,not_implemented
+SEC-012,Tampered Sovereign update package,critical,Release Engineering,Signing + SBOM + checksum,tampered bundle rejection,not_implemented
+SEC-013,Sovereign hidden phone-home,high,Platform,Air-gap mode and egress audit,offline packet capture,not_implemented
+SEC-014,Approval reused for modified action payload,critical,Work & Security,Action hash + expiry + recheck,edit-after-approval test,not_implemented
+SEC-015,Async job inherits wrong tenant context,critical,Core & SRE,Server-derived context + RLS,mixed-tenant worker pool,not_implemented
+SEC-016,BYOM credentials shown in API or export,critical,Models & Security,Vault reference only + masking,export and UI secret scan,not_implemented
+TR-017,Server Action ID direct invocation bypasses resource check,high,security/platform,"Policy enforcement, isolation and tested container restrictions",Automated negative security test and review,design_mitigation_pending_validation
+TR-018,RSC/private cache leaks source across tenants,high,security/platform,"Policy enforcement, isolation and tested container restrictions",Automated negative security test and review,design_mitigation_pending_validation
+TR-019,Bundled NEXT_PUBLIC or client JS contains secret,high,security/platform,"Policy enforcement, isolation and tested container restrictions",Automated negative security test and review,design_mitigation_pending_validation
+TR-020,Agent worker blocks Next event loop due to co-location,high,security/platform,"Policy enforcement, isolation and tested container restrictions",Automated negative security test and review,design_mitigation_pending_validation
+TR-021,Sovereign package phone-home via transitive dependency,high,security/platform,"Policy enforcement, isolation and tested container restrictions",Automated negative security test and review,design_mitigation_pending_validation
+TR-022,BYOM endpoint permits DNS rebinding/SSRF,high,security/platform,"Policy enforcement, isolation and tested container restrictions",Automated negative security test and review,design_mitigation_pending_validation

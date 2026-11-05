@@ -1,0 +1,13 @@
+flowchart LR
+  Data[(Company documents & secrets)] --> Retrieval[ACL-first Retrieval]
+  Retrieval --> Classify[Classification + Provenance]
+  Classify --> Gate{Provider egress policy}
+  Gate -->|Approved| Compiler[Context Compiler + Redaction]
+  Gate -->|Denied| Human[Human-only / Local workflow]
+  Compiler --> Model[Approved Model Profile]
+  Model --> Proposal[Model proposal]
+  Proposal --> Auth[Policy engine + Tool Gateway]
+  Auth -->|Approval required| Reviewer[Authorized human]
+  Reviewer --> Action[External action]
+  Auth -->|Read only allowed| Read[Authorized read]
+  Auth -->|Denied| Stop[Denied + Audit]

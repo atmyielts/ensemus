@@ -1,0 +1,43 @@
+id,domain,scenario,expected_result,priority,status
+QA-001,Tenant isolation,Tenant A ID used by tenant B,Denied or not found; no data leak,critical,not_implemented
+QA-002,Tenant isolation,Same client name across two tenants,Search results isolated,critical,not_implemented
+QA-003,Tenant isolation,Tenant switch during streaming,No prior tenant content emitted,critical,not_implemented
+QA-004,Work graph,Insert A->B and B->A,Cycle rejected transactionally,high,not_implemented
+QA-005,Work graph,Concurrent dependency inserts closing cycle,At most valid acyclic graph committed,critical,not_implemented
+QA-006,Work graph,Complete Work Unit without evidence,Completion denied or awaits verifier,high,not_implemented
+QA-007,Approvals,Change email recipients after approval,Previously bound approval invalidated,critical,not_implemented
+QA-008,Tool execution,Timeout after remote email accepted,Reconcile; do not duplicate send,critical,not_implemented
+QA-009,Provider routing,BYOM provider unavailable,No Ensemus fallback without pre-approval,critical,not_implemented
+QA-010,Provider routing,Restricted document routed to external API,Deny before egress,critical,not_implemented
+QA-011,Provider routing,Embeddings use external model with restricted data,Deny before embedding,critical,not_implemented
+QA-012,Agent runtime,Agent exceeds tool call budget,Stop safely and log budget code,high,not_implemented
+QA-013,Agent runtime,Child tries to exceed parent permissions,Deny and audit,critical,not_implemented
+QA-014,Agent runtime,Worker restarts during approval wait,Resume from durable state safely,high,not_implemented
+QA-015,Knowledge,Source ACL revoked while cached,Live serve denies; caches invalidated,critical,not_implemented
+QA-016,Knowledge,Fact conflicts with authoritative record,Remains disputed until review,high,not_implemented
+QA-017,Knowledge,Embedding model dimensions change,No mixing across embedding spaces,high,not_implemented
+QA-018,Secrets,Canary API key in confidential document,No leakage in prompts/logs/export,critical,not_implemented
+QA-019,Integrations,Webhook replay with valid old payload,Deduplicate / reject replay appropriately,high,not_implemented
+QA-020,Sovereign,Offline boot with blocked outbound network,All essential local features operate,critical,not_implemented
+QA-021,Sovereign,Maintenance expires,Purchased license stays functional,critical,not_implemented
+QA-022,Sovereign,Unsigned update bundle applied,Installation rejected,critical,not_implemented
+QA-023,Portability,Export then import tenant archive,Preserves owned business records and relationships,high,not_implemented
+QA-024,Portability,Export connected credentials,No raw token or API key exposed,critical,not_implemented
+QA-025,Ops,Restore backup after source deletion,Revoked source not silently reactivated,critical,not_implemented
+QA-026,Commercial,Cloud included AI allowance exhausted,Pause/top-up; no surprise bill,high,not_implemented
+QA-027,Commercial,BYOM third-party token use,Customer billed externally; Ensemus not double-charging,high,not_implemented
+QA-028,UX,Keyboard only approval flow,Accessible completion and clear status,medium,not_implemented
+NEXT-01,NEXT,Server Action missing project authorization,Cross-tenant forged action rejected and audited,high,not_implemented
+NEXT-02,NEXT,RSC sends sensitive field via props,Server payload and client bundle contain no secret canary,high,not_implemented
+NEXT-03,NEXT,Next multi-instance cache with ACL revoked,No stale confidential access across web replicas,high,not_implemented
+NEXT-04,NEXT,Web process restart during Temporal run,Run continues and UI reconnects to correct state,high,not_implemented
+NEXT-05,NEXT,CPU heavy ingestion under interactive request load,Web event-loop latency unaffected within target,high,not_implemented
+AI-TS-01,AI,Worker replay during external action uncertain receipt,Single effect after reconciliation,high,not_implemented
+AI-TS-02,AI,Disallowed model profile fallback,Fail closed and record policy-denied reason,high,not_implemented
+BYOM-TS-01,BYOM,Customer model key changes mid run,Credential not exposed and model action safely denied/resumed,high,not_implemented
+SOV-TS-01,SOV,Airgap DNS and outbound network blackhole,No external request attempts and full core usability,critical,not_implemented
+SOV-TS-02,SOV,Maintenance expires after perpetual purchase,Installed release continues working,critical,not_implemented
+DEP-TS-01,DEP,Concurrent migration jobs attempted,"Exactly one migrator, no data corruption",high,not_implemented
+DEP-TS-02,DEP,Sovereign image signature verification,Tampered bundle rejected offline,high,not_implemented
+PERF-TS-01,PERF,Many agents during normal work,p95 web latency and fairness within tested thresholds,high,not_implemented
+DATA-TS-01,DATA,Drizzle transaction RLS pool reuse,No tenant context reused across pooled connections,high,not_implemented

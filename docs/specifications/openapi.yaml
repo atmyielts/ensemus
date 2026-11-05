@@ -1,0 +1,364 @@
+openapi: 3.1.0
+info:
+  title: Ensemus Canonical API (Reference Contract)
+  version: 2.0.0
+  description: >-
+    Next.js Route Handler reference interface for tenant-aware work, agent, approval, search and provider
+    policies. This is an architectural specification, not an implemented service.
+servers:
+  - url: https://ensemus.example.invalid/api/v1
+    description: Illustrative placeholder; not a live endpoint.
+security:
+  - bearerAuth: []
+tags:
+  - name: work
+  - name: agents
+  - name: approvals
+  - name: knowledge
+  - name: models
+  - name: commercial
+paths:
+  /organizations/{organization_id}/work-units:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+    get:
+      tags: [work]
+      summary: List permitted Work Units
+      parameters:
+        - name: cursor
+          in: query
+          schema: {type: string}
+        - name: status
+          in: query
+          schema: {type: string}
+      responses:
+        '200':
+          description: Permission-filtered page
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items: {type: array, items: {$ref: '#/components/schemas/WorkUnit'}}
+                  next_cursor: {type: [string, 'null']}
+        '403': {$ref: '#/components/responses/Forbidden'}
+    post:
+      tags: [work]
+      summary: Create a Work Unit
+      parameters: [{$ref: '#/components/parameters/IdempotencyKey'}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/CreateWorkUnit'}
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/WorkUnit'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+  /organizations/{organization_id}/work-units/{work_unit_id}:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+      - name: work_unit_id
+        in: path
+        required: true
+        schema: {type: string, format: uuid}
+    get:
+      tags: [work]
+      summary: Read permitted Work Unit
+      responses:
+        '200':
+          description: Work Unit
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/WorkUnit'}
+        '404': {$ref: '#/components/responses/NotFound'}
+    patch:
+      tags: [work]
+      summary: Patch with optimistic version check
+      parameters:
+        - name: If-Match
+          in: header
+          required: true
+          schema: {type: string}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                title: {type: string}
+                objective: {type: string}
+                due_at: {type: [string, 'null'], format: date-time}
+      responses:
+        '200':
+          description: Updated Work Unit
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/WorkUnit'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+  /organizations/{organization_id}/work-units/{work_unit_id}/dependencies:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+      - name: work_unit_id
+        in: path
+        required: true
+        schema: {type: string, format: uuid}
+    post:
+      tags: [work]
+      summary: Add prerequisite, rejecting cycles
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [prerequisite_id]
+              additionalProperties: false
+              properties:
+                prerequisite_id: {type: string, format: uuid}
+      responses:
+        '201': {description: Added}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+  /organizations/{organization_id}/agent-runs:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+    post:
+      tags: [agents]
+      summary: Start bounded agent execution on a Work Unit
+      parameters: [{$ref: '#/components/parameters/IdempotencyKey'}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [work_unit_id, agent_version_id]
+              additionalProperties: false
+              properties:
+                work_unit_id: {type: string, format: uuid}
+                agent_version_id: {type: string, format: uuid}
+                max_cost_usd: {type: number, minimum: 0}
+      responses:
+        '202':
+          description: Durable run queued
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/AgentRun'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '422': {$ref: '#/components/responses/Validation'}
+  /organizations/{organization_id}/agent-runs/{agent_run_id}:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+      - name: agent_run_id
+        in: path
+        required: true
+        schema: {type: string, format: uuid}
+    get:
+      tags: [agents]
+      summary: Read scoped execution progress
+      responses:
+        '200':
+          description: Run record
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/AgentRun'}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /organizations/{organization_id}/approvals/{approval_id}/decisions:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+      - name: approval_id
+        in: path
+        required: true
+        schema: {type: string, format: uuid}
+    post:
+      tags: [approvals]
+      summary: Decide exact immutable proposed action
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [decision, action_hash]
+              properties:
+                decision: {type: string, enum: [approve, deny]}
+                action_hash: {type: string, minLength: 32}
+                reason: {type: string, maxLength: 2000}
+      responses:
+        '200': {description: Decision recorded}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+  /organizations/{organization_id}/knowledge/search:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+    post:
+      tags: [knowledge]
+      summary: Search authorized knowledge with citations
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [query]
+              properties:
+                query: {type: string, minLength: 1, maxLength: 4000}
+                limit: {type: integer, minimum: 1, maximum: 50, default: 10}
+                allowed_source_ids:
+                  type: array
+                  items: {type: string, format: uuid}
+      responses:
+        '200':
+          description: Permission-filtered results
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      required: [source_id, excerpt, source_version]
+                      properties:
+                        source_id: {type: string, format: uuid}
+                        source_version: {type: string}
+                        excerpt: {type: string}
+                        citation_ref: {type: string}
+        '403': {$ref: '#/components/responses/Forbidden'}
+  /organizations/{organization_id}/model-profiles:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+    get:
+      tags: [models]
+      summary: List authorized provider profiles without secrets
+      responses:
+        '200':
+          description: Approved model profile metadata only
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  profiles: {type: array, items: {$ref: '#/components/schemas/ModelProfile'}}
+  /organizations/{organization_id}/entitlements:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+    get:
+      tags: [commercial]
+      summary: Read current commercial mode, features, and quotas
+      responses:
+        '200':
+          description: Entitlements (no license private keys)
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [mode, features]
+                properties:
+                  mode: {type: string, enum: [cloud, byom, sovereign]}
+                  features: {type: array, items: {type: string}}
+                  capacity: {type: object, additionalProperties: true}
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: OAuth2-access-token
+  parameters:
+    OrganizationID:
+      name: organization_id
+      in: path
+      required: true
+      description: Requires authenticated organization membership; UUID alone is never authorization.
+      schema: {type: string, format: uuid}
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema: {type: string, minLength: 8, maxLength: 128}
+  schemas:
+    CreateWorkUnit:
+      type: object
+      additionalProperties: false
+      required: [title, objective]
+      properties:
+        title: {type: string, minLength: 1, maxLength: 300}
+        objective: {type: string, minLength: 1}
+        project_id: {type: [string, 'null'], format: uuid}
+        due_at: {type: [string, 'null'], format: date-time}
+        completion_criteria: {type: object}
+    WorkUnit:
+      type: object
+      required: [id, organization_id, title, status, version]
+      properties:
+        id: {type: string, format: uuid}
+        organization_id: {type: string, format: uuid}
+        title: {type: string}
+        objective: {type: string}
+        status:
+          type: string
+          enum: [queued, ready, running, blocked, awaiting_approval, verifying, completed, failed, cancelled]
+        version: {type: integer, minimum: 1}
+        due_at: {type: [string, 'null'], format: date-time}
+    AgentRun:
+      type: object
+      required: [id, status, agent_version_id, work_unit_id]
+      properties:
+        id: {type: string, format: uuid}
+        status: {type: string}
+        agent_version_id: {type: string, format: uuid}
+        work_unit_id: {type: string, format: uuid}
+        estimated_cost_usd: {type: [number, 'null']}
+        status_url: {type: string}
+    ModelProfile:
+      type: object
+      required: [id, provider, model_id, allowed_classes]
+      properties:
+        id: {type: string, format: uuid}
+        provider: {type: string}
+        model_id: {type: string}
+        allowed_classes: {type: array, items: {type: string}}
+        region: {type: [string, 'null']}
+    Error:
+      type: object
+      required: [code, message, request_id, retryable]
+      properties:
+        code: {type: string}
+        message: {type: string}
+        request_id: {type: string}
+        retryable: {type: boolean}
+        details: {type: object, additionalProperties: true}
+  responses:
+    Forbidden:
+      description: Authorization or policy rejection
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+    Conflict:
+      description: Concurrent update or dependency conflict
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+    Validation:
+      description: Input or model/tool compatibility validation failed
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+    NotFound:
+      description: Missing or inaccessible resource; avoid existence leaks
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}

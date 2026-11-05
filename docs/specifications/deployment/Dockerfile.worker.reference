@@ -1,0 +1,10 @@
+# REFERENCE ONLY: this presumes compiled worker bundles have been produced.
+# Pin the base image by digest in a real build. The Temporal worker loads a native module,
+# so use a glibc-based image unless PLAT-12 proves musl support on the built image.
+FROM node:lts-slim
+WORKDIR /app
+ENV NODE_ENV=production
+RUN groupadd --system ensemus && useradd --system --gid ensemus ensemus
+COPY --chown=ensemus:ensemus workers/dist ./dist
+USER ensemus
+CMD ["node", "dist/workflow-worker.js"]
