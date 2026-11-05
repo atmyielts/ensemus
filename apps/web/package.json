@@ -9,10 +9,13 @@
     "typecheck": "next typegen && tsc --noEmit"
   },
   "dependencies": {
+    "@ensemus/application": "workspace:*",
     "@ensemus/auth": "workspace:*",
     "@ensemus/config": "workspace:*",
     "@ensemus/contracts": "workspace:*",
     "@ensemus/database": "workspace:*",
+    "@ensemus/domain": "workspace:*",
+    "@ensemus/storage": "workspace:*",
     "@ensemus/telemetry": "workspace:*",
     "better-auth": "1.7.17",
     "next": "16.4.5",

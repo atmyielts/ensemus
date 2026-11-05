@@ -7,14 +7,19 @@ const config: NextConfig = {
   output: 'standalone',
   outputFileTracingRoot: path.join(import.meta.dirname, '../../'),
   transpilePackages: [
+    '@ensemus/application',
     '@ensemus/auth',
     '@ensemus/config',
     '@ensemus/contracts',
     '@ensemus/database',
+    '@ensemus/domain',
+    '@ensemus/storage',
     '@ensemus/telemetry',
   ],
   serverExternalPackages: ['pg'],
   poweredByHeader: false,
+  // Artifacts are uploaded through Server Actions. The service enforces the same limit.
+  experimental: { serverActions: { bodySizeLimit: '26mb' } },
   // Nothing may be fetched from an outside host at runtime (ADR-021).
   images: { unoptimized: true },
   ...(release ? { deploymentId: release } : {}),

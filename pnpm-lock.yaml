@@ -32,6 +32,9 @@ importers:
 
   apps/web:
     dependencies:
+      '@ensemus/application':
+        specifier: workspace:*
+        version: link:../../packages/application
       '@ensemus/auth':
         specifier: workspace:*
         version: link:../../packages/auth
@@ -44,6 +47,12 @@ importers:
       '@ensemus/database':
         specifier: workspace:*
         version: link:../../packages/database
+      '@ensemus/domain':
+        specifier: workspace:*
+        version: link:../../packages/domain
+      '@ensemus/storage':
+        specifier: workspace:*
+        version: link:../../packages/storage
       '@ensemus/telemetry':
         specifier: workspace:*
         version: link:../../packages/telemetry
