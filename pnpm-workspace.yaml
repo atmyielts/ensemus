@@ -1,0 +1,10 @@
+packages:
+  - apps/*
+  - workers/*
+  - packages/*
+  - tests
+onlyBuiltDependencies:
+  - '@swc/core'
+  - esbuild
+  - sharp
+  - '@temporalio/core-bridge'

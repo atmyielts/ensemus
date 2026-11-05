@@ -1,0 +1,195 @@
+# Ensemus stack (PLAT-15). Same images in every commercial mode, with no hosted dependency.
+# Networks enforce ADR-024 D3: the web tier shares no network with Temporal.
+name: ensemus
+
+x-secret-file: &restart
+  restart: unless-stopped
+  init: true
+
+services:
+  proxy:
+    <<: *restart
+    image: caddy:2-alpine@sha256:f6228111e5fafa1a5238258d0858e103f10599b8d1659a146e7726681a002bb9
+    volumes:
+      - ./proxy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+    networks: [edge]
+    depends_on:
+      web: { condition: service_healthy }
+
+  web:
+    <<: *restart
+    build:
+      context: ../..
+      dockerfile: infrastructure/containers/Dockerfile.web
+    image: ensemus/web:local
+    read_only: true
+    tmpfs: ['/tmp', '/app/apps/web/.next/cache']
+    networks: [edge, data]
+    environment:
+      ENSEMUS_MODE: ${ENSEMUS_MODE:-sovereign}
+      ENSEMUS_PUBLIC_URL: ${ENSEMUS_PUBLIC_URL:-https://localhost:8443}
+      ENSEMUS_ALLOW_SIGNUP: ${ENSEMUS_ALLOW_SIGNUP:-false}
+      DATABASE_URL_APP_FILE: /run/secrets/db_app_url
+      DATABASE_URL_AUTH_FILE: /run/secrets/db_auth_url
+      AUTH_SECRET_FILE: /run/secrets/auth_secret
+      SECRET_SEALING_PUBLIC_KEY_FILE: /run/secrets/sealing_public_key.pem
+    secrets: [db_app_url, db_auth_url, auth_secret, sealing_public_key.pem, next_server_actions_key]
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+    deploy:
+      resources: { limits: { memory: 1G } }
+
+  worker:
+    <<: *restart
+    build:
+      context: ../..
+      dockerfile: infrastructure/containers/Dockerfile.worker
+    image: ensemus/worker:local
+    read_only: true
+    tmpfs: ['/tmp']
+    networks: [data, temporal]
+    environment:
+      TEMPORAL_ADDRESS: temporal:7233
+      TEMPORAL_NAMESPACE: default
+      TEMPORAL_CODEC_KEY_FILE: /run/secrets/temporal_codec_key
+      DATABASE_URL_APP_FILE: /run/secrets/db_app_url
+      DATABASE_URL_SECRETS_FILE: /run/secrets/db_secrets_url
+      SECRET_SEALING_PRIVATE_KEY_FILE: /run/secrets/sealing_private_key.pem
+    secrets: [temporal_codec_key, db_app_url, db_secrets_url, sealing_private_key.pem]
+    depends_on:
+      temporal: { condition: service_healthy }
+      migrate: { condition: service_completed_successfully }
+    deploy:
+      resources: { limits: { memory: 2G } }
+
+  migrate:
+    build:
+      context: ../..
+      dockerfile: infrastructure/containers/Dockerfile.worker
+    image: ensemus/worker:local
+    command: ['node', 'dist/migrate.js']
+    read_only: true
+    tmpfs: ['/tmp']
+    networks: [data]
+    environment:
+      DATABASE_URL_MIGRATOR_FILE: /run/secrets/db_migrator_url
+    secrets: [db_migrator_url]
+    depends_on:
+      postgres: { condition: service_healthy }
+
+  postgres:
+    <<: *restart
+    image: pgvector/pgvector:pg17@sha256:7d0a41464797aeb9862dfdc0bbf1526b82cfd324cdd8036df19e3545f4a9ccb8
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD_FILE: /run/secrets/db_superuser_password
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./postgres/10-provision.sh:/docker-entrypoint-initdb.d/10-provision.sh:ro
+      - ./postgres/provision.sql:/provision/provision.sql:ro
+    networks: [data, temporal-db]
+    secrets:
+      - db_superuser_password
+      - db_migrator_password
+      - db_app_password
+      - db_auth_password
+      - db_dispatcher_password
+      - db_secrets_password
+      - db_temporal_password
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U postgres -d ensemus']
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  temporal:
+    <<: *restart
+    image: temporalio/auto-setup@sha256:9be7b8d98f60d00f4f2ff74731c071a17848d8182bbc8429e314a24c94ea105b
+    networks: [temporal, temporal-db]
+    entrypoint: ['/bin/sh', '/provision/temporal-start.sh']
+    environment:
+      DB: postgres12
+      DB_PORT: '5432'
+      POSTGRES_SEEDS: postgres
+      POSTGRES_USER: temporal
+      SKIP_DB_CREATE: 'true'
+      TEMPORAL_ADDRESS: temporal:7233
+    volumes:
+      - ./temporal/temporal-start.sh:/provision/temporal-start.sh:ro
+    secrets: [db_temporal_password]
+    depends_on:
+      postgres: { condition: service_healthy }
+    healthcheck:
+      test:
+        ['CMD-SHELL', 'temporal operator cluster health --address temporal:7233 | grep -q SERVING']
+      interval: 5s
+      timeout: 5s
+      retries: 60
+      start_period: 20s
+
+  valkey:
+    <<: *restart
+    image: valkey/valkey:8-alpine@sha256:2602ace2be6569bc2bbb06f873776516ab9089821525be34f4305c67eb9db02a
+    command:
+      [
+        'valkey-server',
+        '--save',
+        '',
+        '--appendonly',
+        'no',
+        '--maxmemory',
+        '256mb',
+        '--maxmemory-policy',
+        'allkeys-lru',
+      ]
+    read_only: true
+    tmpfs: ['/data']
+    networks: [data]
+    healthcheck:
+      test: ['CMD', 'valkey-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  objects:
+    <<: *restart
+    image: chrislusf/seaweedfs@sha256:c2658820e763294a9e9de7b36c81e59b879e3459148351aee4e31a126ca64860
+    command: ['server', '-dir=/data', '-s3', '-s3.port=8333', '-master.volumeSizeLimitMB=256']
+    volumes:
+      - objects-data:/data
+    networks: [data]
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -q -O /dev/null http://127.0.0.1:9333/cluster/status']
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+networks:
+  edge: {}
+  data: {}
+  temporal: {}
+  temporal-db: {}
+
+volumes:
+  postgres-data: {}
+  caddy-data: {}
+  objects-data: {}
+
+secrets:
+  db_superuser_password: { file: ../../.local/secrets/db_superuser_password }
+  db_migrator_password: { file: ../../.local/secrets/db_migrator_password }
+  db_app_password: { file: ../../.local/secrets/db_app_password }
+  db_auth_password: { file: ../../.local/secrets/db_auth_password }
+  db_dispatcher_password: { file: ../../.local/secrets/db_dispatcher_password }
+  db_secrets_password: { file: ../../.local/secrets/db_secrets_password }
+  db_temporal_password: { file: ../../.local/secrets/db_temporal_password }
+  db_migrator_url: { file: ../../.local/secrets/db_migrator_url }
+  db_app_url: { file: ../../.local/secrets/db_app_url }
+  db_auth_url: { file: ../../.local/secrets/db_auth_url }
+  db_secrets_url: { file: ../../.local/secrets/db_secrets_url }
+  auth_secret: { file: ../../.local/secrets/auth_secret }
+  temporal_codec_key: { file: ../../.local/secrets/temporal_codec_key }
+  next_server_actions_key: { file: ../../.local/secrets/next_server_actions_key }
+  sealing_public_key.pem: { file: ../../.local/secrets/sealing_public_key.pem }
+  sealing_private_key.pem: { file: ../../.local/secrets/sealing_private_key.pem }

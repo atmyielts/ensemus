@@ -1,0 +1,10 @@
+{
+	# No outbound calls: no ACME, no update checks, no admin API.
+	admin off
+	skip_install_trust
+}
+
+{$ENSEMUS_HOSTNAME:localhost} {
+	tls internal
+	reverse_proxy web:3000
+}

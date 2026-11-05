@@ -1,0 +1,12 @@
+# Test overlay: publishes ports on localhost only so tests can reach the stack. Never used in a
+# real deployment, where only the proxy is reachable.
+services:
+  proxy:
+    ports: ['127.0.0.1:8443:443']
+  postgres:
+    ports: ['127.0.0.1:55432:5432']
+  temporal:
+    ports: ['127.0.0.1:57233:7233']
+  web:
+    environment:
+      ENSEMUS_ALLOW_SIGNUP: 'true'

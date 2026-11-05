@@ -1,0 +1,10 @@
+docs/
+pnpm-lock.yaml
+packages/contracts/generated/
+packages/database/migrations/
+.next/
+dist/
+coverage/
+.local/
+Ensemus_v2_Complete_Handbook.md
+Ensemus_v2_Architecture_Overview.md

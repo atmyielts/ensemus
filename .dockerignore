@@ -1,0 +1,11 @@
+**/node_modules
+**/.next
+**/dist
+.git
+.github
+.local
+.claude
+docs
+tests
+*.diff
+Ensemus_v2_*.md
