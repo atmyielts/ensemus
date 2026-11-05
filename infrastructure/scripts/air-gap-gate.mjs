@@ -2,7 +2,7 @@
 // PLAT-16: runs the stack with outbound traffic blocked and counted. Any attempt fails the build.
 //   node infrastructure/scripts/air-gap-gate.mjs            full gate
 //   node infrastructure/scripts/air-gap-gate.mjs --control  proves a real attempt is detected
-import { execFileSync, spawnSync } from 'node:child_process';
+import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -48,6 +48,57 @@ function attempts() {
   return Number(line.trim().split(/\s+/)[0]);
 }
 
+// Records offending packets, so that a failure names its cause instead of only counting it.
+function startCapture() {
+  const lines = [];
+  const child = spawn('docker', [
+    'run',
+    '--rm',
+    '--name',
+    'ensemus-airgap-capture',
+    '--privileged',
+    '--network',
+    'host',
+    TOOLS,
+    'tcpdump',
+    '-i',
+    'any',
+    '-nn',
+    '-l',
+    '-Q',
+    'in',
+    `src net ${SUBNET} and not dst net ${SUBNET}`,
+  ]);
+  child.stdout.on('data', (chunk) => lines.push(String(chunk)));
+  child.on('error', () => undefined);
+  return {
+    async report() {
+      const closed = new Promise((done) => child.on('close', done));
+      spawnSync('docker', ['stop', '-t', '1', 'ensemus-airgap-capture']);
+      // The synchronous calls above block the event loop, so output is only read while waiting here.
+      await closed;
+      const packets = lines.join('').split(/\r?\n/).filter(Boolean);
+      if (!packets.length) return;
+      console.log('Offending packets:');
+      for (const line of [...new Set(packets.map((p) => p.replace(/^\S+\s+/, '')))].slice(0, 20)) {
+        console.log(`  ${line.slice(0, 140)}`);
+      }
+      console.log('Container addresses:');
+      const ids = compose('ps', '-aq').trim().split(/\s+/).filter(Boolean);
+      for (const id of ids) {
+        console.log(
+          `  ${run('docker', [
+            'inspect',
+            id,
+            '--format',
+            '{{.Name}} {{range .NetworkSettings.Networks}}{{.IPAddress}} {{end}}',
+          ]).trim()}`,
+        );
+      }
+    },
+  };
+}
+
 function down() {
   try {
     compose('down', '-v', '--remove-orphans');
@@ -66,6 +117,8 @@ try {
   compose('up', '-d', '--build', '--wait', '--wait-timeout', '300');
   installRule();
   const before = attempts();
+  const capture = startCapture();
+  await new Promise((done) => setTimeout(done, 3000)); // Let the capture start.
 
   if (control) {
     // The rule must see a direct connection and an outside DNS lookup from inside a container.
@@ -85,6 +138,7 @@ try {
     );
     const seen = attempts() - before;
     console.log(`Control: ${seen} outbound packet(s) detected from a deliberate attempt.`);
+    await capture.report();
     if (seen === 0) {
       console.error('FAILED: the gate did not detect a deliberate outbound attempt.');
       failed = true;
@@ -105,6 +159,7 @@ try {
     }
     const seen = attempts() - before;
     console.log(`Outbound attempts during the run: ${seen}`);
+    await capture.report();
     if (seen > 0) {
       console.error('FAILED: something tried to reach the outside network.');
       failed = true;

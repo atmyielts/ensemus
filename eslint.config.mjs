@@ -42,7 +42,13 @@ export default tseslint.config(
   ...tseslint.configs.recommended,
   {
     languageOptions: {
-      globals: { process: 'readonly', console: 'readonly', fetch: 'readonly', Buffer: 'readonly' },
+      globals: {
+        process: 'readonly',
+        console: 'readonly',
+        fetch: 'readonly',
+        Buffer: 'readonly',
+        setTimeout: 'readonly',
+      },
     },
     rules: {
       '@typescript-eslint/no-unused-vars': [
