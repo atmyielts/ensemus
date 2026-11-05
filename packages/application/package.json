@@ -1,0 +1,19 @@
+{
+  "name": "@ensemus/application",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@ensemus/contracts": "workspace:*",
+    "@ensemus/database": "workspace:*",
+    "@ensemus/domain": "workspace:*",
+    "drizzle-orm": "0.45.4",
+    "zod": "4.6.7"
+  }
+}

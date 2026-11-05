@@ -10,8 +10,26 @@ export type TenantContext = Readonly<{
   userId: string;
   membershipId: string;
   role: string;
+  actorType: 'user' | 'service';
   [brand]: true;
 }>;
+
+/**
+ * A worker acting for a tenant, with no person behind the transaction. Only workers may import
+ * this (`@ensemus/database/service`, enforced by lint). The organization ID comes from the outbox
+ * event, not from any model or request, and RLS still confines every query to that tenant.
+ */
+export function createServiceContext(organizationId: string): TenantContext {
+  if (!UUID.test(organizationId)) throw new TenantAccessDenied();
+  return {
+    organizationId,
+    userId: '',
+    membershipId: '',
+    role: 'service',
+    actorType: 'service',
+    [brand]: true,
+  };
+}
 
 export type Tx = Parameters<Parameters<EnsemusDrizzle['transaction']>[0]>[0];
 
@@ -90,6 +108,15 @@ export function withNewTenantTx<T>(
   return database.transaction({ 'app.organization_id': organizationId, 'app.user_id': userId }, fn);
 }
 
+/** Binds only the hash of an invitation token, which reveals that one invitation and nothing else. */
+export function withInvitationTx<T>(
+  database: AppDatabase,
+  tokenHash: string,
+  fn: (tx: Tx) => Promise<T>,
+): Promise<T> {
+  return database.transaction({ 'app.invitation_token_hash': tokenHash }, fn);
+}
+
 /** Checks an active membership and returns the context needed to reach that tenant's data. */
 export async function resolveTenantContext(
   database: AppDatabase,
@@ -115,6 +142,7 @@ export async function resolveTenantContext(
     userId,
     membershipId: membership.id,
     role: membership.role,
+    actorType: 'user',
     [brand]: true,
   };
 }

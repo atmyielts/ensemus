@@ -12,10 +12,21 @@ export {
   pingDatabase,
   resolveTenantContext,
   TenantAccessDenied,
+  withInvitationTx,
+  withNewTenantTx,
   withTenantTx,
   withUserTx,
   type AppDatabase,
   type TenantContext,
   type Tx,
 } from './tenant';
-export { sealedSecrets } from './schema';
+export {
+  auditEvents,
+  domainEvents,
+  memberships,
+  organizations,
+  outboxEvents,
+  sealedSecrets,
+  users,
+} from './schema';
+export * from './schema-work';

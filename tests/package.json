@@ -7,7 +7,9 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@ensemus/application": "workspace:*",
     "@ensemus/auth": "workspace:*",
+    "@ensemus/domain": "workspace:*",
     "@ensemus/database": "workspace:*",
     "@ensemus/telemetry": "workspace:*",
     "@ensemus/workflows": "workspace:*",

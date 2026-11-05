@@ -1,0 +1,14 @@
+{
+  "name": "@ensemus/domain",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./work-unit": "./src/work-unit.ts",
+    "./approval": "./src/approval.ts",
+    "./policy": "./src/policy.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  }
+}

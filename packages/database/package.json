@@ -7,7 +7,8 @@
     ".": "./src/index.ts",
     "./auth": "./src/auth.ts",
     "./secrets": "./src/secrets.ts",
-    "./migrate": "./src/migrate.ts"
+    "./migrate": "./src/migrate.ts",
+    "./service": "./src/service.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
