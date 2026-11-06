@@ -79,6 +79,51 @@ CREATE POLICY project_client_delete ON work.projects AS RESTRICTIVE FOR DELETE T
   USING(knowledge.is_service_actor() OR (EXISTS(SELECT 1 FROM org.memberships m WHERE m.organization_id=projects.organization_id AND m.id=app.current_membership_id() AND m.status='active')
     AND (client_id IS NULL OR EXISTS(SELECT 1 FROM work.clients c WHERE c.organization_id=projects.organization_id AND c.id=projects.client_id))));
 --> statement-breakpoint
+-- A locking read is not consent to remove a private relationship. Keep the broad visible UPDATE
+-- USING above for SELECT FOR SHARE; require the old private client's actual owner on real reparenting.
+CREATE FUNCTION work.guard_private_project_reparent() RETURNS trigger
+  LANGUAGE plpgsql SET search_path=pg_catalog AS $$
+DECLARE old_class text; old_owner uuid;
+BEGIN
+  IF TG_WHEN<>'BEFORE' OR TG_LEVEL<>'ROW' OR TG_OP<>'UPDATE'
+     OR TG_TABLE_SCHEMA<>'work' OR TG_TABLE_NAME<>'projects'
+     OR TG_RELID<>'work.projects'::regclass THEN
+    RAISE EXCEPTION 'PROJECT_REPARENT_GUARD_INVALID' USING ERRCODE='42501';
+  END IF;
+  IF NEW.organization_id IS DISTINCT FROM OLD.organization_id THEN
+    RAISE EXCEPTION 'PROJECT_TENANT_IMMUTABLE' USING ERRCODE='42501';
+  END IF;
+  IF NEW.client_id IS NOT DISTINCT FROM OLD.client_id THEN RETURN NEW; END IF;
+  -- Existing tenant RLS and the destination WITH CHECK still constrain explicit service imports.
+  -- Delegated/agent contexts with an initiating membership do not meet this service predicate.
+  IF knowledge.is_service_actor() THEN RETURN NEW; END IF;
+  IF OLD.client_id IS NULL THEN RETURN NEW; END IF;
+  BEGIN
+    -- UPDATE already owns the project row. Do not wait in the inverse project -> client order if
+    -- another operation owns the client first. A caller may retry explicitly; this guard never does.
+    SELECT c.classification,c.owner_membership_id INTO old_class,old_owner FROM work.clients c
+      WHERE c.organization_id=OLD.organization_id AND c.id=OLD.client_id FOR SHARE NOWAIT;
+  EXCEPTION WHEN lock_not_available THEN
+    RAISE EXCEPTION 'PROJECT_CLIENT_ACCESS_BUSY' USING ERRCODE='55P03';
+  END;
+  IF old_class IS NULL OR old_class NOT IN ('public','internal','confidential','restricted') THEN
+    RAISE EXCEPTION 'PROJECT_REPARENT_REQUIRES_CLIENT_OWNER' USING ERRCODE='42501';
+  END IF;
+  IF old_class IN ('confidential','restricted') AND NOT coalesce((
+    app.current_actor_type()='user' AND old_owner IS NOT NULL
+    AND old_owner=app.current_membership_id()
+    AND EXISTS(SELECT 1 FROM org.memberships m WHERE m.organization_id=OLD.organization_id
+      AND m.id=app.current_membership_id() AND m.status='active')),false) THEN
+    RAISE EXCEPTION 'PROJECT_REPARENT_REQUIRES_CLIENT_OWNER' USING ERRCODE='42501';
+  END IF;
+  RETURN NEW;
+END $$;
+--> statement-breakpoint
+REVOKE ALL ON FUNCTION work.guard_private_project_reparent() FROM PUBLIC;
+--> statement-breakpoint
+CREATE TRIGGER projects_private_reparent BEFORE UPDATE OF client_id ON work.projects
+  FOR EACH ROW EXECUTE FUNCTION work.guard_private_project_reparent();
+--> statement-breakpoint
 -- Clients/projects now enforce their own fresh ACL before returning a row. Reuse that single
 -- decision instead of the earlier conservative check that made even a restricted client's owner invisible.
 CREATE OR REPLACE FUNCTION knowledge.can_read_fact_subject(p_ref text) RETURNS boolean LANGUAGE sql STABLE AS $$

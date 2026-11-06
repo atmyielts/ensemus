@@ -1,7 +1,7 @@
 // 0209: real roles, explicit named access, fresh revocation and consistent lists/search/facts.
 import { randomUUID } from 'node:crypto';
 import pg from 'pg';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
   AppError,
@@ -14,6 +14,7 @@ import {
 } from '@ensemus/application';
 import { searchCompany } from '@ensemus/application/knowledge/company-search';
 import { getFact, proposeFact, reviewFact } from '@ensemus/application/knowledge/facts';
+import { linkNodes, traverseGraph } from '@ensemus/application/knowledge/graph';
 import {
   auditEvents,
   clientReaders,
@@ -233,6 +234,179 @@ describe('named client visibility on PostgreSQL application roles', () => {
       ),
     ).toEqual([reader.membershipId]);
   });
+  it.each(['confidential', 'restricted'] as const)(
+    'does not let a named reader or non-owning admin reparent a %s client project into public scope',
+    async (classification) => {
+      const privateClient = await makeClient(classification),
+        publicClient = await makeClient('public');
+      await setClientReaders(database.db, owner, {
+        clientId: privateClient.id,
+        expectedVersion: 1,
+        readerMembershipIds: [
+          reader.membershipId,
+          ...(classification === 'restricted' ? [admin.membershipId] : []),
+        ],
+      });
+      const project = await createProject(database.db, owner, {
+        name: 'Generated protected project',
+        clientId: privateClient.id,
+      });
+      if (!project) throw new Error('Project seed refused');
+      for (const person of [reader, admin]) {
+        expect((await listProjects(database.db, person)).some((row) => row.id === project.id)).toBe(
+          true,
+        );
+        for (const clientId of [null, publicClient.id]) {
+          let refusal: unknown;
+          try {
+            await withTenantTx(database.db, person, (tx) =>
+              tx.update(projects).set({ clientId }).where(eq(projects.id, project.id)),
+            );
+          } catch (error) {
+            refusal = error;
+          }
+          expect(pgCode(refusal)).toBe('42501');
+          expect(
+            (await listProjects(database.db, owner)).find((row) => row.id === project.id)?.clientId,
+          ).toBe(privateClient.id);
+        }
+      }
+      // A delegated run may read as its initiating owner, but does not acquire the owner's human consent.
+      const delegated = await createDelegatedContext(
+        database.db,
+        owner.organizationId,
+        owner.membershipId,
+      );
+      let refusal: unknown;
+      try {
+        await withTenantTx(database.db, delegated, (tx) =>
+          tx.update(projects).set({ clientId: null }).where(eq(projects.id, project.id)),
+        );
+      } catch (error) {
+        refusal = error;
+      }
+      expect(pgCode(refusal)).toBe('42501');
+      let unboundActor: unknown;
+      try {
+        await withTenantTx(database.db, owner, async (tx) => {
+          await tx.execute(sql`select set_config('app.actor_type','',true)`);
+          await tx.update(projects).set({ clientId: null }).where(eq(projects.id, project.id));
+        });
+      } catch (error) {
+        unboundActor = error;
+      }
+      expect(pgCode(unboundActor)).toBe('42501');
+      expect(
+        await withTenantTx(database.db, owner, (tx) =>
+          tx
+            .update(projects)
+            .set({ clientId: publicClient.id })
+            .where(eq(projects.id, project.id))
+            .returning({ id: projects.id }),
+        ),
+      ).toEqual([{ id: project.id }]);
+      expect(
+        (await listProjects(database.db, reader)).find((row) => row.id === project.id)?.clientId,
+      ).toBe(publicClient.id);
+    },
+  );
+  it('allows explicit service import authority and the actual owner to detach a private project', async () => {
+    const privateClient = await makeClient(),
+      project = await createProject(database.db, owner, {
+        name: 'Generated service project',
+        clientId: privateClient.id,
+      });
+    if (!project) throw new Error('Project seed refused');
+    const service = createServiceContext(owner.organizationId);
+    expect(
+      await withTenantTx(database.db, service, (tx) =>
+        tx
+          .update(projects)
+          .set({ clientId: null })
+          .where(eq(projects.id, project.id))
+          .returning({ id: projects.id }),
+      ),
+    ).toEqual([{ id: project.id }]);
+    await withTenantTx(database.db, owner, (tx) =>
+      tx.update(projects).set({ clientId: privateClient.id }).where(eq(projects.id, project.id)),
+    );
+    expect(
+      await withTenantTx(database.db, owner, (tx) =>
+        tx
+          .update(projects)
+          .set({ clientId: null })
+          .where(eq(projects.id, project.id))
+          .returning({ id: projects.id }),
+      ),
+    ).toEqual([{ id: project.id }]);
+    const foreignClient = await createClient(database.db, foreign, {
+      displayName: 'Generated foreign client',
+      classification: 'public',
+    });
+    if (!foreignClient) throw new Error('Foreign client seed refused');
+    for (const [person, expectedCode] of [
+      [owner, '42501'],
+      [service, '23503'],
+    ] as const) {
+      let refusal: unknown;
+      try {
+        await withTenantTx(database.db, person, (tx) =>
+          tx
+            .update(projects)
+            .set({ clientId: foreignClient.id })
+            .where(eq(projects.id, project.id)),
+        );
+      } catch (error) {
+        refusal = error;
+      }
+      expect(pgCode(refusal)).toBe(expectedCode);
+      expect(
+        (await listProjects(database.db, owner)).find((row) => row.id === project.id)?.clientId,
+      ).toBeNull();
+    }
+  });
+  it('refuses client-lock contention and rechecks the committed classification on the next request', async () => {
+    const client = await makeClient('internal');
+    await setClientReaders(database.db, owner, {
+      clientId: client.id,
+      expectedVersion: 1,
+      readerMembershipIds: [reader.membershipId],
+    });
+    const project = await createProject(database.db, owner, {
+      name: 'Generated classification race',
+      clientId: client.id,
+    });
+    if (!project) throw new Error('Project seed refused');
+    await withTenantTx(database.db, owner, async (tx) => {
+      await tx
+        .update(clients)
+        .set({ classification: 'restricted' })
+        .where(eq(clients.id, client.id));
+      // A second real app-role transaction sees the old committed classification, but must not
+      // authorize from it or wait project -> client while this transaction owns the client row.
+      let busy: unknown;
+      try {
+        await withTenantTx(database.db, reader, (other) =>
+          other.update(projects).set({ clientId: null }).where(eq(projects.id, project.id)),
+        );
+      } catch (error) {
+        busy = error;
+      }
+      expect(pgCode(busy)).toBe('55P03');
+    });
+    let refused: unknown;
+    try {
+      await withTenantTx(database.db, reader, (tx) =>
+        tx.update(projects).set({ clientId: null }).where(eq(projects.id, project.id)),
+      );
+    } catch (error) {
+      refused = error;
+    }
+    expect(pgCode(refused)).toBe('42501');
+    expect(
+      (await listProjects(database.db, owner)).find((row) => row.id === project.id)?.clientId,
+    ).toBe(client.id);
+  });
   it('acknowledges an identical duplicate form once and refuses a stale changed set without losing access', async () => {
     const client = await makeClient();
     const input = {
@@ -270,7 +444,8 @@ describe('named client visibility on PostgreSQL application roles', () => {
       classification: 'restricted',
     });
     if (!client) throw new Error('Client seed refused');
-    await createProject(database.db, owner, { name: keyword, clientId: client.id });
+    const project = await createProject(database.db, owner, { name: keyword, clientId: client.id });
+    if (!project) throw new Error('Project seed refused');
     const source = await seedSearchableSource(database.db, owner, {
       passages: ['Generated evidence passage'],
       grants: [{ kind: 'organization' }],
@@ -282,6 +457,20 @@ describe('named client visibility on PostgreSQL application roles', () => {
       origin: 'person',
       evidence: [{ chunkId: source.chunkIds[0]!, quoteStart: 0, quoteEnd: 9 }],
     });
+    await linkNodes(database.db, owner, {
+      from: { type: 'knowledge_source', id: source.sourceId },
+      relation: 'documents',
+      to: { type: 'client', id: client.id },
+    });
+    const graph = (context: TenantContext) =>
+      traverseGraph(database.db, context, {
+        from: { type: 'knowledge_source', id: source.sourceId },
+        depth: 2,
+        limit: 20,
+      });
+    const beforeGrant = await graph(reader);
+    expect(beforeGrant.nodes.map((node) => node.id)).toEqual([source.sourceId]);
+    expect(beforeGrant.edges).toEqual([]);
     expect(await searchCompany(database.db, reader, { query: keyword })).toEqual([]);
     await expect(getFact(database.db, reader, fact.factId)).rejects.toEqual(
       new AppError('NOT_FOUND'),
@@ -297,6 +486,27 @@ describe('named client visibility on PostgreSQL application roles', () => {
         .sort(),
     ).toEqual(['client', 'project']);
     expect((await getFact(database.db, reader, fact.factId)).claim).toBe('Generated claim');
+    const staleReaderContext = reader;
+    expect((await graph(staleReaderContext)).nodes.map((node) => node.id).sort()).toEqual(
+      [source.sourceId, client.id, project.id].sort(),
+    );
+    await setClientReaders(database.db, owner, {
+      clientId: client.id,
+      expectedVersion: 2,
+      readerMembershipIds: [],
+    });
+    expect(await searchCompany(database.db, staleReaderContext, { query: keyword })).toEqual([]);
+    await expect(getFact(database.db, staleReaderContext, fact.factId)).rejects.toEqual(
+      new AppError('NOT_FOUND'),
+    );
+    await expect(
+      traverseGraph(database.db, staleReaderContext, { from: { type: 'client', id: client.id } }),
+    ).rejects.toEqual(new AppError('NOT_FOUND'));
+    const revoked = await graph(staleReaderContext);
+    expect(revoked.nodes.map((node) => node.id)).toEqual([source.sourceId]);
+    expect(revoked.edges).toEqual([]);
+    expect(revoked.truncated).toBe(false);
+    expect(JSON.stringify(revoked)).not.toContain(keyword);
   });
   it('enforces ownership and active membership even for direct SQL without a returning clause', async () => {
     const client = await makeClient();
