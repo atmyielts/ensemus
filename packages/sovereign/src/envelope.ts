@@ -47,8 +47,7 @@ export type EnvelopeRefusal =
   | 'NOT_ENOUGH_SIGNATURES';
 
 export type EnvelopeVerdict =
-  | { ok: true; payload: Buffer; keys: readonly TrustedKey[] }
-  | { ok: false; code: EnvelopeRefusal };
+  { ok: true; payload: Buffer; keys: readonly TrustedKey[] } | { ok: false; code: EnvelopeRefusal };
 
 /**
  * Checks the signatures and nothing about the content. A signature from a key that is not in the trust

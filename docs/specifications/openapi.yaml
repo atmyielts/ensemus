@@ -1399,65 +1399,7 @@ components:
         id: {type: string, format: uuid}
         status: {type: string, enum: [requested, running, ready, failed, expired]}
         scope: {type: string, enum: [standard]}
-        recipient_key_id: {type: string, pattern: '^[0-9a-f]{32}    BadRequest:
-      description: Malformed path, query, header or body. details.fields names the fields, never their values.
-      content:
-        application/json:
-          schema: {$ref: '#/components/schemas/Error'}
-    Unauthorized:
-      description: No valid session
-      content:
-        application/json:
-          schema: {$ref: '#/components/schemas/Error'}
-    Forbidden:
-      description: Authorization or policy rejection
-      content:
-        application/json:
-          schema: {$ref: '#/components/schemas/Error'}
-    Conflict:
-      description: Concurrent update, dependency conflict, or an Idempotency-Key reused with a different request
-      content:
-        application/json:
-          schema: {$ref: '#/components/schemas/Error'}
-    Validation:
-      description: Input or model/tool compatibility validation failed
-      content:
-        application/json:
-          schema: {$ref: '#/components/schemas/Error'}
-    NotFound:
-      description: Missing or inaccessible resource; avoid existence leaks
-      content:
-        application/json:
-          schema: {$ref: '#/components/schemas/Error'}
-    PayloadTooLarge:
-      description: JSON body over the 256 KB limit
-      content:
-        application/json:
-          schema: {$ref: '#/components/schemas/Error'}
-    UnsupportedMediaType:
-      description: Body is not application/json
-      content:
-        application/json:
-          schema: {$ref: '#/components/schemas/Error'}
-    PreconditionRequired:
-      description: If-Match header missing
-      content:
-        application/json:
-          schema: {$ref: '#/components/schemas/Error'}
-    InternalError:
-      description: Something failed on the server. The answer holds no detail about what.
-      content:
-        application/json:
-          schema: {$ref: '#/components/schemas/Error'}
-    RestorePending:
-      description: >-
-        This organization's database was restored from a backup and is behind the tombstone ledger,
-        so nothing is served until an operator has re-applied the ledger. The code is RESTORE_PENDING,
-        the request did nothing, and it can be repeated. Only members of the organization see this.
-      content:
-        application/json:
-          schema: {$ref: '#/components/schemas/Error'}
-}
+        recipient_key_id: {type: string, pattern: '^[0-9a-f]{32}$'}
         requested_at: {type: string, format: date-time}
         finished_at: {type: [string, 'null'], format: date-time}
         expires_at: {type: [string, 'null'], format: date-time}

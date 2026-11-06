@@ -2,7 +2,12 @@
 // makes is marked `test_only`, which any page showing what it signed has to say out loud.
 import { generateKeyPairSync, sign, type KeyObject } from 'node:crypto';
 import { PAYLOAD_TYPES, preAuthEncoding, type SignedEnvelope } from './envelope';
-import { DOCUMENT_PURPOSES, parseTrustRoot, type DocumentPurpose, type TrustRoot } from './trust-root';
+import {
+  DOCUMENT_PURPOSES,
+  parseTrustRoot,
+  type DocumentPurpose,
+  type TrustRoot,
+} from './trust-root';
 
 export type TestSigningKey = { keyId: string; privateKey: KeyObject; publicKeyBase64: string };
 

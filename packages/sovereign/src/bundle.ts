@@ -61,6 +61,7 @@ export type InstallPlan =
       ok: false;
       code:
         | 'UPGRADE_PATH_NOT_LISTED'
+        | 'ROLLBACK_NOT_REQUESTED'
         | 'ROLLBACK_NOT_LISTED'
         | 'SAME_VERSION'
         | 'OUTSIDE_RIGHTS_REFUSED';
@@ -68,13 +69,17 @@ export type InstallPlan =
 
 /**
  * Works out what to do, as data, so every refusal is a unit test and the script only carries out the steps.
- * `installedVersion` null is a first install. A move to an older version is a rollback and needs that
- * version in `rollback_to`, which is what stops an old, unpatched bundle being replayed as an upgrade.
+ * `installed` null is a first install. A move to an older version is a rollback: the operator has to ask
+ * for one, and the version going away has to list the target in its own `rollback_to`. That is what stops an
+ * old, unpatched bundle being replayed as an upgrade, however good its signature still is.
  */
 export function planInstall(_input: {
+  /** The bundle being installed. */
   manifest: BundleManifest;
-  installedVersion: string | null;
-  /** From `evaluateUpdateRight`, or null where no license is installed, which is a warning and no more. */
+  /** From the verified manifest of what is running now. */
+  installed: { version: string; rollback_to: readonly string[] } | null;
+  rollbackRequested: boolean;
+  /** From `evaluateUpdateRight`, or null where no license is installed, which is no reason to stop. */
   onInstall: 'proceed' | 'warn' | 'refuse' | null;
 }): InstallPlan {
   throw new Error('NOT_IMPLEMENTED');

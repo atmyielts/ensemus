@@ -127,8 +127,10 @@ describe('update rights (OPS-11, SOV-05)', () => {
       'support_policy_grant',
     );
     expect(
-      verdict({ ...late, line: '2.1', version: '2.1.1' }, { policies: [policy('any_supported_line')] })
-        .covered,
+      verdict(
+        { ...late, line: '2.1', version: '2.1.1' },
+        { policies: [policy('any_supported_line')] },
+      ).covered,
     ).toBe(true);
   });
 
@@ -142,8 +144,10 @@ describe('update rights (OPS-11, SOV-05)', () => {
       security_patches_after_lapse_grant: 'none' as const,
     };
     expect(
-      verdict({ published_on: '2028-03-01', security: true }, { license: granted, policies: [none] })
-        .covered,
+      verdict(
+        { published_on: '2028-03-01', security: true },
+        { license: granted, policies: [none] },
+      ).covered,
     ).toBe(true);
   });
 

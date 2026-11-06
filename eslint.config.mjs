@@ -51,7 +51,8 @@ const webOffSovereignTools = {
     '@ensemus/sovereign/sealed',
     '@ensemus/sovereign/tar',
   ],
-  message: 'Operator tools run in operator commands. The web tier checks signatures only (ADR-030).',
+  message:
+    'Operator tools run in operator commands. The web tier checks signatures only (ADR-030).',
 };
 const sovereignReach = {
   group: [
@@ -165,7 +166,15 @@ export default tseslint.config(
   restrict(['packages/auth/**/*.ts'], [rawDatabase, temporal, broker]),
   restrict(
     ['apps/web/**/*.{ts,tsx}'],
-    [rawDatabase, authDatabase, temporal, broker, connectorCode, vendorIssuer, webOffSovereignTools],
+    [
+      rawDatabase,
+      authDatabase,
+      temporal,
+      broker,
+      connectorCode,
+      vendorIssuer,
+      webOffSovereignTools,
+    ],
   ),
   restrict(
     ['workers/**/*.ts', 'packages/workflows/**/*.ts'],
@@ -196,9 +205,13 @@ export default tseslint.config(
   },
   // packages/sovereign has no network, so nothing in it can phone home (SEC-05, ADR-030 D4). The rule set
   // replaces the general one for these files, so it has to name that one's rules too.
-  restrict(['packages/sovereign/**/*.ts'], [sovereignReach, rawNetwork, rawDatabase, authDatabase]),
+  // The operator's standalone tools hold to the same rule, since they run on the same isolated machine.
+  restrict(
+    ['packages/sovereign/**/*.ts', 'workers/workflow/src/tools/**/*.ts'],
+    [sovereignReach, rawNetwork, rawDatabase, authDatabase, vendorIssuer],
+  ),
   {
-    files: ['packages/sovereign/**/*.ts'],
+    files: ['packages/sovereign/**/*.ts', 'workers/workflow/src/tools/**/*.ts'],
     rules: {
       'no-restricted-globals': [
         'error',

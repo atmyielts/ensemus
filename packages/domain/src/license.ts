@@ -157,10 +157,7 @@ export function maintenanceStatus(
 }
 
 export type UpdateRightBasis =
-  | 'licensed_release'
-  | 'maintenance'
-  | 'security_after_lapse'
-  | 'support_policy_grant';
+  'licensed_release' | 'maintenance' | 'security_after_lapse' | 'support_policy_grant';
 
 export type UpdateRightVerdict = {
   covered: boolean;
@@ -198,12 +195,12 @@ export function evaluateUpdateRight(input: {
   }
 
   const newMajor =
-    Number(release.version.split('.')[0]) >
-    Number(license.licensed_release.version.split('.')[0]);
+    Number(release.version.split('.')[0]) > Number(license.licensed_release.version.split('.')[0]);
   const maintenanceReaches = !newMajor || rights.major_versions_with_maintenance === 'included';
   if (maintenanceReaches) {
     const during = agreements.filter(
-      ({ starts_on, ends_on }) => starts_on <= release.published_on && release.published_on <= ends_on,
+      ({ starts_on, ends_on }) =>
+        starts_on <= release.published_on && release.published_on <= ends_on,
     );
     const kept =
       rights.releases_published_during_maintenance === 'kept_after_lapse'

@@ -175,7 +175,7 @@ An archive in the store also has to respect a later deletion. So it has a retent
 - **A new package**, `@ensemus/sovereign`, which depends only on the domain and `zod`, so its tools can be bundled and run on an isolated machine. **No new third-party dependency**, so `check:licenses` needs no entry.
 - **A new schema**, `sovereign`, with reviewed SQL in migrations `0300` and `0301`, and no new database role.
 - **Three new settings**, all optional, and one new operator mount (the trust root).
-- **Two new object prefixes**: `organization-exports/v1/`, and the bundle's own files on the operator's disk.
+- **One new object prefix**, `organization-exports/v1/`, which the web and worker identities reach and the ledger identity does not.
 - **Migrations are not in the journal yet.** The final merge stitches `meta/`. Until then these tables do not exist in any database a test starts, so integration tests in this milestone cannot pass on a slice's own branch. They are written and typechecked, and count as unverified.
 
 ## Reversal

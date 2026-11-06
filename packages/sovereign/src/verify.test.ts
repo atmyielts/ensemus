@@ -19,13 +19,20 @@ const signedLicense = signForTest('license', testLicense(), [key]);
 describe('a signed license', () => {
   it('verifies with only a public key, and says it was signed with a test key', () => {
     const verdict = verifyDocument('license', signedLicense, root);
-    expect(verdict).toMatchObject({ ok: true, keyIds: ['key-a'], testKey: true, retiredKey: false });
+    expect(verdict).toMatchObject({
+      ok: true,
+      keyIds: ['key-a'],
+      testKey: true,
+      retiredKey: false,
+    });
     if (verdict.ok) expect(verdict.document.term.kind).toBe('perpetual');
   });
 
   it('refuses one changed byte, from any field', () => {
     const envelope = JSON.parse(signedLicense) as { payload: string };
-    const changed = Buffer.from(envelope.payload, 'base64').toString('utf8').replace('2.0.0', '3.0.0');
+    const changed = Buffer.from(envelope.payload, 'base64')
+      .toString('utf8')
+      .replace('2.0.0', '3.0.0');
     const forged = JSON.stringify({
       ...envelope,
       payload: Buffer.from(changed).toString('base64'),
@@ -72,10 +79,12 @@ describe('a signed license', () => {
   });
 
   it('refuses signed content that is not a license', () => {
-    expect(verifyDocument('license', signForTest('license', { format: 'x' }, [key]), root)).toEqual({
-      ok: false,
-      code: 'CONTENT_INVALID',
-    });
+    expect(verifyDocument('license', signForTest('license', { format: 'x' }, [key]), root)).toEqual(
+      {
+        ok: false,
+        code: 'CONTENT_INVALID',
+      },
+    );
     expect(
       verifyDocument('license', signForTest('license', Buffer.from('nope'), [key]), root),
     ).toEqual({ ok: false, code: 'CONTENT_INVALID' });
@@ -84,7 +93,9 @@ describe('a signed license', () => {
 
 describe('what a customer on an old release keeps', () => {
   it('reads a later issue with fields it has never heard of', () => {
-    const later = signForTest('license', testLicense({ added_in_a_later_version: { a: 1 } }), [key]);
+    const later = signForTest('license', testLicense({ added_in_a_later_version: { a: 1 } }), [
+      key,
+    ]);
     expect(verifyDocument('license', later, root).ok).toBe(true);
   });
 
@@ -154,13 +165,19 @@ describe('a second signature, if the owner decides on one', () => {
 
 describe('a maintenance statement', () => {
   it('verifies alone, so renewing touches no license', () => {
-    const verdict = verifyDocument('maintenance', signForTest('maintenance', testMaintenance(), [key]), root);
+    const verdict = verifyDocument(
+      'maintenance',
+      signForTest('maintenance', testMaintenance(), [key]),
+      root,
+    );
     expect(verdict.ok).toBe(true);
   });
 
   it('refuses an end before its start', () => {
     const backwards = testMaintenance({ starts_on: '2027-12-31', ends_on: '2027-01-01' });
-    expect(verifyDocument('maintenance', signForTest('maintenance', backwards, [key]), root)).toEqual({
+    expect(
+      verifyDocument('maintenance', signForTest('maintenance', backwards, [key]), root),
+    ).toEqual({
       ok: false,
       code: 'CONTENT_INVALID',
     });
@@ -175,10 +192,7 @@ describe('the trust root', () => {
   it.each([
     ['not json', 'nope'],
     ['no keys', JSON.stringify({ format: 'ensemus.trust_root', format_version: 1, keys: [] })],
-    [
-      'the same key twice',
-      testTrustRootText([key, key]),
-    ],
+    ['the same key twice', testTrustRootText([key, key])],
     [
       'a key that is not Ed25519',
       JSON.stringify({

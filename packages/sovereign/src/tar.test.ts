@@ -3,7 +3,11 @@ import { readTarEntries, tarEnd, tarHeader, tarPadding, TarRefused, type TarEntr
 
 const archive = (files: readonly [string, Buffer][]) =>
   Buffer.concat([
-    ...files.flatMap(([name, body]) => [tarHeader(name, body.length), body, tarPadding(body.length)]),
+    ...files.flatMap(([name, body]) => [
+      tarHeader(name, body.length),
+      body,
+      tarPadding(body.length),
+    ]),
     tarEnd(),
   ]);
 
