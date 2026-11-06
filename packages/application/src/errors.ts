@@ -24,7 +24,13 @@ export type ErrorCode =
   | 'REVIEW_ALREADY_OPEN'
   | 'INVITATION_INVALID'
   | 'LAST_OWNER'
-  | 'RESTORE_PENDING';
+  | 'RESTORE_PENDING'
+  | 'EXTERNAL_ACTION_NOT_EDITABLE'
+  | 'EXTERNAL_ACTION_NOT_RESOLVABLE'
+  | 'EXTERNAL_ACTION_NOT_RETRYABLE'
+  | 'CONNECTION_NOT_ACTIVE'
+  | 'CONNECTOR_NOT_AVAILABLE'
+  | 'RESTRICTED_NOT_ALLOWED';
 
 const MESSAGES: Record<ErrorCode, string> = {
   NOT_FOUND: 'Not found or not permitted.',
@@ -53,6 +59,13 @@ const MESSAGES: Record<ErrorCode, string> = {
   LAST_OWNER: 'An organization must keep at least one owner.',
   RESTORE_PENDING:
     'This organization is being restored from a backup, and is unavailable until that is finished.',
+  EXTERNAL_ACTION_NOT_EDITABLE:
+    'This can no longer be changed, because Ensemus has already tried to send it.',
+  EXTERNAL_ACTION_NOT_RESOLVABLE: 'Only an action in an unknown state can be resolved.',
+  EXTERNAL_ACTION_NOT_RETRYABLE: 'Only an action that was not sent can be asked for again.',
+  CONNECTION_NOT_ACTIVE: 'This connection is not active.',
+  CONNECTOR_NOT_AVAILABLE: 'This connector is not available on this deployment.',
+  RESTRICTED_NOT_ALLOWED: 'Restricted work cannot be sent outside this deployment.',
 };
 
 export class AppError extends Error {
@@ -99,6 +112,12 @@ export const HTTP_STATUS: Record<ErrorCode, number> = {
   INVITATION_INVALID: 400,
   LAST_OWNER: 409,
   RESTORE_PENDING: 503,
+  EXTERNAL_ACTION_NOT_EDITABLE: 409,
+  EXTERNAL_ACTION_NOT_RESOLVABLE: 409,
+  EXTERNAL_ACTION_NOT_RETRYABLE: 409,
+  CONNECTION_NOT_ACTIVE: 409,
+  CONNECTOR_NOT_AVAILABLE: 409,
+  RESTRICTED_NOT_ALLOWED: 403,
 };
 
 /** Reads the Postgres error code through the wrapper Drizzle adds. */

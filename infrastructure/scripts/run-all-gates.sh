@@ -24,7 +24,7 @@ gate() {
 compose_files=(-f infrastructure/compose/compose.yaml -f infrastructure/compose/compose.test.yaml)
 
 clean_stack() {
-  docker compose "${compose_files[@]}" -f infrastructure/compose/compose.airgap.yaml --profile test-oidc \
+  docker compose "${compose_files[@]}" -f infrastructure/compose/compose.airgap.yaml --profile test-oidc --profile connectors \
     down -v --remove-orphans >/dev/null 2>&1
 }
 
@@ -44,6 +44,14 @@ browser_tests() {
     pnpm --filter @ensemus/browser-tests exec playwright install chromium &&
     pnpm test:browser
 }
+
+connectors_tests() (
+  export COMPOSE_PROFILES=connectors ENSEMUS_CONNECTORS_ENABLED=true
+  docker compose "${compose_files[@]}" up -d --build --wait --wait-timeout 300 &&
+    pnpm stack:slice-2 &&
+    pnpm --filter @ensemus/browser-tests exec playwright install chromium &&
+    pnpm --filter @ensemus/browser-tests exec playwright test specs/external-actions.spec.ts
+)
 
 manifest_is_current() {
   node docs/specifications/tools/regenerate-manifest.mjs && git diff --exit-code docs/MANIFEST.json
@@ -71,6 +79,8 @@ gate "air-gap: stack tests and outages, zero outbound" fresh node infrastructure
 # Only reads the images the air-gap gate built, so it needs no stack.
 gate "SBOMs and offline signature check" node infrastructure/scripts/build-release.mjs
 gate "browser tests in Chromium" fresh browser_tests
+gate "connector effects, receipts and browser" fresh connectors_tests
+gate "connector air-gap: relay only, zero outbound" fresh node infrastructure/scripts/air-gap-gate.mjs --connectors
 # main holds only the specification so far. Drop --from once a release is on main.
 gate "paused approval across a release upgrade" node infrastructure/scripts/upgrade-gate.mjs --from a603fc9
 

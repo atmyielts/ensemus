@@ -9,6 +9,8 @@
   "dependencies": {
     "@ensemus/application": "workspace:*",
     "@ensemus/auth": "workspace:*",
+    "@ensemus/connectors": "workspace:*",
+    "@ensemus/contracts": "workspace:*",
     "@ensemus/database": "workspace:*",
     "@ensemus/domain": "workspace:*",
     "@ensemus/secrets": "workspace:*",

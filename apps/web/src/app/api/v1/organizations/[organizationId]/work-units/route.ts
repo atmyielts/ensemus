@@ -42,11 +42,13 @@ const createBody = z.strictObject({
     .strictObject({
       artifact_exists: z.boolean().optional(),
       reviewer_approved: z.boolean().optional(),
+      // The service refuses this unless the tenant has a connection that can act (ADR-027 D6).
+      external_receipt: z.boolean().optional(),
     })
     .optional(),
 });
 
-const CRITERIA = ['artifact_exists', 'reviewer_approved'] as const;
+const CRITERIA = ['artifact_exists', 'reviewer_approved', 'external_receipt'] as const;
 
 export const POST = apiRoute(organizationParams, async ({ request, context, database }) => {
   const body = await readJson(request, createBody);
@@ -63,7 +65,10 @@ export const POST = apiRoute(organizationParams, async ({ request, context, data
       createWorkUnit(joined, context, {
         title: body.title,
         objective: body.objective,
-        completionCriteria: CRITERIA.filter((kind) => required?.[kind]).map((kind) => ({ kind })),
+        // The service holds the real list, and decides whether this tenant may ask for each one.
+        completionCriteria: CRITERIA.filter((kind) => required?.[kind]).map((kind) => ({
+          kind,
+        })) as Array<{ kind: 'artifact_exists' }>,
         ...(body.project_id ? { projectId: body.project_id } : {}),
         ...(dueAt ? { dueAt } : {}),
       }),

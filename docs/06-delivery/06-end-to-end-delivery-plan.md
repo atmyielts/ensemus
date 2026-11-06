@@ -1,6 +1,6 @@
 # Ensemus 2.0: end-to-end delivery plan
 
-**Status, updated 2026-11-06:** approved by the project owner on 2026-11-05. M0's document changes are applied. Product code exists: **M2 is the current implementation milestone, under verification.** M1's outside security review, legal entity/jurisdiction and signing-key custody decisions remain open. Only throwaway test credentials may be used. In this plan, "you" means the project owner.
+**Status, updated 2026-11-06:** approved by the project owner on 2026-11-05. M0's document changes are applied. Product code exists: **M3 is the current integration milestone.** The owner has requested continued implementation of the entire platform, including Claude's unfinished later milestones. M1's outside security review and signing-key custody decisions remain open. Legal entity/jurisdiction and data residency are deferred deployment settings at the owner's direction; no values have been invented. Only throwaway test credentials are used. In this plan, "you" means the project owner.
 
 Implementation evidence is recorded separately from the planned scope below:
 
@@ -8,7 +8,7 @@ Implementation evidence is recorded separately from the planned scope below:
 |---|---|---|
 | M1 | Foundation implemented; milestone remains open | [M1 report](evidence/M1-report.md), including outside review and owner decisions |
 | M2 | Core implemented; committed baseline passed CI; continuation checks passed locally | [M2 report](evidence/M2-report.md). Exact email-recipient scenario QA-007 remains partial until M3; no overall sign-off claimed |
-| M3 | Implementation exists on local branch `m3-verified-actions` (`78b38e9`); not integrated into this checkout | Its report still records merged CI/connector/browser acceptance as unverified. Integrate and verify after the M2 technical handoff |
+| M3 | Integrating `m3-verified-actions` (`78b38e9`) with newer M2 fixes on `codex/platform-completion` | [Platform progress](platform-completion-progress.md); merged quality/integration/connector/fault/browser gates are being run. No milestone acceptance claimed |
 | M4–M11 | Separate local branches/worktrees contain preparatory and partial implementation work | Branch names and commits do not establish milestone acceptance; follow dependency order and verify each integrated result |
 
 Ticket IDs refer to the [reconciled backlog](../specifications/implementation-backlog.csv), whose `milestone` column is authoritative. Run `node specifications/tools/check-backlog.mjs` to validate it.
@@ -132,6 +132,8 @@ Every milestone must meet the spec's [Definition of Done](../06-delivery/03-acce
 **Tickets:** `CONNECT-01/02/06`, `WORK-08`.
 
 **Exit:** Slice 2 passes. `QA-007`, `QA-008`, `QA-019` and `AI-TS-01` pass, with fault injection at timeout-after-send.
+
+**How the exit is proved:** [ADR-027](../00-foundation/adr/ADR-027-verified-external-actions.md) holds the decisions, and [M3 slices](m3-slices.md) how the work was divided. `tests/stack/slice-2.test.ts` runs the exit on real containers, in CI's `connectors` job, with a test relay that takes mail and then goes silent. [The M3 report](evidence/M3-report.md) says what has actually run. M3 is not closed until that report shows it. Email here is an action a person approves. Notification email is not in M3.
 
 ### M4: Governed AI (XL)
 

@@ -8,7 +8,9 @@ info:
     accept a browser session cookie, with writes also checked against the Origin header. Bearer tokens are
     not accepted yet. An operation marked x-ensemus-status planned is an architectural specification and
     does not exist yet. Real responses from every other operation are validated against this file by
-    tests/stack/api.test.ts, and tests/unit/openapi-contract.test.ts keeps the two lists honest.
+    tests/stack/api.test.ts, and tests/unit/openapi-contract.test.ts keeps the two lists honest. The public
+    webhook address, POST /api/webhooks/{token}, is not here: it takes no session, it is not a client API,
+    and it answers only 202, 404, 413 and 429 with no body, so a stranger learns nothing (ADR-027 D4).
 servers:
   - url: https://ensemus.example.invalid/api/v1
     description: Illustrative placeholder; not a live endpoint.
@@ -18,6 +20,8 @@ tags:
   - name: work
   - name: agents
   - name: approvals
+  - name: external-actions
+  - name: connections
   - name: knowledge
   - name: models
   - name: commercial
@@ -341,6 +345,330 @@ paths:
         '415': {$ref: '#/components/responses/UnsupportedMediaType'}
         '500': {$ref: '#/components/responses/InternalError'}
         '503': {$ref: '#/components/responses/RestorePending'}
+  /organizations/{organization_id}/work-units/{work_unit_id}/external-actions:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+      - $ref: '#/components/parameters/WorkUnitID'
+    post:
+      tags: [external-actions]
+      summary: Propose an email, for a named person to approve exactly as written
+      parameters: [{$ref: '#/components/parameters/IdempotencyKey'}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ProposeEmailAction'}
+      responses:
+        '201':
+          description: Proposed. Nothing has been sent, and nothing is sent without that approval.
+          headers:
+            ETag: {$ref: '#/components/headers/ETag'}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ProposedExternalAction'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '413': {$ref: '#/components/responses/PayloadTooLarge'}
+        '415': {$ref: '#/components/responses/UnsupportedMediaType'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+  /organizations/{organization_id}/external-actions:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+    get:
+      tags: [external-actions]
+      summary: External actions on work the caller can read
+      parameters:
+        - name: cursor
+          in: query
+          schema: {type: string, minLength: 1, maxLength: 512}
+        - name: status
+          in: query
+          schema: {$ref: '#/components/schemas/ExternalActionStatus'}
+        - name: work_unit_id
+          in: query
+          schema: {type: string, format: uuid}
+      responses:
+        '200':
+          description: Permission-filtered page
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [items, next_cursor]
+                properties:
+                  items: {type: array, items: {$ref: '#/components/schemas/ExternalActionSummary'}}
+                  next_cursor: {type: [string, 'null']}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+  /organizations/{organization_id}/external-actions/{external_action_id}:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+      - $ref: '#/components/parameters/ExternalActionID'
+    get:
+      tags: [external-actions]
+      summary: One external action, with its exact payload and every receipt
+      responses:
+        '200':
+          description: The action. `unknown` means nobody can say whether it was sent.
+          headers:
+            ETag: {$ref: '#/components/headers/ETag'}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ExternalAction'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+  /organizations/{organization_id}/external-actions/{external_action_id}/revisions:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+      - $ref: '#/components/parameters/ExternalActionID'
+    post:
+      tags: [external-actions]
+      summary: Change what would be sent. This closes the action and its approval, and asks for a new one
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ReviseEmailAction'}
+      responses:
+        '201':
+          description: A new action, waiting for its own approval. The old one can no longer be sent.
+          headers:
+            ETag: {$ref: '#/components/headers/ETag'}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ProposedExternalAction'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '413': {$ref: '#/components/responses/PayloadTooLarge'}
+        '415': {$ref: '#/components/responses/UnsupportedMediaType'}
+        '428': {$ref: '#/components/responses/PreconditionRequired'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+  /organizations/{organization_id}/external-actions/{external_action_id}/resolution:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+      - $ref: '#/components/parameters/ExternalActionID'
+    post:
+      tags: [external-actions]
+      summary: Say what happened to an action in the unknown state. It never sends anything
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [resolution, reason]
+              properties:
+                resolution: {type: string, enum: [confirmed_sent, confirmed_not_sent]}
+                reason: {type: string, minLength: 1, maxLength: 2000}
+      responses:
+        '200':
+          description: Recorded, as this person's word
+          headers:
+            ETag: {$ref: '#/components/headers/ETag'}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ExternalAction'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '413': {$ref: '#/components/responses/PayloadTooLarge'}
+        '415': {$ref: '#/components/responses/UnsupportedMediaType'}
+        '428': {$ref: '#/components/responses/PreconditionRequired'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+  /organizations/{organization_id}/external-actions/{external_action_id}/retries:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+      - $ref: '#/components/parameters/ExternalActionID'
+    post:
+      tags: [external-actions]
+      summary: Ask again for an action that ended failed, as a new action with a new approval
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [approver_membership_id]
+              properties:
+                approver_membership_id: {type: string, format: uuid}
+      responses:
+        '201':
+          description: A new action, waiting for its own approval
+          headers:
+            ETag: {$ref: '#/components/headers/ETag'}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ProposedExternalAction'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '413': {$ref: '#/components/responses/PayloadTooLarge'}
+        '415': {$ref: '#/components/responses/UnsupportedMediaType'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+  /organizations/{organization_id}/connections:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+    get:
+      tags: [connections]
+      summary: Connections in this organization, without their credentials
+      responses:
+        '200':
+          description: Connections
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [items]
+                properties:
+                  items: {type: array, items: {$ref: '#/components/schemas/Connection'}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+    post:
+      tags: [connections]
+      summary: Add a connection. A credential is sealed on arrival and can never be read back
+      parameters: [{$ref: '#/components/parameters/IdempotencyKey'}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [connector_type, display_name, config]
+              properties:
+                connector_type: {type: string, pattern: '^[a-z][a-z0-9_]{1,63}$'}
+                display_name: {type: string, minLength: 1, maxLength: 120}
+                config:
+                  type: object
+                  additionalProperties: true
+                  description: Checked against that connector's settings. It can never name a host.
+                credential: {type: string, minLength: 1, maxLength: 4096}
+      responses:
+        '201':
+          description: Connection, without its credential
+          headers:
+            ETag: {$ref: '#/components/headers/ETag'}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Connection'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '413': {$ref: '#/components/responses/PayloadTooLarge'}
+        '415': {$ref: '#/components/responses/UnsupportedMediaType'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+  /organizations/{organization_id}/connections/{connection_id}:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+      - $ref: '#/components/parameters/ConnectionID'
+    get:
+      tags: [connections]
+      summary: One connection, without its credential
+      responses:
+        '200':
+          description: Connection
+          headers:
+            ETag: {$ref: '#/components/headers/ETag'}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Connection'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+    delete:
+      tags: [connections]
+      summary: Revoke a connection. Nothing not yet attempted goes out through it after this
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      responses:
+        '204': {description: Revoked}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '428': {$ref: '#/components/responses/PreconditionRequired'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+  /organizations/{organization_id}/connections/{connection_id}/sync:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+      - $ref: '#/components/parameters/ConnectionID'
+    post:
+      tags: [connections]
+      summary: Ask a connection to read its source now
+      responses:
+        '202': {description: Asked. The connection's state shows how it went.}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+  /organizations/{organization_id}/connections/{connection_id}/webhook-endpoints:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+      - $ref: '#/components/parameters/ConnectionID'
+    post:
+      tags: [connections]
+      summary: Make a callback address. Its URL and signing secret are shown here once, and never again
+      responses:
+        '201':
+          description: The address and its secret. Only hashes and sealed values are kept.
+          headers:
+            Cache-Control:
+              description: This response holds secrets, so nothing may keep it.
+              required: true
+              schema: {type: string, const: no-store}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/CreatedWebhookEndpoint'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
   /organizations/{organization_id}/knowledge/search:
     parameters:
       - $ref: '#/components/parameters/OrganizationID'
@@ -443,6 +771,27 @@ components:
       in: header
       required: true
       schema: {type: string, minLength: 8, maxLength: 128}
+    IfMatch:
+      name: If-Match
+      in: header
+      required: true
+      description: The version last read, as sent in the ETag response header. Weak tags, lists and * are refused.
+      schema: {type: string}
+    WorkUnitID:
+      name: work_unit_id
+      in: path
+      required: true
+      schema: {type: string, format: uuid}
+    ExternalActionID:
+      name: external_action_id
+      in: path
+      required: true
+      schema: {type: string, format: uuid}
+    ConnectionID:
+      name: connection_id
+      in: path
+      required: true
+      schema: {type: string, format: uuid}
   schemas:
     CreateWorkUnit:
       type: object
@@ -460,6 +809,11 @@ components:
           properties:
             artifact_exists: {type: boolean}
             reviewer_approved: {type: boolean}
+            external_receipt:
+              type: boolean
+              description: >-
+                The outside system confirms it happened. Accepted only when this organization has an
+                active connection that can act, because nothing else could ever satisfy it.
     PendingApproval:
       type: object
       additionalProperties: false
@@ -518,6 +872,154 @@ components:
             it finished before this was recorded.
         confirmed_by_membership_id: {type: [string, 'null'], format: uuid}
         confirmed_at: {type: string, format: date-time}
+    EmailContent:
+      type: object
+      additionalProperties: false
+      required: [to, subject, text_body]
+      description: Plain text, with no attachments. The sender comes from the connection.
+      properties:
+        to: {type: array, minItems: 1, maxItems: 50, items: {type: string, format: email}}
+        cc: {type: array, maxItems: 50, items: {type: string, format: email}}
+        bcc: {type: array, maxItems: 50, items: {type: string, format: email}}
+        reply_to: {type: string, format: email}
+        subject: {type: string, minLength: 1, maxLength: 200}
+        text_body: {type: string, minLength: 1, maxLength: 200000}
+    ProposeEmailAction:
+      type: object
+      additionalProperties: false
+      required: [connection_id, approver_membership_id, email]
+      properties:
+        connection_id: {type: string, format: uuid}
+        approver_membership_id: {type: string, format: uuid}
+        email: {$ref: '#/components/schemas/EmailContent'}
+    ReviseEmailAction:
+      type: object
+      additionalProperties: false
+      required: [approver_membership_id, email]
+      properties:
+        approver_membership_id: {type: string, format: uuid}
+        email: {$ref: '#/components/schemas/EmailContent'}
+    ProposedExternalAction:
+      type: object
+      additionalProperties: false
+      required: [id, approval_id, request_hash, status]
+      properties:
+        id: {type: string, format: uuid}
+        approval_id: {type: string, format: uuid}
+        request_hash: {type: string, description: What the approval binds. It covers every field sent.}
+        status: {$ref: '#/components/schemas/ExternalActionStatus'}
+    ExternalActionStatus:
+      type: string
+      enum: [awaiting_approval, ready, sending, reconciling, sent, failed, unknown, cancelled]
+      description: >-
+        `sent` means the provider accepted it, which for email is the mail server taking it and not
+        the message reaching an inbox. `failed` means it was not sent. `unknown` means it could have
+        gone and the provider cannot say, so it waits for a person and is never sent again by itself.
+    ExternalActionSummary:
+      type: object
+      additionalProperties: false
+      required: [id, work_unit_id, work_title, tool_name, status, status_reason, version, created_at, updated_at]
+      properties:
+        id: {type: string, format: uuid}
+        work_unit_id: {type: string, format: uuid}
+        work_title: {type: string}
+        tool_name: {type: string}
+        status: {$ref: '#/components/schemas/ExternalActionStatus'}
+        status_reason: {type: [string, 'null'], description: A code from a fixed list. Never provider text.}
+        version: {type: integer, minimum: 1}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+    ExternalActionReceipt:
+      type: object
+      additionalProperties: false
+      required: [outcome, basis, code, provider_status, external_id, actor_name, recorded_at]
+      properties:
+        outcome: {type: string, enum: [sent, failed, unknown, cancelled]}
+        basis:
+          type: string
+          enum: [provider, reconciliation, person, system]
+          description: Whose word this is. `person` is what someone said they found, not a provider's answer.
+        code: {type: [string, 'null']}
+        provider_status: {type: [integer, 'null']}
+        external_id: {type: [string, 'null'], description: For email, the Message-ID to search for.}
+        actor_name: {type: [string, 'null']}
+        recorded_at: {type: string, format: date-time}
+    ExternalAction:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - work_unit_id
+        - work_title
+        - tool_name
+        - status
+        - status_reason
+        - version
+        - created_at
+        - updated_at
+        - connection_name
+        - payload
+        - request_hash
+        - approval_id
+        - external_id
+        - supersedes_id
+        - retry_of_id
+        - attempt_count
+        - receipts
+        - resolution
+        - resolution_reason
+        - resolved_by_name
+        - can_resolve
+        - can_retry
+      properties:
+        id: {type: string, format: uuid}
+        work_unit_id: {type: string, format: uuid}
+        work_title: {type: string}
+        tool_name: {type: string}
+        status: {$ref: '#/components/schemas/ExternalActionStatus'}
+        status_reason: {type: [string, 'null']}
+        version: {type: integer, minimum: 1}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+        connection_name: {type: string}
+        payload:
+          type: object
+          additionalProperties: true
+          description: Exactly what the approval binds. It cannot be changed once created.
+        request_hash: {type: string}
+        approval_id: {type: [string, 'null'], format: uuid}
+        external_id: {type: [string, 'null']}
+        supersedes_id: {type: [string, 'null'], format: uuid}
+        retry_of_id: {type: [string, 'null'], format: uuid}
+        attempt_count: {type: integer, minimum: 0}
+        receipts: {type: array, items: {$ref: '#/components/schemas/ExternalActionReceipt'}}
+        resolution: {type: [string, 'null'], enum: [confirmed_sent, confirmed_not_sent, null]}
+        resolution_reason: {type: [string, 'null']}
+        resolved_by_name: {type: [string, 'null']}
+        can_resolve: {type: boolean}
+        can_retry: {type: boolean}
+    Connection:
+      type: object
+      additionalProperties: false
+      required: [id, connector_type, display_name, state, has_credential, last_error_code, version, created_at]
+      properties:
+        id: {type: string, format: uuid}
+        connector_type: {type: string}
+        display_name: {type: string}
+        state: {type: string, enum: [active, disabled, revoked]}
+        has_credential: {type: boolean}
+        last_error_code: {type: [string, 'null']}
+        version: {type: integer, minimum: 1}
+        created_at: {type: string, format: date-time}
+    CreatedWebhookEndpoint:
+      type: object
+      additionalProperties: false
+      required: [id, url, signing_secret, signature_scheme]
+      properties:
+        id: {type: string, format: uuid}
+        url: {type: string, description: Shown once. It holds the only copy of the token.}
+        signing_secret: {type: string, description: Shown once. Only a sealed copy is kept.}
+        signature_scheme: {type: string, enum: [ensemus_hmac_sha256_v1]}
     AgentRun:
       type: object
       required: [id, status, agent_version_id, work_unit_id]

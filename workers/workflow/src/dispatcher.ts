@@ -12,13 +12,29 @@ import {
   openDispatcherDatabase,
   type DispatchableEvent,
 } from '@ensemus/database/dispatcher';
+import {
+  AGGREGATE_CONNECTION,
+  AGGREGATE_EXTERNAL_ACTION,
+  AGGREGATE_WEBHOOK_DELIVERY,
+  CONNECTION_REVOKED,
+  CONNECTOR_SYNC_REQUESTED,
+  EXTERNAL_ACTION_READY,
+  WEBHOOK_RECEIVED,
+} from '@ensemus/domain/integration-events';
 import { TOMBSTONE_RECORDED } from '@ensemus/domain/tombstone-ledger';
 import { S3ObjectStore } from '@ensemus/storage';
 import { createLogger, errorCode } from '@ensemus/telemetry';
 import { AesGcmPayloadCodec } from '@ensemus/workflows/codec';
 import { PLATFORM_TASK_QUEUE } from '@ensemus/workflows/constants';
 import {
+  connectorRevokeWorkflowIdFor,
+  connectorSyncInputSchema,
+  connectorSyncWorkflowIdFor,
+  externalActionInputSchema,
+  externalActionWorkflowIdFor,
   reminderScheduleIdFor,
+  webhookDeliveryInputSchema,
+  webhookWorkflowIdFor,
   workflowIdFor,
   workInputSchema,
   type TenantInput,
@@ -94,6 +110,23 @@ async function main() {
     }
   };
 
+  /** Starts a workflow whose ID can only ever run once. Finding it started or finished is success. */
+  const startOnce = async <I>(
+    workflowType: string,
+    start: { input: I; workflowIdFor: (input: I) => string },
+  ) => {
+    try {
+      await client.workflow.start(workflowType, {
+        args: [start.input],
+        taskQueue: PLATFORM_TASK_QUEUE,
+        workflowId: start.workflowIdFor(start.input),
+        workflowIdReusePolicy: 'REJECT_DUPLICATE',
+      });
+    } catch (error) {
+      if (!(error instanceof WorkflowExecutionAlreadyStartedError)) throw error;
+    }
+  };
+
   const deliver = async (event: DispatchableEvent) => {
     const input: WorkInput | null =
       event.aggregateType === 'work_unit'
@@ -147,6 +180,63 @@ async function main() {
       case TOMBSTONE_RECORDED:
         await writeLedgerEntry(event);
         return;
+
+      // An effect belongs to one run, ever. A finished run stays finished, so an event delivered again
+      // can never start a second send, whatever this intent's row says by then (ADR-027 D2).
+      case EXTERNAL_ACTION_READY:
+        if (event.aggregateType !== AGGREGATE_EXTERNAL_ACTION) return;
+        await startOnce('externalActionWorkflow', {
+          input: externalActionInputSchema.parse({
+            organizationId: event.organizationId,
+            externalActionId: event.aggregateId,
+          }),
+          workflowIdFor: externalActionWorkflowIdFor,
+        });
+        return;
+
+      case WEBHOOK_RECEIVED:
+        if (event.aggregateType !== AGGREGATE_WEBHOOK_DELIVERY) return;
+        await startOnce('webhookDeliveryWorkflow', {
+          input: webhookDeliveryInputSchema.parse({
+            organizationId: event.organizationId,
+            deliveryId: event.aggregateId,
+          }),
+          workflowIdFor: webhookWorkflowIdFor,
+        });
+        return;
+
+      // Revoked is final, so this runs once, and an open sync run can never swallow it. That run may
+      // have read the row before the revoke committed, so it does not cover this, and this run does.
+      case CONNECTION_REVOKED:
+        if (event.aggregateType !== AGGREGATE_CONNECTION) return;
+        await startOnce('connectorSyncWorkflow', {
+          input: connectorSyncInputSchema.parse({
+            organizationId: event.organizationId,
+            connectionId: event.aggregateId,
+          }),
+          workflowIdFor: connectorRevokeWorkflowIdFor,
+        });
+        return;
+
+      // Unlike those, this one is run again each time something asks. An open run covers it.
+      case CONNECTOR_SYNC_REQUESTED: {
+        if (event.aggregateType !== AGGREGATE_CONNECTION) return;
+        const syncInput = connectorSyncInputSchema.parse({
+          organizationId: event.organizationId,
+          connectionId: event.aggregateId,
+        });
+        try {
+          await client.workflow.start('connectorSyncWorkflow', {
+            args: [syncInput],
+            taskQueue: PLATFORM_TASK_QUEUE,
+            workflowId: connectorSyncWorkflowIdFor(syncInput),
+            workflowIdReusePolicy: 'ALLOW_DUPLICATE',
+          });
+        } catch (error) {
+          if (!(error instanceof WorkflowExecutionAlreadyStartedError)) throw error;
+        }
+        return;
+      }
 
       default:
         // Nothing consumes this event yet. It stays in domain_events for projections.

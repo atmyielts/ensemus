@@ -18,9 +18,21 @@ function Pending() {
 /** The main navigation. It says which section you are in, both visibly and to a screen reader. */
 export function MainNav({ items }: { items: NavItem[] }) {
   const pathname = usePathname();
+  // Home is the organization's own address, and External actions sits after Approvals: both are where
+  // someone goes for a decision (ADR-027 D6). Everyone can open it, and it shows only what they can read.
+  const approvals = items.findIndex((item) => item.label === 'Approvals');
+  const base = items[0]?.href;
+  const all =
+    approvals >= 0 && base
+      ? [
+          ...items.slice(0, approvals + 1),
+          { href: `${base}/external-actions`, label: 'External actions' },
+          ...items.slice(approvals + 1),
+        ]
+      : items;
   return (
     <nav className="nav" aria-label="Main">
-      {items.map((item) => {
+      {all.map((item: NavItem) => {
         const current = item.exact
           ? pathname === item.href
           : pathname === item.href || pathname.startsWith(`${item.href}/`);

@@ -85,6 +85,27 @@
       "when": 1793965199928,
       "tag": "0011_approvals_by_work",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1793968515493,
+      "tag": "0012_verified_external_actions",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1793968553350,
+      "tag": "0013_verified_external_actions_security",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1793973491114,
+      "tag": "0014_sync_stream_ownership",
+      "breakpoints": true
     }
   ]
 }

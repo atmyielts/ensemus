@@ -30,6 +30,52 @@ const authDatabase = {
   group: ['@ensemus/database/auth'],
   message: 'Only @ensemus/auth may use the auth database role.',
 };
+const connectorCode = {
+  regex: '^@ensemus/connectors(/(?!manifest$).*)?$',
+  message:
+    'Connectors run in the connector worker. The web tier may read manifests only (ADR-027).',
+};
+const testDoubles = {
+  group: ['@ensemus/connectors/testing'],
+  message: 'Test doubles never reach a shipped image.',
+};
+const connectorReach = {
+  group: [
+    '@ensemus/application',
+    '@ensemus/application/*',
+    '@ensemus/database',
+    '@ensemus/database/*',
+    '@ensemus/secrets',
+    '@ensemus/secrets/*',
+    '@ensemus/workflows',
+    '@ensemus/workflows/*',
+    '@temporalio/*',
+    'drizzle-orm',
+    'drizzle-orm/*',
+    'pg',
+    'pg/*',
+  ],
+  message:
+    'A connector gets a lease and a gateway from its context, and nothing else (ADR-027 D3).',
+};
+const rawNetwork = {
+  group: [
+    'net',
+    'node:net',
+    'http',
+    'node:http',
+    'https',
+    'node:https',
+    'http2',
+    'node:http2',
+    'dgram',
+    'node:dgram',
+    'dns',
+    'node:dns',
+  ],
+  message:
+    'A connector goes out only through ConnectorNetwork, to the egress gateway (ADR-027 D5).',
+};
 
 export default tseslint.config(
   {
@@ -81,7 +127,37 @@ export default tseslint.config(
     ['packages/database/**', 'packages/auth/**', 'tests/**', 'apps/web/**'],
   ),
   restrict(['packages/auth/**/*.ts'], [rawDatabase, temporal, broker]),
-  restrict(['apps/web/**/*.{ts,tsx}'], [rawDatabase, authDatabase, temporal, broker]),
+  restrict(
+    ['apps/web/**/*.{ts,tsx}'],
+    [rawDatabase, authDatabase, temporal, broker, connectorCode],
+  ),
+  restrict(
+    ['workers/**/*.ts', 'packages/workflows/**/*.ts'],
+    [rawDatabase, authDatabase, testDoubles],
+  ),
+  // packages/connectors, in two parts. A rule set on the same files replaces the one before it, so
+  // the first has to name everything: its testing folder may use a socket, and network.ts must.
+  restrict(
+    ['packages/connectors/**/*.ts'],
+    [connectorReach, rawNetwork],
+    ['packages/connectors/src/runtime/network.ts', 'packages/connectors/src/testing/**'],
+  ),
+  restrict(
+    ['packages/connectors/src/runtime/network.ts', 'packages/connectors/src/testing/**'],
+    [connectorReach],
+  ),
+  {
+    files: ['packages/connectors/**/*.ts'],
+    rules: {
+      'no-restricted-globals': [
+        'error',
+        {
+          name: 'fetch',
+          message: 'A connector goes out only through ConnectorNetwork (ADR-027 D5).',
+        },
+      ],
+    },
+  },
   {
     files: ['tests/**', 'infrastructure/**', 'eslint.config.mjs', '**/scripts/**'],
     rules: { 'no-restricted-properties': 'off' },

@@ -22,8 +22,8 @@
     },
     {
       "path": "00-foundation/03-decisions-and-adrs.md",
-      "size_bytes": 6801,
-      "sha256": "b1530ce763a90bcf5e01da83e5e73b0c9c2f799c1bfb736ddeff2cbf8f6ca023"
+      "size_bytes": 7372,
+      "sha256": "0c207701c600061a5d78bd597082effb227fdb9eeeb90010eb3b97c7d217d3f6"
     },
     {
       "path": "00-foundation/04-doc-governance.md",
@@ -32,8 +32,8 @@
     },
     {
       "path": "00-foundation/adr/ADR-024-build-start-runtime-contracts.md",
-      "size_bytes": 23137,
-      "sha256": "d322fef5d7702b62839fb05bcb1b34d5128d9d74f4cbc7f495b6f92eddb7d75e"
+      "size_bytes": 23404,
+      "sha256": "9be5508019361f113ff9f857764bc593327acbd06df07f3821ac5bd2ee0ecebc"
     },
     {
       "path": "00-foundation/adr/ADR-025-m1-implementation-decisions.md",
@@ -44,6 +44,11 @@
       "path": "00-foundation/adr/ADR-026-tombstones-survive-restore.md",
       "size_bytes": 14971,
       "sha256": "bcd23a6992a8b91bde7849a34b8b94399937796fe796f2966132dcdb0a50d17c"
+    },
+    {
+      "path": "00-foundation/adr/ADR-027-verified-external-actions.md",
+      "size_bytes": 32522,
+      "sha256": "4d4752749aac8eac69b1a664a06e118ba092e38ce68ec5e00a159c6a13d1c2ae"
     },
     {
       "path": "01-product/01-product-requirements.md",
@@ -87,23 +92,23 @@
     },
     {
       "path": "02-architecture/03-data-model.md",
-      "size_bytes": 8165,
-      "sha256": "6aca110eddb607b54ebefa53ae631a8252dd8d674168043c5f3997be3a5f9456"
+      "size_bytes": 10905,
+      "sha256": "e6717b671264f245805e41ebed52097f098616e7cedec28b22ed028cee2817d2"
     },
     {
       "path": "02-architecture/04-work-kernel.md",
-      "size_bytes": 8078,
-      "sha256": "ee944b0c5393c2c566af2b20eb0bb12e516dd87a296e65708d9ffa58ad0c6cdd"
+      "size_bytes": 9404,
+      "sha256": "3f6c1292f5f973aafec20557a6ef7172d337a2f96efa8959ba9b37d2bc04e83e"
     },
     {
       "path": "02-architecture/05-events-and-consistency.md",
-      "size_bytes": 3318,
-      "sha256": "772a5027a1d5cc9e78c1d8ca7e386ec5bb70b67ced2aad3d0eacd6512624ea18"
+      "size_bytes": 3445,
+      "sha256": "4c025ca1b33be6149c78aff06ef31cb86aa133bf3e072e72cf7f06aa16fc2573"
     },
     {
       "path": "02-architecture/06-api-contracts.md",
-      "size_bytes": 2675,
-      "sha256": "6e78537dcc54066dbaa236b982d0e3edf006e0d02b8eb4ae5c6bdb1eeae85dd1"
+      "size_bytes": 2805,
+      "sha256": "0358f362c20247e01f74a4a087af8fdc64473b0e3c2f0ab8e2b743d61df32b49"
     },
     {
       "path": "02-architecture/07-multitenancy.md",
@@ -162,8 +167,8 @@
     },
     {
       "path": "03-intelligence/06-integrations-and-tools.md",
-      "size_bytes": 2310,
-      "sha256": "4d7e8e9753c5045f7e85b4857727f31ba0c0642cb79a320b1ca8904c6cec1e0b"
+      "size_bytes": 2523,
+      "sha256": "515cd75716b1c4234fcc16602da7aad647b81bbadcf89dc6c4812682a1e3dd6e"
     },
     {
       "path": "03-intelligence/07-evaluation-and-observability.md",
@@ -222,8 +227,8 @@
     },
     {
       "path": "05-operations/02-deployment-and-recovery.md",
-      "size_bytes": 4357,
-      "sha256": "045feb1b10e537755c3465b85dea5fef032391eb9bda1b4d1bd0f00dd83b3ad5"
+      "size_bytes": 4932,
+      "sha256": "8501ed06b2dad28b3eb7c167062f589ae9f470d68b28673091dc008062729694"
     },
     {
       "path": "05-operations/03-testing-quality.md",
@@ -237,8 +242,8 @@
     },
     {
       "path": "05-operations/05-container-deployment-runbook.md",
-      "size_bytes": 22923,
-      "sha256": "cae977672dc2e6f2db0dbc69d65d3b9e2d2dc2dfc5917eaa3d483d49c8de8be9"
+      "size_bytes": 31371,
+      "sha256": "352252cb8c75887deed30920030c0ac4e8c2a6fe4360ea81ac12f77a6fcb9d6d"
     },
     {
       "path": "05-operations/06-performance-and-load-plan.md",
@@ -272,8 +277,8 @@
     },
     {
       "path": "06-delivery/06-end-to-end-delivery-plan.md",
-      "size_bytes": 20628,
-      "sha256": "3f6b31e96936d75688cd3c9fe35d32c1d67f58931b43c9d143fbe1639535143f"
+      "size_bytes": 21356,
+      "sha256": "c0c2b7961f41ffbf7ec2292ba672916c484e497c9f59af4e745ae298acee3b50"
     },
     {
       "path": "06-delivery/evidence/M1-report.md",
@@ -289,6 +294,21 @@
       "path": "06-delivery/evidence/M2-report.md",
       "size_bytes": 16530,
       "sha256": "43eed01bf17e233dfbee3d621f6b6f220569d63511a786f389b8957ee15bf98c"
+    },
+    {
+      "path": "06-delivery/evidence/M3-report.md",
+      "size_bytes": 6725,
+      "sha256": "650d014296ea011d28030da831365b7bfda697284a574d234be897ea79b5566c"
+    },
+    {
+      "path": "06-delivery/m3-slices.md",
+      "size_bytes": 33733,
+      "sha256": "a6e07ed8431e6dd3dcd100e2421fc5e9af7dedda5bfa1f1f73956016cf2942fd"
+    },
+    {
+      "path": "06-delivery/platform-completion-progress.md",
+      "size_bytes": 5368,
+      "sha256": "6df7cb34c3e07cc2da33925eee967db8af7fff45c238d6e9b58f79060b0c11b6"
     },
     {
       "path": "07-commercial/01-license-and-maintenance.md",
@@ -317,8 +337,8 @@
     },
     {
       "path": "08-migration/02-change-log.md",
-      "size_bytes": 2922,
-      "sha256": "aa540b7332ff329801437abb23267e04f20b178cc695b2dd480508a9105033d2"
+      "size_bytes": 3210,
+      "sha256": "c5f64bf4e52d3cca7fd624dd65cae44700b5709758decd77b43ea64f1ec87614"
     },
     {
       "path": "AGENTS.md",
@@ -332,8 +352,8 @@
     },
     {
       "path": "README.md",
-      "size_bytes": 13140,
-      "sha256": "40aea62eec77616006e8413be7e1cb4d83e81d3b439974a766dd4a98009aca18"
+      "size_bytes": 13235,
+      "sha256": "e5d344e21a4e5c7584dd9a93bb2e58c97352913a156ed812b7f6e7ee7c0023cc"
     },
     {
       "path": "SOURCES.md",
@@ -447,8 +467,8 @@
     },
     {
       "path": "specifications/openapi.yaml",
-      "size_bytes": 24335,
-      "sha256": "4f6ffbb816cf0bd3500f8a1b8c6b4d8c43d673c125ec6baef0eaa96b43e9fe45"
+      "size_bytes": 46761,
+      "sha256": "83f178783b2303ec82b62f9df1cfa7410329cb90b1698bcce2e2fdf941148ff0"
     },
     {
       "path": "specifications/qa-scenarios.csv",
@@ -477,8 +497,8 @@
     },
     {
       "path": "specifications/threat-register.csv",
-      "size_bytes": 3766,
-      "sha256": "cf71f8a285b6bf528b73f3118d437f905f7581e291c312f106ecbbb27b20495b"
+      "size_bytes": 5680,
+      "sha256": "93dece474db42e70f0b55554663e1f6d0d3c87e7eb86f401c4568695159171a9"
     },
     {
       "path": "specifications/tools/check-backlog.mjs",
@@ -492,8 +512,8 @@
     },
     {
       "path": "specifications/traceability.csv",
-      "size_bytes": 3179,
-      "sha256": "b36cb2a9cb8cfa1db4640fb5761cb5fbd54805b5e98be82f08194ecd8741b37d"
+      "size_bytes": 3346,
+      "sha256": "a1f5aa387b07eaa9a5b90ed46962d96cdd6508137b8029b95de09c413d2b185a"
     },
     {
       "path": "specifications/typescript/agent-manifest.reference.ts",

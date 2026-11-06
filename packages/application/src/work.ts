@@ -4,6 +4,7 @@ import {
   appendAudit,
   artifacts,
   domainEvents,
+  externalActions,
   memberships,
   notifications,
   outboxEvents,
@@ -64,12 +65,18 @@ import { z } from 'zod';
 import { AppError, foreignReference, pgCode } from './errors';
 import { emit } from './events';
 import { canonicalId, idSchema } from './ids';
+import {
+  countVerifiedReceipts,
+  countVerifiedReceiptsByWork,
+  hasActionConnection,
+  onApprovalClosedInTx,
+} from './external-actions';
 import { idFromRequest } from './request-id';
 
-// An outside system's receipt is not offered yet: nothing can provide one until external actions
-// exist, so a criterion asking for it could never be met and the work could never finish.
+// An outside system's receipt is only offered to a tenant with a connection that could produce one, which
+// createWorkUnit checks. Otherwise the criterion could never be met and the work could never finish.
 const criteriaSchema = z.array(
-  z.strictObject({ kind: z.enum(['artifact_exists', 'reviewer_approved']) }),
+  z.strictObject({ kind: z.enum(['artifact_exists', 'reviewer_approved', 'external_receipt']) }),
 );
 
 export const createWorkInput = z.strictObject({
@@ -222,6 +229,10 @@ export async function createWorkUnit(
     const owner = input.ownerMembershipId ?? context.membershipId;
     await assertActiveMember(tx, owner);
     if (input.projectId) await assertProjectInTenant(tx, input.projectId);
+    const asksForReceipt = input.completionCriteria.some(
+      (criterion) => criterion.kind === 'external_receipt',
+    );
+    if (asksForReceipt && !(await hasActionConnection(tx))) throw new AppError('INVALID_INPUT');
     const [row] = await tx
       .insert(workUnits)
       .values({
@@ -350,31 +361,36 @@ export async function listWorkOverview(
   const ids = page.items.map((work) => work.id);
   if (ids.length === 0) return { ...page, items: [] };
   const now = new Date();
-  const { owners, files, approved } = await withTenantTx(database, context, async (tx) => ({
-    owners: await tx
-      .select({ membershipId: memberships.id, name: users.name })
-      .from(memberships)
-      .innerJoin(users, eq(users.id, memberships.userId))
-      .where(
-        inArray(
-          memberships.id,
-          page.items.map((work) => work.ownerMembershipId),
+  const { owners, files, approved, receipts } = await withTenantTx(
+    database,
+    context,
+    async (tx) => ({
+      owners: await tx
+        .select({ membershipId: memberships.id, name: users.name })
+        .from(memberships)
+        .innerJoin(users, eq(users.id, memberships.userId))
+        .where(
+          inArray(
+            memberships.id,
+            page.items.map((work) => work.ownerMembershipId),
+          ),
         ),
-      ),
-    files: await tx
-      .select({
-        workUnitId: workArtifacts.workUnitId,
-        id: artifacts.id,
-        createdBy: artifacts.createdByMembershipId,
-      })
-      .from(workArtifacts)
-      .innerJoin(artifacts, eq(artifacts.id, workArtifacts.artifactId))
-      .where(inArray(workArtifacts.workUnitId, ids)),
-    approved: await tx
-      .select({ workUnitId: approvals.workUnitId, ...APPROVED_REVIEW })
-      .from(approvals)
-      .where(and(inArray(approvals.workUnitId, ids), eq(approvals.status, 'approved'))),
-  }));
+      files: await tx
+        .select({
+          workUnitId: workArtifacts.workUnitId,
+          id: artifacts.id,
+          createdBy: artifacts.createdByMembershipId,
+        })
+        .from(workArtifacts)
+        .innerJoin(artifacts, eq(artifacts.id, workArtifacts.artifactId))
+        .where(inArray(workArtifacts.workUnitId, ids)),
+      approved: await tx
+        .select({ workUnitId: approvals.workUnitId, ...APPROVED_REVIEW })
+        .from(approvals)
+        .where(and(inArray(approvals.workUnitId, ids), eq(approvals.status, 'approved'))),
+      receipts: await countVerifiedReceiptsByWork(tx, ids),
+    }),
+  );
   const ownerName = new Map(owners.map((owner) => [owner.membershipId, owner.name]));
   return {
     ...page,
@@ -385,6 +401,7 @@ export async function listWorkOverview(
         work,
         files.filter((file) => file.workUnitId === work.id),
         approved.filter((review) => review.workUnitId === work.id),
+        receipts.get(work.id) ?? 0,
         now,
       ),
     })),
@@ -528,7 +545,7 @@ export async function evidenceFor(tx: Tx, work: WorkRow, now = new Date()) {
     .select(APPROVED_REVIEW)
     .from(approvals)
     .where(and(eq(approvals.workUnitId, work.id), eq(approvals.status, 'approved')));
-  return countEvidence(work, files, approved, now);
+  return countEvidence(work, files, approved, await countVerifiedReceipts(tx, work.id), now);
 }
 
 const APPROVED_REVIEW = {
@@ -541,6 +558,7 @@ function countEvidence(
   work: WorkRow,
   files: ReadonlyArray<{ id: string; createdBy: string | null }>,
   approved: ReadonlyArray<{ toolName: string; expiresAt: Date; boundHash: string }>,
+  verifiedReceiptCount: number,
   now: Date,
 ) {
   const current = workReviewAction(
@@ -552,8 +570,7 @@ function countEvidence(
     approvedReviewCount: approved.filter((row) =>
       reviewCovers({ ...row, status: 'approved' }, current, now),
     ).length,
-    // Verified external receipts arrive with external actions in M3.
-    verifiedReceiptCount: 0,
+    verifiedReceiptCount,
   };
 }
 
@@ -632,6 +649,7 @@ export async function recordApprovalClosed(
   },
 ) {
   await clearApprovalNotifications(tx, [approvalId]);
+  await onApprovalClosedInTx(tx, context, { approvalId, outcome: 'cancelled' });
   await auditAction(tx, context, 'approval.closed', `approval:${approvalId}`, closing.reason);
   await emit(tx, context, {
     eventType: 'approval.resolved',
@@ -683,6 +701,7 @@ async function closeApprovals(
       });
     } else {
       await clearApprovalNotifications(tx, [id]);
+      await onApprovalClosedInTx(tx, context, { approvalId: id, outcome: 'cancelled' });
       await auditAction(tx, context, 'approval.closed', `approval:${id}`, reason);
     }
   }
@@ -1531,6 +1550,14 @@ async function evidenceStampFor(tx: Tx, workUnitId: string, now: Date) {
         })
         .from(approvals)
         .where(eq(approvals.workUnitId, workUnitId)),
+    )
+    .unionAll(
+      tx
+        .select({
+          fact: sql<string>`${externalActions.id}::text || ':' || ${externalActions.status}`,
+        })
+        .from(externalActions)
+        .where(eq(externalActions.workUnitId, workUnitId)),
     );
   const facts = rows.map((row) => row.fact).sort();
   return createHash('sha256').update(facts.join(',')).digest('hex').slice(0, 32);

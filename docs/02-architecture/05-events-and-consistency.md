@@ -24,7 +24,7 @@ Consumers use per-aggregate version monotonicity, reject stale writes, and handl
 
 ## 6. Failure handling
 
-Transient retry with exponential backoff + jitter; retry budget per action class; circuit breaker for outages; dead-letter/manual review queue for poison messages; do not log sensitive payloads. A webhook handler must verify signature/timestamp where supported, dedupe provider event IDs, and return quickly before asynchronous processing.
+Transient retry with exponential backoff + jitter; retry budget per action class; circuit breaker for outages; dead-letter/manual review queue for poison messages; do not log sensitive payloads. A webhook must have its signature and timestamp verified where supported and its provider event ID deduped, and the handler returns quickly: it stores what arrived, and a worker does the verifying ([ADR-027](../00-foundation/adr/ADR-027-verified-external-actions.md) D4).
 
 ## 7. Projection repair and replay
 

@@ -15,6 +15,12 @@
 {$ENSEMUS_HOSTNAME:localhost} {
 	tls internal
 
+	# Anyone can post here with no session. The route counts bytes too, and this stops them sooner.
+	@webhooks path /api/webhooks/*
+	request_body @webhooks {
+		max_size 1MB
+	}
+
 	# Exactly one address. By default a trusted chain would be passed on whole, and the app reads a chain
 	# as no address at all, which puts everyone into one sign-in allowance.
 	reverse_proxy web:3000 {

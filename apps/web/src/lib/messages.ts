@@ -34,6 +34,15 @@ const MESSAGE_FOR = new Map<string, string>([
   ['INVITATION_INVALID', 'This invitation is not valid. Ask for a new one.'],
   ['LAST_OWNER', 'An organization must keep at least one owner.'],
   ['RESTORE_PENDING', 'This organization is being restored from a backup. Try again later.'],
+  [
+    'EXTERNAL_ACTION_NOT_EDITABLE',
+    'This can no longer be changed, because Ensemus has already tried to send it.',
+  ],
+  ['EXTERNAL_ACTION_NOT_RESOLVABLE', 'Only an action in an unknown state can be resolved.'],
+  ['EXTERNAL_ACTION_NOT_RETRYABLE', 'Only an action that was not sent can be asked for again.'],
+  ['CONNECTION_NOT_ACTIVE', 'This connection is not active.'],
+  ['CONNECTOR_NOT_AVAILABLE', 'This connector is not available on this deployment.'],
+  ['RESTRICTED_NOT_ALLOWED', 'Restricted work cannot be sent outside this deployment.'],
   ['UNEXPECTED', 'Something went wrong on our side. Please try again.'],
 ]);
 

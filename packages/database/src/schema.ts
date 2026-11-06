@@ -210,7 +210,8 @@ export const outboxEvents = platformSchema.table(
   ],
 );
 
-// Not used yet. M3 records inbound webhooks here, so a redelivered one is applied only once.
+// Inbound webhooks are recorded here once their signature has passed, so a redelivered one is applied
+// only once (ADR-027 D4). Written only after verification, so nobody can use up a real event's ID.
 export const inboxEvents = platformSchema.table(
   'inbox_events',
   {
