@@ -124,6 +124,8 @@ Every milestone must meet the spec's [Definition of Done](../06-delivery/03-acce
 
 **Exit:** Slice 2 passes. `QA-007`, `QA-008`, `QA-019` and `AI-TS-01` pass, with fault injection at timeout-after-send.
 
+**How the exit is proved:** [ADR-027](../00-foundation/adr/ADR-027-verified-external-actions.md) holds the decisions, and [M3 slices](m3-slices.md) how the work was divided. `tests/stack/slice-2.test.ts` runs the exit on real containers, in CI's `connectors` job, with a test relay that takes mail and then goes silent. [The M3 report](evidence/M3-report.md) says what has actually run. M3 is not closed until that report shows it. Email here is an action a person approves. Notification email is not in M3.
+
 ### M4: Governed AI (XL)
 
 **Outcome:** bounded agents that use approved models only and can't escalate their own permissions.

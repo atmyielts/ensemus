@@ -24,6 +24,9 @@
     "stack:secrets": "node infrastructure/scripts/generate-test-secrets.mjs",
     "stack:up": "docker compose -f infrastructure/compose/compose.yaml -f infrastructure/compose/compose.test.yaml up -d --build --wait",
     "stack:down": "docker compose -f infrastructure/compose/compose.yaml -f infrastructure/compose/compose.test.yaml down -v",
+    "stack:connectors:up": "docker compose --profile connectors -f infrastructure/compose/compose.yaml -f infrastructure/compose/compose.test.yaml up -d --build --wait",
+    "stack:connectors:down": "docker compose --profile connectors -f infrastructure/compose/compose.yaml -f infrastructure/compose/compose.test.yaml down -v",
+    "stack:slice-2": "vitest run --project stack tests/stack/slice-2.test.ts",
     "db:generate": "pnpm --filter @ensemus/database generate"
   },
   "devDependencies": {
