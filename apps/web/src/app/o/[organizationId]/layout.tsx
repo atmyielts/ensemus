@@ -5,6 +5,7 @@ import { notFound } from 'next/navigation';
 import type { ReactNode } from 'react';
 import { DraftScope } from '@/components/kept-field';
 import { MainNav } from '@/components/main-nav';
+import { productNavItems } from '@/lib/product-nav';
 import { SubmitButton } from '@/components/submit-button';
 import { signOutAction } from '@/server/actions';
 import { organizationsWithAccess } from '@/server/organizations';
@@ -49,6 +50,7 @@ export default async function OrganizationLayout({
               { href: `${base}/people`, label: 'People and teams' },
               { href: `${base}/clients`, label: 'Clients and projects' },
               { href: `${base}/inbox`, label: 'Inbox', count: unread },
+              ...productNavItems(base, context.role),
             ]}
           />
           <div className="sidebar-end">

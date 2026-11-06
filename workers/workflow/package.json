@@ -19,6 +19,7 @@
     "@ensemus/connectors": "workspace:*",
     "@ensemus/database": "workspace:*",
     "@ensemus/domain": "workspace:*",
+    "@ensemus/packs": "workspace:*",
     "@ensemus/secrets": "workspace:*",
     "@ensemus/storage": "workspace:*",
     "@ensemus/telemetry": "workspace:*",

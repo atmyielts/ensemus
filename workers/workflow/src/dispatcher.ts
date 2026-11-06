@@ -21,11 +21,30 @@ import {
   EXTERNAL_ACTION_READY,
   WEBHOOK_RECEIVED,
 } from '@ensemus/domain/integration-events';
+import {
+  AGGREGATE_OBJECT_MIGRATION,
+  AGGREGATE_PROCESS_RUN,
+  AGGREGATE_SIMULATION_RUN,
+  OBJECT_MIGRATION_REQUESTED,
+  PROCESS_RUN_REQUESTED,
+  PROCESS_RUN_STOP_REQUESTED,
+  PROCESS_RUN_WAKE,
+  SIMULATION_REQUESTED,
+} from '@ensemus/domain/product-events';
 import { TOMBSTONE_RECORDED } from '@ensemus/domain/tombstone-ledger';
 import { S3ObjectStore } from '@ensemus/storage';
 import { createLogger, errorCode } from '@ensemus/telemetry';
 import { AesGcmPayloadCodec } from '@ensemus/workflows/codec';
 import { PLATFORM_TASK_QUEUE } from '@ensemus/workflows/constants';
+import {
+  objectMigrationInputSchema,
+  objectMigrationWorkflowIdFor,
+  PROCESS_RUN_WAKE_SIGNAL,
+  processRunInputSchema,
+  processRunWorkflowIdFor,
+  simulationInputSchema,
+  simulationWorkflowIdFor,
+} from '@ensemus/workflows/product-schemas';
 import {
   connectorSyncInputSchema,
   connectorSyncWorkflowIdFor,
@@ -201,6 +220,61 @@ async function main() {
             deliveryId: event.aggregateId,
           }),
           workflowIdFor: webhookWorkflowIdFor,
+        });
+        return;
+
+      // M7 (ADR-031). Each starts once, ever, as an external action does: an event delivered again finds
+      // the finished run, and the row in PostgreSQL says the rest.
+      case SIMULATION_REQUESTED:
+        if (event.aggregateType !== AGGREGATE_SIMULATION_RUN) return;
+        await startOnce('simulationWorkflow', {
+          input: simulationInputSchema.parse({
+            organizationId: event.organizationId,
+            simulationId: event.aggregateId,
+          }),
+          workflowIdFor: simulationWorkflowIdFor,
+        });
+        return;
+
+      case PROCESS_RUN_REQUESTED:
+        if (event.aggregateType !== AGGREGATE_PROCESS_RUN) return;
+        await startOnce('processRunWorkflow', {
+          input: processRunInputSchema.parse({
+            organizationId: event.organizationId,
+            processRunId: event.aggregateId,
+          }),
+          workflowIdFor: processRunWorkflowIdFor,
+        });
+        return;
+
+      // Only saves waiting for the run's next check. A stop is already committed by the time this goes.
+      case PROCESS_RUN_WAKE:
+      case PROCESS_RUN_STOP_REQUESTED:
+        if (event.aggregateType !== AGGREGATE_PROCESS_RUN) return;
+        try {
+          await client.workflow
+            .getHandle(
+              processRunWorkflowIdFor(
+                processRunInputSchema.parse({
+                  organizationId: event.organizationId,
+                  processRunId: event.aggregateId,
+                }),
+              ),
+            )
+            .signal(PROCESS_RUN_WAKE_SIGNAL);
+        } catch (error) {
+          if (!(error instanceof WorkflowNotFoundError)) throw error;
+        }
+        return;
+
+      case OBJECT_MIGRATION_REQUESTED:
+        if (event.aggregateType !== AGGREGATE_OBJECT_MIGRATION) return;
+        await startOnce('objectMigrationWorkflow', {
+          input: objectMigrationInputSchema.parse({
+            organizationId: event.organizationId,
+            migrationId: event.aggregateId,
+          }),
+          workflowIdFor: objectMigrationWorkflowIdFor,
         });
         return;
 

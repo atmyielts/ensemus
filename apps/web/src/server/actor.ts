@@ -9,6 +9,8 @@ export async function requireActor() {
   if (!session) redirect('/sign-in');
   return {
     userId: session.user.id,
+    /** For recent-MFA checks. From the verified cookie, and never from a form or a header. */
+    sessionId: session.session.id,
     name: session.user.name,
     email: session.user.email,
     emailVerified: session.user.emailVerified,

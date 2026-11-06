@@ -15,7 +15,11 @@
     "./connector-deps": "./src/connector-deps.ts",
     "./external-action-activities": "./src/external-action-activities.ts",
     "./webhook-activities": "./src/webhook-activities.ts",
-    "./connector-sync-activities": "./src/connector-sync-activities.ts"
+    "./connector-sync-activities": "./src/connector-sync-activities.ts",
+    "./product-schemas": "./src/product-schemas.ts",
+    "./simulation-activities": "./src/simulation-activities.ts",
+    "./process-run-activities": "./src/process-run-activities.ts",
+    "./object-migration-activities": "./src/object-migration-activities.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"

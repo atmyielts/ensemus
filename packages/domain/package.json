@@ -11,7 +11,17 @@
     "./external-action": "./src/external-action.ts",
     "./integration-events": "./src/integration-events.ts",
     "./webhook": "./src/webhook.ts",
-    "./connector": "./src/connector.ts"
+    "./connector": "./src/connector.ts",
+    "./product-policy": "./src/product-policy.ts",
+    "./product-events": "./src/product-events.ts",
+    "./pulse": "./src/pulse.ts",
+    "./outcome-composer": "./src/outcome-composer.ts",
+    "./agent-draft": "./src/agent-draft.ts",
+    "./simulation": "./src/simulation.ts",
+    "./process-spec": "./src/process-spec.ts",
+    "./custom-object": "./src/custom-object.ts",
+    "./pack": "./src/pack.ts",
+    "./onboarding": "./src/onboarding.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"

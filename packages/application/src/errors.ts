@@ -30,7 +30,23 @@ export type ErrorCode =
   | 'EXTERNAL_ACTION_NOT_RETRYABLE'
   | 'CONNECTION_NOT_ACTIVE'
   | 'CONNECTOR_NOT_AVAILABLE'
-  | 'RESTRICTED_NOT_ALLOWED';
+  | 'RESTRICTED_NOT_ALLOWED'
+  | 'CAPABILITY_UNAVAILABLE'
+  | 'MFA_REQUIRED'
+  | 'SSO_REQUIRED'
+  | 'SSO_DOMAIN_NOT_VERIFIED'
+  | 'SIMULATION_REQUIRED'
+  | 'SIMULATION_STALE'
+  | 'REVIEW_SELF_DECISION'
+  | 'REVIEW_NOT_APPROVED'
+  | 'GRAPH_INVALID'
+  | 'DRAFT_INVALID'
+  | 'OBJECT_SCHEMA_INVALID'
+  | 'OBJECT_RECORD_INVALID'
+  | 'PACK_INVALID'
+  | 'PACK_CAPABILITY_UNREVIEWED'
+  | 'PACK_NOT_ROLLBACKABLE'
+  | 'OUTCOME_CHANGED';
 
 const MESSAGES: Record<ErrorCode, string> = {
   NOT_FOUND: 'Not found or not permitted.',
@@ -66,6 +82,22 @@ const MESSAGES: Record<ErrorCode, string> = {
   CONNECTION_NOT_ACTIVE: 'This connection is not active.',
   CONNECTOR_NOT_AVAILABLE: 'This connector is not available on this deployment.',
   RESTRICTED_NOT_ALLOWED: 'Restricted work cannot be sent outside this deployment.',
+  CAPABILITY_UNAVAILABLE: 'This is not available on this deployment yet.',
+  MFA_REQUIRED: 'Confirm it is you with your authenticator app, then try again.',
+  SSO_REQUIRED: 'This organization asks you to sign in through its identity provider.',
+  SSO_DOMAIN_NOT_VERIFIED: 'This email domain has not been verified by the operator yet.',
+  SIMULATION_REQUIRED: 'Run a simulation first. Nothing is published without one.',
+  SIMULATION_STALE: 'This changed after it was simulated. Run the simulation again.',
+  REVIEW_SELF_DECISION: 'This asks for something risky, so someone else has to review it.',
+  REVIEW_NOT_APPROVED: 'This has not been approved for publishing.',
+  GRAPH_INVALID: 'This workflow cannot be run as drawn. Fix what is marked and try again.',
+  DRAFT_INVALID: 'This agent cannot be published as set up. Fix what is marked and try again.',
+  OBJECT_SCHEMA_INVALID: 'That shape is not allowed. Fix what is marked and try again.',
+  OBJECT_RECORD_INVALID: 'That does not fit this type. Fix what is marked and try again.',
+  PACK_INVALID: 'This pack cannot be installed.',
+  PACK_CAPABILITY_UNREVIEWED: 'Everything this pack asks for has to be decided first.',
+  PACK_NOT_ROLLBACKABLE: 'There is no earlier version of this pack to go back to.',
+  OUTCOME_CHANGED: 'This preview changed after you read it. Read it again.',
 };
 
 export class AppError extends Error {
@@ -118,6 +150,22 @@ export const HTTP_STATUS: Record<ErrorCode, number> = {
   CONNECTION_NOT_ACTIVE: 409,
   CONNECTOR_NOT_AVAILABLE: 409,
   RESTRICTED_NOT_ALLOWED: 403,
+  CAPABILITY_UNAVAILABLE: 409,
+  MFA_REQUIRED: 403,
+  SSO_REQUIRED: 403,
+  SSO_DOMAIN_NOT_VERIFIED: 409,
+  SIMULATION_REQUIRED: 409,
+  SIMULATION_STALE: 409,
+  REVIEW_SELF_DECISION: 403,
+  REVIEW_NOT_APPROVED: 409,
+  GRAPH_INVALID: 400,
+  DRAFT_INVALID: 400,
+  OBJECT_SCHEMA_INVALID: 400,
+  OBJECT_RECORD_INVALID: 400,
+  PACK_INVALID: 400,
+  PACK_CAPABILITY_UNREVIEWED: 409,
+  PACK_NOT_ROLLBACKABLE: 409,
+  OUTCOME_CHANGED: 409,
 };
 
 /** Reads the Postgres error code through the wrapper Drizzle adds. */

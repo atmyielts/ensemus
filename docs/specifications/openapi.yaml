@@ -25,6 +25,11 @@ tags:
   - name: knowledge
   - name: models
   - name: commercial
+  - name: studio
+  - name: objects
+  - name: packs
+  - name: experience
+  - name: identity
 paths:
   /organizations/{organization_id}/work-units:
     parameters:
@@ -757,6 +762,1377 @@ paths:
                   mode: {type: string, enum: [cloud, byom, sovereign]}
                   features: {type: array, items: {type: string}}
                   capacity: {type: object, additionalProperties: true}
+  /organizations/{organization_id}/studio/agent-drafts:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+    get:
+      x-ensemus-status: planned
+      tags: [studio]
+      summary: List agent drafts
+      responses:
+        '200':
+          description: Done
+          content:
+            application/json:
+              schema: {type: object, required: [items], properties: {items: {type: array, items: {$ref: '#/components/schemas/AgentDraft'}}, next: {type: [string, "null"]}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+    post:
+      x-ensemus-status: planned
+      tags: [studio]
+      summary: Start a guided agent draft
+      description: The body is checked against createAgentDraftSchema in @ensemus/contracts.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {type: object, additionalProperties: true}
+      responses:
+        '201':
+          description: Done
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/AgentDraft'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '413': {$ref: '#/components/responses/PayloadTooLarge'}
+        '415': {$ref: '#/components/responses/UnsupportedMediaType'}
+        '422': {$ref: '#/components/responses/Validation'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+  /organizations/{organization_id}/studio/agent-drafts/{agent_draft_id}:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+      - name: agent_draft_id
+        in: path
+        required: true
+        schema: {type: string, format: uuid}
+    get:
+      x-ensemus-status: planned
+      tags: [studio]
+      summary: Read a draft with its issues and risk
+      responses:
+        '200':
+          description: Done
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/AgentDraft'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+    patch:
+      x-ensemus-status: planned
+      tags: [studio]
+      summary: Change a draft. Earlier simulations lapse
+      parameters: [{$ref: '#/components/parameters/IfMatch'}]
+      description: The body is checked against updateAgentDraftSchema in @ensemus/contracts.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {type: object, additionalProperties: true}
+      responses:
+        '200':
+          description: Done
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/AgentDraft'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '413': {$ref: '#/components/responses/PayloadTooLarge'}
+        '415': {$ref: '#/components/responses/UnsupportedMediaType'}
+        '422': {$ref: '#/components/responses/Validation'}
+        '428': {$ref: '#/components/responses/PreconditionRequired'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+  /organizations/{organization_id}/studio/agent-drafts/{agent_draft_id}/simulations:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+      - name: agent_draft_id
+        in: path
+        required: true
+        schema: {type: string, format: uuid}
+    post:
+      x-ensemus-status: planned
+      tags: [studio]
+      summary: Simulate a draft, with no side effects
+      description: The body is checked against requestSimulationSchema in @ensemus/contracts.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {type: object, additionalProperties: true}
+      responses:
+        '202':
+          description: Done
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Simulation'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '413': {$ref: '#/components/responses/PayloadTooLarge'}
+        '415': {$ref: '#/components/responses/UnsupportedMediaType'}
+        '422': {$ref: '#/components/responses/Validation'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+  /organizations/{organization_id}/studio/process-drafts:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+    get:
+      x-ensemus-status: planned
+      tags: [studio]
+      summary: List workflow drafts
+      responses:
+        '200':
+          description: Done
+          content:
+            application/json:
+              schema: {type: object, required: [items], properties: {items: {type: array, items: {$ref: '#/components/schemas/ProcessDraft'}}, next: {type: [string, "null"]}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+    post:
+      x-ensemus-status: planned
+      tags: [studio]
+      summary: Start a workflow draft
+      description: The body is checked against createProcessDraftSchema in @ensemus/contracts.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {type: object, additionalProperties: true}
+      responses:
+        '201':
+          description: Done
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ProcessDraft'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '413': {$ref: '#/components/responses/PayloadTooLarge'}
+        '415': {$ref: '#/components/responses/UnsupportedMediaType'}
+        '422': {$ref: '#/components/responses/Validation'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+  /organizations/{organization_id}/studio/process-drafts/{process_draft_id}:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+      - name: process_draft_id
+        in: path
+        required: true
+        schema: {type: string, format: uuid}
+    get:
+      x-ensemus-status: planned
+      tags: [studio]
+      summary: Read a workflow draft and what stops it compiling
+      responses:
+        '200':
+          description: Done
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ProcessDraft'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+    patch:
+      x-ensemus-status: planned
+      tags: [studio]
+      summary: Save a workflow graph and compile it
+      parameters: [{$ref: '#/components/parameters/IfMatch'}]
+      description: The body is checked against updateProcessDraftSchema in @ensemus/contracts.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {type: object, additionalProperties: true}
+      responses:
+        '200':
+          description: Done
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ProcessDraft'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '413': {$ref: '#/components/responses/PayloadTooLarge'}
+        '415': {$ref: '#/components/responses/UnsupportedMediaType'}
+        '422': {$ref: '#/components/responses/Validation'}
+        '428': {$ref: '#/components/responses/PreconditionRequired'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+  /organizations/{organization_id}/studio/process-drafts/{process_draft_id}/simulations:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+      - name: process_draft_id
+        in: path
+        required: true
+        schema: {type: string, format: uuid}
+    post:
+      x-ensemus-status: planned
+      tags: [studio]
+      summary: Simulate a workflow, with no side effects
+      description: The body is checked against requestSimulationSchema in @ensemus/contracts.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {type: object, additionalProperties: true}
+      responses:
+        '202':
+          description: Done
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Simulation'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '413': {$ref: '#/components/responses/PayloadTooLarge'}
+        '415': {$ref: '#/components/responses/UnsupportedMediaType'}
+        '422': {$ref: '#/components/responses/Validation'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+  /organizations/{organization_id}/studio/simulations/{simulation_id}:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+      - name: simulation_id
+        in: path
+        required: true
+        schema: {type: string, format: uuid}
+    get:
+      x-ensemus-status: planned
+      tags: [studio]
+      summary: Read a simulation and its report
+      responses:
+        '200':
+          description: Done
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Simulation'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+  /organizations/{organization_id}/studio/publish-reviews:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+    get:
+      x-ensemus-status: planned
+      tags: [studio]
+      summary: List publish reviews
+      responses:
+        '200':
+          description: Done
+          content:
+            application/json:
+              schema: {type: object, required: [items], properties: {items: {type: array, items: {$ref: '#/components/schemas/PublishReview'}}, next: {type: [string, "null"]}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+    post:
+      x-ensemus-status: planned
+      tags: [studio]
+      summary: Ask to publish one simulated hash
+      description: The body is checked against requestPublishReviewSchema in @ensemus/contracts.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {type: object, additionalProperties: true}
+      responses:
+        '201':
+          description: Done
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/PublishReview'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '413': {$ref: '#/components/responses/PayloadTooLarge'}
+        '415': {$ref: '#/components/responses/UnsupportedMediaType'}
+        '422': {$ref: '#/components/responses/Validation'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+  /organizations/{organization_id}/studio/publish-reviews/{publish_review_id}:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+      - name: publish_review_id
+        in: path
+        required: true
+        schema: {type: string, format: uuid}
+    get:
+      x-ensemus-status: planned
+      tags: [studio]
+      summary: Read a publish review
+      responses:
+        '200':
+          description: Done
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/PublishReview'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+  /organizations/{organization_id}/studio/publish-reviews/{publish_review_id}/decisions:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+      - name: publish_review_id
+        in: path
+        required: true
+        schema: {type: string, format: uuid}
+    post:
+      x-ensemus-status: planned
+      tags: [studio]
+      summary: Approve or reject. Needs recent MFA
+      parameters: [{$ref: '#/components/parameters/IfMatch'}]
+      description: The body is checked against decidePublishReviewSchema in @ensemus/contracts.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {type: object, additionalProperties: true}
+      responses:
+        '200':
+          description: Done
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/PublishReview'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '413': {$ref: '#/components/responses/PayloadTooLarge'}
+        '415': {$ref: '#/components/responses/UnsupportedMediaType'}
+        '422': {$ref: '#/components/responses/Validation'}
+        '428': {$ref: '#/components/responses/PreconditionRequired'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+  /organizations/{organization_id}/studio/publish-reviews/{publish_review_id}/publication:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+      - name: publish_review_id
+        in: path
+        required: true
+        schema: {type: string, format: uuid}
+    post:
+      x-ensemus-status: planned
+      tags: [studio]
+      summary: Publish what was approved. Needs recent MFA
+      parameters: [{$ref: '#/components/parameters/IfMatch'}]
+      responses:
+        '200':
+          description: Done
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/PublishReview'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '413': {$ref: '#/components/responses/PayloadTooLarge'}
+        '415': {$ref: '#/components/responses/UnsupportedMediaType'}
+        '422': {$ref: '#/components/responses/Validation'}
+        '428': {$ref: '#/components/responses/PreconditionRequired'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+  /organizations/{organization_id}/process-specs:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+    get:
+      x-ensemus-status: planned
+      tags: [studio]
+      summary: List immutable process specs
+      responses:
+        '200':
+          description: Done
+          content:
+            application/json:
+              schema: {type: object, required: [items], properties: {items: {type: array, items: {$ref: '#/components/schemas/ProcessSpec'}}, next: {type: [string, "null"]}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+  /organizations/{organization_id}/process-runs:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+    get:
+      x-ensemus-status: planned
+      tags: [studio]
+      summary: List process runs the viewer can read
+      responses:
+        '200':
+          description: Done
+          content:
+            application/json:
+              schema: {type: object, required: [items], properties: {items: {type: array, items: {$ref: '#/components/schemas/ProcessRun'}}, next: {type: [string, "null"]}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+    post:
+      x-ensemus-status: planned
+      tags: [studio]
+      summary: Start a process on a new Work Unit
+      description: The body is checked against startProcessRunSchema in @ensemus/contracts.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {type: object, additionalProperties: true}
+      responses:
+        '202':
+          description: Done
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ProcessRun'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '413': {$ref: '#/components/responses/PayloadTooLarge'}
+        '415': {$ref: '#/components/responses/UnsupportedMediaType'}
+        '422': {$ref: '#/components/responses/Validation'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+  /organizations/{organization_id}/process-runs/{process_run_id}:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+      - name: process_run_id
+        in: path
+        required: true
+        schema: {type: string, format: uuid}
+    get:
+      x-ensemus-status: planned
+      tags: [studio]
+      summary: Read a run with each step and its measured cost
+      responses:
+        '200':
+          description: Done
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ProcessRun'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+  /organizations/{organization_id}/process-runs/{process_run_id}/stop:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+      - name: process_run_id
+        in: path
+        required: true
+        schema: {type: string, format: uuid}
+    post:
+      x-ensemus-status: planned
+      tags: [studio]
+      summary: Stop a run. Committed before anything is told
+      parameters: [{$ref: '#/components/parameters/IfMatch'}]
+      responses:
+        '202':
+          description: Done
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ProcessRun'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '413': {$ref: '#/components/responses/PayloadTooLarge'}
+        '415': {$ref: '#/components/responses/UnsupportedMediaType'}
+        '422': {$ref: '#/components/responses/Validation'}
+        '428': {$ref: '#/components/responses/PreconditionRequired'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+  /organizations/{organization_id}/object-types:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+    get:
+      x-ensemus-status: planned
+      tags: [objects]
+      summary: List custom types
+      responses:
+        '200':
+          description: Done
+          content:
+            application/json:
+              schema: {type: object, required: [items], properties: {items: {type: array, items: {$ref: '#/components/schemas/ObjectType'}}, next: {type: [string, "null"]}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+    post:
+      x-ensemus-status: planned
+      tags: [objects]
+      summary: Define a custom type
+      description: The body is checked against createObjectTypeSchema in @ensemus/contracts.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {type: object, additionalProperties: true}
+      responses:
+        '201':
+          description: Done
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ObjectType'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '413': {$ref: '#/components/responses/PayloadTooLarge'}
+        '415': {$ref: '#/components/responses/UnsupportedMediaType'}
+        '422': {$ref: '#/components/responses/Validation'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+  /organizations/{organization_id}/object-types/{object_type_id}:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+      - name: object_type_id
+        in: path
+        required: true
+        schema: {type: string, format: uuid}
+    get:
+      x-ensemus-status: planned
+      tags: [objects]
+      summary: Read a custom type
+      responses:
+        '200':
+          description: Done
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ObjectType'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+  /organizations/{organization_id}/object-types/{object_type_id}/versions:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+      - name: object_type_id
+        in: path
+        required: true
+        schema: {type: string, format: uuid}
+    post:
+      x-ensemus-status: planned
+      tags: [objects]
+      summary: Add a new shape. Refused if it could lose data
+      parameters: [{$ref: '#/components/parameters/IfMatch'}]
+      description: The body is checked against addObjectTypeVersionSchema in @ensemus/contracts.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {type: object, additionalProperties: true}
+      responses:
+        '202':
+          description: Done
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ObjectType'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '413': {$ref: '#/components/responses/PayloadTooLarge'}
+        '415': {$ref: '#/components/responses/UnsupportedMediaType'}
+        '422': {$ref: '#/components/responses/Validation'}
+        '428': {$ref: '#/components/responses/PreconditionRequired'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+  /organizations/{organization_id}/object-types/{object_type_id}/records:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+      - name: object_type_id
+        in: path
+        required: true
+        schema: {type: string, format: uuid}
+    get:
+      x-ensemus-status: planned
+      tags: [objects]
+      summary: List records the viewer can read
+      responses:
+        '200':
+          description: Done
+          content:
+            application/json:
+              schema: {type: object, required: [items], properties: {items: {type: array, items: {$ref: '#/components/schemas/ObjectRecord'}}, next: {type: [string, "null"]}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+    post:
+      x-ensemus-status: planned
+      tags: [objects]
+      summary: Add a record
+      description: The body is checked against createObjectRecordSchema in @ensemus/contracts.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {type: object, additionalProperties: true}
+      responses:
+        '201':
+          description: Done
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ObjectRecord'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '413': {$ref: '#/components/responses/PayloadTooLarge'}
+        '415': {$ref: '#/components/responses/UnsupportedMediaType'}
+        '422': {$ref: '#/components/responses/Validation'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+  /organizations/{organization_id}/object-records/{object_record_id}:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+      - name: object_record_id
+        in: path
+        required: true
+        schema: {type: string, format: uuid}
+    get:
+      x-ensemus-status: planned
+      tags: [objects]
+      summary: Read a record
+      responses:
+        '200':
+          description: Done
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ObjectRecord'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+    patch:
+      x-ensemus-status: planned
+      tags: [objects]
+      summary: Change a record
+      parameters: [{$ref: '#/components/parameters/IfMatch'}]
+      description: The body is checked against updateObjectRecordSchema in @ensemus/contracts.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {type: object, additionalProperties: true}
+      responses:
+        '200':
+          description: Done
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ObjectRecord'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '413': {$ref: '#/components/responses/PayloadTooLarge'}
+        '415': {$ref: '#/components/responses/UnsupportedMediaType'}
+        '422': {$ref: '#/components/responses/Validation'}
+        '428': {$ref: '#/components/responses/PreconditionRequired'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+    delete:
+      x-ensemus-status: planned
+      tags: [objects]
+      summary: Remove a record
+      parameters: [{$ref: '#/components/parameters/IfMatch'}]
+      responses:
+        '204':
+          description: Done
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '413': {$ref: '#/components/responses/PayloadTooLarge'}
+        '415': {$ref: '#/components/responses/UnsupportedMediaType'}
+        '422': {$ref: '#/components/responses/Validation'}
+        '428': {$ref: '#/components/responses/PreconditionRequired'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+  /organizations/{organization_id}/object-records/{object_record_id}/relations:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+      - name: object_record_id
+        in: path
+        required: true
+        schema: {type: string, format: uuid}
+    post:
+      x-ensemus-status: planned
+      tags: [objects]
+      summary: Link two records by a declared relation
+      description: The body is checked against linkObjectRecordsSchema in @ensemus/contracts.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {type: object, additionalProperties: true}
+      responses:
+        '201':
+          description: Done
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '413': {$ref: '#/components/responses/PayloadTooLarge'}
+        '415': {$ref: '#/components/responses/UnsupportedMediaType'}
+        '422': {$ref: '#/components/responses/Validation'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+  /organizations/{organization_id}/packs:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+    get:
+      x-ensemus-status: planned
+      tags: [packs]
+      summary: List the packs this release can install
+      responses:
+        '200':
+          description: Done
+          content:
+            application/json:
+              schema: {type: object, required: [items], properties: {items: {type: array, items: {$ref: '#/components/schemas/PackCatalogEntry'}}, next: {type: [string, "null"]}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+  /organizations/{organization_id}/packs/{pack_key}/installations:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+      - name: pack_key
+        in: path
+        required: true
+        schema: {type: string}
+    post:
+      x-ensemus-status: planned
+      tags: [packs]
+      summary: Start reviewing a pack. Grants nothing
+      description: The body is checked against requestPackInstallSchema in @ensemus/contracts.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {type: object, additionalProperties: true}
+      responses:
+        '201':
+          description: Done
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/PackInstallation'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '413': {$ref: '#/components/responses/PayloadTooLarge'}
+        '415': {$ref: '#/components/responses/UnsupportedMediaType'}
+        '422': {$ref: '#/components/responses/Validation'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+  /organizations/{organization_id}/pack-installations/{installation_id}:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+      - name: installation_id
+        in: path
+        required: true
+        schema: {type: string, format: uuid}
+    get:
+      x-ensemus-status: planned
+      tags: [packs]
+      summary: Read an installation and every decision
+      responses:
+        '200':
+          description: Done
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/PackInstallation'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+  /organizations/{organization_id}/pack-installations/{installation_id}/capabilities:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+      - name: installation_id
+        in: path
+        required: true
+        schema: {type: string, format: uuid}
+    post:
+      x-ensemus-status: planned
+      tags: [packs]
+      summary: Decide one thing a pack asks for
+      description: The body is checked against decidePackCapabilitySchema in @ensemus/contracts.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {type: object, additionalProperties: true}
+      responses:
+        '200':
+          description: Done
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/PackInstallation'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '413': {$ref: '#/components/responses/PayloadTooLarge'}
+        '415': {$ref: '#/components/responses/UnsupportedMediaType'}
+        '422': {$ref: '#/components/responses/Validation'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+  /organizations/{organization_id}/pack-installations/{installation_id}/activation:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+      - name: installation_id
+        in: path
+        required: true
+        schema: {type: string, format: uuid}
+    post:
+      x-ensemus-status: planned
+      tags: [packs]
+      summary: Activate once everything is decided. Needs recent MFA
+      parameters: [{$ref: '#/components/parameters/IfMatch'}]
+      responses:
+        '200':
+          description: Done
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/PackInstallation'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '413': {$ref: '#/components/responses/PayloadTooLarge'}
+        '415': {$ref: '#/components/responses/UnsupportedMediaType'}
+        '422': {$ref: '#/components/responses/Validation'}
+        '428': {$ref: '#/components/responses/PreconditionRequired'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+  /organizations/{organization_id}/pack-installations/{installation_id}/rollback:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+      - name: installation_id
+        in: path
+        required: true
+        schema: {type: string, format: uuid}
+    post:
+      x-ensemus-status: planned
+      tags: [packs]
+      summary: Go back to the earlier version. Needs recent MFA
+      parameters: [{$ref: '#/components/parameters/IfMatch'}]
+      responses:
+        '200':
+          description: Done
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/PackInstallation'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '413': {$ref: '#/components/responses/PayloadTooLarge'}
+        '415': {$ref: '#/components/responses/UnsupportedMediaType'}
+        '422': {$ref: '#/components/responses/Validation'}
+        '428': {$ref: '#/components/responses/PreconditionRequired'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+  /organizations/{organization_id}/pulse:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+    get:
+      x-ensemus-status: planned
+      tags: [experience]
+      summary: Read evidence-linked signals the viewer can see
+      responses:
+        '200':
+          description: Done
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/CompanyPulse'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+  /organizations/{organization_id}/pulse/signals/{signal_key}:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+      - name: signal_key
+        in: path
+        required: true
+        schema: {type: string}
+    put:
+      x-ensemus-status: planned
+      tags: [experience]
+      summary: Dismiss or snooze a signal, for this person only
+      description: The body is checked against setPulseSignalStateSchema in @ensemus/contracts.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {type: object, additionalProperties: true}
+      responses:
+        '204':
+          description: Done
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '413': {$ref: '#/components/responses/PayloadTooLarge'}
+        '415': {$ref: '#/components/responses/UnsupportedMediaType'}
+        '422': {$ref: '#/components/responses/Validation'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+  /organizations/{organization_id}/outcome-drafts:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+    get:
+      x-ensemus-status: planned
+      tags: [experience]
+      summary: List my outcome drafts
+      responses:
+        '200':
+          description: Done
+          content:
+            application/json:
+              schema: {type: object, required: [items], properties: {items: {type: array, items: {$ref: '#/components/schemas/OutcomeDraft'}}, next: {type: [string, "null"]}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+    post:
+      x-ensemus-status: planned
+      tags: [experience]
+      summary: Read a sentence into a preview. Nothing runs
+      description: The body is checked against composeOutcomeSchema in @ensemus/contracts.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {type: object, additionalProperties: true}
+      responses:
+        '201':
+          description: Done
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/OutcomeDraft'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '413': {$ref: '#/components/responses/PayloadTooLarge'}
+        '415': {$ref: '#/components/responses/UnsupportedMediaType'}
+        '422': {$ref: '#/components/responses/Validation'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+  /organizations/{organization_id}/outcome-drafts/{outcome_draft_id}:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+      - name: outcome_draft_id
+        in: path
+        required: true
+        schema: {type: string, format: uuid}
+    get:
+      x-ensemus-status: planned
+      tags: [experience]
+      summary: Read my outcome draft
+      responses:
+        '200':
+          description: Done
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/OutcomeDraft'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+    patch:
+      x-ensemus-status: planned
+      tags: [experience]
+      summary: Correct the preview
+      parameters: [{$ref: '#/components/parameters/IfMatch'}]
+      description: The body is checked against outcomePreviewSchema in @ensemus/contracts.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {type: object, additionalProperties: true}
+      responses:
+        '200':
+          description: Done
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/OutcomeDraft'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '413': {$ref: '#/components/responses/PayloadTooLarge'}
+        '415': {$ref: '#/components/responses/UnsupportedMediaType'}
+        '422': {$ref: '#/components/responses/Validation'}
+        '428': {$ref: '#/components/responses/PreconditionRequired'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+    delete:
+      x-ensemus-status: planned
+      tags: [experience]
+      summary: Discard a draft
+      parameters: [{$ref: '#/components/parameters/IfMatch'}]
+      responses:
+        '204':
+          description: Done
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '413': {$ref: '#/components/responses/PayloadTooLarge'}
+        '415': {$ref: '#/components/responses/UnsupportedMediaType'}
+        '422': {$ref: '#/components/responses/Validation'}
+        '428': {$ref: '#/components/responses/PreconditionRequired'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+  /organizations/{organization_id}/outcome-drafts/{outcome_draft_id}/authorization:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+      - name: outcome_draft_id
+        in: path
+        required: true
+        schema: {type: string, format: uuid}
+    post:
+      x-ensemus-status: planned
+      tags: [experience]
+      summary: Say yes to exactly this preview. Makes one Work Unit
+      parameters: [{$ref: '#/components/parameters/IfMatch'}]
+      description: The body is checked against authorizeOutcomeSchema in @ensemus/contracts.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {type: object, additionalProperties: true}
+      responses:
+        '201':
+          description: Done
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/OutcomeDraft'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '413': {$ref: '#/components/responses/PayloadTooLarge'}
+        '415': {$ref: '#/components/responses/UnsupportedMediaType'}
+        '422': {$ref: '#/components/responses/Validation'}
+        '428': {$ref: '#/components/responses/PreconditionRequired'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+  /organizations/{organization_id}/onboarding:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+    get:
+      x-ensemus-status: planned
+      tags: [experience]
+      summary: Read onboarding from the real records
+      responses:
+        '200':
+          description: Done
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Onboarding'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+  /organizations/{organization_id}/onboarding/steps/{step_key}:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+      - name: step_key
+        in: path
+        required: true
+        schema: {type: string}
+    post:
+      x-ensemus-status: planned
+      tags: [experience]
+      summary: Acknowledge or skip a step
+      description: The body is checked against decideOnboardingStepSchema in @ensemus/contracts.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {type: object, additionalProperties: true}
+      responses:
+        '200':
+          description: Done
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Onboarding'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '413': {$ref: '#/components/responses/PayloadTooLarge'}
+        '415': {$ref: '#/components/responses/UnsupportedMediaType'}
+        '422': {$ref: '#/components/responses/Validation'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+  /organizations/{organization_id}/security-policy:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+    get:
+      x-ensemus-status: planned
+      tags: [identity]
+      summary: Read what this tenant asks of people
+      responses:
+        '200':
+          description: Done
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/SecurityPolicy'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+    put:
+      x-ensemus-status: planned
+      tags: [identity]
+      summary: Change it. Needs recent MFA
+      parameters: [{$ref: '#/components/parameters/IfMatch'}]
+      description: The body is checked against updateSecurityPolicySchema in @ensemus/contracts.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {type: object, additionalProperties: true}
+      responses:
+        '200':
+          description: Done
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/SecurityPolicy'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '413': {$ref: '#/components/responses/PayloadTooLarge'}
+        '415': {$ref: '#/components/responses/UnsupportedMediaType'}
+        '422': {$ref: '#/components/responses/Validation'}
+        '428': {$ref: '#/components/responses/PreconditionRequired'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+  /organizations/{organization_id}/sso-connections:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+    get:
+      x-ensemus-status: planned
+      tags: [identity]
+      summary: List SSO connections
+      responses:
+        '200':
+          description: Done
+          content:
+            application/json:
+              schema: {type: object, required: [items], properties: {items: {type: array, items: {$ref: '#/components/schemas/SsoConnection'}}, next: {type: [string, "null"]}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+    post:
+      x-ensemus-status: planned
+      tags: [identity]
+      summary: Add a SAML provider. The operator verifies the domain
+      description: The body is checked against createSsoConnectionSchema in @ensemus/contracts.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {type: object, additionalProperties: true}
+      responses:
+        '201':
+          description: Done
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/SsoConnection'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '413': {$ref: '#/components/responses/PayloadTooLarge'}
+        '415': {$ref: '#/components/responses/UnsupportedMediaType'}
+        '422': {$ref: '#/components/responses/Validation'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+  /organizations/{organization_id}/sso-connections/{sso_connection_id}:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+      - name: sso_connection_id
+        in: path
+        required: true
+        schema: {type: string, format: uuid}
+    patch:
+      x-ensemus-status: planned
+      tags: [identity]
+      summary: Change a connection. Needs recent MFA
+      parameters: [{$ref: '#/components/parameters/IfMatch'}]
+      description: The body is checked against updateSsoConnectionSchema in @ensemus/contracts.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {type: object, additionalProperties: true}
+      responses:
+        '200':
+          description: Done
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/SsoConnection'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '413': {$ref: '#/components/responses/PayloadTooLarge'}
+        '415': {$ref: '#/components/responses/UnsupportedMediaType'}
+        '422': {$ref: '#/components/responses/Validation'}
+        '428': {$ref: '#/components/responses/PreconditionRequired'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+  /organizations/{organization_id}/sso-connections/{sso_connection_id}/scim-tokens:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+      - name: sso_connection_id
+        in: path
+        required: true
+        schema: {type: string, format: uuid}
+    post:
+      x-ensemus-status: planned
+      tags: [identity]
+      summary: Issue a provisioning token, shown once. Needs recent MFA
+      responses:
+        '201':
+          description: Done
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '413': {$ref: '#/components/responses/PayloadTooLarge'}
+        '415': {$ref: '#/components/responses/UnsupportedMediaType'}
+        '422': {$ref: '#/components/responses/Validation'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
 components:
   securitySchemes:
     sessionCookie:
@@ -805,6 +2181,22 @@ components:
       required: true
       schema: {type: string, format: uuid}
   schemas:
+    AgentDraft: {type: object, required: [id, name, status, answers, version], properties: {id: {type: string, format: uuid}, name: {type: string}, owner_membership_id: {type: string, format: uuid}, agent_definition_id: {type: [string, "null"], format: uuid}, answers: {type: object, additionalProperties: true}, spec_sha256: {type: [string, "null"]}, status: {type: string, enum: [editing, in_review, published, archived]}, from_pack_installation_id: {type: [string, "null"], format: uuid}, issues: {type: array, items: {type: object, additionalProperties: true}}, risk: {type: array, items: {type: object, additionalProperties: true}}, risk_level: {type: string, enum: [standard, elevated]}, version: {type: integer}, updated_at: {type: string, format: date-time}}}
+    ProcessDraft: {type: object, required: [id, name, status, graph, version], properties: {id: {type: string, format: uuid}, name: {type: string}, owner_membership_id: {type: string, format: uuid}, classification: {type: string, enum: [public, internal, confidential, restricted]}, graph: {type: object, additionalProperties: true}, spec_sha256: {type: [string, "null"]}, issues: {type: array, items: {type: object, additionalProperties: true}}, status: {type: string, enum: [editing, in_review, published, archived]}, version: {type: integer}, updated_at: {type: string, format: date-time}}}
+    Simulation: {type: object, required: [id, status, subject_sha256, scenario_key], properties: {id: {type: string, format: uuid}, subject_kind: {type: string, enum: [agent_draft, process_draft, bundled_workflow]}, subject_id: {type: [string, "null"], format: uuid}, subject_key: {type: [string, "null"]}, subject_sha256: {type: string}, scenario_key: {type: string}, status: {type: string, enum: [queued, running, passed, failed, errored]}, outcome_code: {type: [string, "null"]}, report: {type: [object, "null"], additionalProperties: true}, created_at: {type: string, format: date-time}, finished_at: {type: [string, "null"], format: date-time}}}
+    PublishReview: {type: object, required: [id, status, subject_sha256, risk_level, version], properties: {id: {type: string, format: uuid}, subject_kind: {type: string, enum: [agent_draft, process_draft]}, subject_id: {type: string, format: uuid}, subject_sha256: {type: string}, simulation_run_id: {type: string, format: uuid}, risk_level: {type: string, enum: [standard, elevated]}, risk_summary: {type: array, items: {type: object, additionalProperties: true}}, requested_by_membership_id: {type: string, format: uuid}, reviewer_membership_id: {type: [string, "null"], format: uuid}, status: {type: string, enum: [pending, approved, rejected, cancelled, published]}, decision_reason: {type: [string, "null"]}, published_ref: {type: [string, "null"], format: uuid}, version: {type: integer}, created_at: {type: string, format: date-time}}}
+    ProcessSpec: {type: object, required: [id, process_key, version_number, spec_sha256], properties: {id: {type: string, format: uuid}, process_key: {type: string}, version_number: {type: integer}, name: {type: string}, classification: {type: string, enum: [public, internal, confidential, restricted]}, spec: {type: object, additionalProperties: true}, spec_sha256: {type: string}, source: {type: string, enum: [graph, bundled, pack]}, source_ref: {type: [string, "null"]}, published_at: {type: string, format: date-time}}}
+    ProcessRun: {type: object, required: [id, status, root_work_unit_id, steps, version], properties: {id: {type: string, format: uuid}, spec_id: {type: string, format: uuid}, process_name: {type: string}, root_work_unit_id: {type: string, format: uuid}, status: {type: string, enum: [queued, running, waiting, completed, failed, cancelled]}, stop_code: {type: [string, "null"]}, steps: {type: array, items: {type: object, additionalProperties: true}}, cost: {type: [object, "null"], additionalProperties: true}, version: {type: integer}, created_at: {type: string, format: date-time}, finished_at: {type: [string, "null"], format: date-time}}}
+    ObjectType: {type: object, required: [id, slug, classification, current_version_number, fields, version], properties: {id: {type: string, format: uuid}, slug: {type: string}, display_name: {type: string}, classification: {type: string, enum: [public, internal, confidential, restricted]}, current_version_number: {type: integer}, fields: {type: array, items: {type: object, additionalProperties: true}}, relations: {type: array, items: {type: object, additionalProperties: true}}, state: {type: string, enum: [active, archived]}, version: {type: integer}}}
+    ObjectRecord: {type: object, required: [id, type_id, display_name, attributes, classification, version], properties: {id: {type: string, format: uuid}, type_id: {type: string, format: uuid}, type_version_number: {type: integer}, display_name: {type: string}, attributes: {type: object, additionalProperties: true}, classification: {type: string, enum: [public, internal, confidential, restricted]}, owner_membership_id: {type: string, format: uuid}, can_change: {type: boolean}, version: {type: integer}, updated_at: {type: string, format: date-time}}}
+    PackCatalogEntry: {type: object, required: [key, version, name], properties: {key: {type: string}, version: {type: string}, name: {type: string}, description: {type: string}, installation: {type: [object, "null"], additionalProperties: true}, upgrade: {type: [object, "null"], additionalProperties: true}}}
+    PackInstallation: {type: object, required: [id, pack_key, pack_version, status, capabilities, version], properties: {id: {type: string, format: uuid}, pack_key: {type: string}, pack_version: {type: string}, manifest_sha256: {type: string}, status: {type: string, enum: [reviewing, active, superseded, rolled_back, cancelled]}, capabilities: {type: array, items: {type: object, additionalProperties: true}}, items: {type: array, items: {type: object, additionalProperties: true}}, version: {type: integer}}}
+    CompanyPulse: {type: object, required: [generated_at, signals, summary, partial], properties: {generated_at: {type: string, format: date-time}, signals: {type: array, items: {$ref: '#/components/schemas/PulseSignal'}}, summary: {type: object, additionalProperties: true}, partial: {type: array, items: {type: string}}}}
+    PulseSignal: {type: object, required: [key, kind, severity, evidence, since, personal_state], properties: {key: {type: string}, kind: {type: string}, severity: {type: string, enum: [attention, watch]}, scope: {type: object, additionalProperties: true}, evidence: {type: array, minItems: 1, items: {type: object, additionalProperties: true}}, since: {type: string, format: date-time}, personal_state: {type: string, enum: [open, snoozed, dismissed]}, snoozed_until: {type: [string, "null"], format: date-time}}}
+    OutcomeDraft: {type: object, required: [id, objective, preview, preview_sha256, status, version], properties: {id: {type: string, format: uuid}, objective: {type: string}, preview: {type: object, additionalProperties: true}, preview_sha256: {type: string}, status: {type: string, enum: [draft, authorized, discarded]}, work_unit_id: {type: [string, "null"], format: uuid}, version: {type: integer}, updated_at: {type: string, format: date-time}}}
+    Onboarding: {type: object, required: [steps, finished], properties: {steps: {type: array, items: {type: object, additionalProperties: true}}, finished: {type: boolean}, next: {type: [string, "null"]}}}
+    SecurityPolicy: {type: object, required: [mfa_for_administration, mfa_max_age_seconds, sso_enforcement, version], properties: {mfa_for_administration: {type: boolean}, mfa_max_age_seconds: {type: integer}, sso_enforcement: {type: string, enum: [optional, required]}, version: {type: integer}}}
+    SsoConnection: {type: object, required: [id, provider_id, domain, domain_state, state, version], properties: {id: {type: string, format: uuid}, provider_id: {type: string}, display_name: {type: string}, domain: {type: string}, domain_state: {type: string, enum: [unverified, verified]}, state: {type: string, enum: [draft, active, disabled]}, auto_join: {type: boolean}, version: {type: integer}}}
     CreateWorkUnit:
       type: object
       additionalProperties: false

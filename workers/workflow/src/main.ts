@@ -10,10 +10,15 @@ import { createActivities, type WorkflowProbe } from '@ensemus/workflows/activit
 import { AesGcmPayloadCodec } from '@ensemus/workflows/codec';
 import { PLATFORM_TASK_QUEUE, TEMPORAL_CHANNEL_ARGS } from '@ensemus/workflows/constants';
 import { createExternalActionPlatformActivities } from '@ensemus/workflows/external-action-activities';
+import { createObjectMigrationActivities } from '@ensemus/workflows/object-migration-activities';
+import { createProcessRunActivities } from '@ensemus/workflows/process-run-activities';
+import { createSimulationActivities } from '@ensemus/workflows/simulation-activities';
 import { createTemporalLogger } from '@ensemus/workflows/safe-logger';
 import { workflowIdFor } from '@ensemus/workflows/schemas';
 import { Client, Connection, WorkflowNotFoundError } from '@temporalio/client';
 import { NativeConnection, Runtime, Worker } from '@temporalio/worker';
+
+import { workerProductPorts } from './product-ports';
 
 const log = createLogger('worker');
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -67,6 +72,10 @@ async function main() {
       ...createActivities({ database: db, store, probeWorkflow }),
       // Only what reads PostgreSQL. Anything holding a credential is on the connector queue.
       ...createExternalActionPlatformActivities({ database: db }),
+      // M7 (ADR-031). None of these holds a credential, or calls anything outside PostgreSQL.
+      ...createSimulationActivities({ database: db }),
+      ...createProcessRunActivities({ database: db, ports: workerProductPorts() }),
+      ...createObjectMigrationActivities({ database: db }),
     },
     dataConverter: {
       payloadCodecs: [new AesGcmPayloadCodec(readSecret('TEMPORAL_CODEC_KEY'))],

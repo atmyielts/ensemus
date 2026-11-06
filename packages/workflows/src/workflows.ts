@@ -154,3 +154,6 @@ export async function tenantRemindersWorkflow(input: TenantInput): Promise<void>
 export { connectorSyncWorkflow } from './connector-sync-workflow';
 export { externalActionWorkflow } from './external-action-workflow';
 export { webhookDeliveryWorkflow } from './webhook-workflow';
+export { objectMigrationWorkflow } from './object-migration-workflow';
+export { processRunWorkflow } from './process-run-workflow';
+export { simulationWorkflow } from './simulation-workflow';

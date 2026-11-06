@@ -4,12 +4,17 @@ import {
   authSchema,
   claimSetupToken,
   openAuthDatabase,
+  recordSessionAssurance,
   releaseSetupToken,
+  removeSsoProvider,
+  storeSsoProvider,
 } from '@ensemus/database/auth';
 import { createLogger, errorCode } from '@ensemus/telemetry';
 import { betterAuth, type BetterAuthPlugin } from 'better-auth';
 import { drizzleAdapter } from 'better-auth/adapters/drizzle';
 import { genericOAuth } from 'better-auth/plugins';
+import { createMfaOperations, mfaPlugins } from './mfa';
+import { createSsoOperations, SSO_DISABLED_PATHS, ssoPlugins } from './sso';
 
 export type OidcProvider = {
   providerId: string;
@@ -68,6 +73,7 @@ export function createAuth(options: AuthOptions) {
       baseURL: options.baseURL,
       secret: options.secret,
       trustedOrigins: [options.baseURL],
+      disabledPaths: [...SSO_DISABLED_PATHS],
       telemetry: { enabled: false },
       logger: { log: logSafely },
       database: drizzleAdapter(db, { provider: 'pg', schema: authSchema }),
@@ -112,6 +118,8 @@ export function createAuth(options: AuthOptions) {
               }),
             ]
           : []),
+        ...mfaPlugins(),
+        ...ssoPlugins({ baseURL: options.baseURL }),
         ...(options.plugins ?? []),
       ],
     });
@@ -179,7 +187,19 @@ export function createAuth(options: AuthOptions) {
     }
   }
 
-  return { auth, close, redeemSetupToken, submitCredentials };
+  const mfa = createMfaOperations({
+    handler: (request) => auth.handler(request),
+    baseURL: options.baseURL,
+    record: (proof) => recordSessionAssurance(db, proof),
+  });
+  const sso = createSsoOperations({
+    store: (provider) => storeSsoProvider(db, provider),
+    remove: (providerId) => removeSsoProvider(db, providerId),
+    recordAssurance: ({ sessionId, userId, ssoProviderId }) =>
+      recordSessionAssurance(db, { sessionId, userId, kind: 'sso_saml', ssoProviderId }),
+  });
+
+  return { auth, close, mfa, redeemSetupToken, sso, submitCredentials };
 }
 
 export type EnsemusAuth = ReturnType<typeof createAuth>['auth'];

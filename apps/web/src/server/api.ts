@@ -131,6 +131,8 @@ export type ApiScope<P> = {
   request: Request;
   requestId: string;
   userId: string;
+  /** From the verified cookie, for recent-MFA checks. Never from the request. */
+  sessionId: string;
   context: TenantContext;
   database: AppDatabase;
   params: P;
@@ -187,6 +189,7 @@ export function apiRoute<S extends z.ZodType<{ organizationId: string }>>(
         request,
         requestId,
         userId: session.user.id,
+        sessionId: session.session.id,
         context,
         database: app,
         params: params.data,

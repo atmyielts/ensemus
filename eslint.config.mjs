@@ -35,6 +35,14 @@ const connectorCode = {
   message:
     'Connectors run in the connector worker. The web tier may read manifests only (ADR-027).',
 };
+const ssoOperator = {
+  group: ['@ensemus/database/sso-operator'],
+  message: 'The operator verifies a domain from the command line. No tenant path reaches this (ADR-031 D9).',
+};
+const packReach = {
+  regex: '^(?!@ensemus/domain/)(@ensemus/|pg|drizzle-orm|@temporalio/|better-auth|node:)',
+  message: 'A pack is data. It proposes things and reaches nothing (ADR-031 D10).',
+};
 const testDoubles = {
   group: ['@ensemus/connectors/testing'],
   message: 'Test doubles never reach a shipped image.',
@@ -125,10 +133,11 @@ export default tseslint.config(
     [rawDatabase, authDatabase],
     ['packages/database/**', 'packages/auth/**', 'tests/**', 'apps/web/**'],
   ),
-  restrict(['packages/auth/**/*.ts'], [rawDatabase, temporal, broker]),
+  restrict(['packages/auth/**/*.ts'], [rawDatabase, temporal, broker, ssoOperator]),
+  restrict(['packages/packs/**/*.ts'], [packReach]),
   restrict(
     ['apps/web/**/*.{ts,tsx}'],
-    [rawDatabase, authDatabase, temporal, broker, connectorCode],
+    [rawDatabase, authDatabase, temporal, broker, connectorCode, ssoOperator],
   ),
   restrict(
     ['workers/**/*.ts', 'packages/workflows/**/*.ts'],
