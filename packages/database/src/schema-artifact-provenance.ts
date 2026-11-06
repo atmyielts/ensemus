@@ -21,9 +21,7 @@ const knowledge = pgSchema('knowledge');
 export const artifactAclCatalog = knowledge.table(
   'artifact_acl_catalog',
   {
-    organizationId: uuid()
-      .notNull()
-      .references(() => organizations.id),
+    organizationId: uuid().notNull(),
     artifactId: uuid().notNull(),
     sha256: text().notNull(),
     classification: text().notNull(),
@@ -34,7 +32,12 @@ export const artifactAclCatalog = knowledge.table(
     physicalPurgedAt: timestamp({ withTimezone: true }),
   },
   (t) => [
-    primaryKey({ columns: [t.organizationId, t.artifactId] }),
+    foreignKey({
+      name: 'artifact_acl_catalog_organization_id_fkey',
+      columns: [t.organizationId],
+      foreignColumns: [organizations.id],
+    }),
+    primaryKey({ name: 'artifact_acl_catalog_pkey', columns: [t.organizationId, t.artifactId] }),
     check(
       'artifact_catalog_shape',
       sql`${t.sha256} ~ '^[0-9a-f]{64}$' and ${t.sizeBytes}>=0 and ${t.classification} in ('public','internal','confidential','restricted') and ${t.provenanceState} in ('ordinary','pending','bound','blocked')`,
@@ -49,12 +52,17 @@ export const artifactWorkLinks = knowledge.table(
     workUnitId: uuid().notNull(),
   },
   (t) => [
-    primaryKey({ columns: [t.organizationId, t.artifactId, t.workUnitId] }),
+    primaryKey({
+      name: 'artifact_work_links_pkey',
+      columns: [t.organizationId, t.artifactId, t.workUnitId],
+    }),
     foreignKey({
+      name: 'artifact_work_links_organization_id_artifact_id_fkey',
       columns: [t.organizationId, t.artifactId],
       foreignColumns: [artifactAclCatalog.organizationId, artifactAclCatalog.artifactId],
     }),
     foreignKey({
+      name: 'artifact_work_links_organization_id_work_unit_id_fkey',
       columns: [t.organizationId, t.workUnitId],
       foreignColumns: [workUnits.organizationId, workUnits.id],
     }),
@@ -87,16 +95,19 @@ export const artifactLineage = knowledge.table(
     createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
-    primaryKey({ columns: [t.organizationId, t.artifactId] }),
+    primaryKey({ name: 'artifact_lineage_pkey', columns: [t.organizationId, t.artifactId] }),
     foreignKey({
+      name: 'artifact_lineage_organization_id_artifact_id_fkey',
       columns: [t.organizationId, t.artifactId],
       foreignColumns: [artifactAclCatalog.organizationId, artifactAclCatalog.artifactId],
     }),
     foreignKey({
+      name: 'artifact_lineage_organization_id_work_unit_id_fkey',
       columns: [t.organizationId, t.workUnitId],
       foreignColumns: [workUnits.organizationId, workUnits.id],
     }),
     foreignKey({
+      name: 'artifact_lineage_organization_id_viewer_membership_id_fkey',
       columns: [t.organizationId, t.viewerMembershipId],
       foreignColumns: [memberships.organizationId, memberships.id],
     }),
@@ -123,12 +134,17 @@ export const artifactLineageSources = knowledge.table(
     sourceId: uuid().notNull(),
   },
   (t) => [
-    primaryKey({ columns: [t.organizationId, t.artifactId, t.sourceId] }),
+    primaryKey({
+      name: 'artifact_lineage_sources_pkey',
+      columns: [t.organizationId, t.artifactId, t.sourceId],
+    }),
     foreignKey({
+      name: 'artifact_lineage_sources_organization_id_artifact_id_fkey',
       columns: [t.organizationId, t.artifactId],
       foreignColumns: [artifactLineage.organizationId, artifactLineage.artifactId],
     }),
     foreignKey({
+      name: 'artifact_lineage_sources_organization_id_source_id_fkey',
       columns: [t.organizationId, t.sourceId],
       foreignColumns: [knowledgeSources.organizationId, knowledgeSources.id],
     }),
@@ -143,12 +159,17 @@ export const artifactLineagePackages = knowledge.table(
     packageId: uuid().notNull(),
   },
   (t) => [
-    primaryKey({ columns: [t.organizationId, t.artifactId, t.packageId] }),
+    primaryKey({
+      name: 'artifact_lineage_packages_pkey',
+      columns: [t.organizationId, t.artifactId, t.packageId],
+    }),
     foreignKey({
+      name: 'artifact_lineage_packages_organization_id_artifact_id_fkey',
       columns: [t.organizationId, t.artifactId],
       foreignColumns: [artifactLineage.organizationId, artifactLineage.artifactId],
     }),
     foreignKey({
+      name: 'artifact_lineage_packages_organization_id_package_id_fkey',
       columns: [t.organizationId, t.packageId],
       foreignColumns: [knowledgeEvidencePackages.organizationId, knowledgeEvidencePackages.id],
     }),
@@ -164,12 +185,17 @@ export const artifactLineageInputs = knowledge.table(
     inputSha256: text().notNull(),
   },
   (t) => [
-    primaryKey({ columns: [t.organizationId, t.artifactId, t.inputArtifactId] }),
+    primaryKey({
+      name: 'artifact_lineage_inputs_pkey',
+      columns: [t.organizationId, t.artifactId, t.inputArtifactId],
+    }),
     foreignKey({
+      name: 'artifact_lineage_inputs_organization_id_artifact_id_fkey',
       columns: [t.organizationId, t.artifactId],
       foreignColumns: [artifactLineage.organizationId, artifactLineage.artifactId],
     }),
     foreignKey({
+      name: 'artifact_lineage_inputs_organization_id_input_artifact_id_fkey',
       columns: [t.organizationId, t.inputArtifactId],
       foreignColumns: [artifactAclCatalog.organizationId, artifactAclCatalog.artifactId],
     }),
@@ -184,9 +210,7 @@ export const artifactLineageInputs = knowledge.table(
 export const structuredRecordCatalog = knowledge.table(
   'structured_record_catalog',
   {
-    organizationId: uuid()
-      .notNull()
-      .references(() => organizations.id),
+    organizationId: uuid().notNull(),
     recordKind: text().notNull(),
     recordId: uuid().notNull(),
     /** Projects derive their effective class from the current parent client, or internal with none. */
@@ -196,7 +220,15 @@ export const structuredRecordCatalog = knowledge.table(
     alive: boolean().notNull(),
   },
   (t) => [
-    primaryKey({ columns: [t.organizationId, t.recordKind, t.recordId] }),
+    primaryKey({
+      name: 'structured_record_catalog_pk',
+      columns: [t.organizationId, t.recordKind, t.recordId],
+    }),
+    foreignKey({
+      name: 'structured_record_catalog_org_fk',
+      columns: [t.organizationId],
+      foreignColumns: [organizations.id],
+    }),
     check(
       'structured_record_catalog_shape',
       sql`${t.recordKind} in ('work_unit','project','client') and ((${t.recordKind}='project' and ${t.classification} is null and ${t.ownerMembershipId} is null) or (${t.recordKind}<>'project' and ${t.classification} is not null and ${t.classification} in ('public','internal','confidential','restricted')))`,
@@ -211,7 +243,12 @@ export const structuredWorkAssignments = knowledge.table(
     workUnitId: uuid().notNull(),
     membershipId: uuid().notNull(),
   },
-  (t) => [primaryKey({ columns: [t.organizationId, t.workUnitId, t.membershipId] })],
+  (t) => [
+    primaryKey({
+      name: 'structured_work_assignments_pk',
+      columns: [t.organizationId, t.workUnitId, t.membershipId],
+    }),
+  ],
 );
 /** Complete flattened structured reads. Multiple hashes preserve actual rereads of mutable records. */
 export const artifactLineageRecords = knowledge.table(
@@ -226,13 +263,16 @@ export const artifactLineageRecords = knowledge.table(
   },
   (t) => [
     primaryKey({
+      name: 'artifact_lineage_records_pk',
       columns: [t.organizationId, t.artifactId, t.recordKind, t.recordId, t.recordSha256],
     }),
     foreignKey({
+      name: 'artifact_lineage_records_header_fk',
       columns: [t.organizationId, t.artifactId],
       foreignColumns: [artifactLineage.organizationId, artifactLineage.artifactId],
     }),
     foreignKey({
+      name: 'artifact_lineage_records_source_fk',
       columns: [t.organizationId, t.recordKind, t.recordId],
       foreignColumns: [
         structuredRecordCatalog.organizationId,

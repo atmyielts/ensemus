@@ -145,6 +145,36 @@ describe('tenant-safe bounded graph traversal', () => {
     expect(allowed.nodes.some((node) => node.id === projectId)).toBe(true);
     expect(allowed.nodes.some((node) => node.id === target.id)).toBe(true);
   });
+  it('refuses manual edge changes without fresh named access, including direct-role deletion', async () => {
+    const a = await client(owner, 'restricted'),
+      b = await client();
+    const { edgeId } = await link(a, b);
+    await expect(unlinkEdge(database.db, reviewer, { edgeId })).rejects.toEqual(
+      new AppError('NOT_FOUND'),
+    );
+    const removed = await withTenantTx(database.db, reviewer, (tx) =>
+      tx
+        .delete(knowledgeEdges)
+        .where(eq(knowledgeEdges.id, edgeId))
+        .returning({ id: knowledgeEdges.id }),
+    );
+    expect(removed).toEqual([]);
+    await expect(
+      withTenantTx(database.db, reader, (tx) =>
+        tx.insert(knowledgeEdges).values({
+          organizationId: owner.organizationId,
+          fromType: b.type,
+          fromId: b.id,
+          toType: b.type,
+          toId: b.id,
+          relation: 'related_to',
+          origin: 'person',
+          createdByMembershipId: reader.membershipId,
+        }),
+      ),
+    ).rejects.toMatchObject({ cause: { code: '42501' } });
+    await unlinkEdge(database.db, owner, { edgeId });
+  });
   it('hides private client/project labels from unnamed people while preserving named owner access', async () => {
     const internal = await client(),
       secret = await client(owner, 'confidential'),

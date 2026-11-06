@@ -124,7 +124,7 @@ export async function linkNodes(
       return { edgeId: created.id };
     });
   } catch (error) {
-    if (pgCode(error) === 'EN112') throw new AppError('NOT_FOUND');
+    if (['EN112', '42501'].includes(pgCode(error) ?? '')) throw new AppError('NOT_FOUND');
     throw error;
   }
 }
@@ -138,6 +138,8 @@ export async function unlinkEdge(
     await person(tx, context, true);
     const [edge] = await tx.select().from(knowledgeEdges).where(eq(knowledgeEdges.id, edgeId));
     if (!edge) throw new AppError('NOT_FOUND');
+    await visible(tx, node({ type: edge.fromType as GraphNodeType, id: edge.fromId }));
+    await visible(tx, node({ type: edge.toType as GraphNodeType, id: edge.toId }));
     if (edge.origin !== 'person') throw new AppError('INVALID_STATE');
     // Edges have no UPDATE grant and their identity/origin is immutable. The DELETE itself locks
     // the row; only its winning transaction may append the audit event.

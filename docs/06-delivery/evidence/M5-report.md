@@ -33,14 +33,20 @@ semantics. The added browser journeys are authored, not rendered/accepted.
 | Repaired contract/navigation/scanner batch | 45 passed, including the corrected unknown-method refusal and four new nested navigation cases |
 | Worker build | Passed, including the Temporal workflow bundle |
 | Actual emitted parser | Success, unsupported-format refusal and deadline termination passed; caller buffer preserved |
-| Disposable PostgreSQL migration | M1–M4 plus 0200–0210 applied successfully, 28 journal entries; no original deployment database was used |
+| Disposable PostgreSQL migration | M1–M4 plus 0200–0213 applied successfully from empty synthetic data, 31 journal entries; no original deployment database was used |
 | Initial schema cases | 27 passed, three failed; after repairing obsolete actor/version fixtures, all original 30 schema cases passed |
 | Source/ingestion/company search | 31 passed after fixing upload idempotency and named-owner expectations |
-| Other knowledge cases | Retrieval/isolation passed their initial batch; wider graph/fact/verification and final complete suites remain open |
+| First broad M5 database run | 185 passed, 74 failed across 22 files; common trigger, lock-policy and fixture failures were investigated rather than treated as acceptance |
+| Repaired 12-file real-role batch | **241 passed**, 40.04 seconds: schema, client visibility, generated provenance, verification, facts, onboarding, Google/Microsoft sync, restore, company search, graph and cursor integration |
+| Latest focused units | **22 passed** in three files: connector cursor limits, navigation, actual scanner composition |
+| Constraint metadata audit | 210 actual constraints inspected; zero naming differences against 0213 snapshot for the selected knowledge/client/onboarding/MCP tables |
 
 Source-management follow-up separately passed 80 focused units, scoped lint/format and serial
-database/application/tests/web/browser types before composition. Its migration 0212 and browser
-journeys are still unrun. [Source details](m5/source-management.md) distinguish those checks.
+database/application/tests/web/browser types before composition. Migration 0212 is now applied in
+the disposable database; its built browser journeys remain unrun. [Source details](m5/source-management.md)
+distinguish the earlier source checks. All current repaired source passed scoped formatting/lint and
+serial domain/database/application/connectors/tests types. The composed runtime join still needs
+its own checks.
 
 ## Failures found in integration
 
@@ -51,20 +57,35 @@ transaction now returns the authoritative IDs itself; real retry/race/access-los
 Drizzle emitted schema-qualified `FOR SHARE OF` targets, which PostgreSQL refuses. A small helper
 emits the exact existing relation's unqualified name. Human document row locks then exposed another
 policy issue: UPDATE visibility was service-only, so readable documents disappeared from lock
-queries. Proposed 0213 aligns lock visibility with SELECT and keeps actual mutations service-only.
-No additional column grant is proposed. Graph unlink now uses atomic DELETE RETURNING rather than
+queries. Applied 0213 aligns lock visibility with SELECT and keeps actual mutations service-only.
+No document column grant was added. Graph unlink now uses atomic DELETE RETURNING rather than
 asking for UPDATE authority on an immutable edge.
 
 The original deferred fact-evidence check could mistake an RLS-hidden parent for a deleted parent.
-Proposed 0213 adds readable-subject insertion and a fixed, ID-only trigger control check; existing
+Applied 0213 adds readable-subject insertion and a fixed, ID-only trigger control check; existing
 orphan claims require explicit repair rather than silent deletion. New direct-role revocation,
-forged-scope, transient-deletion and document-mutation refusal cases are authored. **0213 is not yet
-journaled or applied.** These findings are not claimed fixed in the database until its fresh run.
+forged-scope, transient-deletion and document-mutation refusal cases passed. A synthetic legacy-orphan
+upgrade preflight refused with EN213 inside a rolled-back transaction; it changed neither journal
+nor runtime policies. This is a focused refusal check, not the complete upgrade rehearsal.
+
+The shared artifact-binding trigger originally referenced fields absent on two of its targets; its
+relation-specific branches now compile independently. Citation changes serialize on the ID-only
+artifact catalog, preserving immutable file permissions. Maintenance header locks have tenant-scoped
+UPDATE visibility with WITH CHECK(false), so the fixed definer can lock without gaining mutation.
+Restore receives only the missing guarded marker-column grant and recreates a durable blob-deletion
+reservation before its lifecycle runs. Missing, held and unconfirmed lifecycle proof remains closed.
+
+Client INSERT RETURNING now checks the actual new row rather than an AFTER-populated catalog.
+Onboarding inserts child parent IDs through the current Work creation kernel, without granting later
+reparenting. Its source permissions match the owner/admin-only SQL and model-run authority. Readable
+source-bearing files remain hidden from service accounts. Connector resource kinds use the canonical
+file slug; larger composite cursors are allowed only for the stored Google/Microsoft connector and
+its exact Drive stream. A caller naming that stream on another connector cannot commit any page.
 
 ## Remaining integration
 
-Complete and apply structured-input lineage 0211, source authority 0212 and evidence integrity 0213;
-regenerate final snapshots and test fresh/upgrade databases. Bind the exhaustive actual M4 compiler
+Structured-input lineage 0211, source authority 0212 and evidence integrity 0213 are journaled, applied
+and snapshotted. Complete the broader regression and upgrade gates. Bind the exhaustive actual M4 compiler
 and tool-read inventory before generated writes, cited verification and human acceptance. Preserve
 fresh named-viewer access and all inherited inputs through serving, revocation and physical erasure.
 
@@ -79,5 +100,7 @@ remain separate. Only generated fixtures and throwaway credentials have been use
 
 `ensemus-m5-integration` is this task's new disposable PostgreSQL project on localhost 55436 and
 network prefix 172.21. It is kept while these database checks run, then cleaned by exact ownership.
-Heavy image/upgrade rehearsals remain held by the 16 GiB preflight; local source checks are serialized.
+Each fresh reset verified the exact one-container/one-volume Compose ownership and absence of other
+volume users before replacing only synthetic data. The owned M4 preview is stopped, with all its
+volumes retained. Heavy image/upgrade rehearsals remain held by the 16 GiB preflight; source checks are serialized.
 See [M4 resource evidence](M4-report.md) for completed-image cleanup and preserved original volumes.

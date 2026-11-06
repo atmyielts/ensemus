@@ -79,13 +79,7 @@ const GRANTS: Record<Role, ReadonlySet<Capability>> = {
     'egress.view',
     'client_onboarding.start',
   ]),
-  member: new Set([
-    'client.manage',
-    'project.manage',
-    'work.create',
-    'knowledge.add',
-    'client_onboarding.start',
-  ]),
+  member: new Set(['client.manage', 'project.manage', 'work.create', 'knowledge.add']),
 };
 
 export function isRole(value: string): value is Role {

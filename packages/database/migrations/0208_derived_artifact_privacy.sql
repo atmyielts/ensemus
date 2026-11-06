@@ -108,6 +108,10 @@ ALTER TABLE knowledge.artifact_lineage ENABLE ROW LEVEL SECURITY;
 ALTER TABLE knowledge.artifact_lineage FORCE ROW LEVEL SECURITY;
 CREATE POLICY tenant_scoped ON knowledge.artifact_lineage TO ensemus_app USING(organization_id=app.current_organization_id()) WITH CHECK(organization_id=app.current_organization_id());
 CREATE POLICY catalog_reader ON knowledge.artifact_lineage FOR SELECT TO ensemus_migrator USING(organization_id=app.current_organization_id());
+-- SELECT FOR SHARE also applies UPDATE visibility. The fixed maintenance function locks the
+-- retained header; it never updates it as the definer. WITH CHECK(false) preserves that boundary.
+CREATE POLICY catalog_lock ON knowledge.artifact_lineage FOR UPDATE TO ensemus_migrator
+  USING(organization_id=app.current_organization_id()) WITH CHECK(false);
 ALTER TABLE knowledge.artifact_lineage_sources ENABLE ROW LEVEL SECURITY;
 ALTER TABLE knowledge.artifact_lineage_sources FORCE ROW LEVEL SECURITY;
 CREATE POLICY tenant_scoped ON knowledge.artifact_lineage_sources TO ensemus_app USING(organization_id=app.current_organization_id()) WITH CHECK(organization_id=app.current_organization_id());
@@ -471,20 +475,24 @@ BEGIN
     OR (NOT knowledge.is_service_actor() AND l.viewer_membership_id IS DISTINCT FROM app.current_membership_id()) THEN
     RAISE EXCEPTION 'IMMUTABLE_ARTIFACT_BINDING' USING ERRCODE='EN118';
   END IF;
-  IF TG_RELID='knowledge.artifact_lineage_sources'::regclass AND
-    (NEW.source_id NOT IN(SELECT knowledge.readable_source_ids(l.viewer_membership_id))
-      OR knowledge.class_rank(source.classification)>knowledge.class_rank(l.classification)) THEN
-    RAISE EXCEPTION 'INVALID_ARTIFACT_BINDING' USING ERRCODE='EN118';
-  ELSIF TG_RELID='knowledge.artifact_lineage_inputs'::regclass AND
-    (NOT knowledge.artifact_readable(NEW.input_artifact_id,l.viewer_membership_id)
-      OR knowledge.class_rank(input.classification)>knowledge.class_rank(l.classification)) THEN
-    RAISE EXCEPTION 'INVALID_ARTIFACT_BINDING' USING ERRCODE='EN118';
-  ELSIF TG_RELID='knowledge.artifact_lineage_packages'::regclass AND l.execution_kind='agent_run'
-    AND package.run_id IS DISTINCT FROM l.execution_id
-    AND NOT EXISTS(SELECT 1 FROM knowledge.artifact_lineage_inputs i JOIN knowledge.artifact_lineage_packages inherited
-      ON inherited.organization_id=i.organization_id AND inherited.artifact_id=i.input_artifact_id
-      WHERE i.organization_id=l.organization_id AND i.artifact_id=l.artifact_id AND inherited.package_id=NEW.package_id) THEN
-    RAISE EXCEPTION 'INVALID_ARTIFACT_BINDING' USING ERRCODE='EN118';
+  -- Separate relation branches before referencing their differently shaped NEW records.
+  IF TG_RELID='knowledge.artifact_lineage_sources'::regclass THEN
+    IF NEW.source_id NOT IN(SELECT knowledge.readable_source_ids(l.viewer_membership_id))
+      OR knowledge.class_rank(source.classification)>knowledge.class_rank(l.classification) THEN
+      RAISE EXCEPTION 'INVALID_ARTIFACT_BINDING' USING ERRCODE='EN118';
+    END IF;
+  ELSIF TG_RELID='knowledge.artifact_lineage_inputs'::regclass THEN
+    IF NOT knowledge.artifact_readable(NEW.input_artifact_id,l.viewer_membership_id)
+      OR knowledge.class_rank(input.classification)>knowledge.class_rank(l.classification) THEN
+      RAISE EXCEPTION 'INVALID_ARTIFACT_BINDING' USING ERRCODE='EN118';
+    END IF;
+  ELSE
+    IF l.execution_kind='agent_run' AND package.run_id IS DISTINCT FROM l.execution_id
+      AND NOT EXISTS(SELECT 1 FROM knowledge.artifact_lineage_inputs i JOIN knowledge.artifact_lineage_packages inherited
+        ON inherited.organization_id=i.organization_id AND inherited.artifact_id=i.input_artifact_id
+        WHERE i.organization_id=l.organization_id AND i.artifact_id=l.artifact_id AND inherited.package_id=NEW.package_id) THEN
+      RAISE EXCEPTION 'INVALID_ARTIFACT_BINDING' USING ERRCODE='EN118';
+    END IF;
   END IF;
   RETURN NEW;
 END $$;
@@ -750,9 +758,12 @@ BEGIN
     WHERE a.organization_id=OLD.organization_id AND a.artifact_id=OLD.artifact_id AND a.alive) THEN RETURN OLD; END IF;
   PERFORM s.id FROM knowledge.sources s WHERE s.organization_id=app.current_organization_id()
     AND s.id=CASE WHEN TG_OP='DELETE' THEN OLD.source_id ELSE NEW.source_id END FOR SHARE;
+  -- Files are immutable and have no application UPDATE grant. Their ID-only catalog is the
+  -- serialization point shared by publication, mutation and deletion; it exposes no file body.
+  PERFORM knowledge.lock_artifact_catalog(CASE WHEN TG_OP='DELETE' THEN OLD.artifact_id ELSE NEW.artifact_id END);
   SELECT * INTO file FROM work.artifacts a
     WHERE a.organization_id = app.current_organization_id()
-      AND a.id = CASE WHEN TG_OP = 'DELETE' THEN OLD.artifact_id ELSE NEW.artifact_id END FOR UPDATE;
+      AND a.id = CASE WHEN TG_OP = 'DELETE' THEN OLD.artifact_id ELSE NEW.artifact_id END;
   -- The parent's deletion cascades its citations, while verification history deliberately survives.
   IF NOT FOUND AND TG_OP = 'DELETE' THEN RETURN OLD; END IF;
   IF NOT FOUND OR EXISTS (SELECT 1 FROM platform.tombstones t

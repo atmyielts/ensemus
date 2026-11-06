@@ -162,7 +162,8 @@ export function createGoogleWorkspaceConnector(deps: {
     const externalId = providerId(file.id);
     return {
       externalId,
-      resourceType: mime,
+      // The SDK field is a stable resource kind; MIME is re-read from provider metadata for content.
+      resourceType: 'file',
       externalVersion: requiredText(file.version, 128),
       displayName: requiredText(file.name, 500),
       classification: 'internal',

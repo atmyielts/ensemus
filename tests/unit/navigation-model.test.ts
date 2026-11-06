@@ -55,6 +55,11 @@ describe('working workspace navigation', () => {
     for (const role of ['member', 'not-a-role']) {
       expect(navigation(role).map((group) => group.label)).toEqual(['Workspace']);
       expect(visibleSettings(role)).toEqual([]);
+      expect(
+        navigation(role)
+          .flatMap((group) => group.items.flatMap((item) => item.children ?? []))
+          .some((item) => item.href === `${base}/onboarding`),
+      ).toBe(false);
     }
   });
 

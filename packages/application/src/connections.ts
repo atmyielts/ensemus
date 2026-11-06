@@ -22,6 +22,8 @@ import {
   CONNECTOR_TYPE_PATTERN,
   isSafeConnectorConfig,
   isValidSyncPage,
+  MAX_COMPOSITE_SYNC_CURSOR_LENGTH,
+  syncCursorLimit,
   safeSyncErrorCode,
   SHIPPED_CONNECTOR_RULES,
   SYNC_STREAM_PATTERN,
@@ -610,7 +612,7 @@ export async function commitSyncPage(
   const { connectionId, lease, page } = input;
   if (
     !isIdentifier(connectionId) ||
-    !isValidSyncPage(lease.stream, page) ||
+    !isValidSyncPage(lease.stream, page, MAX_COMPOSITE_SYNC_CURSOR_LENGTH) ||
     page.mappedGrants.length !== page.resources.length
   ) {
     throw new AppError('INVALID_INPUT');
@@ -620,11 +622,20 @@ export async function commitSyncPage(
       // Shares the row with a revoke, so one that has committed stops this page and one that has not
       // waits for it.
       const [connection] = await tx
-        .select({ state: connections.state })
+        .select({ state: connections.state, connectorType: connections.connectorType })
         .from(connections)
         .where(eq(connections.id, connectionId))
         .for('share');
       if (connection?.state !== 'active') return null;
+      // The larger composite bound belongs to this stored connector/stream, never a caller's claim.
+      if (
+        !isValidSyncPage(
+          lease.stream,
+          page,
+          syncCursorLimit(connection.connectorType, lease.stream),
+        )
+      )
+        throw new AppError('INVALID_INPUT');
 
       const [cursor] = await tx
         .select()

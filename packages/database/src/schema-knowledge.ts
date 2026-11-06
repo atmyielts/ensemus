@@ -290,8 +290,9 @@ export const knowledgeObjectWriters = knowledgeSchema.table(
     startedAt: createdAt(),
   },
   (t) => [
-    primaryKey({ columns: [t.organizationId, t.documentId] }),
+    primaryKey({ name: 'object_writers_pkey', columns: [t.organizationId, t.documentId] }),
     foreignKey({
+      name: 'object_writers_organization_id_document_id_source_id_fkey',
       columns: [t.organizationId, t.documentId, t.sourceId],
       foreignColumns: [
         knowledgeDocuments.organizationId,
@@ -300,6 +301,7 @@ export const knowledgeObjectWriters = knowledgeSchema.table(
       ],
     }),
     foreignKey({
+      name: 'object_writers_organization_id_started_by_membership_id_fkey',
       columns: [t.organizationId, t.startedByMembershipId],
       foreignColumns: [memberships.organizationId, memberships.id],
     }),
@@ -805,6 +807,7 @@ export const knowledgeArtifactCitations = knowledgeSchema.table(
       foreignColumns: [artifacts.organizationId, artifacts.id],
     }).onDelete('cascade'),
     foreignKey({
+      name: 'artifact_citations_recorded_by_fk',
       columns: [t.organizationId, t.recordedByMembershipId],
       foreignColumns: [memberships.organizationId, memberships.id],
     }),
@@ -1084,30 +1087,37 @@ export const clientOnboardings = workSchema.table(
     primaryKey({ columns: [t.organizationId, t.id] }),
     unique('client_onboardings_deal').on(t.organizationId, t.dealRef),
     foreignKey({
+      name: 'client_onboardings_organization_id_owner_membership_id_fkey',
       columns: [t.organizationId, t.ownerMembershipId],
       foreignColumns: [memberships.organizationId, memberships.id],
     }),
     foreignKey({
+      name: 'client_onboardings_organization_id_reviewer_membership_id_fkey',
       columns: [t.organizationId, t.reviewerMembershipId],
       foreignColumns: [memberships.organizationId, memberships.id],
     }),
     foreignKey({
+      name: 'client_onboardings_organization_id_email_connection_id_fkey',
       columns: [t.organizationId, t.emailConnectionId],
       foreignColumns: [connections.organizationId, connections.id],
     }),
     foreignKey({
+      name: 'client_onboardings_organization_id_brief_work_unit_id_fkey',
       columns: [t.organizationId, t.briefWorkUnitId],
       foreignColumns: [workUnits.organizationId, workUnits.id],
     }),
     foreignKey({
+      name: 'client_onboardings_organization_id_review_work_unit_id_fkey',
       columns: [t.organizationId, t.reviewWorkUnitId],
       foreignColumns: [workUnits.organizationId, workUnits.id],
     }),
     foreignKey({
+      name: 'client_onboardings_organization_id_send_work_unit_id_fkey',
       columns: [t.organizationId, t.sendWorkUnitId],
       foreignColumns: [workUnits.organizationId, workUnits.id],
     }),
     foreignKey({
+      name: 'client_onboardings_organization_id_accepted_verification_i_fkey',
       columns: [t.organizationId, t.acceptedVerificationId],
       foreignColumns: [
         knowledgeArtifactVerifications.organizationId,
@@ -1115,10 +1125,12 @@ export const clientOnboardings = workSchema.table(
       ],
     }),
     foreignKey({
+      name: 'client_onboardings_organization_id_email_external_action_i_fkey',
       columns: [t.organizationId, t.emailExternalActionId],
       foreignColumns: [externalActions.organizationId, externalActions.id],
     }),
     foreignKey({
+      name: 'client_onboardings_organization_id_email_approval_id_fkey',
       columns: [t.organizationId, t.emailApprovalId],
       foreignColumns: [approvals.organizationId, approvals.id],
     }),

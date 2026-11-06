@@ -3,23 +3,23 @@
 ALTER TABLE knowledge.artifact_lineage ADD COLUMN structured_inventory_complete boolean NOT NULL DEFAULT false;
 --> statement-breakpoint
 CREATE TABLE knowledge.structured_record_catalog (
-  organization_id uuid NOT NULL REFERENCES org.organizations(id), record_kind text NOT NULL,
+  organization_id uuid NOT NULL CONSTRAINT structured_record_catalog_org_fk REFERENCES org.organizations(id), record_kind text NOT NULL,
   record_id uuid NOT NULL, classification text, owner_membership_id uuid, parent_record_id uuid,
-  alive boolean NOT NULL, PRIMARY KEY(organization_id,record_kind,record_id),
+  alive boolean NOT NULL, CONSTRAINT structured_record_catalog_pk PRIMARY KEY(organization_id,record_kind,record_id),
   CONSTRAINT structured_record_catalog_shape CHECK(record_kind IN ('work_unit','project','client')
     AND ((record_kind='project' AND classification IS NULL AND owner_membership_id IS NULL)
       OR (record_kind<>'project' AND classification IS NOT NULL AND classification IN ('public','internal','confidential','restricted'))))
 );
 CREATE TABLE knowledge.structured_work_assignments (
   organization_id uuid NOT NULL, work_unit_id uuid NOT NULL, membership_id uuid NOT NULL,
-  PRIMARY KEY(organization_id,work_unit_id,membership_id)
+  CONSTRAINT structured_work_assignments_pk PRIMARY KEY(organization_id,work_unit_id,membership_id)
 );
 CREATE TABLE knowledge.artifact_lineage_records (
   organization_id uuid NOT NULL, artifact_id uuid NOT NULL, record_kind text NOT NULL,
   record_id uuid NOT NULL, record_sha256 text NOT NULL, classification text NOT NULL,
-  PRIMARY KEY(organization_id,artifact_id,record_kind,record_id,record_sha256),
-  FOREIGN KEY(organization_id,artifact_id) REFERENCES knowledge.artifact_lineage(organization_id,artifact_id),
-  FOREIGN KEY(organization_id,record_kind,record_id)
+  CONSTRAINT artifact_lineage_records_pk PRIMARY KEY(organization_id,artifact_id,record_kind,record_id,record_sha256),
+  CONSTRAINT artifact_lineage_records_header_fk FOREIGN KEY(organization_id,artifact_id) REFERENCES knowledge.artifact_lineage(organization_id,artifact_id),
+  CONSTRAINT artifact_lineage_records_source_fk FOREIGN KEY(organization_id,record_kind,record_id)
     REFERENCES knowledge.structured_record_catalog(organization_id,record_kind,record_id),
   CONSTRAINT artifact_lineage_records_shape CHECK(record_kind IN ('work_unit','project','client')
     AND record_sha256 ~ '^[0-9a-f]{64}$' AND classification IN ('public','internal','confidential','restricted'))
@@ -180,8 +180,22 @@ GRANT EXECUTE ON FUNCTION knowledge.lock_structured_record(text,uuid) TO ensemus
 CREATE OR REPLACE FUNCTION knowledge.can_read_work(p_work_unit uuid,p_membership uuid) RETURNS boolean LANGUAGE sql STABLE AS $$
   SELECT knowledge.structured_record_readable('work_unit',p_work_unit,p_membership)
 $$;
-ALTER POLICY client_visibility ON work.clients USING(knowledge.is_service_actor() OR knowledge.structured_record_readable('client',id,app.current_membership_id()));
-ALTER POLICY client_owner_change ON work.clients USING(knowledge.is_service_actor() OR knowledge.structured_record_readable('client',id,app.current_membership_id()));
+-- INSERT RETURNING checks SELECT policy before AFTER triggers populate the catalog. Authorize the
+-- actual client row here; retained artifact inputs use the catalog's identical named-person rule.
+ALTER POLICY client_visibility ON work.clients USING(knowledge.is_service_actor() OR EXISTS(
+  SELECT 1 FROM org.memberships m WHERE m.organization_id=clients.organization_id
+    AND m.id=app.current_membership_id() AND m.status='active'
+    AND (clients.classification IN ('public','internal') OR clients.owner_membership_id=m.id
+      OR EXISTS(SELECT 1 FROM work.client_readers r WHERE r.organization_id=clients.organization_id
+        AND r.client_id=clients.id AND r.membership_id=m.id)
+      OR (clients.classification='confidential' AND m.role IN ('owner','admin')))));
+ALTER POLICY client_owner_change ON work.clients USING(knowledge.is_service_actor() OR EXISTS(
+  SELECT 1 FROM org.memberships m WHERE m.organization_id=clients.organization_id
+    AND m.id=app.current_membership_id() AND m.status='active'
+    AND (clients.classification IN ('public','internal') OR clients.owner_membership_id=m.id
+      OR EXISTS(SELECT 1 FROM work.client_readers r WHERE r.organization_id=clients.organization_id
+        AND r.client_id=clients.id AND r.membership_id=m.id)
+      OR (clients.classification='confidential' AND m.role IN ('owner','admin')))));
 --> statement-breakpoint
 CREATE FUNCTION knowledge.artifact_required_records(p_artifact uuid)
 RETURNS TABLE(record_kind text,record_id uuid,record_sha256 text,classification text) LANGUAGE sql STABLE AS $$

@@ -326,6 +326,23 @@ async function reapplyEntry(
         })
         .onConflictDoNothing()
         .returning({ id: tombstones.targetId });
+      // Publication removes the upload reservation. Restore must recreate the durable deletion
+      // reservation before handing the object to its lifecycle; an UPDATE of a missing row proves
+      // nothing. Preserve an existing positive purge receipt on repeated reapplication.
+      await tx
+        .insert(blobLifecycle)
+        .values({
+          organizationId,
+          artifactId: targetId,
+          objectKey: current.objectKey,
+          state: 'deleting',
+          purgeAfter: new Date(),
+        })
+        .onConflictDoUpdate({
+          target: [blobLifecycle.organizationId, blobLifecycle.artifactId],
+          set: { state: 'deleting', purgeAfter: new Date() },
+          where: eq(blobLifecycle.state, 'uploading'),
+        });
       // A normal tombstone may still have asynchronous cleanup. Only this newly restored ledger
       // entry acquires the stronger tenant-serving barrier, atomically with restoring its tombstone.
       await tx

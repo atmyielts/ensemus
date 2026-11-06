@@ -241,6 +241,52 @@ describe('connector sync', () => {
     await auth?.end();
   });
 
+  describe('bounded composite cursors', () => {
+    const compositeCursor = 'x'.repeat(16_384);
+
+    it.each([
+      ['google_workspace', 'drive_files'],
+      ['microsoft_365', 'drive_items'],
+    ])('persists a composite cursor for the stored %s connector', async (connectorType, stream) => {
+      const connection = await createConnection(db(), ownerA, {
+        connectorType,
+        displayName: 'Generated composite cursor source',
+        config: {},
+        credentialSecretId: null,
+        manifests: [{ type: connectorType, credential: { required: false } }],
+      });
+      const lease = await takeLease(serviceA, connection.id, stream);
+      const next = await commit(
+        serviceA,
+        connection.id,
+        lease,
+        page([], {
+          nextCursor: compositeCursor,
+        }),
+      );
+      expect(next?.cursor).toBe(compositeCursor);
+      expect((await cursorRow(serviceA, connection.id, stream))?.cursor).toBe(compositeCursor);
+    });
+
+    it('refuses a larger cursor from another connector even when it names a Drive stream', async () => {
+      const connectionId = await newConnection(ownerA);
+      const lease = await takeLease(serviceA, connectionId, 'drive_files');
+      const before = await cursorRow(serviceA, connectionId, 'drive_files');
+      await expect(
+        commit(
+          serviceA,
+          connectionId,
+          lease,
+          page([resource('must-not-commit')], {
+            nextCursor: compositeCursor,
+          }),
+        ),
+      ).rejects.toMatchObject({ code: 'INVALID_INPUT' });
+      expect(await cursorRow(serviceA, connectionId, 'drive_files')).toEqual(before);
+      expect((await snapshot(serviceA, connectionId)).resources).toHaveLength(0);
+    });
+  });
+
   describe('idempotent pages', () => {
     it('leaves every row and updated_at alone when the same page is applied twice', async () => {
       const connectionId = await newConnection(ownerA);

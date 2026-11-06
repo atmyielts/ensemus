@@ -198,14 +198,24 @@ describe('knowledge source ledger reapply', () => {
       deletedAt: new Date(),
     };
     await store.put(ledgerKeyFor(entry), serializeLedgerEntry(entry), 'application/json');
+    const failures: unknown[] = [];
     const confirmed = new Set([ledgerRef(entry)]),
       perform = (derivedArtifacts?: DerivedArtifactLifecycle) =>
-        reapplyTombstoneLedger(database.db, store, createServiceContext, undefined, {
-          confirmed,
-          ...(derivedArtifacts ? { derivedArtifacts } : {}),
-        });
+        reapplyTombstoneLedger(
+          database.db,
+          store,
+          createServiceContext,
+          (error) => failures.push(error),
+          {
+            confirmed,
+            ...(derivedArtifacts ? { derivedArtifacts } : {}),
+          },
+        );
     const unknown = await perform();
     expect(unknown.failed).toBe(1);
+    // Missing lifecycle proof is the intended refusal, after the serving barrier has committed.
+    // An earlier SQL failure must not masquerade as the same closed restore result.
+    expect(failures).toEqual([new AppError('INVALID_STATE')]);
     expect(await countUnappliedTombstones(database.db, store, owner)).toBe(1);
     await expect(
       createRestoreGate({ database: database.db, store }).assertServing(owner),

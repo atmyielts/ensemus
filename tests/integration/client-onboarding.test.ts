@@ -322,13 +322,21 @@ describe('deal won to one verified onboarding', () => {
     );
     expect(sentRows.rows[0]?.count).toBe('1');
     expect(
-      await withTenantTx(database.db, service(), (tx) =>
+      await withTenantTx(database.db, owner, (tx) =>
         tx
           .select()
           .from(workArtifacts)
           .where(eq(workArtifacts.workUnitId, stored.reviewWorkUnitId!)),
       ),
     ).toHaveLength(1);
+    expect(
+      await withTenantTx(database.db, service(), (tx) =>
+        tx
+          .select()
+          .from(workArtifacts)
+          .where(eq(workArtifacts.workUnitId, stored.reviewWorkUnitId!)),
+      ),
+    ).toHaveLength(0);
     const bridge = () =>
       withTenantTx(database.db, service(), (tx) =>
         tx.execute<{ parent: boolean; review: boolean }>(

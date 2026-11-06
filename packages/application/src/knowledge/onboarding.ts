@@ -41,7 +41,6 @@ import { AppError, pgCode } from '../errors';
 import { emit } from '../events';
 import { idSchema } from '../ids';
 import { idFromRequest } from '../request-id';
-import { rowLockTarget } from '../row-lock';
 import { proposeExternalActionInTx } from '../external-actions';
 import { applyTransition, createWorkUnitInTx, loadReadable, type WorkRow } from '../work';
 import type { AgentRuns } from './ports';
@@ -182,32 +181,46 @@ export async function startClientOnboarding(
         title: string,
         owner: string,
         criteria: { kind: 'artifact_exists' | 'external_receipt' }[],
+        parentId?: string,
       ) =>
-        createWorkUnitInTx(tx, actor, {
-          title,
-          objective: objectives[part],
-          projectId,
-          ownerMembershipId: owner,
-          classification: 'internal',
-          completionCriteria: criteria,
-          requestKey: idFromRequest('onboarding-work', actor.membershipId, onboardingId, [part]),
-        });
+        createWorkUnitInTx(
+          tx,
+          actor,
+          {
+            title,
+            objective: objectives[part],
+            projectId,
+            ownerMembershipId: owner,
+            classification: 'internal',
+            completionCriteria: criteria,
+            requestKey: idFromRequest('onboarding-work', actor.membershipId, onboardingId, [part]),
+          },
+          parentId ? { parentId } : undefined,
+        );
       const parent = await create('parent', 'Client onboarding', input.ownerMembershipId, [
         { kind: 'artifact_exists' },
       ]);
-      const brief = await create('brief', 'Prepare the client brief', input.reviewerMembershipId, [
-        { kind: 'artifact_exists' },
-      ]);
-      const review = await create('review', 'Review the client brief', input.reviewerMembershipId, [
-        { kind: 'artifact_exists' },
-      ]);
-      const send = await create('send', 'Send the welcome message', input.ownerMembershipId, [
-        { kind: 'external_receipt' },
-      ]);
-      await tx
-        .update(workUnits)
-        .set({ parentId: parent.id })
-        .where(inArray(workUnits.id, [brief.id, review.id, send.id]));
+      const brief = await create(
+        'brief',
+        'Prepare the client brief',
+        input.reviewerMembershipId,
+        [{ kind: 'artifact_exists' }],
+        parent.id,
+      );
+      const review = await create(
+        'review',
+        'Review the client brief',
+        input.reviewerMembershipId,
+        [{ kind: 'artifact_exists' }],
+        parent.id,
+      );
+      const send = await create(
+        'send',
+        'Send the welcome message',
+        input.ownerMembershipId,
+        [{ kind: 'external_receipt' }],
+        parent.id,
+      );
       await tx.insert(workDependencies).values([
         { organizationId: actor.organizationId, prerequisiteId: brief.id, dependentId: review.id },
         { organizationId: actor.organizationId, prerequisiteId: review.id, dependentId: send.id },
@@ -623,8 +636,7 @@ export async function advanceClientOnboarding(
               eq(artifactWorkLinks.artifactId, candidate),
               eq(artifactAclCatalog.alive, true),
             ),
-          )
-          .for('share', { of: [rowLockTarget(artifactAclCatalog)] });
+          ); // The exact catalog row was locked above; the app has no catalog UPDATE grant.
         if (!file) throw new OnboardingFailure('BRIEF_UNAVAILABLE');
         await stableSources(tx, candidate, sourceIds);
         for (const target of [parent.id, review.id])

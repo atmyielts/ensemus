@@ -91,7 +91,15 @@ export function safeSyncErrorCode(code: unknown): SyncErrorCode {
 /** Generous for one page, and small enough that one bad connector cannot hold a transaction open. */
 export const MAX_SYNC_PAGE_RESOURCES = 1000;
 export const MAX_SYNC_RESOURCE_GRANTS = 1000;
-const MAX_CURSOR_LENGTH = 8192;
+export const MAX_SYNC_CURSOR_LENGTH = 8192;
+/** A Drive cursor holds up to fifty independently bounded provider continuations. */
+export const MAX_COMPOSITE_SYNC_CURSOR_LENGTH = 1_048_576;
+export function syncCursorLimit(connectorType: string, stream: string): number {
+  return (connectorType === 'google_workspace' && stream === 'drive_files') ||
+    (connectorType === 'microsoft_365' && stream === 'drive_items')
+    ? MAX_COMPOSITE_SYNC_CURSOR_LENGTH
+    : MAX_SYNC_CURSOR_LENGTH;
+}
 const MAX_ID_LENGTH = 1024;
 const MAX_NAME_LENGTH = 500;
 
@@ -120,7 +128,16 @@ function isValidResource(resource: SyncedResource): boolean {
 }
 
 /** Whether a page is one a stream could have produced. Each external ID may appear only once. */
-export function isValidSyncPage(stream: string, page: SyncPage): boolean {
+export function isValidSyncPage(
+  stream: string,
+  page: SyncPage,
+  maxCursorLength = MAX_SYNC_CURSOR_LENGTH,
+): boolean {
+  if (
+    maxCursorLength !== MAX_SYNC_CURSOR_LENGTH &&
+    maxCursorLength !== MAX_COMPOSITE_SYNC_CURSOR_LENGTH
+  )
+    return false;
   if (!SYNC_STREAM_PATTERN.test(stream)) return false;
   if (!Array.isArray(page.resources) || page.resources.length > MAX_SYNC_PAGE_RESOURCES) {
     return false;
@@ -131,7 +148,7 @@ export function isValidSyncPage(stream: string, page: SyncPage): boolean {
   ) {
     return false;
   }
-  if (page.nextCursor !== null && !isShortText(page.nextCursor, MAX_CURSOR_LENGTH)) return false;
+  if (page.nextCursor !== null && !isShortText(page.nextCursor, maxCursorLength)) return false;
   if (typeof page.hasMore !== 'boolean') return false;
   if (!page.resources.every(isValidResource)) return false;
   if (!page.deletedExternalIds.every((id) => isShortText(id, MAX_ID_LENGTH))) return false;

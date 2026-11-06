@@ -30,6 +30,7 @@ import {
   resolveTenantContext,
   tombstones,
   withTenantTx,
+  workUnits,
   type TenantContext,
 } from '@ensemus/database';
 import { createDelegatedContext, createServiceContext } from '@ensemus/database/service';
@@ -445,9 +446,11 @@ describe('artifact grounding and fresh human acceptance on real roles (0206)', (
   it('rejects a source-class raise above the artifact even when the work permits the stronger class', async () => {
     const value = await draft({ private: true });
     await value.ground();
-    await su.query(
-      "update work.work_units set classification='restricted' where organization_id=$1 and id=$2",
-      [owner.organizationId, value.work.id],
+    await withTenantTx(database.db, owner, (tx) =>
+      tx
+        .update(workUnits)
+        .set({ classification: 'restricted' })
+        .where(eq(workUnits.id, value.work.id)),
     );
     await withTenantTx(database.db, owner, (tx) =>
       tx

@@ -197,6 +197,27 @@
       "when": 1794003139128,
       "tag": "0210_generated_restore_proof",
       "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1794004260904,
+      "tag": "0211_structured_artifact_provenance",
+      "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1794004260905,
+      "tag": "0212_knowledge_source_authority",
+      "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1794004260906,
+      "tag": "0213_knowledge_evidence_integrity",
+      "breakpoints": true
     }
   ]
 }

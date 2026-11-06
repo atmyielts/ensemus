@@ -176,6 +176,8 @@ export function createMicrosoft365Connector(deps: {
             .digest('hex');
           let cursor: Cursor;
           try {
+            if (request.cursor && request.cursor.length > 1_048_576)
+              throw new Error('INVALID_CURSOR');
             cursor = request.cursor
               ? (JSON.parse(request.cursor) as Cursor)
               : {
@@ -221,9 +223,10 @@ export function createMicrosoft365Connector(deps: {
             if (item.folder) continue;
             if (!item.file) continue;
             const file = object(item.file);
+            requiredText(file.mimeType, 256);
             changed.set(externalId, {
               externalId,
-              resourceType: requiredText(file.mimeType, 256),
+              resourceType: 'file',
               externalVersion: requiredText(item.eTag, 1024),
               displayName: requiredText(item.name, 500),
               classification: 'internal',

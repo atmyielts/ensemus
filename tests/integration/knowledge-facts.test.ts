@@ -2,7 +2,7 @@
 import { randomUUID } from 'node:crypto';
 import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import * as schema from '../../packages/database/src/schema';
 import { AppDatabase } from '../../packages/database/src/tenant';
@@ -182,28 +182,38 @@ describe('fact provenance and independent review on real database roles', () => 
     await expect(review(created.factId, 2)).rejects.toEqual(new AppError('VERSION_CONFLICT'));
   });
 
-  it('rolls back a review when membership is revoked after its reads but before its update', async () => {
+  it('serializes review with membership revocation and then refuses the stale reviewer context', async () => {
     const admin = await seedMember(database.db, owner, auth, 'admin');
     const viewing = await resolveTenantContext(database.db, admin.userId, owner.organizationId);
     const created = await proposal();
     const pool = new pg.Pool({ connectionString: urls.app(), max: 1 });
     let reachedWrite = false;
+    let revocationWaited = false;
     pool.on('connect', (client) => {
-      // A driver barrier, not a production hook: the real read/lock statements have completed, but
-      // PostgreSQL has not yet taken the UPDATE statement's snapshot. Revocation commits on a
-      // separate real application-role connection before this statement reaches the server.
+      // A separate real connection attempts revocation after the review's permission lock. A short
+      // lock timeout proves serialization without making the fixture wait for its own blocked write.
       client.query = new Proxy(client.query, {
         apply(target, receiver, args) {
           const query = args[0] as string | { text?: string };
           const text = typeof query === 'string' ? query : (query.text ?? '');
           if (!reachedWrite && /^update\s+"knowledge"\."facts"\s/i.test(text)) {
             reachedWrite = true;
-            return withTenantTx(database.db, owner, (tx) =>
-              tx
+            return withTenantTx(database.db, owner, async (tx) => {
+              await tx.execute(sql`set local lock_timeout='200ms'`);
+              return tx
                 .update(memberships)
                 .set({ status: 'disabled' })
-                .where(eq(memberships.id, admin.membershipId)),
-            ).then(() => Reflect.apply(target, receiver, args));
+                .where(eq(memberships.id, admin.membershipId));
+            }).then(
+              () => {
+                throw new Error('REVOCATION_IGNORED_REVIEW_LOCK');
+              },
+              (error: unknown) => {
+                expect(pgCode(error)).toBe('55P03');
+                revocationWaited = true;
+                return Reflect.apply(target, receiver, args);
+              },
+            );
           }
           return Reflect.apply(target, receiver, args);
         },
@@ -211,20 +221,33 @@ describe('fact provenance and independent review on real database roles', () => 
     });
     const throughBarrier = new AppDatabase(drizzle(pool, { schema, casing: 'snake_case' }));
     try {
-      await expect(
-        reviewFact(throughBarrier, viewing, {
-          factId: created.factId,
-          expectedVersion: 1,
-          decision: 'verify',
-          reason: 'Review attempted just before access was removed.',
-        }),
-      ).rejects.toEqual(new AppError('NOT_FOUND'));
-      expect(reachedWrite).toBe(true);
-      expect(await getFact(database.db, owner, created.factId)).toMatchObject({
-        trustState: 'proposed',
-        version: 1,
-        reviewedByMembershipId: null,
+      await reviewFact(throughBarrier, viewing, {
+        factId: created.factId,
+        expectedVersion: 1,
+        decision: 'verify',
+        reason: 'Review held valid access until its transaction committed.',
       });
+      expect(reachedWrite).toBe(true);
+      expect(revocationWaited).toBe(true);
+      expect(await getFact(database.db, owner, created.factId)).toMatchObject({
+        trustState: 'verified',
+        version: 2,
+        reviewedByMembershipId: admin.membershipId,
+      });
+      await withTenantTx(database.db, owner, (tx) =>
+        tx
+          .update(memberships)
+          .set({ status: 'disabled' })
+          .where(eq(memberships.id, admin.membershipId)),
+      );
+      await expect(
+        reviewFact(database.db, viewing, {
+          factId: created.factId,
+          expectedVersion: 2,
+          decision: 'reject',
+          reason: 'A stale context cannot authorize another change.',
+        }),
+      ).rejects.toEqual(new AppError('FORBIDDEN'));
       const [events, audits] = await withTenantTx(database.db, owner, async (tx) =>
         Promise.all([
           tx
@@ -247,8 +270,8 @@ describe('fact provenance and independent review on real database roles', () => 
             ),
         ]),
       );
-      expect(events).toEqual([]);
-      expect(audits).toEqual([]);
+      expect(events).toHaveLength(1);
+      expect(audits).toHaveLength(1);
     } finally {
       await pool.end();
     }

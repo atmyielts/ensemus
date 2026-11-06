@@ -226,14 +226,26 @@ export async function createWorkUnitInTx(
   tx: Tx,
   context: TenantContext,
   raw: z.input<typeof createWorkInput>,
+  hierarchy: { parentId: string } | undefined = undefined,
 ) {
   if (!can(context.role, 'work.create')) throw new AppError('FORBIDDEN');
   const parsed = createWorkInput.safeParse(raw);
   if (!parsed.success) throw new AppError('INVALID_INPUT');
   const input = parsed.data;
   const { requestKey, ...content } = input;
+  const parentId = hierarchy ? idSchema.safeParse(hierarchy.parentId) : undefined;
+  if (parentId && !parentId.success) throw new AppError('INVALID_INPUT');
+  if (parentId?.success) {
+    const parent = await loadChangeable(tx, context, parentId.data);
+    if (!canChangeContent(parent.status as WorkState)) throw new AppError('INVALID_STATE');
+  }
   const id = requestKey
-    ? idFromRequest('work', context.membershipId, requestKey, content)
+    ? idFromRequest(
+        'work',
+        context.membershipId,
+        requestKey,
+        parentId?.success ? { ...content, parentId: parentId.data } : content,
+      )
     : randomUUID();
   const owner = input.ownerMembershipId ?? context.membershipId;
   await assertActiveMember(tx, owner);
@@ -250,6 +262,7 @@ export async function createWorkUnitInTx(
       title: input.title,
       objective: input.objective ?? null,
       projectId: input.projectId ?? null,
+      parentId: parentId?.success ? parentId.data : null,
       ownerMembershipId: owner,
       createdByMembershipId: context.membershipId,
       classification: input.classification,

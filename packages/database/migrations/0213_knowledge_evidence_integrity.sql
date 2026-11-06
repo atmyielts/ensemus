@@ -7,6 +7,25 @@ ALTER POLICY service_update ON knowledge.documents
   WITH CHECK (organization_id=app.current_organization_id() AND knowledge.is_service_actor());
 --> statement-breakpoint
 
+-- Manual graph mutation follows the same fresh endpoint access as traversal. A manager role does
+-- not confer named access to restricted records. Trusted purge may remove derived/fact edges.
+CREATE POLICY edge_insert_access ON knowledge.edges AS RESTRICTIVE FOR INSERT TO ensemus_app
+  WITH CHECK (knowledge.is_service_actor() OR
+    (app.current_actor_type()='user' AND origin='person'
+      AND created_by_membership_id=app.current_membership_id()
+      AND EXISTS(SELECT 1 FROM org.memberships m WHERE m.organization_id=edges.organization_id
+        AND m.id=app.current_membership_id() AND m.status='active' AND m.role IN('owner','admin'))
+      AND knowledge.can_read_fact_subject(from_type||':'||from_id::text)
+      AND knowledge.can_read_fact_subject(to_type||':'||to_id::text)));
+CREATE POLICY edge_delete_access ON knowledge.edges AS RESTRICTIVE FOR DELETE TO ensemus_app
+  USING (knowledge.is_service_actor() OR
+    (app.current_actor_type()='user' AND origin='person'
+      AND EXISTS(SELECT 1 FROM org.memberships m WHERE m.organization_id=edges.organization_id
+        AND m.id=app.current_membership_id() AND m.status='active' AND m.role IN('owner','admin'))
+      AND knowledge.can_read_fact_subject(from_type||':'||from_id::text)
+      AND knowledge.can_read_fact_subject(to_type||':'||to_id::text)));
+--> statement-breakpoint
+
 -- Do not silently accept or delete legacy orphan claims. These temporary owner-only policies
 -- exist within the migration transaction and are removed before it can commit.
 CREATE POLICY fact_integrity_0213_scan ON knowledge.facts FOR SELECT TO ensemus_migrator USING (true);

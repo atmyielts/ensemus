@@ -2,6 +2,9 @@
 -- Keep this marker until the lifecycle has proved fenced writers, absent bytes and removed metadata.
 -- Ordinary asynchronous purges never set it and do not close an otherwise current tenant.
 ALTER TABLE knowledge.artifact_lineage ADD COLUMN restore_reapply_pending boolean NOT NULL DEFAULT false;
+-- The existing state/writer columns are separately granted in 0208. This new marker is guarded
+-- below by exact tombstone/physical proof, so runtime recovery needs only its own column grant.
+GRANT UPDATE(restore_reapply_pending) ON knowledge.artifact_lineage TO ensemus_app;
 --> statement-breakpoint
 ALTER TABLE knowledge.artifact_lineage ADD CONSTRAINT artifact_restore_pending_shape
   CHECK (NOT restore_reapply_pending OR state='blocked');
