@@ -20,7 +20,7 @@ import { releaseProbeSignal } from '@ensemus/workflows/workflows';
 
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0'; // The proxy uses a local test certificate.
 
-const BASE = 'https://localhost:8443';
+const BASE = process.env.ENSEMUS_TEST_BASE ?? 'https://localhost:8443';
 const PASSWORD = 'correct horse battery staple';
 const inContainer = (service: string, ...args: string[]) => compose('exec', '-T', service, ...args);
 const nodeIn = (service: string, script: string) => inContainer(service, 'node', '-e', script);
@@ -396,9 +396,23 @@ describe('web tier isolation (ADR-024 D3, D5)', () => {
     expect(mounted).not.toContain('private');
     expect(mounted).not.toContain('temporal_codec_key');
     expect(mounted).not.toContain('db_secrets_url');
-    const env = inContainer('web', 'env');
-    expect(env).not.toContain('PRIVATE');
-    expect(env).not.toContain('BEGIN');
+    expect(mounted).not.toContain('db_agent_url');
+    expect(mounted).not.toContain('db_dispatcher_url');
+    // The endpoint allowlist is public configuration. Check secret-bearing names and actual key
+    // material, without printing all environment values when an assertion fails.
+    const inspected = JSON.parse(
+      nodeIn(
+        'web',
+        `process.stdout.write(JSON.stringify({
+      forbiddenNames:Object.keys(process.env).filter(name=>
+        /PRIVATE|TEMPORAL_CODEC_KEY|DATABASE_URL_(?:SECRETS|AGENT|DISPATCHER)/.test(name) &&
+        name!=='ENSEMUS_PRIVATE_MODEL_ENDPOINTS'),
+      privateKeyMaterial:Object.values(process.env).some(value=>/-----BEGIN (?:[A-Z ]+)?PRIVATE KEY-----/.test(value))
+    }))`,
+      ),
+    ) as { forbiddenNames: string[]; privateKeyMaterial: boolean };
+    expect(inspected.forbiddenNames).toEqual([]);
+    expect(inspected.privateKeyMaterial).toBe(false);
   });
 
   it('cannot read sealed secrets with its own database credentials', () => {

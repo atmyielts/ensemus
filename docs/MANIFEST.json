@@ -312,8 +312,8 @@
     },
     {
       "path": "06-delivery/evidence/M4-report.md",
-      "size_bytes": 10207,
-      "sha256": "b79c90f68c0a3bd75202d3f24c3ba626409450062b1f698df90a32cd856029a0"
+      "size_bytes": 11485,
+      "sha256": "5ffb47f8282549b77df69d1756dcc281ecaf46ec22879c8db440aef6aef7f304"
     },
     {
       "path": "06-delivery/evidence/m4/assurance.md",
@@ -362,8 +362,8 @@
     },
     {
       "path": "06-delivery/platform-completion-progress.md",
-      "size_bytes": 8432,
-      "sha256": "3f649354518e100bd99045b857b6703281b668749fc1af7f17eccaaa18e46116"
+      "size_bytes": 8613,
+      "sha256": "29e1bbbe257579c3a5cba0ffd61f3e7ad218e618f99da1ea7b8fe47f8f84cd31"
     },
     {
       "path": "07-commercial/01-license-and-maintenance.md",

@@ -688,7 +688,16 @@ describe('the product through its forms', () => {
         expect((await read(path, owner.jar)).html, path).toContain(`<title>${expected}</title>`);
       }
       const { html } = await read(`/o/${org}/work`, owner.jar);
-      expect(html).toMatch(/<a[^>]*aria-current="page"[^>]*>Work/);
+      const currentLinks = [
+        ...html.matchAll(/<a\b([^>]*\baria-current="page"[^>]*)>([\s\S]*?)<\/a>/g),
+      ].map((match) => ({
+        href: /\bhref="([^"]*)"/.exec(match[1]!)?.[1],
+        label: match[2]!
+          .replace(/<[^>]+>/g, '')
+          .replace(/\s+/g, ' ')
+          .trim(),
+      }));
+      expect(currentLinks).toContainEqual({ href: `/o/${org}/work`, label: 'Work' });
     });
 
     it('does not offer switching organization to someone with only one', async () => {

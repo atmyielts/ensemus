@@ -27,8 +27,9 @@ The owner requires a uniform, polished interface for non-developers. The [interf
 | Focused interface browser check | **11 passed**, including 64 page/theme/width accessibility and overflow combinations; [details](m4/interface-system.md) |
 | Full browser suite | **195 passed in 11.5 minutes** on the freshly rebuilt web image; local log `.local-m4-browser-full-final.log` |
 | Upgrade rehearsal | Interrupted when the host disk filled; a fresh complete rehearsal remains owed |
-| M4 air-gap control | Infrastructure failure: Docker API returned HTTP 500 before the control could run |
-| M4 air-gap and release checks | Remaining; do not treat focused results as these gates |
+| M4 air-gap control | **Passed** after Docker recovery: seven deliberate outbound packets detected on the watched subnet |
+| First full M4 offline suite | **324 passed, 2 failed, 18 skipped**; the two stale navigation/environment assertions are repaired and passed in a focused two-case rerun. Six outage rounds are still underway; a fresh full green run remains owed |
+| Release checks | Remaining; do not treat focused results as these gates |
 
 Backlog/traceability, generated-contract consistency and the production-license inventory passed on this composition. The production dependency audit passed the configured high-severity gate; it still reports one moderate esbuild development-server advisory. This is not a claim of a vulnerability-free dependency tree.
 
@@ -57,3 +58,7 @@ The local all-gates runner now chooses a disposable Compose project for each inv
 The upgrade cleanup no longer falls back to recursive deletion after Git refuses its temporary worktree. It verifies the exact resolved parent/tree, refuses junctions and unexpected scratch files, uses normal Git worktree removal and removes only its two generated YAML files plus an empty parent. Four real-filesystem tests passed, covering successful cleanup, preservation of an unexpected file, a refused dirty tree and a substituted Windows junction whose destination remains untouched.
 
 The browser rerun corrected two real interface faults: the run page streamed before authorization and therefore returned HTTP 200 for an inaccessible run, and model controls had accessible names that omitted their visible action text. Authorization now precedes streaming; accessible names include the visible labels. Fixture repairs use the real profile state transition, the fake model's actual port and explicit alert text. Agent execution is paused only during browser tests whose fixtures manually advance run states; runtime checks use the real worker.
+
+The first offline round then found two test assumptions left over from the earlier shell: a current navigation link was expected to start with bare text, and any environment variable containing `PRIVATE` was treated as key material. The tests now check the exact selected Work link and its visible label through nested decorative markup, forbidden secret-bearing environment names and actual private-key material. Environment values are no longer printed by a failed key assertion. The public private-model endpoint allowlist remains permitted configuration. Both repaired checks passed on the isolated preview, and test TypeScript passed. The original failed offline log is retained; these focused results are not a substitute for a fresh complete offline pass.
+
+An additional attempt to remove the unused dependency cache in completed M3 worktree `wf_4b614715-08e-10` was rejected by automatic approval review as “blocked by policy.” It did not run, and that cache remains intact. No alternative deletion method was used.
