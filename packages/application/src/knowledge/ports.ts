@@ -78,7 +78,8 @@ export interface DerivedArtifactPurge {
 
 /** M4's agent runs. The flagship asks for one, and reads how it went. */
 export interface AgentRuns {
-  /** In the caller's transaction, so the run and the rest commit together. No model call happens here. */
+  /** Durably bind the real run and waiting state to requestKey in the caller's transaction. No unbound
+   * success and no model call; the run, outbox and onboarding state commit together. */
   requestRun(
     tx: Tx,
     context: TenantContext,

@@ -37,6 +37,7 @@
     "./knowledge/mcp": "./src/knowledge/mcp.ts",
     "./knowledge/verification": "./src/knowledge/verification.ts",
     "./knowledge/onboarding": "./src/knowledge/onboarding.ts",
+    "./knowledge/onboarding-run-port": "./src/knowledge/onboarding-run-port.ts",
     "./knowledge/artifact-provenance": "./src/knowledge/artifact-provenance.ts",
     "./knowledge/checklist-template": "./src/knowledge/checklist-template.ts"
   },

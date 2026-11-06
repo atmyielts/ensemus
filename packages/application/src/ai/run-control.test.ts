@@ -240,13 +240,16 @@ describe('refusals that need no database', () => {
       (error: unknown) => error instanceof AppError && error.code === code,
     );
 
-  it.each(['agent', 'service'])('never lets an %s start or steer a run', async (actorType) => {
-    // An agent carries its initiator's role, so without this the capability check would pass.
-    const context = contextOf(actorType);
-    await refusedWith('FORBIDDEN', startAgentRun(unreachable, context, start));
-    await refusedWith('FORBIDDEN', controlAgentRun(unreachable, context, stop));
-    await refusedWith('FORBIDDEN', listRunnableAgents(unreachable, context));
-  });
+  it.each(['agent', 'service', 'delegated'])(
+    'never lets an %s start or steer a run',
+    async (actorType) => {
+      // An agent carries its initiator's role, so without this the capability check would pass.
+      const context = contextOf(actorType);
+      await refusedWith('FORBIDDEN', startAgentRun(unreachable, context, start));
+      await refusedWith('FORBIDDEN', controlAgentRun(unreachable, context, stop));
+      await refusedWith('FORBIDDEN', listRunnableAgents(unreachable, context));
+    },
+  );
 
   it('refuses a request that does not have the contract’s shape', async () => {
     const context = contextOf('user');

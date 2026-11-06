@@ -2,6 +2,7 @@
 // transaction, so the web tier never reaches Temporal (ADR-024). Nothing here changes what a run is doing:
 // the worker reads these rows before each step, and the event only wakes it. So a lost wake-up delays a
 // stop and cannot lose it.
+import { createHash } from 'node:crypto';
 import {
   agentSpecV1Schema,
   runControlSchema,
@@ -16,10 +17,13 @@ import {
   agentRuns,
   agentVersions,
   budgets,
+  clientOnboardings,
+  memberships,
   modelProfiles,
   runControls,
   serviceIdentities,
   withTenantTx,
+  workAssignments,
   type AppDatabase,
   type TenantContext,
   type Tx,
@@ -40,7 +44,8 @@ import { can } from '@ensemus/domain/policy';
 import { and, asc, eq, gt, inArray, isNull, lte, or, sql } from 'drizzle-orm';
 import { AppError, foreignReference, pgCode, type ErrorCode } from '../errors';
 import { emit } from '../events';
-import { canonicalId } from '../ids';
+import { canonicalId, idSchema } from '../ids';
+import { bindClientOnboardingRunInTx } from '../knowledge/onboarding';
 import { auditAction, incompletePrerequisites, loadChangeable, loadReadable } from '../work';
 import { latestControlOf, loadReadableRun, runIdOrMissing, toAgentRunView } from './timeline';
 
@@ -151,8 +156,6 @@ async function loadRunnableVersion(tx: Tx, agentVersionId: string) {
       spec: agentVersions.spec,
       maxCostMicros: agentVersions.maxCostMicros,
       serviceIdentityId: agentDefinitions.serviceIdentityId,
-      identityStatus: serviceIdentities.status,
-      identityExpiresAt: serviceIdentities.expiresAt,
     })
     .from(agentVersions)
     .innerJoin(
@@ -172,8 +175,18 @@ async function loadRunnableVersion(tx: Tx, agentVersionId: string) {
     .where(eq(agentVersions.id, agentVersionId));
   // The form only offers this tenant's versions, so this is someone writing their own request.
   if (!version) throw foreignReference();
-  const expired = version.identityExpiresAt !== null && version.identityExpiresAt <= new Date();
-  if (version.identityStatus !== 'active' || expired) throw new AppError('INVALID_STATE');
+  // These mutable authorities remain locked until the request commits. Do not lock the immutable
+  // version table: the application deliberately has no UPDATE privilege on it.
+  const [identity] = await tx
+    .select({ status: serviceIdentities.status, expiresAt: serviceIdentities.expiresAt })
+    .from(serviceIdentities)
+    .where(eq(serviceIdentities.id, version.serviceIdentityId))
+    .for('share');
+  const expired =
+    identity?.expiresAt !== null &&
+    identity?.expiresAt !== undefined &&
+    identity.expiresAt <= new Date();
+  if (!identity || identity.status !== 'active' || expired) throw new AppError('INVALID_STATE');
   const [published] = await tx
     .select({ id: agentPublications.id })
     .from(agentPublications)
@@ -184,9 +197,75 @@ async function loadRunnableVersion(tx: Tx, agentVersionId: string) {
         or(isNull(agentPublications.activeUntil), gt(agentPublications.activeUntil, sql`now()`)),
       ),
     )
-    .limit(1);
+    .limit(1)
+    .for('share');
   if (!published) throw new AppError('INVALID_STATE');
   return version;
+}
+
+/** A saved context is not saved authority. Keep the real actor type when refreshing its role. */
+async function freshRunInitiator(tx: Tx, context: TenantContext): Promise<TenantContext> {
+  const [member] = await tx
+    .select({ role: memberships.role })
+    .from(memberships)
+    .where(
+      and(
+        eq(memberships.id, context.membershipId),
+        eq(memberships.userId, context.userId),
+        eq(memberships.status, 'active'),
+      ),
+    )
+    .for('share');
+  if (!member || !can(member.role, 'agent.run')) throw new AppError('FORBIDDEN');
+  return { ...context, role: member.role };
+}
+
+/** The single run/outbox/audit insert kernel. Its only callers enforce their distinct actor boundary. */
+async function startRunInTx(
+  tx: Tx,
+  context: TenantContext,
+  workUnitId: string,
+  agentVersionId: string,
+) {
+  await loadReadable(tx, context, workUnitId);
+  const actor = await freshRunInitiator(tx, context);
+  const work = await loadChangeable(tx, actor, workUnitId);
+  const refusal = workStartRefusal(work);
+  if (refusal) throw new AppError(refusal);
+  const [live] = await tx
+    .select({ id: agentRuns.id })
+    .from(agentRuns)
+    .where(and(eq(agentRuns.workUnitId, workUnitId), inArray(agentRuns.status, LIVE_STATUSES)))
+    .limit(1);
+  if (live) throw new AppError('AGENT_RUN_ACTIVE');
+  const version = await loadRunnableVersion(tx, agentVersionId);
+  const terms = runTermsFromVersion(version);
+  await runEarlyChecks(tx, agentVersionId);
+  if (work.status === 'queued' && (await incompletePrerequisites(tx, work.id)) > 0)
+    throw new AppError('PREREQUISITES_INCOMPLETE');
+  const [run] = await tx
+    .insert(agentRuns)
+    .values({
+      organizationId: actor.organizationId,
+      workUnitId,
+      agentVersionId,
+      initiatorMembershipId: actor.membershipId,
+      serviceIdentityId: version.serviceIdentityId,
+      effectiveClassification: work.classification,
+      ...terms,
+    })
+    .returning();
+  if (!run) throw new Error('The insert returned nothing');
+  await emit(tx, actor, {
+    eventType: AGENT_RUN_REQUESTED,
+    aggregateType: AGGREGATE_WORK_UNIT,
+    aggregateId: workUnitId,
+    aggregateVersion: work.version,
+    classification: work.classification,
+    payload: { agent_run_id: run.id, work_unit_id: workUnitId },
+  });
+  await auditAction(tx, actor, 'agent_run.requested', `agent_run:${run.id}`);
+  return run;
 }
 
 /**
@@ -206,53 +285,7 @@ export async function startAgentRun(
   const agentVersionId = canonicalId(parsed.data.agent_version_id);
   try {
     return await withTenantTx(database, context, async (tx) => {
-      // Reading first means work someone may not see is a 404 here as everywhere, whatever their role,
-      // and takes no lock on behalf of someone who could never have started anything.
-      await loadReadable(tx, context, workUnitId);
-      if (!can(context.role, 'agent.run')) throw new AppError('FORBIDDEN');
-      const work = await loadChangeable(tx, context, workUnitId);
-      const refusal = workStartRefusal(work);
-      if (refusal) throw new AppError(refusal);
-      const [live] = await tx
-        .select({ id: agentRuns.id })
-        .from(agentRuns)
-        .where(and(eq(agentRuns.workUnitId, workUnitId), inArray(agentRuns.status, LIVE_STATUSES)))
-        .limit(1);
-      if (live) throw new AppError('AGENT_RUN_ACTIVE');
-
-      const version = await loadRunnableVersion(tx, agentVersionId);
-      const terms = runTermsFromVersion(version);
-      await runEarlyChecks(tx, agentVersionId);
-
-      // Requesting a run does not move the work; the worker prepares it when claiming. Refuse
-      // known unmet prerequisites now, and the normal ready transition checks them again at claim.
-      if (work.status === 'queued' && (await incompletePrerequisites(tx, work.id)) > 0) {
-        throw new AppError('PREREQUISITES_INCOMPLETE');
-      }
-
-      const [run] = await tx
-        .insert(agentRuns)
-        .values({
-          organizationId: context.organizationId,
-          workUnitId,
-          agentVersionId,
-          initiatorMembershipId: context.membershipId,
-          serviceIdentityId: version.serviceIdentityId,
-          // From here it can only rise (FD-13).
-          effectiveClassification: work.classification,
-          ...terms,
-        })
-        .returning();
-      if (!run) throw new Error('The insert returned nothing');
-      await emit(tx, context, {
-        eventType: AGENT_RUN_REQUESTED,
-        aggregateType: AGGREGATE_WORK_UNIT,
-        aggregateId: workUnitId,
-        aggregateVersion: work.version,
-        classification: work.classification,
-        payload: { agent_run_id: run.id, work_unit_id: workUnitId },
-      });
-      await auditAction(tx, context, 'agent_run.requested', `agent_run:${run.id}`);
+      const run = await startRunInTx(tx, context, workUnitId, agentVersionId);
       // Nothing has been spent, and nothing backs a figure of nothing yet.
       return toAgentRunView(run, true);
     });
@@ -260,6 +293,174 @@ export async function startAgentRun(
     if (pgCode(error) === UNIQUE_VIOLATION) throw new AppError('AGENT_RUN_ACTIVE');
     throw error;
   }
+}
+
+/**
+ * Trusted workflow admission, bound to an existing person's immutable onboarding request. This is
+ * deliberately not a generic in-transaction start API and never converts a worker into a person.
+ */
+export async function requestOnboardingAgentRunInTx(
+  tx: Tx,
+  context: TenantContext,
+  input: { workUnitId: string; agentKey: string; requestKey?: string },
+): Promise<{ agentRunId: string }> {
+  if (context.actorType !== 'delegated') throw new AppError('FORBIDDEN');
+  const key = idSchema.safeParse(input.requestKey),
+    workId = idSchema.safeParse(input.workUnitId);
+  if (input.agentKey !== 'client-brief' || !key.success || !workId.success)
+    throw new AppError('INVALID_INPUT');
+  const [row] = await tx
+    .select()
+    .from(clientOnboardings)
+    .where(
+      and(
+        eq(clientOnboardings.id, canonicalId(key.data)),
+        eq(clientOnboardings.requestedByMembershipId, context.membershipId),
+      ),
+    )
+    .for('update');
+  if (!row || row.briefWorkUnitId !== canonicalId(workId.data)) throw new AppError('NOT_FOUND');
+  const actor = await freshRunInitiator(tx, context);
+  if (
+    !row.ownerMembershipId ||
+    !row.reviewerMembershipId ||
+    !row.reviewWorkUnitId ||
+    !row.sendWorkUnitId ||
+    !row.parentObjectiveSha256 ||
+    !row.briefObjectiveSha256 ||
+    !row.reviewObjectiveSha256 ||
+    !row.sendObjectiveSha256 ||
+    row.reviewerMembershipId === row.ownerMembershipId ||
+    row.reviewerMembershipId === row.requestedByMembershipId
+  )
+    throw new AppError('INVALID_STATE');
+  const people = await tx
+    .select({ id: memberships.id })
+    .from(memberships)
+    .where(
+      and(
+        inArray(memberships.id, [
+          ...new Set([
+            row.ownerMembershipId,
+            row.reviewerMembershipId,
+            row.requestedByMembershipId,
+          ]),
+        ]),
+        eq(memberships.status, 'active'),
+      ),
+    )
+    .orderBy(asc(memberships.id))
+    .for('share');
+  if (
+    people.length !==
+    new Set([row.ownerMembershipId, row.reviewerMembershipId, row.requestedByMembershipId]).size
+  )
+    throw new AppError('FORBIDDEN');
+  const pins = [
+    {
+      id: row.workUnitId,
+      hash: row.parentObjectiveSha256,
+      owner: row.ownerMembershipId,
+      child: false,
+    },
+    {
+      id: row.briefWorkUnitId!,
+      hash: row.briefObjectiveSha256,
+      owner: row.reviewerMembershipId,
+      child: true,
+    },
+    {
+      id: row.reviewWorkUnitId,
+      hash: row.reviewObjectiveSha256,
+      owner: row.reviewerMembershipId,
+      child: true,
+    },
+    {
+      id: row.sendWorkUnitId,
+      hash: row.sendObjectiveSha256,
+      owner: row.ownerMembershipId,
+      child: true,
+    },
+  ].sort((a, b) => a.id.localeCompare(b.id));
+  for (const pin of pins) {
+    const work = await loadReadable(tx, actor, pin.id, true);
+    if (
+      createHash('sha256')
+        .update(work.objective ?? '')
+        .digest('hex') !== pin.hash ||
+      work.ownerMembershipId !== pin.owner ||
+      (pin.child ? work.parentId !== row.workUnitId : work.parentId !== null) ||
+      work.projectId !== row.projectId ||
+      ['failed', 'cancelled'].includes(work.status)
+    )
+      throw new AppError('VERSION_CONFLICT');
+  }
+  const assignments = await tx
+    .select({ workUnitId: workAssignments.workUnitId })
+    .from(workAssignments)
+    .where(
+      and(
+        inArray(workAssignments.workUnitId, [row.briefWorkUnitId!, row.reviewWorkUnitId]),
+        eq(workAssignments.membershipId, row.reviewerMembershipId),
+        eq(workAssignments.actorType, 'human'),
+        eq(workAssignments.responsibility, 'contributor'),
+      ),
+    );
+  if (new Set(assignments.map((assignment) => assignment.workUnitId)).size !== 2)
+    throw new AppError('VERSION_CONFLICT');
+  if (row.agentRunId) {
+    const [existing] = await tx
+      .select({ id: agentRuns.id })
+      .from(agentRuns)
+      .where(
+        and(
+          eq(agentRuns.id, row.agentRunId),
+          eq(agentRuns.workUnitId, row.briefWorkUnitId!),
+          eq(agentRuns.initiatorMembershipId, actor.membershipId),
+          isNull(agentRuns.parentRunId),
+        ),
+      );
+    if (!existing || row.state === 'started') throw new AppError('INVALID_STATE');
+    return { agentRunId: existing.id };
+  }
+  if (row.state !== 'started') throw new AppError('INVALID_STATE');
+  const published = await tx
+    .select({ versionId: agentPublications.versionId })
+    .from(agentPublications)
+    .innerJoin(
+      agentDefinitions,
+      and(
+        eq(agentDefinitions.organizationId, agentPublications.organizationId),
+        eq(agentDefinitions.id, agentPublications.definitionId),
+      ),
+    )
+    .where(
+      and(
+        eq(agentDefinitions.slug, 'client-brief'),
+        lte(agentPublications.activeFrom, sql`now()`),
+        or(isNull(agentPublications.activeUntil), gt(agentPublications.activeUntil, sql`now()`)),
+      ),
+    )
+    .limit(2);
+  if (published.length !== 1) throw new AppError('INVALID_STATE');
+  const [publishedVersion] = await tx
+    .select({ spec: agentVersions.spec, definitionId: agentVersions.definitionId })
+    .from(agentVersions)
+    .innerJoin(
+      agentDefinitions,
+      and(
+        eq(agentDefinitions.organizationId, agentVersions.organizationId),
+        eq(agentDefinitions.id, agentVersions.definitionId),
+      ),
+    )
+    .where(
+      and(eq(agentVersions.id, published[0]!.versionId), eq(agentDefinitions.slug, 'client-brief')),
+    );
+  const spec = agentSpecV1Schema.safeParse(publishedVersion?.spec);
+  if (!spec.success || spec.data.id !== 'client-brief') throw new AppError('AGENT_SPEC_INVALID');
+  const run = await startRunInTx(tx, actor, row.briefWorkUnitId!, published[0]!.versionId);
+  await bindClientOnboardingRunInTx(tx, actor, { onboardingId: row.id, agentRunId: run.id });
+  return { agentRunId: run.id };
 }
 
 /** Who may steer a run. Those who may start or stop any run, and the person who started this one. */

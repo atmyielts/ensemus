@@ -2,12 +2,14 @@
 import { writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createOnboardingAgentRuns } from '@ensemus/application/knowledge/onboarding-run-port';
 import { readSecret } from '@ensemus/config';
 import { openAppDatabase } from '@ensemus/database';
 import { S3ObjectStore } from '@ensemus/storage';
 import { createLogger, errorCode } from '@ensemus/telemetry';
 import { createActivities, type WorkflowProbe } from '@ensemus/workflows/activities';
 import { AesGcmPayloadCodec } from '@ensemus/workflows/codec';
+import { createClientOnboardingActivities } from '@ensemus/workflows/client-onboarding-activities';
 import { PLATFORM_TASK_QUEUE, TEMPORAL_CHANNEL_ARGS } from '@ensemus/workflows/constants';
 import { createExternalActionPlatformActivities } from '@ensemus/workflows/external-action-activities';
 import { createTemporalLogger } from '@ensemus/workflows/safe-logger';
@@ -67,6 +69,7 @@ async function main() {
       ...createActivities({ database: db, store, probeWorkflow }),
       // Only what reads PostgreSQL. Anything holding a credential is on the connector queue.
       ...createExternalActionPlatformActivities({ database: db }),
+      ...createClientOnboardingActivities({ database: db, agentRuns: createOnboardingAgentRuns() }),
     },
     dataConverter: {
       payloadCodecs: [new AesGcmPayloadCodec(readSecret('TEMPORAL_CODEC_KEY'))],
