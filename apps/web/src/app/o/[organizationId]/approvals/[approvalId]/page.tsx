@@ -1,9 +1,11 @@
 import { getApproval, listDirectory } from '@ensemus/application';
 import { effectiveApprovalStatus } from '@ensemus/domain/approval';
+import { EMAIL_SEND_TOOL } from '@ensemus/domain/external-action';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { ConfirmForm } from '@/components/confirm-form';
 import { DraftScope, KeptTextarea } from '@/components/kept-field';
+import { ExactEmail } from '@/components/receipt-email';
 import { SubmitButton } from '@/components/submit-button';
 import {
   ClassificationBadge,
@@ -22,12 +24,19 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const TOOL_WORDS: Record<string, string> = {
   'work.review': 'Review this work and decide whether it is acceptable',
+  [EMAIL_SEND_TOOL]: 'Send an email through your mail server, exactly as written below',
 };
 
 const SENSITIVE = new Set(['confidential', 'restricted']);
 
 /** What is at stake, said plainly. An action nobody described is treated as a warning, not as safe. */
 function riskOf(toolName: string, classification: string, holdsWork: boolean) {
+  if (toolName === EMAIL_SEND_TOOL) {
+    const sensitivity = SENSITIVE.has(classification)
+      ? ' This work is sensitive, so check that nothing here should stay inside.'
+      : '';
+    return `This leaves your organization, and it cannot be taken back once it goes. Your approval covers exactly what is shown here, so changing any of it needs a new approval.${sensitivity}`;
+  }
   if (toolName !== 'work.review') {
     return 'Not assessed. Ensemus has no description of this action, so read its technical details below before deciding.';
   }
@@ -67,6 +76,7 @@ export default async function ApprovalPage({
   // Only the approval that paused the work can release it (see decideApproval).
   const holdingWork = approval.holdsWork && work.status === 'awaiting_approval';
   const isReview = approval.toolName === 'work.review';
+  const isEmail = approval.toolName === EMAIL_SEND_TOOL;
 
   const bound = (decision: 'approve' | 'deny') => (
     <>
@@ -122,7 +132,9 @@ export default async function ApprovalPage({
                     1: 'This work, and one file.',
                   }[files.length + missingFileCount] ??
                   `This work, and ${files.length + missingFileCount} files.`)
-                : 'Described in the technical details below.'}
+                : isEmail
+                  ? 'Everyone listed in the email below.'
+                  : 'Described in the technical details below.'}
             </dd>
             <dt>Asked by</dt>
             <dd>{requester}</dd>
@@ -168,6 +180,13 @@ export default async function ApprovalPage({
           </section>
         )}
 
+        {isEmail && (
+          <section className="card" aria-labelledby="email-heading">
+            <h2 id="email-heading">The exact email</h2>
+            <ExactEmail payload={(approval.action as { payload?: unknown }).payload} />
+          </section>
+        )}
+
         {decisions.length > 0 && (
           <section className="card" aria-labelledby="decision-heading">
             <h2 id="decision-heading">Decision</h2>
@@ -202,9 +221,11 @@ export default async function ApprovalPage({
                   <KeptTextarea keep="approve" name="reason" maxLength={2000} />
                 </label>
                 <small>
-                  {holdingWork
-                    ? 'The work carries on from where it paused.'
-                    : 'This is recorded as the review of this work.'}
+                  {isEmail
+                    ? 'Ensemus then sends exactly this, once, through your mail server.'
+                    : holdingWork
+                      ? 'The work carries on from where it paused.'
+                      : 'This is recorded as the review of this work.'}
                 </small>
                 <div>
                   <SubmitButton>Approve</SubmitButton>
@@ -227,7 +248,11 @@ export default async function ApprovalPage({
                     <small>Optional. People on this work can read it.</small>
                     <KeptTextarea keep="deny" name="reason" maxLength={2000} />
                   </label>
-                  <small>The work stays as it is, without your approval.</small>
+                  <small>
+                    {isEmail
+                      ? 'It is not sent, and it will not be without a new approval.'
+                      : 'The work stays as it is, without your approval.'}
+                  </small>
                   <div>
                     <SubmitButton className="danger">Deny</SubmitButton>
                   </div>
@@ -255,8 +280,9 @@ export default async function ApprovalPage({
         )}
         {status === 'cancelled' && (
           <p className="notice flush">
-            This was closed without a decision, because the work changed, finished or was reopened,
-            or the person asked lost access to it.
+            {isEmail
+              ? 'This was closed, so it cannot be spent. Someone changed what would be sent, the work stopped, or the person asked lost access to it.'
+              : 'This was closed without a decision, because the work changed, finished or was reopened, or the person asked lost access to it.'}
           </p>
         )}
         {!isMine && status === 'pending' && (
