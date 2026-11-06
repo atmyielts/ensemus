@@ -6,7 +6,9 @@ import {
   artifactLineage,
   artifactLineageInputs,
   artifactLineagePackages,
+  artifactLineageRecords,
   artifactLineageSources,
+  structuredRecordCatalog,
   artifacts,
   blobLifecycle,
   knowledgeEvidenceItems,
@@ -26,9 +28,9 @@ import { strongestClass } from '@ensemus/domain/knowledge';
 import { canChangeContent, MAX_FILE_BYTES, type WorkState } from '@ensemus/domain/work-unit';
 import type { Classification } from '@ensemus/domain/policy';
 import { TOMBSTONE_RECORDED } from '@ensemus/domain/tombstone-ledger';
-import { and, asc, eq, inArray, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray, sql, type SQL } from 'drizzle-orm';
 import { objectKey, type ObjectStore } from '../artifacts';
-import { AppError } from '../errors';
+import { AppError, pgCode } from '../errors';
 import { emit } from '../events';
 import { idSchema } from '../ids';
 import { idFromRequest } from '../request-id';
@@ -46,6 +48,11 @@ export type GeneratedArtifactWrite = {
   generation: number;
   artifactSha256: string;
   classification: Classification;
+};
+export type StructuredArtifactInput = {
+  kind: 'work_unit' | 'project' | 'client';
+  id: string;
+  sha256: string;
 };
 export interface ArtifactInputInventory {
   /** Must validate the actual run/template/executor, current writer authority and every artifact read
@@ -71,6 +78,9 @@ export interface ArtifactInputInventory {
         classification: Classification;
         noKnowledge: boolean;
         artifactInputs: readonly { artifactId: string; sha256: string }[];
+        /** Exhaustive trusted structured read ledger, including target Work and any actual parent
+         * records read. Historical mutable-record hashes remain provenance, not a live equality gate. */
+        recordInputs: readonly StructuredArtifactInput[];
       }
   >;
 }
@@ -112,6 +122,19 @@ export type DerivedArtifactPurgeDeps = {
   store: ObjectStore;
   lifecycle?: DerivedArtifactLifecycle;
 };
+/** Record closure is distinct from one viewer losing access. Only a durably deleted/tombstoned
+ * record can authorize destruction of every derived file; revocation alone closes fresh serving. */
+export interface StructuredRecordPurge extends DerivedArtifactPurge {
+  purgeRecord(
+    context: TenantContext,
+    input: { kind: StructuredArtifactInput['kind']; id: string; limit: number },
+  ): ReturnType<DerivedArtifactPurge['purgeSource']>;
+  confirmRecordInTx(
+    tx: Tx,
+    context: TenantContext,
+    input: { kind: StructuredArtifactInput['kind']; id: string },
+  ): Promise<{ remaining: number }>;
+}
 
 const MAX_INPUTS = 1000;
 const checkedId = (value: string) => {
@@ -124,6 +147,167 @@ const checkedHash = (value: string) => {
     throw new AppError('INVALID_INPUT');
   return value;
 };
+/** No missing-list => empty conversion. A mutable record can have multiple actual historical reads. */
+export function normalizeStructuredInputs(
+  raw: unknown,
+  targetWorkId: string,
+): readonly StructuredArtifactInput[] {
+  const target = checkedId(targetWorkId);
+  if (!Array.isArray(raw) || !raw.length || raw.length > MAX_INPUTS)
+    throw new AppError('INVALID_STATE');
+  const records = new Map<string, StructuredArtifactInput>();
+  for (const value of raw) {
+    if (
+      !value ||
+      typeof value !== 'object' ||
+      !['work_unit', 'project', 'client'].includes(value.kind)
+    )
+      throw new AppError('INVALID_INPUT');
+    const row: StructuredArtifactInput = {
+      kind: value.kind,
+      id: checkedId(value.id),
+      sha256: checkedHash(value.sha256),
+    };
+    records.set(`${row.kind}:${row.id}:${row.sha256}`, row);
+  }
+  if (![...records.values()].some((row) => row.kind === 'work_unit' && row.id === target))
+    throw new AppError('INVALID_STATE');
+  return [...records.values()].sort((a, b) =>
+    `${a.kind}:${a.id}:${a.sha256}`.localeCompare(`${b.kind}:${b.id}:${b.sha256}`),
+  );
+}
+type StructuredSnapshot = StructuredArtifactInput & { classification: Classification };
+const recordKey = (record: { kind: string; id: string }) => `${record.kind}:${record.id}`;
+async function noLockWait<T>(operation: Promise<T>): Promise<T> {
+  try {
+    return await operation;
+  } catch (error) {
+    if (pgCode(error) === '55P03') throw new AppError('VERSION_CONFLICT');
+    throw error;
+  }
+}
+async function structuredInventory(
+  tx: Tx,
+  context: TenantContext,
+  direct: readonly StructuredArtifactInput[],
+  inputIds: readonly string[],
+  viewer: string | null,
+  system: boolean,
+  workUnitId: string,
+): Promise<readonly StructuredSnapshot[]> {
+  const records = new Map<
+    string,
+    StructuredArtifactInput & { classification: Classification | null }
+  >();
+  const add = (record: StructuredArtifactInput, classification: Classification | null) => {
+    const key = `${recordKey(record)}:${record.sha256}`,
+      existing = records.get(key);
+    const classes = [
+      ...(classification ? [classification] : []),
+      ...(existing?.classification ? [existing.classification] : []),
+    ];
+    records.set(key, {
+      ...record,
+      classification: classes.length ? strongestClass(classes) : null,
+    });
+    if (records.size > MAX_INPUTS) throw new AppError('INVALID_INPUT');
+  };
+  // Direct read classes are resolved from current metadata below; inherited classes remain pinned.
+  for (const record of direct) add(record, null);
+  if (inputIds.length) {
+    const inherited = await tx
+      .selectDistinct({
+        recordKind: artifactLineageRecords.recordKind,
+        recordId: artifactLineageRecords.recordId,
+        recordSha256: artifactLineageRecords.recordSha256,
+        classification: artifactLineageRecords.classification,
+      })
+      .from(artifactLineageRecords)
+      .where(inArray(artifactLineageRecords.artifactId, [...inputIds]))
+      .limit(MAX_INPUTS + 1);
+    if (inherited.length > MAX_INPUTS) throw new AppError('INVALID_INPUT');
+    for (const row of inherited)
+      add(
+        {
+          kind: row.recordKind as StructuredArtifactInput['kind'],
+          id: row.recordId,
+          sha256: row.recordSha256,
+        },
+        row.classification as Classification,
+      );
+  }
+  if (
+    system &&
+    [...records.values()].some((row) => row.kind !== 'work_unit' || row.id !== workUnitId)
+  )
+    throw new AppError('INVALID_STATE');
+  const unique = [
+    ...new Map([...records.values()].map((record) => [recordKey(record), record])).values(),
+  ];
+  const metadata = await tx
+    .select()
+    .from(structuredRecordCatalog)
+    .where(
+      sql`(${structuredRecordCatalog.recordKind},${structuredRecordCatalog.recordId}) in (${sql.join(
+        unique.map((row) => sql`(${row.kind},${row.id}::uuid)`),
+        sql`,`,
+      )})`,
+    );
+  if (metadata.length !== unique.length || metadata.some((row) => !row.alive))
+    throw new AppError('NOT_FOUND');
+  // Catalog locks protect authority/class changes without granting UPDATE on record bodies. Project
+  // parent locks are authorization metadata only, never invented content reads or hash entries.
+  const locks = new Map<string, { kind: StructuredArtifactInput['kind']; id: string }>(
+    unique.map((row) => [recordKey(row), { kind: row.kind, id: row.id }]),
+  );
+  for (const row of metadata)
+    if (row.recordKind === 'project' && row.parentRecordId)
+      locks.set(`client:${row.parentRecordId}`, { kind: 'client', id: row.parentRecordId });
+  for (const lock of [...locks.values()].sort((a, b) => recordKey(a).localeCompare(recordKey(b)))) {
+    const result = await tx.execute<{ locked: boolean }>(
+      sql`select knowledge.lock_structured_record(${lock.kind},${lock.id}::uuid) as locked`,
+    );
+    if (!result.rows[0]?.locked) throw new AppError('NOT_FOUND');
+  }
+  // Re-read after locks: reparenting may have introduced a previously unknown class dependency.
+  const current = await tx
+    .select()
+    .from(structuredRecordCatalog)
+    .where(
+      sql`(${structuredRecordCatalog.recordKind},${structuredRecordCatalog.recordId}) in (${sql.join(
+        unique.map((row) => sql`(${row.kind},${row.id}::uuid)`),
+        sql`,`,
+      )})`,
+    );
+  if (
+    current.length !== unique.length ||
+    current.some(
+      (row) =>
+        !row.alive ||
+        (row.recordKind === 'project' &&
+          row.parentRecordId &&
+          !locks.has(`client:${row.parentRecordId}`)),
+    )
+  )
+    throw new AppError('VERSION_CONFLICT');
+  for (const record of unique) {
+    const result = await tx.execute<{ classification: Classification | null; allowed: boolean }>(
+      sql`select knowledge.structured_record_class(${record.kind},${record.id}::uuid) as classification,knowledge.structured_record_readable(${record.kind},${record.id}::uuid,${viewer}::uuid) as allowed`,
+    );
+    const fact = result.rows[0];
+    if (!fact?.classification || (!system && !fact.allowed)) throw new AppError('NOT_FOUND');
+    for (const historical of [...records.values()].filter(
+      (row) => row.kind === record.kind && row.id === record.id,
+    ))
+      add(historical, fact.classification);
+  }
+  return [...records.values()]
+    .map((row): StructuredSnapshot => {
+      if (!row.classification) throw new AppError('INVALID_STATE');
+      return { ...row, classification: row.classification };
+    })
+    .sort((a, b) => `${recordKey(a)}:${a.sha256}`.localeCompare(`${recordKey(b)}:${b.sha256}`));
+}
 const executionKey = (value: ArtifactExecution) =>
   value.kind === 'agent_run'
     ? `agent_run:${checkedId(value.id)}`
@@ -206,6 +390,7 @@ async function currentInventory(
     proof.workUnitId !== workUnitId
   )
     throw new AppError('INVALID_STATE');
+  const directRecords = normalizeStructuredInputs(proof.recordInputs, workUnitId);
   await loadReadable(tx, context, workUnitId);
   const viewer = proof.viewerMembershipId === null ? null : checkedId(proof.viewerMembershipId);
   if (input.execution.kind === 'agent_run') {
@@ -338,16 +523,25 @@ async function currentInventory(
       and not exists(select 1 from platform.tombstones t where t.organization_id=s.organization_id and t.target_type='knowledge_source' and t.target_id=s.id)`);
     if (allowed.rows.length !== sourceIds.size) throw new AppError('KNOWLEDGE_SOURCE_CLOSED');
   }
-  const work = await loadReadable(tx, context, workUnitId, true);
+  // Source locks come first. Obtain the target Work lock without waiting before taking any
+  // structured metadata lock, so body-writer -> catalog ordering cannot turn into a wait cycle.
+  await noLockWait(
+    tx.execute(
+      sql`select id from work.work_units where organization_id=${context.organizationId}::uuid and id=${workUnitId}::uuid for update nowait`,
+    ),
+  );
+  const work = await loadReadable(tx, context, workUnitId);
   for (const inputId of inputIds)
     await assertStableArtifactSources(tx, context, { artifactId: inputId }, sourceIds);
   if (input.execution.kind === 'agent_run') {
     if (!viewer) throw new AppError('FORBIDDEN');
-    const [member] = await tx
-      .select()
-      .from(memberships)
-      .where(and(eq(memberships.id, viewer), eq(memberships.status, 'active')))
-      .for('share');
+    const [member] = await noLockWait(
+      tx
+        .select()
+        .from(memberships)
+        .where(and(eq(memberships.id, viewer), eq(memberships.status, 'active')))
+        .for('share', { noWait: true }),
+    );
     const [assigned] = await tx
       .select({ id: workAssignments.membershipId })
       .from(workAssignments)
@@ -364,12 +558,24 @@ async function currentInventory(
     )
       throw new AppError('FORBIDDEN');
   }
+  const records = await noLockWait(
+    structuredInventory(
+      tx,
+      context,
+      directRecords,
+      inputIds,
+      viewer,
+      input.execution.kind === 'system',
+      workUnitId,
+    ),
+  );
   const classification = strongestClass([
     work.classification as Classification,
     proof.classification,
     ...packageRows.map((value) => value.strongestClassification as Classification),
     ...inputRows.map((value) => value.classification as Classification),
     ...sources.map((value) => value.classification as Classification),
+    ...records.map((value) => value.classification),
   ]);
   const inventorySha256 = verificationHash(
     JSON.stringify([
@@ -380,6 +586,7 @@ async function currentInventory(
       packageRows.map((value) => [value.id, value.packageSha256]),
       inputIds.map((value) => [value, inputs.get(value)]),
       [...sourceIds].sort(),
+      records.map((value) => [value.kind, value.id, value.sha256]),
     ]),
   );
   return {
@@ -391,6 +598,7 @@ async function currentInventory(
     packageIds,
     sourceIds: [...sourceIds].sort(),
     inputs: inputIds.map((id) => ({ artifactId: id, sha256: inputs.get(id)! })),
+    records,
   };
 }
 
@@ -412,6 +620,7 @@ export function createArtifactProvenance(
           .where(eq(artifactAclCatalog.artifactId, inventory.artifactId));
         if (
           previous.state !== 'bound' ||
+          !previous.structuredInventoryComplete ||
           previous.writeState !== 'settled' ||
           previous.physicalPurgedAt ||
           !catalog?.alive ||
@@ -458,6 +667,7 @@ export function createArtifactProvenance(
         viewerMembershipId: inventory.viewer,
         inventorySha256: inventory.inventorySha256,
         inventoryComplete: true,
+        structuredInventoryComplete: true,
         state: 'pending',
         writeId: write.writeId,
         generation: 1,
@@ -488,6 +698,18 @@ export function createArtifactProvenance(
             sourceId,
           })),
         );
+      await tx
+        .insert(artifactLineageRecords)
+        .values(
+          inventory.records.map((record) => ({
+            organizationId: context.organizationId,
+            artifactId: write.artifactId,
+            recordKind: record.kind,
+            recordId: record.id,
+            recordSha256: record.sha256,
+            classification: record.classification,
+          })),
+        );
       return { alreadyPublished: false, write };
     },
     async publishInTx(tx, context, write) {
@@ -498,6 +720,7 @@ export function createArtifactProvenance(
         .where(eq(artifactLineage.artifactId, checkedId(write.artifactId)));
       if (
         !initial ||
+        !initial.structuredInventoryComplete ||
         !initial.executionId ||
         !initial.workUnitId ||
         !['agent_run', 'system'].includes(initial.executionKind)
@@ -643,14 +866,19 @@ export async function addGeneratedArtifact(
   }
 }
 
-async function markArtifactTombstone(tx: Tx, context: TenantContext, header: Header) {
+async function markArtifactTombstone(
+  tx: Tx,
+  context: TenantContext,
+  header: Header,
+  reasonCode: 'KNOWLEDGE_SOURCE_PURGED' | 'STRUCTURED_INPUT_PURGED' = 'KNOWLEDGE_SOURCE_PURGED',
+) {
   const inserted = await tx
     .insert(tombstones)
     .values({
       organizationId: context.organizationId,
       targetType: 'artifact',
       targetId: header.artifactId,
-      reasonCode: 'KNOWLEDGE_SOURCE_PURGED',
+      reasonCode,
     })
     .onConflictDoNothing()
     .returning({ id: tombstones.targetId });
@@ -709,7 +937,7 @@ export async function eraseDerivedArtifactMetadata(
   });
 }
 
-export function createDerivedArtifactPurge(deps: DerivedArtifactPurgeDeps): DerivedArtifactPurge {
+export function createDerivedArtifactPurge(deps: DerivedArtifactPurgeDeps): StructuredRecordPurge {
   const affected = (sourceId: string) =>
     sql`(not ${artifactLineage.inventoryComplete} or ${sourceId}::uuid in(select knowledge.artifact_required_sources(${artifactLineage.artifactId})))`;
   const confirm = async (tx: Tx, sourceId: string) => {
@@ -718,110 +946,175 @@ export function createDerivedArtifactPurge(deps: DerivedArtifactPurgeDeps): Deri
     );
     return { remaining: Number(result.rows[0]?.remaining ?? 1) };
   };
+  const recordInput = (input: { kind: StructuredArtifactInput['kind']; id: string }) => {
+    if (!['work_unit', 'project', 'client'].includes(input.kind))
+      throw new AppError('INVALID_INPUT');
+    return { kind: input.kind, id: checkedId(input.id) };
+  };
+  const recordAffected = (input: { kind: StructuredArtifactInput['kind']; id: string }) =>
+    sql`((${artifactLineage.executionKind} in ('agent_run','system') and not ${artifactLineage.structuredInventoryComplete}) or exists(select 1 from knowledge.artifact_required_records(${artifactLineage.artifactId}) r where r.record_kind=${input.kind} and r.record_id=${input.id}::uuid))`;
+  const confirmRecord = async (
+    tx: Tx,
+    input: { kind: StructuredArtifactInput['kind']; id: string },
+  ) => {
+    const result = await tx.execute<{ remaining: number }>(
+      sql`select knowledge.derived_structured_artifacts_remaining(${input.kind},${input.id}::uuid) as remaining`,
+    );
+    return { remaining: Number(result.rows[0]?.remaining ?? 1) };
+  };
+  const purge = async (
+    context: TenantContext,
+    limit: number,
+    selected: SQL,
+    assertClosed: (tx: Tx) => Promise<void>,
+    proofInTx: (tx: Tx) => Promise<{ remaining: number }>,
+    reasonCode: 'KNOWLEDGE_SOURCE_PURGED' | 'STRUCTURED_INPUT_PURGED',
+  ) => {
+    if (context.actorType !== 'service') throw new AppError('FORBIDDEN');
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100)
+      throw new AppError('INVALID_INPUT');
+    const headers = await withTenantTx(deps.database, context, async (tx) => {
+      await assertClosed(tx);
+      const rows = await tx
+        .select()
+        .from(artifactLineage)
+        .where(and(selected, sql`${artifactLineage.physicalPurgedAt} is null`))
+        .orderBy(asc(artifactLineage.held), asc(artifactLineage.artifactId))
+        .limit(limit)
+        .for('update');
+      for (const row of rows) {
+        await tx
+          .update(artifactLineage)
+          .set({ state: 'blocked' })
+          .where(eq(artifactLineage.artifactId, row.artifactId));
+        await markArtifactTombstone(tx, context, row, reasonCode);
+      }
+      return rows;
+    });
+    for (const header of headers) {
+      if (!deps.lifecycle) continue;
+      try {
+        const result = await deps.lifecycle.erase(context, {
+          artifactId: header.artifactId,
+          workUnitId: header.workUnitId,
+          objectKey: header.objectKey,
+          artifactSha256: header.artifactSha256,
+          writeId: header.writeId,
+          generation: header.generation,
+          writeState: header.writeState as 'active' | 'settled' | 'fenced' | 'unknown',
+        });
+        if (result.state === 'held') {
+          await withTenantTx(deps.database, context, (tx) =>
+            tx
+              .update(artifactLineage)
+              .set({ held: true })
+              .where(eq(artifactLineage.artifactId, header.artifactId)),
+          );
+          continue;
+        }
+        if (
+          result.state !== 'purged' ||
+          !result.quiescent ||
+          (await deps.store.exists(header.objectKey))
+        )
+          continue;
+        await withTenantTx(deps.database, context, async (tx) => {
+          const [current] = await tx
+            .select()
+            .from(artifactLineage)
+            .where(eq(artifactLineage.artifactId, header.artifactId))
+            .for('update');
+          const [catalog] = await tx
+            .select()
+            .from(artifactAclCatalog)
+            .where(eq(artifactAclCatalog.artifactId, header.artifactId));
+          const [blob] = await tx
+            .select()
+            .from(blobLifecycle)
+            .where(eq(blobLifecycle.artifactId, header.artifactId));
+          if (
+            !current ||
+            current.writeId !== header.writeId ||
+            current.generation !== header.generation ||
+            catalog?.alive ||
+            blob?.state !== 'purged' ||
+            !['settled', 'fenced'].includes(current.writeState)
+          )
+            return;
+          await tx
+            .update(artifactLineage)
+            .set({ physicalPurgedAt: new Date(), held: false })
+            .where(eq(artifactLineage.artifactId, header.artifactId));
+        });
+      } catch {
+        /* Retained header/token is a durable failed attempt, never a completed erasure. */
+      }
+    }
+    return withTenantTx(deps.database, context, async (tx) => {
+      const proof = await proofInTx(tx);
+      const counts = await tx.execute<{ removed: number; held: number }>(sql`select
+          count(*) filter(where ${artifactLineage.physicalPurgedAt} is not null)::integer as removed,
+          count(*) filter(where ${artifactLineage.held} and ${artifactLineage.physicalPurgedAt} is null)::integer as held
+          from ${artifactLineage} where ${selected}`);
+      return {
+        removed: Number(counts.rows[0]?.removed ?? 0),
+        held: Number(counts.rows[0]?.held ?? 0),
+        remaining: proof.remaining,
+        confirmed: !!deps.lifecycle && proof.remaining === 0,
+      };
+    });
+  };
   return {
     async confirmInTx(tx, context, input) {
       if (context.actorType !== 'service') throw new AppError('FORBIDDEN');
       return confirm(tx, input.sourceId);
     },
-    async purgeSource(context, input) {
+    async confirmRecordInTx(tx, context, input) {
       if (context.actorType !== 'service') throw new AppError('FORBIDDEN');
+      return confirmRecord(tx, recordInput(input));
+    },
+    async purgeSource(context, input) {
       const sourceId = checkedId(input.sourceId);
-      if (!Number.isSafeInteger(input.limit) || input.limit < 1 || input.limit > 100)
-        throw new AppError('INVALID_INPUT');
-      const headers = await withTenantTx(deps.database, context, async (tx) => {
-        const [source] = await tx
-          .select({ state: knowledgeSources.state })
-          .from(knowledgeSources)
-          .where(eq(knowledgeSources.id, sourceId));
-        if (!source || source.state === 'active') throw new AppError('INVALID_STATE');
-        const rows = await tx
-          .select()
-          .from(artifactLineage)
-          .where(and(affected(sourceId), sql`${artifactLineage.physicalPurgedAt} is null`))
-          .orderBy(asc(artifactLineage.held), asc(artifactLineage.artifactId))
-          .limit(input.limit)
-          .for('update');
-        for (const row of rows) {
-          await tx
-            .update(artifactLineage)
-            .set({ state: 'blocked' })
-            .where(eq(artifactLineage.artifactId, row.artifactId));
-          await markArtifactTombstone(tx, context, row);
-        }
-        return rows;
-      });
-      for (const header of headers) {
-        if (!deps.lifecycle) continue;
-        try {
-          const result = await deps.lifecycle.erase(context, {
-            artifactId: header.artifactId,
-            workUnitId: header.workUnitId,
-            objectKey: header.objectKey,
-            artifactSha256: header.artifactSha256,
-            writeId: header.writeId,
-            generation: header.generation,
-            writeState: header.writeState as 'active' | 'settled' | 'fenced' | 'unknown',
-          });
-          if (result.state === 'held') {
-            await withTenantTx(deps.database, context, (tx) =>
-              tx
-                .update(artifactLineage)
-                .set({ held: true })
-                .where(eq(artifactLineage.artifactId, header.artifactId)),
+      return purge(
+        context,
+        input.limit,
+        affected(sourceId),
+        async (tx) => {
+          const [source] = await tx
+            .select({ state: knowledgeSources.state })
+            .from(knowledgeSources)
+            .where(eq(knowledgeSources.id, sourceId));
+          if (!source || source.state === 'active') throw new AppError('INVALID_STATE');
+        },
+        (tx) => confirm(tx, sourceId),
+        'KNOWLEDGE_SOURCE_PURGED',
+      );
+    },
+    async purgeRecord(context, input) {
+      const record = recordInput(input);
+      return purge(
+        context,
+        input.limit,
+        recordAffected(record),
+        async (tx) => {
+          const [catalog] = await tx
+            .select()
+            .from(structuredRecordCatalog)
+            .where(
+              and(
+                eq(structuredRecordCatalog.recordKind, record.kind),
+                eq(structuredRecordCatalog.recordId, record.id),
+              ),
             );
-            continue;
-          }
-          if (
-            result.state !== 'purged' ||
-            !result.quiescent ||
-            (await deps.store.exists(header.objectKey))
-          )
-            continue;
-          await withTenantTx(deps.database, context, async (tx) => {
-            const [current] = await tx
-              .select()
-              .from(artifactLineage)
-              .where(eq(artifactLineage.artifactId, header.artifactId))
-              .for('update');
-            const [catalog] = await tx
-              .select()
-              .from(artifactAclCatalog)
-              .where(eq(artifactAclCatalog.artifactId, header.artifactId));
-            const [blob] = await tx
-              .select()
-              .from(blobLifecycle)
-              .where(eq(blobLifecycle.artifactId, header.artifactId));
-            if (
-              !current ||
-              current.writeId !== header.writeId ||
-              current.generation !== header.generation ||
-              catalog?.alive ||
-              blob?.state !== 'purged' ||
-              !['settled', 'fenced'].includes(current.writeState)
-            )
-              return;
-            await tx
-              .update(artifactLineage)
-              .set({ physicalPurgedAt: new Date(), held: false })
-              .where(eq(artifactLineage.artifactId, header.artifactId));
-          });
-        } catch {
-          /* Retained header/token is a durable failed attempt, never a completed erasure. */
-        }
-      }
-      return withTenantTx(deps.database, context, async (tx) => {
-        const proof = await confirm(tx, sourceId);
-        const counts = await tx.execute<{ removed: number; held: number }>(sql`select
-          count(*) filter(where ${artifactLineage.physicalPurgedAt} is not null)::integer as removed,
-          count(*) filter(where ${artifactLineage.held} and ${artifactLineage.physicalPurgedAt} is null)::integer as held
-          from ${artifactLineage} where ${affected(sourceId)}`);
-        return {
-          removed: Number(counts.rows[0]?.removed ?? 0),
-          held: Number(counts.rows[0]?.held ?? 0),
-          remaining: proof.remaining,
-          confirmed: !!deps.lifecycle && proof.remaining === 0,
-        };
-      });
+          const [closed] = await tx
+            .select({ id: tombstones.targetId })
+            .from(tombstones)
+            .where(and(eq(tombstones.targetType, record.kind), eq(tombstones.targetId, record.id)));
+          if (!catalog || (catalog.alive && !closed)) throw new AppError('INVALID_STATE');
+        },
+        (tx) => confirmRecord(tx, record),
+        'STRUCTURED_INPUT_PURGED',
+      );
     },
   };
 }

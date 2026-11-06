@@ -17,7 +17,13 @@ import {
   artifactAclCatalog,
   artifactLineage,
   artifactLineageInputs,
+  artifactLineageRecords,
   artifactLineageSources,
+  clientReaders,
+  clients,
+  projects,
+  structuredRecordCatalog,
+  structuredWorkAssignments,
   artifacts,
   blobLifecycle,
   createOrganization,
@@ -29,6 +35,7 @@ import {
   withTenantTx,
   workArtifacts,
   workUnits,
+  tombstones,
   type TenantContext,
 } from '@ensemus/database';
 import { createServiceContext } from '@ensemus/database/service';
@@ -47,6 +54,7 @@ import {
   type ArtifactExecution,
   type ArtifactInputInventory,
   type DerivedArtifactLifecycle,
+  type StructuredArtifactInput,
 } from '../../packages/application/src/knowledge/artifact-provenance';
 import { pgCode } from '../../packages/application/src/errors';
 import { seedMember, seedSearchableSource, sha256 } from '../helpers/knowledge';
@@ -154,6 +162,9 @@ describe('generated artifact all-input privacy and erasure protocol (0208)', () 
       },
     };
     const inputs: { artifactId: string; sha256: string }[] = [];
+    const records: StructuredArtifactInput[] = [
+      { kind: 'work_unit', id: work.id, sha256: sha256(JSON.stringify(work)) },
+    ];
     const inventory: ArtifactInputInventory = {
       inspectInTx: async (_tx, _context, input) => ({
         known: true,
@@ -163,6 +174,7 @@ describe('generated artifact all-input privacy and erasure protocol (0208)', () 
         classification: 'internal',
         noKnowledge: !!options.system,
         artifactInputs: inputs,
+        recordInputs: records,
       }),
     };
     const input = {
@@ -223,6 +235,7 @@ describe('generated artifact all-input privacy and erasure protocol (0208)', () 
       inventory,
       input,
       inputs,
+      records,
       create,
       close,
       read,
@@ -688,5 +701,366 @@ describe('generated artifact all-input privacy and erasure protocol (0208)', () 
       ),
       '42501',
     );
+  });
+
+  // 0211 structured observations are trusted executor input, never model citation arguments.
+  async function otherWork(
+    value: Fixture,
+    classification: 'internal' | 'restricted' = 'restricted',
+  ) {
+    const work = await createWorkUnit(database.db, value.member, {
+      title: 'Other Work actually read',
+      objective: 'Synthetic retained structured material',
+      classification,
+    });
+    if (classification === 'restricted')
+      await assignContributor(database.db, value.member, {
+        id: work.id,
+        membershipId: value.owner.membershipId,
+      });
+    value.records.push({ kind: 'work_unit', id: work.id, sha256: sha256(JSON.stringify(work)) });
+    return work;
+  }
+  async function privateProject(value: Fixture) {
+    const clientId = randomUUID(),
+      projectId = randomUUID();
+    await withTenantTx(database.db, value.service, async (tx) => {
+      await tx.insert(clients).values({
+        organizationId: value.owner.organizationId,
+        id: clientId,
+        displayName: 'Synthetic restricted client',
+        classification: 'restricted',
+        ownerMembershipId: value.member.membershipId,
+      });
+      await tx.insert(clientReaders).values({
+        organizationId: value.owner.organizationId,
+        clientId,
+        membershipId: value.owner.membershipId,
+        grantedByMembershipId: value.member.membershipId,
+      });
+      await tx.insert(projects).values({
+        organizationId: value.owner.organizationId,
+        id: projectId,
+        clientId,
+        name: 'Synthetic retained project',
+      });
+    });
+    value.records.push(
+      { kind: 'client', id: clientId, sha256: sha256(`actual-client-read:${clientId}`) },
+      { kind: 'project', id: projectId, sha256: sha256(`actual-project-read:${projectId}`) },
+    );
+    return { clientId, projectId };
+  }
+  const removeOtherAssignment = (value: Fixture, id: string) =>
+    unassign(database.db, value.member, { id, membershipId: value.owner.membershipId });
+
+  it('requires an explicit structured list and target Work before starting any object put', async () => {
+    for (const records of [
+      undefined,
+      [],
+      [{ kind: 'client', id: randomUUID(), sha256: sha256('unrelated') }],
+    ]) {
+      const value = await fixture();
+      const port = {
+        inspectInTx: async (...args: Parameters<ArtifactInputInventory['inspectInTx']>) => {
+          const proof = await value.inventory.inspectInTx(...args);
+          return proof.known ? { ...proof, recordInputs: records } : proof;
+        },
+      } as unknown as ArtifactInputInventory;
+      await expect(value.create({}, port)).rejects.toMatchObject({ code: 'INVALID_STATE' });
+      expect(value.control.puts).toBe(0);
+    }
+  });
+  it('retains multiple actual historical hashes and ignores routine mutable Work changes while serving', async () => {
+    const value = await fixture(),
+      work = await otherWork(value, 'internal');
+    value.records.push({ kind: 'work_unit', id: work.id, sha256: sha256('a later actual read') });
+    const output = await value.create();
+    await withTenantTx(database.db, value.member, (tx) =>
+      tx
+        .update(workUnits)
+        .set({ title: 'Changed title', objective: 'Changed objective', version: work.version + 1 })
+        .where(eq(workUnits.id, work.id)),
+    );
+    const records = await withTenantTx(database.db, value.service, (tx) =>
+      tx
+        .select()
+        .from(artifactLineageRecords)
+        .where(eq(artifactLineageRecords.artifactId, output.id)),
+    );
+    expect(records.filter((row) => row.recordId === work.id)).toHaveLength(2);
+    expect((await value.read(output.id)).body.toString()).toBe(value.text);
+  });
+  it('checks actual OTHER Work assignments for the named viewer even when the writer is a service', async () => {
+    const value = await fixture(),
+      work = await otherWork(value);
+    const output = await value.create();
+    expect((await value.read(output.id)).body.toString()).toBe(value.text);
+    await removeOtherAssignment(value, work.id);
+    const gets = value.control.gets;
+    await expect(value.read(output.id)).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    expect(value.control.gets).toBe(gets);
+    await expect(value.create({ requestKey: randomUUID() })).rejects.toMatchObject({
+      code: 'NOT_FOUND',
+    });
+    expect(value.control.puts).toBe(1);
+  });
+  it('rechecks retained structured authority after object get and refuses a revoked in-flight read', async () => {
+    const value = await fixture(),
+      work = await otherWork(value);
+    const output = await value.create();
+    value.control.beforeGet = () => removeOtherAssignment(value, work.id);
+    await expect(value.read(output.id)).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    expect(value.control.gets).toBe(1);
+  });
+  it('blocks publication after structured revocation during put and keeps durable blocked provenance', async () => {
+    const value = await fixture(),
+      work = await otherWork(value);
+    value.control.beforePut = () => removeOtherAssignment(value, work.id);
+    await expect(value.create()).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    expect(await value.raw(value.owner)).toEqual({ files: [], links: [] });
+    const [header] = await withTenantTx(database.db, value.service, (tx) =>
+      tx.select().from(artifactLineage),
+    );
+    expect(header).toMatchObject({
+      structuredInventoryComplete: true,
+      state: 'blocked',
+      writeState: 'settled',
+      physicalPurgedAt: null,
+    });
+    expect(value.bodies.size).toBe(1);
+  });
+  it('closes existing output when a structured source exceeds its pinned class', async () => {
+    const value = await fixture(),
+      work = await otherWork(value, 'internal');
+    const output = await value.create();
+    await withTenantTx(database.db, value.member, (tx) =>
+      tx
+        .update(workUnits)
+        .set({ classification: 'restricted', version: work.version + 1 })
+        .where(eq(workUnits.id, work.id)),
+    );
+    // The viewer remains assigned: the current class alone is now stronger than this internal file.
+    await assignContributor(database.db, value.member, {
+      id: work.id,
+      membershipId: value.owner.membershipId,
+    });
+    await expect(value.read(output.id)).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    expect(value.control.gets).toBe(0);
+  });
+  it('retains the actual private parent read after an authorized project reparent to public material', async () => {
+    const value = await fixture(),
+      records = await privateProject(value);
+    const output = await value.create();
+    await withTenantTx(database.db, value.service, (tx) =>
+      tx.update(projects).set({ clientId: null }).where(eq(projects.id, records.projectId)),
+    );
+    expect((await value.read(output.id)).body.toString()).toBe(value.text);
+    await withTenantTx(database.db, value.service, (tx) =>
+      tx.delete(clientReaders).where(eq(clientReaders.clientId, records.clientId)),
+    );
+    const gets = value.control.gets;
+    await expect(value.read(output.id)).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    expect(value.control.gets).toBe(gets);
+    const pinned = await withTenantTx(database.db, value.service, (tx) =>
+      tx
+        .select()
+        .from(artifactLineageRecords)
+        .where(eq(artifactLineageRecords.artifactId, output.id)),
+    );
+    expect(pinned.map((row) => row.recordId)).toEqual(
+      expect.arrayContaining([records.clientId, records.projectId]),
+    );
+  });
+  it('does not invent an unread parent body/hash when only a Work record was read', async () => {
+    const value = await fixture({ system: true }),
+      records = await privateProject(value);
+    value.records.splice(1);
+    await withTenantTx(database.db, value.owner, (tx) =>
+      tx
+        .update(workUnits)
+        .set({ projectId: records.projectId, version: value.work.version + 1 })
+        .where(eq(workUnits.id, value.work.id)),
+    );
+    const output = await value.create();
+    await withTenantTx(database.db, value.service, (tx) =>
+      tx.delete(clientReaders).where(eq(clientReaders.clientId, records.clientId)),
+    );
+    expect((await value.read(output.id, value.member)).body.toString()).toBe(value.text);
+    expect(
+      await withTenantTx(database.db, value.service, (tx) =>
+        tx
+          .select()
+          .from(artifactLineageRecords)
+          .where(eq(artifactLineageRecords.artifactId, output.id)),
+      ),
+    ).toMatchObject([{ recordKind: 'work_unit', recordId: value.work.id }]);
+  });
+  it('flattens retained structured ancestors independently of later direct read lists', async () => {
+    const value = await fixture(),
+      work = await otherWork(value);
+    const first = await value.create();
+    value.inputs.push({ artifactId: first.id, sha256: sha256(value.text) });
+    value.records.splice(1);
+    const second = await value.create({
+      requestKey: randomUUID(),
+      execution: { kind: 'agent_run', id: randomUUID() },
+    });
+    const rows = await withTenantTx(database.db, value.service, (tx) =>
+      tx
+        .select()
+        .from(artifactLineageRecords)
+        .where(eq(artifactLineageRecords.artifactId, second.id)),
+    );
+    expect(rows.some((row) => row.recordKind === 'work_unit' && row.recordId === work.id)).toBe(
+      true,
+    );
+    await removeOtherAssignment(value, work.id);
+    await expect(value.read(second.id)).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    expect(value.control.gets).toBe(0);
+  });
+  it('refuses cross-tenant structured records and malformed hashes before object I/O', async () => {
+    const value = await fixture(),
+      foreign = await fixture();
+    value.records.push({
+      kind: 'work_unit',
+      id: foreign.work.id,
+      sha256: sha256(JSON.stringify(foreign.work)),
+    });
+    await expect(value.create()).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    value.records.splice(1, 1, { kind: 'work_unit', id: value.work.id, sha256: 'invalid' });
+    await expect(value.create()).rejects.toMatchObject({ code: 'INVALID_INPUT' });
+    expect(value.control.puts).toBe(0);
+    expect(
+      await withTenantTx(database.db, foreign.service, (tx) =>
+        tx
+          .select()
+          .from(structuredRecordCatalog)
+          .where(eq(structuredRecordCatalog.organizationId, value.owner.organizationId)),
+      ),
+    ).toEqual([]);
+  });
+  it('keeps a missing structured SQL binding incomplete at commit and forbids app catalog/mirror mutations', async () => {
+    const value = await fixture();
+    await value.create();
+    const [header] = await withTenantTx(database.db, value.service, (tx) =>
+      tx.select().from(artifactLineage),
+    );
+    if (!header) throw new Error('TEST_HEADER_MISSING');
+    const id = randomUUID(),
+      objectKey = `${value.owner.organizationId}/artifacts/${id}`;
+    await deniedSql(
+      withTenantTx(database.db, value.service, async (tx) => {
+        await tx.insert(artifactLineage).values({
+          ...header,
+          artifactId: id,
+          objectKey,
+          writeId: randomUUID(),
+          state: 'pending',
+          writeState: 'active',
+        });
+        await tx.insert(blobLifecycle).values({
+          organizationId: value.owner.organizationId,
+          artifactId: id,
+          objectKey,
+          state: 'uploading',
+          purgeAfter: new Date(),
+        });
+      }),
+      'EN118',
+    );
+    for (const operation of [
+      () =>
+        withTenantTx(database.db, value.service, (tx) =>
+          tx.update(structuredRecordCatalog).set({ alive: false }),
+        ),
+      () => withTenantTx(database.db, value.service, (tx) => tx.delete(structuredWorkAssignments)),
+      () => withTenantTx(database.db, value.service, (tx) => tx.delete(artifactLineageRecords)),
+    ])
+      await deniedSql(operation(), '42501');
+  });
+  it('serializes publication against an actual structured ACL/class writer without waiting or publishing stale material', async () => {
+    const value = await fixture(),
+      work = await otherWork(value);
+    let release!: () => void, locked!: () => void;
+    const releasePromise = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const lockedPromise = new Promise<void>((resolve) => {
+      locked = resolve;
+    });
+    const writer = withTenantTx(database.db, value.member, async (tx) => {
+      await tx
+        .update(workUnits)
+        .set({ classification: 'internal', version: work.version + 1 })
+        .where(eq(workUnits.id, work.id));
+      locked();
+      await releasePromise;
+    });
+    await lockedPromise;
+    try {
+      await expect(value.create()).rejects.toMatchObject({ code: 'VERSION_CONFLICT' });
+    } finally {
+      release();
+      await writer;
+    }
+    expect(value.control.puts).toBe(0);
+  });
+  it('closes a deleted structured record, refuses revocation-only erasure, and requires positive byte/fence proof', async () => {
+    const value = await fixture(),
+      project = await privateProject(value);
+    const output = await value.create(),
+      adapter = purge(value, null);
+    const record = { kind: 'project' as const, id: project.projectId, limit: 25 };
+    await expect(adapter.purgeRecord(value.service, record)).rejects.toMatchObject({
+      code: 'INVALID_STATE',
+    });
+    await withTenantTx(database.db, value.service, (tx) =>
+      tx.delete(projects).where(eq(projects.id, project.projectId)),
+    );
+    await expect(value.read(output.id)).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    expect(await adapter.purgeRecord(value.service, record)).toMatchObject({
+      remaining: 1,
+      confirmed: false,
+      removed: 0,
+    });
+    const held: DerivedArtifactLifecycle = { erase: async () => ({ state: 'held' }) };
+    expect(await purge(value, held).purgeRecord(value.service, record)).toMatchObject({
+      remaining: 1,
+      held: 1,
+      confirmed: false,
+    });
+    const lie: DerivedArtifactLifecycle = {
+      erase: async () => ({ state: 'purged', quiescent: true }),
+    };
+    expect(await purge(value, lie).purgeRecord(value.service, record)).toMatchObject({
+      remaining: 1,
+      confirmed: false,
+    });
+    expect(await purge(value).purgeRecord(value.service, record)).toEqual({
+      remaining: 0,
+      removed: 1,
+      held: 0,
+      confirmed: true,
+    });
+    expect(
+      await withTenantTx(database.db, value.service, (tx) =>
+        purge(value).confirmRecordInTx(tx, value.service, record),
+      ),
+    ).toEqual({ remaining: 0 });
+    expect(value.bodies.size).toBe(0);
+    expect(
+      await withTenantTx(database.db, value.service, (tx) =>
+        tx
+          .select()
+          .from(artifactLineageRecords)
+          .where(eq(artifactLineageRecords.artifactId, output.id)),
+      ),
+    ).toHaveLength(3);
+    expect(
+      await withTenantTx(database.db, value.service, (tx) =>
+        tx.select().from(tombstones).where(eq(tombstones.targetId, output.id)),
+      ),
+    ).toMatchObject([{ reasonCode: 'STRUCTURED_INPUT_PURGED' }]);
   });
 });
