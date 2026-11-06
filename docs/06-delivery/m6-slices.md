@@ -385,8 +385,10 @@ Sibling milestones plug in at the final merge, with no slice here waiting on the
 | `PortabilitySection` for `custom-objects` | M7 | same |
 | `RestoreContributor` for agent runs and budgets | M4 | `workers/workflow/src/restore-contributors.ts` |
 | `RestoreContributor` for chunks and embeddings, rebuilt with fresh ACLs | M5 | same |
-| New tombstone types, as ADR-026 expects | M5 | `@ensemus/domain/tombstone-ledger`, which the archive's tombstones already carry |
-| `readVerifiedLicenseFacts`, for the entitlement check | M8 | their code calls it |
+| `RestoreContributor` for knowledge, calling M5's `listStaleConnectorResources` sweep and its embedding rebuild | M5 | same |
+| New tombstone types: M5's `knowledge_source`, with its re-apply step in `reapplyTombstoneLedger` (ADR-029 D3). The archive's tombstones already carry any type | M5 | already on `m5-foundation` |
+| `Entitlements` (ADR-028 FD-8): `@ensemus/commercial`'s `createEntitlements` delegates to `createSovereignEntitlements` when the mode is `sovereign` | Final merge | `packages/commercial/src/index.ts` on `m4-foundation` |
+| `readVerifiedLicenseFacts`, for showing footprint in its views | M8 | their code calls it |
 
 ## Handoff
 

@@ -109,9 +109,27 @@ export function listAdvisories(
 }
 
 /**
- * The facts a later entitlement check may use (M8, `docs/07-commercial/02-entitlements-and-billing.md`
- * section 6). A narrow read with no permission check, since nothing it returns is shown by itself, and with
- * no way to say "stop": where nothing verifies it answers null, and a Sovereign deployment keeps running.
+ * M4's `Entitlements` port (ADR-028 FD-8), for a Sovereign deployment, in that port's shape so it needs no
+ * import from a branch not yet merged. `@ensemus/commercial` delegates here when the organization's mode is
+ * `sovereign`, at the final merge. Its return type has no way to refuse, because a purchased version keeps
+ * working whatever the license, the maintenance dates or the clock say (ADR-030 D2). Inference is the
+ * customer's own, so nothing here is billable.
+ */
+export function createSovereignEntitlements() {
+  return {
+    async check(
+      _context: TenantContext,
+      _feature: string,
+    ): Promise<{ ok: true; billable: false; commercialMode: 'sovereign' }> {
+      return { ok: true, billable: false, commercialMode: 'sovereign' };
+    },
+  };
+}
+
+/**
+ * The facts a later check may use, such as showing footprint in M8's views. A narrow read with no permission
+ * check, since nothing it returns is shown by itself, and with no way to say "stop": where nothing verifies
+ * it answers null, and a Sovereign deployment keeps running.
  */
 export function readVerifiedLicenseFacts(
   _database: AppDatabase,

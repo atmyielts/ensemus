@@ -45,6 +45,7 @@ Every document we issue is a DSSE envelope (`payloadType`, `payload`, `signature
 | Unknown fields are ignored, and a newer `format_version` is refused by name | A customer who stopped upgrading can still read what is issued later. A newer format reports `FORMAT_NOT_SUPPORTED`, leaving everything installed as it was. The issuing tool must keep writing version 1 for anyone whose release cannot read more. |
 | Frozen corpus | `tests/fixtures/license-corpus/v1/` holds signed documents that every future release must still verify. Files there are never regenerated. |
 | A pilot license is a term kind with a review date | The pilot gate says "Pilot license, not perpetual yet". The date shows as a notice and disables nothing, so the safest default holds until the owner decides otherwise. |
+| The entitlement port never refuses in Sovereign mode | M4's `Entitlements` port (ADR-028 FD-8) says M6's license implements it. `createSovereignEntitlements` does, and its return type has no refusal in it, so an agent run can never be stopped by a lapse. `@ensemus/commercial` delegates to it at the final merge. A `components`-based "feature not licensed" answer is deliberately not built: it would be a new way to stop purchased software, so it waits for an owner's decision. |
 
 **What this is not:** it is not copy protection. The customer controls the machine and the trust root, so anyone with that control can edit either. A license here is honest evidence for people who want to know where they stand, and for support and audit.
 
@@ -194,6 +195,7 @@ Before anyone holds a license: anything. After that, the format's reading rules 
 | A bundle outside rights | `warn`, never blocking a security fix by default | License |
 | What a pilot license's review date does | A notice, and nothing else | License `term` |
 | Whether a never-licensed install should run | It runs, with a notice | No code path exists to stop it |
+| Whether a license's `components` should limit features | No: shown only, and the entitlement port never refuses | License `components` |
 | Restricted work in an export | Left out, and counted | `scope`, one value today |
 | How long an archive stays in the store | 24 hours, an operator's setting | `ENSEMUS_EXPORT_RETENTION_HOURS` |
 | Local model weights | None in a bundle | Manifest `models` |
