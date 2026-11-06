@@ -35,6 +35,10 @@ jobs:
         run: pnpm check:contracts
       - name: Licenses reviewed
         run: pnpm check:licenses
+      - name: License inventory accounts for every distributed component
+        run: pnpm check:inventory
+      - name: Guides are well formed, make no forbidden claim, and cover every ticket
+        run: pnpm check:guides
       - name: Dependency audit (production, high and above)
         run: pnpm audit --prod --audit-level high
       - name: Docs manifest is current
@@ -122,6 +126,31 @@ jobs:
       - name: Show service logs on failure
         if: failure()
         run: docker compose -f infrastructure/compose/compose.yaml -f infrastructure/compose/compose.test.yaml logs --tail 50
+
+  # One build, then the same images in Cloud, BYOM and Sovereign (COMM-06). It fails on anything that
+  # contradicts parity. Until M3 to M8 are wired in, it says NOT PROVEN and passes: only --release, at
+  # launch sign-off (REL-03), requires parity to have been shown.
+  parity:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm stack:secrets
+      - name: Mode parity - one release in all three modes
+        run: node infrastructure/scripts/parity-gate.mjs
+      - name: Keep the reports
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: parity-reports
+          path: .local/parity
+          include-hidden-files: true
+          if-no-files-found: ignore
 
   upgrade:
     runs-on: ubuntu-24.04

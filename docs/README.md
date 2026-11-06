@@ -63,6 +63,8 @@
 - [ADR-025: decisions made while building M1](00-foundation/adr/ADR-025-m1-implementation-decisions.md)
 - [ADR-026: tombstones survive a database restore](00-foundation/adr/ADR-026-tombstones-survive-restore.md)
 - [ADR-027: verified external actions](00-foundation/adr/ADR-027-verified-external-actions.md)
+- [ADR-036: release readiness: parity suite, guides and license inventory](00-foundation/adr/ADR-036-release-readiness.md)
+- [Guides for people using Ensemus and for operators](guides/README.md)
 - [Document governance and implementation discipline](00-foundation/04-doc-governance.md)
 
 ### Product and commercial UX

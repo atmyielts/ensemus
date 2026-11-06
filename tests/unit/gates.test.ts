@@ -32,6 +32,8 @@ const COMMANDS: Record<string, string> = {
   'test:browser': 'pnpm test:browser',
   'check:backlog': 'pnpm check:backlog',
   'check:contracts': 'pnpm check:contracts',
+  'check:guides': 'pnpm check:guides',
+  'check:inventory': 'pnpm check:inventory',
   'check:licenses': 'pnpm check:licenses',
   // The one place the deployed Caddyfile runs. CI needs no install for it, so it names the script.
   'check:proxy': 'node infrastructure/scripts/check-proxy.mjs',
@@ -43,6 +45,8 @@ const COMMANDS: Record<string, string> = {
   'build-release.mjs': 'build-release.mjs',
   // test:upgrade is this script without --from.
   'test:upgrade': 'upgrade-gate.mjs --from',
+  // Each of its rounds runs the parity project against the mode it just started.
+  'test:parity': 'node infrastructure/scripts/parity-gate.mjs',
 };
 
 const gateScripts = readdirSync(join(root, 'infrastructure/scripts')).filter((name) =>
@@ -82,6 +86,14 @@ describe('on one machine', () => {
     );
     expect(usesTheProject).toHaveLength(4);
     for (const line of usesTheProject) expect(line).toMatch(/^gate "[^"]+" fresh /);
+  });
+
+  it('runs the parity gate from nothing as well, because it uses the same project', () => {
+    const parity = gateLines.filter((line) => line.includes('parity-gate.mjs'));
+    expect(parity).toHaveLength(1);
+    expect(parity[0]).toMatch(/^gate "[^"]+" fresh /);
+    // A local run must not call a failure of parity anything else, and only a release may ask for more.
+    expect(parity[0]).not.toContain('--release');
   });
 
   it('clears the stack on both sides of a gate, whatever its result', () => {

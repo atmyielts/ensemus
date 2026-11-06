@@ -1,6 +1,7 @@
 docs/
 pnpm-lock.yaml
 packages/contracts/generated/
+apps/web/src/generated/
 packages/database/migrations/
 .next/
 dist/
