@@ -1,6 +1,6 @@
 // Owned by the facts slice (KNOW-04). See docs/06-delivery/m5-slices.md and ADR-029 D7. A model's output is
 // a proposal, and a trigger holds that. Only a person can verify, on evidence they can read.
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import {
   appendAudit,
   clients,
@@ -32,8 +32,11 @@ import { emit } from '../events';
 import { idSchema } from '../ids';
 import { rowLockTarget } from '../row-lock';
 import { factClaim, factPage, factReason, factSubject } from './fact-input';
+import type { ObservedInput } from '../ai/input-observations';
 
 export type FactEvidenceInput = { chunkId: string; quoteStart: number; quoteEnd: number };
+/** Internal trusted compiler seam. Called once, after all body locks and before this read commits. */
+export type FactReadCapture = (tx: Tx, inputs: readonly ObservedInput[]) => Promise<void>;
 
 export type FactView = {
   id: string;
@@ -439,7 +442,7 @@ export function getFact(
 export function verifiedFactsFor(
   database: AppDatabase,
   context: TenantContext,
-  input: { subjectRefs: readonly string[]; limit?: number },
+  input: { subjectRefs: readonly string[]; limit?: number; captureReadsInTx?: FactReadCapture },
 ): Promise<readonly FactView[]> {
   if (!Array.isArray(input.subjectRefs) || input.subjectRefs.length > 100)
     throw new AppError('INVALID_INPUT');
@@ -461,7 +464,7 @@ export function verifiedFactsFor(
       )
       .orderBy(asc(knowledgeFacts.id))
       .limit(limit);
-    return views(tx, context, rows);
+    return views(tx, context, rows, input.captureReadsInTx);
   });
 }
 
@@ -543,11 +546,18 @@ async function subjectRecord(
   context: TenantContext,
   subject: ReturnType<typeof factSubject>,
   role: string,
+  observations?: ObservedInput[],
 ): Promise<{ name: string | null; classification: Classification }> {
   if (subject.type === 'client') {
     const [row] = await tx.select().from(clients).where(eq(clients.id, subject.id)).for('share');
     // 0209's central client RLS includes the creator and explicitly named readers, even for restricted.
     if (!row) throw new AppError('NOT_FOUND');
+    observations?.push({
+      kind: 'client',
+      id: row.id,
+      sha256: createHash('sha256').update(JSON.stringify(row)).digest('hex'),
+      classification: row.classification as Classification,
+    });
     return { name: row.displayName, classification: row.classification as Classification };
   }
   if (subject.type === 'project') {
@@ -559,9 +569,17 @@ async function subjectRecord(
           context,
           { type: 'client', id: row.clientId, ref: `client:${row.clientId}` },
           role,
+          observations,
         )
       : null;
-    return { name: row.name, classification: parent?.classification ?? 'internal' };
+    const classification = parent?.classification ?? 'internal';
+    observations?.push({
+      kind: 'project',
+      id: row.id,
+      sha256: createHash('sha256').update(JSON.stringify(row)).digest('hex'),
+      classification,
+    });
+    return { name: row.name, classification };
   }
   if (subject.type === 'work_unit') {
     const allowed =
@@ -574,6 +592,14 @@ async function subjectRecord(
       .where(and(eq(workUnits.id, subject.id), allowed))
       .for('share');
     if (!row) throw new AppError('NOT_FOUND');
+    observations?.push({
+      kind: 'work_unit',
+      id: subject.id,
+      sha256: createHash('sha256')
+        .update(JSON.stringify({ id: subject.id, classification: row.classification }))
+        .digest('hex'),
+      classification: row.classification as Classification,
+    });
     return { name: null, classification: row.classification as Classification };
   }
   if (subject.type === 'knowledge_source') {
@@ -609,6 +635,7 @@ async function views(
   tx: Tx,
   context: TenantContext,
   facts: readonly FactRow[],
+  captureReadsInTx?: FactReadCapture,
 ): Promise<FactView[]> {
   if (!facts.length) return [];
   const member = await person(tx, context);
@@ -644,10 +671,17 @@ async function views(
     )
     .for('share', { of: [rowLockTarget(knowledgeSources), rowLockTarget(knowledgeDocuments)] });
   const result: FactView[] = [];
+  const observations: ObservedInput[] = [];
   for (const fact of facts) {
     let subject: Awaited<ReturnType<typeof subjectRecord>>;
     try {
-      subject = await subjectRecord(tx, context, factSubject(fact.subjectRef), member.role);
+      subject = await subjectRecord(
+        tx,
+        context,
+        factSubject(fact.subjectRef),
+        member.role,
+        captureReadsInTx ? observations : undefined,
+      );
     } catch (error) {
       if (error instanceof AppError && error.code === 'NOT_FOUND') continue;
       throw error;
@@ -696,6 +730,7 @@ async function views(
         })),
     });
   }
+  if (captureReadsInTx && observations.length) await captureReadsInTx(tx, observations);
   return result;
 }
 async function changed(

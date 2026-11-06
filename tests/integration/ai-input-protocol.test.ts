@@ -19,11 +19,17 @@ import {
 import { createToolStepStore } from '@ensemus/application/ai-tool-steps';
 import { storeStepPayload } from '@ensemus/application/ai-runs';
 import { recordArtifactCitations } from '@ensemus/application/knowledge/verification';
+import { compileEvidence } from '@ensemus/application/knowledge/compiler';
+import { proposeFact, reviewFact } from '@ensemus/application/knowledge/facts';
+import { createScriptedModelPort } from '@ensemus/knowledge/testing';
 import { purgeRunTranscriptsForSource, revokeSource } from '@ensemus/application/knowledge/purge';
 import {
   agentRuns,
   artifactLineage,
   artifacts,
+  clients,
+  clientReaders,
+  projects,
   executionSteps,
   openAppDatabase,
   runInputCheckpoints,
@@ -540,6 +546,122 @@ describe('durable agent input protocol and content fence as actual roles', () =>
     expect(header).toMatchObject({ state: 'bound', writeState: 'settled' });
     await expect(value.note()).rejects.toMatchObject({ code: 'INVALID_STATE' });
     expect(value.store.puts).toBe(1);
+  });
+  it('captures the actual private fact parent before material leaves, then retains it across reparenting', async () => {
+    const value = await fixture(),
+      clientId = randomUUID(),
+      projectId = randomUUID(),
+      word = `factparent${randomUUID().replaceAll('-', '')}`;
+    await withTenantTx(app.db, value.service, async (tx) => {
+      await tx
+        .insert(clients)
+        .values({
+          organizationId: value.organizationId,
+          id: clientId,
+          displayName: 'Private actual fact parent',
+          classification: 'restricted',
+          ownerMembershipId: value.member.membershipId,
+        });
+      await tx
+        .insert(clientReaders)
+        .values({
+          organizationId: value.organizationId,
+          clientId,
+          membershipId: value.owner.membershipId,
+          grantedByMembershipId: value.member.membershipId,
+        });
+      await tx
+        .insert(projects)
+        .values({
+          organizationId: value.organizationId,
+          id: projectId,
+          clientId,
+          name: 'Actual private fact project',
+        });
+      await tx.execute(
+        sql`update work.work_units set project_id=${projectId}::uuid,version=version+1 where id=${value.work.id}::uuid`,
+      );
+    });
+    const [project] = await withTenantTx(app.db, value.service, (tx) =>
+      tx.select().from(projects).where(eq(projects.id, projectId)),
+    );
+    if (!project) throw new Error('TEST_PROJECT_MISSING');
+    const source = await seedSearchableSource(app.db, value.owner, {
+      passages: [word],
+      grants: [{ kind: 'organization' }],
+    });
+    const fact = await proposeFact(app.db, value.member, {
+      subjectRef: `project:${projectId}`,
+      predicate: 'generated_fact_parent',
+      claim: { label: word },
+      origin: 'person',
+      evidence: [{ chunkId: source.chunkIds[0]!, quoteStart: 0, quoteEnd: word.length }],
+    });
+    await reviewFact(app.db, value.owner, {
+      factId: fact.factId,
+      expectedVersion: 1,
+      decision: 'verify',
+      reason: 'Synthetic verified source.',
+    });
+    const compiled = await compileEvidence(
+      agent.db,
+      value.context,
+      { model: createScriptedModelPort({}) },
+      {
+        purpose: 'agent_turn',
+        workUnitId: value.work.id,
+        runId: value.runId,
+        question: word,
+        queryClassification: 'internal',
+        budgetTokens: 500,
+        signal: AbortSignal.timeout(10000),
+      },
+    );
+    expect(compiled).toMatchObject({ ok: true, verifiedFacts: [{ factId: fact.factId }] });
+    const observations = await withTenantTx(agent.db, value.service, (tx) =>
+      tx.select().from(runInputObservations).where(eq(runInputObservations.runId, value.runId)),
+    );
+    expect(observations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ inputKind: 'client', inputId: clientId }),
+        expect.objectContaining({
+          inputKind: 'project',
+          inputId: projectId,
+          inputSha256: sha256Of(JSON.stringify(project)),
+        }),
+      ]),
+    );
+    expect(JSON.stringify(observations)).not.toContain('Private actual fact parent');
+    await withTenantTx(app.db, value.service, (tx) =>
+      tx.update(projects).set({ clientId: null }).where(eq(projects.id, projectId)),
+    );
+    await expect(checkRunInputDispatch(agent.db, value.context)).resolves.toBeUndefined();
+    await withTenantTx(app.db, value.service, (tx) =>
+      tx.delete(clientReaders).where(eq(clientReaders.clientId, clientId)),
+    );
+    await expect(checkRunInputDispatch(agent.db, value.context)).rejects.toMatchObject({
+      code: 'NOT_FOUND',
+    });
+  });
+  it('refuses a mismatched compiler run and a user claiming a run before model material or routing', async () => {
+    const value = await fixture(),
+      model = createScriptedModelPort({});
+    const input = {
+      purpose: 'agent_turn' as const,
+      workUnitId: value.work.id,
+      runId: randomUUID(),
+      question: 'Synthetic compiler question',
+      queryClassification: 'internal' as const,
+      budgetTokens: 100,
+      signal: AbortSignal.timeout(10000),
+    };
+    await expect(compileEvidence(agent.db, value.context, { model }, input)).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+    });
+    await expect(
+      compileEvidence(app.db, value.owner, { model }, { ...input, runId: value.runId }),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    expect(model.calls).toEqual([]);
   });
   it('finds uncited source-bearing artifact reads in actual source transcript purge', async () => {
     const value = await fixture(),
