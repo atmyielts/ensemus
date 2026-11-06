@@ -21,6 +21,12 @@ import {
   EXTERNAL_ACTION_READY,
   WEBHOOK_RECEIVED,
 } from '@ensemus/domain/integration-events';
+import {
+  AGGREGATE_MEETING_DERIVATION,
+  AGGREGATE_MEETING_IMPORT,
+  MEETING_DERIVATION_REQUESTED,
+  MEETING_IMPORT_REQUESTED,
+} from '@ensemus/domain/expansion-events';
 import { TOMBSTONE_RECORDED } from '@ensemus/domain/tombstone-ledger';
 import { S3ObjectStore } from '@ensemus/storage';
 import { createLogger, errorCode } from '@ensemus/telemetry';
@@ -31,6 +37,10 @@ import {
   connectorSyncWorkflowIdFor,
   externalActionInputSchema,
   externalActionWorkflowIdFor,
+  meetingDerivationInputSchema,
+  meetingDerivationWorkflowIdFor,
+  meetingImportInputSchema,
+  meetingImportWorkflowIdFor,
   reminderScheduleIdFor,
   webhookDeliveryInputSchema,
   webhookWorkflowIdFor,
@@ -224,6 +234,29 @@ async function main() {
         }
         return;
       }
+
+      // A person asked for one run, and one run happens, whatever the outbox delivers again (ADR-033 D6).
+      case MEETING_DERIVATION_REQUESTED:
+        if (event.aggregateType !== AGGREGATE_MEETING_DERIVATION) return;
+        await startOnce('meetingDerivationWorkflow', {
+          input: meetingDerivationInputSchema.parse({
+            organizationId: event.organizationId,
+            derivationRunId: event.aggregateId,
+          }),
+          workflowIdFor: meetingDerivationWorkflowIdFor,
+        });
+        return;
+
+      case MEETING_IMPORT_REQUESTED:
+        if (event.aggregateType !== AGGREGATE_MEETING_IMPORT) return;
+        await startOnce('meetingImportWorkflow', {
+          input: meetingImportInputSchema.parse({
+            organizationId: event.organizationId,
+            importRequestId: event.aggregateId,
+          }),
+          workflowIdFor: meetingImportWorkflowIdFor,
+        });
+        return;
 
       default:
         // Nothing consumes this event yet. It stays in domain_events for projections.

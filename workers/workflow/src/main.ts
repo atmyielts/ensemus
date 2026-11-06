@@ -3,6 +3,7 @@ import { writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readSecret } from '@ensemus/config';
+import { denyAllMeetingEgress, noMeetingModel } from '@ensemus/application';
 import { openAppDatabase } from '@ensemus/database';
 import { S3ObjectStore } from '@ensemus/storage';
 import { createLogger, errorCode } from '@ensemus/telemetry';
@@ -10,6 +11,8 @@ import { createActivities, type WorkflowProbe } from '@ensemus/workflows/activit
 import { AesGcmPayloadCodec } from '@ensemus/workflows/codec';
 import { PLATFORM_TASK_QUEUE, TEMPORAL_CHANNEL_ARGS } from '@ensemus/workflows/constants';
 import { createExternalActionPlatformActivities } from '@ensemus/workflows/external-action-activities';
+import { createMeetingDerivationActivities } from '@ensemus/workflows/meeting-derivation-activities';
+import { createMeetingImportPlatformActivities } from '@ensemus/workflows/meeting-import-activities';
 import { createTemporalLogger } from '@ensemus/workflows/safe-logger';
 import { workflowIdFor } from '@ensemus/workflows/schemas';
 import { Client, Connection, WorkflowNotFoundError } from '@temporalio/client';
@@ -67,6 +70,14 @@ async function main() {
       ...createActivities({ database: db, store, probeWorkflow }),
       // Only what reads PostgreSQL. Anything holding a credential is on the connector queue.
       ...createExternalActionPlatformActivities({ database: db }),
+      // M4 plugs its model gateway and egress gate in here at the final merge. Until then a run ends
+      // MODEL_UNAVAILABLE and says so, and no meeting content can leave (ADR-033 D6).
+      ...createMeetingDerivationActivities({
+        database: db,
+        model: noMeetingModel,
+        egress: denyAllMeetingEgress,
+      }),
+      ...createMeetingImportPlatformActivities({ database: db }),
     },
     dataConverter: {
       payloadCodecs: [new AesGcmPayloadCodec(readSecret('TEMPORAL_CODEC_KEY'))],

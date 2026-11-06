@@ -6,6 +6,9 @@
   "exports": {
     ".": "./src/index.ts",
     "./external-actions": "./src/external-actions.ts",
+    "./business-adapter": "./src/business-adapter.ts",
+    "./business-records": "./src/business-records.ts",
+    "./meetings": "./src/meetings.ts",
     "./openapi": "./generated/openapi.d.ts"
   },
   "scripts": {

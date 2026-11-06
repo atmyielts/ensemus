@@ -17,8 +17,10 @@ import { createConnectorSyncActivities } from '@ensemus/workflows/connector-sync
 import { CONNECTOR_TASK_QUEUE } from '@ensemus/workflows/constants';
 import { createExternalActionConnectorActivities } from '@ensemus/workflows/external-action-activities';
 import { createTemporalLogger } from '@ensemus/workflows/safe-logger';
+import { createMeetingImportConnectorActivities } from '@ensemus/workflows/meeting-import-activities';
 import { createWebhookActivities } from '@ensemus/workflows/webhook-activities';
 import { NativeConnection, Runtime, Worker } from '@temporalio/worker';
+import { businessConnectorsFrom } from './business-connectors';
 
 const log = createLogger('connector-worker');
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -46,6 +48,7 @@ async function main() {
         messageIdDomain: process.env.ENSEMUS_SMTP_MESSAGE_ID_DOMAIN ?? 'ensemus.invalid',
       }),
       createInboundConnector(),
+      ...businessConnectorsFrom(process.env, app.db),
     ]),
     secrets,
     network: createGatewayNetwork(process.env.ENSEMUS_EGRESS_GATEWAY ?? 'egress-gateway:2525'),
@@ -58,6 +61,7 @@ async function main() {
       ...createExternalActionConnectorActivities(deps),
       ...createWebhookActivities(deps),
       ...createConnectorSyncActivities(deps),
+      ...createMeetingImportConnectorActivities(deps),
     },
     dataConverter: {
       payloadCodecs: [new AesGcmPayloadCodec(readSecret('TEMPORAL_CODEC_KEY'))],

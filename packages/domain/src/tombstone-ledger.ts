@@ -8,8 +8,8 @@ export const LEDGER_PREFIX = 'tombstone-ledger/v1/';
 /** The outbox event that carries a tombstone to the ledger. Its metadata is the whole entry. */
 export const TOMBSTONE_RECORDED = 'tombstone.recorded';
 
-/** Only files are tombstoned so far. Knowledge sources join this list in M3 (ADR-026). */
-const TARGET_TYPES = new Set(['artifact']);
+/** Files, and a meeting whose consent was withdrawn (ADR-033 D5). Knowledge sources join this list. */
+const TARGET_TYPES = new Set(['artifact', 'meeting']);
 
 export type LedgerEntry = {
   organizationId: string;

@@ -22,6 +22,8 @@ tags:
   - name: approvals
   - name: external-actions
   - name: connections
+  - name: business-records
+  - name: meetings
   - name: knowledge
   - name: models
   - name: commercial
@@ -757,6 +759,873 @@ paths:
                   mode: {type: string, enum: [cloud, byom, sovereign]}
                   features: {type: array, items: {type: string}}
                   capacity: {type: object, additionalProperties: true}
+  /organizations/{organization_id}/business-records:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+    get:
+      x-ensemus-status: planned
+      tags: [business-records]
+      summary: Stored records this person has a source grant for
+      parameters:
+        - {name: connection_id, in: query, schema: {type: string, format: uuid}}
+        - {name: stream, in: query, schema: {type: string, pattern: '^[a-z0-9_.-]{1,64}$'}}
+        - {name: cursor, in: query, schema: {type: string, minLength: 1, maxLength: 512}}
+      responses:
+        '200':
+          description: Records the source says this person may read, and no others
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [items, next_cursor]
+                properties:
+                  items: {type: array, items: {$ref: '#/components/schemas/BusinessRecord'}}
+                  next_cursor: {type: [string, 'null']}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+  /organizations/{organization_id}/business-records/{record_id}:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+      - $ref: '#/components/parameters/RecordID'
+    get:
+      x-ensemus-status: planned
+      tags: [business-records]
+      summary: One record, or not found for anyone the source did not grant
+      responses:
+        '200':
+          description: The record
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/BusinessRecord'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+  /organizations/{organization_id}/business-records/{record_id}/updates:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+      - $ref: '#/components/parameters/RecordID'
+    post:
+      x-ensemus-status: planned
+      tags: [business-records]
+      summary: Propose changing writable fields. It waits for approval and is then a verified external action
+      parameters: [{$ref: '#/components/parameters/IdempotencyKey'}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ProposeRecordUpdate'}
+      responses:
+        '201':
+          description: Proposed, and nothing has been changed
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ProposedExternalAction'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '413': {$ref: '#/components/responses/PayloadTooLarge'}
+        '415': {$ref: '#/components/responses/UnsupportedMediaType'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+  /organizations/{organization_id}/business-records/{record_id}/ticket-comments:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+      - $ref: '#/components/parameters/RecordID'
+    post:
+      x-ensemus-status: planned
+      tags: [business-records]
+      summary: Propose an internal note on a ticket. There is no customer-facing form
+      parameters: [{$ref: '#/components/parameters/IdempotencyKey'}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [work_unit_id, approver_membership_id, body]
+              properties:
+                work_unit_id: {type: string, format: uuid}
+                approver_membership_id: {type: string, format: uuid}
+                body: {type: string, minLength: 1, maxLength: 8000}
+      responses:
+        '201':
+          description: Proposed, and nothing has been changed
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ProposedExternalAction'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '413': {$ref: '#/components/responses/PayloadTooLarge'}
+        '415': {$ref: '#/components/responses/UnsupportedMediaType'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+  /organizations/{organization_id}/invoice-drafts:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+    post:
+      x-ensemus-status: planned
+      tags: [business-records]
+      summary: Propose a draft invoice in the accounting system. It posts and pays nothing
+      parameters: [{$ref: '#/components/parameters/IdempotencyKey'}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ProposeInvoiceDraft'}
+      responses:
+        '201':
+          description: Proposed, and nothing has been changed
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ProposedExternalAction'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '413': {$ref: '#/components/responses/PayloadTooLarge'}
+        '415': {$ref: '#/components/responses/UnsupportedMediaType'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+  /organizations/{organization_id}/business-actions/{external_action_id}/revisions:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+      - $ref: '#/components/parameters/ExternalActionID'
+    post:
+      x-ensemus-status: planned
+      tags: [business-records]
+      summary: Replace what a business action will do. The old one can never be spent, and this needs its own approval
+      parameters:
+        - {$ref: '#/components/parameters/IdempotencyKey'}
+        - {$ref: '#/components/parameters/IfMatch'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [approver_membership_id, payload]
+              properties:
+                approver_membership_id: {type: string, format: uuid}
+                payload: {type: object, additionalProperties: true}
+      responses:
+        '201':
+          description: A new intent, waiting for approval
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ProposedExternalAction'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '413': {$ref: '#/components/responses/PayloadTooLarge'}
+        '415': {$ref: '#/components/responses/UnsupportedMediaType'}
+        '428': {$ref: '#/components/responses/PreconditionRequired'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+  /organizations/{organization_id}/business-actions/{external_action_id}/retries:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+      - $ref: '#/components/parameters/ExternalActionID'
+    post:
+      x-ensemus-status: planned
+      tags: [business-records]
+      summary: Ask again for a business action that was not sent. It needs its own approval
+      parameters: [{$ref: '#/components/parameters/IdempotencyKey'}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [approver_membership_id]
+              properties:
+                approver_membership_id: {type: string, format: uuid}
+      responses:
+        '201':
+          description: A new intent, waiting for approval
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ProposedExternalAction'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '413': {$ref: '#/components/responses/PayloadTooLarge'}
+        '415': {$ref: '#/components/responses/UnsupportedMediaType'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+  /organizations/{organization_id}/meeting-settings:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+    get:
+      x-ensemus-status: planned
+      tags: [meetings]
+      summary: Whether meetings are on, and which version of the organization's notice is current
+      responses:
+        '200':
+          description: Settings
+          headers:
+            ETag: {$ref: '#/components/headers/ETag'}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/MeetingSettings'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+    patch:
+      x-ensemus-status: planned
+      tags: [meetings]
+      summary: Turn meetings on or off. Owners and admins only, and turning on names a notice reference
+      parameters: [{$ref: '#/components/parameters/IfMatch'}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [enabled, notice_ref]
+              properties:
+                enabled: {type: boolean}
+                notice_ref: {type: [string, 'null'], minLength: 1, maxLength: 200}
+      responses:
+        '200':
+          description: Settings
+          headers:
+            ETag: {$ref: '#/components/headers/ETag'}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/MeetingSettings'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '413': {$ref: '#/components/responses/PayloadTooLarge'}
+        '415': {$ref: '#/components/responses/UnsupportedMediaType'}
+        '428': {$ref: '#/components/responses/PreconditionRequired'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+  /organizations/{organization_id}/meeting-provider-approvals:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+    get:
+      x-ensemus-status: planned
+      tags: [meetings]
+      summary: Which providers an administrator has approved for meeting content
+      responses:
+        '200':
+          description: Approvals
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [items]
+                properties:
+                  items: {type: array, items: {$ref: '#/components/schemas/MeetingProviderApproval'}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+    post:
+      x-ensemus-status: planned
+      tags: [meetings]
+      summary: Approve one provider for named purposes up to one class, until a date. Owners and admins only
+      parameters: [{$ref: '#/components/parameters/IdempotencyKey'}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ApproveMeetingProvider'}
+      responses:
+        '201':
+          description: The approval
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/MeetingProviderApproval'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '413': {$ref: '#/components/responses/PayloadTooLarge'}
+        '415': {$ref: '#/components/responses/UnsupportedMediaType'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+  /organizations/{organization_id}/meeting-provider-approvals/{provider_approval_id}/revocation:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+      - name: provider_approval_id
+        in: path
+        required: true
+        schema: {type: string, format: uuid}
+    post:
+      x-ensemus-status: planned
+      tags: [meetings]
+      summary: Take an approval back. A run not yet started stops at its next check
+      responses:
+        '204': {description: Revoked}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+  /organizations/{organization_id}/meetings:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+    get:
+      x-ensemus-status: planned
+      tags: [meetings]
+      summary: Meetings this person organized or attended. Owners and admins also see that others exist
+      parameters:
+        - {name: cursor, in: query, schema: {type: string, minLength: 1, maxLength: 512}}
+      responses:
+        '200':
+          description: Meetings
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [items, next_cursor]
+                properties:
+                  items: {type: array, items: {$ref: '#/components/schemas/MeetingSummary'}}
+                  next_cursor: {type: [string, 'null']}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+    post:
+      x-ensemus-status: planned
+      tags: [meetings]
+      summary: Start a meeting record. Refused until an administrator has turned meetings on
+      parameters: [{$ref: '#/components/parameters/IdempotencyKey'}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [title, occurred_at]
+              properties:
+                title: {type: string, minLength: 1, maxLength: 300}
+                occurred_at: {type: string, format: date-time}
+                classification: {$ref: '#/components/schemas/Classification'}
+      responses:
+        '201':
+          description: The meeting, with its organizer listed
+          headers:
+            ETag: {$ref: '#/components/headers/ETag'}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Meeting'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '413': {$ref: '#/components/responses/PayloadTooLarge'}
+        '415': {$ref: '#/components/responses/UnsupportedMediaType'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+  /organizations/{organization_id}/meetings/from-resource:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+    post:
+      x-ensemus-status: planned
+      tags: [meetings]
+      summary: Start a meeting record from something a meeting notes connection found. Its text is not read yet
+      parameters: [{$ref: '#/components/parameters/IdempotencyKey'}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [resource_id, title, occurred_at]
+              properties:
+                resource_id: {type: string, format: uuid}
+                title: {type: string, minLength: 1, maxLength: 300}
+                occurred_at: {type: string, format: date-time}
+                classification: {$ref: '#/components/schemas/Classification'}
+      responses:
+        '201':
+          description: The meeting
+          headers:
+            ETag: {$ref: '#/components/headers/ETag'}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Meeting'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '413': {$ref: '#/components/responses/PayloadTooLarge'}
+        '415': {$ref: '#/components/responses/UnsupportedMediaType'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+  /organizations/{organization_id}/meetings/{meeting_id}:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+      - $ref: '#/components/parameters/MeetingID'
+    get:
+      x-ensemus-status: planned
+      tags: [meetings]
+      summary: One meeting. An owner or admin who was not there gets its metadata and nothing it said
+      responses:
+        '200':
+          description: The meeting
+          headers:
+            ETag: {$ref: '#/components/headers/ETag'}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Meeting'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+  /organizations/{organization_id}/meetings/{meeting_id}/organizer:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+      - $ref: '#/components/parameters/MeetingID'
+    post:
+      x-ensemus-status: planned
+      tags: [meetings]
+      summary: Hand a meeting on when its organizer has left. Owners and admins, who still see nothing it said
+      parameters: [{$ref: '#/components/parameters/IfMatch'}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [organizer_membership_id]
+              properties:
+                organizer_membership_id: {type: string, format: uuid}
+      responses:
+        '204': {description: Handed on}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '413': {$ref: '#/components/responses/PayloadTooLarge'}
+        '415': {$ref: '#/components/responses/UnsupportedMediaType'}
+        '428': {$ref: '#/components/responses/PreconditionRequired'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+  /organizations/{organization_id}/meetings/{meeting_id}/participants:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+      - $ref: '#/components/parameters/MeetingID'
+    post:
+      x-ensemus-status: planned
+      tags: [meetings]
+      summary: List someone who was there. Refused once notes exist
+      parameters: [{$ref: '#/components/parameters/IfMatch'}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/AddMeetingParticipant'}
+      responses:
+        '201':
+          description: The participant
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/MeetingParticipant'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '413': {$ref: '#/components/responses/PayloadTooLarge'}
+        '415': {$ref: '#/components/responses/UnsupportedMediaType'}
+        '428': {$ref: '#/components/responses/PreconditionRequired'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+  /organizations/{organization_id}/meetings/{meeting_id}/participants/{participant_id}:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+      - $ref: '#/components/parameters/MeetingID'
+      - $ref: '#/components/parameters/ParticipantID'
+    delete:
+      x-ensemus-status: planned
+      tags: [meetings]
+      summary: Take someone off the list. Refused once they have answered, or once notes exist
+      parameters: [{$ref: '#/components/parameters/IfMatch'}]
+      responses:
+        '204': {description: Removed}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '428': {$ref: '#/components/responses/PreconditionRequired'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+  /organizations/{organization_id}/meetings/{meeting_id}/participants/{participant_id}/consent:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+      - $ref: '#/components/parameters/MeetingID'
+      - $ref: '#/components/parameters/ParticipantID'
+    post:
+      x-ensemus-status: planned
+      tags: [meetings]
+      summary: Record one person's answer. A withdrawal removes everything this meeting produced, at once
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [decision, notice_ref]
+              properties:
+                decision: {type: string, enum: [granted, declined, withdrawn]}
+                notice_ref: {type: string, minLength: 1, maxLength: 200}
+      responses:
+        '200':
+          description: Where consent now stands
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [consent, status]
+                properties:
+                  consent: {$ref: '#/components/schemas/MeetingConsentState'}
+                  status: {type: string, enum: [open, purged]}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '413': {$ref: '#/components/responses/PayloadTooLarge'}
+        '415': {$ref: '#/components/responses/UnsupportedMediaType'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+  /organizations/{organization_id}/meetings/{meeting_id}/notes:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+      - $ref: '#/components/parameters/MeetingID'
+    post:
+      x-ensemus-status: planned
+      tags: [meetings]
+      summary: Add notes as text. Refused until everyone listed has agreed. A correction is a new version
+      parameters: [{$ref: '#/components/parameters/IdempotencyKey'}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [text]
+              properties:
+                text: {type: string, minLength: 1, maxLength: 524288}
+      responses:
+        '201':
+          description: Stored
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [id, version]
+                properties:
+                  id: {type: string, format: uuid}
+                  version: {type: integer, minimum: 1}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '413': {$ref: '#/components/responses/PayloadTooLarge'}
+        '415': {$ref: '#/components/responses/UnsupportedMediaType'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+  /organizations/{organization_id}/meetings/{meeting_id}/notes-import:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+      - $ref: '#/components/parameters/MeetingID'
+    post:
+      x-ensemus-status: planned
+      tags: [meetings]
+      summary: Read the notes from their source. Needs everyone's agreement and an approved connection
+      parameters: [{$ref: '#/components/parameters/IdempotencyKey'}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [provider_approval_id]
+              properties:
+                provider_approval_id: {type: string, format: uuid}
+      responses:
+        '202':
+          description: Asked for, and read in the background
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/MeetingImportRequest'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '413': {$ref: '#/components/responses/PayloadTooLarge'}
+        '415': {$ref: '#/components/responses/UnsupportedMediaType'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+  /organizations/{organization_id}/meetings/{meeting_id}/derivations:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+      - $ref: '#/components/parameters/MeetingID'
+    get:
+      x-ensemus-status: planned
+      tags: [meetings]
+      summary: Runs asked for on this meeting, and how each ended
+      responses:
+        '200':
+          description: Runs
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [items]
+                properties:
+                  items: {type: array, items: {$ref: '#/components/schemas/MeetingDerivation'}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+    post:
+      x-ensemus-status: planned
+      tags: [meetings]
+      summary: Ask one approved provider to summarize the notes or suggest items. Nothing it says is applied
+      parameters: [{$ref: '#/components/parameters/IdempotencyKey'}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [purpose, provider_approval_id]
+              properties:
+                purpose: {type: string, enum: [summarize, extract_items]}
+                provider_approval_id: {type: string, format: uuid}
+      responses:
+        '202':
+          description: Asked for, and run in the background
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/MeetingDerivation'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '413': {$ref: '#/components/responses/PayloadTooLarge'}
+        '415': {$ref: '#/components/responses/UnsupportedMediaType'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+  /organizations/{organization_id}/meetings/{meeting_id}/summaries:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+      - $ref: '#/components/parameters/MeetingID'
+    get:
+      x-ensemus-status: planned
+      tags: [meetings]
+      summary: What a model made of the notes. Always marked as that, and never a fact
+      responses:
+        '200':
+          description: Summaries
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [items]
+                properties:
+                  items: {type: array, items: {$ref: '#/components/schemas/MeetingSummaryText'}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+  /organizations/{organization_id}/meetings/{meeting_id}/proposed-items:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+      - $ref: '#/components/parameters/MeetingID'
+    get:
+      x-ensemus-status: planned
+      tags: [meetings]
+      summary: Decisions and work a model suggests. Nothing here exists until a person says so
+      responses:
+        '200':
+          description: Proposals
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [items]
+                properties:
+                  items: {type: array, items: {$ref: '#/components/schemas/MeetingProposedItem'}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+  /organizations/{organization_id}/meeting-items/{item_id}/work:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+      - $ref: '#/components/parameters/MeetingItemID'
+    post:
+      x-ensemus-status: planned
+      tags: [meetings]
+      summary: Accept proposed work. This is the only way one becomes a Work Unit, and it takes a person
+      parameters:
+        - {$ref: '#/components/parameters/IdempotencyKey'}
+        - {$ref: '#/components/parameters/IfMatch'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [title, owner_membership_id, due_at]
+              properties:
+                title: {type: string, minLength: 1, maxLength: 300}
+                objective: {type: string, maxLength: 10000}
+                owner_membership_id: {type: string, format: uuid}
+                due_at: {type: [string, 'null'], format: date-time}
+      responses:
+        '201':
+          description: The Work Unit this made
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [work_unit_id, version]
+                properties:
+                  work_unit_id: {type: string, format: uuid}
+                  version: {type: integer, minimum: 1}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '413': {$ref: '#/components/responses/PayloadTooLarge'}
+        '415': {$ref: '#/components/responses/UnsupportedMediaType'}
+        '428': {$ref: '#/components/responses/PreconditionRequired'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+  /organizations/{organization_id}/meeting-items/{item_id}/decision:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+      - $ref: '#/components/parameters/MeetingItemID'
+    post:
+      x-ensemus-status: planned
+      tags: [meetings]
+      summary: Record a proposed decision as made. It stays with the meeting and starts no work
+      parameters: [{$ref: '#/components/parameters/IfMatch'}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/DecideMeetingItem'}
+      responses:
+        '200':
+          description: Recorded
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/VersionOnly'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '413': {$ref: '#/components/responses/PayloadTooLarge'}
+        '415': {$ref: '#/components/responses/UnsupportedMediaType'}
+        '428': {$ref: '#/components/responses/PreconditionRequired'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+  /organizations/{organization_id}/meeting-items/{item_id}/rejection:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+      - $ref: '#/components/parameters/MeetingItemID'
+    post:
+      x-ensemus-status: planned
+      tags: [meetings]
+      summary: Say a proposal is wrong or not wanted
+      parameters: [{$ref: '#/components/parameters/IfMatch'}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/DecideMeetingItem'}
+      responses:
+        '200':
+          description: Recorded
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/VersionOnly'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '413': {$ref: '#/components/responses/PayloadTooLarge'}
+        '415': {$ref: '#/components/responses/UnsupportedMediaType'}
+        '428': {$ref: '#/components/responses/PreconditionRequired'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
 components:
   securitySchemes:
     sessionCookie:
@@ -801,6 +1670,26 @@ components:
       schema: {type: string, format: uuid}
     ConnectionID:
       name: connection_id
+      in: path
+      required: true
+      schema: {type: string, format: uuid}
+    RecordID:
+      name: record_id
+      in: path
+      required: true
+      schema: {type: string, format: uuid}
+    MeetingID:
+      name: meeting_id
+      in: path
+      required: true
+      schema: {type: string, format: uuid}
+    ParticipantID:
+      name: participant_id
+      in: path
+      required: true
+      schema: {type: string, format: uuid}
+    MeetingItemID:
+      name: item_id
       in: path
       required: true
       schema: {type: string, format: uuid}
@@ -1056,6 +1945,250 @@ components:
         request_id: {type: string}
         retryable: {type: boolean}
         details: {type: object, additionalProperties: true}
+    Classification:
+      type: string
+      enum: [public, internal, confidential, restricted]
+    VersionOnly:
+      type: object
+      additionalProperties: false
+      required: [version]
+      properties:
+        version: {type: integer, minimum: 1}
+    BusinessRecord:
+      type: object
+      additionalProperties: false
+      required: [id, connection_id, stream, external_id, external_version, display_name, classification, fields, updated_at]
+      properties:
+        id: {type: string, format: uuid}
+        connection_id: {type: string, format: uuid}
+        stream: {type: string}
+        external_id: {type: string}
+        external_version: {type: [string, 'null'], description: Send this back when proposing a change, so nobody changes what they did not see.}
+        display_name: {type: [string, 'null']}
+        classification: {$ref: '#/components/schemas/Classification'}
+        fields:
+          type: object
+          description: Only the fields this stream keeps, as last read from the source. The source stays authoritative.
+          additionalProperties: {type: [string, number, boolean, 'null']}
+        updated_at: {type: string, format: date-time}
+    ProposeRecordUpdate:
+      type: object
+      additionalProperties: false
+      required: [work_unit_id, approver_membership_id, expected_version, changes]
+      properties:
+        work_unit_id: {type: string, format: uuid}
+        approver_membership_id: {type: string, format: uuid}
+        expected_version: {type: [string, 'null'], minLength: 1, maxLength: 1024}
+        changes:
+          type: object
+          minProperties: 1
+          description: Writable fields of this stream, and no others.
+          additionalProperties: {type: [string, number, boolean, 'null']}
+    ProposeInvoiceDraft:
+      type: object
+      additionalProperties: false
+      required: [work_unit_id, connection_id, approver_membership_id, invoice]
+      properties:
+        work_unit_id: {type: string, format: uuid}
+        connection_id: {type: string, format: uuid}
+        approver_membership_id: {type: string, format: uuid}
+        invoice:
+          type: object
+          additionalProperties: false
+          required: [customer_ref, currency, lines]
+          description: A draft for a person in the accounting system. It has no status and no payment field.
+          properties:
+            customer_ref: {type: string, minLength: 1, maxLength: 200}
+            currency: {type: string, pattern: '^[A-Z]{3}$'}
+            due_on: {type: string, pattern: '^\d{4}-\d{2}-\d{2}$'}
+            reference: {type: string, minLength: 1, maxLength: 200}
+            memo: {type: string, minLength: 1, maxLength: 1000}
+            lines:
+              type: array
+              minItems: 1
+              maxItems: 200
+              items:
+                type: object
+                additionalProperties: false
+                required: [description, quantity, unit_price]
+                properties:
+                  description: {type: string, minLength: 1, maxLength: 500}
+                  quantity: {type: string, pattern: '^-?\d{1,18}(\.\d{1,6})?$'}
+                  unit_price: {type: string, pattern: '^-?\d{1,18}(\.\d{1,6})?$'}
+    MeetingSettings:
+      type: object
+      additionalProperties: false
+      required: [enabled, notice_ref, version]
+      properties:
+        enabled: {type: boolean}
+        notice_ref:
+          type: [string, 'null']
+          description: Which version of the organization's own notice is current. A reference, and never its text.
+        version: {type: integer, minimum: 1}
+    MeetingProviderApproval:
+      type: object
+      additionalProperties: false
+      required: [id, kind, target_ref, purposes, max_classification, terms_ref, approved_by_membership_id, approved_at, expires_at, revoked_at]
+      properties:
+        id: {type: string, format: uuid}
+        kind: {type: string, enum: [model, source]}
+        target_ref: {type: string}
+        purposes:
+          type: array
+          items: {type: string, enum: [import_notes, summarize, extract_items]}
+        max_classification: {type: string, enum: [public, internal, confidential]}
+        terms_ref: {type: string, description: A reference to the organization's own record of the basis. It holds no terms.}
+        approved_by_membership_id: {type: string, format: uuid}
+        approved_at: {type: string, format: date-time}
+        expires_at: {type: string, format: date-time}
+        revoked_at: {type: [string, 'null'], format: date-time}
+    ApproveMeetingProvider:
+      oneOf:
+        - type: object
+          additionalProperties: false
+          required: [kind, model_profile_id, purposes, max_classification, terms_ref, expires_at]
+          properties:
+            kind: {type: string, const: model}
+            model_profile_id: {type: string, format: uuid}
+            purposes:
+              type: array
+              minItems: 1
+              maxItems: 2
+              items: {type: string, enum: [summarize, extract_items]}
+            max_classification: {type: string, enum: [public, internal, confidential]}
+            terms_ref: {type: string, minLength: 1, maxLength: 200}
+            expires_at: {type: string, format: date-time}
+        - type: object
+          additionalProperties: false
+          required: [kind, connection_id, max_classification, terms_ref, expires_at]
+          properties:
+            kind: {type: string, const: source}
+            connection_id: {type: string, format: uuid}
+            max_classification: {type: string, enum: [public, internal, confidential]}
+            terms_ref: {type: string, minLength: 1, maxLength: 200}
+            expires_at: {type: string, format: date-time}
+    MeetingConsentState:
+      type: string
+      enum: [none_listed, pending, complete, refused, withdrawn]
+      description: >-
+        `complete` means everyone listed has said yes. One no is `refused`, and nothing can go ahead. One
+        withdrawal after a yes is `withdrawn`, and everything the meeting produced has gone.
+    MeetingSummary:
+      type: object
+      additionalProperties: false
+      required: [id, title, occurred_at, organizer_membership_id, classification, status, source_kind, consent, version]
+      properties:
+        id: {type: string, format: uuid}
+        title: {type: [string, 'null'], description: Null for an owner or admin who was not there.}
+        occurred_at: {type: string, format: date-time}
+        organizer_membership_id: {type: string, format: uuid}
+        classification: {$ref: '#/components/schemas/Classification'}
+        status: {type: string, enum: [open, purged]}
+        source_kind: {type: string, enum: [manual, connector]}
+        consent: {$ref: '#/components/schemas/MeetingConsentState'}
+        version: {type: integer, minimum: 1}
+    MeetingParticipant:
+      type: object
+      additionalProperties: false
+      required: [id, kind, membership_id, display_name, decision, basis, decided_at]
+      properties:
+        id: {type: string, format: uuid}
+        kind: {type: string, enum: [member, external]}
+        membership_id: {type: [string, 'null'], format: uuid}
+        display_name: {type: string}
+        decision: {type: [string, 'null'], enum: [granted, declined, withdrawn, null]}
+        basis:
+          type: [string, 'null']
+          enum: [self, attested, null]
+          description: Whose word it is. `attested` is the organizer saying what someone outside said.
+        decided_at: {type: [string, 'null'], format: date-time}
+    AddMeetingParticipant:
+      oneOf:
+        - type: object
+          additionalProperties: false
+          required: [kind, membership_id]
+          properties:
+            kind: {type: string, const: member}
+            membership_id: {type: string, format: uuid}
+        - type: object
+          additionalProperties: false
+          required: [kind, label]
+          properties:
+            kind: {type: string, const: external}
+            label: {type: string, minLength: 1, maxLength: 200}
+    Meeting:
+      allOf:
+        - {$ref: '#/components/schemas/MeetingSummary'}
+      type: object
+      required: [participants, current_notes]
+      properties:
+        participants: {type: array, items: {$ref: '#/components/schemas/MeetingParticipant'}}
+        current_notes:
+          type: [object, 'null']
+          description: Null for an owner or admin who was not there, and when no notes exist.
+          additionalProperties: false
+          required: [id, version, text, created_at]
+          properties:
+            id: {type: string, format: uuid}
+            version: {type: integer, minimum: 1}
+            text: {type: [string, 'null'], description: Null once consent has been withdrawn.}
+            created_at: {type: string, format: date-time}
+    MeetingImportRequest:
+      type: object
+      additionalProperties: false
+      required: [id, meeting_id, status, status_code, created_at, finished_at]
+      properties:
+        id: {type: string, format: uuid}
+        meeting_id: {type: string, format: uuid}
+        status: {type: string, enum: [requested, completed, failed, refused]}
+        status_code: {type: [string, 'null'], description: A code from a fixed list. Never provider text.}
+        created_at: {type: string, format: date-time}
+        finished_at: {type: [string, 'null'], format: date-time}
+    MeetingDerivation:
+      type: object
+      additionalProperties: false
+      required: [id, meeting_id, purpose, status, status_code, requested_by_membership_id, created_at, finished_at]
+      properties:
+        id: {type: string, format: uuid}
+        meeting_id: {type: string, format: uuid}
+        purpose: {type: string, enum: [summarize, extract_items]}
+        status: {type: string, enum: [requested, running, completed, failed, refused, cancelled]}
+        status_code: {type: [string, 'null'], description: A code from a fixed list. Never model text.}
+        requested_by_membership_id: {type: string, format: uuid}
+        created_at: {type: string, format: date-time}
+        finished_at: {type: [string, 'null'], format: date-time}
+    MeetingSummaryText:
+      type: object
+      additionalProperties: false
+      required: [id, run_id, text, trust, created_at]
+      properties:
+        id: {type: string, format: uuid}
+        run_id: {type: string, format: uuid}
+        text: {type: [string, 'null'], description: Null once consent has been withdrawn.}
+        trust: {type: string, const: model_generated}
+        created_at: {type: string, format: date-time}
+    MeetingProposedItem:
+      type: object
+      additionalProperties: false
+      required: [id, meeting_id, kind, title, detail, suggested_owner_membership_id, suggested_due_on, status, decided_by_membership_id, decided_at, work_unit_id, version]
+      properties:
+        id: {type: string, format: uuid}
+        meeting_id: {type: string, format: uuid}
+        kind: {type: string, enum: [decision, work]}
+        title: {type: [string, 'null'], description: Null once consent has been withdrawn.}
+        detail: {type: [string, 'null']}
+        suggested_owner_membership_id: {type: [string, 'null'], format: uuid, description: A suggestion. It assigns nothing.}
+        suggested_due_on: {type: [string, 'null']}
+        status: {type: string, enum: [proposed, accepted, rejected, withdrawn]}
+        decided_by_membership_id: {type: [string, 'null'], format: uuid}
+        decided_at: {type: [string, 'null'], format: date-time}
+        work_unit_id: {type: [string, 'null'], format: uuid}
+        version: {type: integer, minimum: 1}
+    DecideMeetingItem:
+      type: object
+      additionalProperties: false
+      properties:
+        reason: {type: string, minLength: 1, maxLength: 2000}
   responses:
     BadRequest:
       description: Malformed path, query, header or body. details.fields names the fields, never their values.

@@ -15,7 +15,9 @@
     "./connector-deps": "./src/connector-deps.ts",
     "./external-action-activities": "./src/external-action-activities.ts",
     "./webhook-activities": "./src/webhook-activities.ts",
-    "./connector-sync-activities": "./src/connector-sync-activities.ts"
+    "./connector-sync-activities": "./src/connector-sync-activities.ts",
+    "./meeting-derivation-activities": "./src/meeting-derivation-activities.ts",
+    "./meeting-import-activities": "./src/meeting-import-activities.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"

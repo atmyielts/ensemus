@@ -6,10 +6,17 @@
   "exports": {
     ".": "./src/index.ts",
     "./manifest": "./src/manifest.ts",
+    "./manifest-business": "./src/manifest-business.ts",
     "./runtime": "./src/runtime/index.ts",
     "./email": "./src/email/index.ts",
     "./inbound": "./src/inbound/index.ts",
-    "./testing": "./src/testing/index.ts"
+    "./business": "./src/business/index.ts",
+    "./crm": "./src/crm/index.ts",
+    "./ticketing": "./src/ticketing/index.ts",
+    "./accounting": "./src/accounting/index.ts",
+    "./meetings": "./src/meetings/index.ts",
+    "./testing": "./src/testing/index.ts",
+    "./testing/business-adapter": "./src/testing/business-adapter.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"

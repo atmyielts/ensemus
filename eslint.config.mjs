@@ -31,12 +31,43 @@ const authDatabase = {
   message: 'Only @ensemus/auth may use the auth database role.',
 };
 const connectorCode = {
-  regex: '^@ensemus/connectors(/(?!manifest$).*)?$',
+  regex: '^@ensemus/connectors(/(?!manifest$|manifest-business$).*)?$',
   message:
     'Connectors run in the connector worker. The web tier may read manifests only (ADR-027).',
 };
+// A pack is data for a person to review. It installs nothing and reaches nothing (ADR-033 D1).
+const packReach = {
+  group: [
+    '@ensemus/application',
+    '@ensemus/application/*',
+    '@ensemus/connectors',
+    '@ensemus/connectors/*',
+    '@ensemus/database',
+    '@ensemus/database/*',
+    '@ensemus/secrets',
+    '@ensemus/secrets/*',
+    '@ensemus/workflows',
+    '@ensemus/workflows/*',
+    '@temporalio/*',
+    'drizzle-orm',
+    'drizzle-orm/*',
+    'pg',
+    'pg/*',
+    'net',
+    'node:net',
+    'http',
+    'node:http',
+    'https',
+    'node:https',
+    'fs',
+    'node:fs',
+    'child_process',
+    'node:child_process',
+  ],
+  message: 'A department pack is plain data. Installing one is AGENT-14, and it grants nothing.',
+};
 const testDoubles = {
-  group: ['@ensemus/connectors/testing'],
+  group: ['@ensemus/connectors/testing', '@ensemus/department-packs/testing'],
   message: 'Test doubles never reach a shipped image.',
 };
 const connectorReach = {
@@ -145,6 +176,16 @@ export default tseslint.config(
     ['packages/connectors/src/runtime/network.ts', 'packages/connectors/src/testing/**'],
     [connectorReach],
   ),
+  restrict(['packages/department-packs/**/*.ts'], [packReach]),
+  {
+    files: ['packages/department-packs/**/*.ts'],
+    rules: {
+      'no-restricted-globals': [
+        'error',
+        { name: 'fetch', message: 'A department pack is plain data, and reaches nothing.' },
+      ],
+    },
+  },
   {
     files: ['packages/connectors/**/*.ts'],
     rules: {
