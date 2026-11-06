@@ -267,7 +267,10 @@ export const agentDrafts = studioSchema.table(
       foreignColumns: [memberships.organizationId, memberships.id],
     }),
     index('agent_drafts_status_idx').on(t.organizationId, t.status, t.updatedAt),
-    check('agent_drafts_status', sql`${t.status} in ('editing','in_review','published','archived')`),
+    check(
+      'agent_drafts_status',
+      sql`${t.status} in ('editing','in_review','published','archived')`,
+    ),
   ],
 );
 

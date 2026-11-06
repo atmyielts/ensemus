@@ -9,6 +9,7 @@ import {
   isAuditedRefusal,
   refusalCode,
 } from '@ensemus/application';
+import { assertTenantSignIn } from '@ensemus/application/sso';
 import type { components } from '@ensemus/contracts/openapi';
 import {
   resolveTenantContext,
@@ -185,6 +186,7 @@ export function apiRoute<S extends z.ZodType<{ organizationId: string }>>(
       who = { ...who, context };
       // After the membership check, so nobody outside the tenant can learn it is being restored.
       await getRestoreGate().assertServing(context);
+      await assertTenantSignIn(app, context, { sessionId: session.session.id });
       response = await handler({
         request,
         requestId,

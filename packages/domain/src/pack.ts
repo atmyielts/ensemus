@@ -7,11 +7,7 @@ import type { ProcessGraph, ProcessSpec } from './process-spec';
 import type { SimulationScenario } from './simulation';
 
 export type PackCapabilityKind =
-  | 'object_type'
-  | 'agent_tool'
-  | 'data_class'
-  | 'knowledge_source'
-  | 'external_effect';
+  'object_type' | 'agent_tool' | 'data_class' | 'knowledge_source' | 'external_effect';
 
 /** One thing an administrator is asked to accept or decline, in words on the page and data here. */
 export type PackCapability = {
@@ -93,6 +89,10 @@ export function planPackUpgrade(_from: PackManifest, _to: PackManifest): Upgrade
 export function itemsAllowedBy(
   _manifest: PackManifest,
   _decisions: Readonly<Record<string, 'accepted' | 'declined'>>,
-): { objectTypes: readonly string[]; agentDrafts: readonly string[]; processes: readonly string[] } {
+): {
+  objectTypes: readonly string[];
+  agentDrafts: readonly string[];
+  processes: readonly string[];
+} {
   throw new Error('NOT_IMPLEMENTED');
 }

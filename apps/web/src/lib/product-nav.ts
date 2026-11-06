@@ -12,7 +12,8 @@ export function productNavItems(base: string, role: string): ProductNavItem[] {
     { href: `${base}/knowledge`, label: 'Knowledge' },
     { href: `${base}/objects`, label: 'Records' },
   ];
-  if (canProduct(role, 'studio.author')) items.push({ href: `${base}/studio`, label: 'Agent Studio' });
+  if (canProduct(role, 'studio.author'))
+    items.push({ href: `${base}/studio`, label: 'Agent Studio' });
   if (canProduct(role, 'pack.manage')) items.push({ href: `${base}/packs`, label: 'Packs' });
   if (canProduct(role, 'onboarding.manage')) {
     items.push({ href: `${base}/get-started`, label: 'Get started' });

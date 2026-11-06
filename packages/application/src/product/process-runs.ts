@@ -1,6 +1,6 @@
 // Owned by the process slice (AGENT-13). See docs/06-delivery/m7-slices.md and ADR-031 D7.
 import type { AppDatabase, TenantContext } from '@ensemus/database';
-import type { StepStatus } from '@ensemus/domain/process-spec';
+import type { StepStatus } from '@ensemus/domain/process-run';
 import type { ProductPorts } from './ports';
 
 const NOT_BUILT = () => new Error('NOT_IMPLEMENTED');
@@ -78,8 +78,7 @@ export async function requestStopProcessRun(
 }
 
 export type AdvanceResult =
-  | { next: 'wait' }
-  | { next: 'finished'; status: 'completed' | 'failed' | 'cancelled' };
+  { next: 'wait' } | { next: 'finished'; status: 'completed' | 'failed' | 'cancelled' };
 
 /**
  * The worker's one step, with a service context. Under a lock on the run: reads the spec and every step,

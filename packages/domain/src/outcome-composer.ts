@@ -7,7 +7,10 @@ export type OutcomePreview = {
   /** The date as understood, or null when the sentence did not give one. Never guessed. */
   dueAt: string | null;
   ownerMembershipId: string;
-  successCriteria: readonly { kind: 'artifact_named' | 'reviewer_approved' | 'none'; label: string }[];
+  successCriteria: readonly {
+    kind: 'artifact_named' | 'reviewer_approved' | 'none';
+    label: string;
+  }[];
   dependencyWorkUnitIds: readonly string[];
   /** A catalog workflow this resembles, as a suggestion a person can ignore. */
   suggestedProcessKey: string | null;

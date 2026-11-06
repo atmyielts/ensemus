@@ -7,7 +7,11 @@ export type SimulationScenario = {
   key: string;
   /** What the agent's turns propose, as a script. The model is never called. */
   turns: readonly (
-    | { kind: 'tool'; toolId: string; dataClass: 'public' | 'internal' | 'confidential' | 'restricted' }
+    | {
+        kind: 'tool';
+        toolId: string;
+        dataClass: 'public' | 'internal' | 'confidential' | 'restricted';
+      }
     | { kind: 'finish'; citesEvidence: boolean }
   )[];
   /** A catalog process's expected path through its own steps, for a process subject. */
@@ -31,7 +35,12 @@ export type SimulationReport = {
   wouldWriteOutside: readonly string[];
   approvalsNeeded: number;
   /** Turns, tool calls and cost against their limits. No price is invented: cost is limit only. */
-  limits: { turnsUsed: number; turnsAllowed: number; toolCallsUsed: number; toolCallsAllowed: number };
+  limits: {
+    turnsUsed: number;
+    turnsAllowed: number;
+    toolCallsUsed: number;
+    toolCallsAllowed: number;
+  };
   outcome: 'passed' | 'failed';
   failureCodes: readonly string[];
 };

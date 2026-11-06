@@ -61,7 +61,12 @@ describe('product capabilities', () => {
   });
 
   it('keeps Studio, packs and SSO from a member', () => {
-    for (const capability of ['studio.author', 'studio.publish', 'pack.manage', 'sso.manage'] as const) {
+    for (const capability of [
+      'studio.author',
+      'studio.publish',
+      'pack.manage',
+      'sso.manage',
+    ] as const) {
       expect(canProduct('member', capability)).toBe(false);
     }
   });
@@ -84,7 +89,9 @@ describe('custom record access', () => {
   });
 
   it('keeps confidential records from another member', () => {
-    expect(canReadRecord(record('confidential'), { membershipId: 'm', role: 'member' })).toBe(false);
+    expect(canReadRecord(record('confidential'), { membershipId: 'm', role: 'member' })).toBe(
+      false,
+    );
     expect(canReadRecord(record('confidential'), { membershipId: 'a', role: 'admin' })).toBe(true);
   });
 
@@ -94,7 +101,9 @@ describe('custom record access', () => {
 
   it('does not let reading alone change a record', () => {
     expect(canChangeRecord(record('internal'), { membershipId: 'm', role: 'member' })).toBe(false);
-    expect(canChangeRecord(record('internal', 'm'), { membershipId: 'm', role: 'member' })).toBe(true);
+    expect(canChangeRecord(record('internal', 'm'), { membershipId: 'm', role: 'member' })).toBe(
+      true,
+    );
     expect(canChangeRecord(record('restricted'), { membershipId: 'a', role: 'admin' })).toBe(false);
   });
 });

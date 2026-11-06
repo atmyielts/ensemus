@@ -28,7 +28,10 @@ export const agentDraftAnswersSchema = z.strictObject({
   memoryWrite: z.enum(['none', 'propose_only']),
   outputFormat: z.enum(['markdown_brief', 'structured_report']),
   // Restricted is not on offer here at all (ADR-031 D5).
-  dataClasses: z.array(z.enum(['public', 'internal', 'confidential'])).min(1).max(3),
+  dataClasses: z
+    .array(z.enum(['public', 'internal', 'confidential']))
+    .min(1)
+    .max(3),
   ownerMembershipId: z.uuid(),
 });
 export type AgentDraftAnswersBody = z.infer<typeof agentDraftAnswersSchema>;

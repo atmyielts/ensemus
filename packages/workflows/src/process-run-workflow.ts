@@ -37,6 +37,7 @@ export async function processRunWorkflow(input: ProcessRunInput): Promise<Proces
     if (step.next === 'finished') return step.status;
     woken = false;
     await condition(() => woken, CHECK_AGAIN);
-    if (workflowInfo().continueAsNewSuggested) await continueAsNew<typeof processRunWorkflow>(input);
+    if (workflowInfo().continueAsNewSuggested)
+      await continueAsNew<typeof processRunWorkflow>(input);
   }
 }

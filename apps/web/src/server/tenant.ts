@@ -1,5 +1,6 @@
 import 'server-only';
 import { AppError, auditTenantRefusal } from '@ensemus/application';
+import { assertTenantSignIn } from '@ensemus/application/sso';
 import { resolveTenantContext, TenantAccessDenied } from '@ensemus/database';
 import { errorCode } from '@ensemus/telemetry';
 import { notFound, redirect } from 'next/navigation';
@@ -18,6 +19,7 @@ export const requireTenant = cache(async (organizationId: string) => {
     const context = await resolveTenantContext(app, actor.userId, organizationId);
     // After the membership check, so nobody outside the tenant can learn it is being restored.
     await getRestoreGate().assertServing(context);
+    await assertTenantSignIn(app, context, { sessionId: actor.sessionId });
     return { actor, context, database: app };
   } catch (error) {
     if (error instanceof TenantAccessDenied) {
@@ -25,6 +27,7 @@ export const requireTenant = cache(async (organizationId: string) => {
       notFound();
     }
     if (error instanceof AppError && error.code === 'RESTORE_PENDING') redirect('/restoring');
+    if (error instanceof AppError && error.code === 'SSO_REQUIRED') redirect('/sign-in/sso');
     throw error;
   }
 });

@@ -1,6 +1,5 @@
 // Visual workflows and the specs they compile to (AGENT-09, AGENT-13, ADR-031 D7). A graph is what a person
-// draws, and a spec is what can run. compileProcessGraph is owned by the graph slice, and nextProcessSteps
-// and simulateProcess by the process slice.
+// draws, and a spec is what can run. Owned by the graph slice. Running a spec is in process-run.ts.
 
 export const PROCESS_NODE_KINDS = [
   'start',
@@ -99,21 +98,5 @@ export function compileProcessGraph(
   },
   _sha256: (canonical: string) => string,
 ): CompileResult {
-  throw new Error('NOT_IMPLEMENTED');
-}
-
-export type StepStatus = 'pending' | 'ready' | 'waiting' | 'done' | 'failed' | 'skipped';
-
-export type RunDecision =
-  | { next: 'start_steps'; stepKeys: readonly string[] }
-  | { next: 'wait' }
-  | { next: 'completed' }
-  | { next: 'failed'; stepKey: string };
-
-/** Pure. Which steps can start, given where every step stands. A failed step stops what follows it. */
-export function nextProcessSteps(
-  _spec: ProcessSpec,
-  _statuses: Readonly<Record<string, StepStatus>>,
-): RunDecision {
   throw new Error('NOT_IMPLEMENTED');
 }

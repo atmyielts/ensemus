@@ -37,7 +37,8 @@ const connectorCode = {
 };
 const ssoOperator = {
   group: ['@ensemus/database/sso-operator'],
-  message: 'The operator verifies a domain from the command line. No tenant path reaches this (ADR-031 D9).',
+  message:
+    'The operator verifies a domain from the command line. No tenant path reaches this (ADR-031 D9).',
 };
 const packReach = {
   regex: '^(?!@ensemus/domain/)(@ensemus/|pg|drizzle-orm|@temporalio/|better-auth|node:)',

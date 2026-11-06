@@ -38,6 +38,8 @@ const REVIEWED_EXCEPTIONS = {
     'caniuse-lite browser data, a build-time dependency of Next.js. Needs attribution in the release notices.',
   Unknown:
     'unionfs, used by the Temporal workflow bundler at build time. Its LICENSE file is the Unlicense, but its package.json does not say so.',
+  'MIT License':
+    'xml-escape, pulled in by samlify for SAML sign-in (ADR-031 D9). Its package.json spells MIT this way, and its LICENSE file is MIT.',
   'MPL-2.0':
     'File-level copyleft, used unmodified. Obligations apply only to changes in those files.',
 };

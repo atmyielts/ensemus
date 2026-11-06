@@ -73,9 +73,11 @@ export type ObjectSchemaIssue = {
     | 'UNKNOWN_KIND';
 };
 
-export function validateObjectSchema(
-  _input: { slug: string; fields: readonly ObjectField[]; relations: readonly ObjectRelationDefinition[] },
-): readonly ObjectSchemaIssue[] {
+export function validateObjectSchema(_input: {
+  slug: string;
+  fields: readonly ObjectField[];
+  relations: readonly ObjectRelationDefinition[];
+}): readonly ObjectSchemaIssue[] {
   throw new Error('NOT_IMPLEMENTED');
 }
 

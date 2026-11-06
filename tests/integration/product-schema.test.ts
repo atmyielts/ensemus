@@ -69,10 +69,7 @@ describe('product rules in the database', () => {
         scenarioKey: 'test',
         requestedByMembershipId: owner.context.membershipId,
       });
-      await tx
-        .update(simulationRuns)
-        .set({ status: 'running' })
-        .where(eq(simulationRuns.id, id));
+      await tx.update(simulationRuns).set({ status: 'running' }).where(eq(simulationRuns.id, id));
       await tx
         .update(simulationRuns)
         .set({ status, report: {}, reportSha256: HASH })
@@ -279,10 +276,7 @@ describe('product rules in the database', () => {
       const { id } = await seedSimulation();
       await expect(
         withTenantTx(database.db, owner.context, (tx) =>
-          tx
-            .update(simulationRuns)
-            .set({ status: 'failed' })
-            .where(eq(simulationRuns.id, id)),
+          tx.update(simulationRuns).set({ status: 'failed' }).where(eq(simulationRuns.id, id)),
         ),
       ).rejects.toEqual(sqlState('EN401'));
     });
@@ -386,7 +380,9 @@ describe('product rules in the database', () => {
         tx.update(processSpecs).set({ name: 'Other' }).where(eq(processSpecs.id, id)),
       ),
     ).rejects.toThrow();
-    await expect(su.query(`delete from studio.process_specs where id = $1`, [id])).rejects.toThrow();
+    await expect(
+      su.query(`delete from studio.process_specs where id = $1`, [id]),
+    ).rejects.toThrow();
   });
 
   describe('custom objects', () => {

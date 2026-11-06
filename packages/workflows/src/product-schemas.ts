@@ -19,8 +19,7 @@ export type ProcessRunInput = z.infer<typeof processRunInputSchema>;
 export const processRunWorkflowIdFor = (input: ProcessRunInput) =>
   `process-run-${input.organizationId}-${input.processRunId}`;
 export type ProcessRunStep =
-  | { next: 'wait' }
-  | { next: 'finished'; status: 'completed' | 'failed' | 'cancelled' };
+  { next: 'wait' } | { next: 'finished'; status: 'completed' | 'failed' | 'cancelled' };
 export type ProcessRunOutcome = 'completed' | 'failed' | 'cancelled';
 
 export const objectMigrationInputSchema = z.strictObject({

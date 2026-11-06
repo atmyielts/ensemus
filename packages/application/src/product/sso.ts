@@ -1,5 +1,8 @@
 // Owned by the sso slice (ID-04). See docs/06-delivery/m7-slices.md and ADR-031 D9.
-import type { AppDatabase, TenantContext } from '@ensemus/database';
+import { withTenantTx, type AppDatabase, type TenantContext } from '@ensemus/database';
+import { securityPolicies, sessionAssurances, ssoConnections } from '@ensemus/database/product';
+import { and, eq } from 'drizzle-orm';
+import { AppError } from '../errors';
 import type { SessionProof } from './privileged';
 
 const NOT_BUILT = () => new Error('NOT_IMPLEMENTED');
@@ -14,6 +17,49 @@ export type SsoConnectionView = {
   autoJoin: boolean;
   version: number;
 };
+
+/**
+ * Whether this session came in the way the tenant asks (ADR-031 D9). Runs on every request to a tenant, so it
+ * is one indexed read when nothing is required, which is nearly always. An owner, and any tenant with no active
+ * connection, stay out of this, so a broken or removed provider cannot lock a tenant out of itself.
+ */
+export async function assertTenantSignIn(
+  database: AppDatabase,
+  context: TenantContext,
+  proof: SessionProof,
+): Promise<void> {
+  if (context.actorType !== 'user' || context.role === 'owner') return;
+  await withTenantTx(database, context, async (tx) => {
+    const [policy] = await tx
+      .select({ ssoEnforcement: securityPolicies.ssoEnforcement })
+      .from(securityPolicies)
+      .where(eq(securityPolicies.organizationId, context.organizationId));
+    if (policy?.ssoEnforcement !== 'required') return;
+    const active = await tx
+      .select({ providerId: ssoConnections.providerId })
+      .from(ssoConnections)
+      .where(
+        and(
+          eq(ssoConnections.organizationId, context.organizationId),
+          eq(ssoConnections.state, 'active'),
+        ),
+      );
+    if (active.length === 0) return;
+    const [assurance] = await tx
+      .select({ providerId: sessionAssurances.ssoProviderId })
+      .from(sessionAssurances)
+      .where(
+        and(
+          eq(sessionAssurances.sessionId, proof.sessionId),
+          eq(sessionAssurances.userId, context.userId),
+          eq(sessionAssurances.kind, 'sso_saml'),
+        ),
+      );
+    if (!assurance || !active.some((row) => row.providerId === assurance.providerId)) {
+      throw new AppError('SSO_REQUIRED');
+    }
+  });
+}
 
 /** Needs `sso.manage`. */
 export async function listSsoConnections(
