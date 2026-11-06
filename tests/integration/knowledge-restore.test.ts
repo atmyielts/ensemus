@@ -167,6 +167,13 @@ describe('knowledge source ledger reapply', () => {
               classification: 'internal',
               noKnowledge: true,
               artifactInputs: [],
+              recordInputs: [
+                {
+                  kind: 'work_unit',
+                  id: work.id,
+                  sha256: createHash('sha256').update(JSON.stringify(work)).digest('hex'),
+                },
+              ],
             }
           : { known: false },
     };

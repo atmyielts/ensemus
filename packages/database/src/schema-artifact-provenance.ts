@@ -77,6 +77,7 @@ export const artifactLineage = knowledge.table(
     viewerMembershipId: uuid(),
     inventorySha256: text(),
     inventoryComplete: boolean().notNull().default(false),
+    structuredInventoryComplete: boolean().notNull().default(false),
     state: text().notNull(),
     writeId: uuid().notNull(),
     generation: bigint({ mode: 'number' }).notNull(),
@@ -176,5 +177,73 @@ export const artifactLineageInputs = knowledge.table(
       'artifact_lineage_input_hash',
       sql`${t.inputSha256} ~ '^[0-9a-f]{64}$' and ${t.artifactId}<>${t.inputArtifactId}`,
     ),
+  ],
+);
+
+/** 0211: live authorization metadata only. No title, objective, client name or body is copied. */
+export const structuredRecordCatalog = knowledge.table(
+  'structured_record_catalog',
+  {
+    organizationId: uuid()
+      .notNull()
+      .references(() => organizations.id),
+    recordKind: text().notNull(),
+    recordId: uuid().notNull(),
+    /** Projects derive their effective class from the current parent client, or internal with none. */
+    classification: text(),
+    ownerMembershipId: uuid(),
+    parentRecordId: uuid(),
+    alive: boolean().notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.organizationId, t.recordKind, t.recordId] }),
+    check(
+      'structured_record_catalog_shape',
+      sql`${t.recordKind} in ('work_unit','project','client') and ((${t.recordKind}='project' and ${t.classification} is null and ${t.ownerMembershipId} is null) or (${t.recordKind}<>'project' and ${t.classification} is not null and ${t.classification} in ('public','internal','confidential','restricted')))`,
+    ),
+  ],
+);
+/** Membership IDs are a live ACL mirror, not a serving body or a historical grant. */
+export const structuredWorkAssignments = knowledge.table(
+  'structured_work_assignments',
+  {
+    organizationId: uuid().notNull(),
+    workUnitId: uuid().notNull(),
+    membershipId: uuid().notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.organizationId, t.workUnitId, t.membershipId] })],
+);
+/** Complete flattened structured reads. Multiple hashes preserve actual rereads of mutable records. */
+export const artifactLineageRecords = knowledge.table(
+  'artifact_lineage_records',
+  {
+    organizationId: uuid().notNull(),
+    artifactId: uuid().notNull(),
+    recordKind: text().notNull(),
+    recordId: uuid().notNull(),
+    recordSha256: text().notNull(),
+    classification: text().notNull(),
+  },
+  (t) => [
+    primaryKey({
+      columns: [t.organizationId, t.artifactId, t.recordKind, t.recordId, t.recordSha256],
+    }),
+    foreignKey({
+      columns: [t.organizationId, t.artifactId],
+      foreignColumns: [artifactLineage.organizationId, artifactLineage.artifactId],
+    }),
+    foreignKey({
+      columns: [t.organizationId, t.recordKind, t.recordId],
+      foreignColumns: [
+        structuredRecordCatalog.organizationId,
+        structuredRecordCatalog.recordKind,
+        structuredRecordCatalog.recordId,
+      ],
+    }),
+    check(
+      'artifact_lineage_records_shape',
+      sql`${t.recordKind} in ('work_unit','project','client') and ${t.recordSha256} ~ '^[0-9a-f]{64}$' and ${t.classification} in ('public','internal','confidential','restricted')`,
+    ),
+    index('artifact_lineage_records_source_idx').on(t.organizationId, t.recordKind, t.recordId),
   ],
 );
