@@ -21,6 +21,7 @@ const text = (form: FormData, name: string) => {
   const value = form.get(name);
   return typeof value === 'string' ? value : '';
 };
+const idOf = (form: FormData, name: string) => canonicalId(text(form, name));
 
 /** A person types dollars, and from here on it is whole micro-USD. Anything finer is refused. */
 function limitFrom(form: FormData): number {
@@ -32,7 +33,7 @@ function limitFrom(form: FormData): number {
 }
 
 export async function setBudgetAction(form: FormData): Promise<never> {
-  const organizationId = canonicalId(text(form, 'organizationId'));
+  const organizationId = idOf(form, 'organizationId');
   const { context, database } = await requireTenant(organizationId);
   const period = text(form, 'period');
   const back = `/o/${organizationId}/settings/budgets`;

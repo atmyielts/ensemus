@@ -2,7 +2,7 @@
 # deployment, where only the proxy is reachable.
 services:
   objects:
-    ports: ['127.0.0.1:58333:8333']
+    ports: ['127.0.0.1:${ENSEMUS_TEST_OBJECTS_PORT:-58333}:8333']
   postgres:
     ports: ['127.0.0.1:${ENSEMUS_TEST_PG_PORT:-55432}:5432']
     # Lets tests/measure count statements. Nothing else uses it, and no deployment loads it.
@@ -14,7 +14,7 @@ services:
     command: ['tcp-listen:7233,fork,reuseaddr', 'tcp4-connect:temporal:7233']
     networks: [temporal]
     extra_hosts: ['temporal:${ENSEMUS_NETWORK_PREFIX:-172.30}.3.10']
-    ports: ['127.0.0.1:57233:7233']
+    ports: ['127.0.0.1:${ENSEMUS_TEST_TEMPORAL_PORT:-57233}:7233']
     depends_on:
       temporal-namespace: { condition: service_completed_successfully }
   web:
@@ -22,6 +22,46 @@ services:
       # Most tests sign up through the form. tests/stack/first-owner.test.ts turns it off, as on a
       # default install.
       ENSEMUS_ALLOW_SIGNUP: ${ENSEMUS_ALLOW_SIGNUP:-true}
+      ENSEMUS_PRIVATE_MODEL_ENDPOINTS: http://fake-model:8000
+  agent-worker:
+    extra_hosts: ['fake-model:${ENSEMUS_NETWORK_PREFIX:-172.30}.7.20']
+    environment:
+      ENSEMUS_PRIVATE_MODEL_ENDPOINTS: http://fake-model:8000
+    depends_on:
+      fake-model: { condition: service_healthy }
+  fake-model:
+    image: node:24-slim@sha256:01d566e8d94d8c619591d78652babfccd3c6992a3dffa9ed5ab39e11cf6c70e9
+    command: ['node', '/fixture/server.mjs']
+    user: node
+    read_only: true
+    environment:
+      FAKE_MODEL_HOST: 0.0.0.0
+      FAKE_MODEL_PORT: 8000
+    volumes:
+      - ../../tests/fixtures/fake-model/server.mjs:/fixture/server.mjs:ro
+    networks:
+      agents: { ipv4_address: '${ENSEMUS_NETWORK_PREFIX:-172.30}.7.20' }
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://127.0.0.1:8000/__fake/stats').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))",
+        ]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+  # Docker does not publish ports for a container attached only to an internal network. As for
+  # Temporal above, a test-only relay exposes the fixture controls without giving the model a route out.
+  fake-model-test-port:
+    image: alpine/socat@sha256:466c8a0383e16463fabdb7df01008292fb78d07da60224a46cb5d3142ce122ed
+    command: ['tcp-listen:8000,fork,reuseaddr', 'tcp4-connect:fake-model:8000']
+    networks: [agents, temporal]
+    extra_hosts: ['fake-model:${ENSEMUS_NETWORK_PREFIX:-172.30}.7.20']
+    ports: ['127.0.0.1:${ENSEMUS_TEST_MODEL_CONTROL_PORT:-58026}:8000']
+    depends_on:
+      fake-model: { condition: service_healthy }
   # A second replica, for what has to hold across instances (API-13, SEC-12, NEXT-03). Same image,
   # networks and secrets as web. It publishes nothing: tests pick it through the proxy, whose test
   # routing lives in proxy/Caddyfile.test. compose.yaml itself still has one web service.
@@ -36,6 +76,7 @@ services:
     environment:
       ENSEMUS_ALLOW_SIGNUP: ${ENSEMUS_ALLOW_SIGNUP:-true}
       ENSEMUS_CONNECTORS_ENABLED: ${ENSEMUS_CONNECTORS_ENABLED:-false}
+      ENSEMUS_PRIVATE_MODEL_ENDPOINTS: http://fake-model:8000
   proxy:
     extra_hosts: ['web-2:${ENSEMUS_NETWORK_PREFIX:-172.30}.1.11']
     volumes:

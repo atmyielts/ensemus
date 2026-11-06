@@ -220,7 +220,6 @@ paths:
     parameters:
       - $ref: '#/components/parameters/OrganizationID'
     post:
-      x-ensemus-status: planned
       tags: [agents]
       summary: Start bounded agent execution on a Work Unit
       parameters: [{$ref: '#/components/parameters/IdempotencyKey'}]
@@ -243,7 +242,6 @@ paths:
         '503': {$ref: '#/components/responses/RestorePending'}
         '409': {$ref: '#/components/responses/Conflict'}
     get:
-      x-ensemus-status: planned
       tags: [agents]
       summary: List runs on a Work Unit the caller can read
       parameters:
@@ -276,7 +274,6 @@ paths:
         required: true
         schema: {type: string, format: uuid}
     get:
-      x-ensemus-status: planned
       tags: [agents]
       summary: Read scoped execution progress
       responses:
@@ -299,7 +296,6 @@ paths:
         required: true
         schema: {type: string, format: uuid}
     post:
-      x-ensemus-status: planned
       tags: [agents]
       summary: Stop, pause or resume a run
       requestBody:
@@ -324,7 +320,6 @@ paths:
         required: true
         schema: {type: string, format: uuid}
     get:
-      x-ensemus-status: planned
       tags: [agents]
       summary: Read a run as codes and counters, with no model text
       responses:
@@ -348,7 +343,6 @@ paths:
     parameters:
       - $ref: '#/components/parameters/OrganizationID'
     post:
-      x-ensemus-status: planned
       tags: [agents]
       summary: Publish an immutable agent version
       requestBody:
@@ -370,7 +364,6 @@ paths:
         '503': {$ref: '#/components/responses/RestorePending'}
         '409': {$ref: '#/components/responses/Conflict'}
     get:
-      x-ensemus-status: planned
       tags: [agents]
       summary: List published agent versions
       responses:
@@ -398,7 +391,6 @@ paths:
         required: true
         schema: {type: string, format: uuid}
     get:
-      x-ensemus-status: planned
       tags: [agents]
       summary: Read one published agent version
       responses:
@@ -865,7 +857,6 @@ paths:
     parameters:
       - $ref: '#/components/parameters/OrganizationID'
     get:
-      x-ensemus-status: planned
       tags: [models]
       summary: List authorized provider profiles without secrets
       responses:
@@ -886,7 +877,6 @@ paths:
         '500': {$ref: '#/components/responses/InternalError'}
         '503': {$ref: '#/components/responses/RestorePending'}
     post:
-      x-ensemus-status: planned
       tags: [models]
       summary: Register a model profile as a draft
       requestBody:
@@ -915,7 +905,6 @@ paths:
         required: true
         schema: {type: string, format: uuid}
     get:
-      x-ensemus-status: planned
       tags: [models]
       summary: Read one profile without secrets
       responses:
@@ -931,7 +920,6 @@ paths:
         '500': {$ref: '#/components/responses/InternalError'}
         '503': {$ref: '#/components/responses/RestorePending'}
     patch:
-      x-ensemus-status: planned
       tags: [models]
       summary: Change a profile. A changed endpoint voids its key and returns it to draft
       requestBody:
@@ -960,7 +948,6 @@ paths:
         required: true
         schema: {type: string, format: uuid}
     put:
-      x-ensemus-status: planned
       tags: [models]
       summary: Seal a key for this profile and endpoint. It can never be read back
       requestBody:
@@ -989,7 +976,6 @@ paths:
         required: true
         schema: {type: string, format: uuid}
     post:
-      x-ensemus-status: planned
       tags: [models]
       summary: Ask for a probe. The profile goes active only if it passes
       requestBody:
@@ -1014,7 +1000,6 @@ paths:
         required: true
         schema: {type: string, format: uuid}
     post:
-      x-ensemus-status: planned
       tags: [models]
       summary: Add a rate card. Immutable, and the newest applies from now on
       requestBody:
@@ -1034,7 +1019,6 @@ paths:
     parameters:
       - $ref: '#/components/parameters/OrganizationID'
     post:
-      x-ensemus-status: planned
       tags: [commercial]
       summary: Set a spending limit. No budget means no run
       requestBody:
@@ -1054,7 +1038,6 @@ paths:
     parameters:
       - $ref: '#/components/parameters/OrganizationID'
     get:
-      x-ensemus-status: planned
       tags: [commercial]
       summary: Read measured usage for one period
       parameters:
@@ -1078,7 +1061,6 @@ paths:
     parameters:
       - $ref: '#/components/parameters/OrganizationID'
     get:
-      x-ensemus-status: planned
       tags: [commercial]
       summary: Read current commercial mode, features, and quotas
       responses:

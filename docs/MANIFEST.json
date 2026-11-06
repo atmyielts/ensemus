@@ -67,8 +67,8 @@
     },
     {
       "path": "01-product/03-experience-design.md",
-      "size_bytes": 4480,
-      "sha256": "dc45ef458216ad7c44368b2a17b355f288f35b056e8c5e44c8d3a8d567281230"
+      "size_bytes": 4690,
+      "sha256": "f83c3918b622e99297e9aa2546e5655ca99dc12e87e2ebb55e76200c0521ab2f"
     },
     {
       "path": "01-product/04-capability-catalog.md",
@@ -84,6 +84,11 @@
       "path": "01-product/06-packaging-and-economics.md",
       "size_bytes": 3901,
       "sha256": "0efe60488b6780e757913cd23f70571d2ceef1cb9b0f6e8927a30dbaad839c00"
+    },
+    {
+      "path": "01-product/07-interface-system.md",
+      "size_bytes": 5383,
+      "sha256": "309004069602506755324c0e44a81e06028bf7d75944177b2460b43548c2747a"
     },
     {
       "path": "02-architecture/01-system-architecture.md",
@@ -306,6 +311,41 @@
       "sha256": "650d014296ea011d28030da831365b7bfda697284a574d234be897ea79b5566c"
     },
     {
+      "path": "06-delivery/evidence/M4-report.md",
+      "size_bytes": 5736,
+      "sha256": "025f276698927b1b3941079ad1f51f5659525e26aa21ced195b3b1c0e555b9d9"
+    },
+    {
+      "path": "06-delivery/evidence/m4/assurance.md",
+      "size_bytes": 9042,
+      "sha256": "704ff683ff5b4aa56a9c06e832c2f5650fac24c5003669ccf456ff1330f5dec4"
+    },
+    {
+      "path": "06-delivery/evidence/m4/interface-system.md",
+      "size_bytes": 7881,
+      "sha256": "d0c09af94ffb57ffb283f41da5e6395f4c6f084d93e020bd6824f7819008cd67"
+    },
+    {
+      "path": "06-delivery/evidence/m4/scripted-baseline-regression-control.json",
+      "size_bytes": 3924,
+      "sha256": "0fa41fe3484e9ee112fe8e1622f6bd88c96273e44e7839deb18c08970ecffce7"
+    },
+    {
+      "path": "06-delivery/evidence/m4/scripted-baseline.json",
+      "size_bytes": 3760,
+      "sha256": "dcc2f67b20086c5d04a54db8fe9c706c5f406da3a7513b4107b376fd4b044cd2"
+    },
+    {
+      "path": "06-delivery/evidence/m4/scripted-fabricated-citation-control.json",
+      "size_bytes": 3797,
+      "sha256": "be86477dbdfeae4c9775c719d7afbc4b231fc3cb693602fdff8786a4441edbd3"
+    },
+    {
+      "path": "06-delivery/evidence/m4/scripted-wrong-fixture-control.json",
+      "size_bytes": 3800,
+      "sha256": "474d5db2a740cf9c658accccbcce20c2cff8d58b6bd7104b3e0fb118af33e431"
+    },
+    {
       "path": "06-delivery/m3-slices.md",
       "size_bytes": 33733,
       "sha256": "a6e07ed8431e6dd3dcd100e2421fc5e9af7dedda5bfa1f1f73956016cf2942fd"
@@ -482,8 +522,8 @@
     },
     {
       "path": "specifications/openapi.yaml",
-      "size_bytes": 71635,
-      "sha256": "a9f0c4f9c8d83b817e54b1a5113c3a2044b55e188c1987362be75f8ba0cb2cf6"
+      "size_bytes": 71059,
+      "sha256": "5d37d534f091b49e328c96eb61ed304a5b6639887c20daa812b7694f844290a3"
     },
     {
       "path": "specifications/qa-scenarios.csv",

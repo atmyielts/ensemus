@@ -4,6 +4,8 @@
 import { z } from 'zod';
 import { classificationSchema } from './index';
 
+const uuid = z.uuid().toLowerCase();
+
 const micros = z.int().min(0).max(Number.MAX_SAFE_INTEGER);
 const sha256 = z.string().regex(/^[0-9a-f]{64}$/);
 
@@ -51,7 +53,7 @@ export const createModelProfileSchema = z.strictObject({
   allowed_purposes: z.array(modelPurposeSchema).min(1),
   retention_basis: z.enum(['unreviewed', 'contract_recorded', 'self_hosted']),
   contract_ref: z.string().trim().min(1).max(200).nullable(),
-  fallback_profile_ids: z.array(z.uuid()).max(5),
+  fallback_profile_ids: z.array(uuid).max(5),
 });
 export type CreateModelProfile = z.infer<typeof createModelProfileSchema>;
 
@@ -63,7 +65,7 @@ export type UpdateModelProfile = z.infer<typeof updateModelProfileSchema>;
 
 /** What anyone can be shown about a profile. No key, no `secret_ref`: only whether a key is on file. */
 export const modelProfileViewSchema = z.strictObject({
-  id: z.uuid(),
+  id: uuid,
   version: z.int().min(1),
   provider_kind: providerKindSchema,
   model_id: z.string(),
@@ -78,7 +80,7 @@ export const modelProfileViewSchema = z.strictObject({
   allowed_purposes: z.array(modelPurposeSchema),
   retention_basis: z.enum(['unreviewed', 'contract_recorded', 'self_hosted']),
   contract_ref: z.string().nullable(),
-  fallback_profile_ids: z.array(z.uuid()),
+  fallback_profile_ids: z.array(uuid),
   status: modelProfileStatusSchema,
   qualified_at: z.iso.datetime({ offset: true }).nullable(),
 });
@@ -160,13 +162,13 @@ export const publishAgentVersionSchema = z.strictObject({
 });
 
 export const agentVersionViewSchema = z.strictObject({
-  id: z.uuid(),
-  definition_id: z.uuid(),
+  id: uuid,
+  definition_id: uuid,
   version_number: z.int().min(1),
   spec_sha256: sha256,
   evaluation_report_sha256: sha256,
   policy_version: z.string(),
-  published_by_membership_id: z.uuid(),
+  published_by_membership_id: uuid,
   published_at: z.iso.datetime({ offset: true }),
 });
 export type AgentVersionView = z.infer<typeof agentVersionViewSchema>;
@@ -191,8 +193,8 @@ export const agentRunStatusSchema = z.enum([
 ]);
 
 export const startAgentRunSchema = z.strictObject({
-  work_unit_id: z.uuid(),
-  agent_version_id: z.uuid(),
+  work_unit_id: uuid,
+  agent_version_id: uuid,
 });
 export type StartAgentRun = z.infer<typeof startAgentRunSchema>;
 
@@ -202,10 +204,10 @@ export const runControlSchema = z.strictObject({
 export type RunControlRequest = z.infer<typeof runControlSchema>;
 
 export const agentRunViewSchema = z.strictObject({
-  id: z.uuid(),
-  work_unit_id: z.uuid(),
-  agent_version_id: z.uuid(),
-  parent_run_id: z.uuid().nullable(),
+  id: uuid,
+  work_unit_id: uuid,
+  agent_version_id: uuid,
+  parent_run_id: uuid.nullable(),
   status: agentRunStatusSchema,
   stop_code: z.string().nullable(),
   effective_classification: classificationSchema,
@@ -245,7 +247,7 @@ export type ExecutionStepView = z.infer<typeof executionStepViewSchema>;
 
 export const setBudgetSchema = z.strictObject({
   scope: z.enum(['organization', 'agent_version']),
-  agent_version_id: z.uuid().nullable(),
+  agent_version_id: uuid.nullable(),
   period: z.string().regex(/^[0-9]{4}-(0[1-9]|1[0-2])$/),
   limit_micros: micros,
 });
@@ -275,7 +277,7 @@ export type EntitlementsView = z.infer<typeof entitlementsViewSchema>;
 
 export const engageKillSwitchSchema = z.strictObject({
   scope: z.enum(['organization', 'agent_version']),
-  target_ref: z.uuid().nullable(),
+  target_ref: uuid.nullable(),
   reason_code: z.string().regex(/^[A-Z][A-Z0-9_]{1,63}$/),
 });
 export type EngageKillSwitch = z.infer<typeof engageKillSwitchSchema>;

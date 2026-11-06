@@ -121,7 +121,9 @@ class MemoryStore implements LedgerStore {
   async insertReservation(_tx: Tx, row: Omit<ReservationRow, 'id' | 'status'>) {
     const taken = this.reservations.some(
       (held) =>
-        held.budgetId === row.budgetId && held.stepId === row.stepId && held.attempt === row.attempt,
+        held.budgetId === row.budgetId &&
+        held.stepId === row.stepId &&
+        held.attempt === row.attempt,
     );
     if (taken) return null;
     const id = randomUUID();
@@ -357,13 +359,10 @@ describe('reserve', () => {
 
   it('takes nothing from any budget when one of them is exhausted', async () => {
     const store = new MemoryStore();
-    store.budgets.push(
-      orgBudget(1000, { id: '00000000-0000-4000-8000-000000000001' }),
-      {
-        ...orgBudget(50, { id: '00000000-0000-4000-8000-000000000002' }),
-        agentVersionId: VERSION,
-      },
-    );
+    store.budgets.push(orgBudget(1000, { id: '00000000-0000-4000-8000-000000000001' }), {
+      ...orgBudget(50, { id: '00000000-0000-4000-8000-000000000002' }),
+      agentVersionId: VERSION,
+    });
     await expect(inMemory(store).reserve(tx, context, reservation())).resolves.toEqual({
       ok: false,
       code: 'BUDGET_EXHAUSTED',

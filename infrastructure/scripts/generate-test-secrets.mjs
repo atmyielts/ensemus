@@ -17,12 +17,22 @@ const put = (name, make) => {
 const password = () => randomBytes(24).toString('hex');
 const read = (name) => import('node:fs').then((fs) => fs.readFileSync(join(dir, name), 'utf8'));
 
-for (const role of ['superuser', 'migrator', 'app', 'auth', 'dispatcher', 'secrets', 'temporal']) {
+for (const role of [
+  'superuser',
+  'migrator',
+  'app',
+  'agent',
+  'auth',
+  'dispatcher',
+  'secrets',
+  'temporal',
+]) {
   put(`db_${role}_password`, password);
 }
 for (const [name, role, file] of [
   ['db_migrator_url', 'ensemus_migrator', 'db_migrator_password'],
   ['db_app_url', 'ensemus_app', 'db_app_password'],
+  ['db_agent_url', 'ensemus_agent', 'db_agent_password'],
   ['db_auth_url', 'ensemus_auth', 'db_auth_password'],
   ['db_secrets_url', 'ensemus_secrets', 'db_secrets_password'],
   ['db_dispatcher_url', 'ensemus_dispatcher', 'db_dispatcher_password'],

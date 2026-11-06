@@ -272,14 +272,14 @@ BEGIN
     NEW.status := 'draft';
     NEW.qualified_at := NULL;
   ELSIF NEW.status IS DISTINCT FROM OLD.status THEN
-    IF NOT CASE OLD.status
+    IF NOT (CASE OLD.status
       WHEN 'draft' THEN NEW.status IN ('probing','disabled')
       WHEN 'probing' THEN NEW.status IN ('active','probe_failed','draft','disabled')
       WHEN 'probe_failed' THEN NEW.status IN ('probing','draft','disabled')
       WHEN 'active' THEN NEW.status IN ('probing','disabled','draft')
       WHEN 'disabled' THEN NEW.status IN ('probing','draft')
       ELSE false
-    END THEN
+    END) THEN
       RAISE EXCEPTION 'MODEL_PROFILE_INVALID_TRANSITION' USING ERRCODE = 'EN006';
     END IF;
     -- A probe's result is the agent role's to write, so web can never declare a profile good.

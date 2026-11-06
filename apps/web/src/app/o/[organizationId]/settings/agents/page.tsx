@@ -1,6 +1,6 @@
 import { getAgentPolicyVersion, listAgentRegistry } from '@ensemus/application/ai-agents';
 import { can } from '@ensemus/domain/policy';
-import { Empty, formatDateTime, PageHead } from '@/components/ui';
+import { BackLink, Empty, formatDateTime, PageHead } from '@/components/ui';
 import { requireTenant } from '@/server/tenant';
 import { PublishForm } from './publish-form';
 
@@ -34,6 +34,7 @@ export default async function AgentsPage({
 
   return (
     <>
+      <BackLink href={`/o/${organizationId}/studio`}>Automation Studio</BackLink>
       <PageHead title="Agents" description={DESCRIPTION} />
       <section className="card" aria-labelledby="published-heading">
         <h2 id="published-heading">Published versions</h2>
@@ -52,8 +53,10 @@ export default async function AgentsPage({
                   Published {formatDateTime(version.publishedAt)}, under policy{' '}
                   {version.policyVersion}.
                 </small>
-                <br />
-                <small style={{ overflowWrap: 'anywhere' }}>SHA-256: {version.specSha256}</small>
+                <details className="gap-above-small">
+                  <summary>Version details</summary>
+                  <p className="technical-reference">SHA-256: {version.specSha256}</p>
+                </details>
               </li>
             ))}
           </ul>

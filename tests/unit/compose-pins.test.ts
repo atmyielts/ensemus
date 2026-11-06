@@ -16,6 +16,28 @@ const good = (): ResolvedConfig => ({
 });
 
 describe('pinProblems', () => {
+  it('keeps Temporal database traffic on its database network when peers share auxiliary networks', () => {
+    const config: ResolvedConfig = {
+      services: {
+        temporal: {
+          networks: { connectors: null, 'temporal-db': null },
+          extra_hosts: ['postgres:172.30.4.10'],
+        },
+        postgres: {
+          networks: {
+            connectors: { ipv4_address: '172.30.5.10' },
+            'temporal-db': { ipv4_address: '172.30.4.10' },
+          },
+        },
+      },
+    };
+    const peers = { temporal: ['postgres'], postgres: [] };
+    expect(pinProblems(config, peers)).toEqual([]);
+    config.services.temporal!.extra_hosts = ['postgres:172.30.5.10'];
+    expect(pinProblems(config, peers)).toEqual([
+      'temporal pins postgres to 172.30.5.10, expected 172.30.4.10',
+    ]);
+  });
   it('accepts correct pins', () => {
     expect(pinProblems(good(), connections)).toEqual([]);
   });

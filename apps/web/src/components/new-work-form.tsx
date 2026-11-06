@@ -121,7 +121,7 @@ export function NewWorkForm({
             </select>
           </label>
         )}
-        <div style={{ display: 'grid', gap: '0.375rem' }}>
+        <div className="field-group">
           <label>
             Sensitivity
             <small>Who can see this work and its files. It cannot be changed afterwards.</small>
@@ -140,7 +140,7 @@ export function NewWorkForm({
           </label>
           <dl id="sensitivity">
             {SENSITIVITY.map((option) => (
-              <div key={option.value} style={{ display: 'contents' }}>
+              <div key={option.value} className="contents">
                 <dt>{option.label}</dt>
                 <dd>{option.who}</dd>
               </div>

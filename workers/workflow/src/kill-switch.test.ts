@@ -14,6 +14,7 @@ import {
   switchCovers,
   type LiveSwitch,
 } from '@ensemus/application/ai-halt';
+import type { HaltTarget } from '@ensemus/application/ai-ports';
 import { engageKillSwitchSchema } from '@ensemus/contracts/ai';
 import {
   agentRuns,
@@ -66,7 +67,7 @@ const agentOf = (role = 'owner'): TenantContext => ({
 });
 
 const global_: LiveSwitch = { organizationId: null, scope: 'global', targetRef: null };
-const ofOrganization = (organizationId = ORG_A): LiveSwitch => ({
+const ofOrganization = (organizationId: string = ORG_A): LiveSwitch => ({
   organizationId,
   scope: 'organization',
   targetRef: null,
@@ -76,7 +77,7 @@ const ofProvider = (providerKind = 'openai_hosted'): LiveSwitch => ({
   scope: 'provider',
   targetRef: providerKind,
 });
-const ofVersion = (versionId = VERSION, organizationId = ORG_A): LiveSwitch => ({
+const ofVersion = (versionId: string = VERSION, organizationId: string = ORG_A): LiveSwitch => ({
   organizationId,
   scope: 'agent_version',
   targetRef: versionId,
@@ -197,17 +198,22 @@ describe('createHaltCheck', () => {
   const unboundRun = { agentVersionId: VERSION, providerKind: null };
 
   // Claiming a queued run happens under the initiator's context, before any provider is chosen.
-  const stages = [
+  const stages: {
+    stage: string;
+    context: TenantContext;
+    target: HaltTarget;
+    run: World['run'];
+  }[] = [
     {
       stage: 'a queued run',
       context: person('member'),
       target: { agentVersionId: VERSION },
-      run: undefined,
+      run: null,
     },
     {
       stage: 'the next model turn',
       context: agentOf('member'),
-      target: { agentVersionId: VERSION, providerKind: 'openai_hosted' as const },
+      target: { agentVersionId: VERSION, providerKind: 'openai_hosted' },
       run: unboundRun,
     },
     { stage: 'the next tool', context: agentOf('member'), target: {}, run: boundRun },

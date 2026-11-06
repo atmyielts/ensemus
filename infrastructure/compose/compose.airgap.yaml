@@ -9,11 +9,15 @@ services:
   web: *dns
   web-2: *dns
   worker: *dns
+  agent-worker: *dns
   dispatcher: *dns
   connector-worker: *dns
   egress-gateway: *dns
   smtp-sink: *dns
+  fake-model: *dns
+  fake-model-test-port: *dns
   migrate: *dns
+  provision-roles: *dns
   postgres: *dns
   temporal: *dns
   temporal-schema: *dns

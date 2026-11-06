@@ -3,7 +3,13 @@
 // Every action is a public endpoint. Each one resolves the person and tenant again from the session, and
 // the services re-check permission. None captures a value in a closure, and none returns one, so a key
 // sent to `attachKeyAction` goes no further than the sealing call.
-import { AppError, auditRefusal, isAuditedRefusal, refusalCode } from '@ensemus/application';
+import {
+  AppError,
+  auditRefusal,
+  canonicalId,
+  isAuditedRefusal,
+  refusalCode,
+} from '@ensemus/application';
 import {
   addRateCard,
   createModelProfile,
@@ -25,8 +31,9 @@ const text = (form: FormData, name: string) => {
   const value = form.get(name);
   return typeof value === 'string' ? value : '';
 };
-const orgOf = (form: FormData) => text(form, 'organizationId').toLowerCase();
-const profileOf = (form: FormData) => text(form, 'profileId').toLowerCase();
+const idOf = (form: FormData, name: string) => canonicalId(text(form, name));
+const orgOf = (form: FormData) => idOf(form, 'organizationId');
+const profileOf = (form: FormData) => idOf(form, 'profileId');
 const versionOf = (form: FormData) => Number.parseInt(text(form, 'version'), 10);
 const listPath = (org: string) => `/o/${org}/settings/models`;
 const profilePath = (org: string, profileId: string) => `${listPath(org)}/${profileId}`;

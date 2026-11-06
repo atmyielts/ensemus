@@ -509,7 +509,7 @@ export async function updateWorkUnit(
   });
 }
 
-async function incompletePrerequisites(tx: Tx, id: string) {
+export async function incompletePrerequisites(tx: Tx, id: string) {
   const [row] = await tx
     .select({ n: sql<number>`count(*)::int` })
     .from(workDependencies)

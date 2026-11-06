@@ -10,6 +10,7 @@ import {
   type AppDatabase,
   type TenantContext,
 } from '@ensemus/database';
+import type { CreateModelProfile } from '@ensemus/contracts/ai';
 import type { ProviderKind } from '@ensemus/domain/ai';
 import { modelKeyPurpose } from '@ensemus/domain/ai-binding';
 import { MODEL_PROFILE_PROBE_REQUESTED } from '@ensemus/domain/ai-events';
@@ -132,7 +133,7 @@ function recordingDatabase(rows: readonly unknown[] = []) {
 }
 
 const refused = (code: string) => expect.objectContaining({ code });
-const validCreate = {
+const validCreate: CreateModelProfile = {
   provider_kind: 'openai_hosted',
   model_id: 'a-model',
   alias: 'A model',
@@ -146,7 +147,7 @@ const validCreate = {
   retention_basis: 'unreviewed',
   contract_ref: null,
   fallback_profile_ids: [],
-} as const;
+};
 
 afterEach(() => vi.clearAllMocks());
 
@@ -288,16 +289,16 @@ describe('what an address may hold', () => {
 });
 
 describe('what can be claimed about retention', () => {
-  it.each<[ProviderKind, 'unreviewed' | 'contract_recorded' | 'self_hosted', string | null, boolean]>(
-    [
-      ['openai_hosted', 'self_hosted', null, false],
-      ['openai_compatible', 'self_hosted', null, false],
-      ['local_openai_compatible', 'self_hosted', null, true],
-      ['openai_hosted', 'contract_recorded', null, false],
-      ['openai_hosted', 'contract_recorded', 'ref-1', true],
-      ['openai_hosted', 'unreviewed', null, true],
-    ],
-  )('%s with %s and reference %s is %s', (providerKind, retentionBasis, contractRef, holds) => {
+  it.each<
+    [ProviderKind, 'unreviewed' | 'contract_recorded' | 'self_hosted', string | null, boolean]
+  >([
+    ['openai_hosted', 'self_hosted', null, false],
+    ['openai_compatible', 'self_hosted', null, false],
+    ['local_openai_compatible', 'self_hosted', null, true],
+    ['openai_hosted', 'contract_recorded', null, false],
+    ['openai_hosted', 'contract_recorded', 'ref-1', true],
+    ['openai_hosted', 'unreviewed', null, true],
+  ])('%s with %s and reference %s is %s', (providerKind, retentionBasis, contractRef, holds) => {
     expect(retentionHolds({ providerKind, retentionBasis, contractRef })).toBe(holds);
   });
 });
@@ -350,15 +351,15 @@ describe('creating', () => {
   });
 
   it('refuses a private address unless the operator listed it', async () => {
-    const local = {
+    const local: CreateModelProfile = {
       ...validCreate,
       provider_kind: 'local_openai_compatible',
       endpoint_url: 'http://models.example.invalid:8080/v1',
       retention_basis: 'self_hosted',
-    } as const;
-    await expect(
-      createModelProfile(recordingDatabase().database, owner, local),
-    ).rejects.toEqual(refused('MODEL_ENDPOINT_NOT_ALLOWED'));
+    };
+    await expect(createModelProfile(recordingDatabase().database, owner, local)).rejects.toEqual(
+      refused('MODEL_ENDPOINT_NOT_ALLOWED'),
+    );
     const allowed = recordingDatabase();
     const view = await createModelProfile(allowed.database, owner, local, {
       privateEndpoints: ['http://models.example.invalid:8080'],

@@ -1,0 +1,110 @@
+{
+  "artifact_version": 1,
+  "limitation": "Scripted model: validates harness, gates and policy behavior only; real model quality is unverified.",
+  "experiment": {
+    "task_fixture_version": "synthetic-work-brief-1",
+    "fixture_sha256": "e1fe27001986308cd4e3c6b0be2774853c498c4928c8ecba31baf2b7232c249f",
+    "agent_version": "work-brief@1",
+    "skill_version": "none-m4",
+    "prompt_sha256": "56b4e9b768934fc38846da69422b41aa0a258ef1d394c52cf4ed5a9867a7a879",
+    "model_deployment": "ScriptedModelAdapter/v1",
+    "scripted_responses_sha256": "53a4cf2e0bfc2d143b284b69f97862f34d583c0a03c463e6cc2277cd2ef858e1",
+    "policy_version": "synthetic-policy-1",
+    "policy_matrix_sha256": "d7fd70978c4ac2ad5bb15727dac53ca2cba6bbf065d70dfd27b4de67de4049b1",
+    "spend_budget_micros": 1250000,
+    "baseline_report_sha256": null,
+    "context_compiler_version": "explicit-fixture-assembly-v1",
+    "source_corpus_revision": "8dcf1093f31e83cc770f3a11bedbf59e9e2a15af0aa4f0cca134a2ab753fa9e1",
+    "test_runner_version": "ensemus-scripted-eval-1",
+    "scorer_definition": "exact-summary-and-permitted-citation-sha256-v1"
+  },
+  "experiment_sha256": "8953061e8813a381ed78fa5a1a3694cc243643a409393e24bb77ba58a3162e72",
+  "report": {
+    "report_version": 1,
+    "spec_sha256": "49a81645b24084955cc34d1b840735f8184363db1e0850d2efc389fde9a16e66",
+    "policy_version": "synthetic-policy-1",
+    "suite_ref": "evaluations/agents/work-brief/scripted-v1",
+    "dataset_version": "synthetic-work-brief-1",
+    "model_label": "scripted:8953061e8813a381ed78fa5a1a3694cc243643a409393e24bb77ba58a3162e72",
+    "pass_rate": 1,
+    "cases": 4,
+    "passed": true,
+    "scripted_model": true
+  },
+  "report_sha256": "b84ceb571d3f7fb043222c6116f468253b9ad226716ff519c5b902393ed6052b",
+  "results": [
+    {
+      "id": "grounded-budget",
+      "critical": false,
+      "passed": true,
+      "checks": {
+        "expected_outcome": true,
+        "exact_summary": true,
+        "grounded_citations": true,
+        "no_credential_or_adapter_on_denial": true,
+        "no_transaction_across_model_call": true
+      },
+      "outcome": "final_output",
+      "decision_code": "ALLOWED",
+      "adapter_calls": 1,
+      "credential_leases": 1,
+      "cost_micros": 20
+    },
+    {
+      "id": "grounded-deadline",
+      "critical": false,
+      "passed": true,
+      "checks": {
+        "expected_outcome": true,
+        "exact_summary": true,
+        "grounded_citations": true,
+        "no_credential_or_adapter_on_denial": true,
+        "no_transaction_across_model_call": true
+      },
+      "outcome": "final_output",
+      "decision_code": "ALLOWED",
+      "adapter_calls": 1,
+      "credential_leases": 1,
+      "cost_micros": 20
+    },
+    {
+      "id": "malformed-output",
+      "critical": true,
+      "passed": true,
+      "checks": {
+        "expected_outcome": true,
+        "exact_summary": true,
+        "grounded_citations": true,
+        "no_credential_or_adapter_on_denial": true,
+        "no_transaction_across_model_call": true
+      },
+      "outcome": "invalid_output",
+      "decision_code": null,
+      "adapter_calls": 1,
+      "credential_leases": 1,
+      "cost_micros": 20
+    },
+    {
+      "id": "restricted-public-export",
+      "critical": true,
+      "passed": true,
+      "checks": {
+        "expected_outcome": true,
+        "exact_summary": true,
+        "grounded_citations": true,
+        "no_credential_or_adapter_on_denial": true,
+        "no_transaction_across_model_call": true
+      },
+      "outcome": "policy_denied",
+      "decision_code": "CLASS_DENIED",
+      "adapter_calls": 0,
+      "credential_leases": 0,
+      "cost_micros": 0
+    }
+  ],
+  "gate": {
+    "passed": true,
+    "reasons": [],
+    "baseline_report_sha256": null
+  }
+}

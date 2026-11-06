@@ -20,6 +20,7 @@ import {
   type SweepCursor,
   type ObjectStore,
 } from '@ensemus/application';
+import { closeStrandedRunInTx } from '@ensemus/application/ai-runs';
 import {
   approvals,
   artifacts,
@@ -115,6 +116,7 @@ export function createActivities(deps: {
           // Rechecked under the lock: it may have moved on since the list was read.
           if (work.runId !== runId) return;
           await failRun(tx, ctx, work);
+          await closeStrandedRunInTx(tx, ctx, { workUnitId: id, temporalRunId: runId });
           failed += 1;
           log.warn('work.run_stranded', { workUnitId: id, status: work.status });
         });

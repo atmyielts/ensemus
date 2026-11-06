@@ -69,8 +69,12 @@ describe('decideEntitlement', () => {
     expect(decideEntitlement('byom', null, 'secrets.read', PERIOD).ok).toBe(false);
     expect(decideEntitlement('sovereign', null, '', PERIOD).ok).toBe(false);
     expect(
-      decideEntitlement('other' as 'cloud', cloudGrant({ mode: 'other' }), FEATURE_MODEL_CALL, PERIOD)
-        .ok,
+      decideEntitlement(
+        'other' as 'cloud',
+        cloudGrant({ mode: 'other' }),
+        FEATURE_MODEL_CALL,
+        PERIOD,
+      ).ok,
     ).toBe(false);
   });
 

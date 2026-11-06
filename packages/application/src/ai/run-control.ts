@@ -1,23 +1,410 @@
-// Owned by the timeline slice (AGENT-06). The web side of a run: start, stop, pause, resume. A request is
-// a row and an outbox event in one transaction, so the web tier never reaches Temporal. Needs `agent.run`
-// and `agent.stop`, on top of being able to change the Work Unit. Every stub refuses.
-import type { AgentRunView, RunControlRequest, StartAgentRun } from '@ensemus/contracts/ai';
-import type { AppDatabase, TenantContext } from '@ensemus/database';
+// The web side of a run: start, stop, pause, resume. A request is a row and an outbox event in one
+// transaction, so the web tier never reaches Temporal (ADR-024). Nothing here changes what a run is doing:
+// the worker reads these rows before each step, and the event only wakes it. So a lost wake-up delays a
+// stop and cannot lose it.
+import {
+  agentSpecV1Schema,
+  runControlSchema,
+  startAgentRunSchema,
+  type AgentRunView,
+  type RunControlRequest,
+  type StartAgentRun,
+} from '@ensemus/contracts/ai';
+import {
+  agentDefinitions,
+  agentPublications,
+  agentRuns,
+  agentVersions,
+  budgets,
+  modelProfiles,
+  runControls,
+  serviceIdentities,
+  withTenantTx,
+  type AppDatabase,
+  type TenantContext,
+  type Tx,
+} from '@ensemus/database';
+import {
+  AGENT_RUN_STATUSES,
+  canTransitionAgentRun,
+  isTerminalAgentRun,
+  type AgentRunStatus,
+  type RunControlKind,
+} from '@ensemus/domain/ai';
+import {
+  AGENT_RUN_CONTROL_REQUESTED,
+  AGENT_RUN_REQUESTED,
+  AGGREGATE_WORK_UNIT,
+} from '@ensemus/domain/ai-events';
+import { can } from '@ensemus/domain/policy';
+import { and, asc, eq, gt, inArray, isNull, lte, or, sql } from 'drizzle-orm';
+import { AppError, foreignReference, pgCode, type ErrorCode } from '../errors';
+import { emit } from '../events';
+import { canonicalId } from '../ids';
+import { auditAction, incompletePrerequisites, loadChangeable, loadReadable } from '../work';
+import { latestControlOf, loadReadableRun, runIdOrMissing, toAgentRunView } from './timeline';
 
-/** Reads limits from the agent version, never from the request. Emits agent_run.requested. */
-export function startAgentRun(
-  _database: AppDatabase,
-  _context: TenantContext,
-  _input: StartAgentRun,
-): Promise<AgentRunView> {
-  throw new Error('NOT_IMPLEMENTED');
+const UNIQUE_VIOLATION = '23505';
+
+const LIVE_STATUSES = AGENT_RUN_STATUSES.filter((status) => !isTerminalAgentRun(status));
+
+/**
+ * Only a person starts or steers a run this way. An agent's context carries its initiator's role, so
+ * the capability checks alone would let a run start another one or lift its own pause. A child run goes
+ * through delegation, which has its own limits.
+ */
+function assertPerson(context: TenantContext) {
+  if (context.actorType !== 'user') throw new AppError('FORBIDDEN');
 }
 
-/** Writes `ai.run_controls` and emits agent_run.control_requested. */
-export function controlAgentRun(
-  _database: AppDatabase,
-  _context: TenantContext,
-  _input: { agentRunId: string } & RunControlRequest,
+export type RunTerms = {
+  maxModelTurns: number;
+  maxToolCalls: number;
+  maxTotalTokens: number;
+  maxCostMicros: number;
+  timeoutSeconds: number;
+  maxDelegationDepth: number;
+  delegatedScopes: { tools: string[] };
+};
+
+/**
+ * What a run may do, from the published version and nowhere else. A request has no field for any of this,
+ * and no role can update these columns afterwards. The money was parsed once at publish (ADR-028 FD-6).
+ */
+export function runTermsFromVersion(version: { spec: unknown; maxCostMicros: number }): RunTerms {
+  const spec = agentSpecV1Schema.safeParse(version.spec);
+  if (!spec.success) throw new AppError('AGENT_SPEC_INVALID');
+  const { execution, tools } = spec.data;
+  const denied = new Set(tools.deny ?? []);
+  return {
+    maxModelTurns: execution.max_model_turns,
+    maxToolCalls: execution.max_tool_calls,
+    maxTotalTokens: execution.max_total_tokens,
+    maxCostMicros: version.maxCostMicros,
+    timeoutSeconds: execution.timeout_seconds,
+    maxDelegationDepth: execution.max_delegation_depth,
+    delegatedScopes: { tools: tools.allow.filter((tool) => !denied.has(tool)) },
+  };
+}
+
+const STARTABLE_WORK: readonly string[] = ['queued', 'ready', 'running'];
+
+/**
+ * Why this work cannot take a run now, or null. A plan and an agent would share one workflow ID (ADR-028
+ * FD-1), so work a plan holds is refused here, in words, as well as at claim. A plain Work Unit keeps a
+ * finished run's ID until it moves on, and that is no reason to refuse a retry.
+ */
+export function workStartRefusal(work: {
+  status: string;
+  executionPlan: string | null;
+  runRequestedAt: Date | null;
+  runId: string | null;
+}): 'INVALID_STATE' | 'RUN_ALREADY_REQUESTED' | null {
+  if (!STARTABLE_WORK.includes(work.status)) return 'INVALID_STATE';
+  if (work.executionPlan && (work.runRequestedAt || work.runId)) return 'RUN_ALREADY_REQUESTED';
+  return null;
+}
+
+/**
+ * A kinder answer than a run that stops straight away, when something is plainly missing. This is not the
+ * control: the gateway checks all of it again at every call, and it is what enforces it.
+ */
+export function earlyRefusal(facts: {
+  hasActiveProfile: boolean;
+  hasBudget: boolean;
+}): 'MODEL_PROFILE_NOT_ACTIVE' | 'BUDGET_NOT_CONFIGURED' | null {
+  if (!facts.hasActiveProfile) return 'MODEL_PROFILE_NOT_ACTIVE';
+  if (!facts.hasBudget) return 'BUDGET_NOT_CONFIGURED';
+  return null;
+}
+
+const thisPeriod = (now: Date) => now.toISOString().slice(0, 7);
+
+async function runEarlyChecks(tx: Tx, agentVersionId: string) {
+  const [profile] = await tx
+    .select({ id: modelProfiles.id })
+    .from(modelProfiles)
+    .where(eq(modelProfiles.status, 'active'))
+    .limit(1);
+  const [budget] = await tx
+    .select({ id: budgets.id })
+    .from(budgets)
+    .where(
+      and(
+        eq(budgets.period, thisPeriod(new Date())),
+        or(
+          eq(budgets.scope, 'organization'),
+          and(eq(budgets.scope, 'agent_version'), eq(budgets.agentVersionId, agentVersionId)),
+        ),
+      ),
+    )
+    .limit(1);
+  const refusal = earlyRefusal({ hasActiveProfile: Boolean(profile), hasBudget: Boolean(budget) });
+  if (refusal) throw new AppError(refusal);
+}
+
+/** A version to run: in this tenant, with an identity that is still usable, and still published. */
+async function loadRunnableVersion(tx: Tx, agentVersionId: string) {
+  const [version] = await tx
+    .select({
+      id: agentVersions.id,
+      spec: agentVersions.spec,
+      maxCostMicros: agentVersions.maxCostMicros,
+      serviceIdentityId: agentDefinitions.serviceIdentityId,
+      identityStatus: serviceIdentities.status,
+      identityExpiresAt: serviceIdentities.expiresAt,
+    })
+    .from(agentVersions)
+    .innerJoin(
+      agentDefinitions,
+      and(
+        eq(agentDefinitions.organizationId, agentVersions.organizationId),
+        eq(agentDefinitions.id, agentVersions.definitionId),
+      ),
+    )
+    .innerJoin(
+      serviceIdentities,
+      and(
+        eq(serviceIdentities.organizationId, agentDefinitions.organizationId),
+        eq(serviceIdentities.id, agentDefinitions.serviceIdentityId),
+      ),
+    )
+    .where(eq(agentVersions.id, agentVersionId));
+  // The form only offers this tenant's versions, so this is someone writing their own request.
+  if (!version) throw foreignReference();
+  const expired = version.identityExpiresAt !== null && version.identityExpiresAt <= new Date();
+  if (version.identityStatus !== 'active' || expired) throw new AppError('INVALID_STATE');
+  const [published] = await tx
+    .select({ id: agentPublications.id })
+    .from(agentPublications)
+    .where(
+      and(
+        eq(agentPublications.versionId, agentVersionId),
+        lte(agentPublications.activeFrom, sql`now()`),
+        or(isNull(agentPublications.activeUntil), gt(agentPublications.activeUntil, sql`now()`)),
+      ),
+    )
+    .limit(1);
+  if (!published) throw new AppError('INVALID_STATE');
+  return version;
+}
+
+/**
+ * Starts a run. One transaction holds the run, its outbox event and its audit row, so none exists alone,
+ * and it can join an idempotency key's transaction. The work's row lock queues two starts on one Work
+ * Unit, and the index on live runs holds if anything gets past that.
+ */
+export async function startAgentRun(
+  database: AppDatabase,
+  context: TenantContext,
+  input: StartAgentRun,
+): Promise<AgentRunView> {
+  assertPerson(context);
+  const parsed = startAgentRunSchema.safeParse(input);
+  if (!parsed.success) throw new AppError('INVALID_INPUT');
+  const workUnitId = canonicalId(parsed.data.work_unit_id);
+  const agentVersionId = canonicalId(parsed.data.agent_version_id);
+  try {
+    return await withTenantTx(database, context, async (tx) => {
+      // Reading first means work someone may not see is a 404 here as everywhere, whatever their role,
+      // and takes no lock on behalf of someone who could never have started anything.
+      await loadReadable(tx, context, workUnitId);
+      if (!can(context.role, 'agent.run')) throw new AppError('FORBIDDEN');
+      const work = await loadChangeable(tx, context, workUnitId);
+      const refusal = workStartRefusal(work);
+      if (refusal) throw new AppError(refusal);
+      const [live] = await tx
+        .select({ id: agentRuns.id })
+        .from(agentRuns)
+        .where(and(eq(agentRuns.workUnitId, workUnitId), inArray(agentRuns.status, LIVE_STATUSES)))
+        .limit(1);
+      if (live) throw new AppError('AGENT_RUN_ACTIVE');
+
+      const version = await loadRunnableVersion(tx, agentVersionId);
+      const terms = runTermsFromVersion(version);
+      await runEarlyChecks(tx, agentVersionId);
+
+      // Requesting a run does not move the work; the worker prepares it when claiming. Refuse
+      // known unmet prerequisites now, and the normal ready transition checks them again at claim.
+      if (work.status === 'queued' && (await incompletePrerequisites(tx, work.id)) > 0) {
+        throw new AppError('PREREQUISITES_INCOMPLETE');
+      }
+
+      const [run] = await tx
+        .insert(agentRuns)
+        .values({
+          organizationId: context.organizationId,
+          workUnitId,
+          agentVersionId,
+          initiatorMembershipId: context.membershipId,
+          serviceIdentityId: version.serviceIdentityId,
+          // From here it can only rise (FD-13).
+          effectiveClassification: work.classification,
+          ...terms,
+        })
+        .returning();
+      if (!run) throw new Error('The insert returned nothing');
+      await emit(tx, context, {
+        eventType: AGENT_RUN_REQUESTED,
+        aggregateType: AGGREGATE_WORK_UNIT,
+        aggregateId: workUnitId,
+        aggregateVersion: work.version,
+        classification: work.classification,
+        payload: { agent_run_id: run.id, work_unit_id: workUnitId },
+      });
+      await auditAction(tx, context, 'agent_run.requested', `agent_run:${run.id}`);
+      // Nothing has been spent, and nothing backs a figure of nothing yet.
+      return toAgentRunView(run, true);
+    });
+  } catch (error) {
+    if (pgCode(error) === UNIQUE_VIOLATION) throw new AppError('AGENT_RUN_ACTIVE');
+    throw error;
+  }
+}
+
+/** Who may steer a run. Those who may start or stop any run, and the person who started this one. */
+export function mayControlRun(
+  person: { membershipId: string; role: string },
+  run: { initiatorMembershipId: string },
+  kind: RunControlKind,
+): boolean {
+  if (can(person.role, 'agent.stop')) return true;
+  if (person.membershipId !== run.initiatorMembershipId) return false;
+  // Stopping your own run is always yours to do. Resuming starts its spending again, which is starting
+  // it, so someone whose role no longer allows that cannot.
+  return kind !== 'resume' || can(person.role, 'agent.run');
+}
+
+export type ControlDecision =
+  /** Write the row and the event. */
+  | 'record'
+  /** Already asked for and still standing, as with a double click. Nothing to write. */
+  | 'already'
+  | Extract<ErrorCode, 'AGENT_RUN_NOT_CONTROLLABLE' | 'INVALID_STATE'>;
+
+/**
+ * What a control does to a run in this state. The status is what the worker last did, and the latest
+ * control is what was asked for since, so both count: a pause the worker has not reached can still be
+ * resumed. A stop is final, and nothing overtakes it. A pause follows the same state machine the worker
+ * has to obey, so it is never recorded where it could not happen.
+ */
+export function decideControl(
+  status: AgentRunStatus,
+  latest: RunControlKind | null,
+  kind: RunControlKind,
+): ControlDecision {
+  if (isTerminalAgentRun(status)) return 'AGENT_RUN_NOT_CONTROLLABLE';
+  if (latest === 'stop') return kind === 'stop' ? 'already' : 'INVALID_STATE';
+  if (kind === 'stop') return 'record';
+  const pausedOrPausing = latest === 'pause' || (status === 'paused' && latest === null);
+  if (kind === 'pause') {
+    if (pausedOrPausing) return 'already';
+    return status === 'paused' || canTransitionAgentRun(status, 'paused')
+      ? 'record'
+      : 'INVALID_STATE';
+  }
+  if (pausedOrPausing) return 'record';
+  return latest === 'resume' ? 'already' : 'INVALID_STATE';
+}
+
+/**
+ * Records a stop, pause or resume, with its outbox event and audit row, in one transaction. The run's row
+ * lock keeps two people's controls in order, so the decision reads the true latest one.
+ */
+export async function controlAgentRun(
+  database: AppDatabase,
+  context: TenantContext,
+  input: { agentRunId: string } & RunControlRequest,
 ): Promise<void> {
-  throw new Error('NOT_IMPLEMENTED');
+  assertPerson(context);
+  const agentRunId = runIdOrMissing(input.agentRunId);
+  const parsed = runControlSchema.safeParse({ kind: input.kind });
+  if (!parsed.success) throw new AppError('INVALID_INPUT');
+  const { kind } = parsed.data;
+  await withTenantTx(database, context, async (tx) => {
+    const { run, work } = await loadReadableRun(tx, context, agentRunId);
+    if (!mayControlRun(context, run, kind)) throw new AppError('FORBIDDEN');
+    const [locked] = await tx
+      .select({ status: agentRuns.status })
+      .from(agentRuns)
+      .where(eq(agentRuns.id, agentRunId))
+      .for('update');
+    if (!locked) throw new AppError('NOT_FOUND');
+    const decision = decideControl(
+      locked.status as AgentRunStatus,
+      await latestControlOf(tx, agentRunId),
+      kind,
+    );
+    if (decision === 'already') return;
+    if (decision !== 'record') throw new AppError(decision);
+    await tx.insert(runControls).values({
+      organizationId: context.organizationId,
+      runId: agentRunId,
+      kind,
+      byMembershipId: context.membershipId,
+      // The time now, under the lock. A transaction's own start time could be earlier than the control
+      // it waited for, and then a stop would read as older than the pause it came after.
+      createdAt: sql`clock_timestamp()`,
+    });
+    await emit(tx, context, {
+      eventType: AGENT_RUN_CONTROL_REQUESTED,
+      aggregateType: AGGREGATE_WORK_UNIT,
+      aggregateId: run.workUnitId,
+      aggregateVersion: work.version,
+      classification: run.effectiveClassification,
+      payload: { agent_run_id: agentRunId, kind },
+    });
+    await auditAction(
+      tx,
+      context,
+      'agent_run.control_requested',
+      `agent_run:${agentRunId}`,
+      kind.toUpperCase(),
+    );
+  });
+}
+
+export type RunnableAgent = { versionId: string; name: string; versionNumber: number };
+
+// Enough for any form to choose from. It bounds a list, and limits nobody's number of agents.
+const MAX_AGENTS_OFFERED = 200;
+
+/** What the start form offers: each agent's published version, to someone who may start a run. */
+export async function listRunnableAgents(
+  database: AppDatabase,
+  context: TenantContext,
+): Promise<readonly RunnableAgent[]> {
+  assertPerson(context);
+  if (!can(context.role, 'agent.run')) throw new AppError('FORBIDDEN');
+  return withTenantTx(database, context, (tx) =>
+    tx
+      .select({
+        versionId: agentVersions.id,
+        name: agentDefinitions.name,
+        versionNumber: agentVersions.versionNumber,
+      })
+      .from(agentPublications)
+      .innerJoin(
+        agentVersions,
+        and(
+          eq(agentVersions.organizationId, agentPublications.organizationId),
+          eq(agentVersions.id, agentPublications.versionId),
+        ),
+      )
+      .innerJoin(
+        agentDefinitions,
+        and(
+          eq(agentDefinitions.organizationId, agentVersions.organizationId),
+          eq(agentDefinitions.id, agentVersions.definitionId),
+        ),
+      )
+      .where(
+        and(
+          lte(agentPublications.activeFrom, sql`now()`),
+          or(isNull(agentPublications.activeUntil), gt(agentPublications.activeUntil, sql`now()`)),
+        ),
+      )
+      .orderBy(asc(agentDefinitions.name), asc(agentVersions.versionNumber))
+      .limit(MAX_AGENTS_OFFERED),
+  );
 }

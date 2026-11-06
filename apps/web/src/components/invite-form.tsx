@@ -43,7 +43,7 @@ export function InviteForm({ organizationId }: { organizationId: string }) {
             defaultValue={state.values?.email ?? ''}
           />
         </label>
-        <label style={{ flex: '0 1 9rem' }}>
+        <label className="field-short">
           Access
           {/* The key brings a refused choice back: React only reads defaultValue on a new select. */}
           <select

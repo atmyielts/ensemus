@@ -345,7 +345,7 @@ describe('external actions API', () => {
         },
         key: randomUUID(),
       });
-      expectError(self, 409, 'APPROVAL_SELF_APPROVAL');
+      expectError(self, 403, 'APPROVAL_SELF_APPROVAL');
     });
 
     it('takes the sender from the connection and refuses one in the body', async () => {

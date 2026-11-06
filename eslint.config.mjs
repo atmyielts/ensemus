@@ -286,7 +286,12 @@ export default tseslint.config(
   },
   {
     files: ['packages/intelligence/**/*.ts'],
-    ignores: ['packages/intelligence/src/net/**', 'packages/intelligence/src/testing/**'],
+    ignores: [
+      'packages/intelligence/src/net/**',
+      'packages/intelligence/src/testing/**',
+      '**/*.test.ts',
+      '**/*.test-support.ts',
+    ],
     rules: {
       'no-restricted-globals': [
         'error',

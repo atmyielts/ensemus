@@ -92,3 +92,43 @@ describe('listing a prefix', () => {
     expect(asked).toEqual(['first', 'next']);
   });
 });
+
+describe('bounded object reads for model context', () => {
+  let server: Server;
+  let endpoint: string;
+
+  beforeAll(async () => {
+    server = createServer((request, response) => {
+      if (request.url?.includes('chunked')) {
+        response.write('12345');
+        response.write('67890');
+        response.end('more bytes');
+      } else if (request.url?.includes('large')) {
+        response.setHeader('content-length', '32');
+        response.end('x'.repeat(32));
+      } else response.end('safe');
+    });
+    await new Promise<void>((listening) => server.listen(0, '127.0.0.1', listening));
+    endpoint = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  });
+
+  afterAll(async () => {
+    server.closeAllConnections();
+    await new Promise((closed) => server.close(closed));
+  });
+
+  it('returns the complete object when it fits', async () => {
+    const store = new S3ObjectStore({ endpoint, bucket: 'b', accessKey: 'k', secretKey: 's' });
+    expect(await store.get('small', 4)).toEqual(Buffer.from('safe'));
+  });
+
+  it.each(['large', 'chunked'])('refuses %s data rather than truncating it', async (key) => {
+    const store = new S3ObjectStore({ endpoint, bucket: 'b', accessKey: 'k', secretKey: 's' });
+    await expect(store.get(key, 8)).rejects.toThrow('OBJECT_TOO_LARGE');
+  });
+
+  it.each([0, -1, 1.5, Number.POSITIVE_INFINITY])('refuses invalid byte cap %s', async (cap) => {
+    const store = new S3ObjectStore({ endpoint, bucket: 'b', accessKey: 'k', secretKey: 's' });
+    await expect(store.get('small', cap)).rejects.toThrow('INVALID_OBJECT_LIMIT');
+  });
+});

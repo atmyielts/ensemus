@@ -48,7 +48,7 @@ services:
     build:
       context: ../..
       dockerfile: infrastructure/containers/Dockerfile.web
-    image: ensemus/web:local
+    image: ${ENSEMUS_WEB_IMAGE:-ensemus/web:local}
     read_only: true
     tmpfs: ['/tmp', '/app/apps/web/.next/cache']
     networks:
@@ -90,7 +90,7 @@ services:
     build:
       context: ../..
       dockerfile: infrastructure/containers/Dockerfile.worker
-    image: ensemus/worker:local
+    image: ${ENSEMUS_WORKER_IMAGE:-ensemus/worker:local}
     read_only: true
     tmpfs: ['/tmp']
     networks: [data, temporal]
@@ -123,12 +123,52 @@ services:
     deploy:
       resources: { limits: { memory: 2G } }
 
+  agent-worker:
+    <<: *restart
+    build:
+      context: ../..
+      dockerfile: infrastructure/containers/Dockerfile.worker
+    image: ${ENSEMUS_WORKER_IMAGE:-ensemus/worker:local}
+    command: ['node', 'dist/agent-main.js']
+    read_only: true
+    tmpfs: ['/tmp']
+    networks: [agents]
+    extra_hosts:
+      - postgres:${ENSEMUS_NETWORK_PREFIX:-172.30}.7.10
+      - temporal:${ENSEMUS_NETWORK_PREFIX:-172.30}.7.11
+      - objects:${ENSEMUS_NETWORK_PREFIX:-172.30}.7.12
+    environment:
+      TEMPORAL_ADDRESS: temporal:7233
+      TEMPORAL_NAMESPACE: default
+      TEMPORAL_CODEC_KEY_FILE: /run/secrets/temporal_codec_key
+      DATABASE_URL_AGENT_FILE: /run/secrets/db_agent_url
+      DATABASE_URL_SECRETS_FILE: /run/secrets/db_secrets_url
+      SECRET_SEALING_PRIVATE_KEY_FILE: /run/secrets/sealing_private_key.pem
+      OBJECT_STORAGE_ENDPOINT: http://objects:8333
+      OBJECT_STORAGE_BUCKET: ensemus
+      OBJECT_STORAGE_ACCESS_KEY_FILE: /run/secrets/objects_access_key
+      OBJECT_STORAGE_SECRET_KEY_FILE: /run/secrets/objects_secret_key
+      ENSEMUS_PRIVATE_MODEL_ENDPOINTS: ${ENSEMUS_PRIVATE_MODEL_ENDPOINTS:-}
+      ENSEMUS_MODEL_CREDENTIALS_REVIEWED: ${ENSEMUS_MODEL_CREDENTIALS_REVIEWED:-}
+    secrets:
+      - temporal_codec_key
+      - db_agent_url
+      - db_secrets_url
+      - sealing_private_key.pem
+      - objects_access_key
+      - objects_secret_key
+    depends_on:
+      temporal-namespace: { condition: service_completed_successfully }
+      migrate: { condition: service_completed_successfully }
+    deploy:
+      resources: { limits: { memory: 2G } }
+
   dispatcher:
     <<: *restart
     build:
       context: ../..
       dockerfile: infrastructure/containers/Dockerfile.worker
-    image: ensemus/worker:local
+    image: ${ENSEMUS_WORKER_IMAGE:-ensemus/worker:local}
     command: ['node', 'dist/dispatcher.js']
     read_only: true
     tmpfs: ['/tmp']
@@ -167,7 +207,7 @@ services:
     build:
       context: ../..
       dockerfile: infrastructure/containers/Dockerfile.worker
-    image: ensemus/worker:local
+    image: ${ENSEMUS_WORKER_IMAGE:-ensemus/worker:local}
     command: ['node', 'dist/connector-worker.js']
     read_only: true
     tmpfs: ['/tmp']
@@ -207,7 +247,7 @@ services:
     build:
       context: ../..
       dockerfile: infrastructure/containers/Dockerfile.worker
-    image: ensemus/worker:local
+    image: ${ENSEMUS_WORKER_IMAGE:-ensemus/worker:local}
     command: ['node', 'dist/egress-gateway.js']
     read_only: true
     tmpfs: ['/tmp']
@@ -219,11 +259,26 @@ services:
     deploy:
       resources: { limits: { memory: 128M } }
 
+  provision-roles:
+    image: pgvector/pgvector:pg17@sha256:7d0a41464797aeb9862dfdc0bbf1526b82cfd324cdd8036df19e3545f4a9ccb8
+    user: postgres
+    read_only: true
+    entrypoint: ['/bin/sh', '/provision/upgrade-roles.sh']
+    networks: [data]
+    extra_hosts:
+      - postgres:${ENSEMUS_NETWORK_PREFIX:-172.30}.2.10
+    volumes:
+      - ./postgres/upgrade-roles.sh:/provision/upgrade-roles.sh:ro
+      - ./postgres/upgrade-roles.sql:/provision/upgrade-roles.sql:ro
+    secrets: [db_superuser_password, db_agent_password]
+    depends_on:
+      postgres: { condition: service_healthy }
+
   migrate:
     build:
       context: ../..
       dockerfile: infrastructure/containers/Dockerfile.worker
-    image: ensemus/worker:local
+    image: ${ENSEMUS_WORKER_IMAGE:-ensemus/worker:local}
     command: ['node', 'dist/migrate.js']
     read_only: true
     tmpfs: ['/tmp']
@@ -243,6 +298,7 @@ services:
       postgres: { condition: service_healthy }
       # It creates the bucket too. Without this it loses the race whenever PostgreSQL is already up.
       objects: { condition: service_healthy }
+      provision-roles: { condition: service_completed_successfully }
 
   postgres:
     <<: *restart
@@ -258,10 +314,12 @@ services:
       data: { ipv4_address: '${ENSEMUS_NETWORK_PREFIX:-172.30}.2.10' }
       temporal-db: { ipv4_address: '${ENSEMUS_NETWORK_PREFIX:-172.30}.4.10' }
       connectors: { ipv4_address: '${ENSEMUS_NETWORK_PREFIX:-172.30}.5.10' }
+      agents: { ipv4_address: '${ENSEMUS_NETWORK_PREFIX:-172.30}.7.10' }
     secrets:
       - db_superuser_password
       - db_migrator_password
       - db_app_password
+      - db_agent_password
       - db_auth_password
       - db_dispatcher_password
       - db_secrets_password
@@ -291,6 +349,7 @@ services:
       temporal: { ipv4_address: '${ENSEMUS_NETWORK_PREFIX:-172.30}.3.10' }
       temporal-db: {}
       connectors: { ipv4_address: '${ENSEMUS_NETWORK_PREFIX:-172.30}.5.11' }
+      agents: { ipv4_address: '${ENSEMUS_NETWORK_PREFIX:-172.30}.7.11' }
     extra_hosts:
       - postgres:${ENSEMUS_NETWORK_PREFIX:-172.30}.4.10
     entrypoint: ['/bin/sh', '/provision/temporal-start.sh']
@@ -361,6 +420,8 @@ services:
       - -dir=/data
       - -s3
       - -s3.port=8333
+      # S3 serves both data and agent networks; the admin/filer listeners keep their default binding.
+      - -s3.ip.bind=0.0.0.0
       - -s3.config=/run/secrets/objects_identity
       - -master.volumeSizeLimitMB=256
     secrets: [objects_identity]
@@ -368,6 +429,7 @@ services:
       - objects-data:/data
     networks:
       data: { ipv4_address: '${ENSEMUS_NETWORK_PREFIX:-172.30}.2.12' }
+      agents: { ipv4_address: '${ENSEMUS_NETWORK_PREFIX:-172.30}.7.12' }
     healthcheck:
       test: ['CMD-SHELL', 'wget -q -O /dev/null http://127.0.0.1:9333/cluster/status']
       interval: 5s
@@ -412,6 +474,15 @@ networks:
             subnet: '${ENSEMUS_NETWORK_PREFIX:-172.30}.5.0/24',
             ip_range: '${ENSEMUS_NETWORK_PREFIX:-172.30}.5.128/25',
           }
+  # No hosted model route is present by default. An operator may supply a separately reviewed overlay.
+  agents:
+    internal: true
+    ipam:
+      config:
+        - {
+            subnet: '${ENSEMUS_NETWORK_PREFIX:-172.30}.7.0/24',
+            ip_range: '${ENSEMUS_NETWORK_PREFIX:-172.30}.7.128/25',
+          }
   # The way out, and only the gateway is on it. A sovereign site's firewall limits it to the relay.
   outbound:
     ipam:
@@ -430,12 +501,14 @@ secrets:
   db_superuser_password: { file: ../../.local/secrets/db_superuser_password }
   db_migrator_password: { file: ../../.local/secrets/db_migrator_password }
   db_app_password: { file: ../../.local/secrets/db_app_password }
+  db_agent_password: { file: ../../.local/secrets/db_agent_password }
   db_auth_password: { file: ../../.local/secrets/db_auth_password }
   db_dispatcher_password: { file: ../../.local/secrets/db_dispatcher_password }
   db_secrets_password: { file: ../../.local/secrets/db_secrets_password }
   db_temporal_password: { file: ../../.local/secrets/db_temporal_password }
   db_migrator_url: { file: ../../.local/secrets/db_migrator_url }
   db_app_url: { file: ../../.local/secrets/db_app_url }
+  db_agent_url: { file: ../../.local/secrets/db_agent_url }
   db_auth_url: { file: ../../.local/secrets/db_auth_url }
   db_dispatcher_url: { file: ../../.local/secrets/db_dispatcher_url }
   objects_access_key: { file: ../../.local/secrets/objects_access_key }

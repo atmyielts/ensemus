@@ -29,11 +29,7 @@ import {
   withTenantTx,
   type TenantContext,
 } from '@ensemus/database';
-import {
-  createAgentContext,
-  openAgentDatabase,
-  withRunLookupTx,
-} from '@ensemus/database/agent';
+import { createAgentContext, openAgentDatabase, withRunLookupTx } from '@ensemus/database/agent';
 import { openSecretsDatabase } from '@ensemus/database/secrets';
 import { modelKeyPurpose } from '@ensemus/domain/ai-binding';
 import { MODEL_PROFILE_PROBE_REQUESTED } from '@ensemus/domain/ai-events';
@@ -150,9 +146,9 @@ describe('model profiles', () => {
   describe('who can do what', () => {
     it('a member cannot create a profile, and nothing is written', async () => {
       const alias = unique('member');
-      await expect(
-        createModelProfile(app.db, a.member, local(alias), settings),
-      ).rejects.toEqual(code('FORBIDDEN'));
+      await expect(createModelProfile(app.db, a.member, local(alias), settings)).rejects.toEqual(
+        code('FORBIDDEN'),
+      );
       const rows = await withTenantTx(app.db, a.owner, (tx) =>
         tx.select().from(modelProfiles).where(eq(modelProfiles.alias, alias)),
       );
@@ -324,9 +320,9 @@ describe('model profiles', () => {
     });
 
     it('refuses a private address the operator did not list, whatever the tenant says', async () => {
-      await expect(
-        createModelProfile(app.db, a.owner, local(unique('l'))),
-      ).rejects.toEqual(code('MODEL_ENDPOINT_NOT_ALLOWED'));
+      await expect(createModelProfile(app.db, a.owner, local(unique('l')))).rejects.toEqual(
+        code('MODEL_ENDPOINT_NOT_ALLOWED'),
+      );
     });
 
     it.each([
@@ -421,11 +417,13 @@ describe('model profiles', () => {
       try {
         for (const table of [
           'ai.model_profiles',
-          'platform.audit_events',
+          'governance.audit_events',
           'platform.domain_events',
           'secrets.sealed_secrets',
         ]) {
-          const { rows } = await superuser.query(`select row_to_json(t)::text as t from ${table} t`);
+          const { rows } = await superuser.query(
+            `select row_to_json(t)::text as t from ${table} t`,
+          );
           expect(holdsCanary(rows.map((r) => r.t as string).join('\n'), key), table).toBe(false);
         }
       } finally {
@@ -485,7 +483,10 @@ describe('model profiles', () => {
       const after = await updateModelProfile(
         app.db,
         a.owner,
-        { profileId: view.id, patch: { expected_version: keyed.version, endpoint_url: `${PRIVATE}/v2` } },
+        {
+          profileId: view.id,
+          patch: { expected_version: keyed.version, endpoint_url: `${PRIVATE}/v2` },
+        },
         settings,
       );
       expect(after.has_credential).toBe(false);
@@ -553,10 +554,7 @@ describe('model profiles', () => {
       const id = await seedDraftProfile(app.db, a.owner);
       await expect(
         withTenantTx(app.db, a.owner, (tx) =>
-          tx
-            .update(modelProfiles)
-            .set({ qualifiedAt: new Date() })
-            .where(eq(modelProfiles.id, id)),
+          tx.update(modelProfiles).set({ qualifiedAt: new Date() }).where(eq(modelProfiles.id, id)),
         ),
       ).rejects.toThrow();
     });
@@ -775,7 +773,10 @@ describe('model profiles', () => {
     it('turning off takes a profile out of routing at once', async () => {
       const id = await seedActiveProfile(app.db, agent.db, a.owner);
       const before = await row(a.owner, id);
-      await disableModelProfile(app.db, a.owner, { profileId: id, expectedVersion: before.version });
+      await disableModelProfile(app.db, a.owner, {
+        profileId: id,
+        expectedVersion: before.version,
+      });
       expect((await row(a.owner, id)).status).toBe('disabled');
     });
 
@@ -794,5 +795,4 @@ describe('model profiles', () => {
       expect([first.version, second.version]).toEqual([1, 2]);
     });
   });
-
 });

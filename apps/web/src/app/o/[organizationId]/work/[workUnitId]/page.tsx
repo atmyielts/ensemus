@@ -252,6 +252,9 @@ export default async function WorkDetailPage({
         <Link href={`${base}/work`}>Back to work</Link>
       </p>
       <PageHead title={work.title} />
+      <p>
+        <Link href={`${base}/work/${work.id}/run`}>Agent runs and controls</Link>
+      </p>
       <ErrorNotice code={error} />
       <LiveStatus
         url={`/api/v1/organizations/${organizationId}/work-units/${work.id}/events?include=evidence`}
@@ -486,7 +489,7 @@ export default async function WorkDetailPage({
 
         <section className="card" aria-labelledby="purpose-heading">
           <h2 id="purpose-heading">Purpose</h2>
-          <p style={{ whiteSpace: 'pre-wrap' }}>{work.objective || 'No objective was written.'}</p>
+          <p className="pre-wrap">{work.objective || 'No objective was written.'}</p>
           {canChange && canChangeContent(status) && (
             <details>
               <summary>Edit the details</summary>
@@ -953,12 +956,12 @@ export default async function WorkDetailPage({
                     </small>
                   </span>
                   {entry.completionBasis === 'owner_confirmed' && (
-                    <p style={{ marginTop: '0.25rem' }}>
+                    <p className="gap-above-small">
                       Confirmed by {entry.actorName ?? 'the accountable owner'} as accountable
                       owner. No evidence was requested.
                     </p>
                   )}
-                  {entry.reason && <p style={{ marginTop: '0.25rem' }}>{entry.reason}</p>}
+                  {entry.reason && <p className="gap-above-small">{entry.reason}</p>}
                 </li>
               ))}
             </ul>

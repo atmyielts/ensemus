@@ -5,11 +5,19 @@ import {
   containersOffTheSubnet,
   expectedFile,
   expectedHealth,
+  gateNetworkPrefix,
   SUBNET,
   wrongAnswer,
 } from '../../infrastructure/scripts/air-gap-rules.mjs';
 
 describe('the subnet the gate watches', () => {
+  it('allows a dedicated private subnet and refuses ambiguous or public prefixes', () => {
+    expect(gateNetworkPrefix(undefined)).toBe('172.30');
+    expect(gateNetworkPrefix('172.28')).toBe('172.28');
+    for (const value of ['', '172.15', '172.32', '172.280', '172.28.1', '172.28/16']) {
+      expect(() => gateNetworkPrefix(value)).toThrow('AIRGAP_NETWORK_PREFIX_INVALID');
+    }
+  });
   it('is the one the stack uses by default', () => {
     expect(SUBNET).toBe('172.30.0.0/16');
   });

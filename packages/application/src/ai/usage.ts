@@ -638,7 +638,10 @@ const sqlStore: LedgerStore = {
       .select({ stepId: budgetReservations.stepId, attempt: budgetReservations.attempt })
       .from(budgetReservations)
       .where(
-        and(eq(budgetReservations.id, query.reservationId), eq(budgetReservations.runId, query.runId)),
+        and(
+          eq(budgetReservations.id, query.reservationId),
+          eq(budgetReservations.runId, query.runId),
+        ),
       );
     if (!head) return [];
     const rows = await tx

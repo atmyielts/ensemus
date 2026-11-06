@@ -8,5 +8,6 @@ export default async function setup() {
     stdio: 'ignore',
   });
   compose('up', '-d', '--wait', 'postgres');
+  compose('run', '--rm', 'provision-roles');
   await runMigrations(urls.migrator());
 }

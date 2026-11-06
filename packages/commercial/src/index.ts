@@ -111,6 +111,10 @@ export function formatMicrosUsd(micros: number): string {
   const negative = micros < 0;
   const size = BigInt(Math.abs(micros));
   const whole = (size / 1_000_000n).toLocaleString('en-US');
-  const fraction = (size % 1_000_000n).toString().padStart(6, '0').replace(/0+$/, '').padEnd(2, '0');
+  const fraction = (size % 1_000_000n)
+    .toString()
+    .padStart(6, '0')
+    .replace(/0+$/, '')
+    .padEnd(2, '0');
   return `${negative ? '-' : ''}$${whole}.${fraction}`;
 }

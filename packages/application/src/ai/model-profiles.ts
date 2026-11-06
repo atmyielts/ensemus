@@ -432,7 +432,8 @@ export async function updateModelProfile(
     return await withTenantTx(database, context, async (tx) => {
       const row = await lockAtVersion(tx, context, id, patch.expected_version);
       const kind = row.providerKind as ProviderKind;
-      const newEndpoint = patch.endpoint_url !== undefined && patch.endpoint_url !== row.endpointUrl;
+      const newEndpoint =
+        patch.endpoint_url !== undefined && patch.endpoint_url !== row.endpointUrl;
       if (newEndpoint) assertEndpointAllowed(kind, patch.endpoint_url!, settings);
       if (
         !retentionHolds({

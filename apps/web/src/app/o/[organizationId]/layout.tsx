@@ -4,7 +4,8 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import type { ReactNode } from 'react';
 import { DraftScope } from '@/components/kept-field';
-import { MainNav } from '@/components/main-nav';
+import { MainNav, WorkspaceContext } from '@/components/main-nav';
+import { workspaceNavigation } from '@/components/navigation-model';
 import { SubmitButton } from '@/components/submit-button';
 import { signOutAction } from '@/server/actions';
 import { organizationsWithAccess } from '@/server/organizations';
@@ -27,6 +28,12 @@ export default async function OrganizationLayout({
   ]);
   if (!organization) notFound();
   const base = `/o/${organizationId}`;
+  const navigation = workspaceNavigation({
+    base,
+    role: context.role,
+    unread,
+    pending: pending.length,
+  });
 
   return (
     <div className="shell">
@@ -35,26 +42,41 @@ export default async function OrganizationLayout({
       </a>
       <aside className="sidebar">
         <div className="sidebar-inner">
-          <div>
+          <div className="workspace-brand">
             <Link className="brand" href={base}>
+              <span className="brand-symbol" aria-hidden="true">
+                E
+              </span>
               Ensemus
             </Link>
-            <div className="org-name">{organization.name}</div>
+            <div className="org-name" title={organization.name}>
+              {organization.name}
+            </div>
+            {organizations.length > 1 && (
+              <Link className="workspace-switch" href="/">
+                Switch organization <span aria-hidden="true">↗</span>
+              </Link>
+            )}
           </div>
-          <MainNav
-            items={[
-              { href: base, label: 'Home', exact: true },
-              { href: `${base}/work`, label: 'Work' },
-              { href: `${base}/approvals`, label: 'Approvals', count: pending.length },
-              { href: `${base}/people`, label: 'People and teams' },
-              { href: `${base}/clients`, label: 'Clients and projects' },
-              { href: `${base}/inbox`, label: 'Inbox', count: unread },
-            ]}
-          />
+          <div className="desktop-navigation">
+            <MainNav groups={navigation} />
+          </div>
+          <details className="mobile-navigation">
+            <summary>
+              Workspace menu <span aria-hidden="true">⌄</span>
+            </summary>
+            <MainNav groups={navigation} label="Mobile main" />
+          </details>
           <div className="sidebar-end">
-            {organizations.length > 1 && <Link href="/">Switch organization</Link>}
-            <span className="account-name">{actor.name}</span>
-            <span className="account-email">{actor.email}</span>
+            <span className="account-avatar" aria-hidden="true">
+              {Array.from(actor.name)[0]?.toUpperCase() ?? 'E'}
+            </span>
+            <div className="account-details">
+              <span className="account-name" title={actor.name}>
+                {actor.name}
+              </span>
+              <span className="account-email">{actor.email}</span>
+            </div>
             <form action={signOutAction}>
               <SubmitButton className="link" working="Signing out">
                 Sign out
@@ -63,7 +85,8 @@ export default async function OrganizationLayout({
           </div>
         </div>
       </aside>
-      <main id="main" className="content">
+      <main id="main" className="content" tabIndex={-1}>
+        <WorkspaceContext groups={navigation} organizationName={organization.name} base={base} />
         <DraftScope account={actor.userId}>{children}</DraftScope>
       </main>
     </div>

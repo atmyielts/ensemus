@@ -1,0 +1,268 @@
+// Exercises the Activity with the real halt watcher: each slice's own doubles hid their ownership and
+// unknown-provider mismatch. Database effects are doubled here; the real roles have integration tests.
+import { randomUUID } from 'node:crypto';
+import {
+  completeTurn,
+  contextForRun,
+  createTurnStore,
+  raiseClassification,
+  readRunFacts,
+  storeStepPayload,
+  type RunFacts,
+} from '@ensemus/application/ai-runs';
+import type { LiveSwitch } from '@ensemus/application/ai-halt';
+import { TenantAccessDenied, type AgentContext, type AppDatabase } from '@ensemus/database';
+import { createServiceContext } from '@ensemus/database/service';
+import type { TurnOutcome } from '@ensemus/intelligence';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { createHaltWatcher, type HaltWatcher } from '../../../workers/workflow/src/kill-switch';
+import { createAgentActivities, type AgentActivityDeps } from './agent-activities';
+import type { StepInput } from './agent-schemas';
+
+vi.mock('@ensemus/application/ai-runs', async (original) => ({
+  ...(await original<typeof import('@ensemus/application/ai-runs')>()),
+  completeTurn: vi.fn(),
+  contextForRun: vi.fn(),
+  createTurnStore: vi.fn(),
+  raiseClassification: vi.fn(),
+  readRunFacts: vi.fn(),
+  storeStepPayload: vi.fn(),
+}));
+
+const input: StepInput = {
+  organizationId: randomUUID(),
+  workUnitId: randomUUID(),
+  agentRunId: randomUUID(),
+  temporalRunId: randomUUID(),
+  stepNumber: 1,
+};
+const versionId = randomUUID();
+const context: AgentContext = {
+  ...createServiceContext(input.organizationId),
+  userId: randomUUID(),
+  membershipId: randomUUID(),
+  role: 'owner',
+  actorType: 'agent',
+  agentRunId: input.agentRunId,
+};
+const counters = {
+  modelTurns: 0,
+  toolCalls: 0,
+  inputTokens: 0,
+  outputTokens: 0,
+  costMicros: 0,
+  activeMs: 0,
+};
+const facts: RunFacts = {
+  status: 'running',
+  temporalRunId: input.temporalRunId,
+  workUnitId: input.workUnitId,
+  agentVersionId: versionId,
+  classification: 'internal',
+  bound: null,
+  limits: {
+    maxModelTurns: 3,
+    maxToolCalls: 3,
+    maxTotalTokens: 1000,
+    maxCostMicros: 1000,
+    timeoutSeconds: 60,
+    maxDelegationDepth: 0,
+  },
+  counters,
+};
+const outcome = (kind: 'final_output' | 'stopped' = 'final_output'): TurnOutcome => ({
+  outcome: kind,
+  stopCode: null,
+  decisionCode: null,
+  usage: { inputTokens: 1, outputTokens: 1, costMicros: 1 },
+  profile: null,
+  text: kind === 'final_output' ? 'A synthetic answer.' : null,
+  toolCall: null,
+});
+
+const watchers: HaltWatcher[] = [];
+const calls: Promise<unknown>[] = [];
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason: unknown) => void;
+  const promise = new Promise<T>((yes, no) => {
+    resolve = yes;
+    reject = no;
+  });
+  return { promise, resolve, reject };
+}
+
+function fixture() {
+  let switches: readonly LiveSwitch[] = [];
+  const read = vi.fn(async () => switches);
+  const watcher = createHaltWatcher({ pollMs: 10, read, log: { warn: vi.fn(), error: vi.fn() } });
+  watchers.push(watcher);
+  watcher.start();
+  const temporal = new AbortController();
+  const heartbeat = vi.fn();
+  const entered = deferred<AbortSignal>();
+  const answer = deferred<TurnOutcome>();
+  const turn = vi.fn<AgentActivityDeps['gateway']['turn']>(
+    async (_ctx, _step, _compiled, signal) => {
+      entered.resolve(signal);
+      if (signal.aborted) return outcome('stopped');
+      signal.addEventListener('abort', () => answer.resolve(outcome('stopped')), { once: true });
+      return answer.promise;
+    },
+  );
+  const activities = createAgentActivities({
+    database: {} as AppDatabase,
+    gateway: { turn },
+    tools: { handle: vi.fn() },
+    context: {
+      compile: vi.fn<AgentActivityDeps['context']['compile']>(async () => ({
+        messages: [],
+        tools: [],
+        responseSchema: null,
+        task: {
+          runId: input.agentRunId,
+          purpose: 'reason',
+          quality: 'balanced',
+          required: ['text'],
+          classification: 'internal',
+          requiredRegion: null,
+          allowFallback: false,
+          pinned: null,
+        },
+        requestHash: 'a'.repeat(64),
+        maxOutputTokens: 100,
+        timeoutMs: 1000,
+        classification: 'internal',
+        sources: [],
+      })),
+    },
+    haltWatcher: watcher,
+    pulse: () => ({ heartbeat, signal: temporal.signal }),
+  });
+  return {
+    watcher,
+    read,
+    temporal,
+    heartbeat,
+    entered: entered.promise,
+    answer,
+    turn,
+    setSwitches: (next: readonly LiveSwitch[]) => {
+      switches = next;
+    },
+    run: () => {
+      const call = activities.runModelTurn(input);
+      calls.push(call.catch(() => undefined));
+      return call;
+    },
+  };
+}
+
+beforeEach(() => {
+  vi.useFakeTimers();
+  vi.clearAllMocks();
+  vi.mocked(contextForRun).mockResolvedValue(context);
+  vi.mocked(readRunFacts).mockResolvedValue(facts);
+  vi.mocked(createTurnStore).mockReturnValue({
+    beginTurn: vi.fn(async () => ({
+      kind: 'begin' as const,
+      stepId: randomUUID(),
+      attempt: 1,
+      lostAttempt: null,
+    })),
+    bindProfile: vi.fn(),
+  });
+  vi.mocked(raiseClassification).mockResolvedValue('internal');
+  vi.mocked(completeTurn).mockResolvedValue(counters);
+  vi.mocked(storeStepPayload).mockResolvedValue();
+});
+
+afterEach(async () => {
+  await Promise.all(watchers.splice(0).map((watcher) => watcher.stop()));
+  await Promise.allSettled(calls.splice(0));
+  vi.useRealTimers();
+});
+
+describe('an Activity owns its halt watch for one call', () => {
+  it('aborts the first, unpinned call when a provider switch engages', async () => {
+    const world = fixture();
+    const result = world.run();
+    const signal = await world.entered;
+    world.setSwitches([{ organizationId: null, scope: 'provider', targetRef: 'openai_hosted' }]);
+    await vi.advanceTimersByTimeAsync(10);
+    expect(signal.aborted).toBe(true);
+    await expect(result).resolves.toMatchObject({ outcome: 'stopped', stopCode: 'HALTED' });
+  });
+
+  it('does not abort a call pinned to a different provider', async () => {
+    vi.mocked(readRunFacts).mockResolvedValue({
+      ...facts,
+      bound: {
+        profileId: randomUUID(),
+        profileVersion: 1,
+        providerKind: 'local_openai_compatible',
+      },
+    });
+    const world = fixture();
+    const result = world.run();
+    const signal = await world.entered;
+    world.setSwitches([{ organizationId: null, scope: 'provider', targetRef: 'openai_hosted' }]);
+    await vi.advanceTimersByTimeAsync(10);
+    expect(signal.aborted).toBe(false);
+    world.answer.resolve(outcome());
+    await expect(result).resolves.toMatchObject({ outcome: 'final_output' });
+  });
+
+  it('releases a successful call instead of polling its tenant forever', async () => {
+    const world = fixture();
+    const result = world.run();
+    await world.entered;
+    world.answer.resolve(outcome());
+    await result;
+    await vi.advanceTimersByTimeAsync(30);
+    expect(world.read).not.toHaveBeenCalled();
+  });
+
+  it('releases a failed call and does not expose the thrown content', async () => {
+    const world = fixture();
+    const result = world.run();
+    await world.entered;
+    world.answer.reject(new Error('PRIVATE_PROVIDER_ERROR_CANARY'));
+    await expect(result).rejects.toMatchObject({ message: 'Agent activity failed' });
+    await vi.advanceTimersByTimeAsync(30);
+    expect(world.read).not.toHaveBeenCalled();
+  });
+
+  it('releases the watch if the first heartbeat fails before the call starts', async () => {
+    const world = fixture();
+    world.heartbeat.mockImplementation(() => {
+      throw new Error('PRIVATE_HEARTBEAT_ERROR_CANARY');
+    });
+    await expect(world.run()).rejects.toMatchObject({ message: 'Agent activity failed' });
+    expect(world.turn).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(30);
+    expect(world.read).not.toHaveBeenCalled();
+  });
+
+  it.each(['CANCELLED', 'WORKER_SHUTDOWN'])('releases a call cancelled by %s', async (reason) => {
+    const world = fixture();
+    const result = world.run();
+    const signal = await world.entered;
+    world.temporal.abort(new Error(reason));
+    expect(signal.aborted).toBe(true);
+    if (reason === 'CANCELLED') await expect(result).resolves.toMatchObject({ outcome: 'stopped' });
+    else await expect(result).rejects.toMatchObject({ type: 'WORKER_INTERRUPTED' });
+    await vi.advanceTimersByTimeAsync(30);
+    expect(world.read).not.toHaveBeenCalled();
+  });
+
+  it('never opens a watch or a model call for a revoked initiator', async () => {
+    vi.mocked(contextForRun).mockRejectedValue(new TenantAccessDenied());
+    const world = fixture();
+    const watch = vi.spyOn(world.watcher, 'signalFor');
+    await expect(world.run()).rejects.toMatchObject({ type: 'INITIATOR_INACTIVE' });
+    expect(watch).not.toHaveBeenCalled();
+    expect(world.turn).not.toHaveBeenCalled();
+  });
+});

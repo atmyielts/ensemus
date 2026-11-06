@@ -11,7 +11,11 @@ import {
   setBudget,
 } from '@ensemus/application/ai-budget';
 import type { Entitlements, LedgerEntry } from '@ensemus/application/ai-ports';
-import { createUsageLedger, closeRunReservations, recordLostAnswer } from '@ensemus/application/ai-usage';
+import {
+  createUsageLedger,
+  closeRunReservations,
+  recordLostAnswer,
+} from '@ensemus/application/ai-usage';
 import {
   createEntitlements,
   FEATURE_AGENT_RUN,
@@ -428,8 +432,19 @@ describe('usage and budgets, as the real roles', () => {
     it('reconciles a run against the sum of its ledger', async () => {
       const tenant = await freshTenant();
       const run = await startRun(tenant);
-      await record(run, entry(run, { costMicros: 25 }));
-      await record(run, entry(run, { costMicros: 75 }));
+      const profileId = await seedActiveProfile(app.db, agent.db, tenant.owner);
+      const rateCardId = await seedRateCard(app.db, tenant.owner, profileId);
+      const priced = {
+        meter: 'model_input_tokens',
+        unit: 'token',
+        profileId,
+        profileVersion: 1,
+        providerKind: 'local_openai_compatible',
+        rateCardId,
+        rateCardVersion: 1,
+      } as const;
+      await record(run, entry(run, { ...priced, quantity: 25, costMicros: 25 }));
+      await record(run, entry(run, { ...priced, quantity: 75, costMicros: 75 }));
       await expect(ledger().reconcileRun(run.context, run.runId)).resolves.toEqual({
         ledgerMicros: 100,
         counterMicros: 0,
@@ -519,7 +534,10 @@ describe('usage and budgets, as the real roles', () => {
       });
       const rateCardId = await seedRateCard(app.db, tenant.owner, profileId);
       await record(run, modelRow(run, profileId, rateCardId));
-      expect(await usageOf(tenant, run)).toMatchObject({ billable: false, commercialMode: 'cloud' });
+      expect(await usageOf(tenant, run)).toMatchObject({
+        billable: false,
+        commercialMode: 'cloud',
+      });
     });
 
     it('bills Cloud for a profile Ensemus pays for', async () => {
@@ -544,9 +562,9 @@ describe('usage and budgets, as the real roles', () => {
 
     it('refuses a member, and a run acting for the owner', async () => {
       const tenant = await freshTenant();
-      await expect(
-        setBudget(app.db, tenant.member, organizationBudget(100)),
-      ).rejects.toMatchObject({ code: 'FORBIDDEN' });
+      await expect(setBudget(app.db, tenant.member, organizationBudget(100))).rejects.toMatchObject(
+        { code: 'FORBIDDEN' },
+      );
       const run = await startRun(tenant);
       await expect(setBudget(app.db, run.context, organizationBudget(100))).rejects.toMatchObject({
         code: 'FORBIDDEN',
@@ -601,7 +619,22 @@ describe('usage and budgets, as the real roles', () => {
       const budgetId = await seedOrganizationBudget(app.db, tenantA.owner, 1_000);
       const run = await startRun(tenantA);
       await holdId(run, await startStep(tenantA, run, 1), 100);
-      await record(run, entry(run, { costMicros: 5 }));
+      const profileId = await seedActiveProfile(app.db, agent.db, tenantA.owner);
+      const rateCardId = await seedRateCard(app.db, tenantA.owner, profileId);
+      await record(
+        run,
+        entry(run, {
+          meter: 'model_input_tokens',
+          unit: 'token',
+          quantity: 5,
+          costMicros: 5,
+          profileId,
+          profileVersion: 1,
+          providerKind: 'local_openai_compatible',
+          rateCardId,
+          rateCardVersion: 1,
+        }),
+      );
 
       await expect(listBudgets(app.db, tenantB.owner, { period })).resolves.toEqual([]);
       await expect(getUsageSummary(app.db, tenantB.owner, { period })).resolves.toMatchObject({
@@ -649,7 +682,13 @@ describe('usage and budgets, as the real roles', () => {
   describe('entitlements', () => {
     const issue = async (
       organizationId: string,
-      row: { mode: string; version: number; period: string; features: string[]; capacities?: object },
+      row: {
+        mode: string;
+        version: number;
+        period: string;
+        features: string[];
+        capacities?: object;
+      },
     ) => {
       // Nothing a tenant can write: M6's license and M8's billing do this later. Superuser stands in.
       const client = new pg.Client({ connectionString: urls.superuser() });

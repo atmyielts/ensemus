@@ -1,7 +1,16 @@
 // What the air-gap gate decides, apart from the Docker it runs on, so that a unit test can check each
 // decision. See tests/unit/air-gap-rules.test.ts.
 
-export const WATCHED_PREFIX = '172.30';
+/** A dedicated gate project may select another private /16; the firewall and stack move together. */
+export function gateNetworkPrefix(value) {
+  if (value === undefined) return '172.30';
+  if (!/^172\.(1[6-9]|2[0-9]|3[01])$/.test(value)) {
+    throw new Error('AIRGAP_NETWORK_PREFIX_INVALID');
+  }
+  return value;
+}
+
+export const WATCHED_PREFIX = gateNetworkPrefix(process.env.ENSEMUS_AIRGAP_NETWORK_PREFIX);
 export const SUBNET = `${WATCHED_PREFIX}.0.0/16`;
 
 /**

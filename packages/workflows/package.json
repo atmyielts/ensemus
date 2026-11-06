@@ -27,17 +27,18 @@
     "@ensemus/agent-runtime": "workspace:*",
     "@ensemus/application": "workspace:*",
     "@ensemus/commercial": "workspace:*",
-    "@ensemus/intelligence": "workspace:*",
-    "@ensemus/policy": "workspace:*",
     "@ensemus/connectors": "workspace:*",
     "@ensemus/database": "workspace:*",
     "@ensemus/domain": "workspace:*",
+    "@ensemus/intelligence": "workspace:*",
+    "@ensemus/policy": "workspace:*",
     "@ensemus/telemetry": "workspace:*",
-    "drizzle-orm": "0.45.4",
+    "@temporalio/activity": "1.25.0",
     "@temporalio/client": "1.25.0",
     "@temporalio/common": "1.25.0",
     "@temporalio/proto": "1.25.0",
     "@temporalio/workflow": "1.25.0",
+    "drizzle-orm": "0.45.4",
     "zod": "4.6.7"
   }
 }

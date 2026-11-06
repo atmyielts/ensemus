@@ -67,13 +67,44 @@ export class S3ObjectStore {
     );
   }
 
-  async get(key: string): Promise<Buffer> {
+  async get(key: string, maxBytes?: number): Promise<Buffer> {
+    if (maxBytes !== undefined && (!Number.isSafeInteger(maxBytes) || maxBytes <= 0)) {
+      throw new Error('INVALID_OBJECT_LIMIT');
+    }
     const response = await this.#client.send(
       new GetObjectCommand({ Bucket: this.#bucket, Key: key }),
     );
+    if (maxBytes !== undefined) {
+      const body = response.Body as
+        (AsyncIterable<Uint8Array> & { destroy?: () => void }) | undefined;
+      if (!body || typeof body[Symbol.asyncIterator] !== 'function') {
+        body?.destroy?.();
+        throw new Error('OBJECT_NOT_STREAMABLE');
+      }
+      try {
+        if (response.ContentLength !== undefined && response.ContentLength > maxBytes) {
+          throw new Error('OBJECT_TOO_LARGE');
+        }
+        let size = 0;
+        const chunks: Buffer[] = [];
+        for await (const chunk of body) {
+          size += chunk.byteLength;
+          if (size > maxBytes) throw new Error('OBJECT_TOO_LARGE');
+          chunks.push(Buffer.from(chunk));
+        }
+        return Buffer.concat(chunks, size);
+      } finally {
+        // An over-limit or interrupted read cannot keep consuming bytes in the background.
+        body.destroy?.();
+      }
+    }
     const bytes = await response.Body?.transformToByteArray();
     if (!bytes) throw new Error('Object has no body');
     return Buffer.from(bytes);
+  }
+
+  close(): void {
+    this.#client.destroy();
   }
 
   async delete(key: string): Promise<void> {

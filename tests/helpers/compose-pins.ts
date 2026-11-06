@@ -19,8 +19,10 @@ export const SHIPPED_CONNECTIONS: Record<string, string[]> = {
   proxy: ['web'],
   web: dataPeers,
   worker: [...dataPeers, 'temporal'],
+  'agent-worker': ['postgres', 'temporal', 'objects'],
   dispatcher: [...dataPeers, 'temporal'],
   migrate: dataPeers,
+  'provision-roles': ['postgres'],
   'temporal-schema': ['postgres'],
   temporal: ['postgres'],
   'temporal-namespace': ['temporal'],
@@ -35,6 +37,9 @@ export const TEST_CONNECTIONS: Record<string, string[]> = {
   proxy: ['web', 'web-2'],
   'web-2': dataPeers,
   'temporal-test-port': ['temporal'],
+  'agent-worker': ['postgres', 'temporal', 'objects', 'fake-model'],
+  'fake-model': [],
+  'fake-model-test-port': ['fake-model'],
 };
 
 export function pinsOf(config: ResolvedConfig, service: string): Record<string, string> {
@@ -73,7 +78,12 @@ export function pinProblems(
     const networks = addressesOf(config, client).map(({ network }) => network);
     const expected: Record<string, string> = {};
     for (const peer of peers) {
-      const shared = addressesOf(config, peer).find(({ network }) => networks.includes(network));
+      const shared = addressesOf(config, peer).find(
+        ({ network }) =>
+          networks.includes(network) &&
+          // Auxiliary worker networks also join these peers; Temporal still uses its DB network.
+          (client !== 'temporal' || peer !== 'postgres' || network === 'temporal-db'),
+      );
       if (!shared) {
         problems.push(`${client} shares no network with ${peer}`);
       } else if (!/^\d+\.\d+\.\d+\.\d+$/.test(shared.address ?? '')) {

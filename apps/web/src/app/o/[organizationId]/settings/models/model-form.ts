@@ -59,7 +59,8 @@ const strings = (form: FormData, name: string) =>
 /** The fields the create and edit forms share. Anything malformed is the schema's to refuse. */
 function sharedFields(form: FormData) {
   return {
-    model_id: text(form, 'modelId'),
+    // A provider's case-sensitive model identifier is not a database UUID.
+    model_id: typeof form.get('modelId') === 'string' ? String(form.get('modelId')).trim() : '',
     alias: text(form, 'alias'),
     endpoint_url: text(form, 'endpointUrl'),
     region: orNull(text(form, 'region')),

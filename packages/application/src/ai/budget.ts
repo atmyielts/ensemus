@@ -387,8 +387,7 @@ const DENIALS: Partial<Record<StopCode, DenialKind>> = {
  * Whose answer a stop was. "Your plan does not include this" sends an admin to the account, and "your
  * policy does not allow this" sends them to their own rules. Null for a stop that was neither.
  */
-export const diagnoseStop = (code: string): DenialKind | null =>
-  DENIALS[code as StopCode] ?? null;
+export const diagnoseStop = (code: string): DenialKind | null => DENIALS[code as StopCode] ?? null;
 
 /** One UTC month, as the half-open range an index can use. */
 export function periodRange(period: string): { from: Date; to: Date } {

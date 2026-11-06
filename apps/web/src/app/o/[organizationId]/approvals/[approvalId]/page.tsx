@@ -17,6 +17,7 @@ import {
 } from '@/components/ui';
 import { orNotFound, requireTenant } from '@/server/tenant';
 import { decideApprovalAction } from '@/server/work-actions';
+import { AgentAction } from './agent-action';
 
 export const metadata = { title: 'Approval | Ensemus' };
 
@@ -180,6 +181,7 @@ export default async function ApprovalPage({
           </section>
         )}
 
+        <AgentAction organizationId={organizationId} approvalId={approvalId} />
         {isEmail && (
           <section className="card" aria-labelledby="email-heading">
             <h2 id="email-heading">The exact email</h2>
@@ -199,7 +201,7 @@ export default async function ApprovalPage({
                   </strong>{' '}
                   <small>{formatDateTime(decision.decidedAt)}</small>
                   {decision.reason && (
-                    <p className="pre-wrap" style={{ marginTop: '0.25rem' }}>
+                    <p className="pre-wrap gap-above-small">
                       {decision.reason}
                     </p>
                   )}

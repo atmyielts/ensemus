@@ -305,6 +305,9 @@ importers:
       '@ensemus/telemetry':
         specifier: workspace:*
         version: link:../telemetry
+      '@temporalio/activity':
+        specifier: 1.25.0
+        version: 1.25.0(long@5.3.2)(protobufjs@8.8.1)
       '@temporalio/client':
         specifier: 1.25.0
         version: 1.25.0(long@5.3.2)(protobufjs@8.8.1)
@@ -423,6 +426,9 @@ importers:
 
   workers/workflow:
     dependencies:
+      '@temporalio/activity':
+        specifier: 1.25.0
+        version: 1.25.0(long@5.3.2)(protobufjs@8.8.1)
       '@temporalio/client':
         specifier: 1.25.0
         version: 1.25.0(long@5.3.2)(protobufjs@8.8.1)
@@ -451,6 +457,9 @@ importers:
       '@ensemus/connectors':
         specifier: workspace:*
         version: link:../../packages/connectors
+      '@ensemus/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
       '@ensemus/database':
         specifier: workspace:*
         version: link:../../packages/database

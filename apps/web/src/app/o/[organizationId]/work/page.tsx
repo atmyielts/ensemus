@@ -80,7 +80,7 @@ export default async function WorkPage({
           <Link href={`${base}/work`}>Show all work</Link>
         </p>
       )}
-      <form className="inline-form filter" method="get" style={{ marginBottom: '1rem' }}>
+      <form className="inline-form filter" method="get">
         {projectId && <input type="hidden" name="project" value={projectId} />}
         <label>
           Status
