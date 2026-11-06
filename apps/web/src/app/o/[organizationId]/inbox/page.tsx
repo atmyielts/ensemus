@@ -29,6 +29,9 @@ const KIND_WORDS: Record<string, string> = {
   'work.owner_recovered':
     'Another owner chose a new owner for restricted work whose owner was disabled',
   'member.join_requested': 'Someone is asking to join, and needs confirming',
+  'external_action.unknown': "We don't know whether something was sent, and it needs you to look",
+  'external_action.failed': 'Something you asked to send was not sent',
+  'external_action.sent': 'Something you asked to send was sent',
 };
 
 /** Turns a notification's reference into a page. The page checks access when it is opened. */
@@ -39,6 +42,7 @@ function targetPath(base: string, targetRef: string) {
   if (separator > 0 && type === 'approval') return `${base}/approvals/${id}`;
   if (separator > 0 && type === 'work_unit') return `${base}/work/${id}`;
   if (separator > 0 && type === 'invitation') return `${base}/people`;
+  if (separator > 0 && type === 'external_action') return `${base}/external-actions/${id}`;
   return `${base}/inbox`;
 }
 

@@ -332,6 +332,8 @@ test.describe('a refused save keeps what was typed', () => {
     await expect(page.getByText('This changed while you were editing.')).toBeVisible();
     await expect(page.getByRole('button', { name: 'Keep my text' })).toHaveCount(0);
     await expect(save).toBeEnabled();
+    // A refused save moved nothing, so the rest of the page comes back without a new version too.
+    await expect(page.getByRole('button', { name: 'Mark ready' })).toBeEnabled();
     await expect(page.getByLabel('Objective')).toHaveValue('What I was writing.');
     expect(await stored()).toEqual(first);
 

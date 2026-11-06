@@ -501,7 +501,6 @@ paths:
       - $ref: '#/components/parameters/OrganizationID'
       - $ref: '#/components/parameters/WorkUnitID'
     post:
-      x-ensemus-status: planned
       tags: [external-actions]
       summary: Propose an email, for a named person to approve exactly as written
       parameters: [{$ref: '#/components/parameters/IdempotencyKey'}]
@@ -531,7 +530,6 @@ paths:
     parameters:
       - $ref: '#/components/parameters/OrganizationID'
     get:
-      x-ensemus-status: planned
       tags: [external-actions]
       summary: External actions on work the caller can read
       parameters:
@@ -566,7 +564,6 @@ paths:
       - $ref: '#/components/parameters/OrganizationID'
       - $ref: '#/components/parameters/ExternalActionID'
     get:
-      x-ensemus-status: planned
       tags: [external-actions]
       summary: One external action, with its exact payload and every receipt
       responses:
@@ -587,7 +584,6 @@ paths:
       - $ref: '#/components/parameters/OrganizationID'
       - $ref: '#/components/parameters/ExternalActionID'
     post:
-      x-ensemus-status: planned
       tags: [external-actions]
       summary: Change what would be sent. This closes the action and its approval, and asks for a new one
       parameters:
@@ -620,7 +616,6 @@ paths:
       - $ref: '#/components/parameters/OrganizationID'
       - $ref: '#/components/parameters/ExternalActionID'
     post:
-      x-ensemus-status: planned
       tags: [external-actions]
       summary: Say what happened to an action in the unknown state. It never sends anything
       parameters:
@@ -659,7 +654,6 @@ paths:
       - $ref: '#/components/parameters/OrganizationID'
       - $ref: '#/components/parameters/ExternalActionID'
     post:
-      x-ensemus-status: planned
       tags: [external-actions]
       summary: Ask again for an action that ended failed, as a new action with a new approval
       requestBody:
@@ -693,7 +687,6 @@ paths:
     parameters:
       - $ref: '#/components/parameters/OrganizationID'
     get:
-      x-ensemus-status: planned
       tags: [connections]
       summary: Connections in this organization, without their credentials
       responses:
@@ -714,7 +707,6 @@ paths:
         '500': {$ref: '#/components/responses/InternalError'}
         '503': {$ref: '#/components/responses/RestorePending'}
     post:
-      x-ensemus-status: planned
       tags: [connections]
       summary: Add a connection. A credential is sealed on arrival and can never be read back
       parameters: [{$ref: '#/components/parameters/IdempotencyKey'}]
@@ -756,7 +748,6 @@ paths:
       - $ref: '#/components/parameters/OrganizationID'
       - $ref: '#/components/parameters/ConnectionID'
     get:
-      x-ensemus-status: planned
       tags: [connections]
       summary: One connection, without its credential
       responses:
@@ -774,7 +765,6 @@ paths:
         '500': {$ref: '#/components/responses/InternalError'}
         '503': {$ref: '#/components/responses/RestorePending'}
     delete:
-      x-ensemus-status: planned
       tags: [connections]
       summary: Revoke a connection. Nothing not yet attempted goes out through it after this
       parameters:
@@ -794,7 +784,6 @@ paths:
       - $ref: '#/components/parameters/OrganizationID'
       - $ref: '#/components/parameters/ConnectionID'
     post:
-      x-ensemus-status: planned
       tags: [connections]
       summary: Ask a connection to read its source now
       responses:
@@ -811,7 +800,6 @@ paths:
       - $ref: '#/components/parameters/OrganizationID'
       - $ref: '#/components/parameters/ConnectionID'
     post:
-      x-ensemus-status: planned
       tags: [connections]
       summary: Make a callback address. Its URL and signing secret are shown here once, and never again
       responses:
@@ -1169,6 +1157,11 @@ components:
           properties:
             artifact_exists: {type: boolean}
             reviewer_approved: {type: boolean}
+            external_receipt:
+              type: boolean
+              description: >-
+                The outside system confirms it happened. Accepted only when this organization has an
+                active connection that can act, because nothing else could ever satisfy it.
     PendingApproval:
       type: object
       additionalProperties: false

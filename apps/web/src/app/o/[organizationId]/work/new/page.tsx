@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { listProjects } from '@ensemus/application';
+import { listActionConnections, listProjects } from '@ensemus/application';
 import { NewWorkForm } from '@/components/new-work-form';
 import { ErrorNotice, PageHead } from '@/components/ui';
 import { requireTenant } from '@/server/tenant';
@@ -16,7 +16,10 @@ export default async function NewWorkPage({
   const { organizationId } = await params;
   const { error } = await searchParams;
   const { context, database } = await requireTenant(organizationId);
-  const projects = await listProjects(database, context);
+  const [projects, actionConnections] = await Promise.all([
+    listProjects(database, context),
+    listActionConnections(database, context),
+  ]);
 
   return (
     <>
@@ -26,7 +29,12 @@ export default async function NewWorkPage({
         Nothing runs until someone starts it. Creating this only records the outcome, with you as
         the accountable owner. You can hand it to someone else later.
       </p>
-      <NewWorkForm organizationId={organizationId} projects={projects} requestKey={randomUUID()} />
+      <NewWorkForm
+        organizationId={organizationId}
+        projects={projects}
+        requestKey={randomUUID()}
+        canAskForReceipt={actionConnections.length > 0}
+      />
     </>
   );
 }

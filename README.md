@@ -2,18 +2,18 @@
 
 An AI-native company operating system, in which people and permissioned agents coordinate, carry out, verify and remember company work.
 
-**Status: M1, release skeleton. This is a secure foundation, not a usable product yet.** See the [delivery plan](docs/06-delivery/06-end-to-end-delivery-plan.md) and [M1 evidence report](docs/06-delivery/evidence/M1-report.md).
+**Status: M2, core work product under verification.** Organizations, people, clients, projects, work, files, approvals and deterministic checklist execution are implemented. M1's outside security review and owner decisions remain open; use throwaway test data and credentials. See the [delivery plan](docs/06-delivery/06-end-to-end-delivery-plan.md), [M2 evidence report](docs/06-delivery/evidence/M2-report.md) and [M1 review requirements](docs/06-delivery/evidence/M1-report.md#what-stops-m1-closing).
 
 ## Layout
 
-| Path               | What it holds                                                                               |
-| ------------------ | ------------------------------------------------------------------------------------------- |
-| `apps/web`         | The only customer-facing server (Next.js)                                                   |
-| `workers/workflow` | Temporal worker and the migration job; serves no HTTP                                       |
-| `packages/*`       | Shared code: `database`, `auth`, `secrets`, `workflows`, `telemetry`, `contracts`, `config` |
-| `infrastructure`   | Dockerfiles, Compose stack and gate scripts                                                 |
-| `tests`            | Integration tests against real PostgreSQL, and stack tests against built images             |
-| `docs`             | The full specification, ADRs and backlog                                                    |
+| Path               | What it holds                                                                                                 |
+| ------------------ | ------------------------------------------------------------------------------------------------------------- |
+| `apps/web`         | The only customer-facing server (Next.js)                                                                     |
+| `workers/workflow` | Temporal worker and the migration job; serves no HTTP                                                         |
+| `packages/*`       | Shared domain, application, database, auth, secrets, storage, workflows, telemetry, contracts and config code |
+| `infrastructure`   | Dockerfiles, Compose stack and gate scripts                                                                   |
+| `tests`            | Integration tests against real PostgreSQL, and stack tests against built images                               |
+| `docs`             | The full specification, ADRs and backlog                                                                      |
 
 Coding agents must follow [`docs/AGENTS.md`](docs/AGENTS.md).
 

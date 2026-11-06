@@ -36,13 +36,13 @@ Sign-up is off by default (`ENSEMUS_ALLOW_SIGNUP` is `false`), so a new install 
 
 A code makes an account and nothing more. It gives no access to any existing organization, so a code that leaks costs an unwanted empty account, and there is no way to withdraw one before it runs out.
 
-To let someone else in while sign-up is off, invite them from the people page and either issue them a code too, or connect OIDC (`ENSEMUS_OIDC_DISCOVERY_URL`). The invitation page links to `/setup` and returns them to the invitation afterwards. Because the product sends no mail, a password account's address is unproven, so someone who can invite still confirms them on the people page.
+To let someone else in while sign-up is off, invite them from the people page and either issue them a code too, or connect OIDC (`ENSEMUS_OIDC_DISCOVERY_URL`). The invitation page links to `/setup` and returns them to the invitation afterwards. Because the product sends no account or notification mail, a password account's address is unproven, so someone who can invite still confirms them on the people page.
 
 Set `ENSEMUS_ALLOW_SIGNUP=true` only if anyone who can reach this deployment should be able to create an account and an organization of their own. Their organizations are isolated from yours, and joining yours still takes an invitation.
 
 ## Notifications
 
-In-app is the only channel for now. Approval requests and reminders appear in the person's inbox, and each reminder moves the item back to the top, up to three reminders a day apart. Someone who does not open Ensemus hears nothing until they do. This works the same in an air-gapped install. Email arrives with M3 (`docs/06-delivery/06-end-to-end-delivery-plan.md`), and nothing here sends any today.
+In-app is the only channel for now. Approval requests and reminders appear in the person's inbox, and each reminder moves the item back to the top, up to three reminders a day apart. Someone who does not open Ensemus hears nothing until they do. This works the same in an air-gapped install. Notification email is not built, and has consent questions of its own. What M3 adds is different: outbound email as an action someone approves, and only with the connectors profile on (see [Connectors and outbound actions](#connectors-and-outbound-actions)). No approval request or reminder goes by email.
 
 ## Web process
 
@@ -54,7 +54,7 @@ Temporal pollers authenticate independently to Temporal service. Agent/ingestion
 
 ## Security and network flows
 
-Ingress: HTTPS only to reverse proxy → web. Internal: web → PostgreSQL, object store and local auth; dispatcher → PostgreSQL, Temporal, and the object store's tombstone ledger alone, with its own scoped identity (ADR-026); worker → PostgreSQL, Temporal, object store and key material as policy. Valkey shares the data network and no code connects to it yet (ADR-025 D9). External egress only for approved provider/connector profiles; explicit blocked-by-default in Sovereign air gap. Do not expose object storage secrets or model API keys to browsers, traces, or generic worker job bodies.
+Ingress: HTTPS only to reverse proxy → web. Internal: web → PostgreSQL, object store and local auth; dispatcher → PostgreSQL, Temporal, and the object store's tombstone ledger alone, with its own scoped identity (ADR-026); worker → PostgreSQL, Temporal, object store and key material as policy. Valkey shares the data network and no code connects to it yet (ADR-025 D9). With the connectors profile on: connector worker → PostgreSQL, Temporal and the egress gateway, on an internal network with no route out; egress gateway → the one relay an operator named, holding no secret. External egress only for approved provider/connector profiles; explicit blocked-by-default in Sovereign air gap. Do not expose object storage secrets or model API keys to browsers, traces, or generic worker job bodies.
 
 Internal service names are pinned to fixed addresses in `compose.yaml`. Docker forwards the name of a stopped container to the host resolver, so without the pins an outage would send internal names off the network. The default range is `172.30.0.0/16`. If your site already uses it, set `ENSEMUS_NETWORK_PREFIX` (for example `172.29`) before the first start; changing it later recreates the networks. The air-gap gate stops each service in turn and fails on any lookup that leaves. It also fails if requests through the proxy to either web replica do not get the answer that outage should give, or if the running stack is not on the watched range. Valkey has no client yet, so its round only shows that nothing else breaks.
 
@@ -84,6 +84,71 @@ When you set it:
 
 An outage of Temporal costs events no attempts, so they wait and are delivered when it returns. An event at fault itself goes dead after 12 attempts. One that keeps getting gRPC UNKNOWN or INTERNAL could be either, so it is given 288 attempts, about a day, before it goes dead the same way. The dispatcher logs each failure as an error code. Once the cause is fixed, put dead events back in the queue with `docker compose exec dispatcher node dist/redrive.js [organization-id]`, which prints a count and no content. The dispatcher also checks every tenant's reminder schedule when it starts. Each tenant's 15-minute upkeep expires overdue approvals, finishes byte deletions the object store refused, removes uploads whose row never arrived, marks work failed when Temporal says the run holding it has closed, and asks again for any plan run nothing has claimed after 5 minutes. Byte deletions that keep failing wait longer each time, up to a day, so they cannot keep others waiting.
 
+## Connectors and outbound actions
+
+**Off by default, and no install needs it.** With no profile there is no connector worker and no gateway, the stack makes no outbound attempt, the web tier refuses to create a connection, and the webhook route answers 404. Why it is built this way is in [ADR-027](../00-foundation/adr/ADR-027-verified-external-actions.md). **That ADR needs an outside security review before any real credential is stored.** Until then, use generated test values against a test relay only. No real provider has been used.
+
+### Turning it on
+
+Set these in the environment Compose reads, and start the stack with the profile:
+
+| Setting | What it does |
+|---|---|
+| `COMPOSE_PROFILES=connectors`, or `--profile connectors` | Starts `connector-worker` and `egress-gateway`. Use it on every Compose command, because a command without it does not see those two services |
+| `ENSEMUS_CONNECTORS_ENABLED=true` | Lets `web` create connections and answer the webhook route. Leave it false unless the worker is running, so that no row waits for a worker that is not coming |
+| `ENSEMUS_EGRESS_TARGET=host:port` | The one relay the gateway forwards to. The gateway refuses to start without it, and it is the only way out of the stack |
+| `ENSEMUS_SMTP_TLS` | Anything but `none` means TLS is required, and a relay that does not offer it is refused rather than used in the clear. Set `none` only for a relay on a trusted site network. The test overlay is the only place in this repository that sets it |
+| `ENSEMUS_SMTP_MESSAGE_ID_DOMAIN` | The domain in each Message-ID, `<{action id}@{domain}>`. It is what someone searches the relay's log for |
+
+**Who can reach what.** `connector-worker` holds the credentials and sits on the `connectors` network alone, which is internal, so it reaches PostgreSQL, Temporal and the gateway and nothing else. `egress-gateway` holds no secrets and is on `connectors` and `outbound`. `web` is on neither. On a Sovereign site, make the target an on-site relay, and have the site's firewall limit `outbound` to it. An air-gapped install with no relay runs no profile.
+
+**Turning it off.** Remove the profile and set `ENSEMUS_CONNECTORS_ENABLED` back to false. Unsent actions stay `ready`, and they wait until it is on again. Nothing goes out.
+
+### The `unknown` queue, and who watches it
+
+`unknown` means an attempt could have gone through and the provider cannot say. For email that is every timeout after the end of a message. Ensemus never retries one and never guesses. A person has to look.
+
+- **Who is told:** the accountable owner and whoever asked, in their inbox, once and at once. Nothing is emailed, and M3 adds no alert to an operator. An unknown action nobody opens stays unknown.
+- **Who answers:** the accountable owner, and organization owners and admins who can see the work, on the organization's external actions page under `Needs a decision`. They search the relay's log for the Message-ID shown, then say what they found. **There is no send button here.** Saying it was not sent ends it as failed, and asking again takes a new approval.
+- **What you do as an operator:** give those people access to the relay's log, because the answer is only there. Watch how many are waiting and how old they are. This prints counts and no content:
+
+  ```sh
+  compose exec postgres psql -U postgres -d ensemus -c \
+    "select organization_id, count(*), min(updated_at) from integrations.external_actions
+     where status = 'unknown' group by 1"
+  ```
+
+  An action stuck in `sending` or `reconciling` for more than a few minutes means the connector worker is not running. Temporal holds its run, and nothing is lost: it carries on when the worker returns. An action with no worker for an hour ends failed with `CONNECTOR_UNAVAILABLE`, which never reached anyone.
+
+**The cost.** Every timeout after the commit point takes a person's time, including the false ones, such as a crash just before the first byte. How often this happens has not been measured, because no real relay has been used.
+
+### Webhooks that cannot be applied
+
+The web tier stores what arrives and answers 202 without believing it, so a sender cannot tell at HTTP level that its signature failed. The outcome is on the delivery row. Bodies are dropped at every ending, and a delivery never retries itself into a loop.
+
+```sh
+compose exec postgres psql -U postgres -d ensemus -c \
+  "select organization_id, endpoint_id, state, reject_code, count(*)
+   from integrations.webhook_deliveries group by 1, 2, 3, 4"
+```
+
+| What you see | What it means | What to do |
+|---|---|---|
+| `rejected`, `BAD_SIGNATURE` or `SIGNATURE_MISSING` | The sender's secret or code is wrong, or someone who is not the sender has the URL | Check the sender. If nobody you know sent it, replace the endpoint |
+| `rejected`, `TIMESTAMP_OUTSIDE_WINDOW` | A replay, or a sender's clock more than the window off (5 minutes by default) | Check the sender's clock. It is safe to ignore a replay |
+| `rejected`, `MALFORMED_PAYLOAD` | It was signed correctly and it makes no sense. This is the poison case. It ended here, and is not retried | Tell the sender. They need to send a corrected event |
+| `rejected`, `SECRET_UNAVAILABLE` | **Not the sender's fault.** The worker could not open the signing secret. The bytes are gone | Fix the sealing key first. Then the sender has to send it again, with a new event ID if the old one was applied |
+| `rejected`, `NOT_PROCESSED_IN_TIME` | Nobody verified it within 24 hours, usually because the connector worker was down | Start the worker. The sender has to send it again |
+| `duplicate` | That event ID was already applied, so nothing happened | Nothing is needed |
+| `received`, and old | The worker or Temporal is down, or the event is dead in the outbox | Check the worker. Put dead events back with `redrive.js`, as above |
+
+A sender getting 429 has hit that endpoint's rate or backlog limit. These limits are starting values, not measurements. Someone with a leaked URL can fill that endpoint's window and delay genuine callbacks. The cure is to make a new endpoint and move the sender to it. The specification has no route to disable the old one yet, so an operator does it directly, which takes effect at once:
+
+```sh
+compose exec postgres psql -U postgres -d ensemus -c \
+  "update integrations.webhook_endpoints set state = 'disabled' where id = '<endpoint id>'"
+```
+
 ## Backup and restore
 
 **This is the M2 scope: the PostgreSQL database, and deleted files staying deleted.** A full backup and restore of PostgreSQL, Temporal and the object store together, with a drill, comes in M6 (`OPS-02`). Until then, restoring from these steps loses whatever was done after the backup, and Temporal may remember plan runs the restored database does not have. Nothing here is automated or scheduled, and no recovery time is promised. Why it works this way is in [ADR-026](../00-foundation/adr/ADR-026-tombstones-survive-restore.md).
@@ -109,6 +174,15 @@ compose run --rm --no-deps dispatcher node dist/ledger-backlog.js
 This prints how many deletions have not reached the ledger (`queued`, and `dead` if any went dead) and how long the oldest has waited (`oldestSeconds`). **These are the deletions a restore could not put back if the database were lost now.** The dispatcher also logs `tombstone_ledger.backlog` every minute while any are waiting. Normally the count is zero. A store or Temporal outage costs them no attempts. A store outage holds them until it ends, and a Temporal outage does not hold them at all.
 
 ### Restore
+
+**If you run the connectors profile, read this first. The code does not enforce it.** A restore to before a send loses the attempt row, and that action goes back to `ready`. If Temporal still has the finished run, it stops a second send. If Temporal was restored too, the same mail can go again (ADR-027 D2). So stop the connector worker before anything else, and clear `COMPOSE_PROFILES` from your shell, so that step 7 does not start it again:
+
+```sh
+compose --profile connectors stop connector-worker
+unset COMPOSE_PROFILES
+```
+
+Then, after step 7, keep it stopped until someone has reviewed every action that was not settled at the backup's time, using [the list after these steps](#after-a-restore-with-the-connectors-profile). `OPS-02` in M6 is where this gets a real answer.
 
 1. Stop what people reach the database through, and leave the dispatcher running:
 
@@ -160,6 +234,22 @@ This prints how many deletions have not reached the ledger (`queued`, and `dead`
    ```
 
 If step 6 is skipped or fails, the product protects itself: anyone in an organization whose database is behind the ledger lands on a page saying it is being restored (503), and the API answers 503 `RESTORE_PENDING`, until the re-apply succeeds. This holds while the object store can answer the check. If it cannot, the gate stays as it was, or open for a process that has just started, so keep the web tier stopped until step 6 has succeeded. A web process left running through a restore can take up to 30 seconds to notice, and longer if the store is slow, which is why step 1 stops it. Other organizations are not affected.
+
+### After a restore with the connectors profile
+
+List what the restored database says is not settled, which prints IDs and no content:
+
+```sh
+compose exec postgres psql -U postgres -d ensemus -c \
+  "select organization_id, id, status, updated_at from integrations.external_actions
+   where status in ('ready', 'sending', 'reconciling', 'unknown') order by updated_at"
+```
+
+For each one that could have gone after the backup, search the relay's log for `<{id}@{your Message-ID domain}>`. Nothing in Ensemus does this for you, nothing stops you skipping it, and the worker can send as soon as it starts. If a `ready` action did go, cancel its work or tell its owner before you go on, since nothing else will stop it. Start the worker only once that review is done:
+
+```sh
+compose --profile connectors start connector-worker
+```
 
 ### When the re-apply asks you to decide
 

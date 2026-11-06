@@ -212,7 +212,7 @@ describe('web tier isolation (ADR-024 D3, D5)', () => {
       execFileSync(
         'docker',
         ['compose', ...files.flatMap((file) => ['-f', file]), 'config', '--format', 'json'],
-        { cwd: repoRoot, encoding: 'utf8' },
+        { cwd: repoRoot, encoding: 'utf8', env: { ...process.env, COMPOSE_PROFILES: '' } },
       ),
     ) as ResolvedConfig;
 
@@ -230,6 +230,144 @@ describe('web tier isolation (ADR-024 D3, D5)', () => {
     );
     expect(pinProblems(config, TEST_CONNECTIONS)).toEqual([]);
     expect(pinsOf(config, 'web-2')).not.toHaveProperty('temporal');
+  });
+
+  describe('with the connectors profile (ADR-027 D5)', () => {
+    type Resolved = {
+      services: Record<
+        string,
+        {
+          networks?: Record<string, { ipv4_address?: string } | null>;
+          extra_hosts?: string[] | Record<string, string | string[]>;
+          secrets?: unknown[];
+          ports?: unknown[];
+          profiles?: string[];
+          environment?: Record<string, string | null>;
+          read_only?: boolean;
+        }
+      >;
+      networks: Record<string, { internal?: boolean }>;
+    };
+    const resolved = (...profiles: string[]) =>
+      JSON.parse(
+        execFileSync(
+          'docker',
+          [
+            'compose',
+            ...profiles.flatMap((profile) => ['--profile', profile]),
+            '-f',
+            'infrastructure/compose/compose.yaml',
+            'config',
+            '--format',
+            'json',
+          ],
+          {
+            cwd: repoRoot,
+            encoding: 'utf8',
+            // Exactly the profiles named here, whatever the step running this test has set.
+            env: { ...process.env, COMPOSE_PROFILES: '' },
+          },
+        ),
+      ) as Resolved;
+    const NEW_SERVICES = ['connector-worker', 'egress-gateway'];
+    const networksOf = (config: Resolved, service: string) =>
+      Object.keys(config.services[service]?.networks ?? {}).sort();
+    const pinsOf = (config: Resolved, service: string) => {
+      const hosts = config.services[service]?.extra_hosts ?? [];
+      const pairs: [string, string][] = Array.isArray(hosts)
+        ? hosts.map((entry) => {
+            const [name = '', address = ''] = entry.split(/[:=]/);
+            return [name, address];
+          })
+        : Object.entries(hosts).map(([name, value]) => [name, [value].flat()[0] ?? '']);
+      return Object.fromEntries(pairs);
+    };
+
+    it('adds nothing without the profile', () => {
+      const config = resolved();
+      for (const service of NEW_SERVICES) expect(config.services).not.toHaveProperty(service);
+      expect(config.networks).not.toHaveProperty('outbound');
+    });
+
+    it('adds exactly the two services, each only under the profile', () => {
+      const without = Object.keys(resolved().services);
+      const config = resolved('connectors');
+      expect(Object.keys(config.services).sort()).toEqual([...without, ...NEW_SERVICES].sort());
+      for (const service of NEW_SERVICES) {
+        expect(config.services[service]?.profiles, service).toEqual(['connectors']);
+        expect(config.services[service]?.read_only, service).toBe(true);
+      }
+    });
+
+    it('puts the connector worker on the internal network alone, with every name pinned', () => {
+      const config = resolved('connectors');
+      expect(networksOf(config, 'connector-worker')).toEqual(['connectors']);
+      expect(config.networks.connectors?.internal).toBe(true);
+      const addressOn = (service: string) =>
+        config.services[service]?.networks?.connectors?.ipv4_address;
+      expect(addressOn('postgres')).toMatch(/\.5\.10$/);
+      expect(addressOn('temporal')).toMatch(/\.5\.11$/);
+      expect(addressOn('egress-gateway')).toMatch(/\.5\.12$/);
+      expect(pinsOf(config, 'connector-worker')).toEqual({
+        postgres: addressOn('postgres'),
+        temporal: addressOn('temporal'),
+        'egress-gateway': addressOn('egress-gateway'),
+      });
+      const secrets = (config.services['connector-worker']?.secrets ?? []) as { source: string }[];
+      expect(secrets.map(({ source }) => source).sort()).toEqual([
+        'db_app_url',
+        'db_secrets_url',
+        'sealing_private_key.pem',
+        'temporal_codec_key',
+      ]);
+    });
+
+    it('requires TLS to the relay unless an operator says otherwise', () => {
+      const config = resolved('connectors');
+      expect(config.services['connector-worker']?.environment?.ENSEMUS_SMTP_TLS).toBe(
+        process.env.ENSEMUS_SMTP_TLS ?? 'required',
+      );
+    });
+
+    it('lets only the gateway out, and gives it no secret', () => {
+      const config = resolved('connectors');
+      expect(networksOf(config, 'egress-gateway')).toEqual(['connectors', 'outbound']);
+      expect(config.networks.outbound?.internal ?? false).toBe(false);
+      expect(config.services['egress-gateway']?.secrets ?? []).toEqual([]);
+      const onOutbound = Object.keys(config.services).filter((service) =>
+        networksOf(config, service).includes('outbound'),
+      );
+      expect(onOutbound).toEqual(['egress-gateway']);
+      const env = JSON.stringify(config.services['egress-gateway']?.environment ?? {});
+      expect(env).not.toMatch(/DATABASE|SECRET|KEY|PASSWORD/);
+    });
+
+    it('holds web and everything else off the connectors network', () => {
+      const config = resolved('connectors');
+      const onConnectors = Object.keys(config.services)
+        .filter((service) => networksOf(config, service).includes('connectors'))
+        .sort();
+      expect(onConnectors).toEqual(['connector-worker', 'egress-gateway', 'postgres', 'temporal']);
+      expect(networksOf(config, 'web')).not.toContain('connectors');
+    });
+
+    it('gives web the switch, off by default, and publishes no new port', () => {
+      const config = resolved('connectors');
+      expect(config.services.web?.environment?.ENSEMUS_CONNECTORS_ENABLED).toBe(
+        process.env.ENSEMUS_CONNECTORS_ENABLED ?? 'false',
+      );
+      const publishing = Object.entries(config.services)
+        .filter(([, service]) => service.ports?.length)
+        .map(([name]) => name);
+      expect(publishing).toEqual(['proxy']);
+    });
+
+    it('leaves the gateway no target unless an operator sets one', () => {
+      const config = resolved('connectors');
+      expect(config.services['egress-gateway']?.environment?.ENSEMUS_EGRESS_TARGET).toBe(
+        process.env.ENSEMUS_EGRESS_TARGET ?? '',
+      );
+    });
   });
 
   it('control: the worker can reach Temporal the same way', () => {

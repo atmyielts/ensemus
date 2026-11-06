@@ -14,6 +14,13 @@ const markDocument = (page: Page) =>
 const sameDocument = (page: Page) =>
   page.evaluate(() => (window as unknown as { stillHere?: boolean }).stillHere === true);
 
+/**
+ * What is saved, and only that. The section holds the details form too, and a text area's text counts as
+ * the section's, so looking in the section finds what was typed before any save has landed.
+ */
+const savedObjective = (page: Page) =>
+  page.getByRole('region', { name: 'Purpose', exact: true }).locator('p').first();
+
 const signIn = async (page: Page, person: Person) => {
   await page.getByLabel('Email').fill(person.email);
   await page.getByLabel('Password').fill(PASSWORD);
@@ -105,9 +112,7 @@ test.describe('editing the details', () => {
 
     // The version moved underneath it, and that was the person's own doing, so it still saves.
     await page.getByRole('button', { name: 'Save changes' }).click();
-    await expect(page.getByRole('region', { name: 'Purpose', exact: true })).toContainText(
-      'Half an objective that must survive',
-    );
+    await expect(savedObjective(page)).toHaveText('Half an objective that must survive');
     await expect(page.getByText('This changed while you were editing.')).toHaveCount(0);
   });
 
@@ -119,15 +124,42 @@ test.describe('editing the details', () => {
     await page.getByText('Edit the details').click();
     await page.getByLabel('Objective').fill('Saved and finished with');
     await page.getByRole('button', { name: 'Save changes' }).click();
-    await expect(page.getByRole('region', { name: 'Purpose', exact: true })).toContainText(
-      'Saved and finished with',
-    );
+    await expect(savedObjective(page)).toHaveText('Saved and finished with');
 
     await page.getByRole('button', { name: 'Mark ready' }).click();
     await expect(page.locator('dt:text-is("Status") + dd .badge')).toHaveText('Ready');
     await expect(page.locator('details', { hasText: 'Edit the details' })).not.toHaveAttribute(
       'open',
     );
+  });
+
+  test('a save still on its way cannot get the next press refused', async ({ open, world }) => {
+    const { alice, organization } = world;
+    const id = await createWork(alice, organization, { title: `Straight on ${randomUUID()}` });
+    const page = await open(alice);
+    await page.goto(workPath(organization, id));
+    await page.getByText('Edit the details').click();
+    await page.getByLabel('Objective').fill('Saved before it was marked ready');
+
+    // The save waits here for as long as the test says, so this happens inside it every time.
+    let letItLand: () => void = () => undefined;
+    const landed = new Promise<void>((done) => {
+      letItLand = done;
+    });
+    await page.route('**/*', async (route) => {
+      if (route.request().method() === 'POST') await landed;
+      await route.fallback();
+    });
+    await page.getByRole('button', { name: 'Save changes' }).click();
+    const markReady = page.getByRole('button', { name: 'Mark ready' });
+    await expect(markReady).toBeDisabled();
+
+    letItLand();
+    await markReady.click();
+    await expect(page.locator('dt:text-is("Status") + dd .badge')).toHaveText('Ready');
+    await expect(savedObjective(page)).toHaveText('Saved before it was marked ready');
+    await expect(page.getByRole('main').getByRole('alert')).toHaveCount(0);
+    await expect(page).not.toHaveURL(/error=/);
   });
 });
 

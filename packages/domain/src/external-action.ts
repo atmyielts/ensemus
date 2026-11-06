@@ -171,12 +171,31 @@ export type SendCheck =
   /** The intent is already past this point, so this call has nothing to do. */
   | { ok: false; to: null; code: null };
 
+/** Work in one of these has stopped, so nothing it asked for goes out now. */
+const STOPPED_WORK: readonly string[] = ['cancelled', 'completed', 'failed'];
+
 /**
  * ADR-027 D2's recheck, and the last thing before an attempt row. Reports the first reason it may not
- * go ahead. Implemented by the intents slice.
+ * go ahead. A changed payload comes first because it is the one someone has to look into, whatever else
+ * is also true by then.
  */
-export function checkBeforeSend(_facts: SendFacts, _now: Date): SendCheck {
-  throw new Error('NOT_IMPLEMENTED');
+export function checkBeforeSend(facts: SendFacts, now: Date): SendCheck {
+  if (facts.status !== 'ready') return { ok: false, to: null, code: null };
+  const stop = (code: ExternalActionCode): SendCheck => ({ ok: false, to: 'cancelled', code });
+
+  if (facts.recomputedHash !== facts.requestHash) return stop('PAYLOAD_CHANGED');
+  if (facts.requiresApproval) {
+    if (!facts.approval) return stop('APPROVAL_NOT_VALID');
+    if (facts.approval.actionHash !== facts.requestHash) return stop('PAYLOAD_CHANGED');
+    if (facts.approval.status !== 'approved') return stop('APPROVAL_NOT_VALID');
+    if (facts.approval.expiresAt.getTime() <= now.getTime()) return stop('APPROVAL_EXPIRED');
+  }
+  if (STOPPED_WORK.includes(facts.workStatus)) return stop('WORK_STOPPED');
+  if (facts.connectionState !== 'active') return stop('CONNECTION_NOT_ACTIVE');
+  if (facts.attemptsSoFar >= MAX_SEND_ATTEMPTS) {
+    return { ok: false, to: 'failed', code: 'ATTEMPTS_EXHAUSTED' };
+  }
+  return { ok: true };
 }
 
 /** What one try at the provider ended with, as a connector reports it. */
@@ -195,11 +214,22 @@ export type AttemptDecision = {
 };
 
 /**
- * Where an attempt's result takes its intent. `indeterminate` always goes to reconciling, and never
- * back to ready. Implemented by the intents slice.
+ * Where an attempt's result takes its intent. `indeterminate` always goes to reconciling, and never back
+ * to ready. Only a connector saying on purpose that trying later could work earns another try.
  */
-export function decideAfterAttempt(_result: AttemptResult, _attemptNo: number): AttemptDecision {
-  throw new Error('NOT_IMPLEMENTED');
+export function decideAfterAttempt(result: AttemptResult, attemptNo: number): AttemptDecision {
+  switch (result.outcome) {
+    case 'accepted':
+      return { status: 'sent', receipt: 'sent' };
+    case 'rejected':
+      return { status: 'failed', receipt: 'failed' };
+    case 'indeterminate':
+      return { status: 'reconciling', receipt: null };
+    case 'not_sent':
+      return result.retryable === true && attemptNo < MAX_SEND_ATTEMPTS
+        ? { status: 'ready', receipt: null }
+        : { status: 'failed', receipt: 'failed' };
+  }
 }
 
 /** What a connector's reconcile can say. `cannot_answer` is the only result SMTP ever gives. */
@@ -217,11 +247,29 @@ export type ReconcileDecision = {
 
 /**
  * Where a reconcile's answer takes an intent. `not_found` only counts from a connector that declares its
- * lookup authoritative, and anything else stays unknown for a person. Implemented by the intents slice.
+ * lookup authoritative, and anything else stays unknown for a person. A connector that declares no lookup
+ * has nothing to go on, so whatever it says then is not believed.
  */
 export function decideAfterReconcile(
-  _result: ReconcileResult,
-  _lookup: 'none' | 'best_effort' | 'authoritative',
+  result: ReconcileResult,
+  lookup: 'none' | 'best_effort' | 'authoritative',
 ): ReconcileDecision {
-  throw new Error('NOT_IMPLEMENTED');
+  const cannotSay: ReconcileDecision = {
+    status: 'unknown',
+    attemptOutcome: 'indeterminate',
+    code: 'PROVIDER_CANNOT_ANSWER',
+  };
+  if (lookup === 'none') return cannotSay;
+  switch (result.answer) {
+    case 'found':
+      return { status: 'sent', attemptOutcome: 'accepted', code: 'PROVIDER_FOUND_IT' };
+    case 'refused':
+      return { status: 'failed', attemptOutcome: 'rejected', code: 'REFUSED_BY_PROVIDER' };
+    case 'not_found':
+      return lookup === 'authoritative'
+        ? { status: 'ready', attemptOutcome: 'not_sent', code: 'PROVIDER_DID_NOT_FIND_IT' }
+        : cannotSay;
+    case 'cannot_answer':
+      return cannotSay;
+  }
 }

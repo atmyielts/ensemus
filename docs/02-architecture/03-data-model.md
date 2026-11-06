@@ -66,10 +66,15 @@
 
 | Table | Key fields | Constraints |
 |---|---|---|
-| `connections` | organization_id, id, connector_type, encrypted_handle, state | No plaintext secrets |
-| `external_resources` | organization_id, connection_id, external_id, version | Stable sync references |
-| `sync_cursors` | organization_id, connection_id, cursor, watermark | Retry-safe sync progress |
-| `external_actions` | organization_id, idempotency_key, request_hash, external_id, status | Side-effect reconciliation |
+| `connections` | organization_id, id, connector_type, credential_secret_id, config, state | No plaintext secrets, and a reference that cannot name another tenant's secret. As built, a reference and not the `encrypted_handle` planned. Settings can never name a host |
+| `external_resources` | organization_id, connection_id, stream, resource_type, external_id, external_version, acl_state | Stable sync references. Anything but `mapped` denies. `stream` is which stream found it, fixed once written: a full sync decides what has gone one stream at a time, by this |
+| `external_resource_acl` | organization_id, resource_id, principal, access, membership_id or team_id | Source grants are kept even when they map to nobody, which grants nothing |
+| `sync_cursors` | organization_id, connection_id, stream, cursor, generation, full_sync_in_progress, state, lease_until | Retry-safe sync progress, by compare-and-swap. A cursor never crosses Temporal. `full_sync_in_progress` holds from a full sync's first read until its last page commits, across passes. `state` says how the last pass stands, and `resync_required` means a full sync is owed and has not started |
+| `external_actions` | organization_id, idempotency_key, request_hash, approval_id, external_id, status, resolution | Side-effect reconciliation. What the effect is cannot be updated by any role. A trigger holds the status to the state machine, and one approval authorizes one intent |
+| `external_action_attempts` | organization_id, external_action_id, attempt_no, request_hash, outcome | Committed before any byte leaves. A trigger refuses another while an earlier one could have sent. An empty outcome means it may still be in flight |
+| `external_action_receipts` | organization_id, external_action_id, outcome, basis, code, actor_membership_id | Append-only for everyone, and each one says on whose word it rests. A person's is named |
+| `webhook_endpoints` | organization_id, connection_id, token_hash, signing_secret_id, state, limits | ADR-024 D4's `webhook_routes`. Only the token's hash and a reference to a sealed secret are kept |
+| `webhook_deliveries` | organization_id, endpoint_id, request_digest, body, headers, state, reject_code | What arrived, not yet believed. The same request is stored once, and the body goes when it ends |
 | `domain_events` | organization_id, id, type, schema_version, aggregate/version | Append-only business record |
 | `outbox_events` | id, event_id, dispatch_state, retry_count | Transactionally published |
 | `inbox_events` | consumer_id, event_id, first_seen | Consumer deduplication |
@@ -78,6 +83,8 @@
 | `entitlements` | organization_id, mode, version, period, capacities | Signed/verified source |
 | `usage_ledger` | organization_id, metric, idempotency_key, measured_at | Reconciliation and billing |
 | `license_records` | organization_id, edition, release, footprint, signature | Sovereign local validation |
+
+As built (M3, [ADR-027](../00-foundation/adr/ADR-027-verified-external-actions.md)): connections, resources, cursors, external actions and webhooks are in a schema of their own, `integrations`, from migrations 0012 and 0013, which change no existing table. They follow the same rules as everything else: forced RLS, composite tenant foreign keys, and access through `withTenantTx`. `withWebhookEndpointTx` is the one way the web tier gets a tenant with no session, and it binds the tenant from the row its token hash finds, so nothing about the tenant comes from a request. `platform.inbox_events` gets its first use here, and its row is written only after a signature has passed. Payloads, recipients and a person's resolution reason are in `integrations.external_actions` under the Work Unit's access rules, and in no event, audit row or Temporal history.
 
 ## Indexing and partitioning
 

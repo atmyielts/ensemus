@@ -15,6 +15,11 @@
 {$ENSEMUS_HOSTNAME:localhost} {
 	tls internal
 
+	@webhooks path /api/webhooks/*
+	request_body @webhooks {
+		max_size 1MB
+	}
+
 	map {header.X-Ensemus-Test-Client} {ensemus_test_client} {
 		~(.+) ${1}
 		default {remote_host}

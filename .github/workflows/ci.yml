@@ -90,6 +90,40 @@ jobs:
         if: failure()
         run: docker compose -f infrastructure/compose/compose.yaml -f infrastructure/compose/compose.test.yaml -f infrastructure/compose/compose.airgap.yaml logs --tail 50
 
+  # ADR-027's exit: Slice 2 and the fault tests, on real containers with the connectors profile on. A job
+  # of its own, so the stack job above still proves the stack with no profile and no way out. Both settings
+  # are for the whole job: Compose reads them here, and tests/stack/slice-2.test.ts skips without them.
+  connectors:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      COMPOSE_PROFILES: connectors
+      ENSEMUS_CONNECTORS_ENABLED: 'true'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm stack:secrets
+      - name: Start the stack with the connectors profile
+        run: docker compose -f infrastructure/compose/compose.yaml -f infrastructure/compose/compose.test.yaml up -d --build --wait --wait-timeout 300
+      - name: Slice 2, QA-007, QA-008, QA-019 and AI-TS-01 on real containers
+        run: pnpm stack:slice-2
+      - name: Install Chromium for receipt journeys
+        run: pnpm --filter @ensemus/browser-tests exec playwright install --with-deps chromium
+      - name: External action receipts, unknown-state resolution and denied browser journeys
+        run: pnpm --filter @ensemus/browser-tests exec playwright test specs/external-actions.spec.ts
+      - name: Show service logs on failure
+        if: failure()
+        run: docker compose -f infrastructure/compose/compose.yaml -f infrastructure/compose/compose.test.yaml logs --tail 100
+      - name: Stop the stack, so the gate starts from nothing
+        if: always()
+        run: docker compose -f infrastructure/compose/compose.yaml -f infrastructure/compose/compose.test.yaml down -v
+      - name: Air-gap gate - with the profile on, mail through the sink and nothing leaves the subnet
+        run: node infrastructure/scripts/air-gap-gate.mjs --connectors
+
   # Real browser tests through the proxy (UX-11 to UX-14, API-13). Chromium is installed here and only
   # here, on the runner, so this stays apart from the air-gap gate above and never runs under it.
   browser:

@@ -10,6 +10,9 @@ services:
   web-2: *dns
   worker: *dns
   dispatcher: *dns
+  connector-worker: *dns
+  egress-gateway: *dns
+  smtp-sink: *dns
   migrate: *dns
   postgres: *dns
   temporal: *dns

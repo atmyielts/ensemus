@@ -34,11 +34,14 @@ export function NewWorkForm({
   organizationId,
   projects,
   requestKey,
+  canAskForReceipt = false,
 }: {
   organizationId: string;
   /** One rendered form makes one piece of work, however many times it is sent. */
   requestKey: string;
   projects: Array<{ id: string; name: string; clientName: string | null }>;
+  /** Whether this organization has a connection that could give an outside system's receipt. */
+  canAskForReceipt?: boolean;
 }) {
   const [state, action] = useActionState(createWorkFormAction, INITIAL);
   const form = useRef<HTMLFormElement>(null);
@@ -168,6 +171,18 @@ export function NewWorkForm({
             />
             A reviewer approves
           </label>
+          {/* Only with a connection that can act. With none, nothing could ever satisfy it. */}
+          {canAskForReceipt && (
+            <label className="check">
+              <input
+                type="checkbox"
+                name="criteria"
+                value="external_receipt"
+                defaultChecked={ticked('external_receipt')}
+              />
+              The outside system confirms it happened
+            </label>
+          )}
         </fieldset>
         <fieldset className="group">
           <legend>Plan</legend>

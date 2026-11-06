@@ -63,7 +63,10 @@ export class CursorExpired extends Error {
   }
 }
 
-/** Reading a stream failed, and trying the same page again later is safe. */
+/**
+ * Reading a stream failed, and trying the same page again later is safe. The code is shown to an
+ * administrator only if it is on SYNC_ERROR_CODES, and reads as a plain failure otherwise.
+ */
 export class SyncUnavailable extends Error {
   override name = 'SyncUnavailable';
   constructor(readonly code: string) {

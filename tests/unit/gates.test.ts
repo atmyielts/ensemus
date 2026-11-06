@@ -43,6 +43,9 @@ const COMMANDS: Record<string, string> = {
   'build-release.mjs': 'build-release.mjs',
   // test:upgrade is this script without --from.
   'test:upgrade': 'upgrade-gate.mjs --from',
+  'stack:slice-2': 'pnpm stack:slice-2',
+  'connector air-gap': 'air-gap-gate.mjs --connectors',
+  'connector browser': 'playwright test specs/external-actions.spec.ts',
 };
 
 const gateScripts = readdirSync(join(root, 'infrastructure/scripts')).filter((name) =>
@@ -78,9 +81,9 @@ describe('on one machine', () => {
 
   it('starts every gate on project "ensemus" from nothing, and leaves nothing', () => {
     const usesTheProject = gateLines.filter((line) =>
-      /test:integration|air-gap-gate|browser_tests/.test(line),
+      /test:integration|air-gap-gate|browser_tests|connectors_tests/.test(line),
     );
-    expect(usesTheProject).toHaveLength(4);
+    expect(usesTheProject).toHaveLength(6);
     for (const line of usesTheProject) expect(line).toMatch(/^gate "[^"]+" fresh /);
   });
 
@@ -95,6 +98,7 @@ describe('on one machine', () => {
     expect(clean).toContain('"${compose_files[@]}"');
     expect(clean).toContain('compose.airgap.yaml');
     expect(clean).toContain('--profile test-oidc');
+    expect(clean).toContain('--profile connectors');
     expect(clean).toContain('down -v --remove-orphans');
   });
 

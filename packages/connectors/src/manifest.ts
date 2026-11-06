@@ -36,3 +36,47 @@ export type ConnectorManifest = {
   /** Whether a connection needs a sealed credential, and what the broker is told it is for. */
   credential: { required: boolean; purpose: string };
 };
+
+// Literals rather than the domain's constants, so a page importing this pulls in nothing that uses
+// Node's crypto. A test holds them equal, and the conformance suite holds each connector to its entry.
+export const EMAIL_CONNECTOR_MANIFEST: ConnectorManifest = {
+  type: 'email_smtp',
+  version: '1',
+  displayName: 'Email (SMTP)',
+  capabilities: {
+    actions: ['email.send'],
+    reconcile: 'none',
+    nativeIdempotency: false,
+    sync: null,
+    aclMapping: false,
+    webhooks: null,
+    network: 'egress_gateway',
+  },
+  credential: { required: true, purpose: 'connector_credential' },
+};
+
+export const INBOUND_CONNECTOR_MANIFEST: ConnectorManifest = {
+  type: 'inbound_webhook',
+  version: '1',
+  displayName: 'Signed webhook',
+  capabilities: {
+    actions: [],
+    reconcile: 'none',
+    nativeIdempotency: false,
+    sync: null,
+    aclMapping: false,
+    webhooks: { scheme: 'ensemus_hmac_sha256_v1' },
+    network: 'none',
+  },
+  // A connection of this type holds no credential. Its secret is the endpoint's signing secret.
+  credential: { required: false, purpose: 'webhook_signing' },
+};
+
+/** Every connector this product ships, for pages that show what can be connected. */
+export const CONNECTOR_MANIFESTS: readonly ConnectorManifest[] = [
+  EMAIL_CONNECTOR_MANIFEST,
+  INBOUND_CONNECTOR_MANIFEST,
+];
+
+export const manifestFor = (type: string): ConnectorManifest | undefined =>
+  CONNECTOR_MANIFESTS.find((manifest) => manifest.type === type);

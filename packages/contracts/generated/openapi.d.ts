@@ -2034,6 +2034,8 @@ export interface components {
             completion_criteria?: {
                 artifact_exists?: boolean;
                 reviewer_approved?: boolean;
+                /** @description The outside system confirms it happened. Accepted only when this organization has an active connection that can act, because nothing else could ever satisfy it. */
+                external_receipt?: boolean;
             };
         };
         PendingApproval: {

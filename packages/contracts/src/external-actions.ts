@@ -53,8 +53,8 @@ export type ResolveExternalActionBody = z.infer<typeof resolveExternalActionSche
 
 /** Proposing a send. The sender comes from the connection, on the server, and not from this. */
 export const proposeEmailActionSchema = z.strictObject({
-  connection_id: z.uuid(),
-  approver_membership_id: z.uuid(),
+  connection_id: z.uuid().toLowerCase(),
+  approver_membership_id: z.uuid().toLowerCase(),
   email: z.strictObject({
     to: z.array(emailAddress).min(1).max(MAX_RECIPIENTS),
     cc: z.array(emailAddress).max(MAX_RECIPIENTS).optional(),
@@ -70,7 +70,9 @@ export type ProposeEmailActionBody = z.infer<typeof proposeEmailActionSchema>;
 export const reviseEmailActionSchema = proposeEmailActionSchema.omit({ connection_id: true });
 export type ReviseEmailActionBody = z.infer<typeof reviseEmailActionSchema>;
 
-export const retryExternalActionSchema = z.strictObject({ approver_membership_id: z.uuid() });
+export const retryExternalActionSchema = z.strictObject({
+  approver_membership_id: z.uuid().toLowerCase(),
+});
 export type RetryExternalActionBody = z.infer<typeof retryExternalActionSchema>;
 
 export const createConnectionSchema = z.strictObject({
@@ -92,8 +94,8 @@ export const connectionStateSchema = z.enum(['active', 'disabled', 'revoked']);
 export const inboundWebhookEnvelopeSchema = z.discriminatedUnion('type', [
   z.strictObject({
     type: z.literal('external_action.proposed'),
-    work_unit_id: z.uuid(),
-    connection_id: z.uuid(),
+    work_unit_id: z.uuid().toLowerCase(),
+    connection_id: z.uuid().toLowerCase(),
     email: proposeEmailActionSchema.shape.email,
   }),
   z.strictObject({ type: z.literal('connector.sync_requested') }),

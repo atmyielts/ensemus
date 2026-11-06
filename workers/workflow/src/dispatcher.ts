@@ -34,6 +34,7 @@ import { AesGcmPayloadCodec } from '@ensemus/workflows/codec';
 import { modelProbeInputSchema, modelProbeWorkflowIdFor } from '@ensemus/workflows/agent-schemas';
 import { AGENT_RUN_CONTROL_SIGNAL, PLATFORM_TASK_QUEUE } from '@ensemus/workflows/constants';
 import {
+  connectorRevokeWorkflowIdFor,
   connectorSyncInputSchema,
   connectorSyncWorkflowIdFor,
   externalActionInputSchema,
@@ -259,9 +260,21 @@ async function main() {
         });
         return;
 
-      // Unlike those two, this one is run again each time something asks. An open run covers it.
-      case CONNECTOR_SYNC_REQUESTED:
-      case CONNECTION_REVOKED: {
+      // Revoked is final, so this runs once, and an open sync run can never swallow it. That run may
+      // have read the row before the revoke committed, so it does not cover this, and this run does.
+      case CONNECTION_REVOKED:
+        if (event.aggregateType !== AGGREGATE_CONNECTION) return;
+        await startOnce('connectorSyncWorkflow', {
+          input: connectorSyncInputSchema.parse({
+            organizationId: event.organizationId,
+            connectionId: event.aggregateId,
+          }),
+          workflowIdFor: connectorRevokeWorkflowIdFor,
+        });
+        return;
+
+      // Unlike those, this one is run again each time something asks. An open run covers it.
+      case CONNECTOR_SYNC_REQUESTED: {
         if (event.aggregateType !== AGGREGATE_CONNECTION) return;
         const syncInput = connectorSyncInputSchema.parse({
           organizationId: event.organizationId,

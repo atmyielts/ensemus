@@ -57,6 +57,59 @@ export const WEBHOOK_STORED_HEADERS: Readonly<Record<SignatureScheme, readonly s
   ],
 };
 
+/** The set of stored headers as JSON. Below the column's 8 KiB, which also counts jsonb's spacing. */
+export const WEBHOOK_MAX_STORED_HEADERS_BYTES = 8000;
+
+// Control characters go first: a NUL makes jsonb refuse the row, and a stranger must not be able to turn
+// a request into a 500. Nothing the scheme signs ever holds one, so its signature simply fails later.
+// eslint-disable-next-line no-control-regex
+const CONTROL_CHARACTERS = /[\u0000-\u001f\u007f]/g;
+
+/** Cuts text to a number of bytes, without leaving half a character at the end. */
+function cutToBytes(value: string, maxBytes: number): string {
+  const bytes = Buffer.from(value);
+  if (bytes.byteLength <= maxBytes) return value;
+  let end = maxBytes;
+  // A UTF-8 continuation byte is 10xxxxxx. Going back past them finds where the last character starts.
+  while (end > 0 && ((bytes[end] as number) & 0xc0) === 0x80) end -= 1;
+  return bytes.subarray(0, end).toString();
+}
+
+/**
+ * What is kept of a request's headers: the scheme's allowlist, cleaned and cut, and no more than fits.
+ * Anything left out only means the signature fails later, so none of this has to reject.
+ */
+export function storedWebhookHeaders(
+  scheme: string,
+  headers: Readonly<Record<string, string>>,
+): Record<string, string> {
+  const allowed = (WEBHOOK_STORED_HEADERS as Readonly<Record<string, readonly string[]>>)[scheme];
+  const kept: Record<string, string> = {};
+  for (const name of allowed ?? []) {
+    const value = headers[name];
+    if (value === undefined) continue;
+    const clean = cutToBytes(value.replace(CONTROL_CHARACTERS, ''), WEBHOOK_MAX_HEADER_BYTES);
+    const next = { ...kept, [name]: clean };
+    if (Buffer.byteLength(JSON.stringify(next)) > WEBHOOK_MAX_STORED_HEADERS_BYTES) break;
+    kept[name] = clean;
+  }
+  return kept;
+}
+
+const WEBHOOK_TOKEN_SHAPE = /^[A-Za-z0-9_-]{43}$/;
+
+/** 32 random bytes in base64url. Anything else was never issued, and is not worth a query. */
+export const isWebhookTokenShape = (token: string) => WEBHOOK_TOKEN_SHAPE.test(token);
+
+const WEBHOOK_EVENT_ID = /^[A-Za-z0-9_:-]{1,255}$/;
+
+/**
+ * A sender's event ID. It sits between dots in the signed bytes, so it may not hold one: if it could,
+ * moving text from the start of the body into the ID would sign the same bytes, and anyone holding one
+ * valid request could mint a new event ID from it.
+ */
+export const isWebhookEventId = (eventId: string) => WEBHOOK_EVENT_ID.test(eventId);
+
 export const hashWebhookToken = (token: string) => createHash('sha256').update(token).digest('hex');
 
 /** The consumer ID in platform.inbox_events for one endpoint. */

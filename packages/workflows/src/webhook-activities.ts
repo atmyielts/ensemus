@@ -1,13 +1,221 @@
-// Owned by the webhooks slice (CONNECT-02). See docs/06-delivery/m3-slices.md and ADR-027 D4.
+// What the connector worker does with a stored delivery (ADR-027 D4). This is where a signing secret is
+// opened and where a stranger's bytes are first read, in that order, and only with the signature checked
+// does anything go on to read them.
+import {
+  AppError,
+  applyVerifiedDelivery,
+  emit,
+  loadStoredDelivery,
+  proposeExternalActionInTx,
+  rejectDelivery,
+  type DeliveryVerdict,
+  type ProposeExternalActionInput,
+  type StoredDelivery,
+  type WebhookEffectHandlers,
+  type WebhookVerifier,
+} from '@ensemus/application';
+import { MalformedWebhook, type ConnectorContext } from '@ensemus/connectors';
+import { verifyWebhookSignature } from '@ensemus/connectors/runtime';
+import { connections, withTenantTx, workUnits, type Tx } from '@ensemus/database';
+import { createServiceContext } from '@ensemus/database/service';
+import { SECRET_PURPOSE_WEBHOOK_SIGNING } from '@ensemus/domain/connector';
+import { AGGREGATE_CONNECTION, CONNECTOR_SYNC_REQUESTED } from '@ensemus/domain/integration-events';
+import type { WebhookRejectCode } from '@ensemus/domain/webhook';
+import { and, eq } from 'drizzle-orm';
 import type { ConnectorActivityDeps } from './connector-deps';
 import type { WebhookDeliveryInput, WebhookDeliveryOutcome } from './schemas';
 
+type ProposeInTx = (
+  tx: Tx,
+  context: Parameters<typeof proposeExternalActionInTx>[1],
+  input: ProposeExternalActionInput,
+) => Promise<unknown>;
+
+/** Reached only by a connector that has no business here, so asking is itself the bug. */
+const refused = async (): Promise<never> => {
+  throw new Error('Reading a webhook takes no credential and no network');
+};
+
+/** The broker says the same whether it is missing, revoked or tampered, and so does this. */
+const isSecretUnavailable = (error: unknown) => (error as Error).name === 'SecretUnavailable';
+
+/**
+ * The real effects. Both are only requests: a proposal waits for a person, and its approver is whoever
+ * answers for the work, because a webhook is nobody and cannot choose who it asks. The sender is the
+ * connection's own address, read here and frozen in the intent (ADR-027 D1), never a body's claim.
+ */
+export function createWebhookEffectHandlers(
+  propose: ProposeInTx = proposeExternalActionInTx,
+): WebhookEffectHandlers {
+  return {
+    async proposeAction(tx, context, effect) {
+      const [work] = await tx
+        .select({ owner: workUnits.ownerMembershipId })
+        .from(workUnits)
+        .where(
+          and(
+            eq(workUnits.organizationId, context.organizationId),
+            eq(workUnits.id, effect.workUnitId),
+          ),
+        );
+      if (!work) throw new AppError('NOT_FOUND');
+      const [connection] = await tx
+        .select({ config: connections.config })
+        .from(connections)
+        .where(
+          and(
+            eq(connections.organizationId, context.organizationId),
+            eq(connections.id, effect.connectionId),
+          ),
+        );
+      if (!connection) throw new AppError('NOT_FOUND');
+      const { fromAddress, fromName } = connection.config as {
+        fromAddress?: unknown;
+        fromName?: unknown;
+      };
+      if (typeof fromAddress !== 'string') throw new AppError('INVALID_INPUT');
+      await propose(tx, context, {
+        workUnitId: effect.workUnitId,
+        connectionId: effect.connectionId,
+        toolName: effect.toolName,
+        toolVersion: effect.toolVersion,
+        payload: {
+          ...(effect.payload as object),
+          from: {
+            address: fromAddress,
+            ...(typeof fromName === 'string' ? { name: fromName } : {}),
+          },
+        },
+        approverMembershipId: work.owner,
+      });
+    },
+    async requestSync(tx, context, connectionId) {
+      await emit(tx, context, {
+        eventType: CONNECTOR_SYNC_REQUESTED,
+        aggregateType: AGGREGATE_CONNECTION,
+        aggregateId: connectionId,
+        aggregateVersion: 1,
+        classification: 'internal',
+        payload: {},
+      });
+    },
+  };
+}
+
+/** Leases each secret that could be valid for this delivery, for just long enough to check it. */
+async function checkSignature(
+  deps: ConnectorActivityDeps,
+  organizationId: string,
+  delivery: StoredDelivery,
+  nowMs: number,
+) {
+  const check = async (secretId: string) => {
+    try {
+      return await deps.secrets.withSecret(
+        { organizationId, secretId, purpose: SECRET_PURPOSE_WEBHOOK_SIGNING },
+        async (secret) =>
+          verifyWebhookSignature(secret, {
+            scheme: delivery.scheme,
+            body: delivery.body,
+            headers: delivery.headers,
+            nowMs,
+            toleranceSeconds: delivery.toleranceSeconds,
+          }),
+      );
+    } catch (error) {
+      // Not the sender's fault, and trying again will not open it. Anything else, such as the
+      // database being down, goes on up to be retried.
+      if (isSecretUnavailable(error))
+        return { ok: false as const, code: 'SECRET_UNAVAILABLE' as const };
+      throw error;
+    }
+  };
+
+  const current = await check(delivery.signingSecretId);
+  if (current.ok || !delivery.previousSigningSecretId) return current;
+  // Only these can be a matter of which secret. A signature that is absent is absent under both.
+  if (current.code !== 'BAD_SIGNATURE' && current.code !== 'SECRET_UNAVAILABLE') return current;
+  const previous = await check(delivery.previousSigningSecretId);
+  if (previous.ok || previous.code === 'TIMESTAMP_OUTSIDE_WINDOW') return previous;
+  return current;
+}
+
+/** Checks a signature, and only then reads the body. */
+export function createWebhookVerifier(deps: ConnectorActivityDeps): WebhookVerifier {
+  return {
+    async verify(organizationId, delivery, nowMs): Promise<DeliveryVerdict> {
+      const verdict = await checkSignature(deps, organizationId, delivery, nowMs);
+      if (!verdict.ok) return { ok: false, code: verdict.code };
+
+      const connector = deps.registry.get(delivery.connectorType);
+      if (!connector?.webhooks) return { ok: false, code: 'ENDPOINT_NOT_ACTIVE' };
+      const context = createServiceContext(organizationId);
+      const [row] = await withTenantTx(deps.database, context, (tx) =>
+        tx
+          .select({ config: connections.config })
+          .from(connections)
+          .where(
+            and(
+              eq(connections.organizationId, organizationId),
+              eq(connections.id, delivery.connectionId),
+            ),
+          ),
+      );
+      try {
+        const connectorContext: ConnectorContext = {
+          organizationId,
+          connectionId: delivery.connectionId,
+          config: connector.parseConfig(row?.config ?? {}),
+          credentials: { withCredential: refused },
+          network:
+            connector.manifest.capabilities.network === 'none'
+              ? { openRelay: refused }
+              : deps.network,
+          signal: new AbortController().signal,
+        };
+        const effects = connector.webhooks.interpret(connectorContext, {
+          providerEventId: verdict.providerEventId,
+          signedAtSeconds: verdict.signedAtSeconds,
+          body: delivery.body,
+        });
+        return { ok: true, providerEventId: verdict.providerEventId, effects };
+      } catch (error) {
+        if (error instanceof MalformedWebhook) return { ok: false, code: 'MALFORMED_PAYLOAD' };
+        throw error;
+      }
+    },
+  };
+}
+
 /** On the connector queue, because this opens a signing secret and reads what a stranger sent. */
-export function createWebhookActivities(_deps: ConnectorActivityDeps) {
+export function createWebhookActivities(
+  deps: ConnectorActivityDeps,
+  handlers: WebhookEffectHandlers = createWebhookEffectHandlers(),
+) {
+  const verifier = createWebhookVerifier(deps);
   return {
     /** Verifies, dedupes and applies one delivery. A retry finds it finished and does nothing. */
-    async processWebhookDelivery(_input: WebhookDeliveryInput): Promise<WebhookDeliveryOutcome> {
-      throw new Error('NOT_IMPLEMENTED');
+    async processWebhookDelivery(input: WebhookDeliveryInput): Promise<WebhookDeliveryOutcome> {
+      const context = createServiceContext(input.organizationId);
+      const delivery = await loadStoredDelivery(deps.database, context, {
+        deliveryId: input.deliveryId,
+      });
+      if (!delivery) return 'skipped';
+      const verdict = await verifier.verify(input.organizationId, delivery, delivery.receivedAtMs);
+      if (!verdict.ok) {
+        const code: WebhookRejectCode = verdict.code;
+        return rejectDelivery(deps.database, context, { deliveryId: delivery.id, code });
+      }
+      return applyVerifiedDelivery(
+        deps.database,
+        context,
+        {
+          deliveryId: delivery.id,
+          providerEventId: verdict.providerEventId,
+          effects: verdict.effects,
+        },
+        handlers,
+      );
     },
   };
 }

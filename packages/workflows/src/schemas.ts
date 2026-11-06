@@ -81,6 +81,12 @@ export const connectorSyncInputSchema = z.strictObject({
 export type ConnectorSyncInput = z.infer<typeof connectorSyncInputSchema>;
 export const connectorSyncWorkflowIdFor = (input: ConnectorSyncInput) =>
   `connector-sync-${input.organizationId}-${input.connectionId}`;
+/**
+ * The same workflow, for a revoke. Its own ID, because a sync run already open could have read the row
+ * before the revoke committed, and a start that finds it open would then stop the sealed secret never.
+ */
+export const connectorRevokeWorkflowIdFor = (input: ConnectorSyncInput) =>
+  `connector-revoke-${input.organizationId}-${input.connectionId}`;
 /** What the Activity did, from the connection's row: read its streams, or revoke its secret. */
 export type ConnectorSyncOutcome = {
   outcome: 'synced' | 'revoked' | 'nothing_to_do' | 'failed';
