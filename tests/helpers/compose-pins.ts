@@ -73,7 +73,12 @@ export function pinProblems(
     const networks = addressesOf(config, client).map(({ network }) => network);
     const expected: Record<string, string> = {};
     for (const peer of peers) {
-      const shared = addressesOf(config, peer).find(({ network }) => networks.includes(network));
+      const shared = addressesOf(config, peer).find(
+        ({ network }) =>
+          networks.includes(network) &&
+          // Auxiliary worker networks also join these peers; Temporal still uses its DB network.
+          (client !== 'temporal' || peer !== 'postgres' || network === 'temporal-db'),
+      );
       if (!shared) {
         problems.push(`${client} shares no network with ${peer}`);
       } else if (!/^\d+\.\d+\.\d+\.\d+$/.test(shared.address ?? '')) {

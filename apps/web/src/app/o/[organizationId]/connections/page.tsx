@@ -128,7 +128,7 @@ export default async function ConnectionsPage({
                           summaryLabel={`Revoke ${row.displayName}`}
                           consequence={`Revoke ${row.displayName} for good. Anything not yet attempted will not go out through it, and any work asking for its receipt will need another connection.`}
                           confirmLabel="Revoke for good"
-                          confirmFullLabel={`Revoke ${row.displayName} for good`}
+                          confirmFullLabel={`Revoke for good: ${row.displayName}`}
                         />
                       </div>
                     )}

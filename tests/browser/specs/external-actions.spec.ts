@@ -197,10 +197,11 @@ test('it comes first on the list for who can answer, and is not asked of anyone 
   const page = await open(world.alice);
   await page.goto(`/o/${world.organization}/external-actions`);
   const decision = page.getByRole('region', { name: 'Needs a decision' });
-  await expect(decision.getByRole('link', { name: 'The kickoff note' }).first()).toHaveAttribute(
-    'href',
-    actionPath(world.organization, seeded.id),
-  );
+  // The queue keeps older unknown actions first. This action must be in the priority section,
+  // even when another test has left an older action with the same subject there.
+  await expect(
+    decision.locator(`a[href="${actionPath(world.organization, seeded.id)}"]`),
+  ).toHaveText('The kickoff note');
   const headings = await main(page).getByRole('heading', { level: 2 }).allInnerTexts();
   expect(headings[0]).toBe('Needs a decision');
 

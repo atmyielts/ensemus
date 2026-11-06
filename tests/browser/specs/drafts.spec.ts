@@ -22,7 +22,8 @@ const savedObjective = (page: Page) =>
   page.getByRole('region', { name: 'Purpose', exact: true }).locator('p').first();
 
 const signIn = async (page: Page, person: Person) => {
-  await page.getByLabel('Email').fill(person.email);
+  await expect(page.getByRole('heading', { name: 'Sign in to Ensemus' })).toBeVisible();
+  await page.getByRole('textbox', { name: 'Email', exact: true }).fill(person.email);
   await page.getByLabel('Password').fill(PASSWORD);
   await page.getByRole('button', { name: 'Sign in' }).click();
 };
