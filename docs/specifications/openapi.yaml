@@ -1316,10 +1316,14 @@ paths:
             schema:
               type: object
               additionalProperties: false
-              required: [provider_kind, destination_host, region, contract_ref, allowed_classes, purposes]
+              required: [destination, destination_host, billing_owner, retention_basis, region, contract_ref, allowed_classes, purposes]
               properties:
-                provider_kind: {type: string, pattern: '^[a-z][a-z0-9_]{1,63}$'}
+                destination:
+                  type: string
+                  enum: [ensemus_cloud_managed_model, customer_byom_public_api, customer_private_inference]
                 destination_host: {type: string, pattern: '^[a-z0-9.-]{1,253}$'}
+                billing_owner: {type: string, enum: [customer, ensemus]}
+                retention_basis: {type: string, enum: [unreviewed, contract_recorded, self_hosted]}
                 region: {type: [string, 'null'], maxLength: 64}
                 contract_ref: {type: [string, 'null'], maxLength: 128}
                 allowed_classes:

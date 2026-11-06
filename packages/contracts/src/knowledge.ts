@@ -113,8 +113,14 @@ export const traverseGraphSchema = z.strictObject({
 export type TraverseGraphBody = z.infer<typeof traverseGraphSchema>;
 
 export const egressProposalSchema = z.strictObject({
-  provider_kind: z.string().regex(/^[a-z][a-z0-9_]{1,63}$/),
+  destination: z.enum([
+    'ensemus_cloud_managed_model',
+    'customer_byom_public_api',
+    'customer_private_inference',
+  ]),
   destination_host: z.string().regex(/^[a-z0-9.-]{1,253}$/),
+  billing_owner: z.enum(['customer', 'ensemus']),
+  retention_basis: z.enum(['unreviewed', 'contract_recorded', 'self_hosted']),
   region: z.string().max(64).nullable(),
   contract_ref: z.string().max(128).nullable(),
   allowed_classes: z.array(classificationSchema).max(4),

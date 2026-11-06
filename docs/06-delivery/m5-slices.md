@@ -31,7 +31,7 @@ A bug in any of these is reported, not fixed in passing.
 
 **Replay histories** need Temporal, which needs Docker. Write `tests/replay/capture-<yours>.test.ts` and `tests/replay/<yours>-corpus.test.ts` on the pattern in `tests/replay/capture.test.ts`, and report the histories as owed.
 
-**M3's and M4's code is not on this branch.** M3's SDK functions (`runSyncPass`, `mapSourceGrants`, `describeConnectorConformance`, `commitSyncPage`, and so on) are stubs here, and real on `m3-verified-actions`. M4 does not exist yet. So a unit test may not call them. Inject a double, or put the test in an integration file that runs after the merge.
+**M3's and M4's code is not on this branch.** M3's SDK functions (`runSyncPass`, `mapSourceGrants`, `describeConnectorConformance`, `commitSyncPage`, and so on) are stubs here, and real on `m3-verified-actions`. M4 is on `m4-foundation`, and you may read it with `git show`, but do not merge or import it. So a unit test may not call them. Inject a double, or put the test in an integration file that runs after the merge.
 
 ## Every slice
 
@@ -176,7 +176,7 @@ Revoke, delete, the purge and restore re-apply. Acceptance: serving blocks immed
 - `packages/workflows/src/knowledge-purge-workflow.ts`, `knowledge-purge-activities.ts`
 - new `tests/integration/knowledge-purge.test.ts`, `knowledge-restore.test.ts`, `tests/stack/knowledge-restore.test.ts`, `tests/replay/capture-knowledge-purge.test.ts`, `knowledge-purge-corpus.test.ts`
 
-**Implements, unchanged:** `revokeSource`, `deleteSource`, `closeOrphanedConnectorSources`, `runSourcePurge`, `getPurgeStatus`, `reapplyKnowledgeSourceEntry`. `knowledgePurgeWorkflow`. `createKnowledgePurgeActivities` (`purgeSource`).
+**Implements, unchanged:** `revokeSource`, `deleteSource`, `closeOrphanedConnectorSources`, `runSourcePurge`, `purgeRunTranscriptsForSource`, `getPurgeStatus`, `reapplyKnowledgeSourceEntry`. `knowledgePurgeWorkflow`. `createKnowledgePurgeActivities` (`purgeSource`), `createKnowledgeTranscriptActivities` (`purgeRunTranscripts`).
 
 **Calls:** `emit` with `TOMBSTONE_RECORDED` and aggregate `AGGREGATE_KNOWLEDGE_SOURCE`, so the dispatcher's ledger writer needs no change. `RunTranscriptPurge` as a double. `ObjectStore`.
 
@@ -321,12 +321,13 @@ Only a person can finish these: `OPS-20` (hosted staging and production: account
 |---|---|
 | Stitch the journal: `0200`, `0201` in order | `packages/database/migrations/meta` |
 | Register `createKnowledgeConnectorActivities`, `createMcpActivities`, Google, Microsoft and MCP connectors, and provider routes | `workers/workflow/src/connector-worker.ts` |
-| Register `createKnowledgeEmbedActivities` and `createKnowledgeAnswerActivities`, with `KnowledgeModelPort` over M4's router | M4's `workers/workflow/src/agent-main.ts` |
+| Register `createKnowledgeEmbedActivities`, `createKnowledgeAnswerActivities` and `createKnowledgeTranscriptActivities`, with `KnowledgeModelPort` over M4's router and `RunTranscriptPurge` over `ai.step_payloads` | M4's `workers/workflow/src/agent-main.ts` |
+| Give M4 what `KnowledgeModelPort` needs, as ADR-029 D10 lists: `embed` and `rerank` purposes, the `embedding_reranker` destination, an `embed` adapter method, and a gateway entry point for work with no run | `packages/domain/src/ai.ts`, `packages/policy/src/egress.ts`, `packages/intelligence/src/**` |
+| Merge `TenantContext.actorType` as `'user' \| 'service' \| 'agent' \| 'delegated'`, keeping this branch's `withTenantTx` and `transaction`. Have M4's `CompiledContext.sources` accept a knowledge passage | `packages/database/src/tenant.ts`, `packages/agent-runtime/src/context/index.ts` |
 | Register `createClientOnboardingActivities`, with `AgentRuns` over M4's service | `workers/workflow/src/main.ts` |
-| Real `contentScan` (`scanForSecrets`) and `transcripts` (M4's payloads) | `workers/workflow/src/knowledge-ports.ts` |
+| Real `contentScan`, over M4's `scanForSecrets`: a hit raises to `restricted` | `workers/workflow/src/knowledge-ports.ts` |
 | Real `EgressPolicyPort`, `AgentWorkloads`, `RunEgressDecisions` | `apps/web/src/server/knowledge-ports.ts` |
 | Add `KNOWLEDGE_CONNECTOR_MANIFESTS` to `CONNECTOR_MANIFESTS` | `packages/connectors/src/manifest.ts` |
-| M4's `createAgentContext`: confirm its `actorType` is not `service` or `user`, so `knowledge.is_service_actor()` is false and a run cannot verify a fact | `packages/database/src/tenant.ts` |
 | M4's tool gateway calls `loadCallableMcpTool`, and M4's compiler calls `compileEvidence` | M4's `packages/agent-runtime` |
 
 **Then Docker (nobody here runs this):** the `docker_later` list in the handoff. A `knowledge-worker` service, gateways per route, capture of replay histories, the recall script, and every integration, stack and browser test written here.

@@ -29,8 +29,8 @@ export type ModelRoute = {
 
 export type RouteDecision =
   | { decision: 'allow'; route: ModelRoute }
-  /** Nothing was unsealed and nobody was contacted. The reason is a code, for the ledger. */
-  | { decision: 'deny'; reasonCode: KnowledgeCode; policyVersion: string };
+  /** Nothing was unsealed and nobody was contacted. Policy's own code, for the ledger, and no text. */
+  | { decision: 'deny'; reasonCode: string; policyVersion: string };
 
 export type ModelUsage = {
   inputTokens: number;
@@ -48,13 +48,16 @@ export type RerankResult = {
 };
 
 /**
- * The roles keep a document from speaking as the system (05-context-compiler). `evidence` is untrusted
- * data, and an adapter must not merge it into a system message.
+ * The same shape as M4's `ContextMessage`, so it passes straight to its adapters. The roles keep a document
+ * from speaking as the system (05-context-compiler): only `policy` ever reaches a model's system role.
+ * `task` is the question, and `evidence` is untrusted data. An evidence part's `partId` is its citation key.
  */
-export type KnowledgeMessage =
-  | { role: 'system'; text: string }
-  | { role: 'user'; text: string }
-  | { role: 'evidence'; citationKey: string; text: string };
+export type KnowledgeMessage = {
+  role: 'policy' | 'task' | 'evidence';
+  partId: string;
+  text: string;
+  classification: Classification;
+};
 
 export type AnswerResult = { text: string; usage: ModelUsage };
 
@@ -112,10 +115,17 @@ export interface MalwareScanPort {
   scan(bytes: Uint8Array): Promise<'clean' | 'flagged' | 'not_scanned'>;
 }
 
-/** What a workflow does with a proposed provider, for the egress simulator (AGENT-11). */
+/**
+ * A provider that does not exist yet, for the egress simulator (AGENT-11). The fields are what M4's
+ * `EgressProfileFacts` needs, so `decideEgress` can be asked about it as it would be about a real profile.
+ */
 export type EgressProposal = {
-  providerKind: string;
+  /** A column of data-egress-matrix.csv. */
+  destination:
+    'ensemus_cloud_managed_model' | 'customer_byom_public_api' | 'customer_private_inference';
   destinationHost: string;
+  billingOwner: 'customer' | 'ensemus';
+  retentionBasis: 'unreviewed' | 'contract_recorded' | 'self_hosted';
   region: string | null;
   contractRef: string | null;
   /** The classes the proposal says it may carry. */

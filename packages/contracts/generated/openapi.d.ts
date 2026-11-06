@@ -2223,8 +2223,13 @@ export interface paths {
             requestBody: {
                 content: {
                     "application/json": {
-                        provider_kind: string;
+                        /** @enum {string} */
+                        destination: "ensemus_cloud_managed_model" | "customer_byom_public_api" | "customer_private_inference";
                         destination_host: string;
+                        /** @enum {string} */
+                        billing_owner: "customer" | "ensemus";
+                        /** @enum {string} */
+                        retention_basis: "unreviewed" | "contract_recorded" | "self_hosted";
                         region: string | null;
                         contract_ref: string | null;
                         allowed_classes: ("public" | "internal" | "confidential" | "restricted")[];

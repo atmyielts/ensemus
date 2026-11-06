@@ -118,8 +118,10 @@ describe('contracts', () => {
 
   it('refuses a URL where a host goes in a proposal', () => {
     const proposal = {
-      provider_kind: 'openai_compatible',
+      destination: 'customer_byom_public_api',
       destination_host: 'models.example.invalid',
+      billing_owner: 'customer',
+      retention_basis: 'unreviewed',
       region: null,
       contract_ref: null,
       allowed_classes: ['internal'],

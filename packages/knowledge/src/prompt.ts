@@ -7,9 +7,9 @@ import type { KnowledgeMessage } from './ports';
 export const ANSWER_PROMPT_VERSION = 'v1';
 
 /**
- * One system message of fixed text that says evidence is data and never instructions, one `evidence`
- * message per item, and the question as `user`. Nothing from a document or the question reaches the
- * system text. Interpolates no secret and has no way to.
+ * One `policy` message of fixed text that says evidence is data and never instructions, one `evidence`
+ * message per item with `partId` as its citation key, and the question as `task`. Nothing from a document
+ * or the question reaches the policy text. Interpolates no secret and has no way to.
  */
 export function buildAnswerMessages(
   _question: string,

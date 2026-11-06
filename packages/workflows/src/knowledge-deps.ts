@@ -11,12 +11,18 @@ export type KnowledgeWorkerDeps = {
   database: AppDatabase;
   store: ObjectStore;
   ingest: IngestDeps;
-  transcripts: RunTranscriptPurge;
 };
 
+/** On M4's agent queue, with its database handle. */
 export type KnowledgeModelDeps = {
   database: AppDatabase;
   model: KnowledgeModelPort;
+};
+
+/** On M4's agent queue too: only its role can reach `ai.step_payloads` (ADR-029 D3). */
+export type KnowledgeTranscriptDeps = {
+  database: AppDatabase;
+  transcripts: RunTranscriptPurge;
 };
 
 export type OnboardingDeps = {

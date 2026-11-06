@@ -51,18 +51,30 @@ export type PurgeOutcome = {
 
 /**
  * Removes, in order, answers that used the source, its evidence (a fact with no other evidence goes, and
- * one with other evidence becomes `disputed`, naming this source), chunks and embeddings, staged bytes, document rows, and
- * the stored bytes, checking they have gone. M4's transcripts go through the port. No transaction is open
- * during a store call. Marks the job completed and emits `knowledge.purge_completed`. Safe to repeat, and a
- * store outage leaves the job `failed` with a code, and serving stays blocked.
+ * one with other evidence becomes `disputed`, naming this source), chunks and embeddings, staged bytes,
+ * document rows, and the stored bytes, checking they have gone. No transaction is open during a store call.
+ * Marks the job completed and emits `knowledge.purge_completed`. Safe to repeat, and a store outage leaves
+ * the job `failed` with a code, and serving stays blocked.
  */
 export function runSourcePurge(
   _database: AppDatabase,
   _store: ObjectStore,
   _context: TenantContext,
-  _deps: { transcripts: RunTranscriptPurge },
   _input: { sourceId: string },
 ): Promise<PurgeOutcome> {
+  throw new Error('NOT_IMPLEMENTED');
+}
+
+/**
+ * M4's prompts can hold a closed source's words, and only its role can reach them, so this half runs on its
+ * queue. Finds runs through `evidence_packages` and `evidence_items`, with a run ID, and asks the port.
+ */
+export function purgeRunTranscriptsForSource(
+  _database: AppDatabase,
+  _context: TenantContext,
+  _deps: { transcripts: RunTranscriptPurge },
+  _input: { sourceId: string },
+): Promise<{ removed: number }> {
   throw new Error('NOT_IMPLEMENTED');
 }
 

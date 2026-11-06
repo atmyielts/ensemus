@@ -108,7 +108,7 @@ In one transaction: the state, a `platform.tombstones` row of type `knowledge_so
 **What this does not cover.**
 
 - **A model already has what it was sent.** A provider's retention is the provider's. Egress policy (D5) is what limits this, and a revoke cannot reach it.
-- **M4's transcripts.** `ai.step_payloads` can hold passages. The purge finds runs through `evidence_packages` and asks M4 to remove them, through a port. M4 purges at run end by default, so this is a short window.
+- **M4's transcripts.** `ai.step_payloads` can hold passages, and only `ensemus_agent` can reach it. So the purge workflow first runs `purgeRunTranscripts` on M4's queue, which finds runs through `evidence_packages` and asks M4 to remove them through a port. With no agent worker there, it carries on and the job says so. M4 purges at run end by default, so this is a short window.
 - **Backups.** A dump still holds deleted passages until it expires. `LIFE-02`.
 - **A person's memory, or a copy they made.**
 - **Removing one person's access** is not a purge. Reads stop at once, and the source stays. Answers they already had stop being readable by them, by RLS, and are deleted only if the source closes.
@@ -174,7 +174,7 @@ In one transaction: the state, a `platform.tombstones` row of type `knowledge_so
 
 ### D9. Egress ledger and simulator
 
-**AGENT-10.** `knowledge.model_calls` is append-only, and records each decision to send company text for knowledge work, allowed or denied: purpose, class, profile, host, reason code, policy version, and a hash of what would go, with no text. M4's plan keeps `governance.egress_decisions` for run-bound calls, and embedding a document has no run. `listEgressLedger` merges the two behind one row shape, with a stable cursor. If M4's table turns out able to hold knowledge's calls, this table can stop being written at the final merge, without loss.
+**AGENT-10.** `knowledge.model_calls` is append-only, and records each decision to send company text for knowledge work, allowed or denied: purpose, class, profile, host, reason code, policy version, and a hash of what would go, with no text. M4 keeps `governance.egress_decisions` for run-bound calls, and embedding a document has no run. `listEgressLedger` merges the two behind one row shape, with a stable cursor. M4's table does allow a null run, so this table could stop being written at the final merge, without loss. It stays separate for now because this branch cannot see M4's table, and because a builder here must be able to test the ledger.
 
 **AGENT-11.** `simulateEgress` is a pure function over a proposal, a list of workloads and M4's `decideEgress`. Its module imports no network, port or credential, and lint holds that. A policy that throws reads as `wouldTransmit: false`, because a simulator that overstates safety is worse than none. It stores nothing.
 
@@ -187,11 +187,20 @@ In one transaction: the state, a `platform.tombstones` row of type `knowledge_so
 | `EgressPolicyPort` | M4's `decideEgress` | Simulator reads nothing as allowed |
 | `RunEgressDecisions` | M4's `governance.egress_decisions` | Ledger shows knowledge's rows only |
 | `AgentWorkloads` | M4's published versions | Simulator lists knowledge's workloads only |
-| `RunTranscriptPurge` | M4's `ai.step_payloads` | The purge fails, and retries, with serving already stopped |
+| `RunTranscriptPurge` | M4's `ai.step_payloads`, on its queue | Runs nowhere: no agent worker means no transcript to remove |
 | `AgentRuns` | M4's run service | Flagship cannot start its brief |
 | `ExternalActionGateway` and connector SDK | M3, already typed on this branch | |
 
 Each has a double in `tests/helpers/knowledge.ts` or `@ensemus/knowledge/testing`. Lint keeps the latter out of `apps/` and `workers/`.
+
+**What M4's foundation (`75ca603`) means for the merge.** It landed while this was written, and was read, not merged. Four gaps need a decision by whoever wires `KnowledgeModelPort`:
+
+- **`MODEL_PURPOSES` has no `embed` or `rerank`,** and `EGRESS_DESTINATIONS` has no `embedding_reranker` column, though `data-egress-matrix.csv` does. `MODEL-05` needs both, and without them every embedding is denied, which is safe. Add them to `@ensemus/domain/ai`, and to the matrix `decideEgress` reads.
+- **`ModelAdapter` has only `generate`.** Embedding needs an `embed` method, and the fake model an endpoint for it.
+- **`InferenceGateway.turn` and `ModelRouter.select` take a run.** An embedding and a person's question have none. Either the gateway gets an entry point for work with no run, keeping FD-8's order, or each answer becomes a run of a built-in agent. The first is simpler, and it is the recommendation.
+- **M4 lints `@ensemus/database/service` away from its agent worker's files** (FD-3). `knowledge-embed-activities.ts` runs there and uses a service context, for knowledge's own rows and no Work Unit. It is not in M4's list, and that is deliberate. The outside review should look at it, since it puts a tenant-wide read of passages in the process that can reach a model.
+
+M4's `egress_decisions` allows a null run, and only `ensemus_agent` writes it, so `knowledge.model_calls` could merge into it (question 10). M4's `createAgentContext` has `actorType: 'agent'`, which row-level security here reads through the membership, as intended, and the fact trigger refuses. `withTenantTx` on M4's branch still binds two settings, so the merge keeps this branch's version of that function.
 
 ### D11. Connectors
 
