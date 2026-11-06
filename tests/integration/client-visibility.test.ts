@@ -13,7 +13,7 @@ import {
   setClientReaders,
 } from '@ensemus/application';
 import { searchCompany } from '@ensemus/application/knowledge/company-search';
-import { getFact, proposeFact } from '@ensemus/application/knowledge/facts';
+import { getFact, proposeFact, reviewFact } from '@ensemus/application/knowledge/facts';
 import {
   auditEvents,
   clientReaders,
@@ -140,6 +140,61 @@ describe('named client visibility on PostgreSQL application roles', () => {
     );
     expect(await visible(admin, confidential.id)).toEqual([]);
     expect(await visible(reader, confidential.id)).toHaveLength(1);
+  });
+  it('allows reader/admin evidence locks and independent fact review without granting client mutation', async () => {
+    const restricted = await makeClient(),
+      confidential = await makeClient('confidential');
+    await setClientReaders(database.db, owner, {
+      clientId: restricted.id,
+      expectedVersion: 1,
+      readerMembershipIds: [reader.membershipId],
+    });
+    const source = await seedSearchableSource(database.db, owner, {
+      passages: ['Generated evidence passage'],
+      grants: [{ kind: 'organization' }],
+    });
+    for (const [person, client] of [
+      [reader, restricted],
+      [admin, confidential],
+    ] as const) {
+      expect(
+        await withTenantTx(database.db, person, (tx) =>
+          tx.select().from(clients).where(eq(clients.id, client.id)).for('share'),
+        ),
+      ).toHaveLength(1);
+      const fact = await proposeFact(database.db, owner, {
+        subjectRef: `client:${client.id}`,
+        predicate: 'relationship.note',
+        claim: 'Generated reviewed claim',
+        origin: 'person',
+        evidence: [{ chunkId: source.chunkIds[0]!, quoteStart: 0, quoteEnd: 9 }],
+      });
+      expect((await getFact(database.db, person, fact.factId)).claim).toBe(
+        'Generated reviewed claim',
+      );
+      if (person === admin)
+        expect(
+          await reviewFact(database.db, person, {
+            factId: fact.factId,
+            expectedVersion: 1,
+            decision: 'verify',
+            reason: 'Generated independent review',
+          }),
+        ).toEqual({ trustState: 'verified', version: 2 });
+      let refusal: unknown;
+      try {
+        await withTenantTx(database.db, person, (tx) =>
+          tx
+            .update(clients)
+            .set({ displayName: 'Unauthorized change' })
+            .where(eq(clients.id, client.id)),
+        );
+      } catch (error) {
+        refusal = error;
+      }
+      expect(pgCode(refusal)).toBe('42501');
+      expect((await visible(owner, client.id))[0]?.displayName).toBe(client.displayName);
+    }
   });
   it('does not let a reader, manager, delegated actor or foreign tenant change the named-reader set', async () => {
     const client = await makeClient();

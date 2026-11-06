@@ -48,9 +48,16 @@ CREATE POLICY client_creator ON work.clients AS RESTRICTIVE FOR INSERT TO ensemu
     AND EXISTS(SELECT 1 FROM org.memberships m WHERE m.organization_id=clients.organization_id
       AND m.id=app.current_membership_id() AND m.status='active')));
 CREATE POLICY client_owner_change ON work.clients AS RESTRICTIVE FOR UPDATE TO ensemus_app
-  USING(knowledge.is_service_actor() OR (app.current_actor_type()='user' AND owner_membership_id=app.current_membership_id()
-    AND EXISTS(SELECT 1 FROM org.memberships m WHERE m.organization_id=clients.organization_id AND m.id=app.current_membership_id() AND m.status='active')))
-  WITH CHECK(knowledge.is_service_actor() OR owner_membership_id=app.current_membership_id());
+  -- UPDATE USING also filters SELECT FOR SHARE/UPDATE. Permit every current readable row to be
+  -- locked for evidence checks, but keep actual changed rows owner-only in WITH CHECK.
+  USING(knowledge.is_service_actor() OR EXISTS(SELECT 1 FROM org.memberships m
+    WHERE m.organization_id=clients.organization_id AND m.id=app.current_membership_id() AND m.status='active'
+      AND (clients.classification IN ('public','internal') OR clients.owner_membership_id=m.id
+        OR EXISTS(SELECT 1 FROM work.client_readers r WHERE r.organization_id=clients.organization_id
+          AND r.client_id=clients.id AND r.membership_id=m.id)
+        OR (clients.classification='confidential' AND m.role IN ('owner','admin')))))
+  WITH CHECK(knowledge.is_service_actor() OR (app.current_actor_type()='user' AND owner_membership_id=app.current_membership_id()
+    AND EXISTS(SELECT 1 FROM org.memberships m WHERE m.organization_id=clients.organization_id AND m.id=app.current_membership_id() AND m.status='active')));
 CREATE POLICY client_owner_delete ON work.clients AS RESTRICTIVE FOR DELETE TO ensemus_app
   USING(knowledge.is_service_actor() OR (app.current_actor_type()='user' AND owner_membership_id=app.current_membership_id()
     AND EXISTS(SELECT 1 FROM org.memberships m WHERE m.organization_id=clients.organization_id AND m.id=app.current_membership_id() AND m.status='active')));
