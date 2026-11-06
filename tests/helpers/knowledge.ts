@@ -80,6 +80,15 @@ export async function seedSearchableSource(
   const sourceId = randomUUID();
   const documentId = randomUUID();
   const body = input.passages.join('\n\n');
+  // A human can upload only while explicitly readable. Build the requested post-revocation fixture
+  // through a temporary actual-uploader grant, then remove just that grant after publication.
+  const temporaryUploaderGrant =
+    context.actorType === 'user' &&
+    !(input.grants ?? []).some(
+      (grant) => grant.kind === 'membership' && grant.membershipId === context.membershipId,
+    )
+      ? randomUUID()
+      : null;
   await withTenantTx(database, context, async (tx) => {
     await tx.insert(knowledgeSources).values({
       organizationId,
@@ -95,8 +104,18 @@ export async function seedSearchableSource(
         principalKind: grant.kind,
         membershipId: grant.kind === 'membership' ? grant.membershipId : null,
         teamId: grant.kind === 'team' ? grant.teamId : null,
+        grantedByMembershipId: context.actorType === 'user' ? context.membershipId : null,
       });
     }
+    if (temporaryUploaderGrant)
+      await tx.insert(knowledgeSourceGrants).values({
+        organizationId,
+        id: temporaryUploaderGrant,
+        sourceId,
+        principalKind: 'membership',
+        membershipId: context.membershipId,
+        grantedByMembershipId: context.membershipId,
+      });
     await tx.insert(knowledgeDocuments).values({
       organizationId,
       id: documentId,
@@ -107,6 +126,7 @@ export async function seedSearchableSource(
       sizeBytes: Buffer.byteLength(body),
       mediaType: 'text/plain',
       classification,
+      createdByMembershipId: context.actorType === 'user' ? context.membershipId : null,
     });
   });
   const service = createServiceContext(organizationId);
@@ -136,6 +156,10 @@ export async function seedSearchableSource(
       .update(knowledgeDocuments)
       .set({ state: 'searchable', searchableAt: new Date() })
       .where(eq(knowledgeDocuments.id, documentId));
+    if (temporaryUploaderGrant)
+      await tx
+        .delete(knowledgeSourceGrants)
+        .where(eq(knowledgeSourceGrants.id, temporaryUploaderGrant));
   });
   return { sourceId, documentId, chunkIds };
 }

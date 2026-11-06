@@ -131,6 +131,10 @@ describe('knowledge isolation stays live after authority changes', () => {
         membershipId: teamId ? null : reader.membershipId,
         teamId,
       });
+    });
+    // Connection/ACL setup commits before the trusted provider ingestion transaction. A human
+    // administrator is not an actor-type shortcut for writing a connector's source or documents.
+    await withTenantTx(database.db, createServiceContext(owner.organizationId), async (tx) => {
       await tx.insert(knowledgeSources).values({
         organizationId: owner.organizationId,
         id: sourceId,
