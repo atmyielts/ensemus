@@ -206,7 +206,16 @@ export const MODEL_CAPABILITIES = [
 ] as const;
 export type ModelCapability = (typeof MODEL_CAPABILITIES)[number];
 
-export const MODEL_PURPOSES = ['classify', 'extract', 'reason', 'research', 'compose'] as const;
+export const MODEL_PURPOSES = [
+  'classify',
+  'extract',
+  'reason',
+  'research',
+  'compose',
+  'embed',
+  'rerank',
+  'answer',
+] as const;
 export type ModelPurpose = (typeof MODEL_PURPOSES)[number];
 
 export const RETENTION_BASES = ['unreviewed', 'contract_recorded', 'self_hosted'] as const;

@@ -29,7 +29,16 @@ export const modelCapabilitySchema = z.enum([
   'vision',
   'long_context',
 ]);
-export const modelPurposeSchema = z.enum(['classify', 'extract', 'reason', 'research', 'compose']);
+export const modelPurposeSchema = z.enum([
+  'classify',
+  'extract',
+  'reason',
+  'research',
+  'compose',
+  'embed',
+  'rerank',
+  'answer',
+]);
 
 export const modelLimitsSchema = z.strictObject({
   max_input_tokens: z.int().min(128),

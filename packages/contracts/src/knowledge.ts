@@ -1,6 +1,7 @@
 // Runtime contracts for company knowledge (ADR-029). The request and response shapes match
 // docs/specifications/openapi.yaml, and a test keeps their enums the same.
 import { z } from 'zod';
+import { modelPurposeSchema } from './ai';
 
 const classificationSchema = z.enum(['public', 'internal', 'confidential', 'restricted']);
 
@@ -131,10 +132,7 @@ export const egressProposalSchema = z.strictObject({
   region: z.string().max(64).nullable(),
   contract_ref: z.string().max(128).nullable(),
   allowed_classes: z.array(classificationSchema).max(4),
-  purposes: z
-    .array(z.enum(['embed', 'rerank', 'answer']))
-    .min(1)
-    .max(3),
+  purposes: z.array(modelPurposeSchema).min(1).max(8),
 });
 export type EgressProposalBody = z.infer<typeof egressProposalSchema>;
 

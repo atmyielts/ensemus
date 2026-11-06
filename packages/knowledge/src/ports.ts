@@ -3,6 +3,7 @@
 // without this package changing. Types only.
 import type { KnowledgeCode } from '@ensemus/domain/knowledge';
 import type { Classification } from '@ensemus/domain/policy';
+import type { ModelPurpose as CanonicalModelPurpose } from '@ensemus/domain/ai';
 
 export type ModelPurpose = 'embed' | 'rerank' | 'answer';
 
@@ -130,7 +131,7 @@ export type EgressProposal = {
   contractRef: string | null;
   /** The classes the proposal says it may carry. */
   allowedClasses: readonly Classification[];
-  purposes: readonly ModelPurpose[];
+  purposes: readonly CanonicalModelPurpose[];
 };
 
 export type EgressVerdict = { allow: boolean; reasonCode: string; policyVersion: string };
@@ -144,7 +145,7 @@ export interface EgressPolicyPort {
     organizationId: string;
     proposal: EgressProposal;
     classification: Classification;
-    purpose: ModelPurpose;
+    purpose: CanonicalModelPurpose;
   }): EgressVerdict;
 }
 
@@ -152,6 +153,6 @@ export interface EgressPolicyPort {
 export type EgressWorkload = {
   key: string;
   kind: 'knowledge' | 'agent';
-  purpose: ModelPurpose;
+  purpose: CanonicalModelPurpose;
   classes: readonly Classification[];
 };
