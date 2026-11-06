@@ -33,6 +33,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { tenantCanary } from '../helpers/ai/canaries';
 import {
   openAgentTestDatabase,
+  prepareRunInputContext,
   seedAgentVersion,
   seedAiTenant,
   seedQueuedRun,
@@ -162,7 +163,8 @@ describe('context and prompt assembly, as the real roles', () => {
     },
   ) => {
     const stepId = randomUUID();
-    await withRunLookupTx(agent.db, tenant.organizationId, async (tx) => {
+    const context = await prepareRunInputContext(agent.db, tenant.organizationId, runId);
+    await withTenantTx(agent.db, context, async (tx) => {
       await tx.insert(executionSteps).values({
         organizationId: tenant.organizationId,
         id: stepId,

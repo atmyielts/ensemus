@@ -1,7 +1,6 @@
 // Activities do all I/O for workflows. Each one takes IDs, works out its state from PostgreSQL, and
 // is safe to retry: a repeated call finds the work already done and does nothing new.
 import {
-  addArtifact,
   applyTransition,
   closeOutdatedReviews,
   createApprovalInTx,
@@ -21,13 +20,8 @@ import {
   type ObjectStore,
 } from '@ensemus/application';
 import { closeStrandedRunInTx } from '@ensemus/application/ai-runs';
-import {
-  approvals,
-  artifacts,
-  withTenantTx,
-  workArtifacts,
-  type AppDatabase,
-} from '@ensemus/database';
+import { produceCompletionChecklist } from '@ensemus/application/knowledge/checklist-template';
+import { approvals, withTenantTx, type AppDatabase } from '@ensemus/database';
 import { createServiceContext } from '@ensemus/database/service';
 import { isTerminal, type CompletionCriterion, type WorkState } from '@ensemus/domain/work-unit';
 import { createLogger, errorCode } from '@ensemus/telemetry';
@@ -44,19 +38,12 @@ import type {
 } from './schemas';
 
 const log = createLogger('worker');
-const CHECKLIST_NAME = 'completion-checklist.md';
 /** Work a run holds is only checked once nothing has happened on it for this long. */
 const QUIET_RUN_MS = 15 * 60 * 1000;
 /** A request nothing has claimed after this long has probably met a run that cannot claim it. */
 const UNCLAIMED_REQUEST_MS = 5 * 60 * 1000;
 /** How long one sweep keeps asking Temporal, well inside the Activity's 2 minutes. */
 const RECONCILE_BUDGET_MS = 45 * 1000;
-
-const CRITERION_WORDS: Record<CompletionCriterion['kind'], string> = {
-  artifact_exists: 'Someone attaches the file that shows the result.',
-  reviewer_approved: 'A reviewer approves this work as it stands.',
-  external_receipt: 'The outside system confirms it happened.',
-};
 
 export async function recordProbeStep(probeId: string, step: ProbeStep): Promise<void> {
   log.info('probe.step', { probeId, step });
@@ -157,44 +144,16 @@ export function createActivities(deps: {
      * nothing, and an attempt still in flight after a timeout loses to whichever attached it first.
      */
     async produceChecklistArtifact(input: RunInput): Promise<{ artifactId: string }> {
-      const work = await load(input);
-      const held = (row: { status: string; runId: string | null }) =>
-        row.status === 'running' && row.runId === input.runId;
-      if (!held(work)) throw stopped();
       const ctx = context(input);
-      const [existing] = await withTenantTx(database, ctx, (tx) =>
-        tx
-          .select({ id: artifacts.id })
-          .from(workArtifacts)
-          .innerJoin(artifacts, eq(artifacts.id, workArtifacts.artifactId))
-          .where(and(eq(workArtifacts.workUnitId, work.id), eq(artifacts.name, CHECKLIST_NAME))),
-      );
-      if (existing) return { artifactId: existing.id };
-      const criteria = work.completionCriteria as CompletionCriterion[];
-      const body = [
-        `# Completion checklist`,
-        '',
-        'Ensemus wrote this list. It has not checked any of this, and this file is not evidence.',
-        'A person decides when this work is done.',
-        '',
-        `Work: ${work.id}`,
-        '',
-        ...(criteria.length
-          ? criteria.map((criterion) => `- [ ] ${CRITERION_WORDS[criterion.kind]}`)
-          : ['- [ ] The accountable owner confirms the outcome. No evidence was asked for.']),
-        '',
-      ].join('\n');
-      const { id } = await addArtifact(database, store, ctx, {
-        workUnitId: work.id,
-        name: CHECKLIST_NAME,
-        mimeType: 'text/markdown',
-        body: Buffer.from(body),
-        onlyOnce: true,
-        stillAllowed: (row) => {
-          if (!held(row)) throw stopped();
-        },
-      });
-      return { artifactId: id };
+      try {
+        const { id } = await produceCompletionChecklist(database, store, ctx, input);
+        return { artifactId: id };
+      } catch (error) {
+        // Preserve the existing safe stop for a Work whose actual Temporal hold moved on.
+        const work = await load(input);
+        if (work.status !== 'running' || work.runId !== input.runId) throw stopped();
+        throw error;
+      }
     },
 
     /**

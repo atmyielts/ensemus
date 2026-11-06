@@ -33,7 +33,8 @@ export type RunRef = {
 export type CompiledContext = CompiledTurn & {
   /** Strongest class of everything included. It only goes up across a run (FD-13). */
   classification: AiClassification;
-  /** Source IDs and hashes, which is all a default trace may hold. */
+  /** Current assembly trace only. The durable ContextSource ledger is authoritative across every
+   * turn/tool and includes returned material omitted for size here; citations never replace it. */
   sources: readonly { type: 'work_unit' | 'artifact'; id: string; sha256: string }[];
 };
 

@@ -37,6 +37,7 @@ import { idFromRequest } from '../request-id';
 import { closeOutdatedReviews, loadChangeable, loadReadable } from '../work';
 import { verificationHash } from './verification-proof';
 import type { DerivedArtifactPurge } from './ports';
+import { claimGeneratedPut, registerGeneratedWriter, settleGeneratedPut } from './generated-writer';
 export type { DerivedArtifactPurge } from './ports';
 
 export type ArtifactExecution =
@@ -698,18 +699,17 @@ export function createArtifactProvenance(
             sourceId,
           })),
         );
-      await tx
-        .insert(artifactLineageRecords)
-        .values(
-          inventory.records.map((record) => ({
-            organizationId: context.organizationId,
-            artifactId: write.artifactId,
-            recordKind: record.kind,
-            recordId: record.id,
-            recordSha256: record.sha256,
-            classification: record.classification,
-          })),
-        );
+      await tx.insert(artifactLineageRecords).values(
+        inventory.records.map((record) => ({
+          organizationId: context.organizationId,
+          artifactId: write.artifactId,
+          recordKind: record.kind,
+          recordId: record.id,
+          recordSha256: record.sha256,
+          classification: record.classification,
+        })),
+      );
+      if (input.execution.kind === 'agent_run') await registerGeneratedWriter(tx, context, write);
       return { alreadyPublished: false, write };
     },
     async publishInTx(tx, context, write) {
@@ -813,7 +813,10 @@ export async function addGeneratedArtifact(
   if (first.alreadyPublished) return { id: artifactId };
   // A rejected put is UNKNOWN: retain the active token, even if HEAD is absent. Only a genuine
   // adapter fence can recover it. A fulfilled put proves this invocation's writer has finished.
+  if (input.execution.kind === 'agent_run') await claimGeneratedPut(database, context, first.write);
   await store.put(objectKey(context.organizationId, artifactId), input.body, input.mimeType);
+  if (input.execution.kind === 'agent_run')
+    await settleGeneratedPut(database, context, first.write);
   try {
     return await withTenantTx(database, context, async (tx) => {
       await provenance.publishInTx(tx, context, first.write);
@@ -849,21 +852,46 @@ export async function addGeneratedArtifact(
   } catch (error) {
     // A lost commit response may already have published. Never destroy that file. Otherwise mark the
     // completed writer settled, durably blocked, and leave physical erasure to the hold-aware adapter.
-    await withTenantTx(database, createServiceContext(context.organizationId), async (tx) => {
-      const [header] = await tx
-        .select()
-        .from(artifactLineage)
-        .where(eq(artifactLineage.artifactId, artifactId))
-        .for('update');
-      if (!header || header.writeId !== first.write.writeId || header.state === 'bound') return;
-      await tx
-        .update(artifactLineage)
-        .set({ state: 'blocked', writeState: 'settled' })
-        .where(eq(artifactLineage.artifactId, artifactId));
-      await markArtifactTombstone(tx, createServiceContext(context.organizationId), header);
-    }).catch(() => undefined);
+    await recordFulfilledGeneratedPutFailure(database, context, first.write).catch(() => undefined);
     throw error;
   }
+}
+
+/** Trusted writer calls this ONLY after its exact put promise fulfilled and publication failed.
+ * Unknown/rejected puts must never call it. A lost published commit is retained, never destroyed. */
+export async function recordFulfilledGeneratedPutFailure(
+  database: AppDatabase,
+  context: TenantContext,
+  write: GeneratedArtifactWrite,
+) {
+  requireWorker(context);
+  await withTenantTx(database, createServiceContext(context.organizationId), async (tx) => {
+    const [header] = await tx
+      .select()
+      .from(artifactLineage)
+      .where(eq(artifactLineage.artifactId, checkedId(write.artifactId)))
+      .for('update');
+    if (
+      !header ||
+      header.writeId !== write.writeId ||
+      header.generation !== write.generation ||
+      header.artifactSha256 !== write.artifactSha256 ||
+      header.state === 'bound'
+    )
+      return;
+    if (
+      context.actorType === 'agent' &&
+      (header.executionKind !== 'agent_run' ||
+        header.executionId !== context.agentRunId ||
+        header.viewerMembershipId !== context.membershipId)
+    )
+      throw new AppError('FORBIDDEN');
+    await tx
+      .update(artifactLineage)
+      .set({ state: 'blocked', writeState: 'settled' })
+      .where(eq(artifactLineage.artifactId, header.artifactId));
+    await markArtifactTombstone(tx, createServiceContext(context.organizationId), header);
+  });
 }
 
 async function markArtifactTombstone(

@@ -24,6 +24,13 @@ import { z } from 'zod';
 import { AppError } from '../errors';
 import { canonicalId, idSchema } from '../ids';
 import { loadReadable } from '../work';
+import { lockArtifactInputSources } from '../knowledge/artifact-provenance';
+import {
+  assertRunInputsOpen,
+  assertRunInputsReadable,
+  recordRunInputs,
+  workInputHash,
+} from './input-ledger';
 
 export type LoadedWork = {
   id: string;
@@ -219,8 +226,9 @@ export function createContextSource(deps: {
       const workUnitId = idSchema.safeParse(run.workUnitId);
       const agentVersionId = idSchema.safeParse(run.agentVersionId);
       if (!workUnitId.success || !agentVersionId.success) throw new AppError('NOT_FOUND');
-      const [row] = await withTenantTx(database, context, (tx) =>
-        tx
+      const [row] = await withTenantTx(database, context, async (tx) => {
+        await assertRunInputsOpen(tx, context);
+        return tx
           .select({ run: agentRuns, spec: agentVersions.spec })
           .from(agentRuns)
           .innerJoin(agentVersions, eq(agentVersions.id, agentRuns.agentVersionId))
@@ -232,8 +240,8 @@ export function createContextSource(deps: {
               // A context is built from the run's initiator. One that is not has been put together wrong.
               eq(agentRuns.initiatorMembershipId, context.membershipId),
             ),
-          ),
-      );
+          );
+      });
       if (!row) throw new AppError('NOT_FOUND');
       // Both were checked when written. A row that no longer parses stops the run rather than guessing.
       const spec = agentSpecV1Schema.safeParse(row.spec);
@@ -267,13 +275,14 @@ export function createContextSource(deps: {
       const id = idSchema.safeParse(workUnitId);
       if (!id.success) throw new AppError('NOT_FOUND');
       return withTenantTx(database, context, async (tx) => {
+        await assertRunInputsOpen(tx, context);
         const work = await loadReadable(tx, context, id.data);
         const attached = await tx
           .select({ id: workArtifacts.artifactId })
           .from(workArtifacts)
           .where(eq(workArtifacts.workUnitId, work.id))
           .orderBy(asc(workArtifacts.artifactId));
-        return {
+        const loaded = {
           id: work.id,
           title: work.title,
           objective: work.objective,
@@ -281,6 +290,15 @@ export function createContextSource(deps: {
           clientClassification: await clientClassOf(tx, work.projectId),
           artifactIds: attached.map((row) => row.id),
         };
+        await recordRunInputs(tx, context, [
+          {
+            kind: 'work_unit',
+            id: work.id,
+            sha256: workInputHash(work),
+            classification: classOf(work.classification),
+          },
+        ]);
+        return loaded;
       });
     },
 
@@ -294,6 +312,7 @@ export function createContextSource(deps: {
       if (!workUnitId.success || !artifactId.success) return { refused: 'NOT_PERMITTED' };
       // The transaction ends before the bytes are read: nothing holds a connection across a store call.
       const found = await withTenantTx(database, context, async (tx) => {
+        await assertRunInputsOpen(tx, context);
         try {
           await loadReadable(tx, context, workUnitId.data);
         } catch (error) {
@@ -326,14 +345,44 @@ export function createContextSource(deps: {
       });
       if (!found) return { refused: 'NOT_PERMITTED' };
       if (found.deleted) return { refused: 'DELETED' };
-      return readTextArtifact(found.row, input.maxBytes, readObject);
+      const loaded = await readTextArtifact(found.row, input.maxBytes, readObject);
+      if ('refused' in loaded) return loaded;
+      // Verified bytes never reach a model/tool until fresh ACL/hash checks and durable observation
+      // commit. Sources precede run/checkpoint locks, matching source-close/purge order.
+      return withTenantTx(database, context, async (tx) => {
+        await lockArtifactInputSources(tx, context, { artifactId: loaded.id });
+        const work = await loadReadable(tx, context, workUnitId.data);
+        const [current] = await tx
+          .select({ sha256: artifacts.sha256 })
+          .from(workArtifacts)
+          .innerJoin(artifacts, eq(artifacts.id, workArtifacts.artifactId))
+          .where(and(eq(workArtifacts.workUnitId, work.id), eq(artifacts.id, loaded.id)));
+        if (!current || current.sha256 !== loaded.sha256)
+          return { refused: 'NOT_PERMITTED' as const };
+        await recordRunInputs(tx, context, [
+          {
+            kind: 'work_unit',
+            id: work.id,
+            sha256: workInputHash(work),
+            classification: classOf(work.classification),
+          },
+          {
+            kind: 'artifact',
+            id: loaded.id,
+            sha256: loaded.sha256,
+            classification: loaded.classification,
+          },
+        ]);
+        return loaded;
+      });
     },
 
     async loadTranscript(context, runId) {
       assertAgent(context);
       assertOwnRun(context, runId);
-      const rows = await withTenantTx(database, context, (tx) =>
-        tx
+      const rows = await withTenantTx(database, context, async (tx) => {
+        await assertRunInputsReadable(tx, context);
+        const rows = await tx
           .select({
             stepNumber: executionSteps.stepNumber,
             kind: stepPayloads.kind,
@@ -355,8 +404,10 @@ export function createContextSource(deps: {
             asc(executionSteps.stepNumber),
             asc(stepPayloads.createdAt),
             asc(stepPayloads.id),
-          ),
-      );
+          );
+        await assertRunInputsReadable(tx, context);
+        return rows;
+      });
       return rows.map((row) => ({
         stepNumber: row.stepNumber,
         kind: row.kind as TranscriptPart['kind'],

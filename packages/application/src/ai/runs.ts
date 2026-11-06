@@ -49,6 +49,7 @@ import { AppError } from '../errors';
 import { emit } from '../events';
 import { applyTransition, closeOutdatedReviews, failRun, loadChangeable } from '../work';
 import type { HaltCheck, TurnStart, TurnStore } from './ports';
+import { lockRunInputsForContent } from './input-ledger';
 
 export type ClaimedRun = {
   agentRunId: string;
@@ -1067,6 +1068,7 @@ export async function storeStepPayload(
 ): Promise<void> {
   const contentSha256 = createHash('sha256').update(input.content).digest('hex');
   await withTenantTx(database, context, async (tx) => {
+    await lockRunInputsForContent(tx, context);
     // A step has one of each. A retried attempt's words replace an earlier attempt's, so the next turn
     // never reads the same step twice.
     await tx

@@ -151,6 +151,7 @@ const agentCodeFromWeb = {
     '@ensemus/application/ai-tool-steps',
     '@ensemus/application/ai-delegation',
     '@ensemus/application/ai-context-source',
+    '@ensemus/application/ai-input-ledger',
     '@ensemus/application/ai-external-action-port',
     '@ensemus/application/ai-model-probe-store',
   ],

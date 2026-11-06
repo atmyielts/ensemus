@@ -19,6 +19,7 @@ import {
   artifactLineageInputs,
   artifactLineageRecords,
   artifactLineageSources,
+  agentRuns,
   clientReaders,
   clients,
   projects,
@@ -39,6 +40,9 @@ import {
   type TenantContext,
 } from '@ensemus/database';
 import { createServiceContext } from '@ensemus/database/service';
+import { createAgentContext, withRunLookupTx } from '@ensemus/database/agent';
+import { recordRunInputs, workInputHash } from '@ensemus/application/ai-input-ledger';
+import { openAgentTestDatabase, seedAgentVersion } from '../helpers/ai/fixtures';
 import {
   recordArtifactCitations,
   checkArtifactGrounding,
@@ -61,14 +65,17 @@ import { seedMember, seedSearchableSource, sha256 } from '../helpers/knowledge';
 import { urls } from '../helpers/stack';
 
 describe('generated artifact all-input privacy and erasure protocol (0208)', () => {
-  let database: ReturnType<typeof openAppDatabase>, auth: pg.Client;
+  let database: ReturnType<typeof openAppDatabase>,
+    agent: ReturnType<typeof openAgentTestDatabase>,
+    auth: pg.Client;
   beforeAll(async () => {
     database = openAppDatabase(urls.app(), { max: 6 });
+    agent = openAgentTestDatabase(6);
     auth = new pg.Client({ connectionString: urls.auth() });
     await auth.connect();
   });
   afterAll(async () => {
-    await Promise.all([auth?.end(), database?.close()]);
+    await Promise.all([auth?.end(), database?.close(), agent?.close()]);
   });
   async function fixture(
     options: {
@@ -105,6 +112,56 @@ describe('generated artifact all-input privacy and erasure protocol (0208)', () 
     const execution: ArtifactExecution = options.system
       ? { kind: 'system', id: randomUUID(), template: 'test/checklist/v1' }
       : { kind: 'agent_run', id: randomUUID() };
+    const version = options.system ? null : await seedAgentVersion(database.db, owner);
+    const ensureRun = async (execution: ArtifactExecution) => {
+      if (execution.kind !== 'agent_run' || !version) return null;
+      const found = await withTenantTx(database.db, owner, (tx) =>
+        tx.select({ id: agentRuns.id }).from(agentRuns).where(eq(agentRuns.id, execution.id)),
+      );
+      if (!found.length) {
+        await withRunLookupTx(agent.db, owner.organizationId, (tx) =>
+          tx
+            .update(agentRuns)
+            .set({ status: 'failed', stopCode: 'TEST_REPLACED' })
+            .where(eq(agentRuns.workUnitId, work.id)),
+        );
+        await withTenantTx(database.db, owner, (tx) =>
+          tx.insert(agentRuns).values({
+            organizationId: owner.organizationId,
+            id: execution.id,
+            workUnitId: work.id,
+            agentVersionId: version.versionId,
+            serviceIdentityId: version.serviceIdentityId,
+            initiatorMembershipId: owner.membershipId,
+            effectiveClassification: options.classification ?? 'internal',
+            maxModelTurns: 5,
+            maxToolCalls: 5,
+            maxTotalTokens: 10000,
+            maxCostMicros: 1000000,
+            timeoutSeconds: 60,
+            maxDelegationDepth: 0,
+            delegatedScopes: { tools: [] },
+          }),
+        );
+      }
+      const context = await createAgentContext(agent.db, {
+        organizationId: owner.organizationId,
+        initiatorMembershipId: owner.membershipId,
+        agentRunId: execution.id,
+      });
+      await withTenantTx(agent.db, context, (tx) =>
+        recordRunInputs(tx, context, [
+          {
+            kind: 'work_unit',
+            id: work.id,
+            sha256: workInputHash(work),
+            classification: options.classification ?? 'internal',
+          },
+        ]),
+      );
+      return context;
+    };
+    const writer = (await ensureRun(execution)) ?? service;
     if (!options.noPackages && !options.system)
       await withTenantTx(database.db, service, async (tx) => {
         const packageId = randomUUID();
@@ -185,17 +242,20 @@ describe('generated artifact all-input privacy and erasure protocol (0208)', () 
       execution,
       requestKey: randomUUID(),
     };
-    const create = (
+    const create = async (
       changes: Partial<typeof input> = {},
       port: ArtifactInputInventory = inventory,
-    ) =>
-      addGeneratedArtifact(
-        database.db,
+    ) => {
+      const actual = { ...input, ...changes };
+      const agentContext = await ensureRun(actual.execution);
+      return addGeneratedArtifact(
+        agentContext ? agent.db : database.db,
         store,
-        service,
-        { ...input, ...changes },
+        agentContext ?? service,
+        actual,
         { inventory: port },
       );
+    };
     const close = () =>
       revokeSource(database.db, owner, {
         sourceId: source.sourceId,
@@ -244,6 +304,7 @@ describe('generated artifact all-input privacy and erasure protocol (0208)', () 
       bodies,
       control,
       lifecycle,
+      writer,
     };
   }
   type Fixture = Awaited<ReturnType<typeof fixture>>;
@@ -378,7 +439,7 @@ describe('generated artifact all-input privacy and erasure protocol (0208)', () 
           },
         },
       ),
-    ).rejects.toMatchObject({ code: 'INVALID_STATE' });
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' });
     expect(value.control.puts).toBe(0);
   });
   it('makes a published identical retry skip put and retain the original ID', async () => {
@@ -444,8 +505,8 @@ describe('generated artifact all-input privacy and erasure protocol (0208)', () 
   it('requires a pending header to register its upload in the same transaction', async () => {
     const value = await fixture();
     await deniedSql(
-      withTenantTx(database.db, value.service, (tx) =>
-        createArtifactProvenance({ inventory: value.inventory }).beginInTx(tx, value.service, {
+      withTenantTx(agent.db, value.writer, (tx) =>
+        createArtifactProvenance({ inventory: value.inventory }).beginInTx(tx, value.writer, {
           execution: value.execution,
           artifactId: randomUUID(),
           workUnitId: value.work.id,
@@ -950,7 +1011,7 @@ describe('generated artifact all-input privacy and erasure protocol (0208)', () 
     const id = randomUUID(),
       objectKey = `${value.owner.organizationId}/artifacts/${id}`;
     await deniedSql(
-      withTenantTx(database.db, value.service, async (tx) => {
+      withTenantTx(agent.db, value.writer, async (tx) => {
         await tx.insert(artifactLineage).values({
           ...header,
           artifactId: id,

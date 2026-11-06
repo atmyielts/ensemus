@@ -1,6 +1,10 @@
 import { createMinimalContextCompiler } from '@ensemus/agent-runtime/context';
 import { createToolGateway } from '@ensemus/agent-runtime/tools';
 import { createContextSource } from '@ensemus/application/ai-context-source';
+import {
+  checkRunInputDispatch,
+  createRunTranscriptPurge,
+} from '@ensemus/application/ai-input-ledger';
 import { createEgressLog, loadTenantPolicyBundle } from '@ensemus/application/ai-egress-log';
 import { externalActionPort } from '@ensemus/application/ai-external-action-port';
 import { createHaltCheck } from '@ensemus/application/ai-halt';
@@ -26,6 +30,7 @@ import type { S3ObjectStore } from '@ensemus/storage';
 import type { Logger } from '@ensemus/telemetry';
 import { createAgentActivities } from '@ensemus/workflows/agent-activities';
 import { createModelProbeActivities } from '@ensemus/workflows/model-probe-activities';
+import { createKnowledgeTranscriptActivities } from '@ensemus/workflows/knowledge-purge-activities';
 import { loadAgentCanaries, loadAgentContextLimits } from './agent-settings';
 import { createHaltWatcher, HALT_POLL_MS, switchReaderFor } from './kill-switch';
 
@@ -93,7 +98,12 @@ export function createAgentServices(deps: {
     activities: {
       ...createAgentActivities({
         database,
-        gateway,
+        gateway: {
+          turn: async (context, step, compiled, signal) => {
+            await checkRunInputDispatch(database, context);
+            return gateway.turn(context, step, compiled, signal);
+          },
+        },
         tools,
         context,
         usage: ledger,
@@ -101,6 +111,7 @@ export function createAgentServices(deps: {
         haltWatcher: watcher,
       }),
       ...createModelProbeActivities({ database, probe }),
+      ...createKnowledgeTranscriptActivities({ database, transcripts: createRunTranscriptPurge() }),
     },
   };
 }

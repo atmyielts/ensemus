@@ -239,10 +239,19 @@ function fakeStore(db: {
     draftIdFor: (_context, input) => `draft-${input.runId}-${input.stepNumber}`,
     async noteDraftUpload(_tx, _context, input) {
       db.state.uploadsNoted.push(input.draftId);
+      return {
+        artifactId: input.draftId,
+        workUnitId: input.workUnitId,
+        writeId: 'test-writer',
+        generation: 1,
+        artifactSha256: 'test-hash',
+        classification: db.state.facts.classification,
+      };
     },
     async putDraft(_context, input) {
       db.puts.push(input.draftId);
     },
+    abandonDraftUpload: async () => {},
     async insertDraft(_tx, _context, input) {
       db.state.drafts.push({
         id: input.draftId,

@@ -20,6 +20,7 @@
     "./ai-run-control": "./src/ai/run-control.ts",
     "./ai-delegation": "./src/ai/delegation.ts",
     "./ai-context-source": "./src/ai/context-source.ts",
+    "./ai-input-ledger": "./src/ai/input-ledger.ts",
     "./ai-egress-log": "./src/ai/egress-log.ts",
     "./knowledge/ports": "./src/knowledge/ports.ts",
     "./knowledge/sources": "./src/knowledge/sources.ts",
@@ -35,7 +36,9 @@
     "./knowledge/purge": "./src/knowledge/purge.ts",
     "./knowledge/mcp": "./src/knowledge/mcp.ts",
     "./knowledge/verification": "./src/knowledge/verification.ts",
-    "./knowledge/onboarding": "./src/knowledge/onboarding.ts"
+    "./knowledge/onboarding": "./src/knowledge/onboarding.ts",
+    "./knowledge/artifact-provenance": "./src/knowledge/artifact-provenance.ts",
+    "./knowledge/checklist-template": "./src/knowledge/checklist-template.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"

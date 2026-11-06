@@ -265,4 +265,26 @@ describe('an Activity owns its halt watch for one call', () => {
     expect(watch).not.toHaveBeenCalled();
     expect(world.turn).not.toHaveBeenCalled();
   });
+  it('discards a late fenced completion while preserving already settled usage and turn counters', async () => {
+    vi.mocked(storeStepPayload).mockRejectedValueOnce({ code: 'EN119' });
+    const world = fixture(),
+      result = world.run();
+    await world.entered;
+    world.answer.resolve(outcome());
+    await expect(result).resolves.toMatchObject({ outcome: 'stopped', stopCode: 'POLICY_DENIED' });
+    expect(completeTurn).toHaveBeenCalledWith(
+      expect.anything(),
+      context,
+      expect.objectContaining({
+        outcome: 'stopped',
+        code: 'POLICY_DENIED',
+        delta: expect.objectContaining({
+          modelTurns: 1,
+          inputTokens: 1,
+          outputTokens: 1,
+          costMicros: 1,
+        }),
+      }),
+    );
+  });
 });

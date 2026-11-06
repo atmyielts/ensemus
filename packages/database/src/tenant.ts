@@ -65,12 +65,12 @@ export class AppDatabase {
   }
   /** Runs with nothing bound, so RLS returns no tenant rows. Exists to test exactly that. */
   run<T>(fn: (tx: Tx) => Promise<T>): Promise<T> {
-    return this.#db.transaction(fn);
+    return this.transaction({}, fn);
   }
   transaction<T>(bindings: Record<string, string>, fn: (tx: Tx) => Promise<T>): Promise<T> {
     return this.#db.transaction(async (tx) => {
       // set_config because SET LOCAL cannot take a bind parameter (ADR-024 D4).
-      for (const [name, value] of Object.entries(bindings)) {
+      for (const [name, value] of Object.entries({ 'app.agent_input_protocol': '', ...bindings })) {
         await tx.execute(sql`select set_config(${name}, ${value}, true)`);
       }
       return fn(tx);
@@ -121,6 +121,8 @@ export async function withTenantTx<T>(
       'app.membership_id': context.membershipId,
       'app.actor_type': context.actorType,
       'app.agent_run_id': context.actorType === 'agent' ? (context.agentRunId ?? '') : '',
+      // A trusted immutable runtime-version admission, never an authorization claim from user input.
+      'app.agent_input_protocol': context.actorType === 'agent' ? 'v1' : '',
     },
     fn,
   );
@@ -169,7 +171,8 @@ export function withWebhookEndpointTx<T>(
     await tx.execute(
       sql`select set_config('app.organization_id', ${endpoint.organizationId}, true),
         set_config('app.user_id', '', true), set_config('app.membership_id', '', true),
-        set_config('app.actor_type', 'service', true), set_config('app.agent_run_id', '', true)`,
+        set_config('app.actor_type', 'service', true), set_config('app.agent_run_id', '', true),
+        set_config('app.agent_input_protocol', '', true)`,
     );
     return fn(tx, { endpoint, context: createServiceContext(endpoint.organizationId) });
   });
