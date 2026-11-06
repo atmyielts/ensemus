@@ -194,10 +194,7 @@ describe('a key bound to an endpoint', () => {
 
   it('changes purpose for another profile', () => {
     expect(modelKeyPurpose(profile, 'https://a.example.invalid/v1')).not.toBe(
-      modelKeyPurpose(
-        '6f1c2c6e-2222-4222-8222-222222222222',
-        'https://a.example.invalid/v1',
-      ),
+      modelKeyPurpose('6f1c2c6e-2222-4222-8222-222222222222', 'https://a.example.invalid/v1'),
     );
   });
 

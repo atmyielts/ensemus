@@ -157,10 +157,7 @@ export type TurnStart =
     };
 
 export interface TurnStore {
-  beginTurn(
-    context: AgentContext,
-    step: { runId: string; stepNumber: number },
-  ): Promise<TurnStart>;
+  beginTurn(context: AgentContext, step: { runId: string; stepNumber: number }): Promise<TurnStart>;
   /** Pins the run to a profile on its first turn. Refused if a different one is already pinned. */
   bindProfile(
     context: AgentContext,

@@ -49,3 +49,16 @@ export function loadWebConfig(env: NodeJS.ProcessEnv = process.env) {
     connectorsEnabled: parsed.data.ENSEMUS_CONNECTORS_ENABLED === 'true',
   };
 }
+
+/**
+ * The operator's settings for where a model may be reached (ADR-028 FD-10, FD-21). Tenants can set neither.
+ * The review reference is what lets a key for a hosted provider be stored at all, and with none, it cannot.
+ */
+export function loadModelEgressSettings(env: NodeJS.ProcessEnv = process.env) {
+  const privateEndpoints = (env.ENSEMUS_PRIVATE_MODEL_ENDPOINTS ?? '')
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+  const reviewed = env.ENSEMUS_MODEL_CREDENTIALS_REVIEWED?.trim();
+  return { privateEndpoints, credentialsReviewed: reviewed ? reviewed : null };
+}

@@ -25,7 +25,7 @@
 | `projects` | organization_id, id, client_id, status, owner | Tenant-safe client relationship |
 | `work_units` | organization_id, id, objective, status, owner, version | Optimistic locking, explicit owner |
 | `work_dependencies` | organization_id, prerequisite_id, dependent_id | No self-edge, no multi-node cycles |
-| `work_assignments` | organization_id, work_unit_id, assignee principal, actor_type, role | At most one primary accountable owner. `actor_type` is `human` or `agent`, and only `human` is written until M4 |
+| `work_assignments` | organization_id, work_unit_id, assignee principal, actor_type, role | At most one primary accountable owner. `actor_type` is `human` or `agent`, and only `human` is written. An agent on a Work Unit is `work.agent_assignments`, which grants nobody access to anything (ADR-028) |
 | `work_comments` | organization_id, id, work_unit_id, author, content_class | ACL inherited and enforced |
 | `work_artifacts` | organization_id, work_unit_id, artifact_id, purpose | Source/work link |
 | `artifacts` | organization_id, id, object_uri, hash, mime, class | Object storage authority, tamper checks |

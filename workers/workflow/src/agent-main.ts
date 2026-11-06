@@ -7,30 +7,27 @@ import { fileURLToPath } from 'node:url';
 import { readSecret } from '@ensemus/config';
 import { openAgentDatabase } from '@ensemus/database/agent';
 import { createLogger, errorCode } from '@ensemus/telemetry';
-import {
-  createAgentActivities,
-  createModelProbeActivities,
-  type AgentActivityDeps,
-} from '@ensemus/workflows/agent-activities';
+import { createAgentActivities, type AgentActivityDeps } from '@ensemus/workflows/agent-activities';
 import { AesGcmPayloadCodec } from '@ensemus/workflows/codec';
 import { AGENT_TASK_QUEUE } from '@ensemus/workflows/constants';
+import { createModelProbeActivities } from '@ensemus/workflows/model-probe-activities';
 import { createTemporalLogger } from '@ensemus/workflows/safe-logger';
 import { NativeConnection, Runtime, Worker } from '@temporalio/worker';
 
 const log = createLogger('agent-worker');
 const here = path.dirname(fileURLToPath(import.meta.url));
 
+const refuse = () => {
+  throw new Error('NOT_IMPLEMENTED');
+};
+
 /** Refuses everything. The wiring slice replaces this with the real gateway, tools and compiler. */
 function refusingDeps(database: AgentActivityDeps['database']): AgentActivityDeps {
-  const refuse = () => {
-    throw new Error('NOT_IMPLEMENTED');
-  };
   return {
     database,
     gateway: { turn: refuse },
     tools: { handle: refuse },
     context: { compile: refuse },
-    probe: { probe: refuse },
   };
 }
 
@@ -49,7 +46,10 @@ async function main() {
     connection,
     namespace: process.env.TEMPORAL_NAMESPACE ?? 'default',
     taskQueue: AGENT_TASK_QUEUE,
-    activities: { ...createAgentActivities(deps), ...createModelProbeActivities(deps) },
+    activities: {
+      ...createAgentActivities(deps),
+      ...createModelProbeActivities({ database: agent.db, probe: { probe: refuse } }),
+    },
     dataConverter: {
       payloadCodecs: [new AesGcmPayloadCodec(readSecret('TEMPORAL_CODEC_KEY'))],
       failureConverterPath: path.join(here, 'failure-converter.cjs'),

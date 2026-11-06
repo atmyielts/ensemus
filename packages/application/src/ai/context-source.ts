@@ -22,6 +22,14 @@ export type LoadedArtifact = {
 
 export type ArtifactRefusal = 'NOT_PERMITTED' | 'NOT_TEXT' | 'TOO_LARGE' | 'DELETED';
 
+/** One earlier part of this run's transcript, from `ai.step_payloads`, which the next turn needs. */
+export type TranscriptPart = {
+  stepNumber: number;
+  kind: 'completion' | 'tool_args' | 'tool_output';
+  classification: AiClassification;
+  text: string;
+};
+
 export interface ContextSource {
   /** Throws NOT_FOUND when the initiator cannot read this work, whatever the agent role could. */
   loadWork(context: AgentContext, workUnitId: string): Promise<LoadedWork>;
@@ -30,6 +38,8 @@ export interface ContextSource {
     context: AgentContext,
     input: { workUnitId: string; artifactId: string; maxBytes: number },
   ): Promise<LoadedArtifact | { refused: ArtifactRefusal }>;
+  /** Oldest first, for this run only. Only the agent role can run this query at all. */
+  loadTranscript(context: AgentContext, runId: string): Promise<readonly TranscriptPart[]>;
 }
 
 /** `readObject` comes from @ensemus/storage in agent-main.ts, so this file reaches no store directly. */

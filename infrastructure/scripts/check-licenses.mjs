@@ -38,6 +38,8 @@ const REVIEWED_EXCEPTIONS = {
     'caniuse-lite browser data, a build-time dependency of Next.js. Needs attribution in the release notices.',
   Unknown:
     'unionfs, used by the Temporal workflow bundler at build time. Its LICENSE file is the Unlicense, but its package.json does not say so.',
+  '(AFL-2.1 OR BSD-3-Clause)':
+    'json-schema, a type dependency of @ai-sdk/provider (ADR-028 FD-11). Dual licensed, and taken under BSD-3-Clause, which is already allowed. Confirm with counsel in LEGAL-05.',
   'MPL-2.0':
     'File-level copyleft, used unmodified. Obligations apply only to changes in those files.',
 };

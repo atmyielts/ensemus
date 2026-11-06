@@ -2,7 +2,13 @@
 // See docs/06-delivery/m4-slices.md and ADR-028 FD-1, FD-7, FD-12. Only agent-worker uses this, except
 // `closeStrandedRun`, which the base worker's upkeep calls. Every stub refuses.
 import type { AgentContext, AppDatabase, TenantContext } from '@ensemus/database';
-import type { AgentRunStatus, RunCounters, RunLimits, StopCode } from '@ensemus/domain/ai';
+import type {
+  AgentRunStatus,
+  AiClassification,
+  RunCounters,
+  RunLimits,
+  StopCode,
+} from '@ensemus/domain/ai';
 import type { TurnStore } from './ports';
 
 export type ClaimedRun = {
@@ -63,6 +69,20 @@ export function closeStrandedRun(
   _database: AppDatabase,
   _context: TenantContext,
   _input: { workUnitId: string },
+): Promise<void> {
+  throw new Error('NOT_IMPLEMENTED');
+}
+
+/** Writes a prompt or an answer to `ai.step_payloads`, with its class and hash. Nothing else does. */
+export function storeStepPayload(
+  _database: AppDatabase,
+  _context: AgentContext,
+  _input: {
+    stepId: string;
+    kind: 'prompt' | 'completion' | 'tool_args' | 'tool_output';
+    classification: AiClassification;
+    content: string;
+  },
 ): Promise<void> {
   throw new Error('NOT_IMPLEMENTED');
 }

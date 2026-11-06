@@ -17,7 +17,8 @@
     "./webhook-activities": "./src/webhook-activities.ts",
     "./connector-sync-activities": "./src/connector-sync-activities.ts",
     "./agent-schemas": "./src/agent-schemas.ts",
-    "./agent-activities": "./src/agent-activities.ts"
+    "./agent-activities": "./src/agent-activities.ts",
+    "./model-probe-activities": "./src/model-probe-activities.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"

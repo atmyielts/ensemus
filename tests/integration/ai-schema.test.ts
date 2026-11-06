@@ -215,7 +215,12 @@ describe('governed AI schema, as the real roles', () => {
       const [row] = await withTenantTx(app.db, a.owner, (tx) =>
         tx.select().from(modelProfiles).where(eq(modelProfiles.id, id)),
       );
-      expect(row).toMatchObject({ status: 'draft', secretRef: null, qualifiedAt: null, version: 2 });
+      expect(row).toMatchObject({
+        status: 'draft',
+        secretRef: null,
+        qualifiedAt: null,
+        version: 2,
+      });
     });
 
     it('cannot be seen from another tenant', async () => {

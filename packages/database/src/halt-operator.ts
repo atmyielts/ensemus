@@ -7,7 +7,10 @@ export type OperatorSwitch =
   | { scope: 'provider'; providerKind: string; reasonCode: string };
 
 /** Writes a row with a null organization. Works with no network but the database's. */
-export function engageOperatorSwitch(_migratorUrl: string, _input: OperatorSwitch): Promise<string> {
+export function engageOperatorSwitch(
+  _migratorUrl: string,
+  _input: OperatorSwitch,
+): Promise<string> {
   throw new Error('NOT_IMPLEMENTED');
 }
 

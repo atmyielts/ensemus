@@ -6,7 +6,11 @@ import type { AdapterCall, AdapterResult, AdapterUsage, ModelAdapter } from '../
 export type ScriptStep =
   | { kind: 'final'; text: string; usage?: AdapterUsage }
   | { kind: 'tool_call'; toolId: string; args: unknown; usage?: AdapterUsage }
-  | { kind: 'failure'; failure: Extract<AdapterResult, { kind: 'failure' }>['failure']; mayHaveBilled?: boolean }
+  | {
+      kind: 'failure';
+      failure: Extract<AdapterResult, { kind: 'failure' }>['failure'];
+      mayHaveBilled?: boolean;
+    }
   /** Waits until the signal aborts, for cancel tests. */
   | { kind: 'hang' }
   /** Throws, as a bug in an adapter would. */

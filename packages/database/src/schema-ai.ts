@@ -398,14 +398,8 @@ export const agentRuns = aiSchema.table(
       'agent_runs_status_check',
       sql`${t.status} in ('queued','preparing','running','paused','waiting_for_approval','waiting_for_child','verifying','completed','failed','cancelled','budget_exhausted','policy_denied','timed_out','outcome_unverified')`,
     ),
-    check(
-      'agent_runs_class_check',
-      sql`${t.effectiveClassification} in ${sql.raw(classes)}`,
-    ),
-    check(
-      'agent_runs_stop_format',
-      sql`${t.stopCode} IS NULL OR ${t.stopCode} ~ ${sql.raw(CODE)}`,
-    ),
+    check('agent_runs_class_check', sql`${t.effectiveClassification} in ${sql.raw(classes)}`),
+    check('agent_runs_stop_format', sql`${t.stopCode} IS NULL OR ${t.stopCode} ~ ${sql.raw(CODE)}`),
     check(
       'agent_runs_limits_check',
       sql`${t.maxModelTurns} >= 1 AND ${t.maxToolCalls} >= 0 AND ${t.maxTotalTokens} >= 1 AND ${t.maxCostMicros} >= 0 AND ${t.timeoutSeconds} >= 1 AND ${t.maxDelegationDepth} >= 0 AND ${t.depth} >= 0`,

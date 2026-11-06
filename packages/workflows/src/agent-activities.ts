@@ -7,8 +7,6 @@ import type {
   ClaimResult,
   CreateChildRunInput,
   FinishRunInput,
-  ModelProbeInput,
-  ModelProbeOutcome,
   ModelTurnResult,
   RunDirective,
   RunRef,
@@ -26,7 +24,6 @@ export type AgentActivityDeps = {
   gateway: import('@ensemus/intelligence').InferenceGateway;
   tools: import('@ensemus/agent-runtime/tools').ToolGateway;
   context: import('@ensemus/agent-runtime/context').ContextCompiler;
-  probe: import('@ensemus/intelligence').ProfileProber;
 };
 
 export interface AgentActivities {
@@ -52,10 +49,6 @@ export interface AgentActivities {
   verifyRunOutput(input: RunRef): Promise<'completed' | 'outcome_unverified'>;
   /** The run's terminal status, settling reservations and purging payloads. Safe to repeat. */
   finishAgentRun(input: FinishRunInput): Promise<void>;
-}
-
-export interface ModelProbeActivities {
-  runModelProbe(input: ModelProbeInput): Promise<ModelProbeOutcome>;
 }
 
 const notBuilt = () => new Error('NOT_IMPLEMENTED');
@@ -89,14 +82,6 @@ export function createAgentActivities(_deps: AgentActivityDeps): AgentActivities
     },
     async finishAgentRun() {
       throw notBuilt();
-    },
-  };
-}
-
-export function createModelProbeActivities(_deps: AgentActivityDeps): ModelProbeActivities {
-  return {
-    async runModelProbe() {
-      return 'failed';
     },
   };
 }

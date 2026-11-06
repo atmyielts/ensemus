@@ -1,4 +1,13 @@
 {
   "extends": "../tsconfig.base.json",
-  "include": ["integration", "stack", "replay", "helpers", "contract", "security", "temporal", "eval"]
+  "include": [
+    "integration",
+    "stack",
+    "replay",
+    "helpers",
+    "contract",
+    "security",
+    "temporal",
+    "eval"
+  ]
 }

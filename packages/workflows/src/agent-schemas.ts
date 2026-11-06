@@ -66,19 +66,23 @@ export type StepInput = z.infer<typeof stepInputSchema>;
 
 export const modelTurnResultSchema = z.strictObject({
   outcome: z.enum(MODEL_OUTCOMES),
-  stopCode: z.string().regex(/^[A-Z][A-Z0-9_]{1,63}$/).nullable(),
+  stopCode: z
+    .string()
+    .regex(/^[A-Z][A-Z0-9_]{1,63}$/)
+    .nullable(),
   counters: runCountersSchema,
 });
 export type ModelTurnResult = z.infer<typeof modelTurnResultSchema>;
 
 export const toolCallResultSchema = z.strictObject({
   outcome: z.enum(TOOL_OUTCOMES),
-  stopCode: z.string().regex(/^[A-Z][A-Z0-9_]{1,63}$/).nullable(),
+  stopCode: z
+    .string()
+    .regex(/^[A-Z][A-Z0-9_]{1,63}$/)
+    .nullable(),
   counters: runCountersSchema,
   /** Set for `agent.delegate` when a child must be started. */
-  delegation: z
-    .strictObject({ organizationId: z.uuid(), workUnitId: z.uuid() })
-    .nullable(),
+  delegation: z.strictObject({ organizationId: z.uuid(), workUnitId: z.uuid() }).nullable(),
 });
 export type ToolCallResult = z.infer<typeof toolCallResultSchema>;
 
@@ -110,7 +114,10 @@ export const finishRunInputSchema = runRefSchema.extend({
     'timed_out',
     'outcome_unverified',
   ]),
-  stopCode: z.string().regex(/^[A-Z][A-Z0-9_]{1,63}$/).nullable(),
+  stopCode: z
+    .string()
+    .regex(/^[A-Z][A-Z0-9_]{1,63}$/)
+    .nullable(),
 });
 export type FinishRunInput = z.infer<typeof finishRunInputSchema>;
 

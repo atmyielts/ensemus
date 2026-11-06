@@ -135,7 +135,8 @@ const policyReach = {
 };
 const anything = {
   regex: '.*',
-  message: 'The reducer imports nothing, so the workflow sandbox can load it and tests reach it all.',
+  message:
+    'The reducer imports nothing, so the workflow sandbox can load it and tests reach it all.',
 };
 const rawNetworkForModels = {
   regex: '^((node:)?(net|http|https|http2|dgram|dns|tls)|undici)$',
@@ -148,6 +149,7 @@ const agentWorkerFiles = [
   'workers/workflow/src/kill-switch.ts',
   'workers/workflow/src/halt-global.ts',
   'packages/workflows/src/agent-activities.ts',
+  'packages/workflows/src/model-probe-activities.ts',
   'packages/application/src/ai/runs.ts',
   'packages/application/src/ai/usage.ts',
   'packages/application/src/ai/tool-steps.ts',
@@ -207,7 +209,16 @@ export default tseslint.config(
   restrict(['packages/auth/**/*.ts'], [rawDatabase, temporal, broker]),
   restrict(
     ['apps/web/**/*.{ts,tsx}'],
-    [rawDatabase, authDatabase, temporal, broker, connectorCode, agentDatabase, agentCodeFromWeb, testDoubles],
+    [
+      rawDatabase,
+      authDatabase,
+      temporal,
+      broker,
+      connectorCode,
+      agentDatabase,
+      agentCodeFromWeb,
+      testDoubles,
+    ],
   ),
   restrict(
     ['workers/**/*.ts', 'packages/workflows/**/*.ts'],
@@ -228,12 +239,7 @@ export default tseslint.config(
     [rawDatabase, authDatabase, agentDatabase, serviceContext, temporal],
     agentWorkerFiles,
   ),
-  restrict(
-    agentWorkerFiles,
-    [rawDatabase, authDatabase, serviceContext],
-    ['workers/workflow/src/halt-global.ts'],
-  ),
-  restrict(['workers/workflow/src/halt-global.ts'], [rawDatabase, authDatabase, serviceContext]),
+  restrict(agentWorkerFiles, [rawDatabase, authDatabase, serviceContext, testDoubles]),
   restrict(
     ['packages/agent-runtime/**/*.ts'],
     [rawDatabase, authDatabase, anyDatabase, serviceContext, temporal, aiCore],

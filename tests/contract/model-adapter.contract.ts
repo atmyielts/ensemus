@@ -21,10 +21,7 @@ export const testCall = (overrides: Partial<AdapterCall> = {}): AdapterCall => (
 });
 
 export type AdapterScenario =
-  | 'answers_text'
-  | 'proposes_tool'
-  | 'hangs_until_aborted'
-  | 'fails_rate_limited';
+  'answers_text' | 'proposes_tool' | 'hangs_until_aborted' | 'fails_rate_limited';
 
 /** `make` returns an adapter set up to behave as the scenario says on its next call. */
 export function describeModelAdapterContract(
