@@ -1,11 +1,12 @@
 // One navigation model for the sidebar, mobile menu, page context and Administration index. Only
 // working destinations belong here. Visibility helps discovery; every destination authorizes again.
-import { can, type Capability } from '@ensemus/domain/policy';
+import { can, isRole, type Capability } from '@ensemus/domain/policy';
 
 export type NavigationIcon =
   | 'home'
   | 'work'
   | 'approvals'
+  | 'knowledge'
   | 'people'
   | 'clients'
   | 'inbox'
@@ -71,6 +72,13 @@ export const SETTINGS_DESTINATIONS: readonly SettingsDestination[] = [
     icon: 'safety',
     any: ['ai.halt'],
   },
+  {
+    path: 'settings/egress',
+    label: 'Model data sharing',
+    description: 'Inspect recorded sharing decisions and compare a proposed provider.',
+    icon: 'safety',
+    any: ['egress.view'],
+  },
 ];
 
 export const visibleSettings = (role: string) =>
@@ -112,11 +120,31 @@ export function workspaceNavigation(input: {
           ],
         },
         { href: `${base}/people`, label: 'People and teams', icon: 'people' },
-        { href: `${base}/clients`, label: 'Clients and projects', icon: 'clients' },
+        {
+          href: `${base}/clients`,
+          label: 'Clients and projects',
+          icon: 'clients',
+          ...(can(role, 'client_onboarding.start')
+            ? {
+                matches: [`${base}/onboarding`],
+                children: [
+                  { href: `${base}/clients`, label: 'Clients and projects', icon: 'clients' },
+                  { href: `${base}/onboarding`, label: 'Client onboarding', icon: 'arrow' },
+                ],
+              }
+            : {}),
+        },
         { href: `${base}/inbox`, label: 'Inbox', icon: 'inbox', count: input.unread },
       ],
     },
   ];
+  if (isRole(role))
+    groups[0]!.items.splice(3, 0, {
+      href: `${base}/knowledge`,
+      label: 'Knowledge',
+      icon: 'knowledge',
+      matches: [`${base}/search`],
+    });
   if (can(role, 'agent.publish') || can(role, 'agent.run'))
     groups.push({
       label: 'Build',

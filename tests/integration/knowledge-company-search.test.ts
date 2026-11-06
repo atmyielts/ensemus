@@ -156,7 +156,10 @@ describe('one company search, with each kind authorized before ranking', () => {
       query: word,
       kinds: ['client', 'project'],
     });
-    expect(visible.map((hit) => hit.id).sort()).toEqual([confidential!.id, project!.id].sort());
-    expect(visible.some((hit) => hit.id === restricted!.id)).toBe(false);
+    // The actual creator is the named owner of this restricted client. An organization role alone
+    // would not grant access; the member above remains unable to discover either private record.
+    expect(visible.map((hit) => hit.id).sort()).toEqual(
+      [confidential!.id, restricted!.id, project!.id].sort(),
+    );
   });
 });

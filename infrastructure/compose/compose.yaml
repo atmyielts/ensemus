@@ -123,6 +123,41 @@ services:
     deploy:
       resources: { limits: { memory: 2G } }
 
+  # Document parsing and ingestion have neither model keys nor an outbound network.
+  knowledge-worker:
+    <<: *restart
+    build:
+      context: ../..
+      dockerfile: infrastructure/containers/Dockerfile.worker
+    image: ${ENSEMUS_WORKER_IMAGE:-ensemus/worker:local}
+    command: ['node', 'dist/knowledge-worker.js']
+    read_only: true
+    tmpfs: ['/tmp']
+    networks: [data, temporal]
+    extra_hosts:
+      - postgres:${ENSEMUS_NETWORK_PREFIX:-172.30}.2.10
+      - objects:${ENSEMUS_NETWORK_PREFIX:-172.30}.2.12
+      - temporal:${ENSEMUS_NETWORK_PREFIX:-172.30}.3.10
+    environment:
+      TEMPORAL_ADDRESS: temporal:7233
+      TEMPORAL_NAMESPACE: default
+      TEMPORAL_CODEC_KEY_FILE: /run/secrets/temporal_codec_key
+      DATABASE_URL_APP_FILE: /run/secrets/db_app_url
+      OBJECT_STORAGE_ENDPOINT: http://objects:8333
+      OBJECT_STORAGE_BUCKET: ensemus
+      OBJECT_STORAGE_ACCESS_KEY_FILE: /run/secrets/objects_access_key
+      OBJECT_STORAGE_SECRET_KEY_FILE: /run/secrets/objects_secret_key
+    secrets:
+      - temporal_codec_key
+      - db_app_url
+      - objects_access_key
+      - objects_secret_key
+    depends_on:
+      temporal-namespace: { condition: service_completed_successfully }
+      migrate: { condition: service_completed_successfully }
+    deploy:
+      resources: { limits: { memory: 1G } }
+
   agent-worker:
     <<: *restart
     build:

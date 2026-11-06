@@ -1,6 +1,6 @@
-import Link from 'next/link';
 import type { ReactNode } from 'react';
 import { OneActionAtATime } from '@/components/one-action-at-a-time';
+import { SectionNavigation } from '@/components/section-navigation';
 import { requireTenant } from '@/server/tenant';
 export default async function KnowledgeLayout({
   params,
@@ -15,14 +15,22 @@ export default async function KnowledgeLayout({
   return (
     <OneActionAtATime>
       <div className="stack">
-        <nav className="row" aria-label="Knowledge">
-          <Link href={base}>Sources</Link>
-          <Link href={`${base}/search`}>Find a passage</Link>
-          <Link href={`${base}/ask`}>Ask a question</Link>
-          <Link href={`${base}/answers`}>My answers</Link>
-          <Link href={`${base}/facts`}>Facts</Link>
-          <Link href={`${base}/graph`}>Related records</Link>
-        </nav>
+        <SectionNavigation
+          label="Knowledge"
+          items={[
+            {
+              href: base,
+              label: 'Sources',
+              exact: true,
+              matches: [`${base}/sources`, `${base}/new`],
+            },
+            { href: `${base}/search`, label: 'Find a passage' },
+            { href: `${base}/ask`, label: 'Ask a question' },
+            { href: `${base}/answers`, label: 'My answers' },
+            { href: `${base}/facts`, label: 'Facts' },
+            { href: `${base}/graph`, label: 'Related records' },
+          ]}
+        />
         {children}
       </div>
     </OneActionAtATime>

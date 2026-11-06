@@ -181,7 +181,7 @@ describe('the validator', () => {
     ).toContain('content type');
   });
 
-  it('refuses a path that is not in the spec, and an operation it says does not exist', () => {
+  it('refuses an unknown path and an undeclared method on an implemented path', () => {
     expect(
       contractProblems({
         method: 'GET',
@@ -193,13 +193,13 @@ describe('the validator', () => {
     ).toContain('no such path');
     expect(
       contractProblems({
-        method: 'POST',
+        method: 'DELETE',
         path: `/api/v1/organizations/${ORG}/knowledge/search`,
         status: 200,
         headers: json(),
         text: '{}',
       }).problems.join(),
-    ).toContain('does not exist yet');
+    ).toContain('no such operation');
   });
 
   it('ignores a query string when finding the operation', () => {

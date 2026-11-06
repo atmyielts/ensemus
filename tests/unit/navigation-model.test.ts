@@ -15,7 +15,7 @@ describe('working workspace navigation', () => {
   it('groups routine work, the builder and administration without future or dead destinations', () => {
     const groups = navigation('owner');
     expect(groups.map((group) => group.label)).toEqual(['Workspace', 'Build', 'Organization']);
-    expect(groups.flatMap((group) => group.items)).toHaveLength(8);
+    expect(groups.flatMap((group) => group.items)).toHaveLength(9);
     const items = groups.flatMap((group) =>
       group.items.flatMap((item) => [item, ...(item.children ?? [])]),
     );
@@ -66,6 +66,10 @@ describe('working workspace navigation', () => {
     ['/settings/agents', 'Automation Studio'],
     ['/settings/models/a', 'Administration'],
     ['/connections', 'Administration'],
+    ['/knowledge/sources/a', 'Knowledge'],
+    ['/knowledge/facts/a', 'Knowledge'],
+    ['/search', 'Knowledge'],
+    ['/onboarding/a', 'Clients and projects'],
   ])('retains the correct section for %s', (path, label) => {
     const groups = navigation('owner');
     expect(currentNavigation(groups, `${base}${path}`)?.label).toBe(label);

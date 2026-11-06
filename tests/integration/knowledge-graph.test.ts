@@ -145,7 +145,7 @@ describe('tenant-safe bounded graph traversal', () => {
     expect(allowed.nodes.some((node) => node.id === projectId)).toBe(true);
     expect(allowed.nodes.some((node) => node.id === target.id)).toBe(true);
   });
-  it('hides confidential client/project labels from a member and all restricted client labels', async () => {
+  it('hides private client/project labels from unnamed people while preserving named owner access', async () => {
     const internal = await client(),
       secret = await client(owner, 'confidential'),
       restricted = await client(owner, 'restricted');
@@ -173,9 +173,12 @@ describe('tenant-safe bounded graph traversal', () => {
         (node) => node.id === projectId,
       ),
     ).toBe(true);
-    await expect(traverseGraph(database.db, owner, { from: restricted })).rejects.toEqual(
+    await expect(traverseGraph(database.db, reviewer, { from: restricted })).rejects.toEqual(
       new AppError('NOT_FOUND'),
     );
+    expect(
+      (await traverseGraph(database.db, owner, { from: restricted })).nodes.map((node) => node.id),
+    ).toEqual([restricted.id]);
   });
   it('offers only verified visible fact links, never a hidden evidence-based relationship', async () => {
     const a = await client(),

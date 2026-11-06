@@ -41,6 +41,7 @@ import { AppError, pgCode } from '../errors';
 import { emit } from '../events';
 import { idSchema } from '../ids';
 import { idFromRequest } from '../request-id';
+import { rowLockTarget } from '../row-lock';
 import { proposeExternalActionInTx } from '../external-actions';
 import { applyTransition, createWorkUnitInTx, loadReadable, type WorkRow } from '../work';
 import type { AgentRuns } from './ports';
@@ -623,7 +624,7 @@ export async function advanceClientOnboarding(
               eq(artifactAclCatalog.alive, true),
             ),
           )
-          .for('share', { of: [artifactAclCatalog] });
+          .for('share', { of: [rowLockTarget(artifactAclCatalog)] });
         if (!file) throw new OnboardingFailure('BRIEF_UNAVAILABLE');
         await stableSources(tx, candidate, sourceIds);
         for (const target of [parent.id, review.id])

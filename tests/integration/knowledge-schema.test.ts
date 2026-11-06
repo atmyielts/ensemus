@@ -472,7 +472,7 @@ describe('knowledge rules in the database', () => {
           claim: { value: 'Example Limited' },
           origin,
           classification: 'internal',
-          proposedByMembershipId: origin === 'person' ? proposer.membershipId : null,
+          proposedByMembershipId: proposer.membershipId,
         });
         await tx.insert(knowledgeFactEvidence).values({
           organizationId: ownerA.organizationId,
@@ -496,16 +496,21 @@ describe('knowledge rules in the database', () => {
             reviewedByMembershipId: context.membershipId || null,
             reviewedAt: new Date(),
             reviewReason: 'Checked.',
+            version: sql`${knowledgeFacts.version} + 1`,
           })
           .where(eq(knowledgeFacts.id, factId)),
       );
 
     it('stores no claim with nothing behind it', async () => {
+      const { sourceId } = await seedSearchableSource(database.db, ownerA, {
+        grants: [{ kind: 'organization' }],
+        passages: ['Generated readable subject.'],
+      });
       await expect(
         withTenantTx(database.db, reader, (tx) =>
           tx.insert(knowledgeFacts).values({
             organizationId: reader.organizationId,
-            subjectRef: `client:${randomUUID()}`,
+            subjectRef: `knowledge_source:${sourceId}`,
             predicate: 'name.is',
             claim: { value: 'A guess' },
             origin: 'person',
@@ -514,6 +519,131 @@ describe('knowledge rules in the database', () => {
           }),
         ),
       ).rejects.toEqual(sqlState('EN110'));
+    });
+
+    it('refuses an unreadable subject at insert rather than stranding a hidden proposal', async () => {
+      await expect(
+        withTenantTx(database.db, reader, (tx) =>
+          tx.insert(knowledgeFacts).values({
+            organizationId: reader.organizationId,
+            subjectRef: `client:${randomUUID()}`,
+            predicate: 'name.is',
+            claim: { value: 'Generated guess' },
+            origin: 'person',
+            classification: 'internal',
+            proposedByMembershipId: reader.membershipId,
+          }),
+        ),
+      ).rejects.toEqual(sqlState('42501'));
+    });
+
+    it('still requires evidence when the subject becomes unreadable before the deferred check', async () => {
+      const { sourceId } = await seedSearchableSource(database.db, ownerA, {
+        classification: 'restricted',
+        passages: ['Generated subject with revocable access.'],
+        grants: [{ kind: 'membership', membershipId: ownerA.membershipId }],
+      });
+      const factId = randomUUID();
+      await expect(
+        withTenantTx(database.db, ownerA, async (tx) => {
+          // A forged private hint cannot redirect the fixed trigger to an unrelated parent.
+          await tx.execute(sql`select set_config('knowledge.evidence_check_org',${ownerB.organizationId},true),
+          set_config('knowledge.evidence_check_fact',${randomUUID()},true)`);
+          await tx.insert(knowledgeFacts).values({
+            organizationId: ownerA.organizationId,
+            id: factId,
+            subjectRef: `knowledge_source:${sourceId}`,
+            predicate: 'name.is',
+            claim: { value: 'Generated guess' },
+            origin: 'person',
+            classification: 'restricted',
+            proposedByMembershipId: ownerA.membershipId,
+          });
+          await tx
+            .delete(knowledgeSourceGrants)
+            .where(eq(knowledgeSourceGrants.sourceId, sourceId));
+        }),
+      ).rejects.toEqual(sqlState('EN110'));
+      const rows = await withTenantTx(
+        database.db,
+        createServiceContext(ownerA.organizationId),
+        (tx) =>
+          tx
+            .select({ id: knowledgeFacts.id })
+            .from(knowledgeFacts)
+            .where(eq(knowledgeFacts.id, factId)),
+      );
+      expect(rows).toEqual([]);
+    });
+
+    it('permits a removed transient proposal and restores the private trigger scope', async () => {
+      const { sourceId } = await seedSearchableSource(database.db, ownerA, {
+        grants: [{ kind: 'organization' }],
+        passages: ['Generated transient subject.'],
+      });
+      const factId = randomUUID(),
+        previous = randomUUID();
+      await withTenantTx(database.db, ownerA, async (tx) => {
+        await tx.execute(sql`select set_config('knowledge.evidence_check_org',${ownerB.organizationId},true),
+          set_config('knowledge.evidence_check_fact',${previous},true)`);
+        await tx.insert(knowledgeFacts).values({
+          organizationId: ownerA.organizationId,
+          id: factId,
+          subjectRef: `knowledge_source:${sourceId}`,
+          predicate: 'name.is',
+          claim: { value: 'Generated transient claim' },
+          origin: 'person',
+          classification: 'internal',
+          proposedByMembershipId: ownerA.membershipId,
+        });
+        // This database conformance fixture switches to the trusted lifecycle actor to remove the
+        // transient parent; user deletion remains forbidden by the ordinary DELETE policy.
+        await tx.execute(
+          sql`select set_config('app.actor_type','service',true), set_config('app.membership_id','',true)`,
+        );
+        await tx.delete(knowledgeFacts).where(eq(knowledgeFacts.id, factId));
+        await tx.execute(sql`set constraints all immediate`);
+        const scope = await tx.execute<{ org: string; fact: string; actor: string }>(sql`
+          select current_setting('knowledge.evidence_check_org') as org,
+            current_setting('knowledge.evidence_check_fact') as fact,
+            current_setting('app.actor_type') as actor`);
+        expect(scope.rows).toEqual([
+          { org: ownerB.organizationId, fact: previous, actor: 'service' },
+        ]);
+      });
+      await superuser.query('begin');
+      try {
+        await superuser.query(
+          "select set_config('knowledge.evidence_check_org',$1,true), set_config('knowledge.evidence_check_fact',$2,true)",
+          [ownerA.organizationId, factId],
+        );
+        expect((await superuser.query('select id from knowledge.facts')).rows).toEqual([]);
+      } finally {
+        await superuser.query('rollback');
+      }
+    });
+
+    it('allows a readable document row lock without granting a human document mutation', async () => {
+      const { documentId } = await seedSearchableSource(database.db, ownerA, {
+        grants: [{ kind: 'organization' }],
+        passages: ['Generated readable row lock.'],
+      });
+      const rows = await withTenantTx(database.db, reader, (tx) =>
+        tx
+          .select({ id: knowledgeDocuments.id })
+          .from(knowledgeDocuments)
+          .where(eq(knowledgeDocuments.id, documentId))
+          .for('share'),
+      );
+      expect(rows).toEqual([{ id: documentId }]);
+      await expect(
+        withTenantTx(database.db, reader, (tx) =>
+          tx
+            .update(knowledgeDocuments)
+            .set({ classification: 'restricted' })
+            .where(eq(knowledgeDocuments.id, documentId)),
+        ),
+      ).rejects.toEqual(sqlState('42501'));
     });
 
     it('refuses evidence that does not match the passage, so a citation cannot be invented', async () => {
@@ -548,10 +678,7 @@ describe('knowledge rules in the database', () => {
     });
 
     it('lets a person verify a model proposal, and nothing else can', async () => {
-      const factId = await proposeWithEvidence(
-        createServiceContext(ownerA.organizationId),
-        'model',
-      );
+      const factId = await proposeWithEvidence(reader, 'model');
       const service = createServiceContext(ownerA.organizationId);
       const delegated = await createDelegatedContext(
         database.db,
@@ -560,7 +687,7 @@ describe('knowledge rules in the database', () => {
       );
       await expect(verifyAs(service, factId)).rejects.toEqual(sqlState('EN109'));
       await expect(verifyAs(delegated, factId)).rejects.toEqual(sqlState('EN109'));
-      await verifyAs(reader, factId);
+      await verifyAs(ownerA, factId);
       const [fact] = await withTenantTx(database.db, reader, (tx) =>
         tx.select().from(knowledgeFacts).where(eq(knowledgeFacts.id, factId)),
       );
@@ -568,8 +695,8 @@ describe('knowledge rules in the database', () => {
     });
 
     it('refuses the proposer verifying their own', async () => {
-      const factId = await proposeWithEvidence(reader, 'person');
-      await expect(verifyAs(reader, factId)).rejects.toEqual(sqlState('EN109'));
+      const factId = await proposeWithEvidence(ownerA, 'person');
+      await expect(verifyAs(ownerA, factId)).rejects.toEqual(sqlState('EN109'));
     });
 
     it('hides a fact from anyone who cannot read all its evidence', async () => {

@@ -360,6 +360,35 @@ textarea[aria-invalid='true'] {
 .workspace-context > :last-child {
   color: var(--fg);
 }
+.workspace-search {
+  margin-inline-start: auto;
+}
+.section-navigation {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  border-bottom: 1px solid var(--line);
+  padding-bottom: var(--space-2);
+}
+.section-navigation a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 2.75rem;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-small);
+  color: var(--muted);
+  text-decoration: none;
+  font-size: var(--text-small);
+  font-weight: 550;
+}
+.section-navigation a:hover,
+.section-navigation a[aria-current] {
+  background: var(--surface);
+  color: var(--fg);
+}
+.section-navigation a[aria-current] {
+  box-shadow: inset 0 -2px var(--accent);
+}
 .page-head {
   display: flex;
   flex-wrap: wrap;

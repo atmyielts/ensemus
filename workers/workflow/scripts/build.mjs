@@ -26,6 +26,8 @@ await build({
     'src/agent-main.ts',
     'src/halt-global.ts',
     'src/knowledge-worker.ts',
+    // Spawned by URL from the bundled knowledge entry point; it must exist as its own file.
+    'src/parse-thread.ts',
   ].map((e) => path.join(root, e)),
   outdir: dist,
   bundle: true,

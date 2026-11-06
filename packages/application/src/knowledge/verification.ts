@@ -25,6 +25,7 @@ import { objectKey, type ObjectStore } from '../artifacts';
 import { AppError, pgCode } from '../errors';
 import { idSchema } from '../ids';
 import { idFromRequest } from '../request-id';
+import { rowLockTarget } from '../row-lock';
 import { loadReadable } from '../work';
 import { assertStableArtifactSources, lockArtifactInputSources } from './artifact-provenance';
 import {
@@ -191,7 +192,7 @@ async function passages(tx: Tx, rows: readonly Citation[], viewer: string | null
         sql`not exists (select 1 from platform.tombstones t where t.organization_id = ${knowledgeSources.organizationId} and t.target_type = 'knowledge_source' and t.target_id = ${knowledgeSources.id})`,
       ),
     )
-    .for('share', { of: [knowledgeSources, knowledgeDocuments] });
+    .for('share', { of: [rowLockTarget(knowledgeSources), rowLockTarget(knowledgeDocuments)] });
 }
 async function live(tx: Tx, state: Snapshot, viewer: string | null) {
   let code: Code | null = null;
@@ -373,7 +374,7 @@ export async function recordArtifactCitations(
             items.map((item) => item.chunkId),
           ),
         )
-        .for('share', { of: [knowledgeSources, knowledgeDocuments] });
+        .for('share', { of: [rowLockTarget(knowledgeSources), rowLockTarget(knowledgeDocuments)] });
       const proposed = items.map((item, index) => {
         const found = chunks.find((row) => row.chunk.id === item.chunkId);
         if (

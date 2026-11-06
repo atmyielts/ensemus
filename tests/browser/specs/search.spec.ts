@@ -5,6 +5,43 @@ import { urls } from '../../helpers/stack';
 import { axeFindings, sidewaysOverflow } from '../support/look';
 import { expect, test } from '../support/fixtures';
 
+for (const javaScriptEnabled of [true, false])
+  test(`shared navigation reaches knowledge, company search and onboarding (${javaScriptEnabled ? 'JavaScript' : 'no JavaScript'})`, async ({
+    open,
+    world,
+  }) => {
+    const page = await open(world.alice, { width: 375, javaScriptEnabled });
+    const base = `/o/${world.organization}`;
+    await page.goto(base);
+    const menu = page.locator('details.mobile-navigation');
+    await menu.locator('summary').click();
+    await menu.getByRole('link', { name: 'Knowledge', exact: true }).click();
+    await expect(
+      page.getByRole('heading', { name: 'Company knowledge', exact: true }),
+    ).toBeVisible();
+    const sections = page.getByRole('navigation', { name: 'Knowledge', exact: true });
+    await expect(sections.getByRole('link', { name: 'Sources', exact: true })).toHaveAttribute(
+      'aria-current',
+      'page',
+    );
+    await sections.getByRole('link', { name: 'Find a passage', exact: true }).click();
+    await expect(
+      sections.getByRole('link', { name: 'Find a passage', exact: true }),
+    ).toHaveAttribute('aria-current', 'page');
+    await page.getByRole('link', { name: 'Search the company', exact: true }).click();
+    await expect(
+      page.getByRole('heading', { name: 'Search the company', exact: true }),
+    ).toBeVisible();
+    await page.goto(`${base}/clients`);
+    await menu.locator('summary').click();
+    await menu.getByRole('link', { name: 'Client onboarding', exact: true }).click();
+    await expect(
+      page.getByRole('heading', { name: 'Start client onboarding', exact: true }),
+    ).toBeVisible();
+    expect(await sidewaysOverflow(page)).toBe(0);
+    expect(await axeFindings(page)).toEqual([]);
+  });
+
 test('passage search filters before rendering and supports keyboard fact proposals', async ({
   open,
   world,

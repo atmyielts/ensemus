@@ -136,14 +136,16 @@ export async function unlinkEdge(
   const edgeId = identifier(input.edgeId);
   await withTenantTx(database, context, async (tx) => {
     await person(tx, context, true);
-    const [edge] = await tx
-      .select()
-      .from(knowledgeEdges)
-      .where(eq(knowledgeEdges.id, edgeId))
-      .for('update');
+    const [edge] = await tx.select().from(knowledgeEdges).where(eq(knowledgeEdges.id, edgeId));
     if (!edge) throw new AppError('NOT_FOUND');
     if (edge.origin !== 'person') throw new AppError('INVALID_STATE');
-    await tx.delete(knowledgeEdges).where(eq(knowledgeEdges.id, edgeId));
+    // Edges have no UPDATE grant and their identity/origin is immutable. The DELETE itself locks
+    // the row; only its winning transaction may append the audit event.
+    const deleted = await tx
+      .delete(knowledgeEdges)
+      .where(and(eq(knowledgeEdges.id, edgeId), eq(knowledgeEdges.origin, 'person')))
+      .returning({ id: knowledgeEdges.id });
+    if (deleted.length !== 1) throw new AppError('NOT_FOUND');
     await appendAudit(tx, {
       organizationId: context.organizationId,
       actorType: 'user',

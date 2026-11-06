@@ -115,6 +115,9 @@ export function WorkspaceContext({
       ) : (
         <span>{current?.label ?? 'Workspace'}</span>
       )}
+      <Link className="workspace-search" href={`${base}/search`}>
+        Search the company
+      </Link>
     </div>
   );
 }

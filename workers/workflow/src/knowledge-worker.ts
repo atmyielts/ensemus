@@ -42,6 +42,9 @@ async function main() {
     connection,
     namespace: process.env.TEMPORAL_NAMESPACE ?? 'default',
     taskQueue: KNOWLEDGE_TASK_QUEUE,
+    // Parsing allocates a bounded child heap. Do not let the SDK's broad default exhaust this
+    // process by starting a parser for every pending document at once.
+    maxConcurrentActivityTaskExecutions: 2,
     activities: {
       ...createKnowledgeIngestActivities(deps),
       ...createKnowledgePurgeActivities(deps),

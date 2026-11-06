@@ -30,6 +30,7 @@ import { and, asc, eq, inArray, sql, type SQL } from 'drizzle-orm';
 import { AppError, pgCode } from '../errors';
 import { emit } from '../events';
 import { idSchema } from '../ids';
+import { rowLockTarget } from '../row-lock';
 import { factClaim, factPage, factReason, factSubject } from './fact-input';
 
 export type FactEvidenceInput = { chunkId: string; quoteStart: number; quoteEnd: number };
@@ -151,7 +152,7 @@ export async function proposeFact(
             eq(knowledgeDocuments.state, 'searchable'),
           ),
         )
-        .for('share', { of: [knowledgeSources, knowledgeDocuments] });
+        .for('share', { of: [rowLockTarget(knowledgeSources), rowLockTarget(knowledgeDocuments)] });
       if (passages.length !== evidence.length) throw new AppError('KNOWLEDGE_FACT_NEEDS_EVIDENCE');
       const byId = new Map(passages.map((item) => [item.id, item]));
       for (const item of evidence)
@@ -641,7 +642,7 @@ async function views(
         eq(knowledgeDocuments.state, 'searchable'),
       ),
     )
-    .for('share', { of: [knowledgeSources, knowledgeDocuments] });
+    .for('share', { of: [rowLockTarget(knowledgeSources), rowLockTarget(knowledgeDocuments)] });
   const result: FactView[] = [];
   for (const fact of facts) {
     let subject: Awaited<ReturnType<typeof subjectRecord>>;

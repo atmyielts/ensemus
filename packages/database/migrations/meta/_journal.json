@@ -120,6 +120,83 @@
       "when": 1793985699993,
       "tag": "0101_ai_security",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1794003139118,
+      "tag": "0200_knowledge",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1794003139119,
+      "tag": "0201_knowledge_security",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1794003139120,
+      "tag": "0202_knowledge_question_classification",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1794003139121,
+      "tag": "0203_knowledge_publication_slots",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1794003139122,
+      "tag": "0204_knowledge_fact_trust",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1794003139123,
+      "tag": "0205_knowledge_purge_proof",
+      "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1794003139124,
+      "tag": "0206_artifact_verification_proof",
+      "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1794003139125,
+      "tag": "0207_client_onboarding_state",
+      "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1794003139126,
+      "tag": "0208_derived_artifact_privacy",
+      "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1794003139127,
+      "tag": "0209_client_visibility",
+      "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1794003139128,
+      "tag": "0210_generated_restore_proof",
+      "breakpoints": true
     }
   ]
 }

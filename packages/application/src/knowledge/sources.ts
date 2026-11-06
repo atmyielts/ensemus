@@ -191,7 +191,7 @@ export async function addUploadedSource(
         if (existing) {
           if (existing.state !== 'active') throw new AppError('KNOWLEDGE_SOURCE_CLOSED');
           await readableDocument(tx, documentId);
-          return;
+          return { sourceId, documentId };
         }
         await validateGrants(tx, grants, input.classification);
         await tx.insert(knowledgeSources).values({
@@ -221,6 +221,7 @@ export async function addUploadedSource(
           createdByMembershipId: context.membershipId,
         });
         await audit(tx, context, 'knowledge.source_added', sourceId);
+        return { sourceId, documentId };
       }),
     );
   if (input.requestKey) {
@@ -237,10 +238,7 @@ export async function addUploadedSource(
           JSON.stringify([input.title.trim(), input.mediaType, hash, input.classification, grants]),
         ]),
       },
-      async (joined) => {
-        await prepare(joined);
-        return { sourceId, documentId };
-      },
+      prepare,
       (result) => ({ status: 201, body: result }),
     );
     if (outcome.kind === 'conflict') throw new AppError('IDEMPOTENCY_KEY_REUSED');
