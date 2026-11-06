@@ -1,0 +1,10 @@
+{
+  "payloadType": "application/vnd.ensemus.maintenance+json",
+  "payload": "eyJmb3JtYXQiOiJlbnNlbXVzLm1haW50ZW5hbmNlIiwiZm9ybWF0X3ZlcnNpb24iOjEsIm1haW50ZW5hbmNlX2lkIjoiYjdlNDFmMDgtOTJjMy00YTZkLThlMTctM2M1YTBmOWQyYjY0IiwibGljZW5zZV9pZCI6IjNmMGE3YzUyLTZhMGUtNGQxYi05YzU1LTBkNmY0YjFlN2ExMCIsImlzc3VlZF9hdCI6IjIwMjYtMTEtMDZUMDA6MDA6MDAuMDAwWiIsInN0YXJ0c19vbiI6IjIwMjYtMTEtMDYiLCJlbmRzX29uIjoiMjAyNy0xMS0wNSJ9",
+  "signatures": [
+    {
+      "keyid": "corpus-v1-maintenance",
+      "sig": "P02jEIOkzKn+gKRzitbrg8wtvMtITKlKq4q+bJNxovxmqdCfzCQsGKX78T+NAuANeSyEhgR78Lx7PCN1lnT0BQ=="
+    }
+  ]
+}
