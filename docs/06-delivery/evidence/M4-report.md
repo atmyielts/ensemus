@@ -26,10 +26,10 @@ The owner requires a uniform, polished interface for non-developers. The [interf
 | Fresh connector consent | **60 real-role connector sync checks passed**, including recorded scopes independent of forged configuration and a subsequent changed-consent pass |
 | Focused interface browser check | **11 passed**, including 64 page/theme/width accessibility and overflow combinations; [details](m4/interface-system.md) |
 | Full browser suite | **195 passed in 11.5 minutes** on the freshly rebuilt web image; local log `.local-m4-browser-full-final.log` |
-| Upgrade rehearsal | Interrupted when the host disk filled; a fresh complete rehearsal remains owed |
+| Upgrade rehearsal | Earlier run interrupted by full disk. The fresh attempt refused at the 16 GiB preflight before touching Docker; a complete rehearsal remains owed |
 | M4 air-gap control | **Passed** after Docker recovery: seven deliberate outbound packets detected on the watched subnet |
-| First full M4 offline suite | **324 passed, 2 failed, 18 skipped**; the two stale navigation/environment assertions are repaired and passed in a focused two-case rerun. Six outage rounds are still underway; a fresh full green run remains owed |
-| Release checks | Remaining; do not treat focused results as these gates |
+| Fresh full M4 offline gate | **326 passed, 18 profile-specific checks skipped**, followed by all **six** service-outage rounds and **zero outbound attempts**; complete gate passed |
+| Local release rehearsal | Web/worker SBOMs have **337 / 394 packages**; offline signature/digest checks passed and both manifest/SBOM tamper controls were rejected. Explicit throwaway test key, not production release signing |
 
 Backlog/traceability, generated-contract consistency and the production-license inventory passed on this composition. The production dependency audit passed the configured high-severity gate; it still reports one moderate esbuild development-server advisory. This is not a claim of a vulnerability-free dependency tree.
 
@@ -43,7 +43,7 @@ The first actual worker journey then found the queued-work request/claim mismatc
 
 ## Outstanding acceptance
 
-Repeat isolation/upgrade/release gates for this exact composition. Agent-loop replay and the full browser suite now have the local evidence above; killed-worker, rolling-deployment and real-provider recovery remain distinct acceptance work. Bind later knowledge/commercial integrations without replacing governed ports with test doubles. Independent security/accessibility review, reviewed hosted credentials and real-provider/commercial acceptance remain external gates. No real credential or customer document was used here.
+Complete the upgrade rehearsal when disk headroom permits. Replay, the full browser suite, offline stack/outages and the local release rehearsal now have the evidence above; killed-agent-worker, rolling-agent-deployment and real-provider recovery remain distinct acceptance work. Bind later knowledge/commercial integrations without replacing governed ports with test doubles. Independent security/accessibility review, reviewed hosted credentials and real-provider/commercial acceptance remain external gates. No real credential or customer document was used here.
 
 ## Temporary resources
 
@@ -61,4 +61,8 @@ The browser rerun corrected two real interface faults: the run page streamed bef
 
 The first offline round then found two test assumptions left over from the earlier shell: a current navigation link was expected to start with bare text, and any environment variable containing `PRIVATE` was treated as key material. The tests now check the exact selected Work link and its visible label through nested decorative markup, forbidden secret-bearing environment names and actual private-key material. Environment values are no longer printed by a failed key assertion. The public private-model endpoint allowlist remains permitted configuration. Both repaired checks passed on the isolated preview, and test TypeScript passed. The original failed offline log is retained; these focused results are not a substitute for a fresh complete offline pass.
 
+The fresh complete rerun then passed **326 cases** in 785.72 seconds with **18** explicit profile skips, and all six outage rounds returned expected responses with zero outbound attempts. The completed script exited successfully and removed only its `ensemus-m4-airgap` resources. Logs are `.local-m4-airgap-control-final.log`, `.local-m4-airgap-full-final.log` (the initial two-failure round), `.local-m4-airgap-full-repaired.log` (the passing gate), and `.local-m4-release-final.log`. The signed local manifest records source checkpoint `2f1b122`; runtime files are unchanged from the preceding clean image build, with the intervening repair confined to excluded tests/docs. No CI or production artifact publication occurred.
+
 An additional attempt to remove the unused dependency cache in completed M3 worktree `wf_4b614715-08e-10` was rejected by automatic approval review as “blocked by policy.” It did not run, and that cache remains intact. No alternative deletion method was used.
+
+After the completed rehearsals, free host space fell just below the 16 GiB guard. The fresh upgrade command refused before any Docker operation or temporary checkout. Fifteen new build records were independently checked against the Ensemus repository, and only their 15 recent regular-cache entries were selected by exact ID; the bounded prune reclaimed **zero bytes**. Older or unrelated cache and the original deployment volumes remain untouched. Source integration continues while resource-heavy builds are held; this is a resource block, not a passed upgrade test.
