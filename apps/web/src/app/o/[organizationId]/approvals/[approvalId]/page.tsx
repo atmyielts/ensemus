@@ -2,6 +2,7 @@ import { getApproval } from '@ensemus/application';
 import { listMembers } from '@ensemus/database';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
+import { ConfirmForm } from '@/components/confirm-form';
 import { SubmitButton } from '@/components/submit-button';
 import {
   ClassificationBadge,
@@ -208,22 +209,29 @@ export default async function ApprovalPage({
                   <SubmitButton>Approve</SubmitButton>
                 </div>
               </form>
-              <form className="fields" action={decideApprovalAction}>
-                {bound('deny')}
-                <label>
-                  Reason for denying
-                  <small>Optional. People on this work can read it.</small>
-                  <textarea name="reason" maxLength={2000} />
-                </label>
-                <small>
-                  {holdingWork
-                    ? 'The work stops, and it cannot be restarted.'
-                    : 'The work stays as it is, without your approval.'}
-                </small>
-                <div>
-                  <SubmitButton className="danger">Deny</SubmitButton>
-                </div>
-              </form>
+              {holdingWork ? (
+                <ConfirmForm
+                  action={decideApprovalAction}
+                  fields={bound('deny')}
+                  summary="Deny"
+                  reasonLabel="Why are you denying this? People on this work can read it."
+                  consequence="Deny this and stop the work for good. It cannot be restarted."
+                  confirmLabel="Deny and stop the work"
+                />
+              ) : (
+                <form className="fields" action={decideApprovalAction}>
+                  {bound('deny')}
+                  <label>
+                    Reason for denying
+                    <small>Optional. People on this work can read it.</small>
+                    <textarea name="reason" maxLength={2000} />
+                  </label>
+                  <small>The work stays as it is, without your approval.</small>
+                  <div>
+                    <SubmitButton className="danger">Deny</SubmitButton>
+                  </div>
+                </form>
+              )}
             </div>
           </section>
         )}
@@ -237,9 +245,11 @@ export default async function ApprovalPage({
         {status === 'expired' && (
           <p className="notice warn">
             The time to decide has passed, so this can no longer be approved.{' '}
-            {approval.holdsWork
-              ? 'The work it paused is being stopped.'
-              : 'Ask for a new review if it is still needed.'}
+            {holdingWork
+              ? 'The work it paused stops at the next periodic check, unless someone asks for a new review first.'
+              : approval.holdsWork && work.status === 'cancelled'
+                ? 'The work it paused has stopped.'
+                : 'Ask for a new review if it is still needed.'}
           </p>
         )}
         {status === 'cancelled' && (

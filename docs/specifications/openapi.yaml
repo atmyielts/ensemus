@@ -445,6 +445,22 @@ components:
           enum: [queued, ready, running, blocked, awaiting_approval, verifying, completed, failed, cancelled]
         version: {type: integer, minimum: 1}
         due_at: {type: [string, 'null'], format: date-time}
+        completion:
+          allOf: [{$ref: '#/components/schemas/WorkCompletion'}]
+          description: On reading one finished Work Unit, what its completion rests on.
+    WorkCompletion:
+      type: object
+      required: [basis, confirmed_by_membership_id, confirmed_at]
+      properties:
+        basis:
+          type: string
+          enum: [evidence, owner_confirmed, not_recorded]
+          description: >-
+            `evidence` means the Work Unit's criteria were met. `owner_confirmed` means no evidence
+            was requested, and the accountable owner confirmed it themselves. `not_recorded` means
+            it finished before this was recorded.
+        confirmed_by_membership_id: {type: [string, 'null'], format: uuid}
+        confirmed_at: {type: string, format: date-time}
     AgentRun:
       type: object
       required: [id, status, agent_version_id, work_unit_id]

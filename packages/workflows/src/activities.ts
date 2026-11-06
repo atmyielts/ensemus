@@ -3,6 +3,7 @@
 import {
   addArtifact,
   applyTransition,
+  auditAction,
   clearApprovalNotifications,
   closeOutdatedReviews,
   createApprovalInTx,
@@ -12,9 +13,12 @@ import {
   failRun,
   listHeldRuns,
   loadChangeable,
+  notify,
   purgeDueBlobs,
+  reissueStaleRunRequests,
   REVIEW_HOURS,
   sendDueReminders,
+  type SweepCursor,
   type ObjectStore,
 } from '@ensemus/application';
 import {
@@ -43,6 +47,10 @@ const log = createLogger('worker');
 const CHECKLIST_NAME = 'completion-checklist.md';
 /** Work a run holds is only checked once nothing has happened on it for this long. */
 const QUIET_RUN_MS = 15 * 60 * 1000;
+/** A request nothing has claimed after this long has probably met a run that cannot claim it. */
+const UNCLAIMED_REQUEST_MS = 5 * 60 * 1000;
+/** How long one sweep keeps asking Temporal, well inside the Activity's 2 minutes. */
+const RECONCILE_BUDGET_MS = 45 * 1000;
 
 const CRITERION_WORDS: Record<CompletionCriterion['kind'], string> = {
   artifact_exists: 'Someone attaches the file that shows the result.',
@@ -79,25 +87,41 @@ export function createActivities(deps: {
       loadChangeable(tx, context(input), input.workUnitId),
     );
 
-  /** Ends the hold of runs Temporal says are over, so no work sits in progress with nothing behind it. */
+  /**
+   * Ends the hold of runs Temporal says are over, so no work sits in progress with nothing behind it.
+   * It goes through every held run, since most are reviews waiting properly and could otherwise fill
+   * the batch for ever, and stops when its time is up. The next sweep starts again.
+   */
   async function reconcileStrandedRuns(input: TenantInput, now: Date) {
     if (!probeWorkflow) return 0;
     const ctx = context(input);
-    const held = await listHeldRuns(database, ctx, new Date(now.getTime() - QUIET_RUN_MS));
+    const stopAt = Date.now() + RECONCILE_BUDGET_MS;
+    const quietSince = new Date(now.getTime() - QUIET_RUN_MS);
     let failed = 0;
-    for (const { id, runId } of held) {
-      if (!runId) continue;
-      const state = await probeWorkflow({ ...input, workUnitId: id, runId });
-      if (state === 'open') continue;
-      await withTenantTx(database, ctx, async (tx) => {
-        const work = await loadChangeable(tx, ctx, id);
-        // Rechecked under the lock: it may have moved on since the list was read.
-        if (work.runId !== runId) return;
-        await failRun(tx, ctx, work);
-        failed += 1;
-        log.warn('work.run_stranded', { workUnitId: id, status: work.status });
-      });
-    }
+    let after: SweepCursor | undefined;
+    do {
+      const page: Awaited<ReturnType<typeof listHeldRuns>> = await listHeldRuns(
+        database,
+        ctx,
+        quietSince,
+        { after },
+      );
+      for (const { id, runId } of page.items) {
+        if (Date.now() > stopAt) return failed;
+        if (!runId) continue;
+        const state = await probeWorkflow({ ...input, workUnitId: id, runId });
+        if (state === 'open') continue;
+        await withTenantTx(database, ctx, async (tx) => {
+          const work = await loadChangeable(tx, ctx, id);
+          // Rechecked under the lock: it may have moved on since the list was read.
+          if (work.runId !== runId) return;
+          await failRun(tx, ctx, work);
+          failed += 1;
+          log.warn('work.run_stranded', { workUnitId: id, status: work.status });
+        });
+      }
+      after = page.next ?? undefined;
+    } while (after);
     return failed;
   }
 
@@ -127,10 +151,15 @@ export function createActivities(deps: {
       });
     },
 
-    /** Produces the plan's deterministic artifact. A retry finds it and adds nothing. */
+    /**
+     * Produces the plan's deterministic artifact, on work this run holds. A retry finds it and adds
+     * nothing, and an attempt still in flight after a timeout loses to whichever attached it first.
+     */
     async produceChecklistArtifact(input: RunInput): Promise<{ artifactId: string }> {
       const work = await load(input);
-      if (work.status !== 'running') throw stopped();
+      const held = (row: { status: string; runId: string | null }) =>
+        row.status === 'running' && row.runId === input.runId;
+      if (!held(work)) throw stopped();
       const ctx = context(input);
       const [existing] = await withTenantTx(database, ctx, (tx) =>
         tx
@@ -151,7 +180,7 @@ export function createActivities(deps: {
         '',
         ...(criteria.length
           ? criteria.map((criterion) => `- [ ] ${CRITERION_WORDS[criterion.kind]}`)
-          : ['- [ ] Someone confirms the outcome was reached. No other evidence was asked for.']),
+          : ['- [ ] The accountable owner confirms the outcome. No evidence was asked for.']),
         '',
       ].join('\n');
       const { id } = await addArtifact(database, store, ctx, {
@@ -159,6 +188,10 @@ export function createActivities(deps: {
         name: CHECKLIST_NAME,
         mimeType: 'text/markdown',
         body: Buffer.from(body),
+        onlyOnce: true,
+        stillAllowed: (row) => {
+          if (!held(row)) throw stopped();
+        },
       });
       return { artifactId: id };
     },
@@ -183,11 +216,15 @@ export function createActivities(deps: {
           .update(approvals)
           .set({ status: 'cancelled', decidedAt: new Date() })
           .where(and(eq(approvals.workUnitId, work.id), eq(approvals.status, 'pending')))
-          .returning({ id: approvals.id });
+          .returning({ id: approvals.id, requestedBy: approvals.requestedByMembershipId });
         await clearApprovalNotifications(
           tx,
           superseded.map((row) => row.id),
         );
+        for (const { id, requestedBy } of superseded) {
+          await auditAction(tx, ctx, 'approval.closed', `approval:${id}`, 'PLAN_STARTED');
+          await notify(tx, ctx, [requestedBy], 'approval.closed', `work_unit:${work.id}`);
+        }
         const expiresAt = new Date(Date.now() + REVIEW_HOURS * 60 * 60 * 1000);
         const created = await createApprovalInTx(tx, ctx, {
           workUnitId: work.id,
@@ -221,9 +258,10 @@ export function createActivities(deps: {
     },
 
     /**
-     * Sends the work for checking, and stops there. A person accepts it: a plan that generated a
-     * checklist has not shown that anything was done. Evidence is worked out when they press Mark
-     * done, so a review that no longer covers the work is refused at that point.
+     * Sends the work for checking, and stops there. Despite the name, which workflow histories have
+     * recorded and which therefore stays, this never completes anything. A person does that: a plan
+     * that generated a checklist has not shown that anything was done. Evidence is worked out when
+     * they press Mark done, so a review that no longer covers the work is refused at that point.
      */
     async verifyAndComplete(input: RunInput): Promise<WorkOutcome> {
       const ctx = context(input);
@@ -255,21 +293,38 @@ export function createActivities(deps: {
 
     /**
      * One tenant's periodic upkeep, which is why this one Activity does several jobs. Adding Activities
-     * to a scheduled workflow would need a patch for no gain: nothing here depends on their order.
+     * to a scheduled workflow would need a patch for no gain: nothing here depends on their order. One
+     * job failing does not stop the others. It is logged, and fails the Activity so that it is retried.
      */
     async sendReminders(input: TenantInput): Promise<number> {
       const ctx = context(input);
       const now = new Date();
-      try {
-        await expireOverdueApprovals(database, ctx, now);
-        await reconcileStrandedRuns(input, now);
-        const blobs = await purgeDueBlobs(database, store, ctx, now);
-        if (blobs.failed > 0) log.warn('blobs.purge_failed', { count: blobs.failed });
-        return await sendDueReminders(database, ctx, now);
-      } catch (error) {
-        log.error('reminders.failed', { errorCode: errorCode(error) });
-        throw error;
-      }
+      const failures: unknown[] = [];
+      const attempt = async <T>(job: () => Promise<T>, otherwise: T) => {
+        try {
+          return await job();
+        } catch (error) {
+          failures.push(error);
+          log.error('reminders.failed', { errorCode: errorCode(error) });
+          return otherwise;
+        }
+      };
+      await attempt(() => expireOverdueApprovals(database, ctx, now), 0);
+      await attempt(() => reconcileStrandedRuns(input, now), 0);
+      await attempt(
+        () =>
+          reissueStaleRunRequests(database, ctx, new Date(now.getTime() - UNCLAIMED_REQUEST_MS)),
+        0,
+      );
+      const reminders = await attempt(() => sendDueReminders(database, ctx, now), 0);
+      // Last, because a store that hangs is the slowest way any of this can fail.
+      const blobs = await attempt(() => purgeDueBlobs(database, store, ctx, now), {
+        purged: 0,
+        failed: 0,
+      });
+      if (blobs.failed > 0) log.warn('blobs.purge_failed', { count: blobs.failed });
+      if (failures.length > 0) throw failures[0];
+      return reminders;
     },
   };
 }

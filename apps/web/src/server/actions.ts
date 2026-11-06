@@ -5,6 +5,7 @@ import { createOrganization } from '@ensemus/database';
 import { errorCode } from '@ensemus/telemetry';
 import { headers } from 'next/headers';
 import { redirect } from 'next/navigation';
+import { z } from 'zod';
 import { safeReturnPath, withReturnPath } from '@/lib/return-path';
 import { requireActor } from './actor';
 import { getRuntime } from './runtime';
@@ -65,12 +66,15 @@ export async function createOrganizationAction(form: FormData) {
   const { app, config, log } = getRuntime();
   const name = organizationNameSchema.safeParse(field(form, 'name'));
   if (!name.success) redirect('/?error=name');
+  // Only ever hashed into an ID. Something that is not a key just gets no protection from repeats.
+  const requestKey = z.uuid().safeParse(field(form, 'requestKey'));
   let target = '/?error=UNEXPECTED';
   try {
     const { organizationId } = await createOrganization(app, {
       userId: actor.userId,
       name: name.data,
       commercialMode: config.mode,
+      ...(requestKey.success ? { requestKey: requestKey.data } : {}),
     });
     log.info('organization.created', { organizationId, userId: actor.userId });
     target = `/o/${organizationId}`;

@@ -16,6 +16,8 @@ import { NativeConnection, Runtime, Worker } from '@temporalio/worker';
 
 const log = createLogger('worker');
 const here = path.dirname(fileURLToPath(import.meta.url));
+/** One slow answer about one run may not hold up the sweep it is part of. */
+const PROBE_DEADLINE_MS = 5_000;
 
 async function main() {
   // Must run first. The SDK's default logger would print activity error messages.
@@ -44,9 +46,9 @@ async function main() {
   });
   const probeWorkflow: WorkflowProbe = async (input) => {
     try {
-      const { status } = await client.workflow
-        .getHandle(workflowIdFor(input), input.runId)
-        .describe();
+      const { status } = await clientConnection.withDeadline(Date.now() + PROBE_DEADLINE_MS, () =>
+        client.workflow.getHandle(workflowIdFor(input), input.runId).describe(),
+      );
       return status.name === 'RUNNING' ? 'open' : 'closed';
     } catch (error) {
       if (error instanceof WorkflowNotFoundError) return 'closed';

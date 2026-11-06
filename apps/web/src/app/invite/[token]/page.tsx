@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { headers } from 'next/headers';
 import { notFound } from 'next/navigation';
+import { SubmitButton } from '@/components/submit-button';
 import { ErrorNotice } from '@/components/ui';
 import { safeReturnPath, withReturnPath } from '@/lib/return-path';
 import { signOutAction } from '@/server/actions';
@@ -89,7 +90,7 @@ export default async function InvitationPage({
       <p className="muted">You will see the organization once you accept.</p>
       <form action={acceptInvitationAction} style={{ marginBottom: '1rem' }}>
         <input type="hidden" name="token" value={token} />
-        <button type="submit">Accept invitation</button>
+        <SubmitButton working="Accepting">Accept invitation</SubmitButton>
       </form>
       <form action={signOutAction}>
         <input type="hidden" name="next" value={here} />

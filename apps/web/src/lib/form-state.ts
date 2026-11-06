@@ -3,6 +3,15 @@
 
 export type WorkDraft = { title: string; objective: string; dueAt: string };
 
+/**
+ * Whether two versions say the same thing. The service trims what it saves, so a draft that differs
+ * only by surrounding spaces is what was saved, and must not look like someone else's change.
+ */
+export const sameContent = (a: WorkDraft, b: WorkDraft) =>
+  a.title.trim() === b.title.trim() &&
+  a.objective.trim() === b.objective.trim() &&
+  a.dueAt === b.dueAt;
+
 export type WorkFormState = {
   code?: string;
   /** The one field at fault, when it can be named. */

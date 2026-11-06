@@ -42,7 +42,11 @@ export function allowedTransitions(from: WorkState): readonly WorkState[] {
 }
 
 export type DenialReason =
-  'INVALID_TRANSITION' | 'PREREQUISITES_INCOMPLETE' | 'EVIDENCE_MISSING' | 'REASON_REQUIRED';
+  | 'INVALID_TRANSITION'
+  | 'PREREQUISITES_INCOMPLETE'
+  | 'EVIDENCE_MISSING'
+  | 'OWNER_CONFIRMATION_REQUIRED'
+  | 'REASON_REQUIRED';
 
 export type Decision = { ok: true } | { ok: false; reason: DenialReason };
 
@@ -82,8 +86,17 @@ export type TransitionFacts = {
   incompletePrerequisites: number;
   criteria: readonly CompletionCriterion[];
   evidence: CompletionEvidence;
+  /** Whether the one asking is the Work Unit's accountable owner, as a person. */
+  actorIsAccountableOwner?: boolean;
   reason?: string;
 };
+
+/** What a completion rests on: the evidence its criteria asked for, or its owner's word. */
+export type CompletionBasis = 'evidence' | 'owner_confirmed';
+
+export function completionBasis(criteria: readonly CompletionCriterion[]): CompletionBasis {
+  return criteria.length === 0 ? 'owner_confirmed' : 'evidence';
+}
 
 /** The single decision point for every status change, whoever or whatever asks for it. */
 export function decideTransition(facts: TransitionFacts): Decision {
@@ -95,7 +108,16 @@ export function decideTransition(facts: TransitionFacts): Decision {
   if (to === 'completed' && unmetCriteria(facts.criteria, facts.evidence).length > 0) {
     return { ok: false, reason: 'EVIDENCE_MISSING' };
   }
-  if (from === 'completed' && !facts.reason?.trim()) {
+  // With no evidence to check, somebody still has to answer for it, so it is the accountable owner.
+  if (
+    to === 'completed' &&
+    completionBasis(facts.criteria) === 'owner_confirmed' &&
+    !facts.actorIsAccountableOwner
+  ) {
+    return { ok: false, reason: 'OWNER_CONFIRMATION_REQUIRED' };
+  }
+  // Going round again is a decision someone has to be able to explain later.
+  if ((from === 'completed' || from === 'failed') && !facts.reason?.trim()) {
     return { ok: false, reason: 'REASON_REQUIRED' };
   }
   return ok;

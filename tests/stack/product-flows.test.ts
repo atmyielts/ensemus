@@ -169,13 +169,50 @@ describe('the product through its forms', () => {
       expect([303, 307]).toContain(only.status);
       expect(only.headers.get('location')).toBe(locationOf(created));
 
-      await post('/', person.jar, form, { name: second });
+      // A form of its own, since one form makes one organization.
+      await post('/', person.jar, form, { name: second, requestKey: randomUUID() });
       const { status, html } = await read('/', person.jar);
       expect(status).toBe(200);
       expect(html).toContain(first);
       expect(html).toContain(second);
       expect(html).toContain(`href="${locationOf(created)}"`);
       expect(html).toContain('>Owner<');
+    });
+
+    it('makes one organization from one form, however many times it is sent', async () => {
+      const person = await signUp('Double Click');
+      const form = await formOn('/', person.jar, /Create organization/);
+      const name = `Once ${randomUUID()}`;
+      const [first, second] = await Promise.all([
+        post('/', person.jar, form, { name }),
+        post('/', person.jar, form, { name }),
+      ]);
+      const third = await post('/', person.jar, form, { name });
+      expect(locationOf(first)).toMatch(/^\/o\/[0-9a-f-]{36}$/);
+      expect(locationOf(second)).toBe(locationOf(first));
+      expect(locationOf(third)).toBe(locationOf(first));
+      const { rows } = await su.query(
+        `select count(*)::int as n from org.memberships m
+         join identity.users u on u.id = m.user_id where u.email = $1`,
+        [person.email],
+      );
+      expect(rows[0].n).toBe(1);
+      expect((await read(locationOf(first), person.jar)).status).toBe(200);
+    });
+
+    it('shows that it is working on every form before you are in', async () => {
+      const person = await signUp('Pending Forms');
+      const token = await invite(owner, org, person.email);
+      for (const [page, jar, match] of [
+        ['/sign-in', undefined, /Sign in/],
+        ['/sign-up', undefined, /Create account/],
+        ['/', person.jar, /Create organization/],
+        [`/invite/${token}`, person.jar, /Accept invitation/],
+      ] as const) {
+        const form = await formOn(page, jar, match);
+        expect(form.html, page).toContain('class="pending"');
+        expect(form.html, page).toContain('type="submit"');
+      }
     });
 
     it('shows a plain page for what does not exist', async () => {
@@ -435,6 +472,112 @@ describe('the product through its forms', () => {
         await move(owner, id, to);
         expect(statusOn((await read(page, owner.jar)).html)).toBe(label);
       }
+      // With nothing asked for, the record says plainly whose word it rests on.
+      const done = mainOf((await read(page, owner.jar)).html).replaceAll('<!-- -->', '');
+      expect(done).toContain(
+        `Confirmed by ${owner.name} as accountable owner. No evidence was requested.`,
+      );
+      expect(done).not.toContain('Its results are under Files');
+    });
+
+    it('needs the accountable owner to confirm work that asks for no evidence (QA-006)', async () => {
+      const id = await createWork(owner, { title: `Confirm ${randomUUID()}` });
+      const page = workPage(id);
+      await submit(page, owner.jar, /Add someone/, { membershipId: await membershipOf(member) });
+      await move(owner, id, 'ready');
+      await move(owner, id, 'running');
+      // Going straight to done is not on offer, and a forged request does not get there either.
+      const running = await formOn(page, owner.jar, toStatus('verifying'));
+      const skipped = await post(page, owner.jar, running, { to: 'completed' });
+      expect(locationOf(skipped)).toBe(`${page}?error=INVALID_TRANSITION`);
+      await move(owner, id, 'verifying');
+
+      // Someone else on the work can change it, and cannot say it is done.
+      const theirs = await read(page, member.jar);
+      expect(theirs.html).not.toContain('Confirm this is done');
+      expect(mainOf(theirs.html).replaceAll('<!-- -->', '')).toContain(
+        `Only ${owner.name}, as accountable owner, can confirm this is done.`,
+      );
+      const back = await formOn(page, member.jar, toStatus('running'));
+      const forged = await post(page, member.jar, back, { to: 'completed' });
+      expect(locationOf(forged)).toBe(`${page}?error=OWNER_CONFIRMATION_REQUIRED`);
+      expect(statusOn((await read(page, owner.jar)).html)).toBe('Checking');
+
+      const mine = await read(page, owner.jar);
+      expect(mine.html).toContain('Confirm this is done');
+      expect(mine.html).toContain('the only check on this work');
+      await move(owner, id, 'completed');
+
+      const api = await visit(`/api/v1/organizations/${org}/work-units/${id}`, owner.jar);
+      expect(api.status).toBe(200);
+      expect(await api.json()).toMatchObject({
+        status: 'completed',
+        completion: {
+          basis: 'owner_confirmed',
+          confirmed_by_membership_id: await membershipOf(owner),
+        },
+      });
+    });
+
+    it('reports evidence, not a person’s word, when criteria were met', async () => {
+      const id = await createWork(owner, {
+        title: `Evidence ${randomUUID()}`,
+        criteria: ['artifact_exists'],
+      });
+      await upload(owner, id, new File(['x'], 'result.txt', { type: 'text/plain' }));
+      for (const to of ['ready', 'running', 'verifying', 'completed']) await move(owner, id, to);
+      const api = await visit(`/api/v1/organizations/${org}/work-units/${id}`, owner.jar);
+      expect(await api.json()).toMatchObject({ completion: { basis: 'evidence' } });
+      expect((await read(workPage(id), owner.jar)).html).not.toContain('No evidence was requested');
+    });
+
+    it('needs a reason to try failed work again, even from a forged form', async () => {
+      const id = await createWork(owner, { title: `Retry ${randomUUID()}` });
+      const page = workPage(id);
+      await move(owner, id, 'ready');
+      await move(owner, id, 'running');
+      await move(owner, id, 'failed');
+      const refused = await submit(page, owner.jar, toStatus('ready'));
+      expect(locationOf(refused)).toBe(`${page}?error=REASON_REQUIRED`);
+      expect(statusOn((await read(page, owner.jar)).html)).toBe('Failed');
+      const retried = await submit(page, owner.jar, toStatus('ready'), {
+        reason: 'The supplier answered',
+      });
+      expect(locationOf(retried)).toBe(page);
+      expect((await read(page, owner.jar)).html).toContain('The supplier answered');
+    });
+
+    it('explains a stopped prerequisite someone cannot see, without naming it', async () => {
+      const secret = `Hidden prerequisite ${randomUUID()}`;
+      const hidden = await createWork(owner, { title: secret, classification: 'restricted' });
+      const id = await createWork(member, { title: `Waiting ${randomUUID()}` });
+      const page = workPage(id);
+      const added = await submit(page, owner.jar, /Add dependency/, { prerequisiteId: hidden });
+      expect(locationOf(added)).toBe(page);
+
+      // Still able to finish: it holds the work up, and nothing can remove it.
+      const waiting = await read(page, member.jar);
+      expect(mainOf(waiting.html).replaceAll('<!-- -->', '')).toContain(
+        'This is also waiting on one piece of work you do not have access to.',
+      );
+      expect(waiting.html).not.toContain('Stop waiting on stopped work');
+      expect(waiting.html).not.toContain('>Mark ready<');
+      expect(waiting.html).toContain('This cannot be marked ready');
+
+      await submit(workPage(hidden), owner.jar, toStatus('cancelled'), {
+        confirm: 'yes',
+        reason: 'No longer needed',
+      });
+      const stopped = await read(page, member.jar);
+      expect(stopped.html).toContain('One of these was stopped, so it can never finish.');
+      expect(stopped.html).toContain('Stop waiting on stopped work');
+      expect(stopped.html).not.toContain(secret);
+      expect(stopped.html).not.toContain(hidden);
+
+      const removed = await submit(page, member.jar, /Stop waiting on stopped work/);
+      expect(locationOf(removed)).toBe(page);
+      expect(mainOf((await read(page, member.jar)).html)).not.toContain('This is also waiting on');
+      await move(member, id, 'ready');
     });
 
     it('explains a stale change, and the later change stands', async () => {
@@ -552,7 +695,7 @@ describe('the product through its forms', () => {
       const two = await signUp('Two Places');
       const form = await formOn('/', two.jar, /Create organization/);
       const first = await post('/', two.jar, form, { name: `A ${randomUUID()}` });
-      await post('/', two.jar, form, { name: `B ${randomUUID()}` });
+      await post('/', two.jar, form, { name: `B ${randomUUID()}`, requestKey: randomUUID() });
       expect((await read(locationOf(first), two.jar)).html).toContain('Switch organization');
     });
 
@@ -576,6 +719,9 @@ describe('the product through its forms', () => {
       // Nothing about stopped work offers to change it, and a forged request is refused.
       expect(html).not.toContain('Save changes');
       expect(html).not.toContain('name="file"');
+      // What it does say can still happen is what the page still offers.
+      expect(html).toContain('it can be handed to a new owner');
+      expect(html).toContain('Change owner');
     });
 
     it('does not call work due today overdue', async () => {
@@ -710,6 +856,60 @@ describe('the product through its forms', () => {
       expect(statusOn(done.html)).toBe('Done');
       expect(done.html).toContain('In place');
       expect(done.html).toContain('Its results are under Files');
+    });
+
+    it('does not call its own checklist the results', async () => {
+      const id = await createWork(owner, {
+        title: `Plan only ${randomUUID()}`,
+        executionPlan: 'checklist',
+      });
+      const page = workPage(id);
+      await move(owner, id, 'ready');
+      await submit(page, owner.jar, /Run the plan/);
+      await expect
+        .poll(async () => statusOn((await read(page, owner.jar)).html), {
+          timeout: PLAN_TIMEOUT,
+          interval: 500,
+        })
+        .toBe('Checking');
+      await move(owner, id, 'completed');
+      const { html } = await read(page, owner.jar);
+      expect(html).toContain('completion-checklist.md');
+      expect(statusOn(html)).toBe('Done');
+      expect(html).toContain('This is done.');
+      expect(html).not.toContain('Its results are under Files');
+    });
+
+    it('refuses a second request, which could replace the reviewer the first one named', async () => {
+      const id = await createWork(owner, {
+        title: `Twice ${randomUUID()}`,
+        executionPlan: 'checklist',
+        criteria: ['reviewer_approved'],
+      });
+      const page = workPage(id);
+      await move(owner, id, 'ready');
+      // Both read the page before either request, as two people could. The dispatcher is held back
+      // so that the request is still standing when the second arrives.
+      const form = await formOn(page, owner.jar, /Run the plan/);
+      compose('stop', 'dispatcher');
+      try {
+        const first = await post(page, owner.jar, form, {
+          reviewerMembershipId: await membershipOf(reviewer),
+        });
+        expect(locationOf(first)).toBe(page);
+        const second = await post(page, owner.jar, form, {
+          reviewerMembershipId: await membershipOf(member),
+        });
+        expect(locationOf(second)).toBe(`${page}?error=RUN_ALREADY_REQUESTED`);
+        const { rows } = await su.query(
+          'select plan_reviewer_membership_id as reviewer from work.work_units where id = $1',
+          [id],
+        );
+        expect(rows[0].reviewer).toBe(await membershipOf(reviewer));
+        expect((await read(page, owner.jar)).html).toContain('Ensemus asks again');
+      } finally {
+        compose('start', 'dispatcher');
+      }
     });
   });
 
@@ -899,6 +1099,113 @@ describe('the product through its forms', () => {
       const byMember = await post(approval, member.jar, form);
       expect(locationOf(byMember)).toBe(`${approval}?error=APPROVAL_WRONG_APPROVER`);
       expect(statusOn((await read(approval, reviewer.jar)).html)).toBe('Waiting');
+    });
+
+    describe('a review whose time ran out, before the periodic check gets to it', () => {
+      async function overdueHold() {
+        const id = await createWork(owner, { title: `Overdue ${randomUUID()}` });
+        const page = workPage(id);
+        await move(owner, id, 'ready');
+        await move(owner, id, 'running');
+        await submit(page, owner.jar, /Request review/, {
+          approverMembershipId: await membershipOf(reviewer),
+        });
+        const approvalId = /\/approvals\/([0-9a-f-]{36})"/.exec(
+          (await read(page, owner.jar)).html,
+        )?.[1];
+        if (!approvalId) throw new Error('No approval link');
+        await su.query(
+          `update work.approvals set expires_at = now() - interval '1 minute' where id = $1`,
+          [approvalId],
+        );
+        return { id, page, approval: `/o/${org}/approvals/${approvalId}` };
+      }
+
+      it('says it will stop, how to prevent that, and lets someone else be asked', async () => {
+        const { page, approval } = await overdueHold();
+        const { html } = await read(page, owner.jar);
+        expect(statusOn(html)).toBe('Waiting for approval');
+        expect(html).toContain('so it stops at the next periodic check');
+        expect(html).toContain('To keep it going, ask someone else below before then.');
+        expect(html).not.toContain('It stays paused until someone decides');
+        expect((await read(approval, owner.jar)).html).toContain(
+          'unless someone asks for a new review first',
+        );
+
+        const asked = await submit(page, owner.jar, /Request review/, {
+          approverMembershipId: await membershipOf(member),
+        });
+        expect(locationOf(asked)).toBe(page);
+        const after = await read(page, owner.jar);
+        expect(statusOn(after.html)).toBe('Waiting for approval');
+        expect(after.html).not.toContain('next periodic check');
+        expect(statusOn((await read(approval, owner.jar)).html)).toBe('Expired');
+      });
+
+      it('does not promise anything to someone who cannot ask', async () => {
+        const { page } = await overdueHold();
+        const { html } = await read(page, reviewer.jar);
+        expect(html).toContain('so it stops at the next periodic check');
+        expect(html).not.toContain('ask someone else below');
+      });
+    });
+
+    describe('denying a review the work is paused on', () => {
+      async function paused() {
+        const id = await createWork(owner, { title: `Held ${randomUUID()}` });
+        const page = workPage(id);
+        await move(owner, id, 'ready');
+        await move(owner, id, 'running');
+        await submit(page, owner.jar, /Request review/, {
+          approverMembershipId: await membershipOf(reviewer),
+        });
+        const approvalId = /\/approvals\/([0-9a-f-]{36})"/.exec(
+          (await read(page, owner.jar)).html,
+        )?.[1];
+        if (!approvalId) throw new Error('No approval link');
+        return { page, approval: `/o/${org}/approvals/${approvalId}` };
+      }
+
+      it('has to be meant, because it stops the work for good', async () => {
+        const { page, approval } = await paused();
+        const shown = await read(approval, reviewer.jar);
+        expect(shown.html).toContain('Deny this and stop the work for good');
+        expect(shown.html).toContain('name="confirm"');
+
+        const stray = await submit(approval, reviewer.jar, deciding('deny'), { reason: 'Why not' });
+        expect(locationOf(stray)).toBe(`${approval}?error=INVALID_INPUT`);
+        expect(statusOn((await read(page, owner.jar)).html)).toBe('Waiting for approval');
+
+        const silent = await submit(approval, reviewer.jar, deciding('deny'), { confirm: 'yes' });
+        expect(locationOf(silent)).toBe(`${approval}?error=REASON_REQUIRED`);
+        expect(statusOn((await read(page, owner.jar)).html)).toBe('Waiting for approval');
+
+        const meant = await submit(approval, reviewer.jar, deciding('deny'), {
+          confirm: 'yes',
+          reason: 'This is not what the client asked for',
+        });
+        expect(locationOf(meant)).toBe(approval);
+        const stopped = await read(page, owner.jar);
+        expect(statusOn(stopped.html)).toBe('Stopped');
+        expect(stopped.html).toContain('This is not what the client asked for');
+      });
+
+      it('can still be approved with one press', async () => {
+        const { page, approval } = await paused();
+        await submit(approval, reviewer.jar, deciding('approve'));
+        expect(statusOn((await read(page, owner.jar)).html)).toBe('In progress');
+      });
+
+      it('is refused the same way for someone who was not asked', async () => {
+        const { page, approval } = await paused();
+        const form = await formOn(approval, reviewer.jar, deciding('deny'));
+        const forged = await post(approval, member.jar, form, {
+          confirm: 'yes',
+          reason: 'I say no',
+        });
+        expect(locationOf(forged)).toBe(`${approval}?error=APPROVAL_WRONG_APPROVER`);
+        expect(statusOn((await read(page, owner.jar)).html)).toBe('Waiting for approval');
+      });
     });
 
     it('records a denial', async () => {
@@ -1107,6 +1414,15 @@ describe('the product through its forms', () => {
       expect(home.headers.get('location')).toBe(`/o/${org}`);
 
       const target = await membershipOf(leaver);
+      // Disabling has to be meant, so a form sent without the box ticked changes nothing.
+      const stray = await submit(
+        people(org),
+        owner.jar,
+        (f) => f.hidden.get('membershipId') === target && />Disable</.test(f.html),
+      );
+      expect(locationOf(stray)).toBe(`${people(org)}?error=INVALID_INPUT`);
+      expect((await read(`/o/${org}`, leaver.jar)).status).toBe(200);
+
       const disabled = await submit(
         people(org),
         owner.jar,

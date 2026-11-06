@@ -21,6 +21,7 @@ import { can, type Capability } from '@ensemus/domain/policy';
 import { and, asc, eq, isNull, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { AppError, pgCode } from './errors';
+import { emit } from './events';
 import { closeReviewsForLostAccess } from './work';
 
 const name = z.string().trim().min(1).max(200);
@@ -141,7 +142,9 @@ export async function listTeams(database: AppDatabase, context: TenantContext) {
 /**
  * Changes that can remove an owner run one at a time per organization. Locking only the target row
  * would let two owners each remove the other, each seeing the other still in place. This is taken
- * first, so nothing below can deadlock against it.
+ * first, so nothing below can deadlock against it. The membership row itself is then locked no more
+ * strongly than a change that keeps its key needs: a transition inserting a row that refers to this
+ * member only asks for a key share, and blocking that while waiting on its work row would deadlock.
  */
 async function serializeMemberChanges(tx: Tx, organizationId: string) {
   await tx.execute(
@@ -180,7 +183,19 @@ async function revokeInvitationsBy(
       decision: 'allow',
       safeReason: reason,
     });
+    await emitInvitationRevoked(tx, context, id);
   }
+}
+
+function emitInvitationRevoked(tx: Tx, context: TenantContext, invitationId: string) {
+  return emit(tx, context, {
+    eventType: 'invitation.revoked',
+    aggregateType: 'invitation',
+    aggregateId: invitationId,
+    aggregateVersion: 1,
+    classification: 'internal',
+    payload: { invitation_id: invitationId },
+  });
 }
 
 export async function setMemberRole(
@@ -196,7 +211,7 @@ export async function setMemberRole(
       .select()
       .from(memberships)
       .where(eq(memberships.id, input.membershipId))
-      .for('update');
+      .for('no key update');
     if (!target) throw new AppError('NOT_FOUND');
     if ((input.role === 'owner' || target.role === 'owner') && context.role !== 'owner') {
       throw new AppError('FORBIDDEN');
@@ -252,7 +267,7 @@ export async function disableMember(
       .select()
       .from(memberships)
       .where(eq(memberships.id, input.membershipId))
-      .for('update');
+      .for('no key update');
     if (!target) throw new AppError('NOT_FOUND');
     if (target.role === 'owner') {
       if (context.role !== 'owner') throw new AppError('FORBIDDEN');
@@ -345,7 +360,14 @@ export async function revokeInvitation(
     const revoked = await tx
       .update(invitations)
       .set({ revokedAt: new Date() })
-      .where(eq(invitations.id, input.invitationId))
+      // Someone who already joined stays joined, so an accepted invitation has nothing left to revoke.
+      .where(
+        and(
+          eq(invitations.id, input.invitationId),
+          isNull(invitations.acceptedAt),
+          isNull(invitations.revokedAt),
+        ),
+      )
       .returning({ id: invitations.id });
     if (revoked.length === 0) return;
     await appendAudit(tx, {
@@ -356,6 +378,7 @@ export async function revokeInvitation(
       targetRef: `invitation:${input.invitationId}`,
       decision: 'allow',
     });
+    await emitInvitationRevoked(tx, context, input.invitationId);
   });
 }
 

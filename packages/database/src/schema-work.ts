@@ -364,6 +364,8 @@ export const workTransitions = workSchema.table(
     toStatus: text().notNull(),
     actorMembershipId: uuid(),
     reason: text(),
+    /** On a move to completed: what it rests on. Evidence, or the accountable owner's own word. */
+    completionBasis: text(),
     occurredAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
@@ -377,6 +379,10 @@ export const workTransitions = workSchema.table(
       foreignColumns: [memberships.organizationId, memberships.id],
     }),
     index('work_transitions_work_idx').on(t.organizationId, t.workUnitId, t.occurredAt),
+    check(
+      'work_transitions_completion_basis_check',
+      sql`${t.completionBasis} in ('evidence','owner_confirmed')`,
+    ),
   ],
 );
 

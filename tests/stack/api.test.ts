@@ -39,6 +39,7 @@ const WORK_UNIT_FIELDS: ReadonlySet<string> = new Set<keyof WorkUnit>([
   'status',
   'version',
   'due_at',
+  'completion',
 ]);
 const ERROR_FIELDS: ReadonlySet<string> = new Set<keyof ApiError>([
   'code',

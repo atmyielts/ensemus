@@ -16,6 +16,7 @@ import {
   canChangeContent,
   canDeleteFile,
   canTransition,
+  completionBasis,
   decideTransition,
   isApprovalOnlyTransition,
   isOverdue,
@@ -99,11 +100,61 @@ describe('transition decisions', () => {
     ).toBe(true);
   });
 
+  describe('with no criteria (QA-006)', () => {
+    const asOwner = { actorIsAccountableOwner: true };
+
+    it('takes the accountable owner, and nobody else', () => {
+      expect(decideTransition(facts('verifying', 'completed'))).toEqual({
+        ok: false,
+        reason: 'OWNER_CONFIRMATION_REQUIRED',
+      });
+      expect(
+        decideTransition(facts('verifying', 'completed', { actorIsAccountableOwner: false })).ok,
+      ).toBe(false);
+      expect(decideTransition(facts('verifying', 'completed', asOwner)).ok).toBe(true);
+    });
+
+    it('still cannot skip checking, even for the owner', () => {
+      expect(decideTransition(facts('running', 'completed', asOwner))).toEqual({
+        ok: false,
+        reason: 'INVALID_TRANSITION',
+      });
+    });
+
+    it('says what a completion rests on', () => {
+      expect(completionBasis([])).toBe('owner_confirmed');
+      expect(completionBasis([{ kind: 'artifact_exists' }])).toBe('evidence');
+    });
+
+    it('leaves completion with criteria to the evidence, whoever asks', () => {
+      const criteria = [{ kind: 'artifact_exists' as const }];
+      const evidence = { ...noEvidence, artifactCount: 1 };
+      expect(decideTransition(facts('verifying', 'completed', { criteria, evidence })).ok).toBe(
+        true,
+      );
+      expect(decideTransition(facts('verifying', 'completed', { criteria, ...asOwner }))).toEqual({
+        ok: false,
+        reason: 'EVIDENCE_MISSING',
+      });
+    });
+  });
+
   it('needs every criterion met, not just one', () => {
     const criteria = [{ kind: 'artifact_exists' as const }, { kind: 'reviewer_approved' as const }];
     expect(unmetCriteria(criteria, { ...noEvidence, artifactCount: 3 })).toEqual([
       { kind: 'reviewer_approved' },
     ]);
+  });
+
+  it('requires a reason to retry failed work', () => {
+    expect(decideTransition(facts('failed', 'ready'))).toEqual({
+      ok: false,
+      reason: 'REASON_REQUIRED',
+    });
+    expect(decideTransition(facts('failed', 'ready', { reason: '   ' })).ok).toBe(false);
+    expect(decideTransition(facts('failed', 'ready', { reason: 'Supplier answered' })).ok).toBe(
+      true,
+    );
   });
 
   it('requires a reason to reopen completed work', () => {

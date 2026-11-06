@@ -14,8 +14,9 @@ const files = readdirSync(directory).filter((f) => f.endsWith('.json'));
 
 describe('workflow replay corpus', () => {
   it('covers each workflow and path', () => {
-    // The first five are from before the review wait was patched. They must stay, and keep replaying,
-    // because work like them can be in flight. Later captures only ever add to these.
+    // The first five, and the pre-patch timeout, are from before the review wait was patched. They
+    // must stay, and keep replaying, because work like them can be in flight. Later captures only ever
+    // add to these.
     expect(files).toEqual(
       expect.arrayContaining([
         'platform-probe.json',
@@ -27,6 +28,10 @@ describe('workflow replay corpus', () => {
         'work-unit-review-wait-denied.json',
         'work-unit-review-wait-other-signal.json',
         'work-unit-review-wait-timeout.json',
+        'work-unit-review-wait-settle-retry.json',
+        'work-unit-review-timeout-pre-patch.json',
+        'work-unit-activity-failed.json',
+        'work-unit-stopped.json',
       ]),
     );
   });

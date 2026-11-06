@@ -1,12 +1,29 @@
-import { getWorkUnit, updateWorkUnit } from '@ensemus/application';
+import { getWorkWithCompletion, updateWorkUnit } from '@ensemus/application';
+import type { components } from '@ensemus/contracts/openapi';
 import { z } from 'zod';
 import { apiRoute, etag, readIfMatch, readJson, workUnitDto, workUnitParams } from '@/server/api';
 
 export const dynamic = 'force-dynamic';
 
+type CompletionDto = components['schemas']['WorkCompletion'];
+
 export const GET = apiRoute(workUnitParams, async ({ context, database, params }) => {
-  const work = await getWorkUnit(database, context, params.workUnitId);
-  return Response.json(workUnitDto(work), { headers: { ETag: etag(work.version) } });
+  const { work, completion } = await getWorkWithCompletion(database, context, params.workUnitId);
+  return Response.json(
+    {
+      ...workUnitDto(work),
+      ...(completion
+        ? {
+            completion: {
+              basis: (completion.basis ?? 'not_recorded') as CompletionDto['basis'],
+              confirmed_by_membership_id: completion.confirmedBy,
+              confirmed_at: completion.confirmedAt.toISOString(),
+            },
+          }
+        : {}),
+    },
+    { headers: { ETag: etag(work.version) } },
+  );
 });
 
 const patchBody = z

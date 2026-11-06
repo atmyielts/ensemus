@@ -128,7 +128,10 @@ export function NewWorkForm({
         </div>
         <fieldset style={groupStyle}>
           <legend style={legendStyle}>How will we know it is done?</legend>
-          <small>Optional. Work cannot be marked done until what you tick here is true.</small>
+          <small>
+            Work cannot be marked done until what you tick here is true. With nothing ticked, its
+            accountable owner has to confirm it themselves.
+          </small>
           <label className="check">
             <input
               type="checkbox"

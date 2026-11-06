@@ -18,9 +18,11 @@ import {
   decideApproval,
   deleteArtifact,
   disableMember,
+  getApproval,
   getWorkUnit,
   markRead,
   removeDependency,
+  removeStoppedHiddenPrerequisites,
   removeTeamMember,
   requestExecution,
   requestWorkReview,
@@ -218,6 +220,15 @@ export async function removeDependencyAction(form: FormData) {
   });
 }
 
+export async function removeStoppedHiddenPrerequisitesAction(form: FormData) {
+  const org = orgOf(form);
+  const id = text(form, 'id');
+  const { context, database } = await requireTenant(org);
+  await run(`/o/${org}/work/${id}`, async () => {
+    await removeStoppedHiddenPrerequisites(database, context, { dependentId: id });
+  });
+}
+
 export async function setOwnerAction(form: FormData) {
   const org = orgOf(form);
   const id = text(form, 'id');
@@ -303,6 +314,14 @@ export async function decideApprovalAction(form: FormData) {
   const decision = text(form, 'decision') === 'approve' ? 'approve' : 'deny';
   const reason = orUndefined(text(form, 'reason'));
   await run(`/o/${org}/approvals/${approvalId}`, async () => {
+    if (decision === 'deny') {
+      // Denying a review that holds the work stops the work for good, so it has to be meant.
+      const { approval, work } = await getApproval(database, context, approvalId);
+      if (approval.holdsWork && work.status === 'awaiting_approval') {
+        assertConfirmed(form);
+        if (!reason) throw new AppError('REASON_REQUIRED');
+      }
+    }
     await decideApproval(database, context, {
       approvalId,
       decision,

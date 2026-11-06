@@ -1,7 +1,9 @@
+import { randomUUID } from 'node:crypto';
 import type { CommercialMode } from '@ensemus/config';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import type { ReactNode } from 'react';
+import { SubmitButton } from '@/components/submit-button';
 import { ErrorNotice } from '@/components/ui';
 import { createOrganizationAction, signOutAction } from '@/server/actions';
 import { requireActor } from '@/server/actor';
@@ -105,6 +107,8 @@ export default async function HomePage({
         <ErrorNotice code={error} />
       )}
       <form className="fields" action={createOrganizationAction}>
+        {/* One rendered form makes one organization, however many times it is sent. */}
+        <input type="hidden" name="requestKey" value={randomUUID()} />
         <label>
           Organization name
           <input name="name" autoComplete="organization" required maxLength={120} />
@@ -121,7 +125,7 @@ export default async function HomePage({
           </p>
         </section>
         <div>
-          <button type="submit">Create organization</button>
+          <SubmitButton working="Creating your organization">Create organization</SubmitButton>
         </div>
       </form>
     </Page>

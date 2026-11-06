@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { SubmitButton } from '@/components/submit-button';
 import { safeReturnPath, withReturnPath } from '@/lib/return-path';
 import { signInAction } from '@/server/actions';
 import { getRuntime } from '@/server/runtime';
@@ -32,7 +33,7 @@ export default async function SignInPage({
           <input name="password" type="password" autoComplete="current-password" required />
         </label>
         <div>
-          <button type="submit">Sign in</button>
+          <SubmitButton working="Signing in">Sign in</SubmitButton>
         </div>
       </form>
       {allowSignup && (

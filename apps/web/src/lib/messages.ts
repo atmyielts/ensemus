@@ -6,6 +6,11 @@ const MESSAGE_FOR = new Map<string, string>([
   ['INVALID_TRANSITION', 'That status change is not allowed from the current status.'],
   ['PREREQUISITES_INCOMPLETE', 'This work is waiting on prerequisites that are not done.'],
   ['EVIDENCE_MISSING', 'The evidence this work requires has not been provided yet.'],
+  [
+    'OWNER_CONFIRMATION_REQUIRED',
+    'This work asks for no evidence, so only its accountable owner can confirm it is done.',
+  ],
+  ['RUN_ALREADY_REQUESTED', 'Someone already asked this plan to run. That request still stands.'],
   ['REASON_REQUIRED', 'Please give a reason.'],
   ['DEPENDENCY_CYCLE', 'That dependency would create a loop.'],
   ['TEAM_CYCLE', 'That parent team would create a loop.'],

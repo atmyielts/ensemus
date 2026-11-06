@@ -3,10 +3,19 @@
 //   ENSEMUS_CAPTURE_REPLAY=1 pnpm exec vitest run --project replay
 // It only adds files: a history recorded before a patch is what proves the patch keeps it working,
 // so those are never written again. Each capture's paths are named for the patch they follow.
+//
+// A path that current code can no longer take, such as one from before a patch, is recorded from the
+// workflow file of the commit that could. ENSEMUS_CAPTURE_WORKFLOWS names that file, which has to sit
+// where it can find @temporalio/workflow, so inside packages/workflows/src:
+//   git show 4c207fd:packages/workflows/src/workflows.ts > packages/workflows/src/workflows.old.ts
+//   ENSEMUS_CAPTURE_REPLAY=1 ENSEMUS_CAPTURE_WORKFLOWS=packages/workflows/src/workflows.old.ts \
+//     ENSEMUS_CAPTURE_ONLY=work-unit-review-timeout-pre-patch pnpm exec vitest run --project replay
+// Then delete that file. Nothing but this capture ever reads it.
 import { randomUUID } from 'node:crypto';
-import { writeFileSync } from 'node:fs';
+import { existsSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { Client, Connection } from '@temporalio/client';
+import { ApplicationFailure } from '@temporalio/common';
 import { historyToJSON } from '@temporalio/common/lib/proto-utils';
 import { bundleWorkflowCode, NativeConnection, Worker } from '@temporalio/worker';
 import { describe, it } from 'vitest';
@@ -16,6 +25,8 @@ import { CORPUS_DIR, FAILURE_CONVERTER, REPLAY_KEY, WORKFLOWS } from './corpus';
 
 const ADDRESS = '127.0.0.1:57233';
 const capture = process.env.ENSEMUS_CAPTURE_REPLAY === '1';
+const only = process.env.ENSEMUS_CAPTURE_ONLY;
+const workflows = process.env.ENSEMUS_CAPTURE_WORKFLOWS;
 
 describe.skipIf(!capture)('capture replay corpus', () => {
   it('records each path through the workflows', async () => {
@@ -27,24 +38,28 @@ describe.skipIf(!capture)('capture replay corpus', () => {
       failureConverterPath: FAILURE_CONVERTER,
     };
     const { code } = await bundleWorkflowCode({
-      workflowsPath: WORKFLOWS,
+      workflowsPath: workflows ? join(repoRoot, workflows) : WORKFLOWS,
       failureConverterPath: FAILURE_CONVERTER,
     });
 
     // What each read of the approval finds, in order. The last one repeats.
     let reviewStates: string[] = ['approved'];
+    // What each try at expiring it finds, in order. The last one repeats.
+    let expireStates: string[] = ['expired'];
     let reviewMs = 60_000;
+    let checklist = async () => ({ artifactId: randomUUID() });
     const activities = {
       recordProbeStep: async () => undefined,
       prepareWork: async () => ({ status: 'running', needsReview: reviewNeeded }),
-      produceChecklistArtifact: async () => ({ artifactId: randomUUID() }),
+      produceChecklistArtifact: async () => checklist(),
       requestReview: async () => ({
         approvalId: '00000000-0000-4000-8000-000000000001',
         expiresAtMs: Date.now() + reviewMs,
       }),
       reviewState: async () =>
         reviewStates.length > 1 ? reviewStates.shift() : (reviewStates[0] ?? 'approved'),
-      expireReview: async () => 'expired',
+      expireReview: async () =>
+        expireStates.length > 1 ? expireStates.shift() : (expireStates[0] ?? 'expired'),
       verifyAndComplete: async () => 'verifying',
       markFailed: async () => undefined,
       sendReminders: async () => 0,
@@ -79,6 +94,12 @@ describe.skipIf(!capture)('capture replay corpus', () => {
       };
 
       const run = async (name: string, needsReview: boolean, signals: number) => {
+        // A history that exists stays as recorded, and a pre-patch one needs the old code, so it is
+        // only ever recorded by asking for it by name.
+        const wanted = only
+          ? name === only
+          : !name.endsWith('pre-patch') && !existsSync(join(repoRoot, CORPUS_DIR, `${name}.json`));
+        if (!wanted) return;
         reviewNeeded = needsReview;
         const handle = await client.workflow.start('workUnitWorkflow', {
           args: [input],
@@ -103,6 +124,26 @@ describe.skipIf(!capture)('capture replay corpus', () => {
       reviewStates = ['pending'];
       reviewMs = 2_000;
       await run('work-unit-review-wait-timeout', true, 0);
+      // The database says it is not over yet, so the workflow waits and asks again.
+      reviewStates = ['pending'];
+      expireStates = ['pending', 'expired'];
+      await run('work-unit-review-wait-settle-retry', true, 0);
+      expireStates = ['expired'];
+      // Current code never takes this one. It is recorded from before the patch, as above.
+      reviewStates = ['pending'];
+      await run('work-unit-review-timeout-pre-patch', true, 0);
+
+      // A step that can never succeed ends in the failure path, and a stopped one does not.
+      reviewMs = 60_000;
+      reviewStates = ['approved'];
+      checklist = async () => {
+        throw ApplicationFailure.create({ type: 'AppError', nonRetryable: true });
+      };
+      await run('work-unit-activity-failed', false, 0);
+      checklist = async () => {
+        throw ApplicationFailure.create({ type: 'WORK_STOPPED', nonRetryable: true });
+      };
+      await run('work-unit-stopped', false, 0);
     });
     await connection.close();
     await clientConnection.close();

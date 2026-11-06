@@ -87,8 +87,8 @@
     },
     {
       "path": "02-architecture/04-work-kernel.md",
-      "size_bytes": 5459,
-      "sha256": "bf4b370acbd278ec933b6077ba6ba4e3814f2cec79c64b3c6a80c6f65166b40d"
+      "size_bytes": 7126,
+      "sha256": "7575bfe6c2af9eed5908ace1e08c8cfd9267201bf15f5becaaeb0a405bbc810a"
     },
     {
       "path": "02-architecture/05-events-and-consistency.md",
@@ -232,8 +232,8 @@
     },
     {
       "path": "05-operations/05-container-deployment-runbook.md",
-      "size_bytes": 4786,
-      "sha256": "ceedad2f990382a7431021b9137088f26bc686e71b6072ad2014ff0d4caa822e"
+      "size_bytes": 5546,
+      "sha256": "035812fb058ab00ddbc84db89523a15e392e1a8c4a31aea152de50ac05358597"
     },
     {
       "path": "05-operations/06-performance-and-load-plan.md",
@@ -437,8 +437,8 @@
     },
     {
       "path": "specifications/openapi.yaml",
-      "size_bytes": 19650,
-      "sha256": "16c6e2addd90b08e072e1df8ac446c660d9b1f57b644f9ea61adf9e311bb6d1a"
+      "size_bytes": 20448,
+      "sha256": "155f2d9ed2623828576a7e281fb2d11718bfb12720f79d7ef567d9c43772fa05"
     },
     {
       "path": "specifications/qa-scenarios.csv",

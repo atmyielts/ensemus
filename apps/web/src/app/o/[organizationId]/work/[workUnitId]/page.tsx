@@ -36,6 +36,7 @@ import {
   assignAction,
   deleteArtifactAction,
   removeDependencyAction,
+  removeStoppedHiddenPrerequisitesAction,
   requestReviewAction,
   runPlanAction,
   setOwnerAction,
@@ -65,7 +66,7 @@ const STATE_NOTE: Record<WorkState, string> = {
   running: 'This is in progress.',
   blocked: 'This is blocked until someone clears the way and marks it ready.',
   awaiting_approval: 'This is paused.',
-  verifying: 'This is being checked. A person marks it done once the evidence is in place.',
+  verifying: 'This is being checked.',
   completed: 'This is done.',
   failed: 'This did not finish. It can be tried again.',
   cancelled: 'This was stopped and cannot be restarted.',
@@ -160,6 +161,11 @@ export default async function WorkDetailPage({
   // This list only holds prerequisites this person can see, so an empty result does not prove there
   // are none outstanding. The service makes the real check when someone marks the work ready.
   const waitingOn = prerequisites.filter((p) => p.status !== 'completed');
+  // Counted by the service, which can see what this person cannot. Never named.
+  const hidden = detail.hiddenPrerequisites;
+  const isHeldUp = waitingOn.length > 0 || hidden.unfinished > 0;
+  const isOwner = work.ownerMembershipId === context.membershipId;
+  const noEvidenceAsked = criteria.length === 0;
   const hasPlan = Boolean(work.executionPlan);
   const planHolds = Boolean(work.runId);
   const runRequested = Boolean(work.runRequestedAt);
@@ -168,6 +174,11 @@ export default async function WorkDetailPage({
 
   const openReview = reviews.find(
     (review) => review.status === 'pending' && review.expiresAt.getTime() > now,
+  );
+  // Time ran out, and the periodic check has not got to it yet.
+  const overdueHold = reviews.some(
+    (review) =>
+      review.status === 'pending' && review.holdsWork && review.expiresAt.getTime() <= now,
   );
   const canAskForReview = canChange && !finished && !planHolds && !openReview;
 
@@ -178,7 +189,9 @@ export default async function WorkDetailPage({
       !isApprovalOnlyTransition(status, to) &&
       to !== 'cancelled' &&
       !(to === 'completed' && unmet.length > 0) &&
-      !(to === 'ready' && waitingOn.length > 0),
+      // With nothing to check, only the person who answers for the work can say it is done.
+      !(to === 'completed' && noEvidenceAsked && !isOwner) &&
+      !(to === 'ready' && isHeldUp),
   );
   const canStop = transitions.includes('cancelled');
   const needsReason = status === 'completed' || status === 'failed';
@@ -186,6 +199,7 @@ export default async function WorkDetailPage({
   const labelFor = (to: WorkState) => {
     if (to === 'running' && status === 'verifying') return 'Back to in progress';
     if (to === 'running' && canRunPlan) return 'Start by hand';
+    if (to === 'completed' && noEvidenceAsked) return 'Confirm this is done';
     return TRANSITION_LABEL[to];
   };
 
@@ -355,7 +369,7 @@ export default async function WorkDetailPage({
           <h2 id="dependencies-heading">Dependencies</h2>
           <h3>Has to finish first</h3>
           {prerequisites.length === 0 ? (
-            <p className="muted">Nothing that you can see.</p>
+            <p className="muted">{hidden.unfinished > 0 ? 'Nothing you can see.' : 'Nothing.'}</p>
           ) : (
             <ul className="list">
               {prerequisites.map((item) => (
@@ -376,6 +390,34 @@ export default async function WorkDetailPage({
                 </li>
               ))}
             </ul>
+          )}
+          {hidden.unfinished > 0 && (
+            <div className="notice warn" style={{ marginTop: '0.75rem' }}>
+              <p style={{ margin: 0 }}>
+                {hidden.unfinished === 1
+                  ? 'This is also waiting on one piece of work you do not have access to.'
+                  : `This is also waiting on ${hidden.unfinished} pieces of work you do not have access to.`}{' '}
+                Someone who can see it can tell you more.
+              </p>
+              {hidden.stopped > 0 && (
+                <>
+                  <p>
+                    {hidden.stopped === 1
+                      ? 'One of these was stopped, so it can never finish.'
+                      : `${hidden.stopped} of these were stopped, so they can never finish.`}{' '}
+                    {canChange &&
+                      !finished &&
+                      'You can stop waiting on what was stopped. This does not show you what it was, or change it.'}
+                  </p>
+                  {canChange && !finished && (
+                    <form action={removeStoppedHiddenPrerequisitesAction}>
+                      {ids}
+                      <SubmitButton className="quiet">Stop waiting on stopped work</SubmitButton>
+                    </form>
+                  )}
+                </>
+              )}
+            </div>
           )}
           {canAddDependency && dependencyOptions.length > 0 && (
             <form className="row" action={addDependencyAction} style={{ marginTop: '0.75rem' }}>
@@ -493,13 +535,23 @@ export default async function WorkDetailPage({
             ) : (
               <p>
                 {planHolds
-                  ? 'The review it was waiting on is over. It will stop shortly.'
-                  : 'The review it was waiting on is over, and the person asked can no longer decide. Ask someone else below. It stays paused until someone decides.'}
+                  ? 'The time for its review has run out, so it stops at the next periodic check, usually within 15 minutes.'
+                  : overdueHold
+                    ? `The time for its review has run out, so it stops at the next periodic check, usually within 15 minutes.${canAskForReview ? ' To keep it going, ask someone else below before then.' : ''}`
+                    : `The person asked to review it can no longer decide. It stays paused until someone decides.${canAskForReview ? ' Ask someone else below.' : ''}`}
               </p>
             ))}
-          {status === 'verifying' && unmet.length === 0 && (
-            <p>All the evidence is in place, so someone can now mark it done.</p>
-          )}
+          {status === 'verifying' &&
+            (noEvidenceAsked ? (
+              <p>
+                No evidence was asked for, so {ownerName ?? 'the accountable owner'}, as the
+                accountable owner, has to confirm it is done.
+              </p>
+            ) : unmet.length === 0 ? (
+              <p>All the evidence is in place, so someone can now mark it done.</p>
+            ) : (
+              <p>Someone can mark it done once the evidence is in place.</p>
+            ))}
           <p className="muted">
             {hasPlan
               ? 'A plan is attached. It only starts when someone presses Run the plan.'
@@ -507,8 +559,9 @@ export default async function WorkDetailPage({
           </p>
           {runRequested && status === 'ready' && (
             <p className="notice">
-              Someone asked the plan to run. The status changes here when it actually starts, which
-              can take a moment. Starting by hand instead cancels that request.
+              Someone asked the plan to run. The status changes here when it actually starts. If
+              nothing has picked it up after a few minutes, Ensemus asks again at its periodic
+              check, about every 15 minutes. Starting by hand instead cancels that request.
             </p>
           )}
         </section>
@@ -530,6 +583,12 @@ export default async function WorkDetailPage({
                       {entry.actorName ?? 'Ensemus'}, {formatDateTime(entry.occurredAt)}
                     </small>
                   </span>
+                  {entry.completionBasis === 'owner_confirmed' && (
+                    <p style={{ margin: '0.25rem 0 0' }}>
+                      Confirmed by {entry.actorName ?? 'the accountable owner'} as accountable
+                      owner. No evidence was requested.
+                    </p>
+                  )}
                   {entry.reason && <p style={{ margin: '0.25rem 0 0' }}>{entry.reason}</p>}
                 </li>
               ))}
@@ -540,7 +599,7 @@ export default async function WorkDetailPage({
         {canChange && (
           <section className="card" aria-labelledby="actions-heading">
             <h2 id="actions-heading">Actions</h2>
-            {waitingOn.length > 0 && transitions.includes('ready') && (
+            {isHeldUp && transitions.includes('ready') && (
               <p className="notice warn">
                 This cannot be marked ready until what it depends on is done.
               </p>
@@ -548,6 +607,13 @@ export default async function WorkDetailPage({
             {unmet.length > 0 && transitions.includes('completed') && (
               <p className="notice warn">
                 This cannot be marked done until the evidence under Verification is in place.
+              </p>
+            )}
+            {noEvidenceAsked && transitions.includes('completed') && (
+              <p className="muted">
+                {isOwner
+                  ? 'Your confirmation as accountable owner is the only check on this work, and its history will say so.'
+                  : `Only ${ownerName ?? 'the accountable owner'}, as accountable owner, can confirm this is done.`}
               </p>
             )}
             {canRunPlan && (
@@ -630,8 +696,8 @@ export default async function WorkDetailPage({
               </div>
             ) : status === 'cancelled' ? (
               <p className="muted">
-                Stopped work cannot be changed or restarted. Its files can still be deleted, and
-                people can still be taken off it.
+                Stopped work cannot be edited or restarted. Its files can still be deleted, people
+                can still be taken off it, and it can be handed to a new owner.
               </p>
             ) : status === 'awaiting_approval' ? (
               <p className="muted">Only the reviewer&apos;s decision lets this carry on.</p>
@@ -660,11 +726,15 @@ export default async function WorkDetailPage({
           <h2 id="verification-heading">Verification</h2>
           {status === 'completed' && (
             <p>
-              {files.length > 0 ? 'This is done. Its results are under Files.' : 'This is done.'}
+              {detail.evidence.artifactCount > 0
+                ? 'This is done. Its results are under Files.'
+                : 'This is done.'}
             </p>
           )}
           {criteria.length === 0 ? (
-            <p className="muted">No evidence was required for this work.</p>
+            <p className="muted">
+              No evidence was asked for, so the accountable owner confirms this work themselves.
+            </p>
           ) : (
             <ul className="list">
               {criteria.map((criterion) => {

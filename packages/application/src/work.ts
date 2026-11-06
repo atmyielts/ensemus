@@ -3,8 +3,10 @@ import { randomUUID } from 'node:crypto';
 import {
   appendAudit,
   artifacts,
+  domainEvents,
   memberships,
   notifications,
+  outboxEvents,
   users,
   withTenantTx,
   workArtifacts,
@@ -26,6 +28,7 @@ import {
 import { canChangeWork, canReadWork, can, type Classification } from '@ensemus/domain/policy';
 import {
   canChangeContent,
+  completionBasis,
   decideTransition,
   isApprovalOnlyTransition,
   isTerminal,
@@ -45,9 +48,11 @@ import {
   isNull,
   lt,
   ne,
+  not,
   notInArray,
   or,
   sql,
+  type SQL,
 } from 'drizzle-orm';
 import { z } from 'zod';
 import { AppError, pgCode } from './errors';
@@ -583,10 +588,13 @@ export async function closeReviewsForLostAccess(
       review.memberStatus === 'active' &&
       (await memberCanRead(tx, work, { membershipId: review.approver, role: review.role }));
     if (canStillRead) continue;
-    await tx
+    const closed = await tx
       .update(approvals)
       .set({ status: 'cancelled', decidedAt: new Date() })
-      .where(and(eq(approvals.id, review.id), eq(approvals.status, 'pending')));
+      .where(and(eq(approvals.id, review.id), eq(approvals.status, 'pending')))
+      .returning({ id: approvals.id });
+    // It was decided while this waited for the lock, so that decision stands and nothing closed.
+    if (closed.length === 0) continue;
     await clearApprovalNotifications(tx, [review.id]);
     await auditAction(
       tx,
@@ -633,6 +641,8 @@ export async function applyTransition(
     incompletePrerequisites: to === 'ready' ? await incompletePrerequisites(tx, current.id) : 0,
     criteria: current.completionCriteria as CompletionCriterion[],
     evidence: to === 'completed' ? await evidenceFor(tx, current) : emptyEvidence,
+    actorIsAccountableOwner:
+      context.actorType === 'user' && context.membershipId === current.ownerMembershipId,
     ...(reason !== undefined ? { reason } : {}),
   });
   if (!decision.ok) throw new AppError(decision.reason);
@@ -664,6 +674,10 @@ export async function applyTransition(
     toStatus: to,
     actorMembershipId: context.actorType === 'service' ? null : context.membershipId,
     reason: reason ?? null,
+    completionBasis:
+      to === 'completed'
+        ? completionBasis(current.completionCriteria as CompletionCriterion[])
+        : null,
   });
 
   await emit(tx, context, {
@@ -780,6 +794,8 @@ export function transitionWorkUnit(
 /**
  * Asks for this Work Unit's plan to run. The dispatcher starts the workflow from this event. When the
  * plan needs a review, it is decided now who gives it, and that can never be the person running it.
+ * A request that stands cannot be repeated, or a second person could replace the named reviewer. If
+ * nothing picks it up, the periodic sweep asks again, and starting by hand withdraws it.
  */
 export function requestExecution(
   database: AppDatabase,
@@ -791,6 +807,7 @@ export function requestExecution(
     const current = await loadChangeable(tx, context, id);
     if (!current.executionPlan) throw new AppError('INVALID_STATE');
     if (current.status !== 'ready') throw new AppError('INVALID_STATE');
+    if (current.runRequestedAt) throw new AppError('RUN_ALREADY_REQUESTED');
     const needsReview = (current.completionCriteria as CompletionCriterion[]).some(
       (criterion) => criterion.kind === 'reviewer_approved',
     );
@@ -826,6 +843,11 @@ export async function addDependency(
 ) {
   if (input.dependentId === input.prerequisiteId) throw new AppError('DEPENDENCY_CYCLE');
   return withTenantTx(database, context, async (tx) => {
+    // The cycle trigger takes this same lock. Taken before any row lock, two opposite inserts queue
+    // here, and the second gets a clean refusal instead of a deadlock with the first's foreign key.
+    await tx.execute(
+      sql`select pg_advisory_xact_lock(hashtextextended(${`work_dependencies:${context.organizationId}`}, 0))`,
+    );
     const dependent = await loadChangeable(tx, context, input.dependentId);
     await loadReadable(tx, context, input.prerequisiteId);
     if (dependent.status !== 'queued' && dependent.status !== 'blocked') {
@@ -880,6 +902,60 @@ export function removeDependency(
       payload: { work_unit_id: input.dependentId, prerequisite_id: input.prerequisiteId },
     });
     await auditAction(tx, context, 'work.dependency_removed', `work_unit:${input.dependentId}`);
+  });
+}
+
+/**
+ * Stops waiting on prerequisites this person cannot see, but only ones that were stopped, which can
+ * never finish. They name none: being told one exists is all the page says, and this removes them
+ * together, so no ID or title comes back. Anything still able to finish keeps holding the work.
+ */
+export function removeStoppedHiddenPrerequisites(
+  database: AppDatabase,
+  context: TenantContext,
+  input: { dependentId: string },
+) {
+  if (context.actorType === 'service') throw new AppError('FORBIDDEN');
+  return withTenantTx(database, context, async (tx) => {
+    const dependent = await loadChangeable(tx, context, input.dependentId);
+    if (isTerminal(dependent.status as WorkState)) throw new AppError('INVALID_STATE');
+    const stopped = await tx
+      .select({ id: workDependencies.prerequisiteId })
+      .from(workDependencies)
+      .innerJoin(workUnits, eq(workUnits.id, workDependencies.prerequisiteId))
+      .where(
+        and(
+          eq(workDependencies.dependentId, input.dependentId),
+          eq(workUnits.status, 'cancelled'),
+          not(visibleTo(context) as SQL),
+        ),
+      );
+    for (const { id } of stopped) {
+      await tx
+        .delete(workDependencies)
+        .where(
+          and(
+            eq(workDependencies.dependentId, input.dependentId),
+            eq(workDependencies.prerequisiteId, id),
+          ),
+        );
+      await emit(tx, context, {
+        eventType: 'work.dependency_removed',
+        aggregateType: 'work_unit',
+        aggregateId: input.dependentId,
+        aggregateVersion: dependent.version,
+        classification: dependent.classification,
+        payload: { work_unit_id: input.dependentId, prerequisite_id: id },
+      });
+      await auditAction(
+        tx,
+        context,
+        'work.dependency_removed',
+        `work_unit:${input.dependentId}`,
+        'HIDDEN_PREREQUISITE_STOPPED',
+      );
+    }
+    return stopped.length;
   });
 }
 
@@ -1016,6 +1092,15 @@ export function getWorkDetail(database: AppDatabase, context: TenantContext, id:
       .innerJoin(workUnits, eq(workUnits.id, workDependencies.prerequisiteId))
       .where(and(eq(workDependencies.dependentId, id), visibleTo(context)))
       .orderBy(asc(workUnits.createdAt));
+    // Counts only. They hold the work up, so the person has to be told, but never what they are.
+    const [hiddenPrerequisites] = await tx
+      .select({
+        unfinished: sql<number>`count(*) filter (where ${workUnits.status} <> 'completed')::int`,
+        stopped: sql<number>`count(*) filter (where ${workUnits.status} = 'cancelled')::int`,
+      })
+      .from(workDependencies)
+      .innerJoin(workUnits, eq(workUnits.id, workDependencies.prerequisiteId))
+      .where(and(eq(workDependencies.dependentId, id), not(visibleTo(context) as SQL)));
     const dependents = await tx
       .select({ id: workUnits.id, title: workUnits.title, status: workUnits.status })
       .from(workDependencies)
@@ -1088,6 +1173,7 @@ export function getWorkDetail(database: AppDatabase, context: TenantContext, id:
         fromStatus: workTransitions.fromStatus,
         toStatus: workTransitions.toStatus,
         reason: workTransitions.reason,
+        completionBasis: workTransitions.completionBasis,
         occurredAt: workTransitions.occurredAt,
         actorName: users.name,
       })
@@ -1103,6 +1189,7 @@ export function getWorkDetail(database: AppDatabase, context: TenantContext, id:
       work,
       ownerName: owner?.name ?? null,
       prerequisites,
+      hiddenPrerequisites: hiddenPrerequisites ?? { unfinished: 0, stopped: 0 },
       dependents,
       people,
       files,
@@ -1119,19 +1206,144 @@ export function getWorkTitle(database: AppDatabase, context: TenantContext, id: 
   return withTenantTx(database, context, async (tx) => (await loadReadable(tx, context, id)).title);
 }
 
-/** Running work whose workflow run has gone quiet, for a sweep to check with Temporal. */
-export function listHeldRuns(database: AppDatabase, context: TenantContext, olderThan: Date) {
-  return withTenantTx(database, context, (tx) =>
+/**
+ * A Work Unit, and for finished work what its completion rests on and who gave it. Work finished
+ * before this was recorded says so, instead of guessing.
+ */
+export function getWorkWithCompletion(database: AppDatabase, context: TenantContext, id: string) {
+  return withTenantTx(database, context, async (tx) => {
+    const work = await loadReadable(tx, context, id);
+    if (work.status !== 'completed') return { work, completion: null };
+    const [last] = await tx
+      .select({
+        basis: workTransitions.completionBasis,
+        confirmedBy: workTransitions.actorMembershipId,
+        confirmedAt: workTransitions.occurredAt,
+      })
+      .from(workTransitions)
+      .where(and(eq(workTransitions.workUnitId, id), eq(workTransitions.toStatus, 'completed')))
+      .orderBy(desc(workTransitions.occurredAt))
+      .limit(1);
+    return { work, completion: last ?? null };
+  });
+}
+
+/** Where a sweep got to: the exact timestamp as PostgreSQL wrote it, and the ID that breaks a tie. */
+export type SweepCursor = { at: string; id: string };
+
+const SWEEP_PAGE = 50;
+
+/**
+ * Running work whose workflow run has gone quiet, for a sweep to check with Temporal, a page at a time
+ * in a stable order, because most of these are reviews legitimately waiting for days.
+ */
+export async function listHeldRuns(
+  database: AppDatabase,
+  context: TenantContext,
+  olderThan: Date,
+  options: { after?: SweepCursor | undefined; limit?: number } = {},
+) {
+  const limit = options.limit ?? SWEEP_PAGE;
+  const rows = await withTenantTx(database, context, (tx) =>
     tx
-      .select({ id: workUnits.id, runId: workUnits.runId })
+      .select({
+        id: workUnits.id,
+        runId: workUnits.runId,
+        at: sql<string>`${workUnits.updatedAt}::text`,
+      })
       .from(workUnits)
       .where(
         and(
           inArray(workUnits.status, ['running', 'awaiting_approval']),
           isNotNull(workUnits.runId),
           lt(workUnits.updatedAt, olderThan),
+          options.after
+            ? sql`(${workUnits.updatedAt}, ${workUnits.id}) > (${options.after.at}::timestamptz, ${options.after.id}::uuid)`
+            : undefined,
         ),
       )
-      .limit(50),
+      .orderBy(asc(workUnits.updatedAt), asc(workUnits.id))
+      .limit(limit),
   );
+  const last = rows.at(-1);
+  return {
+    items: rows.map(({ id, runId }) => ({ id, runId })),
+    next: rows.length === limit && last ? { at: last.at, id: last.id } : null,
+  };
+}
+
+/**
+ * Asks again for plans nobody has picked up. A request can meet a run that is still open and that can
+ * never claim it, and then nothing would ever answer it. Asking again is safe: a workflow that finds
+ * nothing to claim does nothing. A request already waiting in the outbox is left to be delivered.
+ */
+export async function reissueStaleRunRequests(
+  database: AppDatabase,
+  context: TenantContext,
+  olderThan: Date,
+) {
+  let reissued = 0;
+  let after: SweepCursor | undefined;
+  for (;;) {
+    const cursor: SweepCursor | undefined = after;
+    const rows = await withTenantTx(database, context, (tx) =>
+      tx
+        .select({ id: workUnits.id, at: sql<string>`${workUnits.runRequestedAt}::text` })
+        .from(workUnits)
+        .where(
+          and(
+            eq(workUnits.status, 'ready'),
+            lt(workUnits.runRequestedAt, olderThan),
+            not(
+              exists(
+                tx
+                  .select({ id: domainEvents.id })
+                  .from(domainEvents)
+                  .innerJoin(outboxEvents, eq(outboxEvents.eventId, domainEvents.id))
+                  .where(
+                    and(
+                      eq(domainEvents.aggregateId, workUnits.id),
+                      eq(domainEvents.eventType, 'work.execution_requested'),
+                      eq(outboxEvents.state, 'queued'),
+                    ),
+                  ),
+              ),
+            ),
+            cursor
+              ? sql`(${workUnits.runRequestedAt}, ${workUnits.id}) > (${cursor.at}::timestamptz, ${cursor.id}::uuid)`
+              : undefined,
+          ),
+        )
+        .orderBy(asc(workUnits.runRequestedAt), asc(workUnits.id))
+        .limit(SWEEP_PAGE),
+    );
+    for (const { id } of rows) {
+      await withTenantTx(database, context, async (tx) => {
+        const work = await loadChangeable(tx, context, id);
+        // Rechecked under the lock: it may have started, or been withdrawn, since the list was read.
+        if (work.status !== 'ready' || !work.runRequestedAt || work.runRequestedAt >= olderThan) {
+          return;
+        }
+        await emit(tx, context, {
+          eventType: 'work.execution_requested',
+          aggregateType: 'work_unit',
+          aggregateId: id,
+          aggregateVersion: work.version,
+          classification: work.classification,
+          payload: { work_unit_id: id },
+        });
+        await auditAction(
+          tx,
+          context,
+          'work.run_requested_again',
+          `work_unit:${id}`,
+          'NOT_CLAIMED',
+        );
+        reissued += 1;
+      });
+    }
+    const last = rows.at(-1);
+    if (!last || rows.length < SWEEP_PAGE) return reissued;
+    after = { at: last.at, id: last.id };
+  }
 }

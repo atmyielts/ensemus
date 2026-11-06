@@ -1,5 +1,5 @@
-import { randomUUID } from 'node:crypto';
-import { asc, eq } from 'drizzle-orm';
+import { createHash, randomUUID } from 'node:crypto';
+import { and, asc, eq } from 'drizzle-orm';
 import { appendAudit } from './audit';
 import {
   auditEvents,
@@ -19,18 +19,44 @@ import {
 
 export type CommercialMode = 'cloud' | 'byom' | 'sovereign';
 
+/** An ID only this person and this form can arrive at, so nobody else can aim at an organization. */
+function organizationIdFor(userId: string, requestKey: string) {
+  const hex = createHash('sha256').update(`${userId}:${requestKey}`).digest('hex');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-5${hex.slice(13, 16)}-8${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
+}
+
+/**
+ * Creates an organization and makes this person its owner. A `requestKey` makes this safe to repeat:
+ * the key from one rendered form always leads to the same organization, so a double-click or a
+ * resubmitted page gets the first one back and creates nothing.
+ */
 export async function createOrganization(
   database: AppDatabase,
-  input: { userId: string; name: string; commercialMode: CommercialMode },
+  input: { userId: string; name: string; commercialMode: CommercialMode; requestKey?: string },
 ) {
-  const organizationId = randomUUID();
+  const organizationId = input.requestKey
+    ? organizationIdFor(input.userId, input.requestKey)
+    : randomUUID();
   const membershipId = randomUUID();
-  await withNewTenantTx(database, organizationId, input.userId, async (tx) => {
-    await tx.insert(organizations).values({
-      id: organizationId,
-      name: input.name,
-      commercialMode: input.commercialMode,
-    });
+  return withNewTenantTx(database, organizationId, input.userId, async (tx) => {
+    const created = await tx
+      .insert(organizations)
+      .values({
+        id: organizationId,
+        name: input.name,
+        commercialMode: input.commercialMode,
+      })
+      .onConflictDoNothing()
+      .returning({ id: organizations.id });
+    if (created.length === 0) {
+      const [existing] = await tx
+        .select({ id: memberships.id })
+        .from(memberships)
+        .where(
+          and(eq(memberships.organizationId, organizationId), eq(memberships.userId, input.userId)),
+        );
+      return { organizationId, membershipId: existing?.id ?? membershipId };
+    }
     await tx.insert(memberships).values({
       organizationId,
       id: membershipId,
@@ -59,8 +85,8 @@ export async function createOrganization(
       targetRef: `organization:${organizationId}`,
       decision: 'allow',
     });
+    return { organizationId, membershipId };
   });
-  return { organizationId, membershipId };
 }
 
 /** Lists the organizations the user belongs to. Needs no tenant, only the user. */

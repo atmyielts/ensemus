@@ -43,6 +43,13 @@
       "when": 1793898491191,
       "tag": "0005_work_integrity_security",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1793930721459,
+      "tag": "0006_completion_basis",
+      "breakpoints": true
     }
   ]
 }

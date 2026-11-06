@@ -16,7 +16,7 @@ import { canChangeContent, canDeleteFile, type WorkState } from '@ensemus/domain
 import { and, asc, eq, inArray, lte, sql } from 'drizzle-orm';
 import { AppError } from './errors';
 import { emit } from './events';
-import { closeOutdatedReviews, loadChangeable, loadReadable } from './work';
+import { closeOutdatedReviews, loadChangeable, loadReadable, type WorkRow } from './work';
 
 /** Where bytes live. An S3 adapter implements this, and tests can check calls against it. */
 export interface ObjectStore {
@@ -29,6 +29,11 @@ export interface ObjectStore {
 const MAX_BYTES = 25 * 1024 * 1024;
 /** Far longer than any upload can take, so a sweep never takes bytes a request is about to attach. */
 const UPLOAD_GRACE_MS = 60 * 60 * 1000;
+/** A row that failed waits before its next try, so it stops taking a place in the next sweep's batch. */
+const PURGE_BACKOFF_BASE_MS = 15 * 60 * 1000;
+const PURGE_BACKOFF_MAX_MS = 24 * 60 * 60 * 1000;
+/** How long one sweep keeps trying, so a store that hangs cannot use up the whole upkeep Activity. */
+const PURGE_BUDGET_MS = 30 * 1000;
 
 /** Object keys start with the tenant and contain no names, so they reveal nothing and never clash. */
 const objectKey = (organizationId: string, id: string) => `${organizationId}/artifacts/${id}`;
@@ -45,7 +50,19 @@ export async function addArtifact(
   database: AppDatabase,
   store: ObjectStore,
   context: TenantContext,
-  input: { workUnitId: string; name: string; mimeType: string; body: Buffer },
+  input: {
+    workUnitId: string;
+    name: string;
+    mimeType: string;
+    body: Buffer;
+    /**
+     * Keeps one file of this name on the work, decided under the row lock when the file is attached. A
+     * repeat that lost the race gets the existing file, and the sweep removes the bytes it uploaded.
+     */
+    onlyOnce?: boolean;
+    /** Checked at both ends of the upload, for a caller whose right to add this can lapse meanwhile. */
+    stillAllowed?: (work: WorkRow) => void;
+  },
 ) {
   if (input.body.length === 0 || input.body.length > MAX_BYTES) {
     throw new AppError('INVALID_INPUT');
@@ -57,6 +74,7 @@ export async function addArtifact(
   const work = await withTenantTx(database, context, async (tx) => {
     const current = await loadChangeable(tx, context, input.workUnitId);
     if (!canChangeContent(current.status as WorkState)) throw new AppError('INVALID_STATE');
+    input.stillAllowed?.(current);
     // Written before the bytes exist. If anything stops the row arriving, a crash included, the sweep
     // finds this and removes what was uploaded.
     await tx.insert(blobLifecycle).values({
@@ -69,10 +87,19 @@ export async function addArtifact(
     return current;
   });
   await store.put(key, input.body, input.mimeType);
-  await withTenantTx(database, context, async (tx) => {
+  return withTenantTx(database, context, async (tx) => {
     // Checked again: the work may have been paused or finished while the bytes were on their way.
     const current = await loadChangeable(tx, context, input.workUnitId);
     if (!canChangeContent(current.status as WorkState)) throw new AppError('INVALID_STATE');
+    input.stillAllowed?.(current);
+    if (input.onlyOnce) {
+      const [existing] = await tx
+        .select({ id: artifacts.id })
+        .from(workArtifacts)
+        .innerJoin(artifacts, eq(artifacts.id, workArtifacts.artifactId))
+        .where(and(eq(workArtifacts.workUnitId, input.workUnitId), eq(artifacts.name, name)));
+      if (existing) return { id: existing.id };
+    }
     await tx.insert(artifacts).values({
       organizationId: context.organizationId,
       id,
@@ -100,8 +127,8 @@ export async function addArtifact(
       payload: { work_unit_id: input.workUnitId, artifact_id: id },
     });
     await closeOutdatedReviews(tx, context, current);
+    return { id };
   });
-  return { id };
 }
 
 /** Reads bytes only after checking both the Work Unit's permission and the tombstone. */
@@ -221,7 +248,8 @@ async function purgeOne(
 
 /**
  * Finishes what deleting and uploading could not: bytes that failed to delete, and uploads whose row
- * never arrived. Each failure is counted and tried again by the next sweep. Returns what happened.
+ * never arrived. Each failure is counted and waits longer before its next try, so rows that keep
+ * failing cannot fill the batch and keep the others waiting. Returns what happened.
  */
 export async function purgeDueBlobs(
   database: AppDatabase,
@@ -232,7 +260,11 @@ export async function purgeDueBlobs(
 ) {
   const due = await withTenantTx(database, context, (tx) =>
     tx
-      .select({ artifactId: blobLifecycle.artifactId, objectKey: blobLifecycle.objectKey })
+      .select({
+        artifactId: blobLifecycle.artifactId,
+        objectKey: blobLifecycle.objectKey,
+        attempts: blobLifecycle.attempts,
+      })
       .from(blobLifecycle)
       .where(
         and(
@@ -243,9 +275,11 @@ export async function purgeDueBlobs(
       .orderBy(asc(blobLifecycle.purgeAfter))
       .limit(limit),
   );
+  const stopAt = Date.now() + PURGE_BUDGET_MS;
   let purged = 0;
   let failed = 0;
   for (const row of due) {
+    if (Date.now() > stopAt) break;
     try {
       await purgeOne(database, store, context, row);
       purged += 1;
@@ -254,7 +288,13 @@ export async function purgeDueBlobs(
       await withTenantTx(database, context, (tx) =>
         tx
           .update(blobLifecycle)
-          .set({ attempts: sql`${blobLifecycle.attempts} + 1` })
+          .set({
+            attempts: sql`${blobLifecycle.attempts} + 1`,
+            purgeAfter: new Date(
+              now.getTime() +
+                Math.min(PURGE_BACKOFF_BASE_MS * 2 ** row.attempts, PURGE_BACKOFF_MAX_MS),
+            ),
+          })
           .where(eq(blobLifecycle.artifactId, row.artifactId)),
       );
     }

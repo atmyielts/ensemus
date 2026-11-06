@@ -1,15 +1,12 @@
 'use client';
 
 import { useActionState, useState } from 'react';
-import type { WorkDraft, WorkFormState } from '@/lib/form-state';
+import { sameContent, type WorkDraft, type WorkFormState } from '@/lib/form-state';
 import { updateWorkFormAction } from '@/server/work-actions';
 import { SubmitButton } from './submit-button';
 import { ErrorNotice } from './ui';
 
 const INITIAL: WorkFormState = {};
-
-const sameContent = (a: WorkDraft, b: WorkDraft) =>
-  a.title === b.title && a.objective === b.objective && a.dueAt === b.dueAt;
 
 const contentOf = ({ title, objective, dueAt }: WorkDraft): WorkDraft => ({
   title,

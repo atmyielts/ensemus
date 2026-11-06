@@ -754,6 +754,19 @@ export interface components {
             version: number;
             /** Format: date-time */
             due_at?: string | null;
+            /** @description On reading one finished Work Unit, what its completion rests on. */
+            completion?: components["schemas"]["WorkCompletion"];
+        };
+        WorkCompletion: {
+            /**
+             * @description `evidence` means the Work Unit's criteria were met. `owner_confirmed` means no evidence was requested, and the accountable owner confirmed it themselves. `not_recorded` means it finished before this was recorded.
+             * @enum {string}
+             */
+            basis: "evidence" | "owner_confirmed" | "not_recorded";
+            /** Format: uuid */
+            confirmed_by_membership_id: string | null;
+            /** Format: date-time */
+            confirmed_at: string;
         };
         AgentRun: {
             /** Format: uuid */

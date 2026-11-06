@@ -29,7 +29,7 @@ import {
   WorkflowNotFoundError,
   ScheduleAlreadyRunning,
 } from '@temporalio/client';
-import { isTransientDeliveryError } from './dispatch-errors';
+import { classifyDeliveryError } from './dispatch-errors';
 
 const log = createLogger('dispatcher');
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -95,6 +95,8 @@ async function main() {
             workflowIdReusePolicy: 'ALLOW_DUPLICATE',
           });
         } catch (error) {
+          // Not an outage, so not worth holding the batch for. If that open run can never claim this
+          // request, it stays standing, and the tenant's upkeep asks again.
           if (!(error instanceof WorkflowExecutionAlreadyStartedError)) throw error;
         }
         return;
@@ -172,7 +174,7 @@ async function main() {
     }
     try {
       const result = await dispatchDueEvents(db, handle, {
-        isTransient: isTransientDeliveryError,
+        classify: classifyDeliveryError,
         shouldStop: () => !running,
         onEvent: (error) => {
           beat();

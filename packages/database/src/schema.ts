@@ -197,6 +197,7 @@ export const outboxEvents = platformSchema.table(
   ],
 );
 
+// Not used yet. M3 records inbound webhooks here, so a redelivered one is applied only once.
 export const inboxEvents = platformSchema.table(
   'inbox_events',
   {

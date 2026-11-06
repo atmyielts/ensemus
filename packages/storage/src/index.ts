@@ -14,7 +14,17 @@ export type StorageConfig = {
   bucket: string;
   accessKey: string;
   secretKey: string;
+  /** How long one request may take. Only tests have a reason to set this. */
+  requestTimeoutMs?: number;
 };
+
+/**
+ * One request, connecting included, gets this long, and the client tries at most this many times.
+ * Together they stay well under the 2 minutes a workflow Activity has, so an Activity that timed out
+ * is not still uploading while its retry runs. A file is at most 25 MB, on the private network.
+ */
+export const REQUEST_TIMEOUT_MS = 30_000;
+export const MAX_ATTEMPTS = 3;
 
 /** Implements the ObjectStore port from @ensemus/application. */
 export class S3ObjectStore {
@@ -30,7 +40,12 @@ export class S3ObjectStore {
       credentials: { accessKeyId: config.accessKey, secretAccessKey: config.secretKey },
       requestChecksumCalculation: 'WHEN_REQUIRED',
       responseChecksumValidation: 'WHEN_REQUIRED',
-      maxAttempts: 3,
+      maxAttempts: MAX_ATTEMPTS,
+      requestHandler: {
+        connectionTimeout: 5_000,
+        requestTimeout: config.requestTimeoutMs ?? REQUEST_TIMEOUT_MS,
+        throwOnRequestTimeout: true,
+      },
     });
   }
 

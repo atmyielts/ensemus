@@ -7,6 +7,8 @@ export type ErrorCode =
   | 'INVALID_TRANSITION'
   | 'PREREQUISITES_INCOMPLETE'
   | 'EVIDENCE_MISSING'
+  | 'OWNER_CONFIRMATION_REQUIRED'
+  | 'RUN_ALREADY_REQUESTED'
   | 'REASON_REQUIRED'
   | 'DEPENDENCY_CYCLE'
   | 'TEAM_CYCLE'
@@ -29,6 +31,9 @@ const MESSAGES: Record<ErrorCode, string> = {
   INVALID_TRANSITION: 'That status change is not allowed from the current status.',
   PREREQUISITES_INCOMPLETE: 'This work is waiting on prerequisites that are not complete.',
   EVIDENCE_MISSING: 'The evidence this work requires has not been provided yet.',
+  OWNER_CONFIRMATION_REQUIRED:
+    'This work asks for no evidence, so only its accountable owner can confirm it is done.',
+  RUN_ALREADY_REQUESTED: 'Someone already asked this plan to run. That request still stands.',
   REASON_REQUIRED: 'A reason is required.',
   DEPENDENCY_CYCLE: 'That dependency would create a loop.',
   TEAM_CYCLE: 'That parent team would create a loop.',
@@ -59,6 +64,8 @@ export const HTTP_STATUS: Record<ErrorCode, number> = {
   INVALID_TRANSITION: 409,
   PREREQUISITES_INCOMPLETE: 409,
   EVIDENCE_MISSING: 409,
+  OWNER_CONFIRMATION_REQUIRED: 403,
+  RUN_ALREADY_REQUESTED: 409,
   REASON_REQUIRED: 400,
   DEPENDENCY_CYCLE: 409,
   TEAM_CYCLE: 409,

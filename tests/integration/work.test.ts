@@ -23,6 +23,8 @@ import {
   getApproval,
   getWorkDetail,
   getWorkUnit,
+  getWorkWithCompletion,
+  listHeldRuns,
   listClients,
   listInvitations,
   listMyNotifications,
@@ -34,6 +36,7 @@ import {
   purgeDueBlobs,
   readArtifact,
   removeDependency,
+  removeStoppedHiddenPrerequisites,
   removeTeamMember,
   requestApproval,
   requestExecution,
@@ -46,7 +49,6 @@ import {
   transitionWorkUnit,
   unassign,
   updateWorkUnit,
-  verifyApprovalForExecution,
   type ObjectStore,
 } from '@ensemus/application';
 import {
@@ -56,7 +58,7 @@ import {
   withTenantTx,
   type TenantContext,
 } from '@ensemus/database';
-import { actionHash, type ProposedAction } from '@ensemus/domain/approval';
+import { actionHash, checkExecution, type ProposedAction } from '@ensemus/domain/approval';
 import type { WorkState } from '@ensemus/domain/work-unit';
 import { createServiceContext } from '@ensemus/database/service';
 import { createActivities } from '@ensemus/workflows/activities';
@@ -154,6 +156,28 @@ describe('work', () => {
     return rows.rows.map((row) => row.event_type as string);
   };
 
+  /** A second connection, able to hold a lock open while a service runs into it. */
+  async function superuser() {
+    const su = new pg.Client({ connectionString: urls.superuser() });
+    await su.connect();
+    return su;
+  }
+
+  /** Waits until a service has really blocked on a lock, which is the moment a race is decided. */
+  const blockedOnLock = (su: pg.Client) =>
+    expect
+      .poll(
+        async () => {
+          const { rows } = await su.query(
+            `select count(*)::int as n from pg_stat_activity
+             where application_name = 'ensemus' and wait_event_type = 'Lock'`,
+          );
+          return rows[0].n as number;
+        },
+        { timeout: 10_000, interval: 25 },
+      )
+      .toBeGreaterThan(0);
+
   beforeAll(async () => {
     app = openAppDatabase(urls.app());
     auth = new pg.Client({ connectionString: urls.auth() });
@@ -201,6 +225,71 @@ describe('work', () => {
           ),
         ),
       ).rejects.toThrow();
+    });
+  });
+
+  describe('creating an organization from one form', () => {
+    const create = (userId: string, requestKey?: string) =>
+      createOrganization(db(), {
+        userId,
+        name: 'Once',
+        commercialMode: 'byom',
+        ...(requestKey ? { requestKey } : {}),
+      });
+
+    const count = async (userId: string) => {
+      const su = await superuser();
+      const { rows } = await su.query(
+        'select count(*)::int as n from org.memberships where user_id = $1',
+        [userId],
+      );
+      await su.end();
+      return rows[0].n as number;
+    };
+
+    it('makes one, however many times the same form is sent, even at once', async () => {
+      const user = await makeUser('double-click');
+      const key = randomUUID();
+      const [first, second, third] = await Promise.all([
+        create(user.id, key),
+        create(user.id, key),
+        create(user.id, key),
+      ]);
+      expect(second?.organizationId).toBe(first?.organizationId);
+      expect(third?.organizationId).toBe(first?.organizationId);
+      expect(third?.membershipId).toBe(first?.membershipId);
+      expect((await create(user.id, key)).organizationId).toBe(first?.organizationId);
+      expect(await count(user.id)).toBe(1);
+      const context = await resolveTenantContext(db(), user.id, first!.organizationId);
+      expect(context.role).toBe('owner');
+      expect(await eventTypes(context, first!.organizationId)).toEqual(['organization.created']);
+    });
+
+    it('makes another from another form', async () => {
+      const user = await makeUser('two-forms');
+      const one = await create(user.id, randomUUID());
+      const two = await create(user.id, randomUUID());
+      expect(two.organizationId).not.toBe(one.organizationId);
+      expect(await count(user.id)).toBe(2);
+    });
+
+    it('cannot lead to somebody else’s organization by reusing their key', async () => {
+      const victim = await makeUser('victim');
+      const attacker = await makeUser('attacker');
+      const key = randomUUID();
+      const theirs = await create(victim.id, key);
+      const mine = await create(attacker.id, key);
+      expect(mine.organizationId).not.toBe(theirs.organizationId);
+      await expect(
+        resolveTenantContext(db(), attacker.id, theirs.organizationId),
+      ).rejects.toThrow();
+    });
+
+    it('still makes a new one when no key is sent', async () => {
+      const user = await makeUser('no-key');
+      expect((await create(user.id)).organizationId).not.toBe(
+        (await create(user.id)).organizationId,
+      );
     });
   });
 
@@ -273,6 +362,12 @@ describe('work', () => {
           addDependency(db(), a, { dependentId: x.id, prerequisiteId: y.id }),
         ]);
         expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
+        // The loser is told why. A deadlock abort would pass the count above and reach them as a 500.
+        for (const result of results) {
+          if (result.status === 'rejected') {
+            expect(result.reason).toEqual(code('DEPENDENCY_CYCLE'));
+          }
+        }
       }
     });
 
@@ -334,6 +429,140 @@ describe('work', () => {
         to: 'completed',
       });
       expect(done.status).toBe('completed');
+    });
+
+    describe('with no criteria (QA-006)', () => {
+      it('cannot skip checking, and takes the accountable owner to confirm it', async () => {
+        const a = await newOrg();
+        const admin = await join(a, 'admin', 'admin');
+        const work = await createWorkUnit(db(), a, { title: 'No criteria' });
+        const running = await move(a, work.id, ['ready', 'running']);
+        await expect(
+          transitionWorkUnit(db(), a, {
+            id: work.id,
+            expectedVersion: running.version,
+            to: 'completed',
+          }),
+        ).rejects.toEqual(code('INVALID_TRANSITION'));
+
+        const checking = await move(a, work.id, ['verifying']);
+        // An admin can change this work, and still cannot answer for it.
+        await expect(
+          transitionWorkUnit(db(), admin, {
+            id: work.id,
+            expectedVersion: checking.version,
+            to: 'completed',
+          }),
+        ).rejects.toEqual(code('OWNER_CONFIRMATION_REQUIRED'));
+        expect((await getWorkUnit(db(), a, work.id)).status).toBe('verifying');
+        expect((await getWorkWithCompletion(db(), a, work.id)).completion).toBeNull();
+
+        await move(a, work.id, ['completed']);
+        const { history } = await getWorkDetail(db(), a, work.id);
+        expect(history[0]).toMatchObject({
+          toStatus: 'completed',
+          completionBasis: 'owner_confirmed',
+          actorName: expect.stringContaining('owner'),
+        });
+        expect(history.filter((h) => h.completionBasis !== null)).toHaveLength(1);
+        const { completion } = await getWorkWithCompletion(db(), a, work.id);
+        expect(completion).toMatchObject({
+          basis: 'owner_confirmed',
+          confirmedBy: a.membershipId,
+        });
+      });
+
+      it('moves with ownership, so the new owner confirms and the old one cannot', async () => {
+        const a = await newOrg();
+        const next = await join(a, 'next', 'admin');
+        const work = await createWorkUnit(db(), a, { title: 'Handed over' });
+        await move(a, work.id, ['ready', 'running', 'verifying']);
+        const current = await getWorkUnit(db(), a, work.id);
+        const moved = await setOwner(db(), a, {
+          id: work.id,
+          expectedVersion: current.version,
+          ownerMembershipId: next.membershipId,
+        });
+        await expect(
+          transitionWorkUnit(db(), a, {
+            id: work.id,
+            expectedVersion: moved.version,
+            to: 'completed',
+          }),
+        ).rejects.toEqual(code('OWNER_CONFIRMATION_REQUIRED'));
+        await move(next, work.id, ['completed']);
+        expect((await getWorkWithCompletion(db(), a, work.id)).completion?.confirmedBy).toBe(
+          next.membershipId,
+        );
+      });
+
+      it('cannot be confirmed by a service acting for the tenant', async () => {
+        const a = await newOrg();
+        const work = await createWorkUnit(db(), a, { title: 'W' });
+        const checking = await move(a, work.id, ['ready', 'running', 'verifying']);
+        await expect(
+          transitionWorkUnit(db(), createServiceContext(a.organizationId), {
+            id: work.id,
+            expectedVersion: checking.version,
+            to: 'completed',
+          }),
+        ).rejects.toEqual(code('OWNER_CONFIRMATION_REQUIRED'));
+      });
+
+      it('is not available from another tenant', async () => {
+        const a = await newOrg();
+        const b = await newOrg();
+        const work = await createWorkUnit(db(), a, { title: 'W' });
+        await move(a, work.id, ['ready', 'running', 'verifying', 'completed']);
+        await expect(getWorkWithCompletion(db(), b, work.id)).rejects.toEqual(code('NOT_FOUND'));
+      });
+    });
+
+    it('records evidence as the basis when criteria were met, whoever marks it', async () => {
+      const a = await newOrg();
+      const admin = await join(a, 'admin', 'admin');
+      const store = new MemoryStore();
+      const work = await createWorkUnit(db(), a, {
+        title: 'Has criteria',
+        completionCriteria: [{ kind: 'artifact_exists' }],
+      });
+      await addArtifact(db(), store, a, {
+        workUnitId: work.id,
+        name: 'report.pdf',
+        mimeType: 'application/pdf',
+        body: Buffer.from('evidence'),
+      });
+      await move(a, work.id, ['ready', 'running', 'verifying']);
+      await move(admin, work.id, ['completed']);
+      expect((await getWorkWithCompletion(db(), a, work.id)).completion).toMatchObject({
+        basis: 'evidence',
+        confirmedBy: admin.membershipId,
+      });
+    });
+
+    it('retries failed work only with a reason', async () => {
+      const a = await newOrg();
+      const work = await createWorkUnit(db(), a, { title: 'Failed' });
+      const failed = await move(a, work.id, ['ready', 'running', 'failed']);
+      await expect(
+        transitionWorkUnit(db(), a, { id: work.id, expectedVersion: failed.version, to: 'ready' }),
+      ).rejects.toEqual(code('REASON_REQUIRED'));
+      await expect(
+        transitionWorkUnit(db(), a, {
+          id: work.id,
+          expectedVersion: failed.version,
+          to: 'ready',
+          reason: '   ',
+        }),
+      ).rejects.toEqual(code('REASON_REQUIRED'));
+      expect((await getWorkUnit(db(), a, work.id)).status).toBe('failed');
+      const retried = await transitionWorkUnit(db(), a, {
+        id: work.id,
+        expectedVersion: failed.version,
+        to: 'ready',
+        reason: 'The supplier answered',
+      });
+      expect(retried.status).toBe('ready');
     });
 
     it('reopens completed work only with a reason, keeping history', async () => {
@@ -407,6 +636,100 @@ describe('work', () => {
       await addDependency(db(), a, { dependentId: open.id, prerequisiteId: hidden.id });
       const detail = await getWorkDetail(db(), member, open.id);
       expect(detail.prerequisites).toEqual([]);
+      // Told that it holds this up, and nothing about what it is.
+      expect(detail.hiddenPrerequisites).toEqual({ unfinished: 1, stopped: 0 });
+      expect(JSON.stringify(detail)).not.toContain(hidden.id);
+      expect(JSON.stringify(detail)).not.toContain('Hidden');
+    });
+
+    describe('a hidden prerequisite that was stopped', () => {
+      async function heldUp() {
+        const a = await newOrg();
+        const bob = await join(a, 'bob');
+        const stranger = await join(a, 'stranger');
+        const hidden = await createWorkUnit(db(), a, {
+          title: 'Hidden title',
+          classification: 'restricted',
+        });
+        const dependent = await createWorkUnit(db(), bob, { title: 'Bob’s work' });
+        await addDependency(db(), a, { dependentId: dependent.id, prerequisiteId: hidden.id });
+        return { a, bob, stranger, hidden, dependent };
+      }
+
+      it('holds the work up, is counted, and can be removed without being named', async () => {
+        const { a, bob, hidden, dependent } = await heldUp();
+        await move(a, hidden.id, ['cancelled']);
+
+        const detail = await getWorkDetail(db(), bob, dependent.id);
+        expect(detail.prerequisites).toEqual([]);
+        expect(detail.hiddenPrerequisites).toEqual({ unfinished: 1, stopped: 1 });
+        expect(JSON.stringify(detail)).not.toContain('Hidden title');
+        await expect(move(bob, dependent.id, ['ready'])).rejects.toEqual(
+          code('PREREQUISITES_INCOMPLETE'),
+        );
+
+        const removed = await removeStoppedHiddenPrerequisites(db(), bob, {
+          dependentId: dependent.id,
+        });
+        expect(removed).toBe(1);
+        expect((await getWorkDetail(db(), bob, dependent.id)).hiddenPrerequisites).toEqual({
+          unfinished: 0,
+          stopped: 0,
+        });
+        expect((await move(bob, dependent.id, ['ready'])).status).toBe('ready');
+        expect(await eventTypes(a, dependent.id)).toContain('work.dependency_removed');
+        expect(
+          (await auditRows(a, 'work.dependency_removed')).map((row) => row.safe_reason),
+        ).toEqual(['HIDDEN_PREREQUISITE_STOPPED']);
+      });
+
+      it('leaves one that can still finish, so it keeps holding the work', async () => {
+        const { bob, dependent } = await heldUp();
+        expect(
+          await removeStoppedHiddenPrerequisites(db(), bob, { dependentId: dependent.id }),
+        ).toBe(0);
+        await expect(move(bob, dependent.id, ['ready'])).rejects.toEqual(
+          code('PREREQUISITES_INCOMPLETE'),
+        );
+      });
+
+      it('leaves one the person can see, which has its own control', async () => {
+        const a = await newOrg();
+        const visible = await createWorkUnit(db(), a, { title: 'Visible' });
+        const dependent = await createWorkUnit(db(), a, { title: 'Dependent' });
+        await addDependency(db(), a, { dependentId: dependent.id, prerequisiteId: visible.id });
+        await move(a, visible.id, ['cancelled']);
+        expect(await removeStoppedHiddenPrerequisites(db(), a, { dependentId: dependent.id })).toBe(
+          0,
+        );
+        expect((await getWorkDetail(db(), a, dependent.id)).prerequisites).toHaveLength(1);
+      });
+
+      it('needs change rights on the dependent work, and stays inside the tenant', async () => {
+        const { a, stranger, hidden, dependent } = await heldUp();
+        const b = await newOrg();
+        await move(a, hidden.id, ['cancelled']);
+        await expect(
+          removeStoppedHiddenPrerequisites(db(), stranger, { dependentId: dependent.id }),
+        ).rejects.toEqual(code('FORBIDDEN'));
+        await expect(
+          removeStoppedHiddenPrerequisites(db(), b, { dependentId: dependent.id }),
+        ).rejects.toEqual(code('NOT_FOUND'));
+        expect((await getWorkDetail(db(), a, dependent.id)).hiddenPrerequisites.unfinished).toBe(0);
+        // Still there for someone without access to it: nothing above removed it.
+        expect(
+          (await getWorkDetail(db(), stranger, dependent.id)).hiddenPrerequisites.stopped,
+        ).toBe(1);
+      });
+
+      it('is refused on finished work', async () => {
+        const { a, bob, hidden, dependent } = await heldUp();
+        await move(a, hidden.id, ['cancelled']);
+        await move(bob, dependent.id, ['cancelled']);
+        await expect(
+          removeStoppedHiddenPrerequisites(db(), bob, { dependentId: dependent.id }),
+        ).rejects.toEqual(code('INVALID_STATE'));
+      });
     });
 
     it('keeps one accountable owner, who must be an active member', async () => {
@@ -537,15 +860,19 @@ describe('work', () => {
         decision: 'approve',
         shownHash: created.actionHash,
       });
-      expect(
-        await verifyApprovalForExecution(db(), a, { approvalId: created.id, action: action() }),
-      ).toEqual({ ok: true });
-      expect(
-        await verifyApprovalForExecution(db(), a, {
-          approvalId: created.id,
-          action: action('attacker@example.invalid'),
-        }),
-      ).toEqual({ ok: false, reason: 'HASH_MISMATCH' });
+      // Checked against the row as stored. Reviews reach this same check through reviewCovers.
+      const { approval } = await getApproval(db(), a, created.id);
+      const stored = {
+        status: approval.status as 'approved',
+        expiresAt: approval.expiresAt,
+        boundHash: approval.actionHash,
+      };
+      const now = new Date();
+      expect(checkExecution(stored, { action: action(), now })).toEqual({ ok: true });
+      expect(checkExecution(stored, { action: action('attacker@example.invalid'), now })).toEqual({
+        ok: false,
+        reason: 'HASH_MISMATCH',
+      });
     });
 
     it('cannot have its bound action edited, even by direct SQL as the app role', async () => {
@@ -589,19 +916,56 @@ describe('work', () => {
       await attempt(approver);
       await expect(attempt(approver)).rejects.toEqual(code('APPROVAL_NOT_PENDING'));
 
-      const second = await requestApproval(db(), approver, {
-        workUnitId: work.id,
-        action: action('x@example.invalid'),
-        approverMembershipId: approver.membershipId,
-        expiresAt: hour(),
-      });
+      // Asking yourself is refused at the request, because nobody could ever decide it.
       await expect(
-        decideApproval(db(), approver, {
-          approvalId: second.id,
-          decision: 'approve',
-          shownHash: second.actionHash,
+        requestApproval(db(), approver, {
+          workUnitId: work.id,
+          action: action('x@example.invalid'),
+          approverMembershipId: approver.membershipId,
+          expiresAt: hour(),
         }),
       ).rejects.toEqual(code('APPROVAL_SELF_APPROVAL'));
+      expect((await getWorkUnit(db(), a, work.id)).status).toBe('running');
+      expect(await listMyPendingApprovals(db(), approver)).toEqual([]);
+    });
+
+    it('refuses a review addressed to whoever asks for it, through the form path too', async () => {
+      const a = await newOrg();
+      const work = await createWorkUnit(db(), a, { title: 'W' });
+      const running = await move(a, work.id, ['ready', 'running']);
+      await expect(
+        requestWorkReview(db(), a, {
+          workUnitId: work.id,
+          expectedVersion: running.version,
+          approverMembershipId: a.membershipId,
+        }),
+      ).rejects.toEqual(code('APPROVAL_SELF_APPROVAL'));
+      expect((await getWorkUnit(db(), a, work.id)).status).toBe('running');
+    });
+
+    it('waits for a change to the approver, then sees it, instead of missing it', async () => {
+      const { a, approver, work } = await setup();
+      const su = await superuser();
+      try {
+        // Disabled, but not committed yet. A plain read here would still see them as active.
+        await su.query('begin');
+        await su.query(`update org.memberships set status = 'disabled' where id = $1`, [
+          approver.membershipId,
+        ]);
+        const request = requestApproval(db(), a, {
+          workUnitId: work.id,
+          action: action(),
+          approverMembershipId: approver.membershipId,
+          expiresAt: hour(),
+        });
+        await blockedOnLock(su);
+        await su.query('commit');
+        await expect(request).rejects.toEqual(code('INVALID_INPUT'));
+      } finally {
+        await su.query('rollback').catch(() => undefined);
+        await su.end();
+      }
+      expect((await getWorkUnit(db(), a, work.id)).status).toBe('running');
     });
 
     it('expires, cancelling the work, and then refuses decisions', async () => {
@@ -889,16 +1253,72 @@ describe('work', () => {
       expect(await purgeDueBlobs(db(), broken, a)).toEqual({ purged: 0, failed: 1 });
       expect(store.objects.size).toBe(1);
 
-      // Back up: the bytes go, and it is recorded as verified, so it is not done twice.
-      expect(await purgeDueBlobs(db(), store, a)).toEqual({ purged: 1, failed: 0 });
-      expect(store.objects.size).toBe(0);
+      // It has backed off, so the very next sweep leaves it alone.
       expect(await purgeDueBlobs(db(), store, a)).toEqual({ purged: 0, failed: 0 });
+      expect(store.objects.size).toBe(1);
+
+      // Back up: the bytes go, and it is recorded as verified, so it is not done twice.
+      const later = new Date(Date.now() + 16 * 60 * 1000);
+      expect(await purgeDueBlobs(db(), store, a, later)).toEqual({ purged: 1, failed: 0 });
+      expect(store.objects.size).toBe(0);
+      expect(await purgeDueBlobs(db(), store, a, later)).toEqual({ purged: 0, failed: 0 });
       const rows = await withTenantTx(db(), a, (tx) =>
         tx.execute(`select state, attempts, purged_at from platform.blob_lifecycle
           where artifact_id = '${id}'`),
       );
       expect(rows.rows[0]).toMatchObject({ state: 'purged', attempts: 1 });
       expect(rows.rows[0]?.purged_at).toBeTruthy();
+    });
+
+    it('does not let rows that keep failing keep the others waiting', async () => {
+      const a = await newOrg();
+      const store = new MemoryStore();
+      const su = await superuser();
+      const stuck = `${a.organizationId}/artifacts/stuck-`;
+      const good = `${a.organizationId}/artifacts/${randomUUID()}`;
+      store.objects.set(good, Buffer.from('bytes that have to go'));
+      try {
+        // A full batch of rows that fail, all older than the one that would succeed.
+        for (let i = 0; i < 50; i++) {
+          await su.query(
+            `insert into platform.blob_lifecycle
+               (organization_id, artifact_id, object_key, state, purge_after)
+             values ($1, $2, $3, 'deleting', now() - interval '2 days')`,
+            [a.organizationId, randomUUID(), `${stuck}${i}`],
+          );
+        }
+        await su.query(
+          `insert into platform.blob_lifecycle
+             (organization_id, artifact_id, object_key, state, purge_after)
+           values ($1, $2, $3, 'deleting', now() - interval '1 day')`,
+          [a.organizationId, randomUUID(), good],
+        );
+      } finally {
+        await su.end();
+      }
+      const flaky: ObjectStore = {
+        put: store.put.bind(store),
+        get: store.get.bind(store),
+        exists: store.exists.bind(store),
+        delete: async (key) => {
+          if (key.startsWith(stuck)) throw new Error('storage refused this one');
+          await store.delete(key);
+        },
+      };
+      const now = new Date();
+      expect(await purgeDueBlobs(db(), flaky, a, now)).toEqual({ purged: 0, failed: 50 });
+      expect(store.objects.has(good)).toBe(true);
+      // Without backing off, the same 50 would fill this batch too, and every one after it.
+      expect(await purgeDueBlobs(db(), flaky, a, now)).toEqual({ purged: 1, failed: 0 });
+      expect(store.objects.has(good)).toBe(false);
+
+      // They come back, each waiting longer than the time before.
+      const after = new Date(now.getTime() + 16 * 60 * 1000);
+      expect(await purgeDueBlobs(db(), flaky, a, after)).toEqual({ purged: 0, failed: 50 });
+      expect(await purgeDueBlobs(db(), flaky, a, after)).toEqual({ purged: 0, failed: 0 });
+      expect(
+        await purgeDueBlobs(db(), flaky, a, new Date(after.getTime() + 31 * 60 * 1000)),
+      ).toEqual({ purged: 0, failed: 50 });
     });
 
     it('does not call bytes gone when the store still has them', async () => {
@@ -1076,24 +1496,36 @@ describe('work', () => {
       expect(await listMyPendingApprovals(db(), alice)).toHaveLength(1);
     });
 
-    it('does not let a review from before the pause release it', async () => {
-      const a = await newOrg();
-      const carol = await join(a, 'carol', 'admin');
-      const work = await createWorkUnit(db(), a, { title: 'W' });
-      const stale = await requestWorkReview(db(), a, {
-        workUnitId: work.id,
-        expectedVersion: 1,
-        approverMembershipId: carol.membershipId,
-      });
-      // It was not holding anything. Reaching awaiting_approval now takes another, open, review.
-      await move(a, work.id, ['ready', 'running']);
-      await decideApproval(db(), carol, {
-        approvalId: stale.id,
-        decision: 'deny',
-        shownHash: stale.actionHash,
-      });
-      expect((await getWorkUnit(db(), a, work.id)).status).toBe('running');
-    });
+    it.each([
+      ['approval', 'approve'],
+      ['denial', 'deny'],
+    ] as const)(
+      'does not let the %s of a review that holds nothing move paused work',
+      async (_, decision) => {
+        const a = await newOrg();
+        const carol = await join(a, 'carol', 'admin');
+        const work = await createWorkUnit(db(), a, { title: 'W' });
+        const plain = await requestWorkReview(db(), a, {
+          workUnitId: work.id,
+          expectedVersion: 1,
+          approverMembershipId: carol.membershipId,
+        });
+        expect((await getApproval(db(), a, plain.id)).approval.holdsWork).toBe(false);
+        // The one-open rule keeps services from ever reaching this, so only direct SQL can, and this
+        // shows the decision itself checks what it holds rather than relying on that rule.
+        await withTenantTx(db(), a, (tx) =>
+          tx.execute(
+            `update work.work_units set status = 'awaiting_approval' where id = '${work.id}'`,
+          ),
+        );
+        await decideApproval(db(), carol, {
+          approvalId: plain.id,
+          decision,
+          shownHash: plain.actionHash,
+        });
+        expect((await getWorkUnit(db(), a, work.id)).status).toBe('awaiting_approval');
+      },
+    );
 
     it('releases on the decision of the approval that holds the pause', async () => {
       const { a, alice, work, review } = await paused();
@@ -1396,6 +1828,91 @@ describe('work', () => {
       expect(await expireOverdueApprovals(db(), service, new Date())).toBe(0);
     });
 
+    describe('replacing one whose time has run out', () => {
+      it('needs no sweep, keeps the work paused, and leaves a record', async () => {
+        const a = await newOrg();
+        const { reviewer, work, review } = await open(a);
+        const other = await join(a, 'other', 'admin');
+        await pastDue(a, review.id);
+
+        const paused = await getWorkUnit(db(), a, work.id);
+        const next = await requestWorkReview(db(), a, {
+          workUnitId: work.id,
+          expectedVersion: paused.version,
+          approverMembershipId: other.membershipId,
+        });
+        expect((await getApproval(db(), a, review.id)).approval.status).toBe('expired');
+        expect((await getApproval(db(), a, next.id)).approval.holdsWork).toBe(true);
+        expect((await getWorkUnit(db(), a, work.id)).status).toBe('awaiting_approval');
+        expect(await countUnread(db(), reviewer)).toBe(0);
+        expect(await auditRows(a, 'approval.expired')).toEqual([
+          {
+            actor_id: a.membershipId,
+            target_ref: `approval:${review.id}`,
+            safe_reason: 'REPLACED',
+          },
+        ]);
+
+        // The sweep finds nothing left to stop it for, and the new decision can release it.
+        const service = createServiceContext(a.organizationId);
+        expect(await expireOverdueApprovals(db(), service, new Date())).toBe(0);
+        expect((await getWorkUnit(db(), a, work.id)).status).toBe('awaiting_approval');
+        await decideApproval(db(), other, {
+          approvalId: next.id,
+          decision: 'approve',
+          shownHash: next.actionHash,
+        });
+        expect((await getWorkUnit(db(), a, work.id)).status).toBe('running');
+      });
+
+      it('still needs one that has time left to be decided first', async () => {
+        const a = await newOrg();
+        const { work } = await open(a);
+        const other = await join(a, 'other', 'admin');
+        const paused = await getWorkUnit(db(), a, work.id);
+        await expect(
+          requestWorkReview(db(), a, {
+            workUnitId: work.id,
+            expectedVersion: paused.version,
+            approverMembershipId: other.membershipId,
+          }),
+        ).rejects.toEqual(code('REVIEW_ALREADY_OPEN'));
+      });
+
+      it('leaves paused work to stop if nobody asks anyone else first', async () => {
+        const a = await newOrg();
+        const { work, review } = await open(a);
+        await pastDue(a, review.id);
+        const service = createServiceContext(a.organizationId);
+        expect(await expireOverdueApprovals(db(), service, new Date())).toBe(1);
+        expect((await getWorkUnit(db(), a, work.id)).status).toBe('cancelled');
+        expect((await getApproval(db(), a, review.id)).approval.status).toBe('expired');
+        // Stopped because it expired, and recorded as that, not also as closed by the work stopping.
+        expect(await auditRows(a, 'approval.closed')).toEqual([]);
+      });
+
+      it('records one that held nothing, too', async () => {
+        const a = await newOrg();
+        const first = await join(a, 'first', 'admin');
+        const second = await join(a, 'second', 'admin');
+        const work = await createWorkUnit(db(), a, { title: 'W' });
+        const review = await requestWorkReview(db(), a, {
+          workUnitId: work.id,
+          expectedVersion: 1,
+          approverMembershipId: first.membershipId,
+        });
+        await pastDue(a, review.id);
+        await requestWorkReview(db(), a, {
+          workUnitId: work.id,
+          expectedVersion: 1,
+          approverMembershipId: second.membershipId,
+        });
+        expect((await auditRows(a, 'approval.expired')).map((row) => row.target_ref)).toEqual([
+          `approval:${review.id}`,
+        ]);
+      });
+    });
+
     it('reports the status it really found, instead of assuming it expired', async () => {
       const a = await newOrg();
       const { reviewer, review } = await open(a);
@@ -1521,6 +2038,81 @@ describe('work', () => {
       );
       expect(await listMyPendingApprovals(db(), member)).toEqual([]);
     });
+
+    it('records no closure when the approver decided while it waited for the lock', async () => {
+      const a = await newOrg();
+      const admin = await join(a, 'admin', 'admin');
+      const work = await createWorkUnit(db(), a, {
+        title: 'Decided in time',
+        classification: 'confidential',
+      });
+      const review = await requestWorkReview(db(), a, {
+        workUnitId: work.id,
+        expectedVersion: 1,
+        approverMembershipId: admin.membershipId,
+      });
+      const su = await superuser();
+      try {
+        await su.query('begin');
+        await su.query('select 1 from work.work_units where id = $1 for update', [work.id]);
+        // Reads the approval as pending, loses sight of the work, then waits for the row above.
+        const demotion = setMemberRole(db(), a, {
+          membershipId: admin.membershipId,
+          role: 'member',
+        });
+        await blockedOnLock(su);
+        await su.query(
+          `update work.approvals set status = 'approved', decided_at = now() where id = $1`,
+          [review.id],
+        );
+        await su.query('commit');
+        await demotion;
+      } finally {
+        await su.query('rollback').catch(() => undefined);
+        await su.end();
+      }
+      expect((await getApproval(db(), a, review.id)).approval.status).toBe('approved');
+      expect(await auditRows(a, 'approval.closed')).toEqual([]);
+      expect((await listMyNotifications(db(), a)).map((n) => n.kind)).not.toContain(
+        'approval.closed',
+      );
+      const events = await withTenantTx(db(), a, (tx) =>
+        tx.execute(sql`select payload from platform.domain_events
+          where aggregate_id = ${work.id} and event_type = 'approval.resolved'`),
+      );
+      expect(events.rows).toEqual([]);
+    });
+
+    it.each([
+      ['disabling', (a: TenantContext, id: string) => disableMember(db(), a, { membershipId: id })],
+      [
+        'demoting',
+        (a: TenantContext, id: string) =>
+          setMemberRole(db(), a, { membershipId: id, role: 'member' }),
+      ],
+    ])(
+      '%s someone does not wait on what only refers to them, which could deadlock',
+      async (_, change) => {
+        const a = await newOrg();
+        const admin = await join(a, 'admin', 'admin');
+        const su = await superuser();
+        try {
+          // What inserting a history row by this member takes on their membership.
+          await su.query('begin');
+          await su.query('select 1 from org.memberships where id = $1 for key share', [
+            admin.membershipId,
+          ]);
+          const outcome = await Promise.race([
+            change(a, admin.membershipId).then(() => 'finished'),
+            new Promise((done) => setTimeout(() => done('still waiting'), 5_000)),
+          ]);
+          expect(outcome).toBe('finished');
+        } finally {
+          await su.query('rollback').catch(() => undefined);
+          await su.end();
+        }
+      },
+    );
 
     it('leaves manual work paused, for someone else to review', async () => {
       const a = await newOrg();
@@ -1701,6 +2293,43 @@ describe('work', () => {
       ).rejects.toEqual(code('INVITATION_INVALID'));
       expect((await listInvitations(db(), a)).find((i) => i.id === id)?.acceptedAt).toBeNull();
       expect(await auditRows(a, 'member.joined')).toHaveLength(joined);
+    });
+
+    it('cannot be withdrawn once accepted, which would record something untrue', async () => {
+      const a = await newOrg();
+      const { user, id, token } = await invite(a, 'member');
+      await accept(user, token);
+      await revokeInvitation(db(), a, { invitationId: id });
+      expect((await listInvitations(db(), a)).find((i) => i.id === id)?.revokedAt).toBeNull();
+      expect(await auditRows(a, 'invitation.revoked')).toEqual([]);
+      expect(await eventTypes(a, id)).toEqual([]);
+      expect((await resolveTenantContext(db(), user.id, a.organizationId)).role).toBe('member');
+    });
+
+    it('record being withdrawn once, as an event and in the audit log', async () => {
+      const a = await newOrg();
+      const { id } = await invite(a);
+      await revokeInvitation(db(), a, { invitationId: id });
+      await revokeInvitation(db(), a, { invitationId: id });
+      expect(await eventTypes(a, id)).toEqual(['invitation.revoked']);
+      expect(await auditRows(a, 'invitation.revoked')).toHaveLength(1);
+    });
+
+    it('record being withdrawn along with a disabled inviter, as an event too', async () => {
+      const a = await newOrg();
+      const mallory = await join(a, 'mallory', 'admin');
+      const { id } = await invite(mallory);
+      await disableMember(db(), a, { membershipId: mallory.membershipId });
+      expect(await eventTypes(a, id)).toEqual(['invitation.revoked']);
+    });
+
+    it('cannot be withdrawn from another tenant', async () => {
+      const a = await newOrg();
+      const b = await newOrg();
+      const { id } = await invite(a);
+      await revokeInvitation(db(), b, { invitationId: id });
+      expect((await listInvitations(db(), a)).find((i) => i.id === id)?.revokedAt).toBeNull();
+      expect(await eventTypes(a, id)).toEqual([]);
     });
 
     it('record who joined, and record it differently when nobody did', async () => {
@@ -2131,7 +2760,11 @@ describe('work', () => {
       await move(a, work.id, ['running']);
       const late = await activities().prepareWork(input(a, work.id));
       expect(late.status).toBe('stopped');
-      await expect(activities().produceChecklistArtifact(input(a, work.id))).resolves.toBeDefined();
+      // Its status is running, but it never was this run's, so a late retry adds no file to it.
+      await expect(activities().produceChecklistArtifact(input(a, work.id))).rejects.toEqual(
+        expect.objectContaining({ type: 'WORK_STOPPED' }),
+      );
+      expect((await getWorkDetail(db(), a, work.id)).files).toEqual([]);
       // It was never this run's, so it is not sent for checking either.
       expect(await activities().verifyAndComplete(input(a, work.id))).toBe('cancelled');
       expect((await getWorkUnit(db(), a, work.id)).status).toBe('running');
@@ -2197,6 +2830,218 @@ describe('work', () => {
         to: 'completed',
       });
       expect(done.status).toBe('completed');
+    });
+
+    describe('an attempt still running after its timeout', () => {
+      /** A store whose first upload stalls until released, and which says when it reached that. */
+      function stallingStore() {
+        const store = new MemoryStore();
+        let release = () => undefined as void;
+        let reached = () => undefined as void;
+        const stalled = new Promise<void>((done) => {
+          reached = done;
+        });
+        const gate = new Promise<void>((done) => {
+          release = done;
+        });
+        let first = true;
+        const stalling: ObjectStore = {
+          put: async (key, body, mime) => {
+            if (first) {
+              first = false;
+              reached();
+              await gate;
+            }
+            await store.put(key, body);
+            void mime;
+          },
+          get: store.get.bind(store),
+          exists: store.exists.bind(store),
+          delete: store.delete.bind(store),
+        };
+        return { store, stalling, stalled, release };
+      }
+
+      it('attaches nothing if a retry got there first, and its bytes are swept', async () => {
+        const a = await newOrg();
+        const reviewer = await join(a, 'reviewer', 'admin');
+        const work = await planned(a);
+        const run = input(a, work.id);
+        const { store, stalling, stalled, release } = stallingStore();
+        const own = createActivities({ database: db(), store: stalling });
+        await own.prepareWork(run);
+
+        const slow = own.produceChecklistArtifact(run);
+        await stalled;
+        const fast = await own.produceChecklistArtifact(run);
+
+        // A person is mid-review of what the fast attempt attached.
+        const version = (await getWorkUnit(db(), a, work.id)).version;
+        await withTenantTx(db(), a, (tx) =>
+          tx.execute(`update work.work_units set run_id = null where id = '${work.id}'`),
+        );
+        const review = await requestWorkReview(db(), a, {
+          workUnitId: work.id,
+          expectedVersion: version,
+          approverMembershipId: reviewer.membershipId,
+        });
+        await withTenantTx(db(), a, (tx) =>
+          tx.execute(
+            `update work.work_units set status = 'running', run_id = '${run.runId}'
+             where id = '${work.id}'`,
+          ),
+        );
+
+        release();
+        expect(await slow).toEqual(fast);
+        const { files } = await getWorkDetail(db(), a, work.id);
+        expect(files.map((f) => f.id)).toEqual([fast.artifactId]);
+        // Losing the race changed nothing, so a review of what is there still stands.
+        expect((await getApproval(db(), a, review.id)).approval.status).toBe('pending');
+
+        expect(store.objects.size).toBe(2);
+        const later = new Date(Date.now() + 2 * 60 * 60 * 1000);
+        expect(await purgeDueBlobs(db(), store, a, later)).toEqual({ purged: 1, failed: 0 });
+        expect([...store.objects.values()]).toHaveLength(1);
+      });
+
+      it('attaches nothing if the run lost the work during the upload', async () => {
+        const a = await newOrg();
+        const work = await planned(a);
+        const run = input(a, work.id);
+        const { store, stalling, stalled, release } = stallingStore();
+        const own = createActivities({ database: db(), store: stalling });
+        await own.prepareWork(run);
+
+        const slow = own.produceChecklistArtifact(run);
+        await stalled;
+        // A person takes it over by hand. The status is running again by the time the upload lands.
+        await move(a, work.id, ['blocked', 'ready', 'running']);
+        release();
+        await expect(slow).rejects.toEqual(expect.objectContaining({ type: 'WORK_STOPPED' }));
+        expect((await getWorkDetail(db(), a, work.id)).files).toEqual([]);
+        const later = new Date(Date.now() + 2 * 60 * 60 * 1000);
+        expect(await purgeDueBlobs(db(), store, a, later)).toEqual({ purged: 1, failed: 0 });
+        expect(store.objects.size).toBe(0);
+      });
+    });
+
+    describe('a request nothing has claimed', () => {
+      const backdate = async (context: TenantContext, id: string) => {
+        const su = await superuser();
+        await su.query(
+          `update work.work_units set run_requested_at = now() - interval '1 hour'
+           where id = $1 and organization_id = $2`,
+          [id, context.organizationId],
+        );
+        await su.end();
+      };
+      const delivered = async (context: TenantContext) => {
+        const su = await superuser();
+        await su.query(
+          `update platform.outbox_events set state = 'published'
+           where state = 'queued' and organization_id = $1`,
+          [context.organizationId],
+        );
+        await su.end();
+      };
+      const requests = async (context: TenantContext, id: string) =>
+        (await eventTypes(context, id)).filter((t) => t === 'work.execution_requested').length;
+      const upkeep = (context: TenantContext) =>
+        activities().sendReminders({ organizationId: context.organizationId });
+
+      it('is asked for again, and the new request can be claimed', async () => {
+        const a = await newOrg();
+        const work = await planned(a);
+        await delivered(a);
+        await backdate(a, work.id);
+        await upkeep(a);
+        expect(await requests(a, work.id)).toBe(2);
+        expect(
+          (await auditRows(a, 'work.run_requested_again')).map((row) => row.target_ref),
+        ).toEqual([`work_unit:${work.id}`]);
+        // Only asked once, while that second request waits to be delivered.
+        await upkeep(a);
+        expect(await requests(a, work.id)).toBe(2);
+        // Delivered, and a run with nothing else in the way takes it.
+        await delivered(a);
+        expect((await activities().prepareWork(input(a, work.id))).status).toBe('running');
+        await upkeep(a);
+        expect(await requests(a, work.id)).toBe(2);
+      });
+
+      it('is not asked for again while it is recent', async () => {
+        const a = await newOrg();
+        const work = await planned(a);
+        await delivered(a);
+        await upkeep(a);
+        expect(await requests(a, work.id)).toBe(1);
+      });
+
+      it('is not asked for again once someone started the work by hand', async () => {
+        const a = await newOrg();
+        const work = await planned(a);
+        await delivered(a);
+        await backdate(a, work.id);
+        await move(a, work.id, ['running']);
+        await upkeep(a);
+        expect(await requests(a, work.id)).toBe(1);
+      });
+
+      it('is only asked for again in its own tenant', async () => {
+        const a = await newOrg();
+        const b = await newOrg();
+        const work = await planned(a);
+        await delivered(a);
+        await backdate(a, work.id);
+        await upkeep(b);
+        expect(await requests(a, work.id)).toBe(1);
+      });
+
+      it('cannot be repeated, so nobody can replace the reviewer it named', async () => {
+        const a = await newOrg();
+        const bob = await join(a, 'bob', 'admin');
+        const carol = await join(a, 'carol', 'admin');
+        const dan = await join(a, 'dan', 'admin');
+        const work = await planned(a, [{ kind: 'reviewer_approved' }], {
+          reviewerMembershipId: dan.membershipId,
+        });
+        const before = await getWorkUnit(db(), a, work.id);
+        await expect(
+          requestExecution(db(), bob, work.id, { reviewerMembershipId: carol.membershipId }),
+        ).rejects.toEqual(code('RUN_ALREADY_REQUESTED'));
+        const after = await getWorkUnit(db(), a, work.id);
+        expect(after.planReviewerMembershipId).toBe(dan.membershipId);
+        expect(after.runRequestedByMembershipId).toBe(a.membershipId);
+        expect(after.runRequestedAt).toEqual(before.runRequestedAt);
+        expect(await requests(a, work.id)).toBe(1);
+
+        const run = input(a, work.id);
+        await activities().prepareWork(run);
+        await activities().produceChecklistArtifact(run);
+        const { approvalId } = await activities().requestReview(run);
+        const { approval } = await getApproval(db(), a, approvalId);
+        expect(approval.approverMembershipId).toBe(dan.membershipId);
+      });
+
+      it('can be made again once the first has been answered', async () => {
+        const a = await newOrg();
+        const work = await planned(a);
+        await move(a, work.id, ['running', 'blocked', 'ready']);
+        await requestExecution(db(), a, work.id);
+        expect((await getWorkUnit(db(), a, work.id)).runRequestedAt).toBeTruthy();
+      });
+
+      it('cannot be made from another tenant', async () => {
+        const a = await newOrg();
+        const b = await newOrg();
+        const work = await createWorkUnit(db(), a, {
+          title: 'W',
+          executionPlan: 'checklist',
+        });
+        await move(a, work.id, ['ready']);
+        await expect(requestExecution(db(), b, work.id)).rejects.toEqual(code('NOT_FOUND'));
+      });
     });
 
     it('writes its checklist in plain words, with no internal names', async () => {
@@ -2313,6 +3158,11 @@ describe('work', () => {
       await activities().requestReview(run);
       expect((await getApproval(db(), a, manual.id)).approval.status).toBe('cancelled');
       expect(await countUnread(db(), carol)).toBe(0);
+      // Closed on the record, and the person who asked is told.
+      expect(await auditRows(a, 'approval.closed')).toEqual([
+        { actor_id: null, target_ref: `approval:${manual.id}`, safe_reason: 'PLAN_STARTED' },
+      ]);
+      expect((await listMyNotifications(db(), a)).map((n) => n.kind)).toContain('approval.closed');
     });
 
     it('refuses a person asking for a review while a plan holds the work', async () => {
@@ -2384,6 +3234,70 @@ describe('work', () => {
     it('expires overdue reviews and clears stuck bytes in the periodic upkeep', async () => {
       const a = await newOrg();
       const reviewer = await join(a, 'reviewer', 'admin');
+      const store = new MemoryStore();
+      const work = await createWorkUnit(db(), a, { title: 'W' });
+      const review = await requestWorkReview(db(), a, {
+        workUnitId: work.id,
+        expectedVersion: 1,
+        approverMembershipId: reviewer.membershipId,
+      });
+      // Real bytes, left behind because the store refused when the file was deleted.
+      const other = await createWorkUnit(db(), a, { title: 'Other' });
+      const file = await addArtifact(db(), store, a, {
+        workUnitId: other.id,
+        name: 'gone.txt',
+        mimeType: 'text/plain',
+        body: Buffer.from('should not stay'),
+      });
+      await deleteArtifact(
+        db(),
+        {
+          put: store.put.bind(store),
+          get: store.get.bind(store),
+          exists: store.exists.bind(store),
+          delete: async () => {
+            throw new Error('storage down');
+          },
+        },
+        a,
+        { workUnitId: other.id, artifactId: file.id },
+      );
+      expect(store.objects.size).toBe(1);
+      await pastDue(a, review.id);
+
+      await createActivities({ database: db(), store }).sendReminders({
+        organizationId: a.organizationId,
+      });
+
+      expect((await getApproval(db(), a, review.id)).approval.status).toBe('expired');
+      // It was not pausing anything, so the work carries on as it was.
+      expect((await getWorkUnit(db(), a, work.id)).status).toBe('queued');
+      expect(store.objects.size).toBe(0);
+      const rows = await withTenantTx(db(), a, (tx) =>
+        tx.execute(`select state from platform.blob_lifecycle where artifact_id = '${file.id}'`),
+      );
+      expect(rows.rows).toEqual([{ state: 'purged' }]);
+    });
+
+    it('carries on with the other upkeep when one job fails, and still reports it', async () => {
+      const a = await newOrg();
+      const reviewer = await join(a, 'reviewer', 'admin');
+      const store = new MemoryStore();
+      const held = await planned(a);
+      const started = createActivities({
+        database: db(),
+        store,
+        probeWorkflow: async () => {
+          throw new Error('Temporal is having a bad day');
+        },
+      });
+      await started.prepareWork(input(a, held.id));
+      const su = await superuser();
+      await su.query(
+        `update work.work_units set updated_at = now() - interval '1 hour' where id = $1`,
+        [held.id],
+      );
+      await su.end();
       const work = await createWorkUnit(db(), a, { title: 'W' });
       const review = await requestWorkReview(db(), a, {
         workUnitId: work.id,
@@ -2391,10 +3305,113 @@ describe('work', () => {
         approverMembershipId: reviewer.membershipId,
       });
       await pastDue(a, review.id);
-      await activities().sendReminders({ organizationId: a.organizationId });
+      const other = await createWorkUnit(db(), a, { title: 'Other' });
+      const file = await addArtifact(db(), store, a, {
+        workUnitId: other.id,
+        name: 'gone.txt',
+        mimeType: 'text/plain',
+        body: Buffer.from('x'),
+      });
+      await deleteArtifact(
+        db(),
+        {
+          put: store.put.bind(store),
+          get: store.get.bind(store),
+          exists: store.exists.bind(store),
+          delete: async () => {
+            throw new Error('storage down');
+          },
+        },
+        a,
+        { workUnitId: other.id, artifactId: file.id },
+      );
+      expect(store.objects.size).toBe(1);
+
+      await expect(started.sendReminders({ organizationId: a.organizationId })).rejects.toThrow(
+        'bad day',
+      );
+      // One of these runs before the job that failed and one after, and both happened.
+      expect(store.objects.size).toBe(0);
       expect((await getApproval(db(), a, review.id)).approval.status).toBe('expired');
-      // It was not pausing anything, so the work carries on as it was.
-      expect((await getWorkUnit(db(), a, work.id)).status).toBe('queued');
+    });
+
+    describe('the sweep of runs Temporal says are over', () => {
+      const quieten = async (context: TenantContext, ids: string[], interval: string) => {
+        const su = await superuser();
+        await su.query(
+          `update work.work_units set updated_at = now() - $1::interval
+           where organization_id = $2 and id = any($3::uuid[])`,
+          [interval, context.organizationId, ids],
+        );
+        await su.end();
+      };
+
+      it('reaches a dead run behind more live ones than fit in one page', async () => {
+        const a = await newOrg();
+        const live: string[] = [];
+        const probed: string[] = [];
+        const stranded = await planned(a);
+        const started = createActivities({
+          database: db(),
+          store: quietStore,
+          probeWorkflow: async ({ workUnitId }) => {
+            probed.push(workUnitId);
+            return workUnitId === stranded.id ? 'closed' : 'open';
+          },
+        });
+        await started.prepareWork(input(a, stranded.id));
+        for (let i = 0; i < 51; i++) {
+          const work = await planned(a);
+          await started.prepareWork(input(a, work.id));
+          live.push(work.id);
+        }
+        // All the live ones have been quiet for longer, so they come first.
+        await quieten(a, live, '2 hours');
+        await quieten(a, [stranded.id], '1 hour');
+
+        await started.sendReminders({ organizationId: a.organizationId });
+
+        expect(probed).toHaveLength(52);
+        expect(probed.at(-1)).toBe(stranded.id);
+        expect((await getWorkUnit(db(), a, stranded.id)).status).toBe('failed');
+        expect((await getWorkUnit(db(), a, live[0]!)).status).toBe('running');
+      });
+
+      it('pages in a stable order, breaking ties on the ID, and only in its own tenant', async () => {
+        const a = await newOrg();
+        const b = await newOrg();
+        const ids: string[] = [];
+        const own = createActivities({ database: db(), store: quietStore });
+        for (let i = 0; i < 5; i++) {
+          const work = await planned(a);
+          await own.prepareWork(input(a, work.id));
+          ids.push(work.id);
+        }
+        const su = await superuser();
+        await su.query(
+          `update work.work_units set updated_at = '2030-01-01 00:00:00.123456+00'
+           where id = any($1::uuid[])`,
+          [ids],
+        );
+        await su.end();
+        const service = createServiceContext(a.organizationId);
+        const before = new Date('2030-01-02');
+        const seen: string[] = [];
+        let after: Awaited<ReturnType<typeof listHeldRuns>>['next'] = null;
+        do {
+          const page: Awaited<ReturnType<typeof listHeldRuns>> = await listHeldRuns(
+            db(),
+            service,
+            before,
+            { after: after ?? undefined, limit: 2 },
+          );
+          seen.push(...page.items.map((item) => item.id));
+          after = page.next;
+        } while (after);
+        expect(seen).toEqual([...ids].sort());
+        const elsewhere = await listHeldRuns(db(), createServiceContext(b.organizationId), before);
+        expect(elsewhere.items).toEqual([]);
+      });
     });
   });
 

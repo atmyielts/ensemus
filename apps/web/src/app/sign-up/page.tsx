@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
+import { SubmitButton } from '@/components/submit-button';
 import { safeReturnPath, withReturnPath } from '@/lib/return-path';
 import { signUpAction } from '@/server/actions';
 import { getRuntime } from '@/server/runtime';
@@ -45,7 +46,7 @@ export default async function SignUpPage({
           <small>At least 12 characters.</small>
         </label>
         <div>
-          <button type="submit">Create account</button>
+          <SubmitButton working="Creating your account">Create account</SubmitButton>
         </div>
       </form>
       <p style={{ marginTop: '1rem' }}>

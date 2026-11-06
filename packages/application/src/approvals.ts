@@ -18,13 +18,12 @@ import {
 import {
   actionHash,
   checkDecision,
-  checkExecution,
   WORK_REVIEW_TOOL,
   WORK_REVIEW_VERSION,
   type ProposedAction,
 } from '@ensemus/domain/approval';
 import { isTerminal, type WorkState } from '@ensemus/domain/work-unit';
-import { and, asc, eq, gt, inArray, lt, lte, sql } from 'drizzle-orm';
+import { and, asc, eq, gt, inArray, lte, sql } from 'drizzle-orm';
 import { AppError, pgCode, type ErrorCode } from './errors';
 import { emit } from './events';
 import {
@@ -38,6 +37,38 @@ import {
   notify,
   visibleTo,
 } from './work';
+
+/** What goes on the record when an approval's time runs out, however that was noticed. */
+async function recordExpiry(
+  tx: Tx,
+  context: TenantContext,
+  work: { id: string; version: number; classification: string; ownerMembershipId: string },
+  approval: { id: string; requestedByMembershipId: string | null },
+  now: Date,
+  safeReason?: string,
+) {
+  await tx
+    .update(approvals)
+    .set({ status: 'expired', decidedAt: now })
+    .where(eq(approvals.id, approval.id));
+  await clearApprovalNotifications(tx, [approval.id]);
+  await emit(tx, context, {
+    eventType: 'approval.resolved',
+    aggregateType: 'work_unit',
+    aggregateId: work.id,
+    aggregateVersion: work.version,
+    classification: work.classification,
+    payload: { approval_id: approval.id, work_unit_id: work.id, outcome: 'expired' },
+  });
+  await auditAction(tx, context, 'approval.expired', `approval:${approval.id}`, safeReason);
+  await notify(
+    tx,
+    context,
+    [work.ownerMembershipId, approval.requestedByMembershipId],
+    'approval.expired',
+    `work_unit:${work.id}`,
+  );
+}
 
 const DENIAL_CODES: Record<string, ErrorCode> = {
   NOT_PENDING: 'APPROVAL_NOT_PENDING',
@@ -70,6 +101,15 @@ export async function createApprovalInTx(
   const work = await loadChangeable(tx, context, input.workUnitId);
   if (isTerminal(work.status as WorkState)) throw new AppError('INVALID_STATE');
 
+  const requestedBy =
+    input.requestedByMembershipId !== undefined
+      ? input.requestedByMembershipId
+      : context.actorType === 'service'
+        ? null
+        : context.membershipId;
+  // They could never decide it, and with one open at a time nobody else could be asked meanwhile.
+  if (requestedBy === input.approverMembershipId) throw new AppError('APPROVAL_SELF_APPROVAL');
+
   // One open decision at a time. A second one could override the first, or be used to replace the
   // person a plan named, so a new request has to wait until the open one is settled.
   const [open] = await tx
@@ -77,24 +117,27 @@ export async function createApprovalInTx(
       id: approvals.id,
       expiresAt: approvals.expiresAt,
       holdsWork: approvals.holdsWork,
+      requestedByMembershipId: approvals.requestedByMembershipId,
     })
     .from(approvals)
     .where(and(eq(approvals.workUnitId, input.workUnitId), eq(approvals.status, 'pending')));
   if (open) {
-    // A request nobody can decide any more is no reason to refuse a new one. One holding the work
-    // has an outcome the sweep has to apply first.
-    if (open.holdsWork || open.expiresAt > new Date()) throw new AppError('REVIEW_ALREADY_OPEN');
-    await tx
-      .update(approvals)
-      .set({ status: 'expired', decidedAt: new Date() })
-      .where(eq(approvals.id, open.id));
-    await clearApprovalNotifications(tx, [open.id]);
+    // A request nobody can decide any more is no reason to refuse a new one, so this settles it here
+    // instead of waiting for the sweep. Work it paused stays paused, now under the new request. A
+    // plan's own reviewer is the exception: nobody can replace that one, and the sweep ends the run.
+    const planReview = open.holdsWork && Boolean(work.runId);
+    const now = new Date();
+    if (open.expiresAt > now || planReview) throw new AppError('REVIEW_ALREADY_OPEN');
+    await recordExpiry(tx, context, work, open, now, 'REPLACED');
   }
 
+  // Shared, so that disabling or demoting this person at this moment either waits for this request
+  // to commit and then closes it, or commits first and is seen here. Plain reads would miss each other.
   const [approver] = await tx
     .select({ id: memberships.id, role: memberships.role, status: memberships.status })
     .from(memberships)
-    .where(eq(memberships.id, input.approverMembershipId));
+    .where(eq(memberships.id, input.approverMembershipId))
+    .for('share');
   if (approver?.status !== 'active') throw new AppError('INVALID_INPUT');
   // An approver has to be able to see what they are approving.
   if (!(await memberCanRead(tx, work, { membershipId: approver.id, role: approver.role }))) {
@@ -106,12 +149,6 @@ export async function createApprovalInTx(
   // Work running now pauses on this approval, and work still paused has just lost its reviewer. In
   // either case only this approval's decision can release it. Any other approval is a plain review.
   const holdsWork = work.status === 'running' || work.status === 'awaiting_approval';
-  const requestedBy =
-    input.requestedByMembershipId !== undefined
-      ? input.requestedByMembershipId
-      : context.actorType === 'service'
-        ? null
-        : context.membershipId;
   try {
     await tx.insert(approvals).values({
       organizationId: context.organizationId,
@@ -275,26 +312,6 @@ function notifyDecision(
   );
 }
 
-/** Rechecks an approval right before the action runs. A changed action voids it. */
-export function verifyApprovalForExecution(
-  database: AppDatabase,
-  context: TenantContext,
-  input: { approvalId: string; action: ProposedAction },
-) {
-  return withTenantTx(database, context, async (tx) => {
-    const [approval] = await tx.select().from(approvals).where(eq(approvals.id, input.approvalId));
-    if (!approval) throw new AppError('NOT_FOUND');
-    return checkExecution(
-      {
-        status: approval.status as 'approved',
-        expiresAt: approval.expiresAt,
-        boundHash: approval.actionHash,
-      },
-      { action: input.action, now: new Date() },
-    );
-  });
-}
-
 /**
  * Settles one approval if it is overdue, and returns its status either way, so nobody has to guess
  * what happened. Work paused on it is stopped, which is the kernel's outcome for an expired approval.
@@ -318,30 +335,11 @@ async function settleOverdue(tx: Tx, context: TenantContext, approvalId: string,
   if (!approval || !work) return 'cancelled';
   if (approval.status !== 'pending' || approval.expiresAt > now) return approval.status;
 
-  await tx
-    .update(approvals)
-    .set({ status: 'expired', decidedAt: now })
-    .where(eq(approvals.id, approval.id));
-  await clearApprovalNotifications(tx, [approval.id]);
+  // First, or stopping the work would close this approval as something other than expired.
+  await recordExpiry(tx, context, work, approval, now);
   if (approval.holdsWork && work.status === 'awaiting_approval') {
     await applyTransition(tx, context, work, 'cancelled');
   }
-  await emit(tx, context, {
-    eventType: 'approval.resolved',
-    aggregateType: 'work_unit',
-    aggregateId: approval.workUnitId,
-    aggregateVersion: work.version,
-    classification: work.classification,
-    payload: { approval_id: approval.id, work_unit_id: approval.workUnitId, outcome: 'expired' },
-  });
-  await auditAction(tx, context, 'approval.expired', `approval:${approval.id}`);
-  await notify(
-    tx,
-    context,
-    [work.ownerMembershipId, approval.requestedByMembershipId],
-    'approval.expired',
-    `work_unit:${approval.workUnitId}`,
-  );
   return 'expired';
 }
 
@@ -476,16 +474,5 @@ export function listMyPendingApprovals(database: AppDatabase, context: TenantCon
         ),
       )
       .orderBy(asc(approvals.expiresAt)),
-  );
-}
-
-/** Finds reminders that are due, up to a limit, for a scheduled workflow to act on. */
-export function dueApprovalReminders(database: AppDatabase, context: TenantContext, now: Date) {
-  return withTenantTx(database, context, (tx) =>
-    tx
-      .select({ id: notifications.id })
-      .from(notifications)
-      .where(lt(notifications.remindAt, now))
-      .limit(100),
   );
 }
