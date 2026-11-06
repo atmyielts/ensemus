@@ -2,10 +2,12 @@
 // These run with no database, on the text of the migrations.
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { agentRunStatusSchema } from '@ensemus/contracts/ai';
+import { agentRunStatusSchema, modelPurposeSchema } from '@ensemus/contracts/ai';
+import { egressProposalSchema } from '@ensemus/contracts/knowledge';
 import { TOOL_ARGS_SCHEMAS } from '@ensemus/contracts/ai-tools';
 import {
   AGENT_RUN_STATUSES,
+  MODEL_PURPOSES,
   AGENT_RUN_TRANSITIONS,
   canTransitionAgentRun,
   isTerminalAgentRun,
@@ -39,6 +41,10 @@ function transitionsInSql(): Record<string, string[]> {
 }
 
 describe('the run state machine', () => {
+  it('uses all eight genuine purposes in profile and simulation contracts', () => {
+    expect(modelPurposeSchema.options).toEqual(MODEL_PURPOSES);
+    expect(egressProposalSchema.shape.purposes.element.options).toEqual(MODEL_PURPOSES);
+  });
   it('is the same in the domain and in the trigger', () => {
     const inSql = transitionsInSql();
     for (const status of AGENT_RUN_STATUSES) {

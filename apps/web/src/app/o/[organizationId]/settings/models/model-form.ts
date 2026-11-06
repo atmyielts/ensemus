@@ -46,6 +46,9 @@ export const PURPOSE_LABEL: Record<string, string> = {
   reason: 'Working things out',
   research: 'Research',
   compose: 'Writing',
+  embed: 'Embedding knowledge',
+  rerank: 'Ranking evidence',
+  answer: 'Answering questions',
 };
 
 const text = (form: FormData, name: string) => {

@@ -2146,10 +2146,15 @@ paths:
                 purposes:
                   type: array
                   minItems: 1
-                  maxItems: 3
+                  maxItems: 8
                   items:
                     type: string
                     enum:
+                      - classify
+                      - extract
+                      - reason
+                      - research
+                      - compose
                       - embed
                       - rerank
                       - answer
@@ -2194,6 +2199,11 @@ paths:
                         purpose:
                           type: string
                           enum:
+                            - classify
+                            - extract
+                            - reason
+                            - research
+                            - compose
                             - embed
                             - rerank
                             - answer
@@ -3175,7 +3185,7 @@ components:
           {
             type: array,
             minItems: 1,
-            items: { type: string, enum: [ classify, extract, reason, research, compose ] }
+            items: { type: string, enum: [ classify, extract, reason, research, compose, embed, rerank, answer ] }
           }
         retention_basis: { type: string, enum: [ unreviewed, contract_recorded, self_hosted ] }
         contract_ref: { type: [ string, 'null' ], minLength: 1, maxLength: 200 }
@@ -3218,7 +3228,7 @@ components:
           {
             type: array,
             minItems: 1,
-            items: { type: string, enum: [ classify, extract, reason, research, compose ] }
+            items: { type: string, enum: [ classify, extract, reason, research, compose, embed, rerank, answer ] }
           }
         retention_basis: { type: string, enum: [ unreviewed, contract_recorded, self_hosted ] }
         contract_ref: { type: [ string, 'null' ], minLength: 1, maxLength: 200 }
@@ -3324,7 +3334,7 @@ components:
           {
             type: array,
             minItems: 1,
-            items: { type: string, enum: [ classify, extract, reason, research, compose ] }
+            items: { type: string, enum: [ classify, extract, reason, research, compose, embed, rerank, answer ] }
           }
         retention_basis: { type: string, enum: [ unreviewed, contract_recorded, self_hosted ] }
         contract_ref: { type: [ string, 'null' ], minLength: 1, maxLength: 200 }

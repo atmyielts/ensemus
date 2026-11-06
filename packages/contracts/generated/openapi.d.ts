@@ -3037,7 +3037,7 @@ export interface paths {
                         region: string | null;
                         contract_ref: string | null;
                         allowed_classes: ("public" | "internal" | "confidential" | "restricted")[];
-                        purposes: ("embed" | "rerank" | "answer")[];
+                        purposes: ("classify" | "extract" | "reason" | "research" | "compose" | "embed" | "rerank" | "answer")[];
                     };
                 };
             };
@@ -3056,7 +3056,7 @@ export interface paths {
                                 /** @enum {string} */
                                 kind: "knowledge" | "agent";
                                 /** @enum {string} */
-                                purpose: "embed" | "rerank" | "answer";
+                                purpose: "classify" | "extract" | "reason" | "research" | "compose" | "embed" | "rerank" | "answer";
                                 /** @enum {string} */
                                 classification: "public" | "internal" | "confidential" | "restricted";
                                 would_transmit: boolean;
@@ -3812,7 +3812,7 @@ export interface components {
                 max_output_tokens: number;
             };
             allowed_classes: components["schemas"]["Classification"][];
-            allowed_purposes: ("classify" | "extract" | "reason" | "research" | "compose")[];
+            allowed_purposes: ("classify" | "extract" | "reason" | "research" | "compose" | "embed" | "rerank" | "answer")[];
             /** @enum {string} */
             retention_basis: "unreviewed" | "contract_recorded" | "self_hosted";
             contract_ref: string | null;
@@ -3833,7 +3833,7 @@ export interface components {
                 max_output_tokens: number;
             };
             allowed_classes?: components["schemas"]["Classification"][];
-            allowed_purposes?: ("classify" | "extract" | "reason" | "research" | "compose")[];
+            allowed_purposes?: ("classify" | "extract" | "reason" | "research" | "compose" | "embed" | "rerank" | "answer")[];
             /** @enum {string} */
             retention_basis?: "unreviewed" | "contract_recorded" | "self_hosted";
             contract_ref?: string | null;
@@ -3876,7 +3876,7 @@ export interface components {
                 max_output_tokens: number;
             };
             allowed_classes: components["schemas"]["Classification"][];
-            allowed_purposes: ("classify" | "extract" | "reason" | "research" | "compose")[];
+            allowed_purposes: ("classify" | "extract" | "reason" | "research" | "compose" | "embed" | "rerank" | "answer")[];
             /** @enum {string} */
             retention_basis: "unreviewed" | "contract_recorded" | "self_hosted";
             contract_ref: string | null;

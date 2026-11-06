@@ -2,7 +2,8 @@
 // provider would receive, from data alone. It has no way to transmit anything: this module imports no
 // network, no model port and no credential, and lint holds that.
 import type { Classification } from '@ensemus/domain/policy';
-import type { EgressPolicyPort, EgressProposal, EgressWorkload, ModelPurpose } from './ports';
+import { MODEL_PURPOSES, type ModelPurpose } from '@ensemus/domain/ai';
+import type { EgressPolicyPort, EgressProposal, EgressWorkload } from './ports';
 
 export type SimulationRow = {
   workloadKey: string;
@@ -41,7 +42,7 @@ export function simulateEgress(
     Array.isArray(proposal.allowedClasses) &&
     proposal.allowedClasses.every((value) => classes.includes(value)) &&
     Array.isArray(proposal.purposes) &&
-    proposal.purposes.every((value) => ['embed', 'rerank', 'answer'].includes(value));
+    proposal.purposes.every((value) => MODEL_PURPOSES.includes(value));
   const rows: SimulationRow[] = [];
   for (const workload of [...input.workloads].sort((a, b) =>
     a.key < b.key ? -1 : a.key > b.key ? 1 : 0,
@@ -54,7 +55,7 @@ export function simulateEgress(
         validProposal &&
         classes.includes(value) &&
         ['knowledge', 'agent'].includes(workload.kind) &&
-        ['embed', 'rerank', 'answer'].includes(workload.purpose);
+        MODEL_PURPOSES.includes(workload.purpose);
       let wouldTransmit = false,
         reasonCode = 'INVALID_INPUT',
         policyVersion = 'unavailable';
