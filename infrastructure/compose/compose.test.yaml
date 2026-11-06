@@ -35,12 +35,45 @@ services:
       data: {}
     environment:
       ENSEMUS_ALLOW_SIGNUP: ${ENSEMUS_ALLOW_SIGNUP:-true}
+      ENSEMUS_CONNECTORS_ENABLED: ${ENSEMUS_CONNECTORS_ENABLED:-false}
   proxy:
     extra_hosts: ['web-2:${ENSEMUS_NETWORK_PREFIX:-172.30}.1.11']
     volumes:
       - ./proxy/Caddyfile.test:/etc/caddy/Caddyfile:ro
     depends_on:
       web-2: { condition: service_healthy }
+  # A test relay in the place of a real one. No real provider is ever contacted. The sink has no TLS,
+  # which is why the worker is told `none` here and nowhere else.
+  connector-worker:
+    environment:
+      ENSEMUS_SMTP_TLS: none
+  egress-gateway:
+    extra_hosts: ['smtp-sink:${ENSEMUS_NETWORK_PREFIX:-172.30}.6.20']
+    environment:
+      ENSEMUS_EGRESS_TARGET: smtp-sink:2525
+  smtp-sink:
+    profiles: ['connectors']
+    image: node:24-slim@sha256:01d566e8d94d8c619591d78652babfccd3c6992a3dffa9ed5ab39e11cf6c70e9
+    command: ['node', '/sink/smtp-sink.mjs']
+    user: node
+    read_only: true
+    volumes:
+      - ../../tests/helpers/fixtures/smtp-sink.mjs:/sink/smtp-sink.mjs:ro
+    networks:
+      outbound: { ipv4_address: '${ENSEMUS_NETWORK_PREFIX:-172.30}.6.20' }
+    # Control only, for tests: messages it took, and which way to misbehave. SMTP is not published.
+    ports: ['127.0.0.1:${ENSEMUS_TEST_SMTP_CONTROL_PORT:-58025}:8025']
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://127.0.0.1:8025/stats').then((r)=>process.exit(r.ok?0:1),()=>process.exit(1))",
+        ]
+      interval: 2s
+      timeout: 3s
+      retries: 30
   oidc-mock:
     profiles: ['test-oidc']
     image: ghcr.io/navikt/mock-oauth2-server:2.3.0
