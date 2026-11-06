@@ -302,8 +302,8 @@
     },
     {
       "path": "06-delivery/evidence/M3-report.md",
-      "size_bytes": 8610,
-      "sha256": "326ce1d0e202a03fe15bcc838e758042597497a879e8f4ff38acbb41b5b21122"
+      "size_bytes": 8799,
+      "sha256": "935ffe1b425f6610955bb652838b9aeeaef0182a9c10d016955c753d8bb054ef"
     },
     {
       "path": "06-delivery/m3-slices.md",
@@ -312,8 +312,8 @@
     },
     {
       "path": "06-delivery/platform-completion-progress.md",
-      "size_bytes": 6700,
-      "sha256": "968a1b8c8c29e172e31390eff47a0f10e09831ea3dfc9ccec02fed8360d48b37"
+      "size_bytes": 7041,
+      "sha256": "887374ff9d0b6aacac6951826c2692f608857fea36d49140db06cecd03a34038"
     },
     {
       "path": "07-commercial/01-license-and-maintenance.md",
