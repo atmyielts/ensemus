@@ -7,7 +7,9 @@ import {
   knowledgeEvidencePackages,
   withTenantTx,
   type AppDatabase,
+  type AgentContext,
   type TenantContext,
+  type Tx,
 } from '@ensemus/database';
 import type { Classification } from '@ensemus/domain/policy';
 import { MAX_EVIDENCE_TOKENS, strongestClass } from '@ensemus/domain/knowledge';
@@ -30,6 +32,12 @@ import { idSchema } from '../ids';
 import { embedQuery, recordModelCall } from './embeddings';
 import { verifiedFactsFor } from './facts';
 import { requireSearchPerson, retrieveHybrid, searchLexical, searchQuery } from './retrieval';
+import {
+  assertRunInputsReadable,
+  recordRunInputs,
+  workInputHash,
+  type ObservedInput,
+} from '../ai/input-observations';
 
 export type CompileDeps = { model: KnowledgeModelPort };
 
@@ -86,6 +94,21 @@ export async function compileEvidence(
   const queryClass = validClass(input.queryClassification ?? 'restricted');
   const workUnitId = input.workUnitId ? id(input.workUnitId) : null;
   const runId = input.runId ? id(input.runId) : null;
+  const agentContext: AgentContext | null = (() => {
+    if (context.actorType === 'agent') {
+      if (
+        !context.agentRunId ||
+        !runId ||
+        context.agentRunId !== runId ||
+        !workUnitId ||
+        input.purpose !== 'agent_turn'
+      )
+        throw new AppError('FORBIDDEN');
+      return { ...context, actorType: 'agent', agentRunId: context.agentRunId };
+    }
+    if (runId) throw new AppError('FORBIDDEN');
+    return null;
+  })();
   const state = await withTenantTx(database, context, async (tx) => {
     await requireSearchPerson(tx, context);
     if (!workUnitId) return { classification: queryClass, subjects: [] as string[] };
@@ -93,13 +116,24 @@ export async function compileEvidence(
       classification: Classification;
       projectId: string | null;
       clientId: string | null;
+      title: string;
+      objective: string | null;
     }>(sql`
-      select w.classification, w.project_id as "projectId", p.client_id as "clientId"
+      select w.classification,w.title,w.objective,w.project_id as "projectId", p.client_id as "clientId"
         from work.work_units w left join work.projects p on p.organization_id = w.organization_id and p.id = w.project_id
        where w.organization_id = ${context.organizationId}::uuid and w.id = ${workUnitId}::uuid
          and knowledge.can_read_work(w.id, app.current_membership_id())`);
     const work = result.rows[0];
     if (!work) throw new AppError('NOT_FOUND');
+    if (agentContext)
+      await recordRunInputs(tx, agentContext, [
+        {
+          kind: 'work_unit',
+          id: workUnitId,
+          sha256: workInputHash(work),
+          classification: work.classification,
+        },
+      ]);
     return {
       classification: strongestClass([queryClass, work.classification]),
       subjects: [
@@ -240,6 +274,12 @@ export async function compileEvidence(
           ]),
         ],
         limit: 20,
+        ...(agentContext
+          ? {
+              captureReadsInTx: (tx: Tx, inputs: readonly ObservedInput[]) =>
+                recordRunInputs(tx, agentContext, inputs),
+            }
+          : {}),
       })
     : [];
   // A trusted claim is included only with all of its underlying passages, so it cannot smuggle an
@@ -430,6 +470,8 @@ export async function compileEvidence(
     return true;
   });
   if (!persisted) return { ok: false, code: 'EGRESS_DENIED' };
+  if (agentContext)
+    await withTenantTx(database, agentContext, (tx) => assertRunInputsReadable(tx, agentContext));
   return {
     ok: true,
     packageId,
