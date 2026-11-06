@@ -9,6 +9,7 @@ import {
   outboxEvents,
   projects,
   users,
+  withMemberTenantTx,
   withTenantTx,
   workArtifacts,
   workAssignments,
@@ -1536,6 +1537,20 @@ async function evidenceStampFor(tx: Tx, workUnitId: string, now: Date) {
   return createHash('sha256').update(facts.join(',')).digest('hex').slice(0, 32);
 }
 
+/** What someone following a Work Unit compares, to know whether they have fallen behind. */
+export type WorkFollowState = { version: number; evidence: string | null };
+
+async function readWorkFollowState(
+  tx: Tx,
+  context: TenantContext,
+  id: string,
+  options: { evidence?: boolean },
+): Promise<WorkFollowState> {
+  const work = await loadReadable(tx, context, id);
+  const evidence = options.evidence === false ? null : await evidenceStampFor(tx, id, new Date());
+  return { version: work.version, evidence };
+}
+
 /**
  * What someone following this work needs to know whether it has fallen behind. Access is decided each
  * time. Only a page asks about the evidence, which takes a further query on every poll.
@@ -1545,12 +1560,26 @@ export function getWorkFollowState(
   context: TenantContext,
   id: string,
   options: { evidence?: boolean } = {},
-) {
-  return withTenantTx(database, context, async (tx) => {
-    const work = await loadReadable(tx, context, id);
-    const evidence = options.evidence === false ? null : await evidenceStampFor(tx, id, new Date());
-    return { version: work.version, evidence };
-  });
+): Promise<WorkFollowState> {
+  return withTenantTx(database, context, (tx) => readWorkFollowState(tx, context, id, options));
+}
+
+/**
+ * One transaction: is this person still a member, and what is the state (ADR-037 D5). For a stream that
+ * asks both every second. The context comes back so that a caller can check what must not run inside a
+ * transaction, such as the restore gate, against the membership this just read.
+ */
+export async function getWorkFollowStateAsMember(
+  database: AppDatabase,
+  userId: string,
+  organizationId: string,
+  id: string,
+  options: { evidence?: boolean } = {},
+): Promise<{ context: TenantContext; state: WorkFollowState }> {
+  return withMemberTenantTx(database, userId, organizationId, async (tx, context) => ({
+    context,
+    state: await readWorkFollowState(tx, context, id, options),
+  }));
 }
 
 /** A short title for a browser tab, or nothing if this person may not see the work. */
