@@ -30,7 +30,17 @@ export type ErrorCode =
   | 'EXTERNAL_ACTION_NOT_RETRYABLE'
   | 'CONNECTION_NOT_ACTIVE'
   | 'CONNECTOR_NOT_AVAILABLE'
-  | 'RESTRICTED_NOT_ALLOWED';
+  | 'RESTRICTED_NOT_ALLOWED'
+  | 'KNOWLEDGE_SOURCE_CLOSED'
+  | 'KNOWLEDGE_FORMAT_UNSUPPORTED'
+  | 'KNOWLEDGE_GRANT_TOO_WIDE'
+  | 'KNOWLEDGE_GRANT_ON_CONNECTOR_SOURCE'
+  | 'KNOWLEDGE_NO_MODEL'
+  | 'KNOWLEDGE_FACT_NEEDS_EVIDENCE'
+  | 'KNOWLEDGE_FACT_NEEDS_PERSON'
+  | 'KNOWLEDGE_ARTIFACT_NOT_GROUNDED'
+  | 'MCP_TOOL_NOT_APPROVED'
+  | 'CLIENT_ONBOARDING_EXISTS';
 
 const MESSAGES: Record<ErrorCode, string> = {
   NOT_FOUND: 'Not found or not permitted.',
@@ -66,6 +76,19 @@ const MESSAGES: Record<ErrorCode, string> = {
   CONNECTION_NOT_ACTIVE: 'This connection is not active.',
   CONNECTOR_NOT_AVAILABLE: 'This connector is not available on this deployment.',
   RESTRICTED_NOT_ALLOWED: 'Restricted work cannot be sent outside this deployment.',
+  KNOWLEDGE_SOURCE_CLOSED: 'This source has been removed, and cannot be used again.',
+  KNOWLEDGE_FORMAT_UNSUPPORTED: 'That kind of file cannot be added to company knowledge yet.',
+  KNOWLEDGE_GRANT_TOO_WIDE: 'A source this sensitive cannot be shared that widely.',
+  KNOWLEDGE_GRANT_ON_CONNECTOR_SOURCE:
+    'Who can see this comes from where it is stored. Change it there.',
+  KNOWLEDGE_NO_MODEL: 'No approved model can answer this. Your documents were not sent anywhere.',
+  KNOWLEDGE_FACT_NEEDS_EVIDENCE: 'A fact has to rest on a passage from a source that is still open.',
+  KNOWLEDGE_FACT_NEEDS_PERSON:
+    'Only a person who did not propose this fact can verify it, as themselves.',
+  KNOWLEDGE_ARTIFACT_NOT_GROUNDED:
+    'This cannot be accepted yet, because its citations have not all been confirmed.',
+  MCP_TOOL_NOT_APPROVED: 'An administrator has not approved this tool.',
+  CLIENT_ONBOARDING_EXISTS: 'This deal already has an onboarding.',
 };
 
 export class AppError extends Error {
@@ -118,6 +141,16 @@ export const HTTP_STATUS: Record<ErrorCode, number> = {
   CONNECTION_NOT_ACTIVE: 409,
   CONNECTOR_NOT_AVAILABLE: 409,
   RESTRICTED_NOT_ALLOWED: 403,
+  KNOWLEDGE_SOURCE_CLOSED: 409,
+  KNOWLEDGE_FORMAT_UNSUPPORTED: 415,
+  KNOWLEDGE_GRANT_TOO_WIDE: 403,
+  KNOWLEDGE_GRANT_ON_CONNECTOR_SOURCE: 409,
+  KNOWLEDGE_NO_MODEL: 409,
+  KNOWLEDGE_FACT_NEEDS_EVIDENCE: 409,
+  KNOWLEDGE_FACT_NEEDS_PERSON: 403,
+  KNOWLEDGE_ARTIFACT_NOT_GROUNDED: 409,
+  MCP_TOOL_NOT_APPROVED: 409,
+  CLIENT_ONBOARDING_EXISTS: 409,
 };
 
 /** Reads the Postgres error code through the wrapper Drizzle adds. */

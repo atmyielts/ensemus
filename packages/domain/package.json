@@ -11,7 +11,9 @@
     "./external-action": "./src/external-action.ts",
     "./integration-events": "./src/integration-events.ts",
     "./webhook": "./src/webhook.ts",
-    "./connector": "./src/connector.ts"
+    "./connector": "./src/connector.ts",
+    "./knowledge": "./src/knowledge.ts",
+    "./knowledge-events": "./src/knowledge-events.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"

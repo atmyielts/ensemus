@@ -7,6 +7,18 @@ export const PLATFORM_TASK_QUEUE = 'ensemus-platform';
 export const CONNECTOR_TASK_QUEUE = 'ensemus-connectors';
 
 /**
+ * Parsing what strangers wrote, and removing what was derived from it. Only the knowledge worker polls
+ * this. It holds no credential and no sealing key, and has no route out (ADR-029 D4).
+ */
+export const KNOWLEDGE_TASK_QUEUE = 'ensemus-knowledge';
+
+/**
+ * Knowledge's model calls. The name is M4's agent queue (M4 FD-2): only that worker holds model keys and
+ * can reach a model. If it is not running, ingest finishes lexical-only and answers say why.
+ */
+export const KNOWLEDGE_MODEL_TASK_QUEUE = 'ensemus-agent';
+
+/**
  * For every gRPC client connection to Temporal. By default the client looks up a DNS TXT record for
  * the server's name, to fetch a service config we do not use. Docker cannot answer that for a
  * container name, so it forwards the query to the host's resolver and it leaves the network, which

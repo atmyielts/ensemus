@@ -6,6 +6,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./external-actions": "./src/external-actions.ts",
+    "./knowledge": "./src/knowledge.ts",
     "./openapi": "./generated/openapi.d.ts"
   },
   "scripts": {

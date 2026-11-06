@@ -11,7 +11,8 @@ export type TenantContext = Readonly<{
   userId: string;
   membershipId: string;
   role: string;
-  actorType: 'user' | 'service';
+  /** `delegated` is a worker acting for one named person, with exactly that person's reach (ADR-029 D5). */
+  actorType: 'user' | 'service' | 'delegated';
   [brand]: true;
 }>;
 
@@ -47,10 +48,12 @@ export class AppDatabase {
   }
   transaction<T>(bindings: Record<string, string>, fn: (tx: Tx) => Promise<T>): Promise<T> {
     return this.#db.transaction(async (tx) => {
-      // set_config because SET LOCAL cannot take a bind parameter (ADR-024 D4).
-      for (const [name, value] of Object.entries(bindings)) {
-        await tx.execute(sql`select set_config(${name}, ${value}, true)`);
-      }
+      // set_config because SET LOCAL cannot take a bind parameter (ADR-024 D4). One statement however
+      // many there are, so binding a tenant costs one round trip.
+      const settings = Object.entries(bindings).map(
+        ([name, value]) => sql`set_config(${name}, ${value}, true)`,
+      );
+      if (settings.length > 0) await tx.execute(sql`select ${sql.join(settings, sql`, `)}`);
       return fn(tx);
     });
   }
@@ -93,7 +96,14 @@ export async function withTenantTx<T>(
 ): Promise<T> {
   if (context[brand] !== true) throw new TenantAccessDenied();
   return database.transaction(
-    { 'app.organization_id': context.organizationId, 'app.user_id': context.userId },
+    {
+      'app.organization_id': context.organizationId,
+      'app.user_id': context.userId,
+      // Knowledge's row-level security reads these, so a source's ACL holds whatever a query forgets:
+      // a person sees what they may, and only a service context skips it (ADR-029 D2).
+      'app.membership_id': context.membershipId,
+      'app.actor_type': context.actorType,
+    },
     fn,
   );
 }
@@ -180,6 +190,47 @@ export async function resolveTenantContext(
     membershipId: membership.id,
     role: membership.role,
     actorType: 'user',
+    [brand]: true,
+  };
+}
+
+/**
+ * A worker doing something for a person who asked, such as answering their question. The membership is
+ * re-read and has to be active, so someone disabled since asking gets nothing. It can read what that person
+ * can and no more, because knowledge's row-level security looks at the membership. A trigger refuses it
+ * anything that has to be a person acting as themselves, such as verifying a fact. Worker-only, by lint.
+ */
+export async function createDelegatedContext(
+  database: AppDatabase,
+  organizationId: string,
+  membershipId: string,
+): Promise<TenantContext> {
+  assertUuid(membershipId);
+  const service = createServiceContext(organizationId);
+  const [membership] = await withTenantTx(database, service, (tx) =>
+    tx
+      .select({
+        id: memberships.id,
+        role: memberships.role,
+        userId: memberships.userId,
+        organizationId: memberships.organizationId,
+      })
+      .from(memberships)
+      .where(
+        and(
+          eq(memberships.organizationId, service.organizationId),
+          eq(memberships.id, membershipId),
+          eq(memberships.status, 'active'),
+        ),
+      ),
+  );
+  if (!membership) throw new TenantAccessDenied();
+  return {
+    organizationId: membership.organizationId,
+    userId: membership.userId,
+    membershipId: membership.id,
+    role: membership.role,
+    actorType: 'delegated',
     [brand]: true,
   };
 }

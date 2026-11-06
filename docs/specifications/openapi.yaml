@@ -23,6 +23,7 @@ tags:
   - name: external-actions
   - name: connections
   - name: knowledge
+  - name: governance
   - name: models
   - name: commercial
 paths:
@@ -704,24 +705,845 @@ paths:
                   items: {type: string, format: uuid}
       responses:
         '200':
-          description: Permission-filtered results
+          description: >-
+            Full-text results the caller's ACL covers, filtered inside the query. Semantic search needs a
+            model, so it runs in a worker, for answers (ADR-029 D5).
           content:
             application/json:
               schema:
                 type: object
+                additionalProperties: false
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: {$ref: '#/components/schemas/KnowledgePassage'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+  /organizations/{organization_id}/knowledge/sources:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+    get:
+      x-ensemus-status: planned
+      tags: [knowledge]
+      summary: Sources the caller can read. A manager also sees that others exist, with no title
+      parameters:
+        - name: cursor
+          in: query
+          schema: {type: string, minLength: 1, maxLength: 512}
+        - name: limit
+          in: query
+          schema: {type: integer, minimum: 1, maximum: 100}
+      responses:
+        '200':
+          description: One page
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [items, next_cursor]
+                properties:
+                  items:
+                    type: array
+                    items: {$ref: '#/components/schemas/KnowledgeSource'}
+                  next_cursor: {type: [string, 'null']}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+    post:
+      x-ensemus-status: planned
+      tags: [knowledge]
+      summary: Add a document. It becomes searchable once a worker has read it
+      parameters: [{$ref: '#/components/parameters/IdempotencyKey'}]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [metadata, file]
+              properties:
+                metadata:
+                  type: object
+                  additionalProperties: false
+                  required: [title, classification, grants]
+                  properties:
+                    title: {type: string, minLength: 1, maxLength: 512}
+                    classification: {type: string, enum: [public, internal, confidential, restricted]}
+                    grants:
+                      type: array
+                      maxItems: 100
+                      items: {$ref: '#/components/schemas/KnowledgeGrant'}
+                file: {type: string, format: binary}
+      responses:
+        '201':
+          description: Stored, and waiting to be read
+          headers:
+            ETag: {$ref: '#/components/headers/ETag'}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/KnowledgeSource'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '413': {$ref: '#/components/responses/PayloadTooLarge'}
+        '415': {$ref: '#/components/responses/UnsupportedMediaType'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+  /organizations/{organization_id}/knowledge/sources/{source_id}:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+      - $ref: '#/components/parameters/SourceID'
+    get:
+      x-ensemus-status: planned
+      tags: [knowledge]
+      summary: One source, under its ACL
+      responses:
+        '200':
+          description: The source
+          headers:
+            ETag: {$ref: '#/components/headers/ETag'}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/KnowledgeSource'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+    delete:
+      x-ensemus-status: planned
+      tags: [knowledge]
+      summary: Delete a source. Serving stops in this request, and what was derived goes after
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      responses:
+        '202':
+          description: Closed, with the purge under way
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/KnowledgePurge'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '428': {$ref: '#/components/responses/PreconditionRequired'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+  /organizations/{organization_id}/knowledge/sources/{source_id}/revoke:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+      - $ref: '#/components/parameters/SourceID'
+    post:
+      x-ensemus-status: planned
+      tags: [knowledge]
+      summary: Revoke a source. It never comes back, and a re-added one is a new source
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [reason]
+              properties:
+                reason: {type: string, minLength: 1, maxLength: 2000}
+      responses:
+        '202':
+          description: Closed, with the purge under way
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/KnowledgePurge'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '428': {$ref: '#/components/responses/PreconditionRequired'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+  /organizations/{organization_id}/knowledge/sources/{source_id}/purge:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+      - $ref: '#/components/parameters/SourceID'
+    get:
+      x-ensemus-status: planned
+      tags: [knowledge]
+      summary: How far the purge has got, with counts, and when it finished
+      responses:
+        '200':
+          description: The purge's record
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/KnowledgePurge'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+  /organizations/{organization_id}/knowledge/sources/{source_id}/grants:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+      - $ref: '#/components/parameters/SourceID'
+    patch:
+      x-ensemus-status: planned
+      tags: [knowledge]
+      summary: Change who can read an uploaded source. It takes effect at once
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [add, remove_grant_ids]
+              properties:
+                add:
+                  type: array
+                  maxItems: 100
+                  items: {$ref: '#/components/schemas/KnowledgeGrant'}
+                remove_grant_ids:
+                  type: array
+                  maxItems: 100
+                  items: {type: string, format: uuid}
+      responses:
+        '204': {description: Changed}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '428': {$ref: '#/components/responses/PreconditionRequired'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+  /organizations/{organization_id}/knowledge/documents/{document_id}/content:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+      - name: document_id
+        in: path
+        required: true
+        schema: {type: string, format: uuid}
+    get:
+      x-ensemus-status: planned
+      tags: [knowledge]
+      summary: The original bytes, as a citation's way back to its source
+      responses:
+        '200':
+          description: The file, as an attachment
+          content:
+            application/octet-stream:
+              schema: {type: string, format: binary}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+  /organizations/{organization_id}/knowledge/answers:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+    post:
+      x-ensemus-status: planned
+      tags: [knowledge]
+      summary: Ask a question. A worker answers it under the asker's own access
+      parameters: [{$ref: '#/components/parameters/IdempotencyKey'}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [question]
+              properties:
+                question: {type: string, minLength: 1, maxLength: 4000}
+      responses:
+        '202':
+          description: Asked. Read it back by its ID
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/KnowledgeAnswer'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+  /organizations/{organization_id}/knowledge/answers/{answer_id}:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+      - name: answer_id
+        in: path
+        required: true
+        schema: {type: string, format: uuid}
+    get:
+      x-ensemus-status: planned
+      tags: [knowledge]
+      summary: One answer with its citations, for the person who asked, while they can read every source
+      responses:
+        '200':
+          description: The answer
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/KnowledgeAnswer'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+  /organizations/{organization_id}/knowledge/facts:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+    get:
+      x-ensemus-status: planned
+      tags: [knowledge]
+      summary: Facts the caller can read every source of
+      parameters:
+        - name: subject_ref
+          in: query
+          schema: {type: string, maxLength: 64}
+        - name: trust_state
+          in: query
+          schema: {type: string, enum: [proposed, verified, disputed, superseded, rejected]}
+        - name: cursor
+          in: query
+          schema: {type: string, minLength: 1, maxLength: 512}
+      responses:
+        '200':
+          description: One page
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [items, next_cursor]
+                properties:
+                  items:
+                    type: array
+                    items: {$ref: '#/components/schemas/KnowledgeFact'}
+                  next_cursor: {type: [string, 'null']}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+    post:
+      x-ensemus-status: planned
+      tags: [knowledge]
+      summary: Propose a fact, on evidence the proposer can read. It is not trusted until reviewed
+      parameters: [{$ref: '#/components/parameters/IdempotencyKey'}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [subject_ref, predicate, claim, evidence]
+              properties:
+                subject_ref: {type: string, maxLength: 64}
+                predicate: {type: string, pattern: '^[a-z][a-z0-9_.]{0,63}$'}
+                claim: {}
+                evidence:
+                  type: array
+                  minItems: 1
+                  maxItems: 20
+                  items:
+                    type: object
+                    additionalProperties: false
+                    required: [chunk_id, quote_start, quote_end]
+                    properties:
+                      chunk_id: {type: string, format: uuid}
+                      quote_start: {type: integer, minimum: 0}
+                      quote_end: {type: integer, minimum: 1}
+                valid_from: {type: string, format: date-time}
+                valid_until: {type: string, format: date-time}
+      responses:
+        '201':
+          description: Stored as proposed, or as disputed if it conflicts with a record
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/KnowledgeFact'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+  /organizations/{organization_id}/knowledge/facts/{fact_id}/review:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+      - name: fact_id
+        in: path
+        required: true
+        schema: {type: string, format: uuid}
+    post:
+      x-ensemus-status: planned
+      tags: [knowledge]
+      summary: A person verifies or rejects a fact. Nothing else can make one verified
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [decision, reason]
+              properties:
+                decision: {type: string, enum: [verify, reject]}
+                reason: {type: string, minLength: 1, maxLength: 2000}
+      responses:
+        '200':
+          description: The fact
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/KnowledgeFact'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '428': {$ref: '#/components/responses/PreconditionRequired'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+  /organizations/{organization_id}/knowledge/graph/traverse:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+    post:
+      x-ensemus-status: planned
+      tags: [knowledge]
+      summary: Walk typed links from one node, never through what the caller cannot see
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [from]
+              properties:
+                from: {$ref: '#/components/schemas/GraphNode'}
+                relations:
+                  type: array
+                  maxItems: 20
+                  items: {type: string, pattern: '^[a-z][a-z0-9_]{0,63}$'}
+                depth: {type: integer, minimum: 1, maximum: 3}
+                limit: {type: integer, minimum: 1, maximum: 200}
+      responses:
+        '200':
+          description: What was reached
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [nodes, edges, truncated]
+                properties:
+                  nodes:
+                    type: array
+                    items:
+                      allOf:
+                        - {$ref: '#/components/schemas/GraphNode'}
+                        - type: object
+                          required: [depth, label]
+                          properties:
+                            depth: {type: integer}
+                            label: {type: string}
+                  edges:
+                    type: array
+                    items:
+                      type: object
+                      required: [from, relation, to, origin]
+                      properties:
+                        from: {$ref: '#/components/schemas/GraphNode'}
+                        relation: {type: string}
+                        to: {$ref: '#/components/schemas/GraphNode'}
+                        origin: {type: string, enum: [record, person, fact]}
+                  truncated: {type: boolean}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+  /organizations/{organization_id}/knowledge/graph/edges:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+    post:
+      x-ensemus-status: planned
+      tags: [knowledge]
+      summary: Add a typed link the tables do not already hold
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [from, relation, to]
+              properties:
+                from: {$ref: '#/components/schemas/GraphNode'}
+                relation: {type: string, pattern: '^[a-z][a-z0-9_]{0,63}$'}
+                to: {$ref: '#/components/schemas/GraphNode'}
+      responses:
+        '201':
+          description: Linked
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [edge_id]
+                properties:
+                  edge_id: {type: string, format: uuid}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+  /organizations/{organization_id}/search:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+    get:
+      x-ensemus-status: planned
+      tags: [knowledge]
+      summary: Company search over what the caller may see. Each kind filters inside its query
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema: {type: string, minLength: 1, maxLength: 200}
+        - name: kinds
+          in: query
+          schema:
+            type: array
+            maxItems: 6
+            items: {type: string, enum: [work_unit, client, project, person, team, document]}
+        - name: limit
+          in: query
+          schema: {type: integer, minimum: 1, maximum: 50}
+      responses:
+        '200':
+          description: Hits
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
                 required: [items]
                 properties:
                   items:
                     type: array
                     items:
                       type: object
-                      required: [source_id, excerpt, source_version]
+                      additionalProperties: false
+                      required: [kind, id, title, excerpt, path]
                       properties:
-                        source_id: {type: string, format: uuid}
-                        source_version: {type: string}
-                        excerpt: {type: string}
-                        citation_ref: {type: string}
+                        kind: {type: string, enum: [work_unit, client, project, person, team, document]}
+                        id: {type: string, format: uuid}
+                        title: {type: string}
+                        excerpt: {type: [string, 'null']}
+                        path: {type: string}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
         '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+  /organizations/{organization_id}/egress-ledger:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+    get:
+      x-ensemus-status: planned
+      tags: [governance]
+      summary: Which data class went, or was refused, to which provider, when, why and under which policy
+      parameters:
+        - name: cursor
+          in: query
+          schema: {type: string, minLength: 1, maxLength: 512}
+        - name: limit
+          in: query
+          schema: {type: integer, minimum: 1, maximum: 500}
+      responses:
+        '200':
+          description: One page, newest first. Codes and IDs, and never company text
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [items, next_cursor]
+                properties:
+                  items:
+                    type: array
+                    items: {$ref: '#/components/schemas/EgressLedgerEntry'}
+                  next_cursor: {type: [string, 'null']}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+  /organizations/{organization_id}/egress-simulations:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+    post:
+      x-ensemus-status: planned
+      tags: [governance]
+      summary: What a proposed provider would be sent. Nothing is transmitted, and nothing is stored
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [provider_kind, destination_host, region, contract_ref, allowed_classes, purposes]
+              properties:
+                provider_kind: {type: string, pattern: '^[a-z][a-z0-9_]{1,63}$'}
+                destination_host: {type: string, pattern: '^[a-z0-9.-]{1,253}$'}
+                region: {type: [string, 'null'], maxLength: 64}
+                contract_ref: {type: [string, 'null'], maxLength: 128}
+                allowed_classes:
+                  type: array
+                  maxItems: 4
+                  items: {type: string, enum: [public, internal, confidential, restricted]}
+                purposes:
+                  type: array
+                  minItems: 1
+                  maxItems: 3
+                  items: {type: string, enum: [embed, rerank, answer]}
+      responses:
+        '200':
+          description: One row per workload per class
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [rows]
+                properties:
+                  rows:
+                    type: array
+                    items:
+                      type: object
+                      additionalProperties: false
+                      required: [workload_key, kind, purpose, classification, would_transmit, reason_code, policy_version]
+                      properties:
+                        workload_key: {type: string}
+                        kind: {type: string, enum: [knowledge, agent]}
+                        purpose: {type: string, enum: [embed, rerank, answer]}
+                        classification: {type: string, enum: [public, internal, confidential, restricted]}
+                        would_transmit: {type: boolean}
+                        reason_code: {type: string}
+                        policy_version: {type: string}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+  /organizations/{organization_id}/connections/{connection_id}/mcp-tools:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+      - $ref: '#/components/parameters/ConnectionID'
+    get:
+      x-ensemus-status: planned
+      tags: [connections]
+      summary: What an MCP server says it offers, and what an admin has decided about each tool
+      responses:
+        '200':
+          description: Its tools. Their descriptions are the server's words, and confer nothing
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: {$ref: '#/components/schemas/McpTool'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+  /organizations/{organization_id}/connections/{connection_id}/mcp-tools/{mcp_tool_id}/review:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+      - $ref: '#/components/parameters/ConnectionID'
+      - name: mcp_tool_id
+        in: path
+        required: true
+        schema: {type: string, format: uuid}
+    post:
+      x-ensemus-status: planned
+      tags: [connections]
+      summary: An admin approves or rejects one tool, setting its effect level themselves
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [decision]
+              properties:
+                decision: {type: string, enum: [approve, reject]}
+                side_effect_level: {type: string, enum: [read_only, external_write]}
+                allowed_classes:
+                  type: array
+                  maxItems: 3
+                  items: {type: string, enum: [public, internal, confidential]}
+      responses:
+        '200':
+          description: The tool
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/McpTool'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '428': {$ref: '#/components/responses/PreconditionRequired'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+  /organizations/{organization_id}/work-units/{work_unit_id}/artifacts/{artifact_id}/verification:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+      - name: work_unit_id
+        in: path
+        required: true
+        schema: {type: string, format: uuid}
+      - name: artifact_id
+        in: path
+        required: true
+        schema: {type: string, format: uuid}
+    get:
+      x-ensemus-status: planned
+      tags: [work]
+      summary: Whether an artifact's citations hold, and whether a person has accepted it
+      responses:
+        '200':
+          description: Its record
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ArtifactVerification'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+    post:
+      x-ensemus-status: planned
+      tags: [work]
+      summary: A person accepts or rejects exactly these bytes against the work's objective
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [artifact_sha256, verdict]
+              properties:
+                artifact_sha256: {type: string, pattern: '^[0-9a-f]{64}$'}
+                verdict: {type: string, enum: [accepted, rejected]}
+                reason: {type: string, minLength: 1, maxLength: 2000}
+      responses:
+        '200':
+          description: Its record
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ArtifactVerification'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+  /organizations/{organization_id}/client-onboardings:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+    post:
+      x-ensemus-status: planned
+      tags: [work]
+      summary: A deal was won. Starts the onboarding, once per deal
+      parameters: [{$ref: '#/components/parameters/IdempotencyKey'}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [deal_ref, client_name, project_name, owner_membership_id, reviewer_membership_id, email_connection_id, contact_email]
+              properties:
+                deal_ref: {type: string, minLength: 1, maxLength: 128}
+                client_name: {type: string, minLength: 1, maxLength: 200}
+                project_name: {type: string, minLength: 1, maxLength: 200}
+                owner_membership_id: {type: string, format: uuid}
+                reviewer_membership_id: {type: string, format: uuid}
+                email_connection_id: {type: string, format: uuid}
+                contact_email: {type: string, format: email, maxLength: 254}
+      responses:
+        '201':
+          description: Started
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ClientOnboarding'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+  /organizations/{organization_id}/client-onboardings/{client_onboarding_id}:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+      - name: client_onboarding_id
+        in: path
+        required: true
+        schema: {type: string, format: uuid}
+    get:
+      x-ensemus-status: planned
+      tags: [work]
+      summary: How one onboarding stands, with its receipt and measured cost
+      responses:
+        '200':
+          description: The onboarding
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ClientOnboarding'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
   /organizations/{organization_id}/model-profiles:
     parameters:
       - $ref: '#/components/parameters/OrganizationID'
@@ -804,7 +1626,265 @@ components:
       in: path
       required: true
       schema: {type: string, format: uuid}
+    SourceID:
+      name: source_id
+      in: path
+      required: true
+      description: A source the caller's ACL does not cover answers as if it did not exist.
+      schema: {type: string, format: uuid}
   schemas:
+    KnowledgeGrant:
+      oneOf:
+        - type: object
+          additionalProperties: false
+          required: [kind, membership_id]
+          properties:
+            kind: {type: string, const: membership}
+            membership_id: {type: string, format: uuid}
+        - type: object
+          additionalProperties: false
+          required: [kind, team_id]
+          properties:
+            kind: {type: string, const: team}
+            team_id: {type: string, format: uuid}
+        - type: object
+          additionalProperties: false
+          required: [kind]
+          properties:
+            kind: {type: string, const: organization}
+    KnowledgeSource:
+      type: object
+      additionalProperties: false
+      required: [id, kind, state, classification, title, can_read, document_state, embedding_state, searchable_at, source_modified_at, version, created_at]
+      properties:
+        id: {type: string, format: uuid}
+        kind: {type: string, enum: [upload, connector]}
+        state: {type: string, enum: [active, revoked, deleted]}
+        classification: {type: string, enum: [public, internal, confidential, restricted]}
+        title:
+          type: [string, 'null']
+          description: Null when the caller's ACL does not cover it.
+        can_read: {type: boolean}
+        document_state:
+          type: [string, 'null']
+          enum: [received, parsing, searchable, rejected, failed, purged, null]
+        embedding_state:
+          type: [string, 'null']
+          enum: [pending, embedding, embedded, denied, failed, null]
+        searchable_at: {type: [string, 'null'], format: date-time}
+        source_modified_at: {type: [string, 'null'], format: date-time}
+        scan_state:
+          type: [string, 'null']
+          enum: [not_scanned, clean, flagged, null]
+          description: No scanner ships, and `not_scanned` says so.
+        reject_code: {type: [string, 'null']}
+        source_url: {type: [string, 'null'], format: uri}
+        grants_managed_by_provider: {type: boolean}
+        version: {type: integer}
+        created_at: {type: string, format: date-time}
+    KnowledgePurge:
+      type: object
+      additionalProperties: false
+      required: [source_id, reason, state, counts, requested_at, completed_at, last_error_code]
+      properties:
+        source_id: {type: string, format: uuid}
+        reason: {type: string, enum: [deleted, revoked, connection_revoked, resource_gone, restore_reapply]}
+        state: {type: string, enum: [pending, running, completed, failed]}
+        counts:
+          type: object
+          additionalProperties: false
+          required: [documents, chunks, embeddings, facts, answers, blobs]
+          properties:
+            documents: {type: integer}
+            chunks: {type: integer}
+            embeddings: {type: integer}
+            facts: {type: integer}
+            answers: {type: integer}
+            blobs: {type: integer}
+        requested_at: {type: string, format: date-time}
+        completed_at: {type: [string, 'null'], format: date-time}
+        last_error_code: {type: [string, 'null']}
+    KnowledgePassage:
+      type: object
+      additionalProperties: false
+      required: [chunk_id, document_id, source_id, excerpt, title, classification, source_version, source_url, source_modified_at]
+      properties:
+        chunk_id: {type: string, format: uuid}
+        document_id: {type: string, format: uuid}
+        source_id: {type: string, format: uuid}
+        excerpt: {type: string}
+        title: {type: string}
+        classification: {type: string, enum: [public, internal, confidential, restricted]}
+        source_version: {type: [string, 'null']}
+        source_url: {type: [string, 'null'], format: uri}
+        source_modified_at: {type: [string, 'null'], format: date-time}
+    KnowledgeAnswer:
+      type: object
+      additionalProperties: false
+      required: [id, state, question, answer_text, refusal_code, citations, strongest_classification, cost_micros, created_at, finished_at]
+      properties:
+        id: {type: string, format: uuid}
+        state: {type: string, enum: [queued, running, answered, no_evidence, refused, failed]}
+        question: {type: string}
+        answer_text: {type: [string, 'null']}
+        refusal_code: {type: [string, 'null']}
+        citations:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [ordinal, answer_start, answer_end, document_id, source_id, title, excerpt, source_version, source_url, source_modified_at, freshness]
+            properties:
+              ordinal: {type: integer}
+              answer_start: {type: integer}
+              answer_end: {type: integer}
+              document_id: {type: string, format: uuid}
+              source_id: {type: string, format: uuid}
+              title: {type: string}
+              excerpt: {type: string}
+              source_version: {type: [string, 'null']}
+              source_url: {type: [string, 'null'], format: uri}
+              source_modified_at: {type: [string, 'null'], format: date-time}
+              freshness: {type: string, enum: [current, superseded]}
+        strongest_classification:
+          type: [string, 'null']
+          enum: [public, internal, confidential, restricted, null]
+        cost_micros:
+          type: [integer, 'null']
+          description: An estimate, in micro-USD. Null when the model's profile has no rate card.
+        created_at: {type: string, format: date-time}
+        finished_at: {type: [string, 'null'], format: date-time}
+    KnowledgeFact:
+      type: object
+      additionalProperties: false
+      required: [id, subject_ref, predicate, claim, trust_state, origin, classification, conflict_ref, evidence, version, created_at]
+      properties:
+        id: {type: string, format: uuid}
+        subject_ref: {type: string}
+        predicate: {type: string}
+        claim: {}
+        trust_state: {type: string, enum: [proposed, verified, disputed, superseded, rejected]}
+        origin: {type: string, enum: [model, person]}
+        classification: {type: string, enum: [public, internal, confidential, restricted]}
+        conflict_ref: {type: [string, 'null']}
+        reviewed_by_membership_id: {type: [string, 'null'], format: uuid}
+        reviewed_at: {type: [string, 'null'], format: date-time}
+        evidence:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [chunk_id, document_id, source_id, title, excerpt, stale]
+            properties:
+              chunk_id: {type: string, format: uuid}
+              document_id: {type: string, format: uuid}
+              source_id: {type: string, format: uuid}
+              title: {type: string}
+              excerpt: {type: string}
+              stale: {type: boolean}
+        version: {type: integer}
+        created_at: {type: string, format: date-time}
+    GraphNode:
+      type: object
+      required: [type, id]
+      properties:
+        type: {type: string, enum: [client, project, membership, team, work_unit, knowledge_source]}
+        id: {type: string, format: uuid}
+    EgressLedgerEntry:
+      type: object
+      additionalProperties: false
+      required: [id, occurred_at, source, purpose, data_class, model_profile_ref, provider_kind, destination_host, decision, reason_code, policy_version, request_sha256, run_id]
+      properties:
+        id: {type: string, format: uuid}
+        occurred_at: {type: string, format: date-time}
+        source: {type: string, enum: [knowledge, agent_run]}
+        purpose: {type: string}
+        data_class: {type: string, enum: [public, internal, confidential, restricted]}
+        model_profile_ref: {type: [string, 'null'], format: uuid}
+        provider_kind: {type: [string, 'null']}
+        destination_host: {type: [string, 'null']}
+        decision: {type: string, enum: [allow, deny]}
+        reason_code: {type: string}
+        policy_version: {type: string}
+        request_sha256: {type: [string, 'null']}
+        run_id: {type: [string, 'null'], format: uuid}
+    McpTool:
+      type: object
+      additionalProperties: false
+      required: [id, connection_id, tool_name, definition, definition_sha256, status, side_effect_level, allowed_classes, reviewed_at, version]
+      properties:
+        id: {type: string, format: uuid}
+        connection_id: {type: string, format: uuid}
+        tool_name: {type: string}
+        definition: {description: "The server's own words, shown as such."}
+        definition_sha256: {type: string}
+        status: {type: string, enum: [pending_review, approved, rejected, removed]}
+        side_effect_level:
+          type: [string, 'null']
+          enum: [read_only, external_write, null]
+        allowed_classes:
+          type: array
+          items: {type: string, enum: [public, internal, confidential]}
+        reviewed_at: {type: [string, 'null'], format: date-time}
+        version: {type: integer}
+    ArtifactVerification:
+      type: object
+      additionalProperties: false
+      required: [artifact_id, artifact_sha256, grounding, human, citations]
+      properties:
+        artifact_id: {type: string, format: uuid}
+        artifact_sha256: {type: string}
+        grounding:
+          type: [object, 'null']
+          required: [verdict, reason_code, at]
+          properties:
+            verdict: {type: string, enum: [passed, failed]}
+            reason_code: {type: [string, 'null']}
+            at: {type: string, format: date-time}
+        human:
+          type: [object, 'null']
+          required: [verdict, by, reason, at]
+          properties:
+            verdict: {type: string, enum: [accepted, rejected]}
+            by: {type: string, format: uuid}
+            reason: {type: [string, 'null']}
+            at: {type: string, format: date-time}
+        citations:
+          type: array
+          items:
+            type: object
+            required: [ordinal, document_id, source_id, title, excerpt, available]
+            properties:
+              ordinal: {type: integer}
+              document_id: {type: string, format: uuid}
+              source_id: {type: string, format: uuid}
+              title: {type: [string, 'null']}
+              excerpt: {type: [string, 'null']}
+              available: {type: boolean}
+    ClientOnboarding:
+      type: object
+      additionalProperties: false
+      required: [id, deal_ref, state, state_code, client_id, project_id, work_unit_id, cost_micros, receipt, version, created_at, finished_at]
+      properties:
+        id: {type: string, format: uuid}
+        deal_ref: {type: string}
+        state: {type: string, enum: [started, waiting_for_brief, waiting_for_acceptance, waiting_for_send, completed, failed, unknown]}
+        state_code: {type: [string, 'null']}
+        client_id: {type: string, format: uuid}
+        project_id: {type: string, format: uuid}
+        work_unit_id: {type: string, format: uuid}
+        cost_micros:
+          type: [integer, 'null']
+          description: An estimate, in micro-USD, from the usage ledger.
+        receipt:
+          type: [object, 'null']
+          required: [status, external_id]
+          properties:
+            status: {type: string}
+            external_id: {type: [string, 'null']}
+        version: {type: integer}
+        created_at: {type: string, format: date-time}
+        finished_at: {type: [string, 'null'], format: date-time}
     CreateWorkUnit:
       type: object
       additionalProperties: false

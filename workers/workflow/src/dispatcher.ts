@@ -21,11 +21,32 @@ import {
   EXTERNAL_ACTION_READY,
   WEBHOOK_RECEIVED,
 } from '@ensemus/domain/integration-events';
+import {
+  AGGREGATE_CLIENT_ONBOARDING,
+  AGGREGATE_KNOWLEDGE_ANSWER,
+  AGGREGATE_KNOWLEDGE_DOCUMENT,
+  AGGREGATE_KNOWLEDGE_SOURCE,
+  CLIENT_ONBOARDING_REQUESTED,
+  KNOWLEDGE_ANSWER_REQUESTED,
+  KNOWLEDGE_DOCUMENT_RECEIVED,
+  KNOWLEDGE_SOURCE_CLOSED,
+} from '@ensemus/domain/knowledge-events';
 import { TOMBSTONE_RECORDED } from '@ensemus/domain/tombstone-ledger';
 import { S3ObjectStore } from '@ensemus/storage';
 import { createLogger, errorCode } from '@ensemus/telemetry';
 import { AesGcmPayloadCodec } from '@ensemus/workflows/codec';
 import { PLATFORM_TASK_QUEUE } from '@ensemus/workflows/constants';
+import {
+  clientOnboardingInputSchema,
+  clientOnboardingWorkflowIdFor,
+  knowledgeAnswerInputSchema,
+  knowledgeAnswerWorkflowIdFor,
+  knowledgeIngestInputSchema,
+  knowledgeIngestWorkflowIdFor,
+  knowledgePurgeInputSchema,
+  knowledgePurgeWorkflowIdFor,
+  knowledgeSweepScheduleIdFor,
+} from '@ensemus/workflows/knowledge-schemas';
 import {
   connectorSyncInputSchema,
   connectorSyncWorkflowIdFor,
@@ -54,6 +75,8 @@ const log = createLogger('dispatcher');
 const here = path.dirname(fileURLToPath(import.meta.url));
 const IDLE_MS = 500;
 const REMINDER_INTERVAL = '15 minutes';
+/** How often a tenant's connector content is looked at. A revoke does not wait for this (ADR-029 D1). */
+const KNOWLEDGE_SWEEP_INTERVAL = '15 minutes';
 /** One Temporal call may never hold up the signals behind it for longer than this. */
 const CALL_DEADLINE_MS = 10_000;
 /** How often to try checking the reminder schedules again if Temporal was down at startup. */
@@ -100,6 +123,21 @@ async function main() {
         action: {
           type: 'startWorkflow',
           workflowType: 'tenantRemindersWorkflow',
+          args: [scheduleInput],
+          taskQueue: PLATFORM_TASK_QUEUE,
+        },
+      });
+    } catch (error) {
+      if (!(error instanceof ScheduleAlreadyRunning)) throw error;
+    }
+    try {
+      await client.schedule.create({
+        scheduleId: knowledgeSweepScheduleIdFor(organizationId),
+        spec: { intervals: [{ every: KNOWLEDGE_SWEEP_INTERVAL }] },
+        policies: { overlap: ScheduleOverlapPolicy.SKIP },
+        action: {
+          type: 'startWorkflow',
+          workflowType: 'knowledgeSweepWorkflow',
           args: [scheduleInput],
           taskQueue: PLATFORM_TASK_QUEUE,
         },
@@ -224,6 +262,51 @@ async function main() {
         }
         return;
       }
+
+      // M5 (ADR-029). Each ID can only ever run once: one document, one source's purge, one question.
+      case KNOWLEDGE_DOCUMENT_RECEIVED:
+        if (event.aggregateType !== AGGREGATE_KNOWLEDGE_DOCUMENT) return;
+        await startOnce('knowledgeIngestWorkflow', {
+          input: knowledgeIngestInputSchema.parse({
+            organizationId: event.organizationId,
+            documentId: event.aggregateId,
+          }),
+          workflowIdFor: knowledgeIngestWorkflowIdFor,
+        });
+        return;
+
+      case KNOWLEDGE_SOURCE_CLOSED:
+        if (event.aggregateType !== AGGREGATE_KNOWLEDGE_SOURCE) return;
+        await startOnce('knowledgePurgeWorkflow', {
+          input: knowledgePurgeInputSchema.parse({
+            organizationId: event.organizationId,
+            sourceId: event.aggregateId,
+          }),
+          workflowIdFor: knowledgePurgeWorkflowIdFor,
+        });
+        return;
+
+      case KNOWLEDGE_ANSWER_REQUESTED:
+        if (event.aggregateType !== AGGREGATE_KNOWLEDGE_ANSWER) return;
+        await startOnce('knowledgeAnswerWorkflow', {
+          input: knowledgeAnswerInputSchema.parse({
+            organizationId: event.organizationId,
+            answerId: event.aggregateId,
+          }),
+          workflowIdFor: knowledgeAnswerWorkflowIdFor,
+        });
+        return;
+
+      case CLIENT_ONBOARDING_REQUESTED:
+        if (event.aggregateType !== AGGREGATE_CLIENT_ONBOARDING) return;
+        await startOnce('clientOnboardingWorkflow', {
+          input: clientOnboardingInputSchema.parse({
+            organizationId: event.organizationId,
+            onboardingId: event.aggregateId,
+          }),
+          workflowIdFor: clientOnboardingWorkflowIdFor,
+        });
+        return;
 
       default:
         // Nothing consumes this event yet. It stays in domain_events for projections.

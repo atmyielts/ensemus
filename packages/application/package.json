@@ -4,7 +4,22 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./knowledge/ports": "./src/knowledge/ports.ts",
+    "./knowledge/sources": "./src/knowledge/sources.ts",
+    "./knowledge/ingest": "./src/knowledge/ingest.ts",
+    "./knowledge/embeddings": "./src/knowledge/embeddings.ts",
+    "./knowledge/egress": "./src/knowledge/egress.ts",
+    "./knowledge/retrieval": "./src/knowledge/retrieval.ts",
+    "./knowledge/company-search": "./src/knowledge/company-search.ts",
+    "./knowledge/compiler": "./src/knowledge/compiler.ts",
+    "./knowledge/answers": "./src/knowledge/answers.ts",
+    "./knowledge/facts": "./src/knowledge/facts.ts",
+    "./knowledge/graph": "./src/knowledge/graph.ts",
+    "./knowledge/purge": "./src/knowledge/purge.ts",
+    "./knowledge/mcp": "./src/knowledge/mcp.ts",
+    "./knowledge/verification": "./src/knowledge/verification.ts",
+    "./knowledge/onboarding": "./src/knowledge/onboarding.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"
@@ -13,6 +28,7 @@
     "@ensemus/contracts": "workspace:*",
     "@ensemus/database": "workspace:*",
     "@ensemus/domain": "workspace:*",
+    "@ensemus/knowledge": "workspace:*",
     "drizzle-orm": "0.45.4",
     "zod": "4.6.7"
   }

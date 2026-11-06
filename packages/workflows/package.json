@@ -15,7 +15,15 @@
     "./connector-deps": "./src/connector-deps.ts",
     "./external-action-activities": "./src/external-action-activities.ts",
     "./webhook-activities": "./src/webhook-activities.ts",
-    "./connector-sync-activities": "./src/connector-sync-activities.ts"
+    "./connector-sync-activities": "./src/connector-sync-activities.ts",
+    "./knowledge-schemas": "./src/knowledge-schemas.ts",
+    "./knowledge-deps": "./src/knowledge-deps.ts",
+    "./knowledge-ingest-activities": "./src/knowledge-ingest-activities.ts",
+    "./knowledge-connector-activities": "./src/knowledge-connector-activities.ts",
+    "./knowledge-embed-activities": "./src/knowledge-embed-activities.ts",
+    "./knowledge-answer-activities": "./src/knowledge-answer-activities.ts",
+    "./knowledge-purge-activities": "./src/knowledge-purge-activities.ts",
+    "./client-onboarding-activities": "./src/client-onboarding-activities.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"
@@ -25,6 +33,7 @@
     "@ensemus/connectors": "workspace:*",
     "@ensemus/database": "workspace:*",
     "@ensemus/domain": "workspace:*",
+    "@ensemus/knowledge": "workspace:*",
     "@ensemus/telemetry": "workspace:*",
     "drizzle-orm": "0.45.4",
     "@temporalio/client": "1.25.0",

@@ -154,3 +154,10 @@ export async function tenantRemindersWorkflow(input: TenantInput): Promise<void>
 export { connectorSyncWorkflow } from './connector-sync-workflow';
 export { externalActionWorkflow } from './external-action-workflow';
 export { webhookDeliveryWorkflow } from './webhook-workflow';
+
+// M5 (ADR-029). The same.
+export { clientOnboardingWorkflow } from './client-onboarding-workflow';
+export { knowledgeAnswerWorkflow } from './knowledge-answer-workflow';
+export { knowledgeIngestWorkflow } from './knowledge-ingest-workflow';
+export { knowledgePurgeWorkflow } from './knowledge-purge-workflow';
+export { knowledgeSweepWorkflow } from './knowledge-sweep-workflow';

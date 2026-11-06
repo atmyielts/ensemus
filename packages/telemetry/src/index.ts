@@ -37,6 +37,16 @@ const SAFE_FIELDS = new Set([
   'failed',
   // IDs and a type, which an operator needs in order to decide about one entry (ADR-026).
   'ledgerEntry',
+  // IDs and counts from company knowledge (ADR-029). Never a title, a query or a passage.
+  'sourceId',
+  'documentId',
+  'answerId',
+  'factId',
+  'spaceId',
+  'purgeJobId',
+  'chunks',
+  'embeddings',
+  'closed',
 ]);
 
 // Safe values are short and machine-shaped. Free text is refused even under a safe field name.

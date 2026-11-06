@@ -55,6 +55,9 @@ importers:
       '@ensemus/domain':
         specifier: workspace:*
         version: link:../../packages/domain
+      '@ensemus/knowledge':
+        specifier: workspace:*
+        version: link:../../packages/knowledge
       '@ensemus/secrets':
         specifier: workspace:*
         version: link:../../packages/secrets
@@ -101,6 +104,9 @@ importers:
       '@ensemus/domain':
         specifier: workspace:*
         version: link:../domain
+      '@ensemus/knowledge':
+        specifier: workspace:*
+        version: link:../knowledge
       drizzle-orm:
         specifier: 0.45.4
         version: 0.45.4(@types/pg@8.23.1)(kysely@0.29.8)(pg@8.23.1)
@@ -172,6 +178,12 @@ importers:
 
   packages/domain: {}
 
+  packages/knowledge:
+    dependencies:
+      '@ensemus/domain':
+        specifier: workspace:*
+        version: link:../domain
+
   packages/secrets:
     dependencies:
       '@ensemus/database':
@@ -203,6 +215,9 @@ importers:
       '@ensemus/domain':
         specifier: workspace:*
         version: link:../domain
+      '@ensemus/knowledge':
+        specifier: workspace:*
+        version: link:../knowledge
       '@ensemus/telemetry':
         specifier: workspace:*
         version: link:../telemetry
@@ -245,6 +260,9 @@ importers:
       '@ensemus/domain':
         specifier: workspace:*
         version: link:../packages/domain
+      '@ensemus/knowledge':
+        specifier: workspace:*
+        version: link:../packages/knowledge
       '@ensemus/secrets':
         specifier: workspace:*
         version: link:../packages/secrets
@@ -340,6 +358,9 @@ importers:
       '@ensemus/domain':
         specifier: workspace:*
         version: link:../../packages/domain
+      '@ensemus/knowledge':
+        specifier: workspace:*
+        version: link:../../packages/knowledge
       '@ensemus/secrets':
         specifier: workspace:*
         version: link:../../packages/secrets

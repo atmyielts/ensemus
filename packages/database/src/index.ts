@@ -41,3 +41,4 @@ export {
 } from './schema';
 export * from './schema-work';
 export * from './schema-integrations';
+export * from './schema-knowledge';
