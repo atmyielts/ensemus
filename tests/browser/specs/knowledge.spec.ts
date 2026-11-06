@@ -54,7 +54,14 @@ test.describe('company knowledge native forms', () => {
       title = `Keep source draft ${randomUUID()}`;
     await page.goto(`/o/${world.organization}/knowledge/new`);
     await page.getByLabel('Source name', { exact: true }).fill(title);
-    await page.getByLabel('Share with (optional)', { exact: true }).selectOption('organization');
+    // A normal restricted selector offers named people only. Forge a wider native form value to
+    // exercise the server refusal rather than presenting that ineligible option in the product.
+    await page.evaluate(() => {
+      const field = document.querySelector<HTMLSelectElement>('select[name="sharing"]');
+      if (!field) throw new Error('MISSING_SHARING');
+      field.add(new Option('Forged organization grant', 'organization'));
+      field.value = 'organization';
+    });
     await page.getByLabel('Document', { exact: true }).setInputFiles({
       name: 'source.txt',
       mimeType: 'text/plain',

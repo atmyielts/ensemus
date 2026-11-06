@@ -11,6 +11,7 @@ import {
 } from '@ensemus/application';
 import {
   addUploadedSource,
+  addDocumentVersion,
   setSourceGrants,
   raiseSourceClassification,
 } from '@ensemus/application/knowledge/sources';
@@ -54,6 +55,19 @@ const parse = <S extends z.ZodType>(schema: S, value: unknown): z.output<S> => {
   if (!result.success) throw new AppError('INVALID_INPUT');
   return result.data;
 };
+function sourceGrantChoice(choice: string): contracts.SourceGrantBody[] {
+  if (!choice || choice === 'private') return [];
+  return [
+    parse(
+      contracts.sourceGrantSchema,
+      choice === 'organization'
+        ? { kind: 'organization' }
+        : choice.startsWith('team:')
+          ? { kind: 'team', team_id: choice.slice(5) }
+          : { kind: 'membership', membership_id: choice },
+    ),
+  ];
+}
 type Tenant = Awaited<ReturnType<typeof requireTenant>>;
 async function run(
   form: FormData,
@@ -115,12 +129,7 @@ export async function uploadKnowledgeAction(_state: KnowledgeFormState, form: Fo
     const metadata = parse(contracts.addSourceSchema, {
       title: text(form, 'title'),
       classification: text(form, 'classification'),
-      grants:
-        sharing === 'organization'
-          ? [{ kind: 'organization' }]
-          : sharing
-            ? [{ kind: 'membership', membership_id: sharing }]
-            : [],
+      grants: sourceGrantChoice(sharing),
     });
     const row = await addUploadedSource(tenant.database, getStore(), tenant.context, {
       title: metadata.title,
@@ -143,6 +152,22 @@ export async function askKnowledgeAction(_state: KnowledgeFormState, form: FormD
       askQuestion(db, tenant.context, b),
     );
     return `/o/${org}/knowledge/answers/${row.answerId}`;
+  });
+}
+export async function uploadKnowledgeVersionAction(_state: KnowledgeFormState, form: FormData) {
+  return run(form, async (tenant, org) => {
+    const sourceId = identifier(form, 'sourceId'),
+      file = form.get('file');
+    if (!(file instanceof File) || !file.size) throw new AppError('INVALID_INPUT');
+    if (file.size > MAX_DOCUMENT_BYTES) throw new AppError('FILE_TOO_LARGE');
+    const row = await addDocumentVersion(tenant.database, getStore(), tenant.context, {
+      sourceId,
+      expectedVersion: version(form),
+      title: text(form, 'title'),
+      mediaType: uploadMediaType(file),
+      body: Buffer.from(await file.arrayBuffer()),
+    });
+    return `/o/${org}/knowledge/sources/${sourceId}?version_result=${row.unchanged ? 'unchanged' : 'saved'}#source-versions`;
   });
 }
 export async function searchKnowledgeAction(_state: KnowledgeFormState, form: FormData) {
@@ -183,12 +208,7 @@ export async function changeSourceGrantsAction(_state: KnowledgeFormState, form:
       remove = optionalIdentifier(form, 'removeGrantId'),
       principal = text(form, 'principal');
     const b = parse(contracts.setSourceGrantsSchema, {
-      add:
-        principal === 'organization'
-          ? [{ kind: 'organization' }]
-          : principal
-            ? [{ kind: 'membership', membership_id: principal }]
-            : [],
+      add: sourceGrantChoice(principal),
       remove_grant_ids: remove ? [remove] : [],
     });
     await setSourceGrants(tenant.database, tenant.context, {

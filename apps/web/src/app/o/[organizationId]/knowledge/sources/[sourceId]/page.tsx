@@ -1,9 +1,10 @@
 import { listDirectory, listTeams } from '@ensemus/application';
 import { getSource } from '@ensemus/application/knowledge/sources';
-import { canRaiseClass } from '@ensemus/domain/knowledge';
+import { canRaiseClass, grantAllowedFor } from '@ensemus/domain/knowledge';
 import Link from 'next/link';
 import { KnowledgeForm } from '@/components/knowledge-form';
 import { KNOWLEDGE_CLASSES, SourceLink } from '@/components/knowledge-view';
+import { sourceSharingChoices } from '@/lib/knowledge-source-view';
 import {
   PageHead,
   ClassificationBadge,
@@ -15,20 +16,24 @@ import {
   closeKnowledgeAction,
   changeSourceGrantsAction,
   raiseSourceClassAction,
+  uploadKnowledgeVersionAction,
 } from '@/server/knowledge-actions';
 import { requireTenant } from '@/server/tenant';
 import { knowledgeOrNotFound as orNotFound } from '@/server/knowledge-page';
 export const metadata = { title: 'Knowledge source | Ensemus' };
 export default async function SourcePage({
   params,
+  searchParams,
 }: {
   params: Promise<{ organizationId: string; sourceId: string }>;
+  searchParams: Promise<{ version_result?: string }>;
 }) {
   const { organizationId, sourceId } = await params,
     { context, database } = await requireTenant(organizationId),
     source = await orNotFound(getSource(database, context, sourceId)),
     base = `/o/${organizationId}/knowledge`,
     hidden = { organizationId, sourceId, version: String(source.version) };
+  const { version_result: versionResult } = await searchParams;
   const [people, teams] = source.canManage
     ? await Promise.all([listDirectory(database, context), listTeams(database, context)])
     : [[], []];
@@ -131,12 +136,87 @@ export default async function SourcePage({
           )}
         </>
       )}
+      {source.state === 'active' &&
+        source.kind === 'upload' &&
+        source.canRead &&
+        source.canManage && (
+          <section className="stack" id="source-versions" aria-labelledby="source-versions-heading">
+            <h2 id="source-versions-heading">Source versions</h2>
+            {versionResult === 'saved' && (
+              <p className="notice" role="status">
+                The replacement file was saved. Its current processing state is shown below.
+              </p>
+            )}
+            {versionResult === 'unchanged' && (
+              <p className="notice" role="status">
+                These same bytes and source name already belong to the latest version. No extra
+                version was created.
+              </p>
+            )}
+            {source.latestVersion ? (
+              <>
+                <p>
+                  Latest version: {source.latestVersion.number} ·{' '}
+                  <StatusBadge status={source.latestVersion.state} />
+                </p>
+                {source.latestVersion.id !== source.documentId &&
+                  source.documentState === 'searchable' && (
+                    <p className="notice">
+                      {['failed', 'rejected'].includes(source.latestVersion.state)
+                        ? 'The replacement has not become searchable. The previous published version is still available.'
+                        : 'The previous published version stays available while the incoming version is processed.'}
+                    </p>
+                  )}
+                {source.latestVersion.rejectCode && (
+                  <details>
+                    <summary>Latest version processing details</summary>
+                    <p>{source.latestVersion.rejectCode}</p>
+                  </details>
+                )}
+                {['received', 'parsing'].includes(source.latestVersion.state) ? (
+                  <p>
+                    The latest version is still being processed. Check its progress before adding
+                    another replacement.
+                  </p>
+                ) : (
+                  <KnowledgeForm
+                    action={uploadKnowledgeVersionAction}
+                    hidden={hidden}
+                    submit="Upload replacement version"
+                    description="The replacement starts with this source's current sensitivity and access. Processing can raise its sensitivity. The published version remains available until a replacement is ready. An identical file and name create no extra version."
+                    fields={[
+                      {
+                        name: 'title',
+                        label: 'Source name',
+                        required: true,
+                        maxLength: 512,
+                        value: source.title ?? '',
+                      },
+                      {
+                        name: 'file',
+                        kind: 'file',
+                        label: 'Replacement document',
+                        required: true,
+                        help: 'Text, Markdown, CSV, HTML or JSON, up to 25 MB. Choose the file again if an upload is refused.',
+                      },
+                    ]}
+                  />
+                )}
+              </>
+            ) : (
+              <p>Version details are unavailable. Check again before uploading a replacement.</p>
+            )}
+            <Link className="button secondary" href={`${base}/sources/${sourceId}#source-versions`}>
+              Check version progress
+            </Link>
+          </section>
+        )}
       {source.state !== 'active' ? (
         <Link href={`${base}/sources/${sourceId}/purge`}>View removal progress</Link>
       ) : (
         source.canManage && (
-          <section className="stack">
-            <h2>Source access</h2>
+          <section className="stack" aria-labelledby="source-access-heading">
+            <h2 id="source-access-heading">Source access</h2>
             {source.grantsManagedByProvider ? (
               <p>
                 Access follows the connected provider. Change permissions there, then sync the
@@ -148,6 +228,9 @@ export default async function SourcePage({
                   {source.grants.map((grant) => (
                     <li key={grant.id}>
                       {principalName(grant)}
+                      {!grantAllowedFor(grant.kind, source.classification) && (
+                        <small> · Not effective at this sensitivity</small>
+                      )}
                       <KnowledgeForm
                         action={changeSourceGrantsAction}
                         hidden={{ ...hidden, removeGrantId: grant.id }}
@@ -168,50 +251,56 @@ export default async function SourcePage({
                       label: 'Share with',
                       required: true,
                       options: [
-                        { value: '', label: 'Choose a person' },
-                        ...(source.classification === 'public' ||
-                        source.classification === 'internal'
-                          ? [{ value: 'organization', label: 'Everyone in this organization' }]
-                          : []),
-                        ...people
-                          .filter((p) => p.status === 'active')
-                          .map((p) => ({ value: p.membershipId, label: p.name })),
+                        {
+                          value: '',
+                          label:
+                            source.classification === 'restricted'
+                              ? 'Choose a named person'
+                              : 'Choose a person, team or eligible organization access',
+                        },
+                        ...sourceSharingChoices(
+                          source.classification,
+                          people.filter((person) => person.status === 'active'),
+                          teams,
+                        ).filter((choice) => choice.value !== 'private'),
                       ],
                     },
                   ]}
                 />
               </>
             )}
-            <details>
-              <summary>Raise sensitivity</summary>
-              <p>
-                Raising sensitivity can make wider grants ineligible. It cannot be lowered here.
-              </p>
-              <KnowledgeForm
-                action={raiseSourceClassAction}
-                hidden={hidden}
-                submit="Raise sensitivity"
-                fields={[
-                  {
-                    name: 'classification',
-                    kind: 'select',
-                    label: 'New sensitivity',
-                    required: true,
-                    options: [
-                      { value: '', label: 'Choose sensitivity' },
-                      ...KNOWLEDGE_CLASSES.filter(
-                        (c) =>
-                          c.value !== source.classification &&
-                          canRaiseClass(
-                            source.classification,
-                            c.value as typeof source.classification,
-                          ),
-                      ),
-                    ],
-                  },
-                ]}
-              />
-            </details>
+            {source.classification !== 'restricted' && (
+              <details>
+                <summary>Raise sensitivity</summary>
+                <p>
+                  Raising sensitivity can make wider grants ineligible. It cannot be lowered here.
+                </p>
+                <KnowledgeForm
+                  action={raiseSourceClassAction}
+                  hidden={hidden}
+                  submit="Raise sensitivity"
+                  fields={[
+                    {
+                      name: 'classification',
+                      kind: 'select',
+                      label: 'New sensitivity',
+                      required: true,
+                      options: [
+                        { value: '', label: 'Choose sensitivity' },
+                        ...KNOWLEDGE_CLASSES.filter(
+                          (c) =>
+                            c.value !== source.classification &&
+                            canRaiseClass(
+                              source.classification,
+                              c.value as typeof source.classification,
+                            ),
+                        ),
+                      ],
+                    },
+                  ]}
+                />
+              </details>
+            )}
             <details>
               <summary>Remove this source</summary>
               <p>

@@ -81,6 +81,15 @@ export type SourceDetail = SourceSummary & {
   grants: readonly (SourceGrantInput & { id: string })[];
   /** True for a connector's source, whose permissions come from the provider and cannot be edited here. */
   grantsManagedByProvider: boolean;
+  /** Populated on the detailed read, under document RLS. It can be newer than the searchable
+   * document above; an unsuccessful replacement never hides the still-published revision. */
+  latestVersion?: {
+    id: string;
+    number: number;
+    state: DocumentState;
+    scanState: ScanState;
+    rejectCode: string | null;
+  } | null;
 };
 
 /** A readable current passage for a person's fact proposal form. IDs in a URL are never authority;
@@ -245,7 +254,8 @@ export async function addUploadedSource(
   return { sourceId, documentId };
 }
 
-/** A new version of an upload. Needs the ability to read it and `knowledge.add`. Same content: nothing. */
+/** A new version of an upload. Needs fresh readable owner/manager authority and `knowledge.add`.
+ * Same content: no extra version. A connector revision belongs to trusted provider ingestion. */
 export async function addDocumentVersion(
   database: AppDatabase,
   store: ObjectStore,
@@ -263,8 +273,10 @@ export async function addDocumentVersion(
   const hash = digest(input.body);
   const prepared = await safeWrite(() =>
     withTenantTx(database, context, async (tx) => {
-      await person(tx, context, 'add');
+      const actor = await person(tx, context, 'add');
       const source = await sourceForUpdate(tx, sourceId);
+      if (source.ownerMembershipId !== actor.id && !can(actor.role, 'knowledge.manage'))
+        throw new AppError('FORBIDDEN');
       if (source.state !== 'active') throw new AppError('KNOWLEDGE_SOURCE_CLOSED');
       if (source.kind !== 'upload') throw new AppError('KNOWLEDGE_GRANT_ON_CONNECTOR_SOURCE');
       const [latest] = await tx
@@ -367,7 +379,7 @@ export function listSources(
       .orderBy(desc(knowledgeSources.createdAt), desc(knowledgeSources.id))
       .limit(limit + 1);
     const items = await Promise.all(
-      rows.slice(0, limit).map(({ source }) => view(tx, context, source)),
+      rows.slice(0, limit).map(({ source }) => view(tx, context, source, actor.role)),
     );
     const last = rows[limit - 1];
     return {
@@ -391,11 +403,38 @@ export function getSource(
   const id = validId(sourceId);
   return withTenantTx(database, context, async (tx) => {
     const actor = await person(tx, context);
-    const [source] = await tx.select().from(knowledgeSources).where(eq(knowledgeSources.id, id));
+    // Publication/grant changes take the source's write lock. Keep the published and incoming
+    // metadata coherent while this short, authorized detail read loads both document views.
+    const [source] = await tx
+      .select()
+      .from(knowledgeSources)
+      .where(eq(knowledgeSources.id, id))
+      .for('share');
     if (!source) throw new AppError('NOT_FOUND');
-    const result = await view(tx, context, source);
+    const result = await view(tx, context, source, actor.role);
     if (!result.canRead && !can(actor.role, 'knowledge.manage')) throw new AppError('NOT_FOUND');
-    return result;
+    const [latest] = await tx
+      .select({
+        id: knowledgeDocuments.id,
+        number: knowledgeDocuments.versionNo,
+        state: knowledgeDocuments.state,
+        scanState: knowledgeDocuments.scanState,
+        rejectCode: knowledgeDocuments.rejectCode,
+      })
+      .from(knowledgeDocuments)
+      .where(eq(knowledgeDocuments.sourceId, id))
+      .orderBy(desc(knowledgeDocuments.versionNo))
+      .limit(1);
+    return {
+      ...result,
+      latestVersion: latest
+        ? {
+            ...latest,
+            state: latest.state as DocumentState,
+            scanState: latest.scanState as ScanState,
+          }
+        : null,
+    };
   });
 }
 
@@ -667,6 +706,7 @@ async function safeWrite<T>(work: () => Promise<T>) {
       EN104: 'KNOWLEDGE_GRANT_ON_CONNECTOR_SOURCE',
       EN105: 'KNOWLEDGE_GRANT_TOO_WIDE',
       '23503': 'INVALID_INPUT',
+      '42501': 'FORBIDDEN',
     } as const;
     const code = pgCode(error) as keyof typeof mapped;
     if (mapped[code]) throw new AppError(mapped[code]);
@@ -674,7 +714,12 @@ async function safeWrite<T>(work: () => Promise<T>) {
   }
 }
 
-async function view(tx: Tx, _context: TenantContext, source: SourceRow): Promise<SourceDetail> {
+async function view(
+  tx: Tx,
+  _context: TenantContext,
+  source: SourceRow,
+  role: string,
+): Promise<SourceDetail> {
   // RLS filters this read; a manager's extra ability to list sources never becomes access to titles.
   const [doc] = await tx
     .select()
@@ -691,8 +736,7 @@ async function view(tx: Tx, _context: TenantContext, source: SourceRow): Promise
     .where(eq(knowledgeSourceGrants.sourceId, source.id));
   return {
     id: source.id,
-    canManage:
-      source.ownerMembershipId === _context.membershipId || can(_context.role, 'knowledge.manage'),
+    canManage: source.ownerMembershipId === _context.membershipId || can(role, 'knowledge.manage'),
     kind: source.kind as SourceKind,
     state: source.state as SourceState,
     classification: source.classification as Classification,
@@ -731,7 +775,10 @@ async function storeUpload(
   const key = knowledgeObjectKey(context.organizationId, input.documentId);
   // Repeats must not replace an already published object's bytes after its source has moved on.
   const needed = await withTenantTx(database, context, async (tx) => {
-    await person(tx, context, 'add');
+    const actor = await person(tx, context, 'add'),
+      source = await sourceForUpdate(tx, input.sourceId);
+    if (source.ownerMembershipId !== actor.id && !can(actor.role, 'knowledge.manage'))
+      throw new AppError('FORBIDDEN');
     const doc = await readableDocument(tx, input.documentId);
     return doc.state === 'received' || doc.state === 'failed'
       ? beginObjectWrite(tx, context, input)
@@ -747,8 +794,10 @@ async function storeUpload(
   try {
     await safeWrite(() =>
       withTenantTx(database, context, async (tx) => {
-        await person(tx, context, 'add');
+        const actor = await person(tx, context, 'add');
         const source = await sourceForUpdate(tx, input.sourceId);
+        if (source.ownerMembershipId !== actor.id && !can(actor.role, 'knowledge.manage'))
+          throw new AppError('FORBIDDEN');
         if (source.state !== 'active') throw new AppError('KNOWLEDGE_SOURCE_CLOSED');
         await readableDocument(tx, input.documentId);
         const [event] = await tx

@@ -1,0 +1,19 @@
+{
+  "date": "2026-11-07",
+  "scope": "Owned source-management formatter and lint paths; SQL is authored/unrun and not a formatter target",
+  "files": [
+    "apps/web/src/app/o/[organizationId]/knowledge/new/page.tsx",
+    "apps/web/src/app/o/[organizationId]/knowledge/sources/[sourceId]/page.tsx",
+    "apps/web/src/server/knowledge-actions.ts",
+    "packages/application/src/knowledge/sources.ts",
+    "tests/browser/specs/knowledge.spec.ts",
+    "tests/helpers/knowledge.ts",
+    "tests/integration/knowledge-isolation.test.ts",
+    "tests/integration/knowledge-sources.test.ts",
+    "apps/web/src/components/knowledge-upload-form.tsx",
+    "apps/web/src/lib/knowledge-source-view.ts",
+    "tests/browser/specs/knowledge-source-management.spec.ts",
+    "tests/integration/knowledge-source-authority.test.ts",
+    "tests/unit/web-source-sharing.test.ts"
+  ]
+}

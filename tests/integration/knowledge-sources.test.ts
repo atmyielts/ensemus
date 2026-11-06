@@ -2,7 +2,13 @@
 import { randomUUID } from 'node:crypto';
 import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { AppError, type ObjectStore } from '@ensemus/application';
+import {
+  AppError,
+  createTeam,
+  addTeamMember,
+  setMemberRole,
+  type ObjectStore,
+} from '@ensemus/application';
 import {
   addUploadedSource,
   addDocumentVersion,
@@ -16,6 +22,7 @@ import { ingestDocument } from '@ensemus/application/knowledge/ingest';
 import {
   createOrganization,
   domainEvents,
+  knowledgeDocuments,
   openAppDatabase,
   resolveTenantContext,
   withTenantTx,
@@ -122,6 +129,199 @@ describe('knowledge uploads and source authority', () => {
         grants: [{ kind: 'organization' }],
       }),
     ).rejects.toEqual(new AppError('KNOWLEDGE_GRANT_TOO_WIDE'));
+  });
+  it('denies replacement by an ordinary named reader before touching storage', async () => {
+    const source = await upload([{ kind: 'membership', membershipId: reader.membershipId }]);
+    await ingest(source.documentId);
+    let puts = 0;
+    const observed = {
+      ...store,
+      put: async () => {
+        puts++;
+      },
+    };
+    await expect(
+      addDocumentVersion(database.db, observed, reader, {
+        sourceId: source.sourceId,
+        expectedVersion: 1,
+        title: 'Unauthorized replacement',
+        mediaType: 'text/plain',
+        body: Buffer.from('Generated replacement words.'),
+      }),
+    ).rejects.toEqual(new AppError('FORBIDDEN'));
+    expect(puts).toBe(0);
+    expect((await getSource(database.db, reader, source.sourceId)).documentId).toBe(
+      source.documentId,
+    );
+  });
+  it('requires a readable manager and rechecks a demoted manager after the put', async () => {
+    const member = await seedMember(database.db, owner, auth, 'admin'),
+      manager = await resolveTenantContext(database.db, member.userId, owner.organizationId);
+    const source = await addUploadedSource(database.db, store, reader, {
+      title: 'Generated member source',
+      mediaType: 'text/plain',
+      body: Buffer.from('Generated initial words.'),
+      classification: 'restricted',
+      grants: [{ kind: 'membership', membershipId: manager.membershipId }],
+    });
+    await ingest(source.documentId);
+    await expect(
+      addDocumentVersion(database.db, store, owner, {
+        sourceId: source.sourceId,
+        expectedVersion: 1,
+        title: 'Manager without a grant',
+        mediaType: 'text/plain',
+        body: Buffer.from('Generated unshared replacement.'),
+      }),
+    ).rejects.toEqual(new AppError('NOT_FOUND'));
+    const staged = await addDocumentVersion(database.db, store, manager, {
+      sourceId: source.sourceId,
+      expectedVersion: 1,
+      title: 'Allowed manager replacement',
+      mediaType: 'text/plain',
+      body: Buffer.from('Generated managed replacement.'),
+    });
+    await ingest(staged.documentId);
+    let key = '';
+    const delayed = {
+      ...store,
+      put: async (target: string, bytes: Buffer, mediaType: string) => {
+        key = target;
+        await store.put(target, bytes, mediaType);
+        await setMemberRole(database.db, owner, {
+          membershipId: manager.membershipId,
+          role: 'member',
+        });
+      },
+    };
+    await expect(
+      addDocumentVersion(database.db, delayed, manager, {
+        sourceId: source.sourceId,
+        expectedVersion: 2,
+        title: 'Demoted while writing',
+        mediaType: 'text/plain',
+        body: Buffer.from('Generated refused replacement.'),
+      }),
+    ).rejects.toEqual(new AppError('FORBIDDEN'));
+    expect(key).not.toBe('');
+    expect(await store.exists(key)).toBe(false);
+    expect((await getSource(database.db, manager, source.sourceId)).canManage).toBe(false);
+    const current = await getSource(database.db, reader, source.sourceId);
+    expect(current.documentId).toBe(staged.documentId);
+    expect(current.latestVersion?.state).toBe('received');
+    const announcements = await withTenantTx(
+      database.db,
+      createServiceContext(owner.organizationId),
+      (tx) =>
+        tx
+          .select()
+          .from(domainEvents)
+          .where(eq(domainEvents.aggregateId, current.latestVersion!.id)),
+    );
+    expect(announcements).toHaveLength(0);
+  });
+  it('supports real team grants for eligible classes, denying restricted and foreign teams', async () => {
+    const team = await createTeam(database.db, owner, { name: 'Generated source team' }),
+      foreign = await createTeam(database.db, other, { name: 'Generated source team' });
+    if (!team || !foreign) throw new Error('GENERATED_TEAM_SEED_REFUSED');
+    await addTeamMember(database.db, owner, { teamId: team.id, membershipId: reader.membershipId });
+    const source = await addUploadedSource(database.db, store, owner, {
+      title: 'Generated team source',
+      mediaType: 'text/plain',
+      body: Buffer.from('Generated team words.'),
+      classification: 'confidential',
+      grants: [{ kind: 'team', teamId: team.id }],
+    });
+    expect((await getSource(database.db, reader, source.sourceId)).canRead).toBe(true);
+    for (const principal of [
+      { kind: 'team' as const, teamId: team.id },
+      { kind: 'organization' as const },
+    ])
+      await expect(
+        addUploadedSource(database.db, store, owner, {
+          title: 'Generated restricted source',
+          mediaType: 'text/plain',
+          body: Buffer.from('Generated restricted words.'),
+          classification: 'restricted',
+          grants: [principal],
+        }),
+      ).rejects.toEqual(new AppError('KNOWLEDGE_GRANT_TOO_WIDE'));
+    await expect(
+      setSourceGrants(database.db, owner, {
+        sourceId: source.sourceId,
+        expectedVersion: 1,
+        add: [{ kind: 'team', teamId: foreign.id }],
+        removeGrantIds: [],
+      }),
+    ).rejects.toEqual(new AppError('INVALID_INPUT'));
+    const detail = await getSource(database.db, owner, source.sourceId),
+      grant = detail.grants.find((grant) => grant.kind === 'team');
+    if (!grant) throw new Error('MISSING_TEAM_GRANT');
+    await setSourceGrants(database.db, owner, {
+      sourceId: source.sourceId,
+      expectedVersion: detail.version,
+      add: [],
+      removeGrantIds: [grant.id],
+    });
+    await expect(getSource(database.db, reader, source.sourceId)).rejects.toEqual(
+      new AppError('NOT_FOUND'),
+    );
+  });
+  it('exposes incoming revision state while preserving the published revision on rejection', async () => {
+    const source = await upload();
+    await ingest(source.documentId);
+    const incoming = await addDocumentVersion(database.db, store, owner, {
+      sourceId: source.sourceId,
+      expectedVersion: 1,
+      title: 'Generated incoming revision',
+      mediaType: 'text/plain',
+      body: Buffer.from([0xff]),
+    });
+    expect(await getSource(database.db, owner, source.sourceId)).toMatchObject({
+      documentId: source.documentId,
+      documentState: 'searchable',
+      latestVersion: { id: incoming.documentId, number: 2, state: 'received' },
+    });
+    await ingest(incoming.documentId);
+    expect(await getSource(database.db, owner, source.sourceId)).toMatchObject({
+      documentId: source.documentId,
+      latestVersion: {
+        id: incoming.documentId,
+        number: 2,
+        state: 'rejected',
+        rejectCode: 'UNREADABLE_ENCODING',
+      },
+    });
+    const next = await addDocumentVersion(database.db, store, owner, {
+      sourceId: source.sourceId,
+      expectedVersion: 2,
+      title: 'Generated valid revision',
+      mediaType: 'text/plain',
+      body: Buffer.from('Generated valid replacement.'),
+    });
+    await ingest(next.documentId);
+    expect(await getSource(database.db, owner, source.sourceId)).toMatchObject({
+      documentId: next.documentId,
+      latestVersion: { id: next.documentId, number: 3, state: 'searchable' },
+    });
+    const same = await addDocumentVersion(database.db, store, owner, {
+      sourceId: source.sourceId,
+      expectedVersion: 2,
+      title: 'Generated valid revision',
+      mediaType: 'text/plain',
+      body: Buffer.from('Generated valid replacement.'),
+    });
+    expect(same).toEqual({ documentId: next.documentId, unchanged: true });
+    const versions = await withTenantTx(
+      database.db,
+      createServiceContext(owner.organizationId),
+      (tx) =>
+        tx
+          .select({ id: knowledgeDocuments.id })
+          .from(knowledgeDocuments)
+          .where(eq(knowledgeDocuments.sourceId, source.sourceId)),
+    );
+    expect(versions).toHaveLength(3);
   });
   it('always grants the uploader, and another tenant sees neither title nor bytes', async () => {
     const source = await upload();
