@@ -1,12 +1,21 @@
 # Ensemus 2.0: end-to-end delivery plan
 
-**Status:** approved by the project owner on 2026-11-05. M0's document changes are applied, and its "Before M1" decisions are still open. **No product code exists.** In this plan, "you" means the project owner.
+**Status, updated 2026-11-06:** approved by the project owner on 2026-11-05. M0's document changes are applied. Product code exists: **M2 is the current implementation milestone, under verification.** M1's outside security review, legal entity/jurisdiction and signing-key custody decisions remain open. Only throwaway test credentials may be used. In this plan, "you" means the project owner.
+
+Implementation evidence is recorded separately from the planned scope below:
+
+| Milestone | Observed state | Evidence / next gate |
+|---|---|---|
+| M1 | Foundation implemented; milestone remains open | [M1 report](evidence/M1-report.md), including outside review and owner decisions |
+| M2 | Core implemented; committed baseline passed CI; continuation checks passed locally | [M2 report](evidence/M2-report.md). Exact email-recipient scenario QA-007 remains partial until M3; no overall sign-off claimed |
+| M3 | Implementation exists on local branch `m3-verified-actions` (`78b38e9`); not integrated into this checkout | Its report still records merged CI/connector/browser acceptance as unverified. Integrate and verify after the M2 technical handoff |
+| M4–M11 | Separate local branches/worktrees contain preparatory and partial implementation work | Branch names and commits do not establish milestone acceptance; follow dependency order and verify each integrated result |
 
 Ticket IDs refer to the [reconciled backlog](../specifications/implementation-backlog.csv), whose `milestone` column is authoritative. Run `node specifications/tools/check-backlog.mjs` to validate it.
 
 ## Context
 
-Ensemus exists only as a specification: 89 files, with no code and no git repository. You want one plan that takes it from here to launch.
+At approval, Ensemus was a specification with no product code or git repository. This plan sequences that starting point through launch. The private repository now exists at `atmyielts/ensemus`; current implementation evidence is linked above.
 
 **Your inputs:**
 - **Builder:** you, directing AI coding agents.

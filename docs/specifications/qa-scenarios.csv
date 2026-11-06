@@ -1,11 +1,11 @@
 id,domain,scenario,expected_result,priority,status
-QA-001,Tenant isolation,Tenant A ID used by tenant B,Denied or not found; no data leak,critical,not_implemented
-QA-002,Tenant isolation,Same client name across two tenants,Search results isolated,critical,not_implemented
-QA-003,Tenant isolation,Tenant switch during streaming,No prior tenant content emitted,critical,not_implemented
-QA-004,Work graph,Insert A->B and B->A,Cycle rejected transactionally,high,not_implemented
-QA-005,Work graph,Concurrent dependency inserts closing cycle,At most valid acyclic graph committed,critical,not_implemented
-QA-006,Work graph,Complete Work Unit without evidence,Completion denied or awaits verifier,high,not_implemented
-QA-007,Approvals,Change email recipients after approval,Previously bound approval invalidated,critical,not_implemented
+QA-001,Tenant isolation,Tenant A ID used by tenant B,Denied or not found; no data leak,critical,verified_ci
+QA-002,Tenant isolation,Same client name across two tenants,Search results isolated,critical,verified_ci
+QA-003,Tenant isolation,Tenant switch during streaming,No prior tenant content emitted,critical,verified_ci
+QA-004,Work graph,Insert A->B and B->A,Cycle rejected transactionally,high,verified_ci
+QA-005,Work graph,Concurrent dependency inserts closing cycle,At most valid acyclic graph committed,critical,verified_ci
+QA-006,Work graph,Complete Work Unit without evidence,Completion denied or awaits verifier,high,verified_ci
+QA-007,Approvals,Change email recipients after approval,Previously bound approval invalidated,critical,partial
 QA-008,Tool execution,Timeout after remote email accepted,Reconcile; do not duplicate send,critical,not_implemented
 QA-009,Provider routing,BYOM provider unavailable,No Ensemus fallback without pre-approval,critical,not_implemented
 QA-010,Provider routing,Restricted document routed to external API,Deny before egress,critical,not_implemented
@@ -27,10 +27,10 @@ QA-025,Ops,Restore backup after source deletion,Revoked source not silently reac
 QA-026,Commercial,Cloud included AI allowance exhausted,Pause/top-up; no surprise bill,high,not_implemented
 QA-027,Commercial,BYOM third-party token use,Customer billed externally; Ensemus not double-charging,high,not_implemented
 QA-028,UX,Keyboard only approval flow,Accessible completion and clear status,medium,not_implemented
-NEXT-01,NEXT,Server Action missing project authorization,Cross-tenant forged action rejected and audited,high,not_implemented
-NEXT-02,NEXT,RSC sends sensitive field via props,Server payload and client bundle contain no secret canary,high,not_implemented
-NEXT-03,NEXT,Next multi-instance cache with ACL revoked,No stale confidential access across web replicas,high,not_implemented
-NEXT-04,NEXT,Web process restart during Temporal run,Run continues and UI reconnects to correct state,high,not_implemented
+NEXT-01,NEXT,Server Action missing project authorization,Cross-tenant forged action rejected and audited,high,verified_ci
+NEXT-02,NEXT,RSC sends sensitive field via props,Server payload and client bundle contain no secret canary,high,verified_ci
+NEXT-03,NEXT,Next multi-instance cache with ACL revoked,No stale confidential access across web replicas,high,verified_ci
+NEXT-04,NEXT,Web process restart during Temporal run,Run continues and UI reconnects to correct state,high,verified_ci
 NEXT-05,NEXT,CPU heavy ingestion under interactive request load,Web event-loop latency unaffected within target,high,not_implemented
 AI-TS-01,AI,Worker replay during external action uncertain receipt,Single effect after reconciliation,high,not_implemented
 AI-TS-02,AI,Disallowed model profile fallback,Fail closed and record policy-denied reason,high,not_implemented

@@ -26,6 +26,7 @@ import { EditWorkForm } from '@/components/edit-work-form';
 import { FileField } from '@/components/file-field';
 import { DraftScope, KeptTextarea } from '@/components/kept-field';
 import { LiveStatus } from '@/components/live-status';
+import { OneActionAtATime } from '@/components/one-action-at-a-time';
 import { SubmitButton } from '@/components/submit-button';
 import {
   ClassificationBadge,
@@ -236,7 +237,7 @@ export default async function WorkDetailPage({
     </>
   );
 
-  return (
+  const page = (
     <DraftScope account={actor.userId}>
       <p className="back">
         <Link href={`${base}/work`}>Back to work</Link>
@@ -886,4 +887,7 @@ export default async function WorkDetailPage({
       </div>
     </DraftScope>
   );
+
+  // The forms here answer to one version, so none may go while another is on its way.
+  return <OneActionAtATime>{page}</OneActionAtATime>;
 }

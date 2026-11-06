@@ -35,6 +35,7 @@ export default tseslint.config(
   {
     ignores: [
       'docs/**',
+      '.claude/**',
       '.local/**',
       '**/node_modules/**',
       '**/.next/**',

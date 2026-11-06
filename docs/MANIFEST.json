@@ -2,7 +2,7 @@
   "product": "Ensemus",
   "docs_version": "2.0",
   "created_on": "2026-11-05",
-  "status": "approved-design-proposed-implementation",
+  "status": "implementation-m2-verification",
   "architecture": "Next.js App Router, TypeScript + separate Node/Temporal workers, Drizzle/PostgreSQL",
   "commercial_modes": [
     "cloud",
@@ -272,8 +272,8 @@
     },
     {
       "path": "06-delivery/06-end-to-end-delivery-plan.md",
-      "size_bytes": 19358,
-      "sha256": "be135c3746d154322950dd937bb2bfc4058af9811fe3597f670f1c0dbccf8f31"
+      "size_bytes": 20628,
+      "sha256": "3f6b31e96936d75688cd3c9fe35d32c1d67f58931b43c9d143fbe1639535143f"
     },
     {
       "path": "06-delivery/evidence/M1-report.md",
@@ -284,6 +284,11 @@
       "path": "06-delivery/evidence/M2-measurements.json",
       "size_bytes": 3496,
       "sha256": "b055dfb10feb5f85e4295a7998614131dbd84c4428b71e0ff51118f8054b43ef"
+    },
+    {
+      "path": "06-delivery/evidence/M2-report.md",
+      "size_bytes": 16530,
+      "sha256": "43eed01bf17e233dfbee3d621f6b6f220569d63511a786f389b8957ee15bf98c"
     },
     {
       "path": "07-commercial/01-license-and-maintenance.md",
@@ -433,7 +438,7 @@
     {
       "path": "specifications/implementation-backlog.csv",
       "size_bytes": 24583,
-      "sha256": "2cfada3c6c571b03e46b3b5b37d1e8730562383620e95c9f3063436ac0a5da1e"
+      "sha256": "a6f97fb0002d969acb49fd18e3a74328bc86b3878af6d235bbef66cf499c1fa5"
     },
     {
       "path": "specifications/model-conformance-matrix.csv",
@@ -447,8 +452,8 @@
     },
     {
       "path": "specifications/qa-scenarios.csv",
-      "size_bytes": 4888,
-      "sha256": "8ec27a9242e0701e4614d7c02462cbdf947da183d5df10b6594be8e54fb0be0a"
+      "size_bytes": 4840,
+      "sha256": "7554827eb230ae39196eb32853c08787975792725b8ae50d9207a4bec5526547"
     },
     {
       "path": "specifications/schema.sql",
@@ -487,8 +492,8 @@
     },
     {
       "path": "specifications/traceability.csv",
-      "size_bytes": 3160,
-      "sha256": "3be0d7764245422edbf67c39835390548260d171d6d3cec3d1b960b590000a08"
+      "size_bytes": 3179,
+      "sha256": "b36cb2a9cb8cfa1db4640fb5761cb5fbd54805b5e98be82f08194ecd8741b37d"
     },
     {
       "path": "specifications/typescript/agent-manifest.reference.ts",
