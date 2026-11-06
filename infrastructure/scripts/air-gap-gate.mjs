@@ -22,10 +22,13 @@ import {
 // Set, not deleted: Compose lets the environment beat a .env file, and with the variable gone a .env
 // value would move the stack off the watched subnet. A check after each start proves it did not.
 process.env.ENSEMUS_NETWORK_PREFIX = WATCHED_PREFIX;
-// The same goes for how the gate reaches the stack. The proxy's only site is `localhost` (it is given
-// no ENSEMUS_HOSTNAME), so requests must use that name, on the port the stack really published.
+// The same goes for how the gate reaches the stack. A site's own ENSEMUS_HOSTNAME must not move the
+// proxy's only site off `localhost`, so requests can use that name, on the port the stack really
+// published.
 const PORT = process.env.ENSEMUS_HTTPS_PORT ?? '8443';
 const ORIGIN = `https://localhost:${PORT}`;
+process.env.ENSEMUS_HOSTNAME = 'localhost';
+process.env.ENSEMUS_TRUSTED_PROXIES = '';
 process.env.ENSEMUS_HTTPS_PORT = PORT;
 process.env.ENSEMUS_BIND_ADDRESS = '127.0.0.1';
 process.env.ENSEMUS_PUBLIC_URL = ORIGIN;

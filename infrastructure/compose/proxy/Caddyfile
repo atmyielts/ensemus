@@ -2,9 +2,22 @@
 	# No outbound calls: no ACME, no update checks, no admin API.
 	admin off
 	skip_install_trust
+
+	# Who may state a client's address. The list is empty unless the operator sets one, so nobody may,
+	# and whatever a client claims in X-Forwarded-For is discarded. Read from the right, because a proxy
+	# adds to the right and everything further left came from the client.
+	servers {
+		trusted_proxies static {$ENSEMUS_TRUSTED_PROXIES}
+		trusted_proxies_strict
+	}
 }
 
 {$ENSEMUS_HOSTNAME:localhost} {
 	tls internal
-	reverse_proxy web:3000
+
+	# Exactly one address. By default a trusted chain would be passed on whole, and the app reads a chain
+	# as no address at all, which puts everyone into one sign-in allowance.
+	reverse_proxy web:3000 {
+		header_up X-Forwarded-For {client_ip}
+	}
 }

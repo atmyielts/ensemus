@@ -60,6 +60,8 @@ gate "unit tests" pnpm test:unit
 gate "backlog and traceability" pnpm check:backlog
 gate "contracts match the spec" pnpm check:contracts
 gate "licenses" pnpm check:licenses
+# Throwaway containers with no network, and no stack, so it needs no clearing either side.
+gate "deployed proxy: forged address, trusted proxy, hostname" node infrastructure/scripts/check-proxy.mjs
 gate "docs manifest is current" manifest_is_current
 gate "dependency audit (production, high and above)" pnpm audit --prod --audit-level high
 gate "workflow replay corpus" pnpm test:replay
