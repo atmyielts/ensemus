@@ -20,7 +20,6 @@ import {
   MAX_PART_PLAINTEXT_BYTES,
   EXPORT_SECTIONS,
   matchesPortabilityInventory,
-  PORTABILITY_INVENTORY_VERSION,
   type ImportFailureCode,
 } from '@ensemus/domain/portability';
 import {
@@ -133,10 +132,7 @@ function readManifest(plain: Buffer) {
     seen.add(part.path);
   }
   if (manifest.schema_version === 2) {
-    if (
-      manifest.inventory_version !== PORTABILITY_INVENTORY_VERSION ||
-      !matchesPortabilityInventory(manifest.inventory)
-    )
+    if (!matchesPortabilityInventory(manifest.inventory, manifest.inventory_version))
       throw new Refused('FORMAT_NOT_SUPPORTED');
     const totals = manifest.sections;
     if (totals === null || typeof totals !== 'object' || Array.isArray(totals))

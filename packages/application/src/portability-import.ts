@@ -33,6 +33,7 @@ import {
   artifactPartPath,
   knowledgePartPath,
   matchesPortabilityInventory,
+  PORTABILITY_INVENTORY_PROFILES,
   assertPortabilitySections,
   EXPORT_MANIFEST_PATH,
   EXPORT_SECTIONS,
@@ -361,8 +362,17 @@ function parseManifest(plain: Buffer): ExportManifest {
     throw new ImportFailure('FORMAT_NOT_SUPPORTED');
   }
   const parsed = exportManifestSchema.safeParse(raw);
+  if (
+    fields.schema_version === 2 &&
+    typeof fields.inventory_version === 'string' &&
+    !Object.prototype.hasOwnProperty.call(PORTABILITY_INVENTORY_PROFILES, fields.inventory_version)
+  )
+    throw new ImportFailure('FORMAT_NOT_SUPPORTED');
   if (!parsed.success) throw new ImportFailure('MANIFEST_INVALID');
-  if (parsed.data.schema_version === 2 && !matchesPortabilityInventory(parsed.data.inventory))
+  if (
+    parsed.data.schema_version === 2 &&
+    !matchesPortabilityInventory(parsed.data.inventory, parsed.data.inventory_version)
+  )
     throw new ImportFailure('FORMAT_NOT_SUPPORTED');
   return parsed.data;
 }

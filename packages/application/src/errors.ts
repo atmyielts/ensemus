@@ -78,7 +78,7 @@ const MESSAGES: Record<ErrorCode, string> = {
   EXPORT_ALREADY_RUNNING: 'An export of this organization is already running.',
   EXPORT_NOT_READY: 'This export is not ready to download.',
   EXPORT_SUPERSEDED:
-    'Something was deleted after this export was made, so it can no longer be downloaded. Make a new one.',
+    'Data or access changed after this export started, so this copy can no longer be downloaded. Make a new export.',
   IMPORT_TARGET_NOT_EMPTY: 'An archive can only be imported into a new, empty organization.',
   IMPORT_ALREADY_USED: 'This organization has already taken an archive.',
   IMPORTED_PERSON_ALREADY_LINKED: 'This person has already been linked to a member.',

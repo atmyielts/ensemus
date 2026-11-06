@@ -30,16 +30,15 @@ function whyNoDownload(item: OrganizationExportView): string | null {
     case 'failed':
       return item.failureCode ? FAILURE_WORDS[item.failureCode] : 'This export did not finish.';
     case 'expired':
-      return 'The archive has been removed from storage, because its time ran out or something in it was deleted. This record stays. Ask for a new export if you need one.';
+      return 'The archive was removed from storage because it expired or data or access changed. This record stays. Ask for a new export if you need one.';
     case 'ready':
       return item.downloadable
         ? null
-        : 'Something was deleted after this export was made, so it can no longer be downloaded. Ask for a new one.';
+        : 'Data or access changed after this export started, so this copy can no longer be downloaded. Ask for a new export.';
   }
 }
 
-const count = (value: number, one: string, many: string) =>
-  `${value} ${value === 1 ? one : many}`;
+const count = (value: number, one: string, many: string) => `${value} ${value === 1 ? one : many}`;
 
 function LeftOut({ excluded }: { excluded: OrganizationExportView['excluded'] }) {
   const { restrictedWork, restrictedArtifacts, restrictedClients } = excluded;

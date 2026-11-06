@@ -48,7 +48,8 @@ export const PORTABLE_SOURCE_SECTIONS = [
   'skills',
   'policy',
 ] as const;
-export const PORTABILITY_INVENTORY_VERSION = 'ensemus.m3-m5/1' as const;
+export const LEGACY_PORTABILITY_INVENTORY_VERSION = 'ensemus.m3-m5/1' as const;
+export const PORTABILITY_INVENTORY_VERSION = 'ensemus.m3-m5/2' as const;
 type InventoryDisposition =
   | 'records'
   | 'quarantined'
@@ -66,7 +67,7 @@ const inventory = (table: string, section: ExportSection, disposition: Inventory
 
 /** This is a reviewed source-table inventory, not a catalog query that exports new columns by accident.
  * Unknown schemas fail at composition; adding a source table requires a new inventory profile. */
-export const PORTABILITY_INVENTORY = [
+export const PORTABILITY_INVENTORY_V1 = [
   inventory('org.organizations', 'organizations', 'records'),
   inventory('org.memberships', 'people', 'records'),
   inventory('org.teams', 'people', 'records'),
@@ -148,8 +149,32 @@ export const PORTABILITY_INVENTORY = [
   inventory('secrets.sealed_secrets', 'connections', 'credentials_excluded'),
 ] as const;
 
-export function matchesPortabilityInventory(value: unknown): boolean {
-  if (!Array.isArray(value) || value.length !== PORTABILITY_INVENTORY.length) return false;
+/**0214 is durable execution safety metadata, not portable execution authority. Observations contain
+ * sensitive read relationships; neither those IDs/hashes nor fence/write tokens become import records. */
+export const PORTABILITY_INVENTORY = [
+  ...PORTABILITY_INVENTORY_V1,
+  inventory('ai.run_input_checkpoints', 'agents', 'operational_excluded'),
+  inventory('ai.run_input_observations', 'agents', 'private_excluded'),
+  inventory('ai.run_output_writes', 'agents', 'operational_excluded'),
+] as const;
+
+export const PORTABILITY_INVENTORY_PROFILES = {
+  [LEGACY_PORTABILITY_INVENTORY_VERSION]: PORTABILITY_INVENTORY_V1,
+  [PORTABILITY_INVENTORY_VERSION]: PORTABILITY_INVENTORY,
+} as const;
+
+export function matchesPortabilityInventory(
+  value: unknown,
+  profile: unknown = PORTABILITY_INVENTORY_VERSION,
+): boolean {
+  if (
+    typeof profile !== 'string' ||
+    !Object.prototype.hasOwnProperty.call(PORTABILITY_INVENTORY_PROFILES, profile)
+  )
+    return false;
+  const expectedInventory =
+    PORTABILITY_INVENTORY_PROFILES[profile as keyof typeof PORTABILITY_INVENTORY_PROFILES];
+  if (!Array.isArray(value) || value.length !== expectedInventory.length) return false;
   const seen = new Set<string>();
   for (const raw of value) {
     if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return false;
@@ -161,7 +186,7 @@ export function matchesPortabilityInventory(value: unknown): boolean {
     )
       return false;
     seen.add(entry.table);
-    const expected = PORTABILITY_INVENTORY.find((item) => item.table === entry.table);
+    const expected = expectedInventory.find((item) => item.table === entry.table);
     if (
       !expected ||
       entry.section !== expected.section ||

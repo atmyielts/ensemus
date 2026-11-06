@@ -35,6 +35,8 @@ import {
   EXPORT_SECTIONS,
   PORTABILITY_INVENTORY,
   PORTABILITY_INVENTORY_VERSION,
+  PORTABILITY_INVENTORY_V1,
+  LEGACY_PORTABILITY_INVENTORY_VERSION,
 } from '@ensemus/domain/portability';
 import type { BundleManifest } from '@ensemus/sovereign/documents';
 import {
@@ -622,50 +624,56 @@ describe('open-archive', () => {
     expect(readFileSync(join(outFolder, `artifacts/${fileId}.bin`))).toEqual(fileBytes);
     expect(JSON.parse(readFileSync(join(outFolder, 'manifest.json'), 'utf8'))).toEqual(manifest);
   });
-  it('decrypts v2 original knowledge bytes with only the customer tool and generated key', async () => {
-    const documentId = randomUUID(),
-      path = knowledgePartPath(documentId),
-      body = Buffer.from('The original upload.');
-    const sealed = seal(body, owner.publicKey);
-    const part = {
-      path,
-      section: 'knowledge',
-      records: 0,
-      plaintext_sha256: sha256(body),
-      sealed_sha256: sha256(sealed),
-      sealed_bytes: sealed.length,
-    };
-    const { archivePath } = buildArchive({
-      changeManifest: (m) => {
-        const parts = [...m.parts, part] as { section: string; records: number }[];
-        const sections = Object.fromEntries(
-          EXPORT_SECTIONS.map((name) => [
-            name,
-            {
-              parts: parts.filter((p) => p.section === name).length,
-              records: parts
-                .filter((p) => p.section === name)
-                .reduce((sum, p) => sum + p.records, 0),
-            },
-          ]),
-        );
-        return {
-          ...m,
-          parts,
-          schema_version: 2,
-          inventory_version: PORTABILITY_INVENTORY_VERSION,
-          inventory: PORTABILITY_INVENTORY,
-          generated_bodies_excluded: 0,
-          sections,
-        };
-      },
-      changeEntries: (entries) => [...entries, { path, bytes: sealed }],
-    });
-    const { result, outFolder } = await openIt(archivePath);
-    expect(result).toMatchObject({ ok: true, parts: 3 });
-    expect(resolve(outFolder).startsWith(resolve(folder) + sep)).toBe(true);
-    expect(readFileSync(join(outFolder, 'knowledge', `${documentId}.bin`))).toEqual(body);
-  });
+  it.each([LEGACY_PORTABILITY_INVENTORY_VERSION, PORTABILITY_INVENTORY_VERSION])(
+    'decrypts v2 original knowledge bytes for explicit inventory %s with the customer tool',
+    async (profile) => {
+      const documentId = randomUUID(),
+        path = knowledgePartPath(documentId),
+        body = Buffer.from('The original upload.');
+      const sealed = seal(body, owner.publicKey);
+      const part = {
+        path,
+        section: 'knowledge',
+        records: 0,
+        plaintext_sha256: sha256(body),
+        sealed_sha256: sha256(sealed),
+        sealed_bytes: sealed.length,
+      };
+      const { archivePath } = buildArchive({
+        changeManifest: (m) => {
+          const parts = [...m.parts, part] as { section: string; records: number }[];
+          const sections = Object.fromEntries(
+            EXPORT_SECTIONS.map((name) => [
+              name,
+              {
+                parts: parts.filter((p) => p.section === name).length,
+                records: parts
+                  .filter((p) => p.section === name)
+                  .reduce((sum, p) => sum + p.records, 0),
+              },
+            ]),
+          );
+          return {
+            ...m,
+            parts,
+            schema_version: 2,
+            inventory_version: profile,
+            inventory:
+              profile === LEGACY_PORTABILITY_INVENTORY_VERSION
+                ? PORTABILITY_INVENTORY_V1
+                : PORTABILITY_INVENTORY,
+            generated_bodies_excluded: 0,
+            sections,
+          };
+        },
+        changeEntries: (entries) => [...entries, { path, bytes: sealed }],
+      });
+      const { result, outFolder } = await openIt(archivePath);
+      expect(result).toMatchObject({ ok: true, parts: 3 });
+      expect(resolve(outFolder).startsWith(resolve(folder) + sep)).toBe(true);
+      expect(readFileSync(join(outFolder, 'knowledge', `${documentId}.bin`))).toEqual(body);
+    },
+  );
   it.each(['unknown section', 'missing section', 'missing inventory'] as const)(
     'refuses v2 %s without publishing output',
     async (caseName) => {

@@ -581,7 +581,7 @@ const manifestV1Schema = z.strictObject({
 });
 const manifestV2Schema = manifestV1Schema.extend({
   schema_version: z.literal(2),
-  inventory_version: z.literal('ensemus.m3-m5/1'),
+  inventory_version: z.enum(['ensemus.m3-m5/1', 'ensemus.m3-m5/2']),
   generated_bodies_excluded: z.int().min(0),
   inventory: z
     .array(

@@ -63,12 +63,41 @@ export interface PortabilitySection {
 }
 
 /** What one owner of derived or running state did after a restore or an import. Counts and codes only. */
+export type RestoreRunInputCounts = {
+  runs: number;
+  checkpoints: number;
+  observations: number;
+  missingCheckpoints: number;
+  legacyHistoryUnknown: number;
+  unfencedTerminalRuns: number;
+  uncertifiedFences: number;
+  certifiedFences: number;
+  unsupportedProtocols: number;
+};
+export type RestoreOutputWriteCounts = {
+  writes: number;
+  unsettledWrites: number;
+  mismatchedTokens: number;
+};
+
+/** Only the actual agent-role adapter may supply this after it checked the named tenant's runs,
+ * fenced current generations and queried private remaining rows. This is never inferred from metadata.
+ *0214 accepts generation1 only; a new generation/protocol requires an explicit adapter update. */
+export type RestoreTranscriptProof = {
+  protocol: 'ai.run_inputs/v1';
+  fenceGeneration: 1;
+  checkedRuns: number;
+  certifiedRuns: number;
+  remainingPayloads: number;
+};
 export type ContributorReport = {
   name: string;
   checked: number;
   changed: number;
   /** Things a person has to look at. Above zero, the restore command exits non-zero. */
   needsAttention: number;
+  runInputs?: RestoreRunInputCounts;
+  outputWrites?: RestoreOutputWriteCounts;
 };
 
 /**

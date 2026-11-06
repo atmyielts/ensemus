@@ -4,6 +4,8 @@ import {
   PORTABILITY_INVENTORY_VERSION,
   assertPortabilitySections,
   matchesPortabilityInventory,
+  PORTABILITY_INVENTORY_V1,
+  LEGACY_PORTABILITY_INVENTORY_VERSION,
 } from '@ensemus/domain/portability';
 import { extensionRecordSchema } from '@ensemus/contracts/portability-records';
 import { inspectOrganizationArchive, portableDefinitionBindings } from '@ensemus/application';
@@ -67,6 +69,47 @@ describe('the versioned portability inventory', () => {
     })).reverse();
     expect(matchesPortabilityInventory(reordered)).toBe(true);
     expect(matchesPortabilityInventory([...reordered.slice(1), reordered[1]])).toBe(false);
+  });
+  it('versions the new execution metadata without copying private lineage or reactivating writers', () => {
+    expect(PORTABILITY_INVENTORY_VERSION).toBe('ensemus.m3-m5/2');
+    expect(PORTABILITY_INVENTORY).toHaveLength(PORTABILITY_INVENTORY_V1.length + 3);
+    expect(
+      PORTABILITY_INVENTORY.filter((entry) =>
+        ['ai.run_input_checkpoints', 'ai.run_output_writes'].includes(entry.table),
+      ).map((entry) => entry.disposition),
+    ).toEqual(['operational_excluded', 'operational_excluded']);
+    expect(
+      PORTABILITY_INVENTORY.find((entry) => entry.table === 'ai.run_input_observations')
+        ?.disposition,
+    ).toBe('private_excluded');
+    expect(
+      matchesPortabilityInventory(PORTABILITY_INVENTORY_V1, LEGACY_PORTABILITY_INVENTORY_VERSION),
+    ).toBe(true);
+    expect(matchesPortabilityInventory(PORTABILITY_INVENTORY_V1)).toBe(false);
+    expect(
+      matchesPortabilityInventory(PORTABILITY_INVENTORY, LEGACY_PORTABILITY_INVENTORY_VERSION),
+    ).toBe(false);
+    expect(
+      matchesPortabilityInventory([
+        ...PORTABILITY_INVENTORY,
+        {
+          table: 'ai.future_authority',
+          section: 'agents',
+          disposition: 'operational_excluded',
+          version: 1,
+        },
+      ]),
+    ).toBe(false);
+    for (const kind of ['run_input_checkpoint', 'run_input_observation', 'run_output_write'])
+      expect(
+        extensionRecordSchema.safeParse({
+          kind,
+          id,
+          run_id: id,
+          content: 'never portable',
+          fence_generation: 1,
+        }).success,
+      ).toBe(false);
   });
 
   it('allows only reviewed columns, including nested definitions', () => {
@@ -147,6 +190,25 @@ describe('hostile v2 archive inventories', () => {
     const archive = build([definition]);
     expect(await inspectOrganizationArchive(archive.reader, recipient.privateKeyPem)).toMatchObject(
       { ok: true, manifest: { schema_version: 2 } },
+    );
+  });
+  it('reads an explicit legacy /1 inventory as inert records, without inferring new execution state', async () => {
+    const archive = build([definition], (value) => ({
+      ...value,
+      inventory_version: LEGACY_PORTABILITY_INVENTORY_VERSION,
+      inventory: PORTABILITY_INVENTORY_V1,
+    }));
+    expect(await inspectOrganizationArchive(archive.reader, recipient.privateKeyPem)).toMatchObject(
+      { ok: true, manifest: { inventory_version: LEGACY_PORTABILITY_INVENTORY_VERSION } },
+    );
+  });
+  it('names an unsupported future inventory version', async () => {
+    const archive = build([definition], (value) => ({
+      ...value,
+      inventory_version: 'ensemus.m3-m5/3',
+    }));
+    expect(await inspectOrganizationArchive(archive.reader, recipient.privateKeyPem)).toMatchObject(
+      { ok: false, code: 'FORMAT_NOT_SUPPORTED' },
     );
   });
   it('refuses an incomplete table inventory before applying records', async () => {
