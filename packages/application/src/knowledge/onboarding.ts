@@ -4,6 +4,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import {
   appendAudit,
+  agentRuns,
   artifactAclCatalog,
   artifactWorkLinks,
   clientOnboardings,
@@ -14,6 +15,7 @@ import {
   knowledgeArtifactVerifications,
   memberships,
   projects,
+  TenantAccessDenied,
   withTenantTx,
   workArtifacts,
   workAssignments,
@@ -435,6 +437,42 @@ async function startWork(tx: Tx, context: TenantContext, row: WorkRow) {
   if (current.status === 'ready') current = await applyTransition(tx, context, current, 'running');
   return current;
 }
+
+/**
+ * The trusted M4 gateway binds the real run and advances this state in its caller's transaction.
+ * A lost Activity response can then only find the same immutable run, including after it has ended.
+ * The joined SQL guard independently checks the exact request, authority and immutable Work pins.
+ */
+export async function bindClientOnboardingRunInTx(
+  tx: Tx,
+  context: TenantContext,
+  input: { onboardingId: string; agentRunId: string },
+) {
+  if (context.actorType !== 'delegated') throw new AppError('FORBIDDEN');
+  const actor = await person(tx, context);
+  if (!can(actor.role, 'agent.run')) throw new AppError('FORBIDDEN');
+  const row = await locked(tx, id(input.onboardingId));
+  if (row.requestedByMembershipId !== actor.membershipId) throw new AppError('NOT_FOUND');
+  const runId = id(input.agentRunId);
+  const [run] = await tx
+    .select({
+      workUnitId: agentRuns.workUnitId,
+      initiatorMembershipId: agentRuns.initiatorMembershipId,
+      parentRunId: agentRuns.parentRunId,
+    })
+    .from(agentRuns)
+    .where(eq(agentRuns.id, runId));
+  if (
+    !run ||
+    run.workUnitId !== row.briefWorkUnitId ||
+    run.initiatorMembershipId !== row.requestedByMembershipId ||
+    run.parentRunId !== null
+  )
+    throw new AppError('NOT_FOUND');
+  if (row.agentRunId === runId && row.state !== 'started') return row;
+  if (row.agentRunId || row.state !== 'started') throw new AppError('INVALID_STATE');
+  return move(tx, actor, row, 'waiting_for_brief', { agentRunId: runId });
+}
 async function completeWork(tx: Tx, context: TenantContext, row: WorkRow) {
   if (row.status === 'completed') return row;
   let current = await startWork(tx, context, row);
@@ -488,8 +526,10 @@ export async function advanceClientOnboarding(
       context.organizationId,
       snapshot.requestedByMembershipId,
     );
-  } catch {
-    return fail(database, context, onboardingId, 'INITIATOR_UNAVAILABLE');
+  } catch (error) {
+    if (error instanceof TenantAccessDenied)
+      return fail(database, context, onboardingId, 'INITIATOR_UNAVAILABLE');
+    throw error;
   }
   try {
     let candidate = snapshot.briefArtifactId;
@@ -557,6 +597,12 @@ export async function advanceClientOnboarding(
         await stableSources(tx, candidate, sourceIds);
       }
       if (parent.status === 'completed') throw new OnboardingFailure('WORK_CHANGED');
+      if (
+        parent.parentId !== null ||
+        [brief, review, send].some((child) => child.parentId !== parent.id) ||
+        [parent, brief, review, send].some((item) => item.projectId !== row.projectId)
+      )
+        throw new OnboardingFailure('WORK_CHANGED');
       for (const [item, pin] of [
         [parent, row.parentObjectiveSha256],
         [brief, row.briefObjectiveSha256],
@@ -572,6 +618,19 @@ export async function advanceClientOnboarding(
         send.ownerMembershipId !== row.ownerMembershipId
       )
         throw new OnboardingFailure('WORK_CHANGED');
+      const reviewerAssignments = await tx
+        .select({ workUnitId: workAssignments.workUnitId })
+        .from(workAssignments)
+        .where(
+          and(
+            inArray(workAssignments.workUnitId, [brief.id, review.id]),
+            eq(workAssignments.membershipId, row.reviewerMembershipId),
+            eq(workAssignments.actorType, 'human'),
+            eq(workAssignments.responsibility, 'contributor'),
+          ),
+        );
+      if (new Set(reviewerAssignments.map((assignment) => assignment.workUnitId)).size !== 2)
+        throw new OnboardingFailure('REVIEWER_UNAVAILABLE');
       if (row.state === 'started') {
         await startWork(tx, actor, parent);
         if (brief.status === 'queued') await applyTransition(tx, actor, brief, 'ready');
@@ -582,16 +641,31 @@ export async function advanceClientOnboarding(
             agentKey: 'client-brief',
             requestKey: row.id,
           });
-        } catch {
-          throw new OnboardingFailure('AGENT_UNAVAILABLE');
+        } catch (error) {
+          // Only an explicit admission refusal is a permanent onboarding outcome. Lock contention,
+          // deadlocks, serialization failures, outages and unknown faults must roll back and retry.
+          if (pgCode(error) === 'EN215') throw new OnboardingFailure('AGENT_UNAVAILABLE');
+          if (error instanceof AppError) {
+            if (
+              [
+                'INVALID_STATE',
+                'AGENT_SPEC_INVALID',
+                'MODEL_PROFILE_NOT_ACTIVE',
+                'BUDGET_NOT_CONFIGURED',
+                'AGENT_RUN_ACTIVE',
+              ].includes(error.code)
+            )
+              throw new OnboardingFailure('AGENT_UNAVAILABLE');
+            if (error.code === 'FORBIDDEN') throw new OnboardingFailure('INITIATOR_UNAVAILABLE');
+            if (['NOT_FOUND', 'VERSION_CONFLICT', 'PREREQUISITES_INCOMPLETE'].includes(error.code))
+              throw new OnboardingFailure('WORK_CHANGED');
+          }
+          throw error;
         }
-        return step(
-          (
-            await move(tx, actor, row, 'waiting_for_brief', {
-              agentRunId: id(requested.agentRunId),
-            })
-          ).state as OnboardingState,
-        );
+        const bound = await locked(tx, row.id);
+        if (bound.state !== 'waiting_for_brief' || bound.agentRunId !== id(requested.agentRunId))
+          throw new OnboardingFailure('RUN_BINDING_UNCONFIRMED');
+        return step('waiting_for_brief');
       }
       if (row.state === 'waiting_for_brief') {
         if (!row.agentRunId) throw new OnboardingFailure('AGENT_RUN_MISSING');

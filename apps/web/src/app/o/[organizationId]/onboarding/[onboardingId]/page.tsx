@@ -5,6 +5,7 @@ import { costLabel } from '@/components/knowledge-view';
 import { PageHead, StatusBadge, formatDateTime } from '@/components/ui';
 import { requireTenant } from '@/server/tenant';
 import { knowledgeOrNotFound as orNotFound } from '@/server/knowledge-page';
+import { onboardingOutcomeMessage } from '@/lib/onboarding-view';
 export const metadata = { title: 'Client onboarding progress | Ensemus' };
 export default async function OnboardingPage({
   params,
@@ -24,17 +25,19 @@ export default async function OnboardingPage({
       </div>
       <ResourceRefresh active={!['completed', 'failed', 'unknown'].includes(row.state)} />
       <p className="notice">
-        {row.state === 'waiting_for_acceptance'
-          ? 'The brief is ready for the named reviewer. Read the exact file and its supporting passages, then accept or reject it.'
-          : row.state === 'waiting_for_send'
-            ? 'The exact welcome message needs its named approver. A provider receipt must confirm sending before this onboarding can finish.'
-            : row.state === 'unknown'
-              ? 'Email delivery could not be confirmed. It has not been automatically sent again. Check the email action and its receipt before deciding what to do.'
-              : row.state === 'completed'
-                ? 'The reviewed brief and a confirmed email receipt are recorded.'
-                : row.state === 'failed'
-                  ? 'Onboarding stopped before it could be completed. Open its work to inspect the current state.'
-                  : 'The background workflow is preparing the onboarding work.'}
+        {row.stateCode
+          ? onboardingOutcomeMessage(row.stateCode)
+          : row.state === 'waiting_for_acceptance'
+            ? 'The brief is ready for the named reviewer. Read the exact file and its supporting passages, then accept or reject it.'
+            : row.state === 'waiting_for_send'
+              ? 'The exact welcome message needs its named approver. A provider receipt must confirm sending before this onboarding can finish.'
+              : row.state === 'unknown'
+                ? 'Email delivery could not be confirmed. It has not been automatically sent again. Check the email action and its receipt before deciding what to do.'
+                : row.state === 'completed'
+                  ? 'The reviewed brief and a confirmed email receipt are recorded.'
+                  : row.state === 'failed'
+                    ? 'Onboarding stopped before it could be completed. Open its work to inspect the current state.'
+                    : 'The background workflow is preparing the onboarding work.'}
       </p>
       <ol>
         {row.briefWorkUnitId && (
@@ -90,7 +93,7 @@ export default async function OnboardingPage({
       {row.stateCode && (
         <details>
           <summary>Progress details</summary>
-          <p>{row.stateCode}</p>
+          <p>Technical code: {row.stateCode}</p>
           {row.receipt && (
             <p>
               Receipt basis: {row.receipt.basis}

@@ -1,8 +1,20 @@
-// Real tenant transactions and kernel/M3 rows; only M4's not-yet-joined run gateway is an explicit port.
+// Real tenant transactions and M4 run binding; explicit status overrides isolate state-machine faults.
 import { randomUUID } from 'node:crypto';
 import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { AppError, addArtifact } from '@ensemus/application';
+import { AppError } from '@ensemus/application';
+import { agentSpecSha256, publishAgentVersion } from '@ensemus/application/ai-agents';
+import { createOnboardingAgentRuns } from '@ensemus/application/knowledge/onboarding-run-port';
+import { addGeneratedArtifact } from '@ensemus/application/knowledge/artifact-provenance';
+import { createRunInputInventory } from '@ensemus/application/ai-input-ledger';
+import { agentSpecV1Schema } from '@ensemus/contracts/ai';
+import {
+  openAgentTestDatabase,
+  prepareRunInputContext,
+  seedActiveProfile,
+  seedOrganizationBudget,
+  testAgentSpec,
+} from '../helpers/ai/fixtures';
 import {
   startClientOnboarding,
   getClientOnboarding,
@@ -37,6 +49,7 @@ import { urls } from '../helpers/stack';
 
 describe('deal won to one verified onboarding', () => {
   let database: ReturnType<typeof openAppDatabase>, auth: pg.Client;
+  let agent: ReturnType<typeof openAgentTestDatabase>;
   let owner: TenantContext,
     reviewer: TenantContext,
     reader: TenantContext,
@@ -45,6 +58,7 @@ describe('deal won to one verified onboarding', () => {
   const service = () => createServiceContext(owner.organizationId);
   beforeAll(async () => {
     database = openAppDatabase(urls.app());
+    agent = openAgentTestDatabase();
     auth = new pg.Client({ connectionString: urls.auth() });
     await auth.connect();
     const makeOwner = async () => {
@@ -77,10 +91,30 @@ describe('deal won to one verified onboarding', () => {
         config: { fromAddress: 'sender@example.invalid' },
       }),
     );
+    await seedActiveProfile(database.db, agent.db, owner);
+    await seedOrganizationBudget(database.db, owner, 1_000_000);
+    const spec = agentSpecV1Schema.parse(testAgentSpec({ id: 'client-brief' }));
+    await publishAgentVersion(database.db, owner, {
+      spec,
+      policyVersion: 'default',
+      evaluationReport: {
+        report_version: 1,
+        spec_sha256: agentSpecSha256(spec),
+        policy_version: 'default',
+        suite_ref: spec.evaluation.suite_ref,
+        dataset_version: 'synthetic-onboarding-1',
+        model_label: 'scripted',
+        pass_rate: 1,
+        cases: 3,
+        passed: true,
+        scripted_model: true,
+      },
+    });
   });
   afterAll(async () => {
     await auth?.end();
     await database?.close();
+    await agent?.close();
   });
   const input = () => ({
     dealRef: `generated-deal-${randomUUID()}`,
@@ -99,13 +133,14 @@ describe('deal won to one verified onboarding', () => {
     )[0]!;
   function runs() {
     let requested = 0;
-    const runId = randomUUID();
+    const actual = createOnboardingAgentRuns();
     let state: Awaited<ReturnType<AgentRuns['statusOf']>> = null;
     const port: AgentRuns = {
-      requestRun: async (_tx, context, request) => {
+      requestRun: async (tx, context, request) => {
         requested++;
         expect(context.membershipId).toBe(owner.membershipId);
         expect(request.requestKey).toBeDefined();
+        const requestedRun = await actual.requestRun(tx, context, request);
         state = {
           status: 'running',
           costMicros: null,
@@ -113,7 +148,7 @@ describe('deal won to one verified onboarding', () => {
           initiatorMembershipId: context.membershipId,
           artifactIds: [],
         };
-        return { agentRunId: runId };
+        return requestedRun;
       },
       statusOf: async () => state,
     };
@@ -250,12 +285,21 @@ describe('deal won to one verified onboarding', () => {
         exists: async (key: string) => objects.has(key),
       };
     const text = 'Generated cited client brief.';
-    const artifact = await addArtifact(database.db, store, owner, {
-      workUnitId: stored.briefWorkUnitId!,
-      name: 'Generated brief.txt',
-      mimeType: 'text/plain',
-      body: Buffer.from(text),
-    });
+    const writer = await prepareRunInputContext(agent.db, owner.organizationId, stored.agentRunId!);
+    const artifact = await addGeneratedArtifact(
+      agent.db,
+      store,
+      writer,
+      {
+        workUnitId: stored.briefWorkUnitId!,
+        name: 'Generated brief.txt',
+        mimeType: 'text/plain',
+        body: Buffer.from(text),
+        execution: { kind: 'agent_run', id: stored.agentRunId! },
+        requestKey: randomUUID(),
+      },
+      { inventory: createRunInputInventory() },
+    );
     const source = await seedSearchableSource(database.db, owner, {
       passages: [text],
       grants: [{ kind: 'organization' }],
