@@ -2,14 +2,18 @@
 // so nothing in this milestone depends on their code. The final merge supplies each one.
 import type { Tx, TenantContext } from '@ensemus/database';
 
+/** The feature name a plan has to list, once plans are wired in. Which plans do is an owner decision. */
+export const FEATURE_CROSS_ORG = 'federation.cross_org';
+
 /**
- * Whether this organization's plan includes cross-organization work (M8, `COMM-*`, entitlement
- * `feature_set`). Which plans do is an owner decision, so nothing here assumes one. Where a deployment has no
- * plans, such as Sovereign, the composition root passes `noPlanGate`: the operator's switch and each tenant's
- * own switch are then the only gates, and both stay off until someone turns them on.
+ * Whether this organization's plan includes cross-organization work. At the final merge, wherever billing is
+ * on, this is M8's checker: `createEntitlementChecker(database, billingEnabled).check(context, { kind:
+ * 'feature', feature: FEATURE_CROSS_ORG })`, which has the same shape as M4's `Entitlements.check`. Where a
+ * deployment has no plans, such as Sovereign, the composition root passes `noPlanGate`: the operator's switch
+ * and each tenant's own switch are then the only gates, and both stay off until someone turns them on.
  */
 export interface CrossOrgEntitlement {
-  allows(organizationId: string): Promise<boolean>;
+  allows(context: TenantContext): Promise<boolean>;
 }
 
 /** For a deployment with no billing. Not a test double: it names the absence of a plan to check. */
@@ -18,8 +22,8 @@ export const noPlanGate: CrossOrgEntitlement = { allows: async () => true };
 /**
  * Tells this milestone a source record is gone, so what was sent from it is withdrawn in the same
  * transaction (`LIFE-*`). The work and artifact services call `withdrawItemsForSourceInTx` at the final
- * merge. Offboarding a tenant (M8) calls `endAllGrantsInTx`. Both are exported by these services, and this
- * type is what a sibling's hook has to look like.
+ * merge. Offboarding a tenant (M8) adds `federationWindDown` to `OffboardingPorts.windDowns`, which has this
+ * shape without the third argument. Both are exported by these services.
  */
 export type FederationLifecycleHook = (
   tx: Tx,

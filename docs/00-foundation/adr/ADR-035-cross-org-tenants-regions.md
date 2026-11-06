@@ -72,7 +72,7 @@ sequenceDiagram
 
 **Names are not verified.** Two organizations can be called the same thing. The token's route and the fingerprint are what tell them apart, and the page has to say so.
 
-**Off by default, three times.** An operator switch in configuration, written to `tenancy.deployment_profile.cross_org_enabled`, which no tenant can write. A tenant's own switch, `federation.org_settings`, where no row means off. And `CrossOrgEntitlement`, a port that the plan system implements if there is one, since which plans include this is an owner decision. The operator's switch is also part of `federation.grant_is_open`, so turning it off closes every grant at once.
+**Off by default, three times.** An operator switch in configuration, written to `tenancy.deployment_profile.cross_org_enabled`, which no tenant can write. A tenant's own switch, `federation.org_settings`, where no row means off. And `CrossOrgEntitlement`, a port that M8's entitlement checker implements wherever billing is on, for the feature `federation.cross_org`, since which plans include this is an owner decision. The operator's switch is also part of `federation.grant_is_open`, so turning it off closes every grant at once.
 
 ### D2. The role
 
@@ -121,12 +121,16 @@ Either party ends a grant, and that cannot be undone.
 
 1. **On commit:** `inbound_receiver_read` requires `federation.grant_is_open`, so nothing arrived can be read on any page, including an open one on its next request. The bridge's outbound read fails the same test, so nothing further crosses. This does not wait for any worker.
 2. **No race:** a crossing takes a shared advisory lock on the grant, and ending takes it exclusively. So a crossing either finishes before the end commits, and is purged, or sees the grant closed.
-3. **Afterwards:** `federation.grant_ended` starts `federationPurgeWorkflow`, which removes the copies and their files in bounded passes until none are left, and each side gets its notification and audit row. The row goes first and the bytes after, so a crash leaves a file nobody can reach, not a row pointing at nothing.
-4. **The record:** `federation.crossings` holds what crossed and what was removed, with a hash and a kind and no content. Both parties can read it, and it is append-only for everyone.
+3. **Afterwards:** `federation.grant_ended` starts `federationPurgeWorkflow`, which removes the inbound copies and their files in bounded passes until none are left. Then each side withdraws and deletes its outbound copies, and gets its notification and audit row. The row goes first and the bytes after, so a crash leaves a file nobody can reach, not a row pointing at nothing.
+4. **The record:** `federation.crossings` holds what crossed and what was removed, with a hash and a kind and no content. Both parties can read it, and it is append-only for everyone. It and the grant are what stay. The grant holds each side's name and the note, kept as evidence of what was agreed, and whether that outlives a tenant's erasure is on the owner's list.
+
+**If the operator turns it all off,** every grant closes on commit, and the copies stay stored and unreadable until the worker has run the purges, so the worker is the last thing to stop.
+
+**A deleted source leaves nothing behind.** Deleting a Work Unit or artifact withdraws what was sent from it in the same transaction, through `withdrawItemsForSourceInTx`. An item can be deleted only once it is withdrawn, and the foreign key from the inbound copy holds it until that copy has gone.
 
 **What revocation cannot do, and the page must say so.** It cannot make someone forget. Anyone who read a copy, or downloaded a file, still has what they saw. Backups keep what they hold until they age out, under the [data lifecycle](../../04-security/05-data-lifecycle.md) rules and ADR-026.
 
-**Export controls.** A received item cannot be sent on, because `publishItem` only takes a sender's own Work Unit or artifact. Inbound items are left out of a tenant's export, since they belong to the sender. This is a safe default, and is listed for the owner to confirm.
+**Export controls.** A received item cannot be sent on, because `publishItem` only takes a sender's own Work Unit or artifact. Inbound items are left out of a tenant's export, since they belong to the sender, and M6's `CORE_PORTABILITY_SECTIONS` does not name them. This is a safe default, and is listed for the owner to confirm.
 
 ### D5. Dedicated tiers
 
@@ -164,7 +168,7 @@ Either party ends a grant, and that cannot be undone.
 
 - **The statement** is an operator's, in `ENSEMUS_RESIDENCY_POLICY_FILE`: for each of the six surfaces, the regions it happens in, and a reference to what backs that up. This is configuration, and no region is named anywhere in the code. The product repeats it as "declared", and has no way to verify it.
 - **The requirement** is a tenant's: `tenancy.residency_requirements`, for everything or one data class, set by an owner. A trigger refuses a region this deployment is not in, and refuses any requirement if the deployment claims no region, so there is never a saved promise nothing enforces.
-- **The gate** is `ResidencyGate.check`, which other milestones call before data goes anywhere: the model router before inference (M4), the embedder before embedding (M5), support access (M8), and any telemetry exporter. With no requirement it allows and claims nothing. With one, the surface must be declared wholly inside the region, and if the caller knows a real target, such as a model profile's region, that must be inside it too. A target that cannot say where it is denies. Reading the requirements failing denies. A denial writes one audit row with a code and no data.
+- **The gate** is `ResidencyGate.check`, which other milestones call before data goes anywhere: M4's gateway before inference, with `RoutableProfile.region` as the target, M5's embedder before embedding, M8's support and break-glass path, and any telemetry exporter. With no requirement it allows and claims nothing. With one, the surface must be declared wholly inside the region, and if the caller knows a real target, such as a model profile's region, that must be inside it too. A target that cannot say where it is denies. Reading the requirements failing denies. A denial writes one audit row with a code and no data.
 
 **In-region statements are worked out too.** `residencyPosture` says `allInRegion` only when all six surfaces are declared wholly in the home region and no `ProcessingLocationSource` sees a connected thing going elsewhere. This is how "do not claim an all-in-region product if a connected AI model sends content elsewhere" becomes code. M4 and M5 supply those sources at the final merge.
 
@@ -185,6 +189,7 @@ Each of these has a safe, reversible default in the code. None is decided here.
 | How long a grant may last | At most 365 days, with invitations at most 14 | Domain constants, and an operator could lower them |
 | Whether received items are in a tenant's export | Left out | The export slice in M8 |
 | Whether received items may ever reach knowledge or agents | Never | A later ADR |
+| Whether a grant's name and note outlive a tenant's erasure | Kept, because the other party relies on it as a record. Counsel should confirm | M8's erasure report |
 | Whether customer-held keys are offered on dedicated | Not offered | A `SecretBroker` adapter |
 | Moving a tenant between regions | Not offered | Export and verified import |
 

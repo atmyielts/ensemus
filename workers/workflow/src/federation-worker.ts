@@ -6,8 +6,10 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadTenancyConfig, readSecret } from '@ensemus/config';
 import {
+  loadGrantPartiesForWorker,
   loadItemGrantForWorker,
   recordItemReceived,
+  removeWithdrawnItem,
   settleGrantEndForTenant,
 } from '@ensemus/application';
 import { openAppDatabase } from '@ensemus/database';
@@ -55,7 +57,10 @@ async function main() {
       followUp: {
         loadItemGrant: (context, itemId) => loadItemGrantForWorker(app.db, context, itemId),
         recordItemReceived: (context, itemId) => recordItemReceived(app.db, context, { itemId }),
-        settleGrantEnd: (context, grantId) => settleGrantEndForTenant(app.db, context, { grantId }),
+        loadGrantParties: (context, grantId) => loadGrantPartiesForWorker(app.db, context, grantId),
+        settleGrantEnd: (context, input) => settleGrantEndForTenant(app.db, store, context, input),
+        removeWithdrawnItem: (context, itemId) =>
+          removeWithdrawnItem(app.db, store, context, { itemId }),
       },
     }),
     dataConverter: {

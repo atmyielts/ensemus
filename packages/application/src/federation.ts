@@ -145,14 +145,18 @@ export function endGrant(
   throw new Error('NOT_IMPLEMENTED');
 }
 
-/** The same for every open grant in this tenant, in the caller's transaction. Returns how many. */
-export function endAllGrantsInTx(
-  _tx: Tx,
-  _context: TenantContext,
-  _input: { reason: 'disabled' | 'revoked' },
-): Promise<number> {
+/**
+ * The same for every open grant in this tenant, in the caller's transaction, with reason `disabled`. Names
+ * the person if the context has one, and nobody if a worker is winding the tenant down. Returns how many.
+ */
+export function endAllGrantsInTx(_tx: Tx, _context: TenantContext): Promise<number> {
   throw new Error('NOT_IMPLEMENTED');
 }
+
+/** The shape of M8's `OffboardingPorts.windDowns`, for the final merge to put in that list. */
+export const federationWindDown = async (tx: Tx, context: TenantContext): Promise<void> => {
+  await endAllGrantsInTx(tx, context);
+};
 
 export function listGrants(
   _database: AppDatabase,

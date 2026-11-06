@@ -19,6 +19,7 @@ import {
   withTenantTx,
   type TenantContext,
 } from '@ensemus/database';
+import { createServiceContext } from '@ensemus/database/service';
 import { hashFederationToken, itemContentHash } from '@ensemus/domain/federation';
 import {
   clearDeploymentProfile,
@@ -610,6 +611,48 @@ describe('cross-organization rules in the database', () => {
             .where(eq(federationGrants.id, grant.id)),
         ),
       ).rejects.toEqual(sqlState('EN716'));
+    });
+
+    it('lets a worker wind a tenant down with nobody named, and only for that reason', async () => {
+      const grant = await seedGrant(database.db, ownerA, ownerB);
+      const service = createServiceContext(ownerA.organizationId);
+      const end = (endReason: string) =>
+        withTenantTx(database.db, service, (tx) =>
+          tx
+            .update(federationGrants)
+            .set({
+              status: 'ended',
+              endReason,
+              endedAt: new Date(),
+              endedByOrganizationId: ownerA.organizationId,
+              version: grant.version + 1,
+            })
+            .where(eq(federationGrants.id, grant.id)),
+        );
+      await expect(end('revoked')).rejects.toEqual(sqlState('EN721'));
+      await end('disabled');
+    });
+
+    it('keeps a copy until it is withdrawn and the other side’s copy is gone', async () => {
+      const grant = await seedGrant(database.db, ownerA, ownerB);
+      const item = await seedOutboundItem(database.db, ownerA, grant.id);
+      const remove = () =>
+        withTenantTx(database.db, ownerA, (tx) =>
+          tx.delete(federationOutboundItems).where(eq(federationOutboundItems.id, item.id)),
+        );
+      await expect(remove()).rejects.toEqual(sqlState('EN716'));
+      await bridge(grant.id, (c) => crossExact(c, grant.id, item, ownerA, ownerB));
+      await withTenantTx(database.db, ownerA, (tx) =>
+        tx
+          .update(federationOutboundItems)
+          .set({ state: 'withdrawn', withdrawnAt: new Date(), version: 2 })
+          .where(eq(federationOutboundItems.id, item.id)),
+      );
+      await expect(remove()).rejects.toEqual(sqlState('23503'));
+      await bridge(grant.id, (c) =>
+        c.query('delete from federation.inbound_items where id = $1', [item.id]),
+      );
+      await remove();
     });
 
     it('refuses switching a tenant off while anything is open', async () => {

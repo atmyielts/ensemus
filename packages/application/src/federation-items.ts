@@ -161,14 +161,30 @@ export function listCrossings(
 }
 
 /**
- * After a grant ended, as a worker with a service context, once for each party. Marks this tenant's queued
- * items withdrawn, tells this tenant's owners and writes its audit row. Repeating it changes nothing.
+ * After a grant ended and every inbound copy of it was purged, as a worker with a service context, once for
+ * each party. Withdraws what is left of this tenant's outbound items, deletes those rows and their files, and
+ * deletes the file a delivery that never finished may have left at the other side's derived key. Tells this
+ * tenant's owners and writes its audit row. Repeating it changes nothing. Only the ledger is left afterwards.
  */
 export function settleGrantEndForTenant(
   _database: AppDatabase,
+  _store: ObjectStore,
   _context: TenantContext,
-  _input: { grantId: string },
-): Promise<{ outboundFileItemIds: readonly string[] }> {
+  _input: { grantId: string; counterpartyOrganizationId: string },
+): Promise<void> {
+  throw new Error('NOT_IMPLEMENTED');
+}
+
+/**
+ * After one withdrawn item's inbound copy was purged, as a worker with a service context for the sender. Deletes
+ * the row and its file, so a deleted source leaves nothing in a copy. Repeating it changes nothing.
+ */
+export function removeWithdrawnItem(
+  _database: AppDatabase,
+  _store: ObjectStore,
+  _context: TenantContext,
+  _input: { itemId: string },
+): Promise<void> {
   throw new Error('NOT_IMPLEMENTED');
 }
 
@@ -181,6 +197,15 @@ export function recordItemReceived(
   _context: TenantContext,
   _input: { itemId: string },
 ): Promise<void> {
+  throw new Error('NOT_IMPLEMENTED');
+}
+
+/** The two parties of a grant, for the worker. Bound to one of them, so anyone else finds nothing. */
+export function loadGrantPartiesForWorker(
+  _database: AppDatabase,
+  _context: TenantContext,
+  _grantId: string,
+): Promise<{ sharingOrganizationId: string; receivingOrganizationId: string | null } | null> {
   throw new Error('NOT_IMPLEMENTED');
 }
 

@@ -30,15 +30,12 @@ export function createFederationActivities(_deps: FederationActivityDeps) {
       void input;
       throw new Error('NOT_IMPLEMENTED');
     },
-    /** The same for one withdrawn item. */
+    /** The same for one withdrawn item, then its row and file on the sender's side. */
     async purgeFederationItem(input: FederationItemInput): Promise<FederationPurgePass> {
       void input;
       throw new Error('NOT_IMPLEMENTED');
     },
-    /**
-     * Each party's own follow-up once a grant has ended: queued items withdrawn, its owners told, its audit
-     * row, and any file that may have been copied for a delivery that never finished.
-     */
+    /** Once every copy is gone: each party's own follow-up, through `followUp.settleGrantEnd`, both ways. */
     async settleFederationGrantEnd(input: FederationGrantEndedInput): Promise<void> {
       void input;
       throw new Error('NOT_IMPLEMENTED');

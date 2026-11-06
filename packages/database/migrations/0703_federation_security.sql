@@ -328,13 +328,17 @@ BEGIN
     ELSE
       RAISE EXCEPTION 'FEDERATION_INVALID_TRANSITION' USING ERRCODE = 'EN716';
   END CASE;
-  -- Stopping is easier than starting: an admin can end what only an owner could begin.
-  IF NEW.end_reason <> 'expired' AND NOT EXISTS (
-    SELECT 1 FROM org.memberships m
-     WHERE m.organization_id = bound AND m.id = NEW.ended_by_membership_id
-       AND m.status = 'active' AND m.role IN ('owner','admin')
-  ) THEN
-    RAISE EXCEPTION 'FEDERATION_NOT_AN_ADMIN' USING ERRCODE = 'EN721';
+  -- Stopping is easier than starting: an admin can end what only an owner could begin. `disabled` can also
+  -- come from a worker with nobody behind it, because offboarding winds a tenant down that way, and ending
+  -- something is the safe direction.
+  IF NEW.end_reason NOT IN ('expired','disabled') OR NEW.ended_by_membership_id IS NOT NULL THEN
+    IF NEW.end_reason <> 'expired' AND NOT EXISTS (
+      SELECT 1 FROM org.memberships m
+       WHERE m.organization_id = bound AND m.id = NEW.ended_by_membership_id
+         AND m.status = 'active' AND m.role IN ('owner','admin')
+    ) THEN
+      RAISE EXCEPTION 'FEDERATION_NOT_AN_ADMIN' USING ERRCODE = 'EN721';
+    END IF;
   END IF;
   RETURN NEW;
 END $$;
@@ -350,7 +354,7 @@ CREATE TRIGGER grants_keep
 
 -- --- outbound_items: what one tenant has chosen to send, in its own tenant. A copy, written by a person,
 -- holding only the fields a contract allows. The source record is never read across the boundary.
-GRANT SELECT, INSERT ON federation.outbound_items TO ensemus_app;
+GRANT SELECT, INSERT, DELETE ON federation.outbound_items TO ensemus_app;
 --> statement-breakpoint
 GRANT UPDATE (state, withdrawn_at, version) ON federation.outbound_items TO ensemus_app;
 --> statement-breakpoint
@@ -436,8 +440,25 @@ CREATE TRIGGER outbound_items_check_change
   BEFORE UPDATE ON federation.outbound_items
   FOR EACH ROW EXECUTE FUNCTION federation.check_outbound_change();
 --> statement-breakpoint
+-- A copy that was taken back goes, so a deleted source leaves nothing behind in a copy. Anything still queued
+-- or delivered stays: it has to be withdrawn first, which is what tells the other side. The foreign key from
+-- inbound_items holds it here until the receiver's copy has been purged.
+CREATE FUNCTION federation.check_outbound_delete() RETURNS trigger
+  LANGUAGE plpgsql
+  AS $$
+BEGIN
+  IF OLD.state NOT IN ('withdrawn','refused') THEN
+    RAISE EXCEPTION 'FEDERATION_INVALID_TRANSITION' USING ERRCODE = 'EN716';
+  END IF;
+  RETURN OLD;
+END $$;
+--> statement-breakpoint
+CREATE TRIGGER outbound_items_check_delete
+  BEFORE DELETE ON federation.outbound_items
+  FOR EACH ROW EXECUTE FUNCTION federation.check_outbound_delete();
+--> statement-breakpoint
 CREATE TRIGGER outbound_items_keep
-  BEFORE DELETE OR TRUNCATE ON federation.outbound_items
+  BEFORE TRUNCATE ON federation.outbound_items
   FOR EACH STATEMENT EXECUTE FUNCTION app.reject_change();
 --> statement-breakpoint
 

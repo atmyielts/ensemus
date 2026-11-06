@@ -16,11 +16,18 @@ export interface FederationFollowUp {
   ): Promise<{ grantId: string; state: 'queued' | 'delivered' | 'refused' | 'withdrawn' } | null>;
   /** Event, notification and audit row in the receiver's tenant. Keyed by the item. */
   recordItemReceived(context: TenantContext, itemId: string): Promise<void>;
-  /** A party's own follow-up after a grant ended. Says which of its items had a file. */
-  settleGrantEnd(
+  /** The two parties, read as one of them. The other side's own binding is made from this. */
+  loadGrantParties(
     context: TenantContext,
     grantId: string,
-  ): Promise<{ outboundFileItemIds: readonly string[] }>;
+  ): Promise<{ sharingOrganizationId: string; receivingOrganizationId: string | null } | null>;
+  /** A party's own follow-up after a grant ended, once every inbound copy is gone. */
+  settleGrantEnd(
+    context: TenantContext,
+    input: { grantId: string; counterpartyOrganizationId: string },
+  ): Promise<void>;
+  /** Deletes one withdrawn item's row and file, once its inbound copy is gone. */
+  removeWithdrawnItem(context: TenantContext, itemId: string): Promise<void>;
 }
 
 export type FederationActivityDeps = {
