@@ -13,6 +13,7 @@ services:
     image: alpine/socat@sha256:466c8a0383e16463fabdb7df01008292fb78d07da60224a46cb5d3142ce122ed
     command: ['tcp-listen:7233,fork,reuseaddr', 'tcp4-connect:temporal:7233']
     networks: [temporal]
+    extra_hosts: ['temporal:${ENSEMUS_NETWORK_PREFIX:-172.30}.3.10']
     ports: ['127.0.0.1:57233:7233']
     depends_on:
       temporal-namespace: { condition: service_completed_successfully }
@@ -29,9 +30,13 @@ services:
       file: compose.yaml
       service: web
     build: !reset null
+    networks: !override
+      edge: { ipv4_address: '${ENSEMUS_NETWORK_PREFIX:-172.30}.1.11' }
+      data: {}
     environment:
       ENSEMUS_ALLOW_SIGNUP: ${ENSEMUS_ALLOW_SIGNUP:-true}
   proxy:
+    extra_hosts: ['web-2:${ENSEMUS_NETWORK_PREFIX:-172.30}.1.11']
     volumes:
       - ./proxy/Caddyfile.test:/etc/caddy/Caddyfile:ro
     depends_on:

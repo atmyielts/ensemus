@@ -1,5 +1,13 @@
 # Ensemus stack (PLAT-15). Same images in every commercial mode, with no hosted dependency.
 # Networks enforce ADR-024 D3: the web tier shares no network with Temporal.
+#
+# Internal names are pinned to fixed addresses. Docker's DNS has no answer for a stopped container
+# and forwards the lookup to the host's resolver, so without this an outage of one service sends its
+# name, and the site's search domain, off the network. That breaks the no-outbound promise of an
+# air-gapped install. A pin answers from /etc/hosts, so no lookup happens. Change
+# ENSEMUS_NETWORK_PREFIX if 172.30.0.0/16 is already used at your site. Automatic addresses come from
+# the top half of each subnet, so they can never take a pinned one while its service is stopped.
+# tests/stack/platform.test.ts fails if a pin is missing or wrong.
 name: ensemus
 
 x-secret-file: &restart
@@ -16,6 +24,8 @@ services:
       - ./proxy/Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy-data:/data
     networks: [edge]
+    extra_hosts:
+      - web:${ENSEMUS_NETWORK_PREFIX:-172.30}.1.10
     depends_on:
       web: { condition: service_healthy }
 
@@ -27,7 +37,13 @@ services:
     image: ensemus/web:local
     read_only: true
     tmpfs: ['/tmp', '/app/apps/web/.next/cache']
-    networks: [edge, data]
+    networks:
+      edge: { ipv4_address: '${ENSEMUS_NETWORK_PREFIX:-172.30}.1.10' }
+      data: {}
+    extra_hosts:
+      - postgres:${ENSEMUS_NETWORK_PREFIX:-172.30}.2.10
+      - valkey:${ENSEMUS_NETWORK_PREFIX:-172.30}.2.11
+      - objects:${ENSEMUS_NETWORK_PREFIX:-172.30}.2.12
     environment:
       ENSEMUS_MODE: ${ENSEMUS_MODE:-sovereign}
       ENSEMUS_PUBLIC_URL: ${ENSEMUS_PUBLIC_URL:-https://localhost:8443}
@@ -63,6 +79,11 @@ services:
     read_only: true
     tmpfs: ['/tmp']
     networks: [data, temporal]
+    extra_hosts:
+      - postgres:${ENSEMUS_NETWORK_PREFIX:-172.30}.2.10
+      - valkey:${ENSEMUS_NETWORK_PREFIX:-172.30}.2.11
+      - objects:${ENSEMUS_NETWORK_PREFIX:-172.30}.2.12
+      - temporal:${ENSEMUS_NETWORK_PREFIX:-172.30}.3.10
     environment:
       TEMPORAL_ADDRESS: temporal:7233
       TEMPORAL_NAMESPACE: default
@@ -97,6 +118,11 @@ services:
     read_only: true
     tmpfs: ['/tmp']
     networks: [data, temporal]
+    extra_hosts:
+      - postgres:${ENSEMUS_NETWORK_PREFIX:-172.30}.2.10
+      - valkey:${ENSEMUS_NETWORK_PREFIX:-172.30}.2.11
+      - objects:${ENSEMUS_NETWORK_PREFIX:-172.30}.2.12
+      - temporal:${ENSEMUS_NETWORK_PREFIX:-172.30}.3.10
     environment:
       TEMPORAL_ADDRESS: temporal:7233
       TEMPORAL_NAMESPACE: default
@@ -127,6 +153,10 @@ services:
     read_only: true
     tmpfs: ['/tmp']
     networks: [data]
+    extra_hosts:
+      - postgres:${ENSEMUS_NETWORK_PREFIX:-172.30}.2.10
+      - valkey:${ENSEMUS_NETWORK_PREFIX:-172.30}.2.11
+      - objects:${ENSEMUS_NETWORK_PREFIX:-172.30}.2.12
     environment:
       OBJECT_STORAGE_ENDPOINT: http://objects:8333
       OBJECT_STORAGE_BUCKET: ensemus
@@ -149,7 +179,9 @@ services:
       - postgres-data:/var/lib/postgresql/data
       - ./postgres/10-provision.sh:/docker-entrypoint-initdb.d/10-provision.sh:ro
       - ./postgres/provision.sql:/provision/provision.sql:ro
-    networks: [data, temporal-db]
+    networks:
+      data: { ipv4_address: '${ENSEMUS_NETWORK_PREFIX:-172.30}.2.10' }
+      temporal-db: { ipv4_address: '${ENSEMUS_NETWORK_PREFIX:-172.30}.4.10' }
     secrets:
       - db_superuser_password
       - db_migrator_password
@@ -168,6 +200,8 @@ services:
     image: temporalio/admin-tools@sha256:4a95866efba29d7e17ab012df5232795e8b0ad0f7d5f9d1ec4df321f7792a754
     entrypoint: ['/bin/sh', '/provision/setup-schema.sh']
     networks: [temporal-db]
+    extra_hosts:
+      - postgres:${ENSEMUS_NETWORK_PREFIX:-172.30}.4.10
     volumes:
       - ./temporal/setup-schema.sh:/provision/setup-schema.sh:ro
     secrets: [db_temporal_password]
@@ -177,7 +211,11 @@ services:
   temporal:
     <<: *restart
     image: temporalio/server@sha256:7bf69188a6232fea14869b9cef3d94aa82a1601d99517f7e86c71f22da4e0670
-    networks: [temporal, temporal-db]
+    networks:
+      temporal: { ipv4_address: '${ENSEMUS_NETWORK_PREFIX:-172.30}.3.10' }
+      temporal-db: {}
+    extra_hosts:
+      - postgres:${ENSEMUS_NETWORK_PREFIX:-172.30}.4.10
     entrypoint: ['/bin/sh', '/provision/temporal-start.sh']
     environment:
       DB: postgres12
@@ -206,6 +244,8 @@ services:
     image: temporalio/admin-tools@sha256:4a95866efba29d7e17ab012df5232795e8b0ad0f7d5f9d1ec4df321f7792a754
     entrypoint: ['/bin/sh', '/provision/setup-namespace.sh']
     networks: [temporal]
+    extra_hosts:
+      - temporal:${ENSEMUS_NETWORK_PREFIX:-172.30}.3.10
     volumes:
       - ./temporal/setup-namespace.sh:/provision/setup-namespace.sh:ro
     depends_on:
@@ -228,7 +268,8 @@ services:
       ]
     read_only: true
     tmpfs: ['/data']
-    networks: [data]
+    networks:
+      data: { ipv4_address: '${ENSEMUS_NETWORK_PREFIX:-172.30}.2.11' }
     healthcheck:
       test: ['CMD', 'valkey-cli', 'ping']
       interval: 5s
@@ -248,7 +289,8 @@ services:
     secrets: [objects_identity]
     volumes:
       - objects-data:/data
-    networks: [data]
+    networks:
+      data: { ipv4_address: '${ENSEMUS_NETWORK_PREFIX:-172.30}.2.12' }
     healthcheck:
       test: ['CMD-SHELL', 'wget -q -O /dev/null http://127.0.0.1:9333/cluster/status']
       interval: 5s
@@ -256,10 +298,34 @@ services:
       retries: 30
 
 networks:
-  edge: {}
-  data: {}
-  temporal: {}
-  temporal-db: {}
+  edge:
+    ipam:
+      config:
+        - {
+            subnet: '${ENSEMUS_NETWORK_PREFIX:-172.30}.1.0/24',
+            ip_range: '${ENSEMUS_NETWORK_PREFIX:-172.30}.1.128/25',
+          }
+  data:
+    ipam:
+      config:
+        - {
+            subnet: '${ENSEMUS_NETWORK_PREFIX:-172.30}.2.0/24',
+            ip_range: '${ENSEMUS_NETWORK_PREFIX:-172.30}.2.128/25',
+          }
+  temporal:
+    ipam:
+      config:
+        - {
+            subnet: '${ENSEMUS_NETWORK_PREFIX:-172.30}.3.0/24',
+            ip_range: '${ENSEMUS_NETWORK_PREFIX:-172.30}.3.128/25',
+          }
+  temporal-db:
+    ipam:
+      config:
+        - {
+            subnet: '${ENSEMUS_NETWORK_PREFIX:-172.30}.4.0/24',
+            ip_range: '${ENSEMUS_NETWORK_PREFIX:-172.30}.4.128/25',
+          }
 
 volumes:
   postgres-data: {}

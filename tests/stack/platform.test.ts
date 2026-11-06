@@ -200,6 +200,69 @@ describe('web tier isolation (ADR-024 D3, D5)', () => {
     expect(publishing).toEqual(['proxy']);
   });
 
+  it('pins every internal name a service could look up, so an outage sends none off the network', () => {
+    const config = JSON.parse(
+      execFileSync(
+        'docker',
+        ['compose', '-f', 'infrastructure/compose/compose.yaml', 'config', '--format', 'json'],
+        { cwd: repoRoot, encoding: 'utf8' },
+      ),
+    ) as {
+      services: Record<
+        string,
+        {
+          networks?: Record<string, { ipv4_address?: string } | null>;
+          extra_hosts?: string[] | Record<string, string | string[]>;
+        }
+      >;
+    };
+    const pinsOf = (service: string): Record<string, string> => {
+      const hosts = config.services[service]?.extra_hosts ?? [];
+      const pairs: [string, string][] = Array.isArray(hosts)
+        ? hosts.map((entry) => {
+            const [name = '', address = ''] = entry.split(/[:=]/);
+            return [name, address];
+          })
+        : Object.entries(hosts).map(([name, value]) => [name, [value].flat()[0] ?? '']);
+      return Object.fromEntries(pairs);
+    };
+    const addressesOf = (service: string) =>
+      Object.entries(config.services[service]?.networks ?? {}).map(([network, settings]) => ({
+        network,
+        address: settings?.ipv4_address,
+      }));
+    // What others connect to, and what connects to them. Only the proxy connects to web.
+    const peers = ['web', 'postgres', 'valkey', 'objects', 'temporal'];
+    const clients = [
+      'proxy',
+      'web',
+      'worker',
+      'dispatcher',
+      'migrate',
+      'temporal-schema',
+      'temporal',
+      'temporal-namespace',
+    ];
+    // A new service must be classified here, rather than quietly left unpinned.
+    expect(Object.keys(config.services).sort()).toEqual(
+      [...new Set([...clients, ...peers])].sort(),
+    );
+    for (const client of clients) {
+      const networks = addressesOf(client).map(({ network }) => network);
+      const expected: Record<string, string> = {};
+      for (const peer of peers) {
+        if (peer === client || (peer === 'web' && client !== 'proxy')) continue;
+        const shared = addressesOf(peer).find(({ network }) => networks.includes(network));
+        if (!shared) continue;
+        expect(shared.address, `${peer} on ${shared.network}`).toMatch(/^\d+\.\d+\.\d+\.\d+$/);
+        expected[peer] = shared.address ?? '';
+      }
+      // Exact, so this also refuses a pin to something the service has no network path to.
+      expect(pinsOf(client), client).toEqual(expected);
+    }
+    expect(pinsOf('web')).not.toHaveProperty('temporal');
+  });
+
   it('control: the worker can reach Temporal the same way', () => {
     const output = nodeIn(
       'worker',

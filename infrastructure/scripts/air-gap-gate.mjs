@@ -2,9 +2,14 @@
 // PLAT-16: runs the stack with outbound traffic blocked and counted. Any attempt fails the build.
 //   node infrastructure/scripts/air-gap-gate.mjs            full gate
 //   node infrastructure/scripts/air-gap-gate.mjs --control  proves a real attempt is detected
+//   node infrastructure/scripts/air-gap-gate.mjs --outages  only the outage round, without the suite
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
+import { request as httpsRequest } from 'node:https';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+
+// The gate's firewall rule covers the default addresses, so a site's own prefix must not move the stack.
+delete process.env.ENSEMUS_NETWORK_PREFIX;
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const SUBNET = '172.30.0.0/16';
@@ -107,7 +112,41 @@ function down() {
   }
 }
 
+// Stops each internal service in turn while the others keep working and requests keep arriving. A name
+// that is not pinned leaves the network here, because Docker forwards a stopped container's name.
+const OUTAGES = ['web-2', 'web', 'objects', 'valkey', 'temporal', 'postgres'];
+const OUTAGE_SECONDS = 20;
+
+function askProxy(headers) {
+  return new Promise((done) => {
+    const port = process.env.ENSEMUS_HTTPS_PORT ?? '8443';
+    const request = httpsRequest(
+      { host: '127.0.0.1', port, path: '/', headers, rejectUnauthorized: false, timeout: 3000 },
+      (response) => {
+        response.resume();
+        response.on('end', done);
+      },
+    );
+    request.on('timeout', () => request.destroy());
+    request.on('error', done);
+    request.end();
+  });
+}
+
+async function exerciseOutages() {
+  for (const service of OUTAGES) {
+    console.log(`Outage: stopping ${service} for ${OUTAGE_SECONDS} seconds...`);
+    compose('stop', service);
+    for (let elapsed = 0; elapsed < OUTAGE_SECONDS; elapsed += 2) {
+      await Promise.all([askProxy({}), askProxy({ 'X-Ensemus-Test-Replica': '2' })]);
+      await new Promise((done) => setTimeout(done, 2000));
+    }
+    compose('up', '-d', '--wait', '--wait-timeout', '300');
+  }
+}
+
 const control = process.argv.includes('--control');
+const outagesOnly = process.argv.includes('--outages');
 let failed = false;
 
 try {
@@ -150,17 +189,20 @@ try {
       console.log('OK: the gate can see outbound attempts.');
     }
   } else {
-    console.log('Running the stack test suite with outbound traffic blocked...');
-    const tests = spawnSync('pnpm', ['exec', 'vitest', 'run', '--project', 'stack'], {
-      cwd: root,
-      stdio: 'inherit',
-      shell: process.platform === 'win32',
-      env: { ...process.env, ENSEMUS_COMPOSE_AIRGAP: '1' },
-    });
-    if (tests.status !== 0) {
-      console.error('FAILED: stack tests did not pass while offline.');
-      failed = true;
+    if (!outagesOnly) {
+      console.log('Running the stack test suite with outbound traffic blocked...');
+      const tests = spawnSync('pnpm', ['exec', 'vitest', 'run', '--project', 'stack'], {
+        cwd: root,
+        stdio: 'inherit',
+        shell: process.platform === 'win32',
+        env: { ...process.env, ENSEMUS_COMPOSE_AIRGAP: '1' },
+      });
+      if (tests.status !== 0) {
+        console.error('FAILED: stack tests did not pass while offline.');
+        failed = true;
+      }
     }
+    await exerciseOutages();
     const seen = attempts() - before;
     console.log(`Outbound attempts during the run: ${seen}`);
     await capture.report();

@@ -1,50 +1,20 @@
-# Air-gap gate overlay (PLAT-16). Gives networks known addresses so outbound traffic can be counted
-# and dropped. DNS points at an unreachable test address (TEST-NET-3), so any lookup of an outside
-# name becomes an outbound packet that the gate counts as an attempt.
+# Air-gap gate overlay (PLAT-16). DNS points at an unreachable test address (TEST-NET-3), so any lookup
+# of an outside name becomes an outbound packet that the gate counts as an attempt. It changes nothing
+# else: the addresses and name pins under test are the ones compose.yaml ships.
 x-airgap-dns: &dns
   dns: ['203.0.113.53']
 
-# A test stops Temporal on purpose (tests/stack/work-execution.test.ts). Docker's DNS has no answer
-# for a stopped container, so it forwards its clients' next lookup of "temporal" to the host's
-# resolver. That is not the product calling out, and this one name, and no other, is pinned so that
-# it does not count as if it were. It does happen on a real install during a Temporal outage.
-x-temporal-client: &temporal-client
-  dns: ['203.0.113.53']
-  extra_hosts: ['temporal:172.30.3.250', 'objects:172.30.2.250']
-
-# The same for the object store, which tests/stack/restore.test.ts stops on purpose.
-x-objects-client: &objects-client
-  dns: ['203.0.113.53']
-  extra_hosts: ['objects:172.30.2.250']
-
 services:
   proxy: *dns
-  web: *objects-client
-  web-2: *objects-client
-  worker: *temporal-client
-  dispatcher: *temporal-client
-  migrate: *objects-client
+  web: *dns
+  web-2: *dns
+  worker: *dns
+  dispatcher: *dns
+  migrate: *dns
   postgres: *dns
-  temporal:
-    <<: *dns
-    networks:
-      temporal: { ipv4_address: 172.30.3.250 }
-      temporal-db: {}
+  temporal: *dns
   temporal-schema: *dns
   temporal-namespace: *dns
-  temporal-test-port: *temporal-client
+  temporal-test-port: *dns
   valkey: *dns
-  objects:
-    <<: *dns
-    networks:
-      data: { ipv4_address: 172.30.2.250 }
-
-networks:
-  edge:
-    ipam: { config: [{ subnet: 172.30.1.0/24 }] }
-  data:
-    ipam: { config: [{ subnet: 172.30.2.0/24 }] }
-  temporal:
-    ipam: { config: [{ subnet: 172.30.3.0/24 }] }
-  temporal-db:
-    ipam: { config: [{ subnet: 172.30.4.0/24 }] }
+  objects: *dns

@@ -237,8 +237,8 @@
     },
     {
       "path": "05-operations/05-container-deployment-runbook.md",
-      "size_bytes": 13014,
-      "sha256": "304731798dafe9f2dbdd871587015954989040a0ce43d7e7b6adfd284c2c25a5"
+      "size_bytes": 13497,
+      "sha256": "f4b868875994e3132f72c474d2f815d0194eb1f29133b45b08cc8c72c95a1de4"
     },
     {
       "path": "05-operations/06-performance-and-load-plan.md",
@@ -367,8 +367,8 @@
     },
     {
       "path": "specifications/deployment/environment.example",
-      "size_bytes": 1189,
-      "sha256": "35cd5ffb99ad6bb0c1fa108d70dc18a191ba34846193b64e00cde6f650fe3ad5"
+      "size_bytes": 1396,
+      "sha256": "8e3c9cc962d03a38ddf1f08886938c91fb846cb2447a3f40b0aec12bffb8d9d9"
     },
     {
       "path": "specifications/deployment/release-manifest.example.json",

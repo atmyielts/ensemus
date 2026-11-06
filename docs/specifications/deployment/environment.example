@@ -20,3 +20,7 @@ VALKEY_URL=redis://valkey.internal.invalid:6379
 OBSERVABILITY_MODE=local
 MODEL_EGRESS_POLICY=deny-by-default
 # Actual EnvConfig contract must be Zod-validated; *_FILE handling must be built.
+
+# First two parts of the addresses the stack uses inside Docker. Change it only if 172.30.0.0/16 is
+# already in use at your site. The air-gap gate always runs on the default.
+ENSEMUS_NETWORK_PREFIX=172.30
