@@ -23,6 +23,17 @@ const SAFE_FIELDS = new Set([
   'errorCode',
   'reasonCode',
   'count',
+  // Counts from the tombstone ledger (ADR-026).
+  'queued',
+  'dead',
+  'oldestSeconds',
+  'entries',
+  'tombstonesAdded',
+  'artifactsRemoved',
+  'bytesRemoved',
+  'organizationsMissing',
+  'invalid',
+  'failed',
 ]);
 
 // Safe values are short and machine-shaped. Free text is refused even under a safe field name.

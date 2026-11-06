@@ -10,15 +10,20 @@ x-airgap-dns: &dns
 # it does not count as if it were. It does happen on a real install during a Temporal outage.
 x-temporal-client: &temporal-client
   dns: ['203.0.113.53']
-  extra_hosts: ['temporal:172.30.3.250']
+  extra_hosts: ['temporal:172.30.3.250', 'objects:172.30.2.250']
+
+# The same for the object store, which tests/stack/restore.test.ts stops on purpose.
+x-objects-client: &objects-client
+  dns: ['203.0.113.53']
+  extra_hosts: ['objects:172.30.2.250']
 
 services:
   proxy: *dns
-  web: *dns
-  web-2: *dns
+  web: *objects-client
+  web-2: *objects-client
   worker: *temporal-client
   dispatcher: *temporal-client
-  migrate: *dns
+  migrate: *objects-client
   postgres: *dns
   temporal:
     <<: *dns
@@ -29,7 +34,10 @@ services:
   temporal-namespace: *dns
   temporal-test-port: *temporal-client
   valkey: *dns
-  objects: *dns
+  objects:
+    <<: *dns
+    networks:
+      data: { ipv4_address: 172.30.2.250 }
 
 networks:
   edge:

@@ -16,7 +16,7 @@ import {
 } from '@ensemus/database';
 import { createLogger, errorCode } from '@ensemus/telemetry';
 import { z } from 'zod';
-import { getRuntime } from './runtime';
+import { getRestoreGate, getRuntime } from './runtime';
 
 // The shared wrapper for /api/v1 (API-10). Every route gets the same order of checks: who is this,
 // did the browser send this from our own origin, is the input well formed, and are they in this
@@ -92,9 +92,10 @@ function errorResponse(
     code,
     message,
     request_id: requestId,
-    // Every refusal here needs the caller to change something first, and after an unknown failure
-    // we cannot promise that repeating the request is safe.
-    retryable: false,
+    // A restore ends without the caller doing anything, and the request did nothing. Every other
+    // refusal needs the caller to change something first, and after an unknown failure we cannot
+    // promise that repeating the request is safe.
+    retryable: code === 'RESTORE_PENDING',
     ...(details ? { details } : {}),
   };
   return Response.json(body, { status });
@@ -175,6 +176,8 @@ export function apiRoute<S extends z.ZodType<{ organizationId: string }>>(
       who = { database: app, userId: session.user.id, organizationId: params.data.organizationId };
       const context = await resolveTenantContext(app, session.user.id, params.data.organizationId);
       who = { ...who, context };
+      // After the membership check, so nobody outside the tenant can learn it is being restored.
+      await getRestoreGate().assertServing(context);
       response = await handler({
         request,
         requestId,

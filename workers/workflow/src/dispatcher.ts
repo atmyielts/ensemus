@@ -7,10 +7,13 @@ import { fileURLToPath } from 'node:url';
 import { readSecret } from '@ensemus/config';
 import {
   dispatchDueEvents,
+  eventBacklog,
   listOrganizationIds,
   openDispatcherDatabase,
   type DispatchableEvent,
 } from '@ensemus/database/dispatcher';
+import { TOMBSTONE_RECORDED } from '@ensemus/domain/tombstone-ledger';
+import { S3ObjectStore } from '@ensemus/storage';
 import { createLogger, errorCode } from '@ensemus/telemetry';
 import { AesGcmPayloadCodec } from '@ensemus/workflows/codec';
 import { PLATFORM_TASK_QUEUE, TEMPORAL_CHANNEL_ARGS } from '@ensemus/workflows/constants';
@@ -30,6 +33,7 @@ import {
   ScheduleAlreadyRunning,
 } from '@temporalio/client';
 import { classifyDeliveryError } from './dispatch-errors';
+import { createLedgerWriter } from './tombstone-ledger';
 
 const log = createLogger('dispatcher');
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -39,6 +43,14 @@ const REMINDER_INTERVAL = '15 minutes';
 const CALL_DEADLINE_MS = 10_000;
 /** How often to try checking the reminder schedules again if Temporal was down at startup. */
 const RECONCILE_RETRY_MS = 60_000;
+/**
+ * One ledger write may hold up the events behind it for about this long, like a Temporal call, and
+ * the outbox retries. A store that is only cold needs some of it: SeaweedFS took over 4 seconds for
+ * its first write on a new stack, and a limit under that would miss for no reason.
+ */
+const LEDGER_REQUEST_MS = CALL_DEADLINE_MS;
+/** How often to say so if tombstones are waiting to reach the ledger (ADR-026). */
+const LEDGER_BACKLOG_CHECK_MS = 60_000;
 
 async function main() {
   const connection = await Connection.connect({
@@ -54,6 +66,17 @@ async function main() {
     },
   });
   const { db, close } = openDispatcherDatabase(readSecret('DATABASE_URL_DISPATCHER'));
+  // Its own credential, which reaches the ledger and no customer's bytes (ADR-026).
+  const writeLedgerEntry = createLedgerWriter(
+    new S3ObjectStore({
+      endpoint: process.env.OBJECT_STORAGE_ENDPOINT ?? 'http://objects:8333',
+      bucket: process.env.OBJECT_STORAGE_BUCKET ?? 'ensemus',
+      accessKey: readSecret('OBJECT_STORAGE_LEDGER_ACCESS_KEY'),
+      secretKey: readSecret('OBJECT_STORAGE_LEDGER_SECRET_KEY'),
+      requestTimeoutMs: LEDGER_REQUEST_MS,
+      maxAttempts: 1,
+    }),
+  );
 
   const ensureReminderSchedule = async (organizationId: string) => {
     const scheduleInput: TenantInput = { organizationId };
@@ -124,6 +147,10 @@ async function main() {
         await ensureReminderSchedule(event.organizationId);
         return;
 
+      case TOMBSTONE_RECORDED:
+        await writeLedgerEntry(event);
+        return;
+
       default:
         // Nothing consumes this event yet. It stays in domain_events for projections.
         return;
@@ -159,8 +186,22 @@ async function main() {
   log.info('dispatcher.started');
   let reconciled = false;
   let nextReconcileAt = 0;
+  let nextBacklogCheckAt = Date.now() + LEDGER_BACKLOG_CHECK_MS;
   while (running) {
     beat();
+    if (Date.now() >= nextBacklogCheckAt) {
+      nextBacklogCheckAt = Date.now() + LEDGER_BACKLOG_CHECK_MS;
+      await eventBacklog(db, TOMBSTONE_RECORDED).then(
+        ({ queued, dead, oldestSeconds }) => {
+          if (queued + dead > 0) {
+            log.warn('tombstone_ledger.backlog', { count: queued + dead, oldestSeconds });
+          }
+        },
+        (error: unknown) => {
+          log.warn('tombstone_ledger.backlog_failed', { errorCode: errorCode(error) });
+        },
+      );
+    }
     if (!reconciled && Date.now() >= nextReconcileAt) {
       nextReconcileAt = Date.now() + RECONCILE_RETRY_MS;
       await reconcileReminderSchedules().then(

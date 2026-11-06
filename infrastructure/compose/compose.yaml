@@ -102,7 +102,16 @@ services:
       TEMPORAL_NAMESPACE: default
       TEMPORAL_CODEC_KEY_FILE: /run/secrets/temporal_codec_key
       DATABASE_URL_DISPATCHER_FILE: /run/secrets/db_dispatcher_url
-    secrets: [temporal_codec_key, db_dispatcher_url]
+      # Writes the tombstone ledger (ADR-026). This identity reaches that prefix and nothing else.
+      OBJECT_STORAGE_ENDPOINT: http://objects:8333
+      OBJECT_STORAGE_BUCKET: ensemus
+      OBJECT_STORAGE_LEDGER_ACCESS_KEY_FILE: /run/secrets/objects_ledger_access_key
+      OBJECT_STORAGE_LEDGER_SECRET_KEY_FILE: /run/secrets/objects_ledger_secret_key
+    secrets:
+      - temporal_codec_key
+      - db_dispatcher_url
+      - objects_ledger_access_key
+      - objects_ledger_secret_key
     depends_on:
       temporal-namespace: { condition: service_completed_successfully }
       migrate: { condition: service_completed_successfully }
@@ -271,6 +280,8 @@ secrets:
   db_dispatcher_url: { file: ../../.local/secrets/db_dispatcher_url }
   objects_access_key: { file: ../../.local/secrets/objects_access_key }
   objects_secret_key: { file: ../../.local/secrets/objects_secret_key }
+  objects_ledger_access_key: { file: ../../.local/secrets/objects_ledger_access_key }
+  objects_ledger_secret_key: { file: ../../.local/secrets/objects_ledger_secret_key }
   objects_identity: { file: ../../.local/secrets/objects_identity.json }
   db_secrets_url: { file: ../../.local/secrets/db_secrets_url }
   auth_secret: { file: ../../.local/secrets/auth_secret }

@@ -2,10 +2,10 @@ import 'server-only';
 import { AppError, auditTenantRefusal } from '@ensemus/application';
 import { resolveTenantContext, TenantAccessDenied } from '@ensemus/database';
 import { errorCode } from '@ensemus/telemetry';
-import { notFound } from 'next/navigation';
+import { notFound, redirect } from 'next/navigation';
 import { cache } from 'react';
 import { requireActor } from './actor';
-import { getRuntime } from './runtime';
+import { getRestoreGate, getRuntime } from './runtime';
 
 /**
  * Who this request is, in this tenant. React's `cache` lasts for one request only, so a revoked
@@ -16,12 +16,15 @@ export const requireTenant = cache(async (organizationId: string) => {
   const { app } = getRuntime();
   try {
     const context = await resolveTenantContext(app, actor.userId, organizationId);
+    // After the membership check, so nobody outside the tenant can learn it is being restored.
+    await getRestoreGate().assertServing(context);
     return { actor, context, database: app };
   } catch (error) {
     if (error instanceof TenantAccessDenied) {
       await recordTenantRefusal(actor.userId, organizationId);
       notFound();
     }
+    if (error instanceof AppError && error.code === 'RESTORE_PENDING') redirect('/restoring');
     throw error;
   }
 });

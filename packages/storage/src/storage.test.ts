@@ -39,7 +39,56 @@ describe('a store that accepts a request and never answers', () => {
     expect(took).toBeLessThan(10_000);
   }, 20_000);
 
+  it('tries only once when asked to, for a caller with retries of its own', async () => {
+    const store = new S3ObjectStore({
+      endpoint,
+      bucket: 'b',
+      accessKey: 'k',
+      secretKey: 's',
+      requestTimeoutMs: 200,
+      maxAttempts: 1,
+    });
+    const started = Date.now();
+    await expect(store.put('key', Buffer.from('x'), 'text/plain')).rejects.toThrow();
+    expect(Date.now() - started).toBeLessThan(200 * 2);
+  }, 20_000);
+
   it('uses up much less than an Activity has, by default', () => {
     expect(REQUEST_TIMEOUT_MS * MAX_ATTEMPTS).toBeLessThan(ACTIVITY_TIMEOUT_MS * 0.8);
+  });
+});
+
+describe('listing a prefix', () => {
+  let server: Server;
+  let endpoint: string;
+  const asked: string[] = [];
+
+  beforeAll(async () => {
+    server = createServer((request, response) => {
+      const url = new URL(request.url ?? '', 'http://store');
+      asked.push(url.searchParams.get('continuation-token') ?? 'first');
+      const second = url.searchParams.get('continuation-token') === 'next';
+      response.setHeader('content-type', 'application/xml');
+      response.end(
+        second
+          ? `<ListBucketResult><IsTruncated>false</IsTruncated><Contents><Key>a/3</Key></Contents></ListBucketResult>`
+          : `<ListBucketResult><IsTruncated>true</IsTruncated><NextContinuationToken>next</NextContinuationToken><Contents><Key>a/1</Key></Contents><Contents><Key>a/2</Key></Contents></ListBucketResult>`,
+      );
+    });
+    await new Promise<void>((listening) => server.listen(0, '127.0.0.1', listening));
+    endpoint = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  });
+
+  afterAll(async () => {
+    server.closeAllConnections();
+    await new Promise((closed) => server.close(closed));
+  });
+
+  it('follows every page to the end', async () => {
+    const store = new S3ObjectStore({ endpoint, bucket: 'b', accessKey: 'k', secretKey: 's' });
+    const pages: string[][] = [];
+    for await (const page of store.listPages('a/')) pages.push(page);
+    expect(pages).toEqual([['a/1', 'a/2'], ['a/3']]);
+    expect(asked).toEqual(['first', 'next']);
   });
 });

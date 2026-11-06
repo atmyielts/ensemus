@@ -22,7 +22,8 @@ export type ErrorCode =
   | 'APPROVAL_STALE'
   | 'REVIEW_ALREADY_OPEN'
   | 'INVITATION_INVALID'
-  | 'LAST_OWNER';
+  | 'LAST_OWNER'
+  | 'RESTORE_PENDING';
 
 const MESSAGES: Record<ErrorCode, string> = {
   NOT_FOUND: 'Not found or not permitted.',
@@ -48,6 +49,8 @@ const MESSAGES: Record<ErrorCode, string> = {
   REVIEW_ALREADY_OPEN: 'A review of this work is already open. It has to be decided first.',
   INVITATION_INVALID: 'This invitation is not valid. Ask for a new one.',
   LAST_OWNER: 'An organization must keep at least one owner.',
+  RESTORE_PENDING:
+    'This organization is being restored from a backup, and is unavailable until that is finished.',
 };
 
 export class AppError extends Error {
@@ -80,6 +83,7 @@ export const HTTP_STATUS: Record<ErrorCode, number> = {
   REVIEW_ALREADY_OPEN: 409,
   INVITATION_INVALID: 400,
   LAST_OWNER: 409,
+  RESTORE_PENDING: 503,
 };
 
 /** Reads the Postgres error code through the wrapper Drizzle adds. */

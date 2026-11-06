@@ -12,7 +12,7 @@ Deploy exactly the same Ensemus business capabilities in SaaS Cloud, SaaS BYOM, 
 
 1. Install and configure supported PostgreSQL + pgvector, Temporal server with persisted backend and an approved S3-compatible object store. Valkey runs in the stack too, but no code reads or writes it yet (ADR-025 D9), so nothing depends on it today. Provide a key-encryption key for the built-in `SecretBroker`. An external IdP, KMS or vault is optional (ADR-024 D5). Restrict DB/Temporal/object administration to private network.
 2. Configure DNS/TLS/reverse proxy; restrict direct access to Next.js and internal worker ports. Set external origin, request limits and trusted proxy headers.
-3. Provision runtime secret IDs and per-service DB/Temporal permissions. Enable RLS and test non-owner/non-bypass roles; do not install with administrator DB role as app role.
+3. Provision runtime secret IDs and per-service DB/Temporal permissions, and the dispatcher's own object-store identity, which reaches only the `tombstone-ledger/` prefix (ADR-026). Without it, deletions still block access but pile up in the ledger backlog. Enable RLS and test non-owner/non-bypass roles; do not install with administrator DB role as app role.
 4. Validate migration and version compatibility; back up before any schema mutation. Apply migration once.
 5. Deploy pinned `ensemus-web` image (Next.js standalone) and `ensemus-worker` (Node/Temporal) with independent readiness/liveness checks, resource constraints and restart policies.
 6. Run isolated tenant authorization, worker registration, inference policy, object store, outbox, secret-canary, and a full Work Unit integration smoke test.
@@ -54,11 +54,81 @@ Temporal pollers authenticate independently to Temporal service. Agent/ingestion
 
 ## Security and network flows
 
-Ingress: HTTPS only to reverse proxy → web. Internal: web → PostgreSQL, object store and local auth; dispatcher → PostgreSQL and Temporal; worker → PostgreSQL, Temporal, object store and key material as policy. Valkey shares the data network and no code connects to it yet (ADR-025 D9). External egress only for approved provider/connector profiles; explicit blocked-by-default in Sovereign air gap. Do not expose object storage secrets or model API keys to browsers, traces, or generic worker job bodies.
+Ingress: HTTPS only to reverse proxy → web. Internal: web → PostgreSQL, object store and local auth; dispatcher → PostgreSQL, Temporal, and the object store's tombstone ledger alone, with its own scoped identity (ADR-026); worker → PostgreSQL, Temporal, object store and key material as policy. Valkey shares the data network and no code connects to it yet (ADR-025 D9). External egress only for approved provider/connector profiles; explicit blocked-by-default in Sovereign air gap. Do not expose object storage secrets or model API keys to browsers, traces, or generic worker job bodies.
 
 ## Outbox and stuck work
 
 An outage of Temporal costs events no attempts, so they wait and are delivered when it returns. An event at fault itself goes dead after 12 attempts. One that keeps getting gRPC UNKNOWN or INTERNAL could be either, so it is given 288 attempts, about a day, before it goes dead the same way. The dispatcher logs each failure as an error code. Once the cause is fixed, put dead events back in the queue with `docker compose exec dispatcher node dist/redrive.js [organization-id]`, which prints a count and no content. The dispatcher also checks every tenant's reminder schedule when it starts. Each tenant's 15-minute upkeep expires overdue approvals, finishes byte deletions the object store refused, removes uploads whose row never arrived, marks work failed when Temporal says the run holding it has closed, and asks again for any plan run nothing has claimed after 5 minutes. Byte deletions that keep failing wait longer each time, up to a day, so they cannot keep others waiting.
+
+## Backup and restore
+
+**This is the M2 scope: the PostgreSQL database, and deleted files staying deleted.** A full backup and restore of PostgreSQL, Temporal and the object store together, with a drill, comes in M6 (`OPS-02`). Until then, restoring from these steps loses whatever was done after the backup, and Temporal may remember plan runs the restored database does not have. Nothing here is automated or scheduled, and no recovery time is promised. Why it works this way is in [ADR-026](../00-foundation/adr/ADR-026-tombstones-survive-restore.md).
+
+In the commands below, `compose` means `docker compose -f infrastructure/compose/compose.yaml`.
+
+### Take a backup
+
+```sh
+compose exec -T postgres pg_dump -U postgres -d ensemus -Fc -f /tmp/ensemus.dump
+compose cp postgres:/tmp/ensemus.dump ./ensemus.dump
+compose exec -T postgres rm /tmp/ensemus.dump
+```
+
+Keep the dump somewhere encrypted and away from this host. It holds customer data, including the names of files deleted since it was taken, until it expires. Do not back up or roll back the `tombstone-ledger/` prefix of the object store along with an older dump: it is what protects you from that dump.
+
+### Check that deletions are reaching the ledger
+
+```sh
+compose run --rm --no-deps dispatcher node dist/ledger-backlog.js
+```
+
+This prints how many deletions have not reached the ledger (`queued`, and `dead` if any went dead) and how long the oldest has waited (`oldestSeconds`). **These are the deletions a restore could not put back if the database were lost now.** The dispatcher also logs `tombstone_ledger.backlog` every minute while any are waiting. Normally the count is zero. A store outage costs them no attempts, and they are written when it ends.
+
+### Restore
+
+1. Stop everything that uses the database:
+
+   ```sh
+   compose stop proxy web worker dispatcher
+   ```
+
+2. Put the dump in the container and restore it into the running database. It runs in one transaction, so a failure changes nothing:
+
+   ```sh
+   compose cp ./ensemus.dump postgres:/tmp/ensemus.dump
+   compose exec -T postgres pg_restore -U postgres -d ensemus --clean --if-exists --single-transaction --exit-on-error /tmp/ensemus.dump
+   compose exec -T postgres rm /tmp/ensemus.dump
+   ```
+
+3. If this release has migrations newer than the dump, apply them:
+
+   ```sh
+   compose run --rm --no-deps migrate
+   ```
+
+4. Re-apply the tombstone ledger. **Do this before anyone is let back in.**
+
+   ```sh
+   compose run --rm --no-deps worker node dist/reapply-ledger.js
+   ```
+
+   It prints counts and no names: `entries`, `tombstonesAdded`, `artifactsRemoved`, `bytesRemoved`, `organizationsMissing`, `invalid` and `failed`. It exits non-zero if `failed` or `invalid` is above zero. For `failed`, fix the cause and run it again. Access is already blocked, and running it again is always safe. For `invalid`, an object under `tombstone-ledger/` is not a valid entry, so look at it before deciding anything: that tenant stays refused until it is resolved.
+
+5. Start everything:
+
+   ```sh
+   compose up -d
+   ```
+
+If step 4 is skipped or fails, the product protects itself: anyone in an organization whose database is behind the ledger lands on a page saying it is being restored (503), and the API answers 503 `RESTORE_PENDING`, until the re-apply succeeds. A web process left running through a restore can take up to 30 seconds to notice, which is why step 1 stops it. Other organizations are not affected.
+
+### What this does not bring back or remove
+
+- A deletion that was still in the backlog when the database was lost comes back as a name, usually without its bytes, so it cannot be downloaded. Someone has to delete it again. Nothing records which ones these were, so check the backlog regularly, and tell the people affected about the restore point.
+- Work and files added after the backup are lost, and the bytes of those files stay in the store with nothing pointing at them, until `OPS-02`.
+- The restored dump itself still holds what was deleted, until it expires.
+
+`tests/stack/restore.test.ts` runs these steps against real containers, including the file coming back when the ledger is not re-applied.
 
 ## Upgrades and rollback
 

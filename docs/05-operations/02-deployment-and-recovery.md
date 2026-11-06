@@ -18,7 +18,7 @@ Use one migration job with concurrency lock. Expand compatible schemas first; ru
 
 ## Backup set
 
-PostgreSQL PITR or logical backups with tested restore, object version manifests and content checksums, encrypted credential/KMS key recovery plans, signed entitlements, policy config, agent versions and workflow compatibility metadata, Temporal persistence/retention and workflow recovery strategy. Explicit deletion tombstones prevent erased content from reappearing after restoration. Document ownership and storage regions per commercial mode.
+PostgreSQL PITR or logical backups with tested restore, object version manifests and content checksums, encrypted credential/KMS key recovery plans, signed entitlements, policy config, agent versions and workflow compatibility metadata, Temporal persistence/retention and workflow recovery strategy. Explicit deletion tombstones prevent erased content from reappearing after restoration: they are also kept in a ledger outside the database and re-applied after a restore ([ADR-026](../00-foundation/adr/ADR-026-tombstones-survive-restore.md), and the steps in the [runbook](05-container-deployment-runbook.md#backup-and-restore)). Document ownership and storage regions per commercial mode.
 
 ## Recovery
 

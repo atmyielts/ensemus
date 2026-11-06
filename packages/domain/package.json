@@ -6,7 +6,8 @@
   "exports": {
     "./work-unit": "./src/work-unit.ts",
     "./approval": "./src/approval.ts",
-    "./policy": "./src/policy.ts"
+    "./policy": "./src/policy.ts",
+    "./tombstone-ledger": "./src/tombstone-ledger.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"

@@ -47,6 +47,7 @@ export interface paths {
                 403: components["responses"]["Forbidden"];
                 404: components["responses"]["NotFound"];
                 500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
             };
         };
         put?: never;
@@ -87,6 +88,7 @@ export interface paths {
                 413: components["responses"]["PayloadTooLarge"];
                 415: components["responses"]["UnsupportedMediaType"];
                 500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
             };
         };
         delete?: never;
@@ -134,6 +136,7 @@ export interface paths {
                 401: components["responses"]["Unauthorized"];
                 404: components["responses"]["NotFound"];
                 500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
             };
         };
         put?: never;
@@ -186,6 +189,7 @@ export interface paths {
                 415: components["responses"]["UnsupportedMediaType"];
                 428: components["responses"]["PreconditionRequired"];
                 500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
             };
         };
         trace?: never;
@@ -234,6 +238,7 @@ export interface paths {
                 401: components["responses"]["Unauthorized"];
                 404: components["responses"]["NotFound"];
                 500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
             };
         };
         put?: never;
@@ -293,6 +298,7 @@ export interface paths {
                 413: components["responses"]["PayloadTooLarge"];
                 415: components["responses"]["UnsupportedMediaType"];
                 500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
             };
         };
         delete?: never;
@@ -440,6 +446,7 @@ export interface paths {
                 401: components["responses"]["Unauthorized"];
                 404: components["responses"]["NotFound"];
                 500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
             };
         };
         put?: never;
@@ -488,6 +495,7 @@ export interface paths {
                 401: components["responses"]["Unauthorized"];
                 404: components["responses"]["NotFound"];
                 500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
             };
         };
         put?: never;
@@ -549,6 +557,7 @@ export interface paths {
                 413: components["responses"]["PayloadTooLarge"];
                 415: components["responses"]["UnsupportedMediaType"];
                 500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
             };
         };
         delete?: never;
@@ -896,6 +905,15 @@ export interface components {
         };
         /** @description Something failed on the server. The answer holds no detail about what. */
         InternalError: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["Error"];
+            };
+        };
+        /** @description This organization's database was restored from a backup and is behind the tombstone ledger, so nothing is served until an operator has re-applied the ledger. The code is RESTORE_PENDING, the request did nothing, and it can be repeated. Only members of the organization see this. */
+        RestorePending: {
             headers: {
                 [name: string]: unknown;
             };

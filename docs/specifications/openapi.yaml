@@ -52,6 +52,7 @@ paths:
         '403': {$ref: '#/components/responses/Forbidden'}
         '404': {$ref: '#/components/responses/NotFound'}
         '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
     post:
       tags: [work]
       summary: Create a Work Unit
@@ -77,6 +78,7 @@ paths:
         '413': {$ref: '#/components/responses/PayloadTooLarge'}
         '415': {$ref: '#/components/responses/UnsupportedMediaType'}
         '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
   /organizations/{organization_id}/work-units/{work_unit_id}:
     parameters:
       - $ref: '#/components/parameters/OrganizationID'
@@ -99,6 +101,7 @@ paths:
         '401': {$ref: '#/components/responses/Unauthorized'}
         '404': {$ref: '#/components/responses/NotFound'}
         '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
     patch:
       tags: [work]
       summary: Patch with optimistic version check
@@ -137,6 +140,7 @@ paths:
         '415': {$ref: '#/components/responses/UnsupportedMediaType'}
         '428': {$ref: '#/components/responses/PreconditionRequired'}
         '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
   /organizations/{organization_id}/work-units/{work_unit_id}/events:
     parameters:
       - $ref: '#/components/parameters/OrganizationID'
@@ -169,6 +173,7 @@ paths:
         '401': {$ref: '#/components/responses/Unauthorized'}
         '404': {$ref: '#/components/responses/NotFound'}
         '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
   /organizations/{organization_id}/work-units/{work_unit_id}/dependencies:
     parameters:
       - $ref: '#/components/parameters/OrganizationID'
@@ -199,6 +204,7 @@ paths:
         '413': {$ref: '#/components/responses/PayloadTooLarge'}
         '415': {$ref: '#/components/responses/UnsupportedMediaType'}
         '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
   /organizations/{organization_id}/agent-runs:
     parameters:
       - $ref: '#/components/parameters/OrganizationID'
@@ -268,6 +274,7 @@ paths:
         '401': {$ref: '#/components/responses/Unauthorized'}
         '404': {$ref: '#/components/responses/NotFound'}
         '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
   /organizations/{organization_id}/approvals/{approval_id}:
     parameters:
       - $ref: '#/components/parameters/OrganizationID'
@@ -288,6 +295,7 @@ paths:
         '401': {$ref: '#/components/responses/Unauthorized'}
         '404': {$ref: '#/components/responses/NotFound'}
         '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
   /organizations/{organization_id}/approvals/{approval_id}/decisions:
     parameters:
       - $ref: '#/components/parameters/OrganizationID'
@@ -320,6 +328,7 @@ paths:
         '413': {$ref: '#/components/responses/PayloadTooLarge'}
         '415': {$ref: '#/components/responses/UnsupportedMediaType'}
         '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
   /organizations/{organization_id}/knowledge/search:
     parameters:
       - $ref: '#/components/parameters/OrganizationID'
@@ -574,6 +583,14 @@ components:
           schema: {$ref: '#/components/schemas/Error'}
     InternalError:
       description: Something failed on the server. The answer holds no detail about what.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+    RestorePending:
+      description: >-
+        This organization's database was restored from a backup and is behind the tombstone ledger,
+        so nothing is served until an operator has re-applied the ledger. The code is RESTORE_PENDING,
+        the request did nothing, and it can be repeated. Only members of the organization see this.
       content:
         application/json:
           schema: {$ref: '#/components/schemas/Error'}

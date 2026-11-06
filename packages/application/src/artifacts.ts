@@ -12,6 +12,7 @@ import {
   type TenantContext,
   type Tx,
 } from '@ensemus/database';
+import { TOMBSTONE_RECORDED } from '@ensemus/domain/tombstone-ledger';
 import { canChangeContent, canDeleteFile, type WorkState } from '@ensemus/domain/work-unit';
 import { and, asc, eq, inArray, lte, sql } from 'drizzle-orm';
 import { AppError } from './errors';
@@ -36,7 +37,8 @@ const PURGE_BACKOFF_MAX_MS = 24 * 60 * 60 * 1000;
 const PURGE_BUDGET_MS = 30 * 1000;
 
 /** Object keys start with the tenant and contain no names, so they reveal nothing and never clash. */
-const objectKey = (organizationId: string, id: string) => `${organizationId}/artifacts/${id}`;
+export const objectKey = (organizationId: string, id: string) =>
+  `${organizationId}/artifacts/${id}`;
 
 async function isTombstoned(tx: Tx, id: string) {
   const rows = await tx
@@ -211,6 +213,16 @@ export async function deleteArtifact(
       aggregateVersion: work.version,
       classification: work.classification,
       payload: { work_unit_id: input.workUnitId, artifact_id: input.artifactId },
+    });
+    // Carries the tombstone to the ledger outside this database, so a restore cannot lose it
+    // (ADR-026). The artifact is the aggregate, so the dispatcher can see its ID in the metadata.
+    await emit(tx, context, {
+      eventType: TOMBSTONE_RECORDED,
+      aggregateType: 'artifact',
+      aggregateId: input.artifactId,
+      aggregateVersion: 1,
+      classification: work.classification,
+      payload: { artifact_id: input.artifactId },
     });
     await appendAudit(tx, {
       organizationId: context.organizationId,

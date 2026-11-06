@@ -275,12 +275,18 @@ importers:
         specifier: 1.25.0
         version: 1.25.0(@swc/helpers@0.5.23)(esbuild@0.28.2)(long@5.3.2)(protobufjs@8.8.1)
     devDependencies:
+      '@ensemus/application':
+        specifier: workspace:*
+        version: link:../../packages/application
       '@ensemus/config':
         specifier: workspace:*
         version: link:../../packages/config
       '@ensemus/database':
         specifier: workspace:*
         version: link:../../packages/database
+      '@ensemus/domain':
+        specifier: workspace:*
+        version: link:../../packages/domain
       '@ensemus/storage':
         specifier: workspace:*
         version: link:../../packages/storage

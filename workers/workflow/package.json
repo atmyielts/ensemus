@@ -14,8 +14,10 @@
     "@temporalio/worker": "1.25.0"
   },
   "devDependencies": {
+    "@ensemus/application": "workspace:*",
     "@ensemus/config": "workspace:*",
     "@ensemus/database": "workspace:*",
+    "@ensemus/domain": "workspace:*",
     "@ensemus/storage": "workspace:*",
     "@ensemus/telemetry": "workspace:*",
     "@ensemus/workflows": "workspace:*",

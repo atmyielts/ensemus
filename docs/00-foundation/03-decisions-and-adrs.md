@@ -29,6 +29,7 @@
 | **ADR-023** | **Single logical codebase, small deployment set** | Low ops cost | Web and workers scale separately; dependencies still exist |
 
 | **[ADR-024](adr/ADR-024-build-start-runtime-contracts.md)** | **Runtime contracts: workflow-driven agent steps, IDs only through Temporal, no web path to Temporal, narrow database roles, built-in identity and secrets** | These were undefined or contradictory, and are hard to reverse once real workflows exist | Outside security review of D4 and D5 before any real credential is stored |
+| **[ADR-026](adr/ADR-026-tombstones-survive-restore.md)** | **Tombstones are also kept in a ledger outside the database, re-applied after a restore, and a tenant is refused while its database is behind that ledger** | A tombstone in the database cannot protect against restoring that database | One more object-store credential, a listing per active tenant every 30 seconds, and a window for deletions that never reached the ledger |
 
 ## Decision-specific implementation consequences
 

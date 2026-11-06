@@ -5,6 +5,7 @@ import {
   GetObjectCommand,
   HeadBucketCommand,
   HeadObjectCommand,
+  ListObjectsV2Command,
   PutObjectCommand,
   S3Client,
 } from '@aws-sdk/client-s3';
@@ -16,6 +17,8 @@ export type StorageConfig = {
   secretKey: string;
   /** How long one request may take. Only tests have a reason to set this. */
   requestTimeoutMs?: number;
+  /** How many times the client tries. A caller that has its own retries can ask for just one. */
+  maxAttempts?: number;
 };
 
 /**
@@ -40,7 +43,7 @@ export class S3ObjectStore {
       credentials: { accessKeyId: config.accessKey, secretAccessKey: config.secretKey },
       requestChecksumCalculation: 'WHEN_REQUIRED',
       responseChecksumValidation: 'WHEN_REQUIRED',
-      maxAttempts: MAX_ATTEMPTS,
+      maxAttempts: config.maxAttempts ?? MAX_ATTEMPTS,
       requestHandler: {
         connectionTimeout: 5_000,
         requestTimeout: config.requestTimeoutMs ?? REQUEST_TIMEOUT_MS,
@@ -75,6 +78,22 @@ export class S3ObjectStore {
 
   async delete(key: string): Promise<void> {
     await this.#client.send(new DeleteObjectCommand({ Bucket: this.#bucket, Key: key }));
+  }
+
+  /** The keys under a prefix, a page at a time, so a caller holds at most one page in memory. */
+  async *listPages(prefix: string): AsyncGenerator<string[]> {
+    let token: string | undefined;
+    do {
+      const response = await this.#client.send(
+        new ListObjectsV2Command({
+          Bucket: this.#bucket,
+          Prefix: prefix,
+          ...(token ? { ContinuationToken: token } : {}),
+        }),
+      );
+      yield (response.Contents ?? []).flatMap((object) => (object.Key ? [object.Key] : []));
+      token = response.IsTruncated ? response.NextContinuationToken : undefined;
+    } while (token);
   }
 
   /** Only a clear "not there" counts as gone. Any other failure is thrown, and retried later. */

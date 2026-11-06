@@ -10,6 +10,7 @@ export type DispatchableEvent = {
   eventType: string;
   aggregateType: string;
   aggregateId: string;
+  occurredAt: Date;
   attempts: number;
 };
 
@@ -37,8 +38,10 @@ export function nextAttemptDelayMs(attempts: number, random = Math.random()): nu
  * - `outage`: something this depends on is down, which says nothing about the event.
  * - `ambiguous`: it could be either, so it counts, but is given far longer before going dead.
  * - `fault`: the event itself is at fault.
+ * - `partial_outage`: something only this kind of event needs is down. Like an outage it costs no
+ *   attempts, but the events behind it need something else, so they are not held back.
  */
-export type DeliveryFailure = 'outage' | 'ambiguous' | 'fault';
+export type DeliveryFailure = 'outage' | 'ambiguous' | 'fault' | 'partial_outage';
 
 export type ClaimResult = {
   handled: number;
@@ -156,6 +159,7 @@ export async function dispatchDueEvents(
         eventType: event.eventType,
         aggregateType: event.aggregateType,
         aggregateId: event.aggregateId,
+        occurredAt: event.occurredAt,
         attempts,
       });
       await db
@@ -167,8 +171,8 @@ export async function dispatchDueEvents(
     } catch (error) {
       options.onEvent?.(error);
       const failure = classify(error);
-      if (failure === 'outage') {
-        holding = true;
+      if (failure === 'outage' || failure === 'partial_outage') {
+        if (failure === 'outage') holding = true;
         await db
           .update(outboxEvents)
           .set({ nextAttemptAt: new Date(Date.now() + TRANSIENT_RETRY_MS) })
@@ -236,4 +240,29 @@ export async function outboxBacklog(db: EnsemusDrizzle) {
     })
     .from(outboxEvents);
   return row ?? { queued: 0, dead: 0 };
+}
+
+/**
+ * The same for one type of event that has not been delivered, with how long the oldest has waited. For
+ * the tombstone ledger this is exactly the deletions a restore could not bring back (ADR-026).
+ */
+export async function eventBacklog(db: EnsemusDrizzle, eventType: string) {
+  const [row] = await db
+    .select({
+      queued: sql<number>`count(*) filter (where ${outboxEvents.state} = 'queued')::int`,
+      dead: sql<number>`count(*) filter (where ${outboxEvents.state} = 'dead')::int`,
+      oldestSeconds: sql<number>`coalesce(extract(epoch from now() - min(${domainEvents.occurredAt})), 0)::int`,
+    })
+    .from(outboxEvents)
+    .innerJoin(
+      domainEvents,
+      and(
+        eq(domainEvents.organizationId, outboxEvents.organizationId),
+        eq(domainEvents.id, outboxEvents.eventId),
+      ),
+    )
+    .where(
+      and(eq(domainEvents.eventType, eventType), inArray(outboxEvents.state, ['queued', 'dead'])),
+    );
+  return row ?? { queued: 0, dead: 0, oldestSeconds: 0 };
 }

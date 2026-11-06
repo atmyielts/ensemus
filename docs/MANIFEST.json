@@ -22,8 +22,8 @@
     },
     {
       "path": "00-foundation/03-decisions-and-adrs.md",
-      "size_bytes": 6366,
-      "sha256": "91038cf7669ae0db9a8736522141d74461e290fc939ac1bc1938fb60e9a3d628"
+      "size_bytes": 6801,
+      "sha256": "b1530ce763a90bcf5e01da83e5e73b0c9c2f799c1bfb736ddeff2cbf8f6ca023"
     },
     {
       "path": "00-foundation/04-doc-governance.md",
@@ -39,6 +39,11 @@
       "path": "00-foundation/adr/ADR-025-m1-implementation-decisions.md",
       "size_bytes": 7082,
       "sha256": "9c677988f2b4f94073d59b35672d8e6c9822054e7dfccee44c2e35587911068d"
+    },
+    {
+      "path": "00-foundation/adr/ADR-026-tombstones-survive-restore.md",
+      "size_bytes": 9226,
+      "sha256": "ca93960e3121f4131cb17cf9741cd8eac1a916558f65cd57a113368d896f36c9"
     },
     {
       "path": "01-product/01-product-requirements.md",
@@ -197,8 +202,8 @@
     },
     {
       "path": "04-security/05-data-lifecycle.md",
-      "size_bytes": 3812,
-      "sha256": "37d64230ca050615064c3e6da3704c7a48eee6c4356b64ce2db3d4e0d640d3d8"
+      "size_bytes": 5098,
+      "sha256": "a879f823b674037a4088cd28721def78e95b88748d2fdec577b4ac2b00b78546"
     },
     {
       "path": "04-security/06-assurance-and-incidents.md",
@@ -217,8 +222,8 @@
     },
     {
       "path": "05-operations/02-deployment-and-recovery.md",
-      "size_bytes": 4114,
-      "sha256": "c7f2f06fb3bdcea2e05d8c17ffbadd532a6c17b2b55df7008de26298810dcf81"
+      "size_bytes": 4357,
+      "sha256": "045feb1b10e537755c3465b85dea5fef032391eb9bda1b4d1bd0f00dd83b3ad5"
     },
     {
       "path": "05-operations/03-testing-quality.md",
@@ -232,8 +237,8 @@
     },
     {
       "path": "05-operations/05-container-deployment-runbook.md",
-      "size_bytes": 8588,
-      "sha256": "589ebb45ee45047ec37b1f2402ddee35c3d43b148fec617d1e0f2006e31f98d2"
+      "size_bytes": 13014,
+      "sha256": "304731798dafe9f2dbdd871587015954989040a0ce43d7e7b6adfd284c2c25a5"
     },
     {
       "path": "05-operations/06-performance-and-load-plan.md",
@@ -307,8 +312,8 @@
     },
     {
       "path": "08-migration/02-change-log.md",
-      "size_bytes": 2462,
-      "sha256": "2f853869b4a9134c9efdb0fc341706333334a445f2df8480502c5f23d9413a37"
+      "size_bytes": 2685,
+      "sha256": "2d6b91d7c4c6ab477c93d5aec4b7d5262ee70222ec74cd925ddd7b56799534a6"
     },
     {
       "path": "AGENTS.md",
@@ -322,8 +327,8 @@
     },
     {
       "path": "README.md",
-      "size_bytes": 13032,
-      "sha256": "734001dfd4c5c1ce6ffe01ab4e445b150627f7450a423507a4a580797044c799"
+      "size_bytes": 13140,
+      "sha256": "40aea62eec77616006e8413be7e1cb4d83e81d3b439974a766dd4a98009aca18"
     },
     {
       "path": "SOURCES.md",
@@ -362,8 +367,8 @@
     },
     {
       "path": "specifications/deployment/environment.example",
-      "size_bytes": 916,
-      "sha256": "5238d73e3b473d579c14b205f2c15004314c123cf506d16fdf7cc2553b5ded27"
+      "size_bytes": 1189,
+      "sha256": "35cd5ffb99ad6bb0c1fa108d70dc18a191ba34846193b64e00cde6f650fe3ad5"
     },
     {
       "path": "specifications/deployment/release-manifest.example.json",
@@ -437,8 +442,8 @@
     },
     {
       "path": "specifications/openapi.yaml",
-      "size_bytes": 22592,
-      "sha256": "2a01f7bd06f57fa4371e6fadeac01fceaa2f7f53ae13007b91ec8ccf8fdb06fa"
+      "size_bytes": 23600,
+      "sha256": "a7a632b95fbabd4eebcd4f0cbdce5a069eb108e0999853fc2236ec8d92f630e9"
     },
     {
       "path": "specifications/qa-scenarios.csv",

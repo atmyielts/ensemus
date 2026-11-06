@@ -28,6 +28,7 @@ const MESSAGE_FOR = new Map<string, string>([
   ['REVIEW_ALREADY_OPEN', 'A review of this work is already open. It has to be decided first.'],
   ['INVITATION_INVALID', 'This invitation is not valid. Ask for a new one.'],
   ['LAST_OWNER', 'An organization must keep at least one owner.'],
+  ['RESTORE_PENDING', 'This organization is being restored from a backup. Try again later.'],
   ['UNEXPECTED', 'Something went wrong on our side. Please try again.'],
 ]);
 

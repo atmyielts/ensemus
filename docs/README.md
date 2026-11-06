@@ -61,6 +61,7 @@
 - [Architecture decisions — Ensemus 2.0](00-foundation/03-decisions-and-adrs.md)
 - [ADR-024: runtime contracts](00-foundation/adr/ADR-024-build-start-runtime-contracts.md)
 - [ADR-025: decisions made while building M1](00-foundation/adr/ADR-025-m1-implementation-decisions.md)
+- [ADR-026: tombstones survive a database restore](00-foundation/adr/ADR-026-tombstones-survive-restore.md)
 - [Document governance and implementation discipline](00-foundation/04-doc-governance.md)
 
 ### Product and commercial UX

@@ -32,21 +32,33 @@ for (const [name, role, file] of [
 }
 put('objects_access_key', () => randomBytes(12).toString('hex'));
 put('objects_secret_key', () => randomBytes(24).toString('hex'));
-put('objects_identity.json', () =>
+put('objects_ledger_access_key', () => randomBytes(12).toString('hex'));
+put('objects_ledger_secret_key', () => randomBytes(24).toString('hex'));
+const credentials = (access, secret) => ({
+  accessKey: readFileSync(join(dir, access), 'utf8'),
+  secretKey: readFileSync(join(dir, secret), 'utf8'),
+});
+// Worked out from the keys above every time, so a secrets folder made before a new identity existed
+// gets it too.
+writeFileSync(
+  join(dir, 'objects_identity.json'),
   JSON.stringify({
     identities: [
       {
         name: 'ensemus',
-        credentials: [
-          {
-            accessKey: readFileSync(join(dir, 'objects_access_key'), 'utf8'),
-            secretKey: readFileSync(join(dir, 'objects_secret_key'), 'utf8'),
-          },
-        ],
+        credentials: [credentials('objects_access_key', 'objects_secret_key')],
         actions: ['Admin', 'Read', 'Write', 'List', 'Tagging'],
+      },
+      {
+        // The dispatcher writes the tombstone ledger and can touch nothing else in the store, so
+        // the process that may never see a customer's content still cannot (ADR-026).
+        name: 'ensemus-ledger',
+        credentials: [credentials('objects_ledger_access_key', 'objects_ledger_secret_key')],
+        actions: ['Read:ensemus/tombstone-ledger/*', 'Write:ensemus/tombstone-ledger/*'],
       },
     ],
   }),
+  { mode: 0o644 },
 );
 put('auth_secret', () => randomBytes(32).toString('base64'));
 put('temporal_codec_key', () => randomBytes(32).toString('base64'));

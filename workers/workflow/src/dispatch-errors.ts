@@ -1,6 +1,7 @@
 // Tells an outage from a bad event. An outage says nothing about the event, so it must not push the
 // event towards going dead. Pure, so it can be tested without a server.
 import type { DeliveryFailure } from '@ensemus/database/dispatcher';
+import { LedgerUnavailable } from './tombstone-ledger';
 
 // gRPC status codes that mean "try again later": CANCELLED, DEADLINE_EXCEEDED, RESOURCE_EXHAUSTED,
 // ABORTED, UNAVAILABLE.
@@ -23,6 +24,8 @@ const MAX_CAUSES = 8;
 
 /** Looks through the error and what caused it. A sign of an outage anywhere settles it. */
 export function classifyDeliveryError(error: unknown): DeliveryFailure {
+  // Only ledger entries need the object store, so its going down must not hold up Temporal calls.
+  if (error instanceof LedgerUnavailable) return 'partial_outage';
   let found: DeliveryFailure = 'fault';
   let current = error;
   for (let depth = 0; depth < MAX_CAUSES && current && typeof current === 'object'; depth += 1) {

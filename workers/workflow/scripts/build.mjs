@@ -19,6 +19,8 @@ await build({
     'src/healthcheck.ts',
     'src/redrive.ts',
     'src/setup-token.ts',
+    'src/ledger-backlog.ts',
+    'src/reapply-ledger.ts',
   ].map((e) => path.join(root, e)),
   outdir: dist,
   bundle: true,
