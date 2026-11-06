@@ -99,7 +99,7 @@ describe('Server Actions through real forms', () => {
     const html = await page.text();
     expect(page.status).toBe(200);
     expect(html).toContain(name);
-    expect(html).toMatch(/\((<!-- -->)?owner(<!-- -->)?\)/);
+    expect(html).toMatch(/Hello, (<!-- -->)?Form/);
   });
 
   it('rejects an empty organization name', async () => {

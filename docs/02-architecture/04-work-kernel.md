@@ -34,6 +34,8 @@ stateDiagram-v2
 
 Reject invalid transitions, record previous version, actor, reason, evidence, and trace correlation. A Work Unit can be reopened by authorized action with history preserved; do not silently change a completed artifact.
 
+As built (M2): `work.work_transitions` holds each change's actor and reason, under the Work Unit's own access rules, and the reason goes into no event, audit entry or workflow. A pause starts when a review is requested and ends only on that review's decision: people with change rights cannot make either move directly, and one review at a time can be open. A review binds the Work Unit's text, through a digest, and its exact files, and it counts as evidence only while it still matches them and has not expired. Reopening closes earlier reviews. Finished work has to be reopened before its content or files change, though access can always be removed, and a file can be deleted from stopped work because stopped work can never be reopened. Plans stop at `verifying`: a person marks the work done, and a file a plan generated is not evidence.
+
 ## 4. Work graph invariants
 
 - Directed prerequisite graph is acyclic per organization. Reject direct self-edge and multi-hop cycle; validate under concurrent writes.

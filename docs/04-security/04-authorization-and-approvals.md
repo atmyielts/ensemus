@@ -38,6 +38,12 @@ A manager may delegate bounded tasks to an agent, but an unattended workflow nee
 
 Membership disable, project ACL change, or connector revoke should block new reads and writes immediately, cancel/hold affected active runs, invalidate cached contexts, and start index/cache repair. Conduct periodic access reviews and retain proof of review according to policy.
 
+An invitation carries the authority of the person who sent it, for as long as they have it. Disabling them, or taking away their right to invite, revokes their unaccepted invitations in the same transaction, and acceptance checks the inviter again under its lock. A disabled member cannot return through a new invitation.
+
+An invitation is only for the address it was sent to, and that means something only once the address is proven. A verified account joins on acceptance. An account whose address nobody has verified, which today is every password account because the product sends no mail, only asks: someone who can invite has to confirm it on the people page. The link holder learns nothing until then. Being named as an approver is not an access grant either: approvals whose approver can no longer read the work are closed, and they leave that person's lists at once.
+
+Work access comes from being the accountable owner or being assigned, and from nothing else. Whoever creates a Work Unit is assigned when it is created, so that access is listed on the page and can be removed like anyone's.
+
 ## 7. Audit record
 
 Who (initiator + actual executor), organization, action, target ID, classification, policy version, decision, approval ID/hash, timestamp, correlation/causation, result external ID, safe reason, and append integrity reference. Avoid storing full confidential payload in default audit. Restrict audit viewers; export with integrity checks and redaction.

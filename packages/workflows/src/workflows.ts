@@ -8,13 +8,18 @@ import {
   condition,
   defineSignal,
   isCancellation,
+  patched,
   proxyActivities,
   setHandler,
+  sleep,
+  workflowInfo,
 } from '@temporalio/workflow';
 import type { Activities, PlatformActivities } from './activities';
+import { reviewWaitStep, reviewWaitOutcome } from './review-wait';
 import type {
   ProbeInput,
   ProbeResult,
+  ReviewState,
   TenantInput,
   WorkInput,
   WorkOutcome,
@@ -43,13 +48,16 @@ export async function platformProbeWorkflow(input: ProbeInput): Promise<ProbeRes
   return { probeId: input.probeId, outcome: 'completed', steps: 2 };
 }
 
+// A database outage must not end work. These retry through any outage shorter than a day, and only
+// a deterministic refusal, which can never succeed by retrying, reaches the failure path early. The
+// retry policy is not part of history, so changing it needs no patch.
 const activities = proxyActivities<Activities>({
   startToCloseTimeout: '2 minutes',
+  scheduleToCloseTimeout: '24 hours',
   retry: {
     initialInterval: '1 second',
-    maximumInterval: '30 seconds',
-    maximumAttempts: 5,
-    nonRetryableErrorTypes: ['WORK_STOPPED'],
+    maximumInterval: '1 minute',
+    nonRetryableErrorTypes: ['WORK_STOPPED', 'AppError'],
   },
 });
 
@@ -61,6 +69,9 @@ const isStopped = (error: unknown) =>
   error.cause instanceof ApplicationFailure &&
   error.cause.type === 'WORK_STOPPED';
 
+/** How long to wait before asking again whether an overdue approval has really been settled. */
+const SETTLE_RETRY = '5 seconds';
+
 /**
  * The generic interpreter for a Work Unit's plan (ADR-024 D6). Business state stays in PostgreSQL,
  * and this holds only the order of steps, the waits, and IDs. If an Activity finds the work was
@@ -69,6 +80,8 @@ const isStopped = (error: unknown) =>
 export async function workUnitWorkflow(input: WorkInput): Promise<WorkResult> {
   const { workUnitId } = input;
   const finish = (outcome: WorkOutcome): WorkResult => ({ workUnitId, outcome });
+  // Which run this is, so an Activity only acts on work this run actually claimed.
+  const run = { ...input, runId: workflowInfo().runId };
 
   let decided = false;
   setHandler(approvalResolvedSignal, () => {
@@ -76,31 +89,58 @@ export async function workUnitWorkflow(input: WorkInput): Promise<WorkResult> {
   });
 
   try {
-    const prepared = await activities.prepareWork(input);
+    const prepared = await activities.prepareWork(run);
     if (prepared.status === 'stopped') return finish('cancelled');
 
-    await activities.produceChecklistArtifact(input);
+    await activities.produceChecklistArtifact(run);
 
     if (prepared.needsReview) {
-      const review = await activities.requestReview(input);
-      const remaining = review.expiresAtMs - Date.now();
-      await condition(() => decided, remaining > 0 ? remaining : 1);
+      const review = await activities.requestReview(run);
+      const approval = { ...run, approvalId: review.approvalId };
 
-      let state = await activities.reviewState({ ...input, approvalId: review.approvalId });
-      if (state === 'pending') {
-        await activities.expireReview({ ...input, approvalId: review.approvalId });
-        state = 'expired';
+      if (patched('review-wait-loop')) {
+        // A wake-up says only that some approval moved, so the answer always comes from PostgreSQL.
+        // The flag is cleared before reading, so a signal arriving after the read still wakes this.
+        let state: ReviewState;
+        for (;;) {
+          decided = false;
+          state = await activities.reviewState(approval);
+          const step = reviewWaitStep(state, review.expiresAtMs, Date.now());
+          if (step.kind === 'done') break;
+          if (step.kind === 'wait') {
+            await condition(() => decided, step.ms);
+            continue;
+          }
+          // Overdue by this workflow's clock. The answer is whatever the locked transaction found.
+          state = await activities.expireReview(approval);
+          if (state !== 'pending') break;
+          // The worker's clock is behind, or the transaction lost a race. Nothing has been decided,
+          // so nothing is reported yet.
+          await sleep(SETTLE_RETRY);
+        }
+        const outcome = reviewWaitOutcome(state);
+        if (outcome) return finish(outcome);
+      } else {
+        // Histories recorded before the loop above replay through this path, unchanged.
+        const remaining = review.expiresAtMs - Date.now();
+        await condition(() => decided, remaining > 0 ? remaining : 1);
+
+        let state = await activities.reviewState(approval);
+        if (state === 'pending') {
+          await activities.expireReview(approval);
+          state = 'expired';
+        }
+        if (state === 'denied') return finish('denied');
+        if (state !== 'approved') return finish('expired');
       }
-      if (state === 'denied') return finish('denied');
-      if (state !== 'approved') return finish('expired');
     }
 
-    return finish(await activities.verifyAndComplete(input));
+    return finish(await activities.verifyAndComplete(run));
   } catch (error) {
     if (isCancellation(error)) throw error;
     if (isStopped(error)) return finish('cancelled');
     // Report the failure honestly. If even that fails, the workflow fails and stays visible.
-    await CancellationScope.nonCancellable(() => activities.markFailed(input));
+    await CancellationScope.nonCancellable(() => activities.markFailed(run));
     return finish('failed');
   }
 }

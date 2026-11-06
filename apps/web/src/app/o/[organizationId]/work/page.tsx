@@ -1,4 +1,4 @@
-import { listWorkUnits } from '@ensemus/application';
+import { AppError, listProjects, listWorkUnits } from '@ensemus/application';
 import { WORK_STATES, type WorkState } from '@ensemus/domain/work-unit';
 import Link from 'next/link';
 import {
@@ -10,6 +10,10 @@ import {
   StatusBadge,
 } from '@/components/ui';
 import { requireTenant } from '@/server/tenant';
+
+export const metadata = { title: 'Work | Ensemus' };
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const LABELS: Record<string, string> = {
   queued: 'Waiting to start',
@@ -28,17 +32,33 @@ export default async function WorkPage({
   searchParams,
 }: {
   params: Promise<{ organizationId: string }>;
-  searchParams: Promise<{ status?: string; cursor?: string; error?: string }>;
+  searchParams: Promise<{ status?: string; cursor?: string; error?: string; project?: string }>;
 }) {
   const { organizationId } = await params;
-  const { status, cursor, error } = await searchParams;
+  const { status, cursor, error, project } = await searchParams;
   const { context, database } = await requireTenant(organizationId);
   const base = `/o/${organizationId}`;
   const filter = WORK_STATES.includes(status as WorkState) ? (status as WorkState) : undefined;
-  const { items, nextCursor } = await listWorkUnits(database, context, {
+  const projectId = typeof project === 'string' && UUID.test(project) ? project : undefined;
+  const scope = {
     ...(filter ? { status: filter } : {}),
+    ...(projectId ? { projectId } : {}),
+  };
+  const projectName = projectId
+    ? (await listProjects(database, context)).find((p) => p.id === projectId)?.name
+    : undefined;
+
+  // A page reached through a broken link starts again from the top, and says so.
+  let notice = error;
+  const page = await listWorkUnits(database, context, {
+    ...scope,
     ...(cursor ? { cursor } : {}),
+  }).catch((failure: unknown) => {
+    if (!(failure instanceof AppError) || failure.code !== 'INVALID_INPUT') throw failure;
+    notice = 'INVALID_INPUT';
+    return listWorkUnits(database, context, scope);
   });
+  const { items, nextCursor } = page;
 
   return (
     <>
@@ -51,8 +71,15 @@ export default async function WorkPage({
           </Link>
         }
       />
-      <ErrorNotice code={error} />
+      <ErrorNotice code={notice} />
+      {projectId && (
+        <p className="notice">
+          Showing work in {projectName ?? 'this project'}.{' '}
+          <Link href={`${base}/work`}>Show all work</Link>
+        </p>
+      )}
       <form className="row" method="get" style={{ marginBottom: '1rem' }}>
+        {projectId && <input type="hidden" name="project" value={projectId} />}
         <label className="check">
           Status
           <select name="status" defaultValue={filter ?? ''}>
@@ -70,7 +97,9 @@ export default async function WorkPage({
       </form>
       {items.length === 0 ? (
         <Empty action={<Link href={`${base}/work/new`}>Describe an outcome</Link>}>
-          {filter ? 'No work has this status.' : 'No work yet. Start with the outcome you want.'}
+          {filter || projectId
+            ? 'No work matches this filter.'
+            : 'No work yet. Start with the outcome you want.'}
         </Empty>
       ) : (
         <div className="card table-wrap">
@@ -107,6 +136,7 @@ export default async function WorkPage({
           <Link
             href={`${base}/work?${new URLSearchParams({
               ...(filter ? { status: filter } : {}),
+              ...(projectId ? { project: projectId } : {}),
               cursor: nextCursor,
             })}`}
           >

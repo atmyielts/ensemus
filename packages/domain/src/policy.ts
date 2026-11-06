@@ -44,18 +44,18 @@ export function can(role: string, capability: Capability): boolean {
 export type WorkAccessFacts = {
   classification: Classification;
   ownerMembershipId: string | null;
-  createdByMembershipId: string | null;
   isAssigned: boolean;
 };
 
 export type Viewer = { membershipId: string; role: string };
 
+/**
+ * The accountable owner and the people assigned. Nothing else counts, so the page can list everyone
+ * this grants access to, and each of them can be removed. Having created the work grants nothing:
+ * the creator is assigned when the work is created, like anyone else.
+ */
 function isInvolved(work: WorkAccessFacts, viewer: Viewer): boolean {
-  return (
-    work.ownerMembershipId === viewer.membershipId ||
-    work.createdByMembershipId === viewer.membershipId ||
-    work.isAssigned
-  );
+  return work.ownerMembershipId === viewer.membershipId || work.isAssigned;
 }
 
 /**

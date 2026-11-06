@@ -4,6 +4,7 @@ import {
   DeleteObjectCommand,
   GetObjectCommand,
   HeadBucketCommand,
+  HeadObjectCommand,
   PutObjectCommand,
   S3Client,
 } from '@aws-sdk/client-s3';
@@ -59,5 +60,17 @@ export class S3ObjectStore {
 
   async delete(key: string): Promise<void> {
     await this.#client.send(new DeleteObjectCommand({ Bucket: this.#bucket, Key: key }));
+  }
+
+  /** Only a clear "not there" counts as gone. Any other failure is thrown, and retried later. */
+  async exists(key: string): Promise<boolean> {
+    try {
+      await this.#client.send(new HeadObjectCommand({ Bucket: this.#bucket, Key: key }));
+      return true;
+    } catch (error) {
+      const status = (error as { $metadata?: { httpStatusCode?: number } }).$metadata;
+      if (status?.httpStatusCode === 404) return false;
+      throw error;
+    }
   }
 }

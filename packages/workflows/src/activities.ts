@@ -3,9 +3,17 @@
 import {
   addArtifact,
   applyTransition,
+  clearApprovalNotifications,
+  closeOutdatedReviews,
   createApprovalInTx,
-  expireApproval,
+  currentReviewAction,
+  expireApprovalStatus,
+  expireOverdueApprovals,
+  failRun,
+  listHeldRuns,
   loadChangeable,
+  purgeDueBlobs,
+  REVIEW_HOURS,
   sendDueReminders,
   type ObjectStore,
 } from '@ensemus/application';
@@ -17,7 +25,6 @@ import {
   type AppDatabase,
 } from '@ensemus/database';
 import { createServiceContext } from '@ensemus/database/service';
-import { actionHash, type ProposedAction } from '@ensemus/domain/approval';
 import { isTerminal, type CompletionCriterion, type WorkState } from '@ensemus/domain/work-unit';
 import { createLogger, errorCode } from '@ensemus/telemetry';
 import { ApplicationFailure } from '@temporalio/common';
@@ -27,14 +34,21 @@ import type {
   ProbeStep,
   ReviewRequest,
   ReviewState,
+  RunInput,
   TenantInput,
-  WorkInput,
   WorkOutcome,
 } from './schemas';
 
 const log = createLogger('worker');
 const CHECKLIST_NAME = 'completion-checklist.md';
-const REVIEW_HOURS = 72;
+/** Work a run holds is only checked once nothing has happened on it for this long. */
+const QUIET_RUN_MS = 15 * 60 * 1000;
+
+const CRITERION_WORDS: Record<CompletionCriterion['kind'], string> = {
+  artifact_exists: 'Someone attaches the file that shows the result.',
+  reviewer_approved: 'A reviewer approves this work as it stands.',
+  external_receipt: 'The outside system confirms it happened.',
+};
 
 export async function recordProbeStep(probeId: string, step: ProbeStep): Promise<void> {
   log.info('probe.step', { probeId, step });
@@ -45,42 +59,76 @@ export type PlatformActivities = { recordProbeStep: typeof recordProbeStep };
 const stopped = () =>
   ApplicationFailure.create({ type: 'WORK_STOPPED', message: 'Work stopped', nonRetryable: true });
 
-const reviewAction = (workUnitId: string, artifactIds: string[]): ProposedAction => ({
-  toolName: 'work.review',
-  toolVersion: '1',
-  targetRef: `work_unit:${workUnitId}`,
-  payload: { artifact_ids: [...artifactIds].sort() },
-});
+export type WorkflowProbe = (input: {
+  organizationId: string;
+  workUnitId: string;
+  runId: string;
+}) => Promise<'open' | 'closed'>;
 
-export function createActivities(deps: { database: AppDatabase; store: ObjectStore }) {
-  const { database, store } = deps;
+export function createActivities(deps: {
+  database: AppDatabase;
+  store: ObjectStore;
+  /** Asks Temporal whether a run is still open. Without one, stranded work is left for later. */
+  probeWorkflow?: WorkflowProbe;
+}) {
+  const { database, store, probeWorkflow } = deps;
   const context = (input: { organizationId: string }) => createServiceContext(input.organizationId);
 
-  const load = (input: WorkInput) =>
+  const load = (input: RunInput) =>
     withTenantTx(database, context(input), (tx) =>
       loadChangeable(tx, context(input), input.workUnitId),
     );
 
+  /** Ends the hold of runs Temporal says are over, so no work sits in progress with nothing behind it. */
+  async function reconcileStrandedRuns(input: TenantInput, now: Date) {
+    if (!probeWorkflow) return 0;
+    const ctx = context(input);
+    const held = await listHeldRuns(database, ctx, new Date(now.getTime() - QUIET_RUN_MS));
+    let failed = 0;
+    for (const { id, runId } of held) {
+      if (!runId) continue;
+      const state = await probeWorkflow({ ...input, workUnitId: id, runId });
+      if (state === 'open') continue;
+      await withTenantTx(database, ctx, async (tx) => {
+        const work = await loadChangeable(tx, ctx, id);
+        // Rechecked under the lock: it may have moved on since the list was read.
+        if (work.runId !== runId) return;
+        await failRun(tx, ctx, work);
+        failed += 1;
+        log.warn('work.run_stranded', { workUnitId: id, status: work.status });
+      });
+    }
+    return failed;
+  }
+
   return {
     recordProbeStep,
 
-    /** Moves ready work to running. Finding it running already means a retry, so carry on. */
-    async prepareWork(input: WorkInput): Promise<PreparedWork> {
+    /**
+     * Claims ready work for this run, but only if someone asked for a run and that request still
+     * stands. Finding it running under this same run means a retry, so carry on. Anything else, such
+     * as a person having started it by hand, is not this run's to touch.
+     */
+    async prepareWork(input: RunInput): Promise<PreparedWork> {
       const ctx = context(input);
       return withTenantTx(database, ctx, async (tx) => {
         const work = await loadChangeable(tx, ctx, input.workUnitId);
-        const status = work.status as WorkState;
         const needsReview = (work.completionCriteria as CompletionCriterion[]).some(
           (criterion) => criterion.kind === 'reviewer_approved',
         );
-        if (status === 'ready') await applyTransition(tx, ctx, work, 'running');
-        else if (status !== 'running') return { status: 'stopped', needsReview };
-        return { status: 'running', needsReview };
+        if (work.status === 'ready' && work.runRequestedAt) {
+          await applyTransition(tx, ctx, work, 'running', { runId: input.runId });
+          return { status: 'running', needsReview };
+        }
+        if (work.status === 'running' && work.runId === input.runId) {
+          return { status: 'running', needsReview };
+        }
+        return { status: 'stopped', needsReview };
       });
     },
 
     /** Produces the plan's deterministic artifact. A retry finds it and adds nothing. */
-    async produceChecklistArtifact(input: WorkInput): Promise<{ artifactId: string }> {
+    async produceChecklistArtifact(input: RunInput): Promise<{ artifactId: string }> {
       const work = await load(input);
       if (work.status !== 'running') throw stopped();
       const ctx = context(input);
@@ -96,12 +144,14 @@ export function createActivities(deps: { database: AppDatabase; store: ObjectSto
       const body = [
         `# Completion checklist`,
         '',
-        `Work Unit: ${work.id}`,
-        `Version at generation: ${work.version}`,
+        'Ensemus wrote this list. It has not checked any of this, and this file is not evidence.',
+        'A person decides when this work is done.',
+        '',
+        `Work: ${work.id}`,
         '',
         ...(criteria.length
-          ? criteria.map((criterion) => `- [ ] ${criterion.kind}`)
-          : ['- No completion criteria were set.']),
+          ? criteria.map((criterion) => `- [ ] ${CRITERION_WORDS[criterion.kind]}`)
+          : ['- [ ] Someone confirms the outcome was reached. No other evidence was asked for.']),
         '',
       ].join('\n');
       const { id } = await addArtifact(database, store, ctx, {
@@ -113,41 +163,45 @@ export function createActivities(deps: { database: AppDatabase; store: ObjectSto
       return { artifactId: id };
     },
 
-    /** Asks the accountable owner to review. A retry returns the same approval. */
-    async requestReview(input: WorkInput): Promise<ReviewRequest> {
+    /**
+     * Asks the reviewer chosen when the plan was run. A retry finds this run's own request by run ID,
+     * whatever has happened to the files since. Nothing from an earlier run is ever reused.
+     */
+    async requestReview(input: RunInput): Promise<ReviewRequest> {
       const ctx = context(input);
       return withTenantTx(database, ctx, async (tx) => {
         const work = await loadChangeable(tx, ctx, input.workUnitId);
-        const files = await tx
-          .select({ id: workArtifacts.artifactId })
-          .from(workArtifacts)
-          .where(eq(workArtifacts.workUnitId, work.id));
-        const action = reviewAction(
-          work.id,
-          files.map((file) => file.id),
-        );
-        const [existing] = await tx
+        const [own] = await tx
           .select({ id: approvals.id, expiresAt: approvals.expiresAt })
           .from(approvals)
-          .where(
-            and(eq(approvals.workUnitId, work.id), eq(approvals.actionHash, actionHash(action))),
-          );
-        if (existing) {
-          return { approvalId: existing.id, expiresAtMs: existing.expiresAt.getTime() };
-        }
-        if (work.status !== 'running') throw stopped();
+          .where(and(eq(approvals.workUnitId, work.id), eq(approvals.runId, input.runId)));
+        if (own) return { approvalId: own.id, expiresAtMs: own.expiresAt.getTime() };
+        if (work.status !== 'running' || work.runId !== input.runId) throw stopped();
+
+        // A review someone asked for by hand before the plan started does not replace this one.
+        const superseded = await tx
+          .update(approvals)
+          .set({ status: 'cancelled', decidedAt: new Date() })
+          .where(and(eq(approvals.workUnitId, work.id), eq(approvals.status, 'pending')))
+          .returning({ id: approvals.id });
+        await clearApprovalNotifications(
+          tx,
+          superseded.map((row) => row.id),
+        );
         const expiresAt = new Date(Date.now() + REVIEW_HOURS * 60 * 60 * 1000);
         const created = await createApprovalInTx(tx, ctx, {
           workUnitId: work.id,
-          action,
-          approverMembershipId: work.ownerMembershipId,
+          action: await currentReviewAction(tx, work),
+          approverMembershipId: work.planReviewerMembershipId ?? work.ownerMembershipId,
+          requestedByMembershipId: work.runRequestedByMembershipId,
+          runId: input.runId,
           expiresAt,
         });
         return { approvalId: created.id, expiresAtMs: expiresAt.getTime() };
       });
     },
 
-    async reviewState(input: WorkInput & { approvalId: string }): Promise<ReviewState> {
+    async reviewState(input: RunInput & { approvalId: string }): Promise<ReviewState> {
       const ctx = context(input);
       const [row] = await withTenantTx(database, ctx, (tx) =>
         tx
@@ -158,34 +212,40 @@ export function createActivities(deps: { database: AppDatabase; store: ObjectSto
       return (row?.status ?? 'cancelled') as ReviewState;
     },
 
-    async expireReview(input: WorkInput & { approvalId: string }): Promise<void> {
-      await expireApproval(database, context(input), { approvalId: input.approvalId });
+    /** Expires the approval if it really is overdue, and reports the status it ended up with. */
+    async expireReview(input: RunInput & { approvalId: string }): Promise<ReviewState> {
+      const status = await expireApprovalStatus(database, context(input), {
+        approvalId: input.approvalId,
+      });
+      return status as ReviewState;
     },
 
-    /** Runs the domain's evidence check. If it fails, the work goes back for remediation. */
-    async verifyAndComplete(input: WorkInput): Promise<WorkOutcome> {
+    /**
+     * Sends the work for checking, and stops there. A person accepts it: a plan that generated a
+     * checklist has not shown that anything was done. Evidence is worked out when they press Mark
+     * done, so a review that no longer covers the work is refused at that point.
+     */
+    async verifyAndComplete(input: RunInput): Promise<WorkOutcome> {
       const ctx = context(input);
       return withTenantTx(database, ctx, async (tx) => {
-        let work = await loadChangeable(tx, ctx, input.workUnitId);
+        const work = await loadChangeable(tx, ctx, input.workUnitId);
         if (work.status === 'completed') return 'completed';
-        if (work.status === 'running') work = await applyTransition(tx, ctx, work, 'verifying');
-        if (work.status !== 'verifying') return 'cancelled';
-        await applyTransition(tx, ctx, work, 'completed');
-        return 'completed';
+        if (work.status === 'verifying') return 'verifying';
+        if (work.status !== 'running' || work.runId !== input.runId) return 'cancelled';
+        const checking = await applyTransition(tx, ctx, work, 'verifying');
+        await closeOutdatedReviews(tx, ctx, checking);
+        return 'verifying';
       });
     },
 
-    /** Reports failure truthfully. Finished work is left as it is. */
-    async markFailed(input: WorkInput): Promise<void> {
+    /** Reports failure truthfully, on work this run was responsible for. Anything else is left be. */
+    async markFailed(input: RunInput): Promise<void> {
       const ctx = context(input);
       await withTenantTx(database, ctx, async (tx) => {
         const work = await loadChangeable(tx, ctx, input.workUnitId);
         const status = work.status as WorkState;
-        if (status === 'running') await applyTransition(tx, ctx, work, 'failed');
-        else if (status === 'verifying') {
-          const back = await applyTransition(tx, ctx, work, 'running');
-          await applyTransition(tx, ctx, back, 'failed');
-        }
+        const isOurs = work.runId === input.runId || (status === 'ready' && work.runRequestedAt);
+        if (isOurs) await failRun(tx, ctx, work);
         log.warn('work.failed', {
           workUnitId: work.id,
           status: isTerminal(status) ? 'final' : status,
@@ -193,9 +253,19 @@ export function createActivities(deps: { database: AppDatabase; store: ObjectSto
       });
     },
 
+    /**
+     * One tenant's periodic upkeep, which is why this one Activity does several jobs. Adding Activities
+     * to a scheduled workflow would need a patch for no gain: nothing here depends on their order.
+     */
     async sendReminders(input: TenantInput): Promise<number> {
+      const ctx = context(input);
+      const now = new Date();
       try {
-        return await sendDueReminders(database, context(input), new Date());
+        await expireOverdueApprovals(database, ctx, now);
+        await reconcileStrandedRuns(input, now);
+        const blobs = await purgeDueBlobs(database, store, ctx, now);
+        if (blobs.failed > 0) log.warn('blobs.purge_failed', { count: blobs.failed });
+        return await sendDueReminders(database, ctx, now);
       } catch (error) {
         log.error('reminders.failed', { errorCode: errorCode(error) });
         throw error;

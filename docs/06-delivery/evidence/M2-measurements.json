@@ -1,0 +1,61 @@
+{
+  "note": "One developer machine, through a port published by Docker Desktop. Compare the cases; do not read the absolute numbers as capacity.",
+  "cpus": 16,
+  "platform": "win32",
+  "rowsPerTenant": 5000,
+  "tenants": 6,
+  "readOneRow": {
+    "baselineNoIsolation": {
+      "samples": 1000,
+      "p50Ms": 1.59,
+      "p95Ms": 1.85,
+      "p99Ms": 2.11,
+      "maxMs": 2.95
+    },
+    "withIsolation": {
+      "samples": 1000,
+      "p50Ms": 2.14,
+      "p95Ms": 2.43,
+      "p99Ms": 2.7,
+      "maxMs": 5.5
+    },
+    "withTenantTxAndOrm": {
+      "samples": 1000,
+      "p50Ms": 2.78,
+      "p95Ms": 3.17,
+      "p99Ms": 3.59,
+      "maxMs": 7.07
+    }
+  },
+  "readPageOf50": {
+    "baselineNoIsolation": {
+      "samples": 1000,
+      "p50Ms": 2.38,
+      "p95Ms": 2.87,
+      "p99Ms": 3.41,
+      "maxMs": 5.83
+    },
+    "withIsolation": {
+      "samples": 1000,
+      "p50Ms": 4.06,
+      "p95Ms": 4.59,
+      "p99Ms": 5.19,
+      "maxMs": 8.34
+    }
+  },
+  "dispatcherDelayIdle": {
+    "samples": 30,
+    "p50Ms": 289.26,
+    "p95Ms": 510.27,
+    "p99Ms": 532.17,
+    "maxMs": 532.17
+  },
+  "dispatcherDelayBurstOf200": {
+    "samples": 200,
+    "p50Ms": 1982.74,
+    "p95Ms": 3642.03,
+    "p99Ms": 3736.47,
+    "maxMs": 3752.7,
+    "eventsPerSecond": 53
+  }
+}

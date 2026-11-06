@@ -161,6 +161,40 @@ small,
 .nav a:hover {
   background: var(--surface-2);
 }
+.nav a[aria-current='page'] {
+  background: var(--surface-2);
+  font-weight: 600;
+  box-shadow: inset 2px 0 0 var(--fg);
+}
+/* Stays in the page while empty, so a screen reader is listening before anything is announced. */
+.pending {
+  margin-inline-start: 0.5rem;
+  font-size: 0.8125rem;
+  color: var(--muted);
+}
+.pending:empty,
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.field-error {
+  color: var(--bad, currentColor);
+  font-weight: 540;
+}
+details.confirm > summary {
+  cursor: pointer;
+}
+details.confirm[open] {
+  flex-basis: 100%;
+}
+details.confirm > form {
+  margin-top: 0.5rem;
+}
 .sidebar-end {
   margin-top: auto;
   display: grid;

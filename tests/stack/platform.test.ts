@@ -289,7 +289,8 @@ describe('secrets in what the browser receives (SEC-10, NEXT-02)', () => {
       expect(scan('web', secret(name)), name).toBe('');
       expect(scan('worker', secret(name)), name).toBe('');
     }
-  });
+    // Reads every file in both images six times, which takes minutes on Docker Desktop.
+  }, 300_000);
 
   it('refuses to start without a per-deployment Server Action key', () => {
     const result = spawnSync('docker', ['run', '--rm', 'ensemus/web:local'], { encoding: 'utf8' });

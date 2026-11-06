@@ -17,6 +17,8 @@ export type ErrorCode =
   | 'APPROVAL_WRONG_APPROVER'
   | 'APPROVAL_HASH_MISMATCH'
   | 'APPROVAL_SELF_APPROVAL'
+  | 'APPROVAL_STALE'
+  | 'REVIEW_ALREADY_OPEN'
   | 'INVITATION_INVALID'
   | 'LAST_OWNER';
 
@@ -37,6 +39,8 @@ const MESSAGES: Record<ErrorCode, string> = {
   APPROVAL_WRONG_APPROVER: 'This approval is assigned to someone else.',
   APPROVAL_HASH_MISMATCH: 'The action changed after you reviewed it. Review it again.',
   APPROVAL_SELF_APPROVAL: 'You cannot approve your own request.',
+  APPROVAL_STALE: 'This work changed after the review was requested. Ask for a new review.',
+  REVIEW_ALREADY_OPEN: 'A review of this work is already open. It has to be decided first.',
   INVITATION_INVALID: 'This invitation is not valid. Ask for a new one.',
   LAST_OWNER: 'An organization must keep at least one owner.',
 };
@@ -65,6 +69,8 @@ export const HTTP_STATUS: Record<ErrorCode, number> = {
   APPROVAL_WRONG_APPROVER: 403,
   APPROVAL_HASH_MISMATCH: 409,
   APPROVAL_SELF_APPROVAL: 403,
+  APPROVAL_STALE: 409,
+  REVIEW_ALREADY_OPEN: 409,
   INVITATION_INVALID: 400,
   LAST_OWNER: 409,
 };

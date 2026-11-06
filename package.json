@@ -18,6 +18,7 @@
     "check:backlog": "node docs/specifications/tools/check-backlog.mjs",
     "check:contracts": "pnpm --filter @ensemus/contracts generate && git diff --exit-code packages/contracts/generated",
     "check:licenses": "node infrastructure/scripts/check-licenses.mjs",
+    "measure:m2": "vitest run --project measure",
     "stack:secrets": "node infrastructure/scripts/generate-test-secrets.mjs",
     "stack:up": "docker compose -f infrastructure/compose/compose.yaml -f infrastructure/compose/compose.test.yaml up -d --build --wait",
     "stack:down": "docker compose -f infrastructure/compose/compose.yaml -f infrastructure/compose/compose.test.yaml down -v",

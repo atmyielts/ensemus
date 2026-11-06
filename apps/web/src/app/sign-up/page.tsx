@@ -1,25 +1,30 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
+import { safeReturnPath, withReturnPath } from '@/lib/return-path';
 import { signUpAction } from '@/server/actions';
 import { getRuntime } from '@/server/runtime';
+
+export const metadata = { title: 'Create your account | Ensemus' };
 
 export default async function SignUpPage({
   searchParams,
 }: {
-  searchParams: Promise<{ error?: string }>;
+  searchParams: Promise<{ error?: string; next?: string | string[] }>;
 }) {
   if (!getRuntime().config.allowSignup) notFound();
-  const { error } = await searchParams;
+  const { error, next: requested } = await searchParams;
+  const next = safeReturnPath(requested);
   return (
-    <main>
+    <main className="centered">
       <h1>Create your account</h1>
       {error && (
-        <p className="error" role="alert">
+        <p className="notice error" role="alert">
           We could not create that account. Check your details, and use a password of at least 12
           characters.
         </p>
       )}
-      <form action={signUpAction}>
+      <form className="fields" action={signUpAction}>
+        {next && <input type="hidden" name="next" value={next} />}
         <label>
           Name
           <input name="name" autoComplete="name" required />
@@ -37,11 +42,14 @@ export default async function SignUpPage({
             minLength={12}
             required
           />
+          <small>At least 12 characters.</small>
         </label>
-        <button type="submit">Create account</button>
+        <div>
+          <button type="submit">Create account</button>
+        </div>
       </form>
-      <p>
-        Already have an account? <Link href="/sign-in">Sign in</Link>
+      <p style={{ marginTop: '1rem' }}>
+        Already have an account? <Link href={withReturnPath('/sign-in', next)}>Sign in</Link>
       </p>
     </main>
   );

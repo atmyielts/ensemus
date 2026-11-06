@@ -42,7 +42,10 @@ export interface paths {
                         };
                     };
                 };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
                 403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
             };
         };
         put?: never;
@@ -74,8 +77,13 @@ export interface paths {
                         "application/json": components["schemas"]["WorkUnit"];
                     };
                 };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
                 403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
                 409: components["responses"]["Conflict"];
+                413: components["responses"]["PayloadTooLarge"];
+                415: components["responses"]["UnsupportedMediaType"];
             };
         };
         delete?: never;
@@ -118,6 +126,8 @@ export interface paths {
                         "application/json": components["schemas"]["WorkUnit"];
                     };
                 };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
                 404: components["responses"]["NotFound"];
             };
         };
@@ -131,6 +141,7 @@ export interface paths {
             parameters: {
                 query?: never;
                 header: {
+                    /** @description The version last read, as sent in the ETag response header. Weak tags, lists and * are refused. */
                     "If-Match": string;
                 };
                 path: {
@@ -160,10 +171,69 @@ export interface paths {
                         "application/json": components["schemas"]["WorkUnit"];
                     };
                 };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
                 403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
                 409: components["responses"]["Conflict"];
+                413: components["responses"]["PayloadTooLarge"];
+                415: components["responses"]["UnsupportedMediaType"];
+                428: components["responses"]["PreconditionRequired"];
             };
         };
+        trace?: never;
+    };
+    "/organizations/{organization_id}/work-units/{work_unit_id}/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+                work_unit_id: string;
+            };
+            cookie?: never;
+        };
+        /**
+         * Follow a Work Unit's version as server-sent events
+         * @description Sends an event named status whose data and id are both the current version, whenever the version differs from the last one sent, and comment heartbeats in between. Status comes from PostgreSQL, so a reconnect to any replica resumes from Last-Event-ID. Access is checked again on every poll, and the stream ends when access is lost. Connections close after about 15 minutes, and EventSource reconnects by itself.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: {
+                    /** @description The last version received. Without a usable value, the current version is sent at once. */
+                    "Last-Event-ID"?: string;
+                };
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                    work_unit_id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Event stream */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/event-stream": string;
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                404: components["responses"]["NotFound"];
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/organizations/{organization_id}/work-units/{work_unit_id}/dependencies": {
@@ -207,8 +277,13 @@ export interface paths {
                     };
                     content?: never;
                 };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
                 403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
                 409: components["responses"]["Conflict"];
+                413: components["responses"]["PayloadTooLarge"];
+                415: components["responses"]["UnsupportedMediaType"];
             };
         };
         delete?: never;
@@ -318,6 +393,98 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/organizations/{organization_id}/approvals": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+            };
+            cookie?: never;
+        };
+        /** Approvals waiting on the caller, soonest first */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Pending approvals the caller can decide */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            items: components["schemas"]["PendingApproval"][];
+                        };
+                    };
+                };
+                401: components["responses"]["Unauthorized"];
+                404: components["responses"]["NotFound"];
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/organizations/{organization_id}/approvals/{approval_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+                approval_id: string;
+            };
+            cookie?: never;
+        };
+        /** One approval, with the exact action and the hash a decision must quote */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                    approval_id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Approval */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Approval"];
+                    };
+                };
+                401: components["responses"]["Unauthorized"];
+                404: components["responses"]["NotFound"];
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/organizations/{organization_id}/approvals/{approval_id}/decisions": {
         parameters: {
             query?: never;
@@ -361,8 +528,13 @@ export interface paths {
                     };
                     content?: never;
                 };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
                 403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
                 409: components["responses"]["Conflict"];
+                413: components["responses"]["PayloadTooLarge"];
+                415: components["responses"]["UnsupportedMediaType"];
             };
         };
         delete?: never;
@@ -535,7 +707,40 @@ export interface components {
             project_id?: string | null;
             /** Format: date-time */
             due_at?: string | null;
-            completion_criteria?: Record<string, never>;
+            /** @description Which evidence this work needs before it can be completed. */
+            completion_criteria?: {
+                artifact_exists?: boolean;
+                reviewer_approved?: boolean;
+            };
+        };
+        PendingApproval: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            work_unit_id: string;
+            work_title: string;
+            tool_name: string;
+            /** Format: date-time */
+            expires_at: string;
+        };
+        Approval: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            work_unit_id: string;
+            /** @enum {string} */
+            status: "pending" | "approved" | "denied" | "expired" | "cancelled";
+            tool_name: string;
+            /** @description The exact action this approval binds. It cannot be changed once created. */
+            action: {
+                [key: string]: unknown;
+            };
+            /** @description Quote this when deciding. */
+            action_hash: string;
+            /** Format: date-time */
+            expires_at: string;
+            /** Format: date-time */
+            decided_at: string | null;
         };
         WorkUnit: {
             /** Format: uuid */
@@ -580,6 +785,24 @@ export interface components {
         };
     };
     responses: {
+        /** @description Malformed path, query, header or body. details.fields names the fields, never their values. */
+        BadRequest: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["Error"];
+            };
+        };
+        /** @description No valid session */
+        Unauthorized: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["Error"];
+            };
+        };
         /** @description Authorization or policy rejection */
         Forbidden: {
             headers: {
@@ -589,7 +812,7 @@ export interface components {
                 "application/json": components["schemas"]["Error"];
             };
         };
-        /** @description Concurrent update or dependency conflict */
+        /** @description Concurrent update, dependency conflict, or an Idempotency-Key reused with a different request */
         Conflict: {
             headers: {
                 [name: string]: unknown;
@@ -609,6 +832,33 @@ export interface components {
         };
         /** @description Missing or inaccessible resource; avoid existence leaks */
         NotFound: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["Error"];
+            };
+        };
+        /** @description JSON body over the 256 KB limit */
+        PayloadTooLarge: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["Error"];
+            };
+        };
+        /** @description Body is not application/json */
+        UnsupportedMediaType: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["Error"];
+            };
+        };
+        /** @description If-Match header missing */
+        PreconditionRequired: {
             headers: {
                 [name: string]: unknown;
             };

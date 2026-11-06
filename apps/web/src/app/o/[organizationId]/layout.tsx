@@ -3,7 +3,10 @@ import { getOrganization } from '@ensemus/database';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import type { ReactNode } from 'react';
+import { MainNav } from '@/components/main-nav';
+import { SubmitButton } from '@/components/submit-button';
 import { signOutAction } from '@/server/actions';
+import { organizationsWithAccess } from '@/server/organizations';
 import { requireTenant } from '@/server/tenant';
 
 export default async function OrganizationLayout({
@@ -15,10 +18,11 @@ export default async function OrganizationLayout({
 }) {
   const { organizationId } = await params;
   const { actor, context, database } = await requireTenant(organizationId);
-  const [organization, unread, pending] = await Promise.all([
+  const [organization, unread, pending, organizations] = await Promise.all([
     getOrganization(database, context),
     countUnread(database, context),
     listMyPendingApprovals(database, context),
+    organizationsWithAccess(actor.userId),
   ]);
   if (!organization) notFound();
   const base = `/o/${organizationId}`;
@@ -35,25 +39,21 @@ export default async function OrganizationLayout({
           </Link>
           <div className="org-name">{organization.name}</div>
         </div>
-        <nav className="nav" aria-label="Main">
-          <Link href={base}>Home</Link>
-          <Link href={`${base}/work`}>Work</Link>
-          <Link href={`${base}/approvals`}>
-            Approvals {pending.length > 0 && <span className="count">{pending.length}</span>}
-          </Link>
-          <Link href={`${base}/people`}>People and teams</Link>
-          <Link href={`${base}/clients`}>Clients and projects</Link>
-          <Link href={`${base}/inbox`}>
-            Inbox {unread > 0 && <span className="count">{unread}</span>}
-          </Link>
-        </nav>
+        <MainNav
+          items={[
+            { href: base, label: 'Home', exact: true },
+            { href: `${base}/work`, label: 'Work' },
+            { href: `${base}/approvals`, label: 'Approvals', count: pending.length },
+            { href: `${base}/people`, label: 'People and teams' },
+            { href: `${base}/clients`, label: 'Clients and projects' },
+            { href: `${base}/inbox`, label: 'Inbox', count: unread },
+          ]}
+        />
         <div className="sidebar-end">
-          <Link href="/">Switch organization</Link>
+          {organizations.length > 1 && <Link href="/">Switch organization</Link>}
           <span className="muted">{actor.email}</span>
           <form action={signOutAction}>
-            <button className="link" type="submit">
-              Sign out
-            </button>
+            <SubmitButton className="link">Sign out</SubmitButton>
           </form>
         </div>
       </aside>

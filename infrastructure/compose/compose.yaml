@@ -127,6 +127,8 @@ services:
     secrets: [db_migrator_url, objects_access_key, objects_secret_key]
     depends_on:
       postgres: { condition: service_healthy }
+      # It creates the bucket too. Without this it loses the race whenever PostgreSQL is already up.
+      objects: { condition: service_healthy }
 
   postgres:
     <<: *restart

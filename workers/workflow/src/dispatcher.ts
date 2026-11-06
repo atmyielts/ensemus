@@ -7,12 +7,13 @@ import { fileURLToPath } from 'node:url';
 import { readSecret } from '@ensemus/config';
 import {
   dispatchDueEvents,
+  listOrganizationIds,
   openDispatcherDatabase,
   type DispatchableEvent,
 } from '@ensemus/database/dispatcher';
 import { createLogger, errorCode } from '@ensemus/telemetry';
 import { AesGcmPayloadCodec } from '@ensemus/workflows/codec';
-import { PLATFORM_TASK_QUEUE } from '@ensemus/workflows/constants';
+import { PLATFORM_TASK_QUEUE, TEMPORAL_CHANNEL_ARGS } from '@ensemus/workflows/constants';
 import {
   reminderScheduleIdFor,
   workflowIdFor,
@@ -28,15 +29,21 @@ import {
   WorkflowNotFoundError,
   ScheduleAlreadyRunning,
 } from '@temporalio/client';
+import { isTransientDeliveryError } from './dispatch-errors';
 
 const log = createLogger('dispatcher');
 const here = path.dirname(fileURLToPath(import.meta.url));
 const IDLE_MS = 500;
 const REMINDER_INTERVAL = '15 minutes';
+/** One Temporal call may never hold up the signals behind it for longer than this. */
+const CALL_DEADLINE_MS = 10_000;
+/** How often to try checking the reminder schedules again if Temporal was down at startup. */
+const RECONCILE_RETRY_MS = 60_000;
 
 async function main() {
   const connection = await Connection.connect({
     address: process.env.TEMPORAL_ADDRESS ?? 'temporal:7233',
+    channelArgs: TEMPORAL_CHANNEL_ARGS,
   });
   const client = new Client({
     connection,
@@ -48,7 +55,26 @@ async function main() {
   });
   const { db, close } = openDispatcherDatabase(readSecret('DATABASE_URL_DISPATCHER'));
 
-  const handle = async (event: DispatchableEvent) => {
+  const ensureReminderSchedule = async (organizationId: string) => {
+    const scheduleInput: TenantInput = { organizationId };
+    try {
+      await client.schedule.create({
+        scheduleId: reminderScheduleIdFor(organizationId),
+        spec: { intervals: [{ every: REMINDER_INTERVAL }] },
+        policies: { overlap: ScheduleOverlapPolicy.SKIP },
+        action: {
+          type: 'startWorkflow',
+          workflowType: 'tenantRemindersWorkflow',
+          args: [scheduleInput],
+          taskQueue: PLATFORM_TASK_QUEUE,
+        },
+      });
+    } catch (error) {
+      if (!(error instanceof ScheduleAlreadyRunning)) throw error;
+    }
+  };
+
+  const deliver = async (event: DispatchableEvent) => {
     const input: WorkInput | null =
       event.aggregateType === 'work_unit'
         ? workInputSchema.parse({
@@ -92,31 +118,18 @@ async function main() {
         }
         return;
 
-      case 'organization.created': {
-        const scheduleInput: TenantInput = { organizationId: event.organizationId };
-        try {
-          await client.schedule.create({
-            scheduleId: reminderScheduleIdFor(event.organizationId),
-            spec: { intervals: [{ every: REMINDER_INTERVAL }] },
-            policies: { overlap: ScheduleOverlapPolicy.SKIP },
-            action: {
-              type: 'startWorkflow',
-              workflowType: 'tenantRemindersWorkflow',
-              args: [scheduleInput],
-              taskQueue: PLATFORM_TASK_QUEUE,
-            },
-          });
-        } catch (error) {
-          if (!(error instanceof ScheduleAlreadyRunning)) throw error;
-        }
+      case 'organization.created':
+        await ensureReminderSchedule(event.organizationId);
         return;
-      }
 
       default:
         // Nothing consumes this event yet. It stays in domain_events for projections.
         return;
     }
   };
+
+  const handle = (event: DispatchableEvent) =>
+    connection.withDeadline(Date.now() + CALL_DEADLINE_MS, () => deliver(event));
 
   let running = true;
   const stop = () => {
@@ -125,14 +138,52 @@ async function main() {
   process.on('SIGTERM', stop);
   process.on('SIGINT', stop);
 
-  log.info('dispatcher.started');
   const beat = () => writeFileSync('/tmp/worker-alive', String(Date.now()));
+
+  /** A tenant whose first event was lost before this existed still gets its reminders. */
+  const reconcileReminderSchedules = async () => {
+    const organizations = await listOrganizationIds(db);
+    for (const organizationId of organizations) {
+      if (!running) return false;
+      beat();
+      await connection.withDeadline(Date.now() + CALL_DEADLINE_MS, () =>
+        ensureReminderSchedule(organizationId),
+      );
+    }
+    log.info('dispatcher.schedules_reconciled', { count: organizations.length });
+    return true;
+  };
+
+  log.info('dispatcher.started');
+  let reconciled = false;
+  let nextReconcileAt = 0;
   while (running) {
     beat();
+    if (!reconciled && Date.now() >= nextReconcileAt) {
+      nextReconcileAt = Date.now() + RECONCILE_RETRY_MS;
+      await reconcileReminderSchedules().then(
+        (done) => {
+          reconciled = done;
+        },
+        (error: unknown) => {
+          log.warn('dispatcher.reconcile_failed', { errorCode: errorCode(error) });
+        },
+      );
+    }
     try {
-      const result = await dispatchDueEvents(db, handle);
-      if (result.failed || result.dead) {
-        log.warn('dispatcher.delivery_problem', { count: result.failed + result.dead });
+      const result = await dispatchDueEvents(db, handle, {
+        isTransient: isTransientDeliveryError,
+        shouldStop: () => !running,
+        onEvent: (error) => {
+          beat();
+          // A code is enough to tell an outage from a bad event, and it can quote nothing.
+          if (error) log.warn('dispatcher.delivery_failed', { errorCode: errorCode(error) });
+        },
+      });
+      if (result.failed || result.dead || result.deferred) {
+        log.warn('dispatcher.delivery_problem', {
+          count: result.failed + result.dead + result.deferred,
+        });
       }
       if (result.handled === 0) await new Promise((done) => setTimeout(done, IDLE_MS));
     } catch (error) {

@@ -1,23 +1,28 @@
 import Link from 'next/link';
+import { safeReturnPath, withReturnPath } from '@/lib/return-path';
 import { signInAction } from '@/server/actions';
 import { getRuntime } from '@/server/runtime';
+
+export const metadata = { title: 'Sign in | Ensemus' };
 
 export default async function SignInPage({
   searchParams,
 }: {
-  searchParams: Promise<{ error?: string }>;
+  searchParams: Promise<{ error?: string; next?: string | string[] }>;
 }) {
-  const { error } = await searchParams;
+  const { error, next: requested } = await searchParams;
+  const next = safeReturnPath(requested);
   const { allowSignup } = getRuntime().config;
   return (
-    <main>
+    <main className="centered">
       <h1>Sign in to Ensemus</h1>
       {error && (
-        <p className="error" role="alert">
+        <p className="notice error" role="alert">
           That email and password did not match.
         </p>
       )}
-      <form action={signInAction}>
+      <form className="fields" action={signInAction}>
+        {next && <input type="hidden" name="next" value={next} />}
         <label>
           Email
           <input name="email" type="email" autoComplete="username" required />
@@ -26,11 +31,13 @@ export default async function SignInPage({
           Password
           <input name="password" type="password" autoComplete="current-password" required />
         </label>
-        <button type="submit">Sign in</button>
+        <div>
+          <button type="submit">Sign in</button>
+        </div>
       </form>
       {allowSignup && (
-        <p>
-          New here? <Link href="/sign-up">Create an account</Link>
+        <p style={{ marginTop: '1rem' }}>
+          New here? <Link href={withReturnPath('/sign-up', next)}>Create an account</Link>
         </p>
       )}
     </main>

@@ -87,8 +87,8 @@
     },
     {
       "path": "02-architecture/04-work-kernel.md",
-      "size_bytes": 4614,
-      "sha256": "91555d8c4d7e8f399bd91a5e881ee409385ea2e7e0682a679a745fd4e9643288"
+      "size_bytes": 5459,
+      "sha256": "bf4b370acbd278ec933b6077ba6ba4e3814f2cec79c64b3c6a80c6f65166b40d"
     },
     {
       "path": "02-architecture/05-events-and-consistency.md",
@@ -192,8 +192,8 @@
     },
     {
       "path": "04-security/04-authorization-and-approvals.md",
-      "size_bytes": 3149,
-      "sha256": "792032402f5bd1d5df4d5f36faf0b4783366cb90d03bf032799c4e8bcff0b825"
+      "size_bytes": 4251,
+      "sha256": "3a63d4ed522bcd6b678876d58d1dbca0016747fbe52878c24e5a9dafa2be7303"
     },
     {
       "path": "04-security/05-data-lifecycle.md",
@@ -232,8 +232,8 @@
     },
     {
       "path": "05-operations/05-container-deployment-runbook.md",
-      "size_bytes": 4081,
-      "sha256": "162c016c85bf530e1d23d63b71398b7b7f6166af7caeba9e2dd44e9b4139c3a0"
+      "size_bytes": 4786,
+      "sha256": "ceedad2f990382a7431021b9137088f26bc686e71b6072ad2014ff0d4caa822e"
     },
     {
       "path": "05-operations/06-performance-and-load-plan.md",
@@ -274,6 +274,11 @@
       "path": "06-delivery/evidence/M1-report.md",
       "size_bytes": 7068,
       "sha256": "32936c8ad78dc7fe11e056510d4f162d3934b259611e798b50287b24f6228d0f"
+    },
+    {
+      "path": "06-delivery/evidence/M2-measurements.json",
+      "size_bytes": 1272,
+      "sha256": "5132b31600aea443a8f55e59005ecf4d65451638b2f9219d2c18f287a8b8d168"
     },
     {
       "path": "07-commercial/01-license-and-maintenance.md",
@@ -432,8 +437,8 @@
     },
     {
       "path": "specifications/openapi.yaml",
-      "size_bytes": 12515,
-      "sha256": "23a5dc9c53e76467e6ed569718199040903b1a4856de6deabdd0454fbdf2b874"
+      "size_bytes": 19650,
+      "sha256": "16c6e2addd90b08e072e1df8ac446c660d9b1f57b644f9ea61adf9e311bb6d1a"
     },
     {
       "path": "specifications/qa-scenarios.csv",

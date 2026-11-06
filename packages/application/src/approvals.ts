@@ -2,13 +2,14 @@
 // update that column, so a changed proposal has to become a new approval.
 import { randomUUID } from 'node:crypto';
 import {
-  appendAudit,
   approvalDecisions,
   approvals,
+  artifacts,
   memberships,
   notifications,
   users,
   withTenantTx,
+  workArtifacts,
   workUnits,
   type AppDatabase,
   type TenantContext,
@@ -18,13 +19,25 @@ import {
   actionHash,
   checkDecision,
   checkExecution,
+  WORK_REVIEW_TOOL,
+  WORK_REVIEW_VERSION,
   type ProposedAction,
 } from '@ensemus/domain/approval';
-import { canReadWork, type Classification } from '@ensemus/domain/policy';
-import { and, asc, eq, lt } from 'drizzle-orm';
-import { AppError, type ErrorCode } from './errors';
+import { isTerminal, type WorkState } from '@ensemus/domain/work-unit';
+import { and, asc, eq, gt, inArray, lt, lte, sql } from 'drizzle-orm';
+import { AppError, pgCode, type ErrorCode } from './errors';
 import { emit } from './events';
-import { applyTransition, loadChangeable, loadReadable } from './work';
+import {
+  applyTransition,
+  auditAction,
+  clearApprovalNotifications,
+  currentReviewAction,
+  loadChangeable,
+  loadReadable,
+  memberCanRead,
+  notify,
+  visibleTo,
+} from './work';
 
 const DENIAL_CODES: Record<string, ErrorCode> = {
   NOT_PENDING: 'APPROVAL_NOT_PENDING',
@@ -35,6 +48,10 @@ const DENIAL_CODES: Record<string, ErrorCode> = {
 };
 
 const REMINDER_DELAY_MS = 4 * 60 * 60 * 1000;
+const UNIQUE_VIOLATION = '23505';
+const MAX_REASON_LENGTH = 2000;
+
+export const REVIEW_HOURS = 72;
 
 export async function createApprovalInTx(
   tx: Tx,
@@ -44,40 +61,76 @@ export async function createApprovalInTx(
     action: ProposedAction;
     approverMembershipId: string;
     expiresAt: Date;
+    /** The person behind a request a workflow makes, so they cannot approve it themselves. */
+    requestedByMembershipId?: string | null;
+    /** The workflow run asking, so a retry of the same step finds this approval. */
+    runId?: string;
   },
 ) {
   const work = await loadChangeable(tx, context, input.workUnitId);
+  if (isTerminal(work.status as WorkState)) throw new AppError('INVALID_STATE');
+
+  // One open decision at a time. A second one could override the first, or be used to replace the
+  // person a plan named, so a new request has to wait until the open one is settled.
+  const [open] = await tx
+    .select({
+      id: approvals.id,
+      expiresAt: approvals.expiresAt,
+      holdsWork: approvals.holdsWork,
+    })
+    .from(approvals)
+    .where(and(eq(approvals.workUnitId, input.workUnitId), eq(approvals.status, 'pending')));
+  if (open) {
+    // A request nobody can decide any more is no reason to refuse a new one. One holding the work
+    // has an outcome the sweep has to apply first.
+    if (open.holdsWork || open.expiresAt > new Date()) throw new AppError('REVIEW_ALREADY_OPEN');
+    await tx
+      .update(approvals)
+      .set({ status: 'expired', decidedAt: new Date() })
+      .where(eq(approvals.id, open.id));
+    await clearApprovalNotifications(tx, [open.id]);
+  }
+
   const [approver] = await tx
     .select({ id: memberships.id, role: memberships.role, status: memberships.status })
     .from(memberships)
     .where(eq(memberships.id, input.approverMembershipId));
   if (approver?.status !== 'active') throw new AppError('INVALID_INPUT');
   // An approver has to be able to see what they are approving.
-  const approverCanRead = canReadWork(
-    {
-      classification: work.classification as Classification,
-      ownerMembershipId: work.ownerMembershipId,
-      createdByMembershipId: work.createdByMembershipId,
-      isAssigned: false,
-    },
-    { membershipId: approver.id, role: approver.role },
-  );
-  if (!approverCanRead) throw new AppError('INVALID_INPUT');
+  if (!(await memberCanRead(tx, work, { membershipId: approver.id, role: approver.role }))) {
+    throw new AppError('INVALID_INPUT');
+  }
 
   const id = randomUUID();
   const hash = actionHash(input.action);
-  await tx.insert(approvals).values({
-    organizationId: context.organizationId,
-    id,
-    workUnitId: input.workUnitId,
-    toolName: input.action.toolName,
-    action: input.action,
-    actionHash: hash,
-    targetRef: input.action.targetRef,
-    approverMembershipId: input.approverMembershipId,
-    requestedByMembershipId: context.actorType === 'service' ? null : context.membershipId,
-    expiresAt: input.expiresAt,
-  });
+  // Work running now pauses on this approval, and work still paused has just lost its reviewer. In
+  // either case only this approval's decision can release it. Any other approval is a plain review.
+  const holdsWork = work.status === 'running' || work.status === 'awaiting_approval';
+  const requestedBy =
+    input.requestedByMembershipId !== undefined
+      ? input.requestedByMembershipId
+      : context.actorType === 'service'
+        ? null
+        : context.membershipId;
+  try {
+    await tx.insert(approvals).values({
+      organizationId: context.organizationId,
+      id,
+      workUnitId: input.workUnitId,
+      toolName: input.action.toolName,
+      action: input.action,
+      actionHash: hash,
+      targetRef: input.action.targetRef,
+      approverMembershipId: input.approverMembershipId,
+      requestedByMembershipId: requestedBy,
+      holdsWork,
+      runId: input.runId ?? null,
+      expiresAt: input.expiresAt,
+    });
+  } catch (error) {
+    if (pgCode(error) === UNIQUE_VIOLATION) throw new AppError('REVIEW_ALREADY_OPEN');
+    throw error;
+  }
   await tx.insert(notifications).values({
     organizationId: context.organizationId,
     recipientMembershipId: input.approverMembershipId,
@@ -94,6 +147,7 @@ export async function createApprovalInTx(
     classification: work.classification,
     payload: { approval_id: id, work_unit_id: input.workUnitId },
   });
+  await auditAction(tx, context, 'approval.requested', `approval:${id}`);
   return { id, actionHash: hash };
 }
 
@@ -105,6 +159,29 @@ export function requestApproval(
   return withTenantTx(database, context, (tx) => createApprovalInTx(tx, context, input));
 }
 
+/**
+ * Asks someone to review a Work Unit as it stands. What the review covers is read here, under the
+ * lock, so a form cannot name a version or a set of files that does not exist. A plan that holds the
+ * work names its own reviewer, and nobody with change rights can add or swap one.
+ */
+export function requestWorkReview(
+  database: AppDatabase,
+  context: TenantContext,
+  input: { workUnitId: string; expectedVersion: number; approverMembershipId: string },
+) {
+  return withTenantTx(database, context, async (tx) => {
+    const work = await loadChangeable(tx, context, input.workUnitId);
+    if (work.version !== input.expectedVersion) throw new AppError('VERSION_CONFLICT');
+    if (work.runId) throw new AppError('INVALID_STATE');
+    return createApprovalInTx(tx, context, {
+      workUnitId: work.id,
+      action: await currentReviewAction(tx, work),
+      approverMembershipId: input.approverMembershipId,
+      expiresAt: new Date(Date.now() + REVIEW_HOURS * 60 * 60 * 1000),
+    });
+  });
+}
+
 export async function decideApproval(
   database: AppDatabase,
   context: TenantContext,
@@ -112,14 +189,17 @@ export async function decideApproval(
 ) {
   if (context.actorType === 'service') throw new AppError('FORBIDDEN');
   return withTenantTx(database, context, async (tx) => {
+    const [found] = await tx.select().from(approvals).where(eq(approvals.id, input.approvalId));
+    if (!found) throw new AppError('NOT_FOUND');
+    // Someone who cannot see the work gets not found, not a hint that the approval exists. The work
+    // is locked before the approval, the same order everything that closes approvals uses.
+    const work = await loadReadable(tx, context, found.workUnitId, true);
     const [approval] = await tx
       .select()
       .from(approvals)
       .where(eq(approvals.id, input.approvalId))
       .for('update');
     if (!approval) throw new AppError('NOT_FOUND');
-    // Someone who cannot see the work gets not found, not a hint that the approval exists.
-    await loadReadable(tx, context, approval.workUnitId);
 
     const check = checkDecision(
       {
@@ -132,7 +212,18 @@ export async function decideApproval(
       { actorMembershipId: context.membershipId, shownHash: input.shownHash, now: new Date() },
     );
     if (!check.ok) throw new AppError(DENIAL_CODES[check.reason] as ErrorCode);
+    if (isTerminal(work.status as WorkState)) throw new AppError('INVALID_STATE');
 
+    // What the reviewer was shown has to be what the work holds now. Changing the work closes open
+    // reviews, so this only catches what that missed. Reviews bound the older way have no content
+    // digest to compare, and they can no longer count as evidence anyway.
+    const action = approval.action as ProposedAction;
+    if (action.toolName === WORK_REVIEW_TOOL && action.toolVersion === WORK_REVIEW_VERSION) {
+      const current = await currentReviewAction(tx, work);
+      if (actionHash(current) !== approval.actionHash) throw new AppError('APPROVAL_STALE');
+    }
+
+    const reason = input.reason?.trim().slice(0, MAX_REASON_LENGTH) || undefined;
     const status = input.decision === 'approve' ? 'approved' : 'denied';
     await tx
       .update(approvals)
@@ -144,21 +235,16 @@ export async function decideApproval(
       actorMembershipId: context.membershipId,
       decision: input.decision,
       actionHash: input.shownHash,
-      reason: input.reason ?? null,
+      reason: reason ?? null,
     });
-    await tx
-      .update(notifications)
-      .set({ readAt: new Date(), remindAt: null })
-      .where(eq(notifications.targetRef, `approval:${approval.id}`));
+    await clearApprovalNotifications(tx, [approval.id]);
 
-    const [work] = await tx
-      .select()
-      .from(workUnits)
-      .where(eq(workUnits.id, approval.workUnitId))
-      .for('update');
-    if (!work) throw new AppError('NOT_FOUND');
-    if (work.status === 'awaiting_approval') {
-      await applyTransition(tx, context, work, status === 'approved' ? 'running' : 'cancelled');
+    // Only the approval that caused the pause can end it. A later review of the same work is just a
+    // review: it records an opinion, and overrides nobody.
+    if (approval.holdsWork && work.status === 'awaiting_approval') {
+      await applyTransition(tx, context, work, status === 'approved' ? 'running' : 'cancelled', {
+        ...(reason ? { reason } : {}),
+      });
     }
     await emit(tx, context, {
       eventType: 'approval.resolved',
@@ -168,16 +254,25 @@ export async function decideApproval(
       classification: work.classification,
       payload: { approval_id: approval.id, work_unit_id: approval.workUnitId, outcome: status },
     });
-    await appendAudit(tx, {
-      organizationId: context.organizationId,
-      actorType: 'user',
-      actorId: context.membershipId,
-      action: 'approval.decided',
-      targetRef: `approval:${approval.id}`,
-      decision: status === 'approved' ? 'allow' : 'deny',
-    });
+    await auditAction(tx, context, 'approval.decided', `approval:${approval.id}`);
+    await notifyDecision(tx, context, work.ownerMembershipId, approval);
     return { status };
   });
+}
+
+function notifyDecision(
+  tx: Tx,
+  context: TenantContext,
+  ownerMembershipId: string,
+  approval: { requestedByMembershipId: string | null; workUnitId: string },
+) {
+  return notify(
+    tx,
+    context,
+    [ownerMembershipId, approval.requestedByMembershipId],
+    'approval.decided',
+    `work_unit:${approval.workUnitId}`,
+  );
 }
 
 /** Rechecks an approval right before the action runs. A changed action voids it. */
@@ -200,33 +295,108 @@ export function verifyApprovalForExecution(
   });
 }
 
-/** Moves one overdue approval to expired. Workflows call this when their timer fires. */
-export function expireApproval(
+/**
+ * Settles one approval if it is overdue, and returns its status either way, so nobody has to guess
+ * what happened. Work paused on it is stopped, which is the kernel's outcome for an expired approval.
+ */
+async function settleOverdue(tx: Tx, context: TenantContext, approvalId: string, now: Date) {
+  const [found] = await tx
+    .select({ workUnitId: approvals.workUnitId })
+    .from(approvals)
+    .where(eq(approvals.id, approvalId));
+  if (!found) return 'cancelled';
+  const [work] = await tx
+    .select()
+    .from(workUnits)
+    .where(eq(workUnits.id, found.workUnitId))
+    .for('update');
+  const [approval] = await tx
+    .select()
+    .from(approvals)
+    .where(eq(approvals.id, approvalId))
+    .for('update');
+  if (!approval || !work) return 'cancelled';
+  if (approval.status !== 'pending' || approval.expiresAt > now) return approval.status;
+
+  await tx
+    .update(approvals)
+    .set({ status: 'expired', decidedAt: now })
+    .where(eq(approvals.id, approval.id));
+  await clearApprovalNotifications(tx, [approval.id]);
+  if (approval.holdsWork && work.status === 'awaiting_approval') {
+    await applyTransition(tx, context, work, 'cancelled');
+  }
+  await emit(tx, context, {
+    eventType: 'approval.resolved',
+    aggregateType: 'work_unit',
+    aggregateId: approval.workUnitId,
+    aggregateVersion: work.version,
+    classification: work.classification,
+    payload: { approval_id: approval.id, work_unit_id: approval.workUnitId, outcome: 'expired' },
+  });
+  await auditAction(tx, context, 'approval.expired', `approval:${approval.id}`);
+  await notify(
+    tx,
+    context,
+    [work.ownerMembershipId, approval.requestedByMembershipId],
+    'approval.expired',
+    `work_unit:${approval.workUnitId}`,
+  );
+  return 'expired';
+}
+
+/** Expires one approval if it is overdue, and returns the status it now has. */
+export function expireApprovalStatus(
+  database: AppDatabase,
+  context: TenantContext,
+  input: { approvalId: string },
+  now = new Date(),
+) {
+  return withTenantTx(database, context, (tx) => settleOverdue(tx, context, input.approvalId, now));
+}
+
+/** Moves one overdue approval to expired. Returns whether this call was the one that did it. */
+export async function expireApproval(
   database: AppDatabase,
   context: TenantContext,
   input: { approvalId: string },
 ) {
-  return withTenantTx(database, context, async (tx) => {
-    const [approval] = await tx
-      .select()
+  const before = await withTenantTx(database, context, (tx) =>
+    tx
+      .select({ status: approvals.status })
       .from(approvals)
-      .where(eq(approvals.id, input.approvalId))
-      .for('update');
-    if (approval?.status !== 'pending' || approval.expiresAt > new Date()) return false;
-    await tx
-      .update(approvals)
-      .set({ status: 'expired', decidedAt: new Date() })
-      .where(eq(approvals.id, approval.id));
-    const [work] = await tx
-      .select()
-      .from(workUnits)
-      .where(eq(workUnits.id, approval.workUnitId))
-      .for('update');
-    if (work?.status === 'awaiting_approval') {
-      await applyTransition(tx, context, work, 'cancelled');
-    }
-    return true;
-  });
+      .where(eq(approvals.id, input.approvalId)),
+  );
+  if (before[0]?.status !== 'pending') return false;
+  return (await expireApprovalStatus(database, context, input)) === 'expired';
+}
+
+/** Expires everything overdue in one tenant, for approvals no workflow is waiting on. */
+export async function expireOverdueApprovals(
+  database: AppDatabase,
+  context: TenantContext,
+  now: Date,
+  limit = 100,
+) {
+  const due = await withTenantTx(database, context, (tx) =>
+    tx
+      .select({ id: approvals.id })
+      .from(approvals)
+      .where(and(eq(approvals.status, 'pending'), lte(approvals.expiresAt, now)))
+      .limit(limit),
+  );
+  for (const { id } of due) await expireApprovalStatus(database, context, { approvalId: id }, now);
+  return due.length;
+}
+
+const FILE_ID = /^[0-9a-f-]{36}$/;
+
+/** The file IDs an approval's action bound, if any. The action is stored, so its shape is checked. */
+function boundFileIds(action: unknown): string[] {
+  const payload = (action as { payload?: { artifact_ids?: unknown } } | null)?.payload;
+  const ids = payload?.artifact_ids;
+  if (!Array.isArray(ids)) return [];
+  return ids.filter((id): id is string => typeof id === 'string' && FILE_ID.test(id));
 }
 
 export function getApproval(database: AppDatabase, context: TenantContext, approvalId: string) {
@@ -239,15 +409,52 @@ export function getApproval(database: AppDatabase, context: TenantContext, appro
       .from(memberships)
       .innerJoin(users, eq(users.id, memberships.userId))
       .where(eq(memberships.id, approval.approverMembershipId));
+    const boundIds = boundFileIds(approval.action);
+    // Names of the files it covers, through this work only. A deleted file simply has no name.
+    const files =
+      boundIds.length === 0
+        ? []
+        : await tx
+            .select({ id: artifacts.id, name: artifacts.name, sizeBytes: artifacts.sizeBytes })
+            .from(workArtifacts)
+            .innerJoin(artifacts, eq(artifacts.id, workArtifacts.artifactId))
+            .where(and(eq(workArtifacts.workUnitId, work.id), inArray(artifacts.id, boundIds)));
+    const decisions = await tx
+      .select({
+        decision: approvalDecisions.decision,
+        reason: approvalDecisions.reason,
+        decidedAt: approvalDecisions.decidedAt,
+        actorName: users.name,
+      })
+      .from(approvalDecisions)
+      .innerJoin(memberships, eq(memberships.id, approvalDecisions.actorMembershipId))
+      .innerJoin(users, eq(users.id, memberships.userId))
+      .where(eq(approvalDecisions.approvalId, approval.id))
+      .orderBy(asc(approvalDecisions.decidedAt));
     return {
       approval,
-      work: { id: work.id, title: work.title, classification: work.classification },
+      work: {
+        id: work.id,
+        title: work.title,
+        classification: work.classification,
+        status: work.status,
+        updatedAt: work.updatedAt,
+      },
       approverName: approver?.name ?? null,
       isMine: approval.approverMembershipId === context.membershipId,
+      files,
+      /** Files it covers that are gone now, so nobody is told a list is complete when it is not. */
+      missingFileCount: boundIds.length - files.length,
+      decisions,
     };
   });
 }
 
+/**
+ * What is waiting on this person. Read access is checked here as everywhere else: being named as an
+ * approver grants none, and it can have been lost since. Overdue approvals cannot be decided any
+ * more, so they are not listed as waiting.
+ */
 export function listMyPendingApprovals(database: AppDatabase, context: TenantContext) {
   return withTenantTx(database, context, (tx) =>
     tx
@@ -264,6 +471,8 @@ export function listMyPendingApprovals(database: AppDatabase, context: TenantCon
         and(
           eq(approvals.approverMembershipId, context.membershipId),
           eq(approvals.status, 'pending'),
+          gt(approvals.expiresAt, sql`now()`),
+          visibleTo(context),
         ),
       )
       .orderBy(asc(approvals.expiresAt)),

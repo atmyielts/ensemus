@@ -20,10 +20,13 @@ export const workInputSchema = z.strictObject({
 });
 export type WorkInput = z.infer<typeof workInputSchema>;
 
+/** What Activities receive: the workflow's input, and which run of it is asking. */
+export type RunInput = WorkInput & { runId: string };
+
 export const tenantInputSchema = z.strictObject({ organizationId: z.uuid() });
 export type TenantInput = z.infer<typeof tenantInputSchema>;
 
-export type WorkOutcome = 'completed' | 'cancelled' | 'denied' | 'expired' | 'failed';
+export type WorkOutcome = 'completed' | 'verifying' | 'cancelled' | 'denied' | 'expired' | 'failed';
 export type WorkResult = { workUnitId: string; outcome: WorkOutcome };
 
 export type PreparedWork = {

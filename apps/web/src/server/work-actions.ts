@@ -6,8 +6,10 @@ import {
   acceptInvitation,
   addArtifact,
   addDependency,
+  addTeamMember,
   AppError,
   assignContributor,
+  confirmInvitation,
   createClient,
   createInvitation,
   createProject,
@@ -16,10 +18,12 @@ import {
   decideApproval,
   deleteArtifact,
   disableMember,
+  getWorkUnit,
   markRead,
   removeDependency,
-  requestApproval,
+  removeTeamMember,
   requestExecution,
+  requestWorkReview,
   revokeInvitation,
   setMemberRole,
   setOwner,
@@ -29,7 +33,9 @@ import {
 } from '@ensemus/application';
 import { WORK_STATES, type WorkState } from '@ensemus/domain/work-unit';
 import { errorCode } from '@ensemus/telemetry';
+import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
+import type { InviteFormState, NewWorkFormState, WorkFormState } from '@/lib/form-state';
 import { requireActor } from './actor';
 import { getRuntime, getStore } from './runtime';
 import { requireTenant } from './tenant';
@@ -59,41 +65,100 @@ async function run(back: string, action: () => Promise<string | void>): Promise<
   redirect(target);
 }
 
-// --- Work
-export async function createWorkAction(form: FormData) {
-  const org = orgOf(form);
-  const { context, database } = await requireTenant(org);
-  const criteria = form.getAll('criteria').filter((c) => typeof c === 'string');
-  const dueAt = orUndefined(text(form, 'dueAt'));
-  const projectId = orUndefined(text(form, 'projectId'));
-  const objective = orUndefined(text(form, 'objective'));
-  const plan = text(form, 'executionPlan');
-  await run(`/o/${org}/work/new`, async () => {
-    const work = await createWorkUnit(database, context, {
-      title: text(form, 'title'),
-      classification: text(form, 'classification') as 'internal',
-      completionCriteria: criteria.map((kind) => ({ kind })) as Array<{ kind: 'artifact_exists' }>,
-      ...(objective ? { objective } : {}),
-      ...(dueAt ? { dueAt: new Date(dueAt) } : {}),
-      ...(projectId ? { projectId } : {}),
-      ...(plan === 'checklist' ? { executionPlan: 'checklist' as const } : {}),
-    });
-    return `/o/${org}/work/${work.id}`;
-  });
+/** Something that cannot be undone has to be meant. Browsers check the box, and so does this. */
+function assertConfirmed(form: FormData) {
+  if (text(form, 'confirm') !== 'yes') throw new AppError('INVALID_INPUT');
 }
 
-export async function updateWorkAction(form: FormData) {
+/** Reduces any failure to a code a form can show. Nothing else about it reaches the person. */
+function codeOf(error: unknown): string {
+  if (error instanceof AppError) return error.code;
+  getRuntime().log.error('action.failed', { errorCode: errorCode(error) });
+  return 'UNEXPECTED';
+}
+
+const validDate = (value: string) => !Number.isNaN(new Date(value).getTime());
+
+// --- Work
+export async function createWorkFormAction(
+  _previous: NewWorkFormState,
+  form: FormData,
+): Promise<NewWorkFormState> {
+  const org = orgOf(form);
+  const { context, database } = await requireTenant(org);
+  const criteria = form.getAll('criteria').filter((c): c is string => typeof c === 'string');
+  const plan = text(form, 'executionPlan');
+  const values = {
+    title: text(form, 'title'),
+    objective: text(form, 'objective'),
+    dueAt: text(form, 'dueAt'),
+    projectId: text(form, 'projectId'),
+    classification: text(form, 'classification'),
+    criteria,
+    executionPlan: plan === 'checklist',
+  };
+  // Named here so the person hears which field it is, with everything they typed still in place.
+  if (!values.title.trim()) return { code: 'INVALID_INPUT', field: 'title', values };
+  if (values.dueAt && !validDate(values.dueAt)) {
+    return { code: 'INVALID_INPUT', field: 'dueAt', values };
+  }
+  let id: string;
+  try {
+    const work = await createWorkUnit(database, context, {
+      title: values.title,
+      classification: values.classification as 'internal',
+      completionCriteria: criteria.map((kind) => ({ kind })) as Array<{ kind: 'artifact_exists' }>,
+      ...(orUndefined(values.objective) ? { objective: values.objective } : {}),
+      ...(values.dueAt ? { dueAt: new Date(values.dueAt) } : {}),
+      ...(orUndefined(values.projectId) ? { projectId: values.projectId } : {}),
+      ...(values.executionPlan ? { executionPlan: 'checklist' as const } : {}),
+    });
+    id = work.id;
+  } catch (error) {
+    return { code: codeOf(error), values };
+  }
+  redirect(`/o/${org}/work/${id}`);
+}
+
+export async function updateWorkFormAction(
+  _previous: WorkFormState,
+  form: FormData,
+): Promise<WorkFormState> {
   const org = orgOf(form);
   const id = text(form, 'id');
   const { context, database } = await requireTenant(org);
-  const dueAt = text(form, 'dueAt');
-  await run(`/o/${org}/work/${id}`, async () => {
+  const values = {
+    title: text(form, 'title'),
+    objective: text(form, 'objective'),
+    dueAt: text(form, 'dueAt'),
+  };
+  if (!values.title.trim()) return { code: 'INVALID_INPUT', field: 'title', values };
+  if (values.dueAt && !validDate(values.dueAt)) {
+    return { code: 'INVALID_INPUT', field: 'dueAt', values };
+  }
+  try {
     await updateWorkUnit(database, context, id, int(form, 'version'), {
-      title: text(form, 'title'),
-      objective: text(form, 'objective'),
-      dueAt: dueAt ? new Date(dueAt) : null,
+      title: values.title,
+      objective: values.objective,
+      dueAt: values.dueAt ? new Date(values.dueAt) : null,
     });
-  });
+  } catch (error) {
+    const code = codeOf(error);
+    if (code !== 'VERSION_CONFLICT') return { code, values };
+    // Hands back what changed, so the person can compare it with their draft and decide.
+    const latest = await getWorkUnit(database, context, id);
+    return {
+      code,
+      values,
+      latest: {
+        version: latest.version,
+        title: latest.title,
+        objective: latest.objective ?? '',
+        dueAt: latest.dueAt ? latest.dueAt.toISOString().slice(0, 10) : '',
+      },
+    };
+  }
+  redirect(`/o/${org}/work/${id}`);
 }
 
 export async function transitionWorkAction(form: FormData) {
@@ -104,6 +169,10 @@ export async function transitionWorkAction(form: FormData) {
   const reason = orUndefined(text(form, 'reason'));
   await run(`/o/${org}/work/${id}`, async () => {
     if (!WORK_STATES.includes(to)) throw new AppError('INVALID_INPUT');
+    if (to === 'cancelled') {
+      assertConfirmed(form);
+      if (!reason) throw new AppError('REASON_REQUIRED');
+    }
     await transitionWorkUnit(database, context, {
       id,
       expectedVersion: int(form, 'version'),
@@ -117,8 +186,11 @@ export async function runPlanAction(form: FormData) {
   const org = orgOf(form);
   const id = text(form, 'id');
   const { context, database } = await requireTenant(org);
+  const reviewerMembershipId = orUndefined(text(form, 'reviewerMembershipId'));
   await run(`/o/${org}/work/${id}`, async () => {
-    await requestExecution(database, context, id);
+    await requestExecution(database, context, id, {
+      ...(reviewerMembershipId ? { reviewerMembershipId } : {}),
+    });
   });
 }
 
@@ -201,6 +273,7 @@ export async function deleteArtifactAction(form: FormData) {
   const id = text(form, 'id');
   const { context, database } = await requireTenant(org);
   await run(`/o/${org}/work/${id}`, async () => {
+    assertConfirmed(form);
     await deleteArtifact(database, getStore(), context, {
       workUnitId: id,
       artifactId: text(form, 'artifactId'),
@@ -209,23 +282,16 @@ export async function deleteArtifactAction(form: FormData) {
 }
 
 // --- Approvals
-const REVIEW_HOURS = 72;
-
 export async function requestReviewAction(form: FormData) {
   const org = orgOf(form);
   const id = text(form, 'id');
   const { context, database } = await requireTenant(org);
   await run(`/o/${org}/work/${id}`, async () => {
-    await requestApproval(database, context, {
+    // What the review covers is read by the service. The form only says who should give it.
+    await requestWorkReview(database, context, {
       workUnitId: id,
+      expectedVersion: int(form, 'version'),
       approverMembershipId: text(form, 'approverMembershipId'),
-      expiresAt: new Date(Date.now() + REVIEW_HOURS * 60 * 60 * 1000),
-      action: {
-        toolName: 'work.review',
-        toolVersion: '1',
-        targetRef: `work_unit:${id}`,
-        payload: { version: int(form, 'version') },
-      },
     });
   });
 }
@@ -248,18 +314,25 @@ export async function decideApprovalAction(form: FormData) {
 }
 
 // --- People
-export async function inviteAction(form: FormData) {
+/**
+ * The link goes back in this one response and nowhere else. A URL would keep a working credential in
+ * browser history, in the Referer of the next click and in any proxy's logs, so none is ever used.
+ */
+export async function inviteAction(
+  _previous: InviteFormState,
+  form: FormData,
+): Promise<InviteFormState> {
   const org = orgOf(form);
   const { context, database } = await requireTenant(org);
   const role = text(form, 'role') === 'admin' ? 'admin' : 'member';
-  await run(`/o/${org}/people`, async () => {
-    const { token } = await createInvitation(database, context, {
-      email: text(form, 'email'),
-      role,
-    });
-    // The link appears once in the address bar, and only a hash of the token is stored.
-    return `/o/${org}/people?invited=${encodeURIComponent(token)}`;
-  });
+  const email = text(form, 'email');
+  try {
+    const { token } = await createInvitation(database, context, { email, role });
+    revalidatePath(`/o/${org}/people`);
+    return { link: `${getRuntime().config.publicUrl}/invite/${encodeURIComponent(token)}` };
+  } catch (error) {
+    return { code: codeOf(error), values: { email, role } };
+  }
 }
 
 export async function revokeInvitationAction(form: FormData) {
@@ -270,16 +343,27 @@ export async function revokeInvitationAction(form: FormData) {
   });
 }
 
+export async function confirmInvitationAction(form: FormData) {
+  const org = orgOf(form);
+  const { context, database } = await requireTenant(org);
+  await run(`/o/${org}/people`, async () => {
+    assertConfirmed(form);
+    await confirmInvitation(database, context, { invitationId: text(form, 'invitationId') });
+  });
+}
+
 export async function acceptInvitationAction(form: FormData) {
   const actor = await requireActor();
   const token = text(form, 'token');
-  await run(`/invite/${encodeURIComponent(token)}`, async () => {
-    const { organizationId } = await acceptInvitation(getRuntime().app, {
+  const here = `/invite/${encodeURIComponent(token)}`;
+  await run(here, async () => {
+    const outcome = await acceptInvitation(getRuntime().app, {
       token,
       userId: actor.userId,
       email: actor.email,
+      emailVerified: actor.emailVerified,
     });
-    return `/o/${organizationId}`;
+    return outcome.status === 'joined' ? `/o/${outcome.organizationId}` : `${here}?state=waiting`;
   });
 }
 
@@ -298,6 +382,7 @@ export async function disableMemberAction(form: FormData) {
   const org = orgOf(form);
   const { context, database } = await requireTenant(org);
   await run(`/o/${org}/people`, async () => {
+    assertConfirmed(form);
     await disableMember(database, context, { membershipId: text(form, 'membershipId') });
   });
 }
@@ -310,6 +395,28 @@ export async function createTeamAction(form: FormData) {
     await createTeam(database, context, {
       name: text(form, 'name'),
       ...(parentId ? { parentId } : {}),
+    });
+  });
+}
+
+export async function addTeamMemberAction(form: FormData) {
+  const org = orgOf(form);
+  const { context, database } = await requireTenant(org);
+  await run(`/o/${org}/people`, async () => {
+    await addTeamMember(database, context, {
+      teamId: text(form, 'teamId'),
+      membershipId: text(form, 'membershipId'),
+    });
+  });
+}
+
+export async function removeTeamMemberAction(form: FormData) {
+  const org = orgOf(form);
+  const { context, database } = await requireTenant(org);
+  await run(`/o/${org}/people`, async () => {
+    await removeTeamMember(database, context, {
+      teamId: text(form, 'teamId'),
+      membershipId: text(form, 'membershipId'),
     });
   });
 }
@@ -339,8 +446,10 @@ export async function createProjectAction(form: FormData) {
 export async function openNotificationAction(form: FormData) {
   const org = orgOf(form);
   const { context, database } = await requireTenant(org);
-  await markRead(database, context, text(form, 'id'));
-  const target = text(form, 'target');
-  // Only ever a path inside this organization, built by our own page.
-  redirect(target.startsWith(`/o/${org}/`) ? target : `/o/${org}/inbox`);
+  await run(`/o/${org}/inbox`, async () => {
+    await markRead(database, context, text(form, 'id'));
+    const target = text(form, 'target');
+    // Only ever a path inside this organization, built by our own page.
+    return target.startsWith(`/o/${org}/`) ? target : `/o/${org}/inbox`;
+  });
 }

@@ -2,6 +2,7 @@
 import { sql } from 'drizzle-orm';
 import {
   bigint,
+  boolean,
   check,
   foreignKey,
   index,
@@ -12,6 +13,7 @@ import {
   text,
   timestamp,
   unique,
+  uniqueIndex,
   uuid,
 } from 'drizzle-orm/pg-core';
 import { memberships, orgSchema, organizations, platformSchema } from './schema';
@@ -80,6 +82,9 @@ export const invitations = orgSchema.table(
     expiresAt: timestamp({ withTimezone: true }).notNull(),
     acceptedAt: timestamp({ withTimezone: true }),
     revokedAt: timestamp({ withTimezone: true }),
+    /** An account whose address nobody has proven asked to join. An admin has to confirm it. */
+    claimedByUserId: uuid(),
+    claimedAt: timestamp({ withTimezone: true }),
     createdAt: createdAt(),
   },
   (t) => [
@@ -142,6 +147,13 @@ export const workUnits = workSchema.table(
     completionCriteria: jsonb().notNull().default([]),
     /** The generic plan the workflow interprets. Null means people do this work by hand. */
     executionPlan: text(),
+    /** Someone asked the plan to run, and no workflow has taken it yet. */
+    runRequestedAt: timestamp({ withTimezone: true }),
+    runRequestedByMembershipId: uuid(),
+    /** Who the plan asks to review. Chosen when it is run, and never the person who ran it. */
+    planReviewerMembershipId: uuid(),
+    /** The workflow run holding this work. A workflow only ever acts on work it claimed. */
+    runId: text(),
     classification: text().notNull().default('internal'),
     dueAt: timestamp({ withTimezone: true }),
     version: bigint({ mode: 'number' }).notNull().default(1),
@@ -164,6 +176,14 @@ export const workUnits = workSchema.table(
     }),
     foreignKey({
       columns: [t.organizationId, t.createdByMembershipId],
+      foreignColumns: [memberships.organizationId, memberships.id],
+    }),
+    foreignKey({
+      columns: [t.organizationId, t.runRequestedByMembershipId],
+      foreignColumns: [memberships.organizationId, memberships.id],
+    }),
+    foreignKey({
+      columns: [t.organizationId, t.planReviewerMembershipId],
       foreignColumns: [memberships.organizationId, memberships.id],
     }),
     index('work_units_status_idx').on(t.organizationId, t.status, t.dueAt),
@@ -278,6 +298,10 @@ export const approvals = workSchema.table(
     approverMembershipId: uuid().notNull(),
     requestedByMembershipId: uuid(),
     status: text().notNull().default('pending'),
+    /** True for the one approval that paused the work. Only its decision can release the pause. */
+    holdsWork: boolean().notNull().default(false),
+    /** The workflow run that asked, so a retry finds its own request and nothing older. */
+    runId: text(),
     expiresAt: timestamp({ withTimezone: true }).notNull(),
     decidedAt: timestamp({ withTimezone: true }),
     createdAt: createdAt(),
@@ -293,6 +317,10 @@ export const approvals = workSchema.table(
       foreignColumns: [memberships.organizationId, memberships.id],
     }),
     index('approvals_pending_idx').on(t.organizationId, t.approverMembershipId, t.status),
+    // One open decision per Work Unit, so a later request can never override an earlier one.
+    uniqueIndex('approvals_one_open_per_work')
+      .on(t.organizationId, t.workUnitId)
+      .where(sql`${t.status} = 'pending'`),
     check(
       'approvals_status_check',
       sql`${t.status} in ('pending','approved','denied','expired','cancelled')`,
@@ -319,6 +347,36 @@ export const approvalDecisions = workSchema.table(
       foreignColumns: [approvals.organizationId, approvals.id],
     }),
     check('approval_decisions_decision_check', sql`${t.decision} in ('approve','deny')`),
+  ],
+);
+
+/**
+ * Every status change, with who made it and why. The reason is free text, so it lives here, with the
+ * Work Unit's own access rules, and never in events, the audit log or Temporal.
+ */
+export const workTransitions = workSchema.table(
+  'work_transitions',
+  {
+    organizationId: uuid().notNull(),
+    id: uuid().notNull().defaultRandom(),
+    workUnitId: uuid().notNull(),
+    fromStatus: text().notNull(),
+    toStatus: text().notNull(),
+    actorMembershipId: uuid(),
+    reason: text(),
+    occurredAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.organizationId, t.id] }),
+    foreignKey({
+      columns: [t.organizationId, t.workUnitId],
+      foreignColumns: [workUnits.organizationId, workUnits.id],
+    }),
+    foreignKey({
+      columns: [t.organizationId, t.actorMembershipId],
+      foreignColumns: [memberships.organizationId, memberships.id],
+    }),
+    index('work_transitions_work_idx').on(t.organizationId, t.workUnitId, t.occurredAt),
   ],
 );
 
@@ -357,6 +415,29 @@ export const tombstones = platformSchema.table(
     createdAt: createdAt(),
   },
   (t) => [primaryKey({ columns: [t.organizationId, t.targetType, t.targetId] })],
+);
+
+/**
+ * Stored bytes that have to go: a deleted file (LIFE-01, steps 5 and 7), or an upload whose row never
+ * arrived. Written before the bytes can be stranded, so nothing relies on a crash not happening.
+ */
+export const blobLifecycle = platformSchema.table(
+  'blob_lifecycle',
+  {
+    organizationId: tenantId(),
+    artifactId: uuid().notNull(),
+    objectKey: text().notNull(),
+    state: text().notNull(),
+    purgeAfter: timestamp({ withTimezone: true }).notNull(),
+    attempts: integer().notNull().default(0),
+    purgedAt: timestamp({ withTimezone: true }),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.organizationId, t.artifactId] }),
+    index('blob_lifecycle_due_idx').on(t.organizationId, t.state, t.purgeAfter),
+    check('blob_lifecycle_state_check', sql`${t.state} in ('uploading','deleting','purged')`),
+  ],
 );
 
 export const idempotencyKeys = platformSchema.table(

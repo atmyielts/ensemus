@@ -1,6 +1,6 @@
 // Shared display pieces (UX-11). Copy follows the spec's employee-facing terms: "work", "approval"
 // and plain status words, never internal names.
-import { MESSAGE_FOR } from '@/lib/messages';
+import { messageFor } from '@/lib/messages';
 import type { ReactNode } from 'react';
 
 const STATUS: Record<string, { label: string; tone: string }> = {
@@ -13,6 +13,8 @@ const STATUS: Record<string, { label: string; tone: string }> = {
   completed: { label: 'Done', tone: 'done' },
   failed: { label: 'Failed', tone: 'bad' },
   cancelled: { label: 'Stopped', tone: '' },
+  closed: { label: 'Closed', tone: '' },
+  outdated: { label: 'Out of date', tone: 'attention' },
   pending: { label: 'Waiting', tone: 'attention' },
   approved: { label: 'Approved', tone: 'done' },
   denied: { label: 'Denied', tone: 'bad' },
@@ -61,7 +63,7 @@ export function ErrorNotice({ code }: { code?: string | undefined }) {
   if (!code) return null;
   return (
     <p className="notice error" role="alert">
-      {MESSAGE_FOR[code] ?? 'Something went wrong. Please try again.'}
+      {messageFor(code)}
     </p>
   );
 }

@@ -6,7 +6,10 @@ import {
   acceptInvitation,
   addArtifact,
   addDependency,
+  addTeamMember,
   assignContributor,
+  confirmInvitation,
+  countUnread,
   createClient,
   createInvitation,
   createTeam,
@@ -15,21 +18,33 @@ import {
   deleteArtifact,
   disableMember,
   expireApproval,
+  expireApprovalStatus,
+  expireOverdueApprovals,
   getApproval,
   getWorkDetail,
   getWorkUnit,
   listClients,
+  listInvitations,
   listMyNotifications,
   listMyPendingApprovals,
+  listMyWork,
+  listTeams,
   listWorkUnits,
+  markRead,
+  purgeDueBlobs,
   readArtifact,
+  removeDependency,
+  removeTeamMember,
   requestApproval,
+  requestExecution,
+  requestWorkReview,
   revokeInvitation,
   sendDueReminders,
   setMemberRole,
   setOwner,
   setTeamParent,
   transitionWorkUnit,
+  unassign,
   updateWorkUnit,
   verifyApprovalForExecution,
   type ObjectStore,
@@ -42,6 +57,10 @@ import {
   type TenantContext,
 } from '@ensemus/database';
 import { actionHash, type ProposedAction } from '@ensemus/domain/approval';
+import type { WorkState } from '@ensemus/domain/work-unit';
+import { createServiceContext } from '@ensemus/database/service';
+import { createActivities } from '@ensemus/workflows/activities';
+import { sql } from 'drizzle-orm';
 import { urls } from '../helpers/stack';
 
 class MemoryStore implements ObjectStore {
@@ -56,6 +75,9 @@ class MemoryStore implements ObjectStore {
   }
   async delete(key: string) {
     this.objects.delete(key);
+  }
+  async exists(key: string) {
+    return this.objects.has(key);
   }
 }
 
@@ -80,7 +102,12 @@ describe('work', () => {
   async function join(context: TenantContext, label: string, role: 'admin' | 'member' = 'member') {
     const user = await makeUser(label);
     const { token } = await createInvitation(db(), context, { email: user.email, role });
-    await acceptInvitation(db(), { token, userId: user.id, email: user.email });
+    await acceptInvitation(db(), {
+      token,
+      userId: user.id,
+      email: user.email,
+      emailVerified: true,
+    });
     return resolveTenantContext(db(), user.id, context.organizationId);
   }
 
@@ -93,6 +120,39 @@ describe('work', () => {
     });
     return resolveTenantContext(db(), user.id, organizationId);
   }
+
+  /** Moves work through these statuses, each from whatever version it has reached. */
+  async function move(context: TenantContext, id: string, statuses: WorkState[], reason?: string) {
+    let current = await getWorkUnit(db(), context, id);
+    for (const to of statuses) {
+      current = await transitionWorkUnit(db(), context, {
+        id,
+        expectedVersion: current.version,
+        to,
+        ...(reason ? { reason } : {}),
+      });
+    }
+    return current;
+  }
+
+  const auditRows = async (context: TenantContext, action: string) => {
+    const rows = await withTenantTx(db(), context, (tx) =>
+      tx.execute(sql`select actor_id, target_ref, safe_reason from governance.audit_events
+        where action = ${action} order by occurred_at`),
+    );
+    return rows.rows as Array<{
+      actor_id: string | null;
+      target_ref: string;
+      safe_reason: string | null;
+    }>;
+  };
+
+  const eventTypes = async (context: TenantContext, id: string) => {
+    const rows = await withTenantTx(db(), context, (tx) =>
+      tx.execute(sql`select event_type from platform.domain_events where aggregate_id = ${id}`),
+    );
+    return rows.rows.map((row) => row.event_type as string);
+  };
 
   beforeAll(async () => {
     app = openAppDatabase(urls.app());
@@ -612,7 +672,12 @@ describe('work', () => {
       const b = await newOrg();
       const user = await makeUser('invitee');
       const { token } = await createInvitation(db(), a, { email: user.email, role: 'admin' });
-      await acceptInvitation(db(), { token, userId: user.id, email: user.email });
+      await acceptInvitation(db(), {
+        token,
+        userId: user.id,
+        email: user.email,
+        emailVerified: true,
+      });
       const context = await resolveTenantContext(db(), user.id, a.organizationId);
       expect(context.role).toBe('admin');
       await expect(resolveTenantContext(db(), user.id, b.organizationId)).rejects.toThrow();
@@ -622,9 +687,14 @@ describe('work', () => {
       const a = await newOrg();
       const user = await makeUser('invitee');
       const { token } = await createInvitation(db(), a, { email: user.email });
-      await acceptInvitation(db(), { token, userId: user.id, email: user.email });
+      await acceptInvitation(db(), {
+        token,
+        userId: user.id,
+        email: user.email,
+        emailVerified: true,
+      });
       await expect(
-        acceptInvitation(db(), { token, userId: user.id, email: user.email }),
+        acceptInvitation(db(), { token, userId: user.id, email: user.email, emailVerified: true }),
       ).rejects.toEqual(code('INVITATION_INVALID'));
     });
 
@@ -635,14 +705,29 @@ describe('work', () => {
       const { id, token } = await createInvitation(db(), a, { email: invited.email });
       const bad = code('INVITATION_INVALID');
       await expect(
-        acceptInvitation(db(), { token: 'guess', userId: invited.id, email: invited.email }),
+        acceptInvitation(db(), {
+          token: 'guess',
+          userId: invited.id,
+          email: invited.email,
+          emailVerified: true,
+        }),
       ).rejects.toEqual(bad);
       await expect(
-        acceptInvitation(db(), { token, userId: stranger.id, email: stranger.email }),
+        acceptInvitation(db(), {
+          token,
+          userId: stranger.id,
+          email: stranger.email,
+          emailVerified: true,
+        }),
       ).rejects.toEqual(bad);
       await revokeInvitation(db(), a, { invitationId: id });
       await expect(
-        acceptInvitation(db(), { token, userId: invited.id, email: invited.email }),
+        acceptInvitation(db(), {
+          token,
+          userId: invited.id,
+          email: invited.email,
+          emailVerified: true,
+        }),
       ).rejects.toEqual(bad);
     });
 
@@ -772,16 +857,138 @@ describe('work', () => {
       const broken: ObjectStore = {
         put: store.put.bind(store),
         get: store.get.bind(store),
+        exists: store.exists.bind(store),
         delete: async () => {
           throw new Error('storage down');
         },
       };
-      await expect(
-        deleteArtifact(db(), broken, a, { workUnitId: work.id, artifactId: id }),
-      ).rejects.toThrow('storage down');
+      // The person is done once access is blocked: the bytes are recorded as still to remove.
+      await deleteArtifact(db(), broken, a, { workUnitId: work.id, artifactId: id });
       await expect(
         readArtifact(db(), store, a, { workUnitId: work.id, artifactId: id }),
       ).rejects.toEqual(code('NOT_FOUND'));
+    });
+
+    it('removes the bytes later if the store was down when they were deleted (LIFE-01)', async () => {
+      const a = await newOrg();
+      const store = new MemoryStore();
+      const work = await createWorkUnit(db(), a, { title: 'W' });
+      const { id } = await upload(a, store, work.id);
+      const broken: ObjectStore = {
+        put: store.put.bind(store),
+        get: store.get.bind(store),
+        exists: store.exists.bind(store),
+        delete: async () => {
+          throw new Error('storage down');
+        },
+      };
+      await deleteArtifact(db(), broken, a, { workUnitId: work.id, artifactId: id });
+      expect(store.objects.size).toBe(1);
+
+      // Still down: nothing is lost, and the attempt is counted.
+      expect(await purgeDueBlobs(db(), broken, a)).toEqual({ purged: 0, failed: 1 });
+      expect(store.objects.size).toBe(1);
+
+      // Back up: the bytes go, and it is recorded as verified, so it is not done twice.
+      expect(await purgeDueBlobs(db(), store, a)).toEqual({ purged: 1, failed: 0 });
+      expect(store.objects.size).toBe(0);
+      expect(await purgeDueBlobs(db(), store, a)).toEqual({ purged: 0, failed: 0 });
+      const rows = await withTenantTx(db(), a, (tx) =>
+        tx.execute(`select state, attempts, purged_at from platform.blob_lifecycle
+          where artifact_id = '${id}'`),
+      );
+      expect(rows.rows[0]).toMatchObject({ state: 'purged', attempts: 1 });
+      expect(rows.rows[0]?.purged_at).toBeTruthy();
+    });
+
+    it('does not call bytes gone when the store still has them', async () => {
+      const a = await newOrg();
+      const store = new MemoryStore();
+      const work = await createWorkUnit(db(), a, { title: 'W' });
+      const { id } = await upload(a, store, work.id);
+      const lying: ObjectStore = {
+        put: store.put.bind(store),
+        get: store.get.bind(store),
+        exists: store.exists.bind(store),
+        delete: async () => undefined,
+      };
+      await deleteArtifact(db(), lying, a, { workUnitId: work.id, artifactId: id });
+      expect(await purgeDueBlobs(db(), lying, a)).toEqual({ purged: 0, failed: 1 });
+    });
+
+    it('removes an upload whose row never arrived', async () => {
+      const a = await newOrg();
+      const store = new MemoryStore();
+      const work = await createWorkUnit(db(), a, { title: 'W' });
+      const failing: ObjectStore = {
+        put: async (key, body) => {
+          store.objects.set(key, body);
+          // Bytes stored, then the work is stopped before the row can arrive.
+          await transitionWorkUnit(db(), a, {
+            id: work.id,
+            expectedVersion: 1,
+            to: 'cancelled',
+          });
+        },
+        get: store.get.bind(store),
+        exists: store.exists.bind(store),
+        delete: store.delete.bind(store),
+      };
+      await expect(upload(a, failing, work.id)).rejects.toEqual(code('INVALID_STATE'));
+      expect(store.objects.size).toBe(1);
+
+      // Not while it could still be on its way, and then once it cannot.
+      expect(await purgeDueBlobs(db(), store, a)).toEqual({ purged: 0, failed: 0 });
+      const later = new Date(Date.now() + 2 * 60 * 60 * 1000);
+      expect(await purgeDueBlobs(db(), store, a, later)).toEqual({ purged: 1, failed: 0 });
+      expect(store.objects.size).toBe(0);
+    });
+
+    it('leaves no record behind for an upload that succeeded', async () => {
+      const a = await newOrg();
+      const store = new MemoryStore();
+      const work = await createWorkUnit(db(), a, { title: 'W' });
+      await upload(a, store, work.id);
+      const later = new Date(Date.now() + 2 * 60 * 60 * 1000);
+      expect(await purgeDueBlobs(db(), store, a, later)).toEqual({ purged: 0, failed: 0 });
+      expect(store.objects.size).toBe(1);
+    });
+
+    it('refuses changing files on finished work and on work under review', async () => {
+      const a = await newOrg();
+      const approver = await join(a, 'approver', 'admin');
+      const store = new MemoryStore();
+      const work = await createWorkUnit(db(), a, { title: 'W' });
+      const { id } = await upload(a, store, work.id);
+      await move(a, work.id, ['ready', 'running']);
+      await requestWorkReview(db(), a, {
+        workUnitId: work.id,
+        expectedVersion: (await getWorkUnit(db(), a, work.id)).version,
+        approverMembershipId: approver.membershipId,
+      });
+      await expect(upload(a, store, work.id)).rejects.toEqual(code('INVALID_STATE'));
+      await expect(
+        deleteArtifact(db(), store, a, { workUnitId: work.id, artifactId: id }),
+      ).rejects.toEqual(code('INVALID_STATE'));
+
+      const done = await createWorkUnit(db(), a, { title: 'Done' });
+      const file = await upload(a, store, done.id);
+      await move(a, done.id, ['ready', 'running', 'verifying', 'completed']);
+      await expect(upload(a, store, done.id)).rejects.toEqual(code('INVALID_STATE'));
+      await expect(
+        deleteArtifact(db(), store, a, { workUnitId: done.id, artifactId: file.id }),
+      ).rejects.toEqual(code('INVALID_STATE'));
+    });
+
+    it('still lets a file be deleted from stopped work, which can never be reopened', async () => {
+      const a = await newOrg();
+      const store = new MemoryStore();
+      const work = await createWorkUnit(db(), a, { title: 'W' });
+      const { id } = await upload(a, store, work.id);
+      await move(a, work.id, ['cancelled']);
+      await expect(upload(a, store, work.id)).rejects.toEqual(code('INVALID_STATE'));
+      await deleteArtifact(db(), store, a, { workUnitId: work.id, artifactId: id });
+      expect(store.objects.size).toBe(0);
     });
 
     it('keeps tombstones append-only', async () => {
@@ -789,6 +996,1405 @@ describe('work', () => {
       await expect(
         withTenantTx(db(), a, (tx) => tx.execute('delete from platform.tombstones')),
       ).rejects.toThrow();
+    });
+  });
+
+  describe('releasing a pause', () => {
+    async function paused(criteria: Array<{ kind: 'reviewer_approved' }> = []) {
+      const a = await newOrg();
+      const alice = await join(a, 'alice', 'admin');
+      const work = await createWorkUnit(db(), a, { title: 'Paused', completionCriteria: criteria });
+      const running = await move(a, work.id, ['ready', 'running']);
+      const review = await requestWorkReview(db(), a, {
+        workUnitId: work.id,
+        expectedVersion: running.version,
+        approverMembershipId: alice.membershipId,
+      });
+      return { a, alice, work, review };
+    }
+
+    it('refuses a person releasing paused work without a decision', async () => {
+      const { a, work } = await paused();
+      const current = await getWorkUnit(db(), a, work.id);
+      expect(current.status).toBe('awaiting_approval');
+      await expect(
+        transitionWorkUnit(db(), a, {
+          id: work.id,
+          expectedVersion: current.version,
+          to: 'running',
+        }),
+      ).rejects.toEqual(code('INVALID_TRANSITION'));
+      expect((await getWorkUnit(db(), a, work.id)).status).toBe('awaiting_approval');
+    });
+
+    it('refuses a person pausing work with no approval behind it', async () => {
+      const a = await newOrg();
+      const work = await createWorkUnit(db(), a, { title: 'W' });
+      const running = await move(a, work.id, ['ready', 'running']);
+      await expect(
+        transitionWorkUnit(db(), a, {
+          id: work.id,
+          expectedVersion: running.version,
+          to: 'awaiting_approval',
+        }),
+      ).rejects.toEqual(code('INVALID_TRANSITION'));
+    });
+
+    it('still lets someone stop paused work', async () => {
+      const { a, work } = await paused();
+      await move(a, work.id, ['cancelled'], 'No longer needed');
+      expect((await getWorkUnit(db(), a, work.id)).status).toBe('cancelled');
+    });
+
+    it('allows only one open review, so a second cannot override the first', async () => {
+      const { a, work } = await paused();
+      const carol = await join(a, 'carol', 'admin');
+      const current = await getWorkUnit(db(), a, work.id);
+      await expect(
+        requestWorkReview(db(), a, {
+          workUnitId: work.id,
+          expectedVersion: current.version,
+          approverMembershipId: carol.membershipId,
+        }),
+      ).rejects.toEqual(code('REVIEW_ALREADY_OPEN'));
+    });
+
+    it('refuses a duplicate even from a double-click', async () => {
+      const a = await newOrg();
+      const alice = await join(a, 'alice', 'admin');
+      const work = await createWorkUnit(db(), a, { title: 'W' });
+      const results = await Promise.allSettled(
+        [0, 1, 2].map(() =>
+          requestWorkReview(db(), a, {
+            workUnitId: work.id,
+            expectedVersion: 1,
+            approverMembershipId: alice.membershipId,
+          }),
+        ),
+      );
+      expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
+      expect(await listMyPendingApprovals(db(), alice)).toHaveLength(1);
+    });
+
+    it('does not let a review from before the pause release it', async () => {
+      const a = await newOrg();
+      const carol = await join(a, 'carol', 'admin');
+      const work = await createWorkUnit(db(), a, { title: 'W' });
+      const stale = await requestWorkReview(db(), a, {
+        workUnitId: work.id,
+        expectedVersion: 1,
+        approverMembershipId: carol.membershipId,
+      });
+      // It was not holding anything. Reaching awaiting_approval now takes another, open, review.
+      await move(a, work.id, ['ready', 'running']);
+      await decideApproval(db(), carol, {
+        approvalId: stale.id,
+        decision: 'deny',
+        shownHash: stale.actionHash,
+      });
+      expect((await getWorkUnit(db(), a, work.id)).status).toBe('running');
+    });
+
+    it('releases on the decision of the approval that holds the pause', async () => {
+      const { a, alice, work, review } = await paused();
+      await decideApproval(db(), alice, {
+        approvalId: review.id,
+        decision: 'approve',
+        shownHash: review.actionHash,
+      });
+      expect((await getWorkUnit(db(), a, work.id)).status).toBe('running');
+    });
+
+    it('marks only the approval that caused the pause as holding it', async () => {
+      const { a, review } = await paused();
+      const { approval } = await getApproval(db(), a, review.id);
+      expect(approval.holdsWork).toBe(true);
+      const b = await newOrg();
+      const carol = await join(b, 'carol', 'admin');
+      const queued = await createWorkUnit(db(), b, { title: 'Queued' });
+      const plain = await requestWorkReview(db(), b, {
+        workUnitId: queued.id,
+        expectedVersion: 1,
+        approverMembershipId: carol.membershipId,
+      });
+      expect((await getApproval(db(), b, plain.id)).approval.holdsWork).toBe(false);
+    });
+
+    it('cannot have which approval holds the pause changed, even by direct SQL', async () => {
+      const { a, review } = await paused();
+      await expect(
+        withTenantTx(db(), a, (tx) =>
+          tx.execute(`update work.approvals set holds_work = false where id = '${review.id}'`),
+        ),
+      ).rejects.toThrow();
+    });
+  });
+
+  describe('what a review covers', () => {
+    async function reviewed(context: TenantContext) {
+      const reviewer = await join(context, 'reviewer', 'admin');
+      const work = await createWorkUnit(db(), context, {
+        title: 'Reviewed',
+        objective: 'As first written',
+        completionCriteria: [{ kind: 'reviewer_approved' }],
+      });
+      const review = await requestWorkReview(db(), context, {
+        workUnitId: work.id,
+        expectedVersion: 1,
+        approverMembershipId: reviewer.membershipId,
+      });
+      await decideApproval(db(), reviewer, {
+        approvalId: review.id,
+        decision: 'approve',
+        shownHash: review.actionHash,
+      });
+      return { reviewer, work, review };
+    }
+
+    it('counts as evidence while the work is exactly what was reviewed', async () => {
+      const a = await newOrg();
+      const { work } = await reviewed(a);
+      const done = await move(a, work.id, ['ready', 'running', 'verifying', 'completed']);
+      expect(done.status).toBe('completed');
+    });
+
+    it('stops counting once the text changes', async () => {
+      const a = await newOrg();
+      const { work } = await reviewed(a);
+      const edited = await updateWorkUnit(db(), a, work.id, 1, { title: 'Something else' });
+      await transitionWorkUnit(db(), a, {
+        id: work.id,
+        expectedVersion: edited.version,
+        to: 'ready',
+      });
+      const checking = await move(a, work.id, ['running', 'verifying']);
+      await expect(
+        transitionWorkUnit(db(), a, {
+          id: work.id,
+          expectedVersion: checking.version,
+          to: 'completed',
+        }),
+      ).rejects.toEqual(code('EVIDENCE_MISSING'));
+      const detail = await getWorkDetail(db(), a, work.id);
+      expect(detail.evidence.approvedReviewCount).toBe(0);
+      expect(detail.reviews[0]?.outdated).toBe(true);
+    });
+
+    it('is not fooled by a change of status or due date, which changes nothing reviewed', async () => {
+      const a = await newOrg();
+      const { work } = await reviewed(a);
+      await updateWorkUnit(db(), a, work.id, 1, { dueAt: new Date('2030-01-01') });
+      expect((await getWorkDetail(db(), a, work.id)).evidence.approvedReviewCount).toBe(1);
+      await move(a, work.id, ['ready', 'running', 'verifying']);
+      expect((await getWorkDetail(db(), a, work.id)).evidence.approvedReviewCount).toBe(1);
+    });
+
+    it('stops counting once the files change, either way', async () => {
+      const a = await newOrg();
+      const store = new MemoryStore();
+      const { work } = await reviewed(a);
+      const file = await addArtifact(db(), store, a, {
+        workUnitId: work.id,
+        name: 'new.txt',
+        mimeType: 'text/plain',
+        body: Buffer.from('x'),
+      });
+      expect((await getWorkDetail(db(), a, work.id)).evidence.approvedReviewCount).toBe(0);
+      // Taking it away again restores exactly what was reviewed.
+      await deleteArtifact(db(), store, a, { workUnitId: work.id, artifactId: file.id });
+      expect((await getWorkDetail(db(), a, work.id)).evidence.approvedReviewCount).toBe(1);
+    });
+
+    it('stops counting after the approval has expired', async () => {
+      const a = await newOrg();
+      const reviewer = await join(a, 'reviewer', 'admin');
+      const work = await createWorkUnit(db(), a, { title: 'W' });
+      const review = await requestWorkReview(db(), a, {
+        workUnitId: work.id,
+        expectedVersion: 1,
+        approverMembershipId: reviewer.membershipId,
+      });
+      await decideApproval(db(), reviewer, {
+        approvalId: review.id,
+        decision: 'approve',
+        shownHash: review.actionHash,
+      });
+      expect((await getWorkDetail(db(), a, work.id)).evidence.approvedReviewCount).toBe(1);
+      await pastDue(a, review.id);
+      expect((await getWorkDetail(db(), a, work.id)).evidence.approvedReviewCount).toBe(0);
+    });
+
+    it('does not count an approval of some other kind of action', async () => {
+      const a = await newOrg();
+      const approver = await join(a, 'approver', 'admin');
+      const work = await createWorkUnit(db(), a, {
+        title: 'W',
+        completionCriteria: [{ kind: 'reviewer_approved' }],
+      });
+      const other = await requestApproval(db(), a, {
+        workUnitId: work.id,
+        action: {
+          toolName: 'email.send',
+          toolVersion: '1',
+          targetRef: 'connection:abc',
+          payload: { to: ['x@example.invalid'] },
+        },
+        approverMembershipId: approver.membershipId,
+        expiresAt: new Date(Date.now() + 60_000),
+      });
+      await decideApproval(db(), approver, {
+        approvalId: other.id,
+        decision: 'approve',
+        shownHash: other.actionHash,
+      });
+      expect((await getWorkDetail(db(), a, work.id)).evidence.approvedReviewCount).toBe(0);
+    });
+
+    it('voids a review when work is reopened, so it needs a new one', async () => {
+      const a = await newOrg();
+      const { work, review } = await reviewed(a);
+      await move(a, work.id, ['ready', 'running', 'verifying', 'completed']);
+      await move(a, work.id, ['ready'], 'Client rejected it');
+      expect((await getApproval(db(), a, review.id)).approval.status).toBe('cancelled');
+      const checking = await move(a, work.id, ['running', 'verifying']);
+      await expect(
+        transitionWorkUnit(db(), a, {
+          id: work.id,
+          expectedVersion: checking.version,
+          to: 'completed',
+        }),
+      ).rejects.toEqual(code('EVIDENCE_MISSING'));
+    });
+
+    it('closes an open review when the work it covers changes', async () => {
+      const a = await newOrg();
+      const reviewer = await join(a, 'reviewer', 'admin');
+      const work = await createWorkUnit(db(), a, { title: 'W' });
+      const review = await requestWorkReview(db(), a, {
+        workUnitId: work.id,
+        expectedVersion: 1,
+        approverMembershipId: reviewer.membershipId,
+      });
+      await updateWorkUnit(db(), a, work.id, 1, { title: 'Changed' });
+      expect((await getApproval(db(), a, review.id)).approval.status).toBe('cancelled');
+      expect(await listMyPendingApprovals(db(), reviewer)).toEqual([]);
+      expect(await countUnread(db(), reviewer)).toBe(0);
+      await expect(
+        decideApproval(db(), reviewer, {
+          approvalId: review.id,
+          decision: 'approve',
+          shownHash: review.actionHash,
+        }),
+      ).rejects.toEqual(code('APPROVAL_NOT_PENDING'));
+    });
+
+    it('binds what the server read, and refuses a request naming another version', async () => {
+      const a = await newOrg();
+      const reviewer = await join(a, 'reviewer', 'admin');
+      const work = await createWorkUnit(db(), a, { title: 'W' });
+      await expect(
+        requestWorkReview(db(), a, {
+          workUnitId: work.id,
+          expectedVersion: 999,
+          approverMembershipId: reviewer.membershipId,
+        }),
+      ).rejects.toEqual(code('VERSION_CONFLICT'));
+    });
+
+    it('refuses a decision when the bound action no longer matches the work', async () => {
+      const a = await newOrg();
+      const reviewer = await join(a, 'reviewer', 'admin');
+      const work = await createWorkUnit(db(), a, { title: 'W' });
+      const review = await requestWorkReview(db(), a, {
+        workUnitId: work.id,
+        expectedVersion: 1,
+        approverMembershipId: reviewer.membershipId,
+      });
+      // Changed behind the services' back, which is what the check is there to catch.
+      await withTenantTx(db(), a, (tx) =>
+        tx.execute(`update work.work_units set title = 'Sneaky' where id = '${work.id}'`),
+      );
+      await expect(
+        decideApproval(db(), reviewer, {
+          approvalId: review.id,
+          decision: 'approve',
+          shownHash: review.actionHash,
+        }),
+      ).rejects.toEqual(code('APPROVAL_STALE'));
+    });
+  });
+
+  /** Moves an approval's deadline into the past, as only time itself otherwise could. */
+  async function pastDue(context: TenantContext, approvalId: string) {
+    const su = new pg.Client({ connectionString: urls.superuser() });
+    await su.connect();
+    await su.query(`update work.approvals set expires_at = now() - interval '1 minute'
+      where id = '${approvalId}' and organization_id = '${context.organizationId}'`);
+    await su.end();
+  }
+
+  describe('closing approvals', () => {
+    async function open(context: TenantContext, title = 'W') {
+      const reviewer = await join(context, 'reviewer', 'admin');
+      const work = await createWorkUnit(db(), context, { title });
+      const running = await move(context, work.id, ['ready', 'running']);
+      const review = await requestWorkReview(db(), context, {
+        workUnitId: work.id,
+        expectedVersion: running.version,
+        approverMembershipId: reviewer.membershipId,
+      });
+      return { reviewer, work, review };
+    }
+
+    it('closes them when the work is stopped, and clears the notification', async () => {
+      const a = await newOrg();
+      const { reviewer, work, review } = await open(a);
+      await move(a, work.id, ['cancelled']);
+      expect((await getApproval(db(), a, review.id)).approval.status).toBe('cancelled');
+      expect(await listMyPendingApprovals(db(), reviewer)).toEqual([]);
+      expect(await countUnread(db(), reviewer)).toBe(0);
+      await expect(
+        decideApproval(db(), reviewer, {
+          approvalId: review.id,
+          decision: 'approve',
+          shownHash: review.actionHash,
+        }),
+      ).rejects.toEqual(code('APPROVAL_NOT_PENDING'));
+      expect(await sendDueReminders(db(), a, new Date(Date.now() + 86_400_000))).toBe(0);
+    });
+
+    it('closes an open one when the work completes', async () => {
+      const a = await newOrg();
+      const reviewer = await join(a, 'reviewer', 'admin');
+      const work = await createWorkUnit(db(), a, { title: 'W' });
+      const review = await requestWorkReview(db(), a, {
+        workUnitId: work.id,
+        expectedVersion: 1,
+        approverMembershipId: reviewer.membershipId,
+      });
+      await move(a, work.id, ['ready', 'running', 'verifying', 'completed']);
+      expect((await getApproval(db(), a, review.id)).approval.status).toBe('cancelled');
+    });
+
+    it('expires overdue manual reviews in a sweep, applying the outcome to paused work', async () => {
+      const a = await newOrg();
+      const { reviewer, work, review } = await open(a);
+      await pastDue(a, review.id);
+      expect(await listMyPendingApprovals(db(), reviewer)).toEqual([]);
+
+      const service = createServiceContext(a.organizationId);
+      expect(await expireOverdueApprovals(db(), service, new Date())).toBe(1);
+      expect((await getApproval(db(), a, review.id)).approval.status).toBe('expired');
+      expect((await getWorkUnit(db(), a, work.id)).status).toBe('cancelled');
+      expect(await countUnread(db(), reviewer)).toBe(0);
+      expect((await auditRows(a, 'approval.expired')).map((r) => r.target_ref)).toEqual([
+        `approval:${review.id}`,
+      ]);
+      expect(await eventTypes(a, work.id)).toContain('approval.resolved');
+      // The owner hears about it.
+      expect((await listMyNotifications(db(), a)).map((n) => n.kind)).toContain('approval.expired');
+      expect(await expireOverdueApprovals(db(), service, new Date())).toBe(0);
+    });
+
+    it('reports the status it really found, instead of assuming it expired', async () => {
+      const a = await newOrg();
+      const { reviewer, review } = await open(a);
+      const service = createServiceContext(a.organizationId);
+      // Not overdue yet, so nothing has changed and it says so.
+      expect(await expireApprovalStatus(db(), service, { approvalId: review.id })).toBe('pending');
+      await decideApproval(db(), reviewer, {
+        approvalId: review.id,
+        decision: 'approve',
+        shownHash: review.actionHash,
+      });
+      // Decided in the meantime: the answer is the decision, not an expiry.
+      expect(await expireApprovalStatus(db(), service, { approvalId: review.id })).toBe('approved');
+    });
+
+    it('tells the owner when a review is decided, or their work is stopped', async () => {
+      const a = await newOrg();
+      const { reviewer, work, review } = await open(a);
+      await decideApproval(db(), reviewer, {
+        approvalId: review.id,
+        decision: 'approve',
+        shownHash: review.actionHash,
+      });
+      expect((await listMyNotifications(db(), a))[0]).toMatchObject({
+        kind: 'approval.decided',
+        targetRef: `work_unit:${work.id}`,
+      });
+      await move(reviewer, work.id, ['cancelled'], 'Client withdrew');
+      expect((await listMyNotifications(db(), a))[0]?.kind).toBe('work.stopped');
+    });
+  });
+
+  describe('an approver who loses access', () => {
+    async function restricted(context: TenantContext, approver: TenantContext) {
+      const work = await createWorkUnit(db(), context, {
+        title: 'Hidden title',
+        classification: 'restricted',
+      });
+      await assignContributor(db(), context, {
+        id: work.id,
+        membershipId: approver.membershipId,
+      });
+      return work;
+    }
+
+    it('stops seeing the title after being taken off the work', async () => {
+      const a = await newOrg();
+      const member = await join(a, 'member');
+      const work = await restricted(a, member);
+      const review = await requestWorkReview(db(), a, {
+        workUnitId: work.id,
+        expectedVersion: 1,
+        approverMembershipId: member.membershipId,
+      });
+      expect((await listMyPendingApprovals(db(), member))[0]?.workTitle).toBe('Hidden title');
+
+      await unassign(db(), a, { id: work.id, membershipId: member.membershipId });
+
+      expect(await listMyPendingApprovals(db(), member)).toEqual([]);
+      const asked = (await listMyNotifications(db(), member)).find(
+        (n) => n.targetRef === `approval:${review.id}`,
+      );
+      expect(asked?.readAt).toBeTruthy();
+      expect((await getApproval(db(), a, review.id)).approval.status).toBe('cancelled');
+      await expect(getApproval(db(), member, review.id)).rejects.toEqual(code('NOT_FOUND'));
+    });
+
+    it('stops seeing the title after ownership is handed away', async () => {
+      const a = await newOrg();
+      const alice = await join(a, 'alice');
+      const dan = await join(a, 'dan');
+      const work = await createWorkUnit(db(), a, {
+        title: 'Hidden title',
+        classification: 'restricted',
+        ownerMembershipId: alice.membershipId,
+      });
+      const review = await requestWorkReview(db(), a, {
+        workUnitId: work.id,
+        expectedVersion: 1,
+        approverMembershipId: alice.membershipId,
+      });
+      await setOwner(db(), a, {
+        id: work.id,
+        expectedVersion: 1,
+        ownerMembershipId: dan.membershipId,
+      });
+      expect(await listMyPendingApprovals(db(), alice)).toEqual([]);
+      expect(await countUnread(db(), alice)).toBe(0);
+      expect((await getApproval(db(), a, review.id)).approval.status).toBe('cancelled');
+    });
+
+    it('stops seeing confidential titles after being demoted from admin', async () => {
+      const a = await newOrg();
+      const admin = await join(a, 'admin', 'admin');
+      const work = await createWorkUnit(db(), a, {
+        title: 'Hidden title',
+        classification: 'confidential',
+      });
+      await requestWorkReview(db(), a, {
+        workUnitId: work.id,
+        expectedVersion: 1,
+        approverMembershipId: admin.membershipId,
+      });
+      await setMemberRole(db(), a, { membershipId: admin.membershipId, role: 'member' });
+      const demoted = await resolveTenantContext(db(), admin.userId, a.organizationId);
+      expect(await listMyPendingApprovals(db(), demoted)).toEqual([]);
+      expect(await countUnread(db(), demoted)).toBe(0);
+    });
+
+    it('filters in the query too, even if an approval was somehow left open', async () => {
+      const a = await newOrg();
+      const member = await join(a, 'member');
+      const work = await restricted(a, member);
+      await requestWorkReview(db(), a, {
+        workUnitId: work.id,
+        expectedVersion: 1,
+        approverMembershipId: member.membershipId,
+      });
+      // Access goes without any service running, so nothing closes the approval.
+      await withTenantTx(db(), a, (tx) =>
+        tx.execute(`delete from work.work_assignments
+          where work_unit_id = '${work.id}' and membership_id = '${member.membershipId}'`),
+      );
+      expect(await listMyPendingApprovals(db(), member)).toEqual([]);
+    });
+
+    it('leaves manual work paused, for someone else to review', async () => {
+      const a = await newOrg();
+      const member = await join(a, 'member');
+      const other = await join(a, 'other');
+      const work = await restricted(a, member);
+      await assignContributor(db(), a, { id: work.id, membershipId: other.membershipId });
+      const running = await move(a, work.id, ['ready', 'running']);
+      await requestWorkReview(db(), a, {
+        workUnitId: work.id,
+        expectedVersion: running.version,
+        approverMembershipId: member.membershipId,
+      });
+      await unassign(db(), a, { id: work.id, membershipId: member.membershipId });
+      const stillPaused = await getWorkUnit(db(), a, work.id);
+      expect(stillPaused.status).toBe('awaiting_approval');
+      // Nobody released it. A new review now holds the pause, and its decision can.
+      const next = await requestWorkReview(db(), a, {
+        workUnitId: work.id,
+        expectedVersion: stillPaused.version,
+        approverMembershipId: other.membershipId,
+      });
+      await decideApproval(db(), other, {
+        approvalId: next.id,
+        decision: 'approve',
+        shownHash: next.actionHash,
+      });
+      expect((await getWorkUnit(db(), a, work.id)).status).toBe('running');
+    });
+  });
+
+  describe('access through having created the work', () => {
+    it('is listed, and removable, once ownership moves', async () => {
+      const a = await newOrg();
+      const bob = await join(a, 'bob');
+      const alice = await join(a, 'alice');
+      const work = await createWorkUnit(db(), bob, {
+        title: 'HR case',
+        classification: 'restricted',
+      });
+      await setOwner(db(), bob, {
+        id: work.id,
+        expectedVersion: 1,
+        ownerMembershipId: alice.membershipId,
+      });
+
+      // Alice can see that Bob still has access.
+      const detail = await getWorkDetail(db(), alice, work.id);
+      expect(detail.people.map((p) => p.membershipId)).toEqual([bob.membershipId]);
+      expect((await getWorkUnit(db(), bob, work.id)).id).toBe(work.id);
+
+      // And she can end it, which also takes it out of his lists.
+      await unassign(db(), alice, { id: work.id, membershipId: bob.membershipId });
+      await expect(getWorkUnit(db(), bob, work.id)).rejects.toEqual(code('NOT_FOUND'));
+      expect((await listWorkUnits(db(), bob)).items).toEqual([]);
+      await expect(updateWorkUnit(db(), bob, work.id, 2, { title: 'Still mine?' })).rejects.toEqual(
+        code('NOT_FOUND'),
+      );
+    });
+
+    it('does not list the owner as someone else on the work', async () => {
+      const a = await newOrg();
+      const work = await createWorkUnit(db(), a, { title: 'Mine' });
+      expect((await getWorkDetail(db(), a, work.id)).people).toEqual([]);
+    });
+  });
+
+  describe('invitations and the person who sent them', () => {
+    const invite = async (by: TenantContext, role: 'admin' | 'member' = 'admin') => {
+      const user = await makeUser('invitee');
+      const { id, token } = await createInvitation(db(), by, { email: user.email, role });
+      return { user, id, token };
+    };
+    const accept = (user: { id: string; email: string }, token: string, emailVerified = true) =>
+      acceptInvitation(db(), { token, userId: user.id, email: user.email, emailVerified });
+
+    it('stop working when the inviter is disabled', async () => {
+      const a = await newOrg();
+      const mallory = await join(a, 'mallory', 'admin');
+      const { user, id, token } = await invite(mallory);
+      await disableMember(db(), a, { membershipId: mallory.membershipId });
+      await expect(accept(user, token)).rejects.toEqual(code('INVITATION_INVALID'));
+      await expect(resolveTenantContext(db(), user.id, a.organizationId)).rejects.toThrow();
+      const invitations = await listInvitations(db(), a);
+      expect(invitations.find((i) => i.id === id)?.revokedAt).toBeTruthy();
+      expect(await auditRows(a, 'invitation.revoked')).toEqual([
+        {
+          actor_id: a.membershipId,
+          target_ref: `invitation:${id}`,
+          safe_reason: 'INVITER_DISABLED',
+        },
+      ]);
+    });
+
+    it('stop working when the inviter is demoted', async () => {
+      const a = await newOrg();
+      const mallory = await join(a, 'mallory', 'admin');
+      const { user, id, token } = await invite(mallory);
+      await setMemberRole(db(), a, { membershipId: mallory.membershipId, role: 'member' });
+      await expect(accept(user, token)).rejects.toEqual(code('INVITATION_INVALID'));
+      expect((await listInvitations(db(), a)).find((i) => i.id === id)?.revokedAt).toBeTruthy();
+    });
+
+    it('are refused even if somehow left unrevoked, by checking the inviter under the lock', async () => {
+      const a = await newOrg();
+      const mallory = await join(a, 'mallory', 'admin');
+      const { user, token } = await invite(mallory);
+      // The inviter's role changes with no service running, so nothing revoked the invitation.
+      await withTenantTx(db(), a, (tx) =>
+        tx.execute(`update org.memberships set role = 'member'
+          where id = '${mallory.membershipId}'`),
+      );
+      await expect(accept(user, token)).rejects.toEqual(code('INVITATION_INVALID'));
+    });
+
+    it('survive the inviter keeping the right to invite', async () => {
+      const a = await newOrg();
+      const admin = await join(a, 'admin', 'admin');
+      const { user, token } = await invite(admin);
+      await setMemberRole(db(), a, { membershipId: admin.membershipId, role: 'owner' });
+      await accept(user, token);
+      expect((await resolveTenantContext(db(), user.id, a.organizationId)).role).toBe('admin');
+    });
+
+    it('make an unverified account ask, and join nothing until confirmed', async () => {
+      const a = await newOrg();
+      const { user, id, token } = await invite(a);
+      expect(await accept(user, token, false)).toEqual({ status: 'awaiting_confirmation' });
+      await expect(resolveTenantContext(db(), user.id, a.organizationId)).rejects.toThrow();
+      const listed = (await listInvitations(db(), a)).find((i) => i.id === id);
+      expect(listed?.claimedAt).toBeTruthy();
+      expect(listed?.acceptedAt).toBeNull();
+      expect((await listMyNotifications(db(), a))[0]?.kind).toBe('member.join_requested');
+
+      await confirmInvitation(db(), a, { invitationId: id });
+      expect((await resolveTenantContext(db(), user.id, a.organizationId)).role).toBe('admin');
+      await expect(confirmInvitation(db(), a, { invitationId: id })).rejects.toEqual(
+        code('INVITATION_INVALID'),
+      );
+    });
+
+    it('cannot be confirmed by someone who cannot invite, or with no one asking', async () => {
+      const a = await newOrg();
+      const member = await join(a, 'member');
+      const { user, id, token } = await invite(a);
+      await expect(confirmInvitation(db(), a, { invitationId: id })).rejects.toEqual(
+        code('INVITATION_INVALID'),
+      );
+      await accept(user, token, false);
+      await expect(confirmInvitation(db(), member, { invitationId: id })).rejects.toEqual(
+        code('FORBIDDEN'),
+      );
+    });
+
+    it('cannot be confirmed once withdrawn', async () => {
+      const a = await newOrg();
+      const { user, id, token } = await invite(a);
+      await accept(user, token, false);
+      await revokeInvitation(db(), a, { invitationId: id });
+      await expect(confirmInvitation(db(), a, { invitationId: id })).rejects.toEqual(
+        code('INVITATION_INVALID'),
+      );
+    });
+
+    it('do not bring a disabled member back, and do not claim they joined', async () => {
+      const a = await newOrg();
+      const member = await join(a, 'member');
+      const emailRows = await withTenantTx(db(), a, (tx) =>
+        tx.execute(sql`select u.email from identity.users u
+          join org.memberships m on m.user_id = u.id where m.id = ${member.membershipId}`),
+      );
+      const email = emailRows.rows[0]?.email as string;
+      await disableMember(db(), a, { membershipId: member.membershipId });
+      const { id, token } = await createInvitation(db(), a, { email });
+      const joined = (await auditRows(a, 'member.joined')).length;
+      await expect(
+        acceptInvitation(db(), { token, userId: member.userId, email, emailVerified: true }),
+      ).rejects.toEqual(code('INVITATION_INVALID'));
+      expect((await listInvitations(db(), a)).find((i) => i.id === id)?.acceptedAt).toBeNull();
+      expect(await auditRows(a, 'member.joined')).toHaveLength(joined);
+    });
+
+    it('record who joined, and record it differently when nobody did', async () => {
+      const a = await newOrg();
+      const { user, id, token } = await invite(a, 'member');
+      await accept(user, token);
+      const context = await resolveTenantContext(db(), user.id, a.organizationId);
+      expect(await auditRows(a, 'member.joined')).toEqual([
+        { actor_id: context.membershipId, target_ref: `invitation:${id}`, safe_reason: null },
+      ]);
+
+      const again = await createInvitation(db(), a, { email: user.email });
+      await accept(user, again.token);
+      expect(await auditRows(a, 'member.joined')).toHaveLength(1);
+      expect(await auditRows(a, 'member.join_skipped')).toEqual([
+        {
+          actor_id: context.membershipId,
+          target_ref: `invitation:${again.id}`,
+          safe_reason: 'ALREADY_MEMBER',
+        },
+      ]);
+    });
+  });
+
+  describe('the last owner, under concurrency', () => {
+    it('cannot be lost when two owners demote each other at once, repeated', async () => {
+      for (let i = 0; i < 8; i++) {
+        const a = await newOrg();
+        const second = await join(a, 'second', 'admin');
+        await setMemberRole(db(), a, { membershipId: second.membershipId, role: 'owner' });
+        const b = await resolveTenantContext(db(), second.userId, a.organizationId);
+        const results = await Promise.allSettled([
+          setMemberRole(db(), a, { membershipId: b.membershipId, role: 'member' }),
+          setMemberRole(db(), b, { membershipId: a.membershipId, role: 'member' }),
+        ]);
+        const rows = await withTenantTx(db(), a, (tx) =>
+          tx.execute(`select count(*)::int as n from org.memberships
+            where role = 'owner' and status = 'active'`),
+        );
+        expect(rows.rows[0]?.n, `round ${i}`).toBeGreaterThanOrEqual(1);
+        expect(results.filter((r) => r.status === 'fulfilled').length).toBeLessThanOrEqual(1);
+      }
+    });
+
+    it('cannot be lost when one is demoted while the other is disabled, repeated', async () => {
+      for (let i = 0; i < 8; i++) {
+        const a = await newOrg();
+        const second = await join(a, 'second', 'admin');
+        await setMemberRole(db(), a, { membershipId: second.membershipId, role: 'owner' });
+        const b = await resolveTenantContext(db(), second.userId, a.organizationId);
+        await Promise.allSettled([
+          setMemberRole(db(), a, { membershipId: b.membershipId, role: 'member' }),
+          disableMember(db(), b, { membershipId: a.membershipId }),
+        ]);
+        const rows = await withTenantTx(db(), a, (tx) =>
+          tx.execute(`select count(*)::int as n from org.memberships
+            where role = 'owner' and status = 'active'`),
+        );
+        expect(rows.rows[0]?.n, `round ${i}`).toBeGreaterThanOrEqual(1);
+      }
+    });
+  });
+
+  describe('the audit record of access', () => {
+    it('records adding and removing someone, with who did it', async () => {
+      const a = await newOrg();
+      const mallory = await join(a, 'mallory');
+      const work = await createWorkUnit(db(), a, { title: 'R', classification: 'restricted' });
+      await assignContributor(db(), a, { id: work.id, membershipId: mallory.membershipId });
+      await unassign(db(), a, { id: work.id, membershipId: mallory.membershipId });
+
+      for (const action of ['work.assigned', 'work.unassigned']) {
+        const rows = await auditRows(a, action);
+        expect(rows.map((r) => r.target_ref).sort()).toEqual(
+          [`membership:${mallory.membershipId}`, `work_unit:${work.id}`].sort(),
+        );
+        expect(rows.every((r) => r.actor_id === a.membershipId)).toBe(true);
+        expect(rows.every((r) => r.safe_reason === 'RESTRICTED')).toBe(true);
+      }
+      const events = await eventTypes(a, work.id);
+      expect(events).toContain('work.assigned');
+      expect(events).toContain('work.unassigned');
+    });
+
+    it('records a change of owner, a review request and a withdrawn invitation', async () => {
+      const a = await newOrg();
+      const member = await join(a, 'member', 'admin');
+      const work = await createWorkUnit(db(), a, { title: 'W' });
+      await setOwner(db(), a, {
+        id: work.id,
+        expectedVersion: 1,
+        ownerMembershipId: member.membershipId,
+      });
+      expect((await auditRows(a, 'work.owner_changed')).map((r) => r.target_ref)).toEqual([
+        `work_unit:${work.id}`,
+      ]);
+
+      const review = await requestWorkReview(db(), member, {
+        workUnitId: work.id,
+        expectedVersion: 2,
+        approverMembershipId: a.membershipId,
+      });
+      expect((await auditRows(a, 'approval.requested')).map((r) => r.target_ref)).toEqual([
+        `approval:${review.id}`,
+      ]);
+
+      const { id } = await createInvitation(db(), a, { email: 'x@example.invalid' });
+      await revokeInvitation(db(), a, { invitationId: id });
+      expect((await auditRows(a, 'invitation.revoked')).map((r) => r.target_ref)).toEqual([
+        `invitation:${id}`,
+      ]);
+    });
+
+    it('records removing a dependency', async () => {
+      const a = await newOrg();
+      const first = await createWorkUnit(db(), a, { title: 'First' });
+      const second = await createWorkUnit(db(), a, { title: 'Second' });
+      await addDependency(db(), a, { dependentId: second.id, prerequisiteId: first.id });
+      await removeDependency(db(), a, { dependentId: second.id, prerequisiteId: first.id });
+      expect(await eventTypes(a, second.id)).toContain('work.dependency_removed');
+      expect((await auditRows(a, 'work.dependency_removed')).map((r) => r.target_ref)).toEqual([
+        `work_unit:${second.id}`,
+      ]);
+    });
+  });
+
+  describe('history of a Work Unit', () => {
+    it('keeps the reason for reopening, and who gave it', async () => {
+      const a = await newOrg();
+      const work = await createWorkUnit(db(), a, { title: 'W' });
+      await move(a, work.id, ['ready', 'running', 'verifying', 'completed']);
+      await move(a, work.id, ['ready'], '  Client rejected the deliverable  ');
+      const { history } = await getWorkDetail(db(), a, work.id);
+      expect(history).toHaveLength(5);
+      expect(history[0]).toMatchObject({
+        fromStatus: 'completed',
+        toStatus: 'ready',
+        reason: 'Client rejected the deliverable',
+      });
+      expect(history[0]?.actorName).toBeTruthy();
+    });
+
+    it('keeps the free text out of events and the audit log', async () => {
+      const a = await newOrg();
+      const canary = `CANARY-${randomUUID()}`;
+      const work = await createWorkUnit(db(), a, { title: 'W' });
+      await move(a, work.id, ['cancelled'], canary);
+      const rows = await withTenantTx(db(), a, (tx) =>
+        tx.execute(`select payload::text as t from platform.domain_events
+          union all select coalesce(safe_reason, '') from governance.audit_events`),
+      );
+      expect(JSON.stringify(rows.rows)).not.toContain(canary);
+      expect((await getWorkDetail(db(), a, work.id)).history[0]?.reason).toBe(canary);
+    });
+
+    it('hides the history with the work', async () => {
+      const a = await newOrg();
+      const member = await join(a, 'member');
+      const work = await createWorkUnit(db(), a, { title: 'R', classification: 'restricted' });
+      await move(a, work.id, ['cancelled'], 'Secret reason');
+      await expect(getWorkDetail(db(), member, work.id)).rejects.toEqual(code('NOT_FOUND'));
+    });
+
+    it('keeps it from other tenants at the database', async () => {
+      const a = await newOrg();
+      const b = await newOrg();
+      const work = await createWorkUnit(db(), a, { title: 'W' });
+      await move(a, work.id, ['cancelled'], 'Secret reason');
+      const rows = await withTenantTx(db(), b, (tx) =>
+        tx.execute('select count(*)::int as n from work.work_transitions'),
+      );
+      expect(rows.rows[0]?.n).toBe(0);
+    });
+
+    it('cannot be rewritten', async () => {
+      const a = await newOrg();
+      const work = await createWorkUnit(db(), a, { title: 'W' });
+      await move(a, work.id, ['ready']);
+      await expect(
+        withTenantTx(db(), a, (tx) => tx.execute(`delete from work.work_transitions`)),
+      ).rejects.toThrow();
+      await expect(
+        withTenantTx(db(), a, (tx) => tx.execute(`update work.work_transitions set reason = 'x'`)),
+      ).rejects.toThrow();
+    });
+
+    it('shows a decision and its reason on the approval', async () => {
+      const a = await newOrg();
+      const reviewer = await join(a, 'reviewer', 'admin');
+      const work = await createWorkUnit(db(), a, { title: 'W' });
+      const running = await move(a, work.id, ['ready', 'running']);
+      const review = await requestWorkReview(db(), a, {
+        workUnitId: work.id,
+        expectedVersion: running.version,
+        approverMembershipId: reviewer.membershipId,
+      });
+      await decideApproval(db(), reviewer, {
+        approvalId: review.id,
+        decision: 'deny',
+        shownHash: review.actionHash,
+        reason: 'Not good enough',
+      });
+      const { decisions } = await getApproval(db(), a, review.id);
+      expect(decisions).toEqual([
+        expect.objectContaining({ decision: 'deny', reason: 'Not good enough' }),
+      ]);
+      const { history } = await getWorkDetail(db(), a, work.id);
+      expect(history[0]).toMatchObject({ toStatus: 'cancelled', reason: 'Not good enough' });
+    });
+  });
+
+  describe('finished work', () => {
+    it('refuses edits and new people, but always lets access be removed', async () => {
+      const a = await newOrg();
+      const member = await join(a, 'member');
+      const other = await join(a, 'other');
+      const work = await createWorkUnit(db(), a, { title: 'W' });
+      await assignContributor(db(), a, { id: work.id, membershipId: member.membershipId });
+      const stopped = await move(a, work.id, ['cancelled']);
+      await expect(
+        updateWorkUnit(db(), a, work.id, stopped.version, { title: 'After' }),
+      ).rejects.toEqual(code('INVALID_STATE'));
+      await expect(
+        assignContributor(db(), a, { id: work.id, membershipId: other.membershipId }),
+      ).rejects.toEqual(code('INVALID_STATE'));
+
+      await unassign(db(), a, { id: work.id, membershipId: member.membershipId });
+      const moved = await setOwner(db(), a, {
+        id: work.id,
+        expectedVersion: stopped.version,
+        ownerMembershipId: other.membershipId,
+      });
+      expect(moved.ownerMembershipId).toBe(other.membershipId);
+    });
+
+    it('refuses edits while a review is open on paused work', async () => {
+      const a = await newOrg();
+      const reviewer = await join(a, 'reviewer', 'admin');
+      const work = await createWorkUnit(db(), a, { title: 'W' });
+      const running = await move(a, work.id, ['ready', 'running']);
+      await requestWorkReview(db(), a, {
+        workUnitId: work.id,
+        expectedVersion: running.version,
+        approverMembershipId: reviewer.membershipId,
+      });
+      const paused = await getWorkUnit(db(), a, work.id);
+      await expect(
+        updateWorkUnit(db(), a, work.id, paused.version, { title: 'Sneaky' }),
+      ).rejects.toEqual(code('INVALID_STATE'));
+    });
+  });
+
+  describe('Home lists', () => {
+    it('include work someone is assigned to, not only work they own', async () => {
+      const a = await newOrg();
+      const sam = await join(a, 'sam');
+      const work = await createWorkUnit(db(), a, { title: 'Assigned to Sam' });
+      expect((await listMyWork(db(), sam)).work).toEqual([]);
+      await assignContributor(db(), a, { id: work.id, membershipId: sam.membershipId });
+      expect((await listMyWork(db(), sam)).work.map((w) => w.id)).toEqual([work.id]);
+      expect((await listMyNotifications(db(), sam))[0]).toMatchObject({
+        kind: 'work.assigned',
+        targetRef: `work_unit:${work.id}`,
+      });
+    });
+
+    it('are not limited by how much else in the organization is newer', async () => {
+      const a = await newOrg();
+      const sam = await join(a, 'sam');
+      const old = await createWorkUnit(db(), sam, {
+        title: 'Old and late',
+        dueAt: new Date('2020-01-01'),
+      });
+      for (let i = 0; i < 60; i++) await createWorkUnit(db(), a, { title: `Newer ${i}` });
+      const mine = await listMyWork(db(), sam);
+      expect(mine.attention.map((w) => w.id)).toEqual([old.id]);
+      expect(mine.work.map((w) => w.id)).toEqual([old.id]);
+      // An org-wide first page would not have held it at all.
+      expect((await listWorkUnits(db(), sam)).items.map((w) => w.id)).not.toContain(old.id);
+    });
+
+    it('do not call work due today overdue', async () => {
+      const a = await newOrg();
+      const today = new Date();
+      today.setUTCHours(0, 0, 0, 0);
+      await createWorkUnit(db(), a, { title: 'Due today', dueAt: today });
+      expect((await listMyWork(db(), a)).attention).toEqual([]);
+    });
+
+    it('say when there is more to see', async () => {
+      const a = await newOrg();
+      for (let i = 0; i < 13; i++) await createWorkUnit(db(), a, { title: `W${i}` });
+      const mine = await listMyWork(db(), a);
+      expect(mine.work).toHaveLength(12);
+      expect(mine.workHasMore).toBe(true);
+    });
+  });
+
+  describe('paging', () => {
+    it('never skips rows that fall within the same millisecond', async () => {
+      const a = await newOrg();
+      const ids: string[] = [];
+      const su = new pg.Client({ connectionString: urls.superuser() });
+      await su.connect();
+      for (const micros of ['900', '400', '100']) {
+        const work = await createWorkUnit(db(), a, { title: `At .123${micros}` });
+        await su.query(
+          `update work.work_units set created_at = '2030-01-01 12:00:00.123${micros}+00'
+           where id = '${work.id}'`,
+        );
+        ids.push(work.id);
+      }
+      await su.end();
+      const first = await listWorkUnits(db(), a, { limit: 1 });
+      expect(first.items.map((w) => w.id)).toEqual([ids[0]]);
+      const second = await listWorkUnits(db(), a, { limit: 1, cursor: first.nextCursor! });
+      expect(second.items.map((w) => w.id)).toEqual([ids[1]]);
+      const third = await listWorkUnits(db(), a, { limit: 1, cursor: second.nextCursor! });
+      expect(third.items.map((w) => w.id)).toEqual([ids[2]]);
+      expect(third.nextCursor).toBeNull();
+    });
+
+    it('refuses a cursor that is not one of ours, with a known error', async () => {
+      const a = await newOrg();
+      await expect(listWorkUnits(db(), a, { cursor: 'garbage' })).rejects.toEqual(
+        code('INVALID_INPUT'),
+      );
+      const injected = Buffer.from(
+        JSON.stringify(["2030-01-01'; drop table x; --", randomUUID()]),
+      ).toString('base64url');
+      await expect(listWorkUnits(db(), a, { cursor: injected })).rejects.toEqual(
+        code('INVALID_INPUT'),
+      );
+    });
+
+    it('keeps no working field from the query on the rows it returns', async () => {
+      const a = await newOrg();
+      await createWorkUnit(db(), a, { title: 'W' });
+      const { items } = await listWorkUnits(db(), a);
+      expect(Object.keys(items[0]!)).not.toContain('cursorAt');
+    });
+  });
+
+  describe('notifications', () => {
+    it('refuses an ID that is not one, with a known error and no SQL', async () => {
+      const a = await newOrg();
+      await expect(markRead(db(), a, "x\n{'forged':'log line'}")).rejects.toEqual(
+        code('INVALID_INPUT'),
+      );
+    });
+  });
+
+  describe('teams', () => {
+    it('can gain and lose members', async () => {
+      const a = await newOrg();
+      const member = await join(a, 'member');
+      const team = await createTeam(db(), a, { name: 'Sales' });
+      await addTeamMember(db(), a, { teamId: team!.id, membershipId: member.membershipId });
+      const [listed] = await listTeams(db(), a);
+      expect(listed?.members.map((m) => m.membershipId)).toEqual([member.membershipId]);
+      await removeTeamMember(db(), a, { teamId: team!.id, membershipId: member.membershipId });
+      expect((await listTeams(db(), a))[0]?.members).toEqual([]);
+    });
+
+    it('refuses a member with no right to manage teams, and a disabled person', async () => {
+      const a = await newOrg();
+      const member = await join(a, 'member');
+      const team = await createTeam(db(), a, { name: 'Sales' });
+      await expect(
+        addTeamMember(db(), member, { teamId: team!.id, membershipId: member.membershipId }),
+      ).rejects.toEqual(code('FORBIDDEN'));
+      await disableMember(db(), a, { membershipId: member.membershipId });
+      await expect(
+        addTeamMember(db(), a, { teamId: team!.id, membershipId: member.membershipId }),
+      ).rejects.toEqual(code('INVALID_INPUT'));
+    });
+  });
+
+  describe('completion criteria', () => {
+    it('does not accept a criterion nothing can ever satisfy', async () => {
+      const a = await newOrg();
+      await expect(
+        createWorkUnit(db(), a, {
+          title: 'W',
+          completionCriteria: [{ kind: 'external_receipt' } as never],
+        }),
+      ).rejects.toEqual(code('INVALID_INPUT'));
+    });
+  });
+
+  describe('a plan run, through its Activities', () => {
+    const RUN = randomUUID();
+    const quietStore = new MemoryStore();
+    const activities = () => createActivities({ database: db(), store: quietStore });
+    const input = (context: TenantContext, workUnitId: string, runId = RUN) => ({
+      organizationId: context.organizationId,
+      workUnitId,
+      runId,
+    });
+
+    async function planned(
+      context: TenantContext,
+      criteria: Array<{ kind: 'artifact_exists' | 'reviewer_approved' }> = [],
+      options: Parameters<typeof requestExecution>[3] = {},
+    ) {
+      const work = await createWorkUnit(db(), context, {
+        title: 'Planned',
+        executionPlan: 'checklist',
+        completionCriteria: criteria,
+      });
+      await move(context, work.id, ['ready']);
+      await requestExecution(db(), context, work.id, options);
+      return work;
+    }
+
+    it('claims requested work, and treats a repeat by the same run as a retry', async () => {
+      const a = await newOrg();
+      const work = await planned(a);
+      const run = input(a, work.id);
+      expect((await activities().prepareWork(run)).status).toBe('running');
+      expect((await activities().prepareWork(run)).status).toBe('running');
+      expect((await getWorkUnit(db(), a, work.id)).version).toBe(3);
+    });
+
+    it('leaves work alone that someone started by hand', async () => {
+      const a = await newOrg();
+      const work = await planned(a);
+      await move(a, work.id, ['running']);
+      const late = await activities().prepareWork(input(a, work.id));
+      expect(late.status).toBe('stopped');
+      await expect(activities().produceChecklistArtifact(input(a, work.id))).resolves.toBeDefined();
+      // It was never this run's, so it is not sent for checking either.
+      expect(await activities().verifyAndComplete(input(a, work.id))).toBe('cancelled');
+      expect((await getWorkUnit(db(), a, work.id)).status).toBe('running');
+    });
+
+    it('does not start again on a delayed event after a reopen', async () => {
+      const a = await newOrg();
+      const work = await planned(a);
+      await move(a, work.id, ['running', 'verifying', 'completed']);
+      await move(a, work.id, ['ready'], 'Reopened');
+      const late = await activities().prepareWork(input(a, work.id, randomUUID()));
+      expect(late.status).toBe('stopped');
+      expect((await getWorkUnit(db(), a, work.id)).status).toBe('ready');
+    });
+
+    it('does not let another run take over one already running', async () => {
+      const a = await newOrg();
+      const work = await planned(a);
+      await activities().prepareWork(input(a, work.id));
+      const other = await activities().prepareWork(input(a, work.id, randomUUID()));
+      expect(other.status).toBe('stopped');
+    });
+
+    it('stops at checking, and never marks the work done itself', async () => {
+      const a = await newOrg();
+      const work = await planned(a);
+      const run = input(a, work.id);
+      await activities().prepareWork(run);
+      await activities().produceChecklistArtifact(run);
+      expect(await activities().verifyAndComplete(run)).toBe('verifying');
+      expect((await getWorkUnit(db(), a, work.id)).status).toBe('verifying');
+      const again = await activities().verifyAndComplete(run);
+      expect(again).toBe('verifying');
+    });
+
+    it('does not count its own generated file as the evidence', async () => {
+      const a = await newOrg();
+      const work = await planned(a, [{ kind: 'artifact_exists' }]);
+      const run = input(a, work.id);
+      await activities().prepareWork(run);
+      await activities().produceChecklistArtifact(run);
+      await activities().verifyAndComplete(run);
+      const checking = await getWorkDetail(db(), a, work.id);
+      expect(checking.files.map((f) => f.name)).toEqual(['completion-checklist.md']);
+      expect(checking.evidence.artifactCount).toBe(0);
+      await expect(
+        transitionWorkUnit(db(), a, {
+          id: work.id,
+          expectedVersion: checking.work.version,
+          to: 'completed',
+        }),
+      ).rejects.toEqual(code('EVIDENCE_MISSING'));
+
+      await addArtifact(db(), quietStore, a, {
+        workUnitId: work.id,
+        name: 'result.pdf',
+        mimeType: 'application/pdf',
+        body: Buffer.from('result'),
+      });
+      const done = await transitionWorkUnit(db(), a, {
+        id: work.id,
+        expectedVersion: checking.work.version,
+        to: 'completed',
+      });
+      expect(done.status).toBe('completed');
+    });
+
+    it('writes its checklist in plain words, with no internal names', async () => {
+      const a = await newOrg();
+      const store = new MemoryStore();
+      const work = await planned(a, [{ kind: 'artifact_exists' }, { kind: 'reviewer_approved' }], {
+        reviewerMembershipId: (await join(a, 'r', 'admin')).membershipId,
+      });
+      const run = input(a, work.id);
+      const own = createActivities({ database: db(), store });
+      await own.prepareWork(run);
+      const { artifactId } = await own.produceChecklistArtifact(run);
+      const { body } = await readArtifact(db(), store, a, { workUnitId: work.id, artifactId });
+      const text = body.toString();
+      expect(text).not.toContain('artifact_exists');
+      expect(text).not.toContain('reviewer_approved');
+      expect(text).toContain('this file is not evidence');
+    });
+
+    it('refuses the person who runs it reviewing it themselves', async () => {
+      const a = await newOrg();
+      const work = await createWorkUnit(db(), a, {
+        title: 'W',
+        executionPlan: 'checklist',
+        completionCriteria: [{ kind: 'reviewer_approved' }],
+      });
+      await move(a, work.id, ['ready']);
+      await expect(requestExecution(db(), a, work.id)).rejects.toEqual(
+        code('APPROVAL_SELF_APPROVAL'),
+      );
+      await expect(
+        requestExecution(db(), a, work.id, { reviewerMembershipId: a.membershipId }),
+      ).rejects.toEqual(code('APPROVAL_SELF_APPROVAL'));
+    });
+
+    it('asks the chosen reviewer, and records who ran it as the requester', async () => {
+      const a = await newOrg();
+      const reviewer = await join(a, 'reviewer', 'admin');
+      const work = await planned(a, [{ kind: 'reviewer_approved' }], {
+        reviewerMembershipId: reviewer.membershipId,
+      });
+      const run = input(a, work.id);
+      await activities().prepareWork(run);
+      await activities().produceChecklistArtifact(run);
+      const review = await activities().requestReview(run);
+      const { approval } = await getApproval(db(), a, review.approvalId);
+      expect(approval.approverMembershipId).toBe(reviewer.membershipId);
+      expect(approval.requestedByMembershipId).toBe(a.membershipId);
+      expect(approval.holdsWork).toBe(true);
+      expect((await getWorkUnit(db(), a, work.id)).status).toBe('awaiting_approval');
+    });
+
+    it('finds its own request on a retry, even if the files changed meanwhile', async () => {
+      const a = await newOrg();
+      const reviewer = await join(a, 'reviewer', 'admin');
+      const work = await planned(a, [{ kind: 'reviewer_approved' }], {
+        reviewerMembershipId: reviewer.membershipId,
+      });
+      const run = input(a, work.id);
+      await activities().prepareWork(run);
+      await activities().produceChecklistArtifact(run);
+      const first = await activities().requestReview(run);
+      // The artifact set is different now, by a route the page does not allow during a review.
+      await withTenantTx(db(), a, (tx) =>
+        tx.execute(`delete from work.work_artifacts where work_unit_id = '${work.id}'`),
+      );
+      const retried = await activities().requestReview(run);
+      expect(retried.approvalId).toBe(first.approvalId);
+    });
+
+    it('reuses nothing from an earlier run after a reopen', async () => {
+      const a = await newOrg();
+      const reviewer = await join(a, 'reviewer', 'admin');
+      const work = await planned(a, [{ kind: 'reviewer_approved' }], {
+        reviewerMembershipId: reviewer.membershipId,
+      });
+      const first = input(a, work.id);
+      await activities().prepareWork(first);
+      await activities().produceChecklistArtifact(first);
+      const { approvalId } = await activities().requestReview(first);
+      const { approval } = await getApproval(db(), a, approvalId);
+      await decideApproval(db(), reviewer, {
+        approvalId,
+        decision: 'approve',
+        shownHash: approval.actionHash,
+      });
+      await activities().verifyAndComplete(first);
+      await move(a, work.id, ['completed']);
+      await move(a, work.id, ['ready'], 'Reopened');
+      await requestExecution(db(), a, work.id, { reviewerMembershipId: reviewer.membershipId });
+
+      const second = input(a, work.id, randomUUID());
+      await activities().prepareWork(second);
+      await activities().produceChecklistArtifact(second);
+      const again = await activities().requestReview(second);
+      expect(again.approvalId).not.toBe(approvalId);
+      expect((await getWorkUnit(db(), a, work.id)).status).toBe('awaiting_approval');
+    });
+
+    it('replaces a review someone asked for by hand before the plan got there', async () => {
+      const a = await newOrg();
+      const carol = await join(a, 'carol', 'admin');
+      const reviewer = await join(a, 'reviewer', 'admin');
+      const work = await planned(a, [{ kind: 'reviewer_approved' }], {
+        reviewerMembershipId: reviewer.membershipId,
+      });
+      const manual = await requestWorkReview(db(), a, {
+        workUnitId: work.id,
+        expectedVersion: (await getWorkUnit(db(), a, work.id)).version,
+        approverMembershipId: carol.membershipId,
+      });
+      const run = input(a, work.id);
+      await activities().prepareWork(run);
+      await activities().requestReview(run);
+      expect((await getApproval(db(), a, manual.id)).approval.status).toBe('cancelled');
+      expect(await countUnread(db(), carol)).toBe(0);
+    });
+
+    it('refuses a person asking for a review while a plan holds the work', async () => {
+      const a = await newOrg();
+      const carol = await join(a, 'carol', 'admin');
+      const work = await planned(a);
+      await activities().prepareWork(input(a, work.id));
+      await expect(
+        requestWorkReview(db(), a, {
+          workUnitId: work.id,
+          expectedVersion: (await getWorkUnit(db(), a, work.id)).version,
+          approverMembershipId: carol.membershipId,
+        }),
+      ).rejects.toEqual(code('INVALID_STATE'));
+    });
+
+    it('reports failure honestly from every step it can be in', async () => {
+      const a = await newOrg();
+      const reviewer = await join(a, 'reviewer', 'admin');
+
+      const beforeClaim = await planned(a);
+      await activities().markFailed(input(a, beforeClaim.id));
+      expect((await getWorkUnit(db(), a, beforeClaim.id)).status).toBe('failed');
+
+      const waiting = await planned(a, [{ kind: 'reviewer_approved' }], {
+        reviewerMembershipId: reviewer.membershipId,
+      });
+      const run = input(a, waiting.id);
+      await activities().prepareWork(run);
+      await activities().produceChecklistArtifact(run);
+      const { approvalId } = await activities().requestReview(run);
+      await activities().markFailed(run);
+      expect((await getWorkUnit(db(), a, waiting.id)).status).toBe('failed');
+      expect((await getApproval(db(), a, approvalId)).approval.status).toBe('cancelled');
+      expect(await listMyPendingApprovals(db(), reviewer)).toEqual([]);
+    });
+
+    it('does not fail work that was never this run’s', async () => {
+      const a = await newOrg();
+      const work = await planned(a);
+      await move(a, work.id, ['running']);
+      await activities().markFailed(input(a, work.id));
+      expect((await getWorkUnit(db(), a, work.id)).status).toBe('running');
+    });
+
+    it('ends runs Temporal says are over, and leaves live ones alone', async () => {
+      const a = await newOrg();
+      const stranded = await planned(a);
+      const live = await planned(a);
+      const started = createActivities({
+        database: db(),
+        store: quietStore,
+        probeWorkflow: async ({ workUnitId }) => (workUnitId === stranded.id ? 'closed' : 'open'),
+      });
+      await started.prepareWork(input(a, stranded.id));
+      await started.prepareWork(input(a, live.id));
+      const su = new pg.Client({ connectionString: urls.superuser() });
+      await su.connect();
+      await su.query(
+        `update work.work_units set updated_at = now() - interval '1 hour'
+         where organization_id = '${a.organizationId}'`,
+      );
+      await su.end();
+      await started.sendReminders({ organizationId: a.organizationId });
+      expect((await getWorkUnit(db(), a, stranded.id)).status).toBe('failed');
+      expect((await getWorkUnit(db(), a, live.id)).status).toBe('running');
+    });
+
+    it('expires overdue reviews and clears stuck bytes in the periodic upkeep', async () => {
+      const a = await newOrg();
+      const reviewer = await join(a, 'reviewer', 'admin');
+      const work = await createWorkUnit(db(), a, { title: 'W' });
+      const review = await requestWorkReview(db(), a, {
+        workUnitId: work.id,
+        expectedVersion: 1,
+        approverMembershipId: reviewer.membershipId,
+      });
+      await pastDue(a, review.id);
+      await activities().sendReminders({ organizationId: a.organizationId });
+      expect((await getApproval(db(), a, review.id)).approval.status).toBe('expired');
+      // It was not pausing anything, so the work carries on as it was.
+      expect((await getWorkUnit(db(), a, work.id)).status).toBe('queued');
     });
   });
 

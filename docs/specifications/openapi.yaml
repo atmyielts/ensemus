@@ -4,12 +4,14 @@ info:
   version: 2.0.0
   description: >-
     Next.js Route Handler reference interface for tenant-aware work, agent, approval, search and provider
-    policies. This is an architectural specification, not an implemented service.
+    policies. The work-unit and approval-decision routes are implemented, and accept a browser session
+    cookie, with writes also checked against the Origin header. Bearer tokens are not accepted yet. All
+    other routes are an architectural specification, not an implemented service.
 servers:
   - url: https://ensemus.example.invalid/api/v1
     description: Illustrative placeholder; not a live endpoint.
 security:
-  - bearerAuth: []
+  - sessionCookie: []
 tags:
   - name: work
   - name: agents
@@ -42,7 +44,10 @@ paths:
                 properties:
                   items: {type: array, items: {$ref: '#/components/schemas/WorkUnit'}}
                   next_cursor: {type: [string, 'null']}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
         '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
     post:
       tags: [work]
       summary: Create a Work Unit
@@ -58,8 +63,13 @@ paths:
           content:
             application/json:
               schema: {$ref: '#/components/schemas/WorkUnit'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
         '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
         '409': {$ref: '#/components/responses/Conflict'}
+        '413': {$ref: '#/components/responses/PayloadTooLarge'}
+        '415': {$ref: '#/components/responses/UnsupportedMediaType'}
   /organizations/{organization_id}/work-units/{work_unit_id}:
     parameters:
       - $ref: '#/components/parameters/OrganizationID'
@@ -76,6 +86,8 @@ paths:
           content:
             application/json:
               schema: {$ref: '#/components/schemas/WorkUnit'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
         '404': {$ref: '#/components/responses/NotFound'}
     patch:
       tags: [work]
@@ -84,6 +96,7 @@ paths:
         - name: If-Match
           in: header
           required: true
+          description: The version last read, as sent in the ETag response header. Weak tags, lists and * are refused.
           schema: {type: string}
       requestBody:
         required: true
@@ -92,6 +105,7 @@ paths:
             schema:
               type: object
               additionalProperties: false
+              minProperties: 1
               properties:
                 title: {type: string}
                 objective: {type: string}
@@ -102,8 +116,45 @@ paths:
           content:
             application/json:
               schema: {$ref: '#/components/schemas/WorkUnit'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
         '409': {$ref: '#/components/responses/Conflict'}
         '403': {$ref: '#/components/responses/Forbidden'}
+        '413': {$ref: '#/components/responses/PayloadTooLarge'}
+        '415': {$ref: '#/components/responses/UnsupportedMediaType'}
+        '428': {$ref: '#/components/responses/PreconditionRequired'}
+  /organizations/{organization_id}/work-units/{work_unit_id}/events:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+      - name: work_unit_id
+        in: path
+        required: true
+        schema: {type: string, format: uuid}
+    get:
+      tags: [work]
+      summary: Follow a Work Unit's version as server-sent events
+      description: >-
+        Sends an event named status whose data and id are both the current version, whenever the version
+        differs from the last one sent, and comment heartbeats in between. Status comes from PostgreSQL,
+        so a reconnect to any replica resumes from Last-Event-ID. Access is checked again on every poll,
+        and the stream ends when access is lost. Connections close after about 15 minutes, and
+        EventSource reconnects by itself.
+      parameters:
+        - name: Last-Event-ID
+          in: header
+          required: false
+          description: The last version received. Without a usable value, the current version is sent at once.
+          schema: {type: string}
+      responses:
+        '200':
+          description: Event stream
+          content:
+            text/event-stream:
+              schema: {type: string}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
   /organizations/{organization_id}/work-units/{work_unit_id}/dependencies:
     parameters:
       - $ref: '#/components/parameters/OrganizationID'
@@ -126,8 +177,13 @@ paths:
                 prerequisite_id: {type: string, format: uuid}
       responses:
         '201': {description: Added}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
         '409': {$ref: '#/components/responses/Conflict'}
         '403': {$ref: '#/components/responses/Forbidden'}
+        '413': {$ref: '#/components/responses/PayloadTooLarge'}
+        '415': {$ref: '#/components/responses/UnsupportedMediaType'}
   /organizations/{organization_id}/agent-runs:
     parameters:
       - $ref: '#/components/parameters/OrganizationID'
@@ -172,6 +228,44 @@ paths:
             application/json:
               schema: {$ref: '#/components/schemas/AgentRun'}
         '404': {$ref: '#/components/responses/NotFound'}
+  /organizations/{organization_id}/approvals:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+    get:
+      tags: [approvals]
+      summary: Approvals waiting on the caller, soonest first
+      responses:
+        '200':
+          description: Pending approvals the caller can decide
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: {$ref: '#/components/schemas/PendingApproval'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /organizations/{organization_id}/approvals/{approval_id}:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+      - name: approval_id
+        in: path
+        required: true
+        schema: {type: string, format: uuid}
+    get:
+      tags: [approvals]
+      summary: One approval, with the exact action and the hash a decision must quote
+      responses:
+        '200':
+          description: Approval
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Approval'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
   /organizations/{organization_id}/approvals/{approval_id}/decisions:
     parameters:
       - $ref: '#/components/parameters/OrganizationID'
@@ -196,8 +290,13 @@ paths:
                 reason: {type: string, maxLength: 2000}
       responses:
         '200': {description: Decision recorded}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
         '409': {$ref: '#/components/responses/Conflict'}
         '403': {$ref: '#/components/responses/Forbidden'}
+        '413': {$ref: '#/components/responses/PayloadTooLarge'}
+        '415': {$ref: '#/components/responses/UnsupportedMediaType'}
   /organizations/{organization_id}/knowledge/search:
     parameters:
       - $ref: '#/components/parameters/OrganizationID'
@@ -273,10 +372,13 @@ paths:
                   capacity: {type: object, additionalProperties: true}
 components:
   securitySchemes:
-    bearerAuth:
-      type: http
-      scheme: bearer
-      bearerFormat: OAuth2-access-token
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: __Secure-better-auth.session_token
+      description: >-
+        The browser session. Writes must also carry an Origin header naming this deployment. API
+        tokens are not available yet.
   parameters:
     OrganizationID:
       name: organization_id
@@ -299,7 +401,37 @@ components:
         objective: {type: string, minLength: 1}
         project_id: {type: [string, 'null'], format: uuid}
         due_at: {type: [string, 'null'], format: date-time}
-        completion_criteria: {type: object}
+        completion_criteria:
+          type: object
+          additionalProperties: false
+          description: Which evidence this work needs before it can be completed.
+          properties:
+            artifact_exists: {type: boolean}
+            reviewer_approved: {type: boolean}
+    PendingApproval:
+      type: object
+      required: [id, work_unit_id, work_title, tool_name, expires_at]
+      properties:
+        id: {type: string, format: uuid}
+        work_unit_id: {type: string, format: uuid}
+        work_title: {type: string}
+        tool_name: {type: string}
+        expires_at: {type: string, format: date-time}
+    Approval:
+      type: object
+      required: [id, work_unit_id, status, tool_name, action, action_hash, expires_at, decided_at]
+      properties:
+        id: {type: string, format: uuid}
+        work_unit_id: {type: string, format: uuid}
+        status: {type: string, enum: [pending, approved, denied, expired, cancelled]}
+        tool_name: {type: string}
+        action:
+          type: object
+          additionalProperties: true
+          description: The exact action this approval binds. It cannot be changed once created.
+        action_hash: {type: string, description: Quote this when deciding.}
+        expires_at: {type: string, format: date-time}
+        decided_at: {type: [string, 'null'], format: date-time}
     WorkUnit:
       type: object
       required: [id, organization_id, title, status, version]
@@ -342,13 +474,23 @@ components:
         retryable: {type: boolean}
         details: {type: object, additionalProperties: true}
   responses:
+    BadRequest:
+      description: Malformed path, query, header or body. details.fields names the fields, never their values.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+    Unauthorized:
+      description: No valid session
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
     Forbidden:
       description: Authorization or policy rejection
       content:
         application/json:
           schema: {$ref: '#/components/schemas/Error'}
     Conflict:
-      description: Concurrent update or dependency conflict
+      description: Concurrent update, dependency conflict, or an Idempotency-Key reused with a different request
       content:
         application/json:
           schema: {$ref: '#/components/schemas/Error'}
@@ -359,6 +501,21 @@ components:
           schema: {$ref: '#/components/schemas/Error'}
     NotFound:
       description: Missing or inaccessible resource; avoid existence leaks
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+    PayloadTooLarge:
+      description: JSON body over the 256 KB limit
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+    UnsupportedMediaType:
+      description: Body is not application/json
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+    PreconditionRequired:
+      description: If-Match header missing
       content:
         application/json:
           schema: {$ref: '#/components/schemas/Error'}

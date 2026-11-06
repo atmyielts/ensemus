@@ -29,6 +29,20 @@
       "when": 1793893641188,
       "tag": "0003_work_security",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1793898476568,
+      "tag": "0004_work_integrity",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1793898491191,
+      "tag": "0005_work_integrity_security",
+      "breakpoints": true
     }
   ]
 }

@@ -1,7 +1,10 @@
-import { listMyPendingApprovals, listWorkUnits } from '@ensemus/application';
+import { listMyPendingApprovals, listMyWork } from '@ensemus/application';
+import { isOverdue } from '@ensemus/domain/work-unit';
 import Link from 'next/link';
 import { Empty, formatDate, PageHead, StatusBadge } from '@/components/ui';
 import { requireTenant } from '@/server/tenant';
+
+export const metadata = { title: 'Home | Ensemus' };
 
 // Home shows what needs this person's attention first, ordered by consequence, not by recency.
 export default async function HomePage({
@@ -12,16 +15,15 @@ export default async function HomePage({
   const { organizationId } = await params;
   const { actor, context, database } = await requireTenant(organizationId);
   const base = `/o/${organizationId}`;
-  const [pending, { items }] = await Promise.all([
+  const now = new Date();
+  const [pending, mine] = await Promise.all([
     listMyPendingApprovals(database, context),
-    listWorkUnits(database, context),
+    listMyWork(database, context, now),
   ]);
-  const now = Date.now();
-  const active = items.filter((w) => !['completed', 'cancelled'].includes(w.status));
-  const mine = active.filter((w) => w.ownerMembershipId === context.membershipId);
-  const overdue = mine.filter((w) => w.dueAt && w.dueAt.getTime() < now);
-  const blocked = mine.filter((w) => w.status === 'blocked' || w.status === 'failed');
+  const { attention, attentionHasMore, work, workHasMore } = mine;
   const firstName = actor.name.split(' ')[0];
+  const roleOn = (item: { ownerMembershipId: string }) =>
+    item.ownerMembershipId === context.membershipId ? 'You own this' : 'You are on this';
 
   return (
     <>
@@ -48,42 +50,62 @@ export default async function HomePage({
             </ul>
           </section>
         )}
-        {(overdue.length > 0 || blocked.length > 0) && (
+        {attention.length > 0 && (
           <section className="card" aria-labelledby="attention-heading">
             <h2 id="attention-heading">Needs attention</h2>
             <ul className="list">
-              {[...new Map([...blocked, ...overdue].map((w) => [w.id, w])).values()].map((work) => (
-                <li key={work.id}>
-                  <Link href={`${base}/work/${work.id}`}>{work.title}</Link>
+              {attention.map((item) => (
+                <li key={item.id}>
+                  <span>
+                    <Link href={`${base}/work/${item.id}`}>{item.title}</Link>
+                    <br />
+                    <small>{roleOn(item)}</small>
+                  </span>
                   <span className="row">
-                    {work.dueAt && work.dueAt.getTime() < now && (
-                      <small>Was due {formatDate(work.dueAt)}</small>
+                    {item.dueAt && isOverdue(item.dueAt, now) && (
+                      <small>Was due {formatDate(item.dueAt)}</small>
                     )}
-                    <StatusBadge status={work.status} />
+                    <StatusBadge status={item.status} />
                   </span>
                 </li>
               ))}
             </ul>
+            {attentionHasMore && (
+              <p style={{ margin: '0.75rem 0 0' }}>
+                There is more than this. <Link href={`${base}/work`}>See all your work</Link>
+              </p>
+            )}
           </section>
         )}
         <section className="card" aria-labelledby="mine-heading">
           <h2 id="mine-heading">Your work</h2>
-          {mine.length === 0 ? (
+          {work.length === 0 ? (
             <Empty action={<Link href={`${base}/work/new`}>Describe an outcome</Link>}>
-              Nothing is assigned to you. Start by describing the outcome you want.
+              You are not on any open work. Start by describing the outcome you want.
             </Empty>
           ) : (
-            <ul className="list">
-              {mine.slice(0, 12).map((work) => (
-                <li key={work.id}>
-                  <Link href={`${base}/work/${work.id}`}>{work.title}</Link>
-                  <span className="row">
-                    {work.dueAt && <small>Due {formatDate(work.dueAt)}</small>}
-                    <StatusBadge status={work.status} />
-                  </span>
-                </li>
-              ))}
-            </ul>
+            <>
+              <ul className="list">
+                {work.map((item) => (
+                  <li key={item.id}>
+                    <span>
+                      <Link href={`${base}/work/${item.id}`}>{item.title}</Link>
+                      <br />
+                      <small>{roleOn(item)}</small>
+                    </span>
+                    <span className="row">
+                      {item.dueAt && <small>Due {formatDate(item.dueAt)}</small>}
+                      <StatusBadge status={item.status} />
+                    </span>
+                  </li>
+                ))}
+              </ul>
+              {workHasMore && (
+                <p style={{ margin: '0.75rem 0 0' }}>
+                  These are the most urgent. <Link href={`${base}/work`}>See all work</Link>
+                </p>
+              )}
+            </>
           )}
         </section>
       </div>

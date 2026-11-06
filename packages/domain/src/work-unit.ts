@@ -101,6 +101,39 @@ export function decideTransition(facts: TransitionFacts): Decision {
   return ok;
 }
 
+/**
+ * Status changes only the approval path may make: a pause starts when a review is requested, and it
+ * ends when that review is decided. People with change rights cannot make these directly.
+ */
+export function isApprovalOnlyTransition(from: WorkState, to: WorkState): boolean {
+  return to === 'awaiting_approval' || (from === 'awaiting_approval' && to === 'running');
+}
+
+/**
+ * Whether a Work Unit's content and files may change now. Finished work has to be reopened first, and
+ * paused work is being reviewed, so changing it would pull the content out from under the reviewer.
+ */
+export function canChangeContent(state: WorkState): boolean {
+  return !isTerminal(state) && state !== 'awaiting_approval';
+}
+
+/** A file can be removed from stopped work too: it can never be reopened, and deletion is a right. */
+export function canDeleteFile(state: WorkState): boolean {
+  return state === 'cancelled' || canChangeContent(state);
+}
+
+/**
+ * A due date names a day, not an instant, so work due today is not late until that day is over. Days
+ * are UTC everywhere, the same zone the pages state when they show a date.
+ */
+export function startOfUtcDay(now: Date): Date {
+  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+}
+
+export function isOverdue(dueAt: Date | null, now: Date): boolean {
+  return dueAt !== null && dueAt.getTime() < startOfUtcDay(now).getTime();
+}
+
 export const TERMINAL_STATES: readonly WorkState[] = ['completed', 'cancelled'];
 
 export function isTerminal(state: WorkState): boolean {

@@ -5,6 +5,7 @@ import { createOrganization } from '@ensemus/database';
 import { errorCode } from '@ensemus/telemetry';
 import { headers } from 'next/headers';
 import { redirect } from 'next/navigation';
+import { safeReturnPath, withReturnPath } from '@/lib/return-path';
 import { requireActor } from './actor';
 import { getRuntime } from './runtime';
 
@@ -18,6 +19,7 @@ const field = (form: FormData, name: string) => {
 
 export async function signInAction(form: FormData) {
   const { auth, log } = getRuntime();
+  const next = safeReturnPath(field(form, 'next'));
   let failed = false;
   try {
     await auth.api.signInEmail({
@@ -28,12 +30,13 @@ export async function signInAction(form: FormData) {
     failed = true;
     log.info('auth.sign_in_failed', { errorCode: errorCode(error) });
   }
-  redirect(failed ? '/sign-in?error=invalid' : '/');
+  redirect(failed ? withReturnPath('/sign-in?error=invalid', next) : (next ?? '/'));
 }
 
 export async function signUpAction(form: FormData) {
   const { auth, config, log } = getRuntime();
-  if (!config.allowSignup) redirect('/sign-in');
+  const next = safeReturnPath(field(form, 'next'));
+  if (!config.allowSignup) redirect(withReturnPath('/sign-in', next));
   let failed = false;
   try {
     await auth.api.signUpEmail({
@@ -48,12 +51,13 @@ export async function signUpAction(form: FormData) {
     failed = true;
     log.info('auth.sign_up_failed', { errorCode: errorCode(error) });
   }
-  redirect(failed ? '/sign-up?error=invalid' : '/');
+  redirect(failed ? withReturnPath('/sign-up?error=invalid', next) : (next ?? '/'));
 }
 
-export async function signOutAction() {
+/** The invitation page signs out here to switch account, and keeps its place by sending `next`. */
+export async function signOutAction(form?: FormData) {
   await getRuntime().auth.api.signOut({ headers: await headers() });
-  redirect('/sign-in');
+  redirect(withReturnPath('/sign-in', safeReturnPath(form?.get('next'))));
 }
 
 export async function createOrganizationAction(form: FormData) {
@@ -61,11 +65,17 @@ export async function createOrganizationAction(form: FormData) {
   const { app, config, log } = getRuntime();
   const name = organizationNameSchema.safeParse(field(form, 'name'));
   if (!name.success) redirect('/?error=name');
-  const { organizationId } = await createOrganization(app, {
-    userId: actor.userId,
-    name: name.data,
-    commercialMode: config.mode,
-  });
-  log.info('organization.created', { organizationId, userId: actor.userId });
-  redirect(`/o/${organizationId}`);
+  let target = '/?error=UNEXPECTED';
+  try {
+    const { organizationId } = await createOrganization(app, {
+      userId: actor.userId,
+      name: name.data,
+      commercialMode: config.mode,
+    });
+    log.info('organization.created', { organizationId, userId: actor.userId });
+    target = `/o/${organizationId}`;
+  } catch (error) {
+    log.error('organization.create_failed', { errorCode: errorCode(error) });
+  }
+  redirect(target);
 }

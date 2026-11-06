@@ -4,14 +4,21 @@ import {
   canonicalJson,
   checkDecision,
   checkExecution,
+  reviewCovers,
+  WORK_REVIEW_TOOL,
+  workReviewAction,
   type ApprovalFacts,
   type ProposedAction,
 } from './approval';
 import { can, canChangeWork, canReadWork, type WorkAccessFacts } from './policy';
 import {
   allowedTransitions,
+  canChangeContent,
+  canDeleteFile,
   canTransition,
   decideTransition,
+  isApprovalOnlyTransition,
+  isOverdue,
   unmetCriteria,
   WORK_STATES,
   type TransitionFacts,
@@ -214,7 +221,6 @@ describe('permissions', () => {
   const base: WorkAccessFacts = {
     classification: 'internal',
     ownerMembershipId: 'owner-of-work',
-    createdByMembershipId: 'creator',
     isAssigned: false,
   };
   const member = { membershipId: 'someone', role: 'member' };
@@ -245,5 +251,101 @@ describe('permissions', () => {
   it('denies a role it does not know, even on public work', () => {
     const work = { ...base, classification: 'public' as const };
     expect(canReadWork(work, { membershipId: 'x', role: 'guest' })).toBe(false);
+  });
+
+  it('grants nothing for having created restricted work: only the owner and assignees count', () => {
+    const work = { ...base, classification: 'restricted' as const };
+    expect(Object.keys(work)).not.toContain('createdByMembershipId');
+    expect(canReadWork(work, { membershipId: 'creator', role: 'member' })).toBe(false);
+    expect(canChangeWork(work, { membershipId: 'creator', role: 'member' })).toBe(false);
+    expect(canReadWork({ ...work, isAssigned: true }, member)).toBe(true);
+  });
+});
+
+describe('who may move work in and out of a pause', () => {
+  it('keeps pausing and releasing work to the approval path', () => {
+    expect(isApprovalOnlyTransition('awaiting_approval', 'running')).toBe(true);
+    expect(isApprovalOnlyTransition('running', 'awaiting_approval')).toBe(true);
+    expect(isApprovalOnlyTransition('awaiting_approval', 'cancelled')).toBe(false);
+    expect(isApprovalOnlyTransition('verifying', 'running')).toBe(false);
+    expect(isApprovalOnlyTransition('ready', 'running')).toBe(false);
+  });
+
+  it('lets content change only while nobody is reviewing it and it is not finished', () => {
+    for (const state of WORK_STATES) {
+      const open = state !== 'completed' && state !== 'cancelled' && state !== 'awaiting_approval';
+      expect(canChangeContent(state), state).toBe(open);
+    }
+  });
+
+  it('keeps deletion possible on stopped work, but not on finished work', () => {
+    expect(canDeleteFile('cancelled')).toBe(true);
+    expect(canDeleteFile('completed')).toBe(false);
+    expect(canDeleteFile('awaiting_approval')).toBe(false);
+    expect(canDeleteFile('running')).toBe(true);
+  });
+});
+
+describe('when work is overdue', () => {
+  const due = new Date('2026-11-05T00:00:00.000Z');
+
+  it('does not call work due today overdue, at any hour of that day', () => {
+    expect(isOverdue(due, new Date('2026-11-05T00:00:01.000Z'))).toBe(false);
+    expect(isOverdue(due, new Date('2026-11-05T23:59:59.000Z'))).toBe(false);
+  });
+
+  it('calls it overdue from the start of the next day', () => {
+    expect(isOverdue(due, new Date('2026-11-06T00:00:00.000Z'))).toBe(true);
+  });
+
+  it('never calls work with no due date overdue', () => {
+    expect(isOverdue(null, new Date())).toBe(false);
+  });
+});
+
+describe('what a review of a Work Unit binds', () => {
+  const work = { id: 'w1', title: 'Report', objective: 'Write it' };
+  const later = new Date(Date.now() + 60_000);
+  const approved = (files: string[]) => ({
+    toolName: WORK_REVIEW_TOOL,
+    status: 'approved' as const,
+    expiresAt: later,
+    boundHash: actionHash(workReviewAction(work, files)),
+  });
+
+  it('gives the same hash for the same content, whatever order the files came in', () => {
+    expect(actionHash(workReviewAction(work, ['a', 'b']))).toBe(
+      actionHash(workReviewAction(work, ['b', 'a'])),
+    );
+  });
+
+  it('holds no readable text from the work', () => {
+    expect(JSON.stringify(workReviewAction(work, []))).not.toContain('Write it');
+  });
+
+  it('stops covering the work when its title, objective or files change', () => {
+    const review = approved(['a']);
+    const now = new Date();
+    expect(reviewCovers(review, workReviewAction(work, ['a']), now)).toBe(true);
+    const edited = { ...work, title: 'Other' };
+    expect(reviewCovers(review, workReviewAction(edited, ['a']), now)).toBe(false);
+    const rewritten = { ...work, objective: 'Other' };
+    expect(reviewCovers(review, workReviewAction(rewritten, ['a']), now)).toBe(false);
+    expect(reviewCovers(review, workReviewAction(work, ['a', 'b']), now)).toBe(false);
+    expect(reviewCovers(review, workReviewAction(work, []), now)).toBe(false);
+  });
+
+  it('stops covering it once the approval has run out', () => {
+    const review = { ...approved(['a']), expiresAt: new Date(Date.now() - 1) };
+    expect(reviewCovers(review, workReviewAction(work, ['a']), new Date())).toBe(false);
+  });
+
+  it('counts only an approved review, of the review tool', () => {
+    const current = workReviewAction(work, ['a']);
+    const now = new Date();
+    expect(reviewCovers({ ...approved(['a']), toolName: 'email.send' }, current, now)).toBe(false);
+    expect(reviewCovers({ ...approved(['a']), status: 'denied' as const }, current, now)).toBe(
+      false,
+    );
   });
 });

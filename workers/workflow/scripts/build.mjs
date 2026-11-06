@@ -12,9 +12,13 @@ const failureConverter = path.resolve(root, '../../packages/workflows/src/failur
 mkdirSync(dist, { recursive: true });
 
 await build({
-  entryPoints: ['src/main.ts', 'src/dispatcher.ts', 'src/migrate.ts', 'src/healthcheck.ts'].map(
-    (e) => path.join(root, e),
-  ),
+  entryPoints: [
+    'src/main.ts',
+    'src/dispatcher.ts',
+    'src/migrate.ts',
+    'src/healthcheck.ts',
+    'src/redrive.ts',
+  ].map((e) => path.join(root, e)),
   outdir: dist,
   bundle: true,
   platform: 'node',

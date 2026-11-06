@@ -1,6 +1,8 @@
 // Writes the replay corpus from a real Temporal server. Run this only when workflows deliberately
 // change, then commit the new histories alongside the patched workflow code:
 //   ENSEMUS_CAPTURE_REPLAY=1 pnpm exec vitest run --project replay
+// It only adds files: a history recorded before a patch is what proves the patch keeps it working,
+// so those are never written again. Each capture's paths are named for the patch they follow.
 import { randomUUID } from 'node:crypto';
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -29,18 +31,21 @@ describe.skipIf(!capture)('capture replay corpus', () => {
       failureConverterPath: FAILURE_CONVERTER,
     });
 
-    let reviewOutcome: 'approved' | 'denied' = 'approved';
+    // What each read of the approval finds, in order. The last one repeats.
+    let reviewStates: string[] = ['approved'];
+    let reviewMs = 60_000;
     const activities = {
       recordProbeStep: async () => undefined,
       prepareWork: async () => ({ status: 'running', needsReview: reviewNeeded }),
       produceChecklistArtifact: async () => ({ artifactId: randomUUID() }),
       requestReview: async () => ({
         approvalId: '00000000-0000-4000-8000-000000000001',
-        expiresAtMs: Date.now() + 60_000,
+        expiresAtMs: Date.now() + reviewMs,
       }),
-      reviewState: async () => reviewOutcome,
-      expireReview: async () => undefined,
-      verifyAndComplete: async () => 'completed',
+      reviewState: async () =>
+        reviewStates.length > 1 ? reviewStates.shift() : (reviewStates[0] ?? 'approved'),
+      expireReview: async () => 'expired',
+      verifyAndComplete: async () => 'verifying',
       markFailed: async () => undefined,
       sendReminders: async () => 0,
     };
@@ -73,14 +78,14 @@ describe.skipIf(!capture)('capture replay corpus', () => {
         writeFileSync(join(repoRoot, CORPUS_DIR, `${name}.json`), historyToJSON(history));
       };
 
-      const run = async (name: string, needsReview: boolean, signal: boolean) => {
+      const run = async (name: string, needsReview: boolean, signals: number) => {
         reviewNeeded = needsReview;
         const handle = await client.workflow.start('workUnitWorkflow', {
           args: [input],
           taskQueue,
           workflowId: `replay-${name}-${randomUUID()}`,
         });
-        if (signal) {
+        for (let i = 0; i < signals; i++) {
           await new Promise((done) => setTimeout(done, 1_500));
           await handle.signal('approvalResolved');
         }
@@ -88,29 +93,16 @@ describe.skipIf(!capture)('capture replay corpus', () => {
         await save(name, handle);
       };
 
-      await run('work-unit-no-review', false, false);
-      reviewOutcome = 'approved';
-      await run('work-unit-review-approved', true, true);
-      reviewOutcome = 'denied';
-      await run('work-unit-review-denied', true, true);
-
-      const probe = await client.workflow.start('platformProbeWorkflow', {
-        args: [{ probeId: '00000000-0000-4000-8000-00000000000c' }],
-        taskQueue,
-        workflowId: `replay-probe-${randomUUID()}`,
-      });
-      await new Promise((done) => setTimeout(done, 1_000));
-      await probe.signal('releaseProbe');
-      await probe.result();
-      await save('platform-probe', probe);
-
-      const reminders = await client.workflow.start('tenantRemindersWorkflow', {
-        args: [{ organizationId: input.organizationId }],
-        taskQueue,
-        workflowId: `replay-reminders-${randomUUID()}`,
-      });
-      await reminders.result();
-      await save('tenant-reminders', reminders);
+      // The review-wait-loop patch: approved, denied, woken by something else, and timing out.
+      reviewStates = ['pending', 'approved'];
+      await run('work-unit-review-wait-approved', true, 1);
+      reviewStates = ['pending', 'denied'];
+      await run('work-unit-review-wait-denied', true, 1);
+      reviewStates = ['pending', 'pending', 'approved'];
+      await run('work-unit-review-wait-other-signal', true, 2);
+      reviewStates = ['pending'];
+      reviewMs = 2_000;
+      await run('work-unit-review-wait-timeout', true, 0);
     });
     await connection.close();
     await clientConnection.close();

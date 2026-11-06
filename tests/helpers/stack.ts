@@ -36,5 +36,7 @@ export function compose(...args: string[]): string {
     cwd: repoRoot,
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'pipe'],
+    // A database dump is scanned whole, and the default limit of 1 MB would stop short of the end.
+    maxBuffer: 512 * 1024 * 1024,
   });
 }

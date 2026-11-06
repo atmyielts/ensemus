@@ -23,3 +23,6 @@ Ensemus_v2_Complete_Handbook.md
 Ensemus_v2_Architecture_Overview.md
 M0-spec-changes.diff
 next-env.d.ts
+
+# Local tool state
+.serena/

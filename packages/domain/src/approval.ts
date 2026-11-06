@@ -26,6 +26,30 @@ export function actionHash(action: ProposedAction): string {
   return createHash('sha256').update(canonicalJson(action)).digest('hex');
 }
 
+export const WORK_REVIEW_TOOL = 'work.review';
+export const WORK_REVIEW_VERSION = '2';
+
+/**
+ * What a review of a Work Unit covers: its reviewed text, through a digest, and its exact files.
+ * Always built from rows the server read, never from a form. The Work Unit's version is left out on
+ * purpose, because every status change moves it, and a status change does not alter what was seen.
+ */
+export function workReviewAction(
+  work: { id: string; title: string; objective: string | null },
+  artifactIds: readonly string[],
+): ProposedAction {
+  const content = canonicalJson({ title: work.title, objective: work.objective ?? '' });
+  return {
+    toolName: WORK_REVIEW_TOOL,
+    toolVersion: WORK_REVIEW_VERSION,
+    targetRef: `work_unit:${work.id}`,
+    payload: {
+      content_sha256: createHash('sha256').update(content).digest('hex'),
+      artifact_ids: [...artifactIds].sort(),
+    },
+  };
+}
+
 export type ApprovalStatus = 'pending' | 'approved' | 'denied' | 'expired' | 'cancelled';
 
 export type ApprovalDenial =
@@ -67,4 +91,16 @@ export function checkExecution(
     return { ok: false, reason: 'HASH_MISMATCH' };
   }
   return { ok: true };
+}
+
+/** Whether an approved review still covers this work as it stands right now. */
+export function reviewCovers(
+  approval: Pick<ApprovalFacts, 'status' | 'expiresAt' | 'boundHash'> & { toolName: string },
+  current: ProposedAction,
+  now: Date,
+): boolean {
+  return (
+    approval.toolName === WORK_REVIEW_TOOL &&
+    checkExecution(approval, { action: current, now }).ok === true
+  );
 }

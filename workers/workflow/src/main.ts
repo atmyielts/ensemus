@@ -6,10 +6,12 @@ import { readSecret } from '@ensemus/config';
 import { openAppDatabase } from '@ensemus/database';
 import { S3ObjectStore } from '@ensemus/storage';
 import { createLogger, errorCode } from '@ensemus/telemetry';
-import { createActivities } from '@ensemus/workflows/activities';
+import { createActivities, type WorkflowProbe } from '@ensemus/workflows/activities';
 import { AesGcmPayloadCodec } from '@ensemus/workflows/codec';
-import { PLATFORM_TASK_QUEUE } from '@ensemus/workflows/constants';
+import { PLATFORM_TASK_QUEUE, TEMPORAL_CHANNEL_ARGS } from '@ensemus/workflows/constants';
 import { createTemporalLogger } from '@ensemus/workflows/safe-logger';
+import { workflowIdFor } from '@ensemus/workflows/schemas';
+import { Client, Connection, WorkflowNotFoundError } from '@temporalio/client';
 import { NativeConnection, Runtime, Worker } from '@temporalio/worker';
 
 const log = createLogger('worker');
@@ -31,12 +33,34 @@ async function main() {
     accessKey: readSecret('OBJECT_STORAGE_ACCESS_KEY'),
     secretKey: readSecret('OBJECT_STORAGE_SECRET_KEY'),
   });
+  // Reads only whether a run is open, so it needs no payload codec.
+  const clientConnection = await Connection.connect({
+    address: process.env.TEMPORAL_ADDRESS ?? 'temporal:7233',
+    channelArgs: TEMPORAL_CHANNEL_ARGS,
+  });
+  const client = new Client({
+    connection: clientConnection,
+    namespace: process.env.TEMPORAL_NAMESPACE ?? 'default',
+  });
+  const probeWorkflow: WorkflowProbe = async (input) => {
+    try {
+      const { status } = await client.workflow
+        .getHandle(workflowIdFor(input), input.runId)
+        .describe();
+      return status.name === 'RUNNING' ? 'open' : 'closed';
+    } catch (error) {
+      if (error instanceof WorkflowNotFoundError) return 'closed';
+      // Not knowing is no reason to fail someone's work. The next sweep asks again.
+      log.warn('worker.probe_failed', { errorCode: errorCode(error) });
+      return 'open';
+    }
+  };
   const worker = await Worker.create({
     connection,
     namespace: process.env.TEMPORAL_NAMESPACE ?? 'default',
     taskQueue: PLATFORM_TASK_QUEUE,
     workflowBundle: { codePath: path.join(here, 'workflow-bundle.cjs') },
-    activities: createActivities({ database: db, store }),
+    activities: createActivities({ database: db, store, probeWorkflow }),
     dataConverter: {
       payloadCodecs: [new AesGcmPayloadCodec(readSecret('TEMPORAL_CODEC_KEY'))],
       failureConverterPath: path.join(here, 'failure-converter.cjs'),
@@ -53,6 +77,7 @@ async function main() {
   await worker.run();
   log.info('worker.stopped');
   await close();
+  await clientConnection.close();
   await connection.close();
 }
 

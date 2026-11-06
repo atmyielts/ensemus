@@ -6,7 +6,11 @@ export default defineConfig({
       {
         test: {
           name: 'unit',
-          include: ['packages/**/src/**/*.test.ts', 'workers/**/src/**/*.test.ts'],
+          include: [
+            'packages/**/src/**/*.test.ts',
+            'workers/**/src/**/*.test.ts',
+            'tests/unit/**/*.test.ts',
+          ],
         },
       },
       {
@@ -25,6 +29,13 @@ export default defineConfig({
           include: ['tests/replay/**/*.test.ts'],
           fileParallelism: false,
           testTimeout: 60_000,
+        },
+      },
+      {
+        test: {
+          name: 'measure',
+          include: ['tests/measure/**/*.measure.ts'],
+          fileParallelism: false,
         },
       },
       {

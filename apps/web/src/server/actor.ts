@@ -7,5 +7,10 @@ import { getRuntime } from './runtime';
 export async function requireActor() {
   const session = await getRuntime().auth.api.getSession({ headers: await headers() });
   if (!session) redirect('/sign-in');
-  return { userId: session.user.id, name: session.user.name, email: session.user.email };
+  return {
+    userId: session.user.id,
+    name: session.user.name,
+    email: session.user.email,
+    emailVerified: session.user.emailVerified,
+  };
 }

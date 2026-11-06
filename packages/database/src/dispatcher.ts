@@ -20,6 +20,10 @@ export function openDispatcherDatabase(url: string) {
 const MAX_ATTEMPTS = 12;
 const BASE_BACKOFF_MS = 1_000;
 const MAX_BACKOFF_MS = 5 * 60 * 1_000;
+/** How long a claim lasts. A crash leaves the event due again after this, with nothing to clean up. */
+const CLAIM_LEASE_MS = 2 * 60 * 1_000;
+/** How soon to try again during an outage. It costs no attempt, so a long outage loses no events. */
+const TRANSIENT_RETRY_MS = 30 * 1_000;
 
 /** Exponential backoff with jitter, capped. Exported for testing. */
 export function nextAttemptDelayMs(attempts: number, random = Math.random()): number {
@@ -27,18 +31,30 @@ export function nextAttemptDelayMs(attempts: number, random = Math.random()): nu
   return Math.round(ceiling / 2 + (random * ceiling) / 2);
 }
 
-export type ClaimResult = { handled: number; failed: number; dead: number };
+export type ClaimResult = {
+  handled: number;
+  /** Failed for a reason specific to the event. These count towards going dead. */
+  failed: number;
+  /** Failed because something this depends on is down. These never count, and never go dead. */
+  deferred: number;
+  dead: number;
+};
+
+export type DispatchOptions = {
+  limit?: number;
+  /** Whether a failure says something is down, rather than that this event is at fault. */
+  isTransient?: (error: unknown) => boolean;
+  /** Called after each event, with what went wrong if anything did. */
+  onEvent?: (error?: unknown) => void;
+  /** Checked between events, so stopping does not have to wait for the batch. */
+  shouldStop?: () => boolean;
+};
 
 /**
- * Delivers due events at least once. Rows stay locked for the handler's duration, so several
- * dispatchers can run together, and a crash before commit simply leaves the row due. Handlers must
- * therefore be idempotent. An event that keeps failing goes dead, visibly, and stops retrying.
+ * Takes up to a batch of due events in one short transaction, by pushing their next attempt out. No
+ * transaction stays open while Temporal is called, so a slow or absent server holds no locks.
  */
-export async function dispatchDueEvents(
-  db: EnsemusDrizzle,
-  handler: (event: DispatchableEvent) => Promise<void>,
-  options: { limit?: number } = {},
-): Promise<ClaimResult> {
+async function claimDueEvents(db: EnsemusDrizzle, limit: number, leaseUntil: Date) {
   return db.transaction(async (tx) => {
     const due = await tx
       .select({
@@ -49,10 +65,17 @@ export async function dispatchDueEvents(
       .from(outboxEvents)
       .where(and(eq(outboxEvents.state, 'queued'), lte(outboxEvents.nextAttemptAt, sql`now()`)))
       .orderBy(asc(outboxEvents.nextAttemptAt))
-      .limit(options.limit ?? 50)
+      .limit(limit)
       .for('update', { skipLocked: true });
-    if (due.length === 0) return { handled: 0, failed: 0, dead: 0 };
-
+    if (due.length === 0) return { due, metadata: [] };
+    for (const { organizationId, eventId } of due) {
+      await tx
+        .update(outboxEvents)
+        .set({ nextAttemptAt: leaseUntil })
+        .where(
+          and(eq(outboxEvents.organizationId, organizationId), eq(outboxEvents.eventId, eventId)),
+        );
+    }
     const metadata = await tx
       .select({
         organizationId: domainEvents.organizationId,
@@ -70,52 +93,123 @@ export async function dispatchDueEvents(
         ),
       )
       .orderBy(asc(domainEvents.occurredAt));
+    return { due, metadata };
+  });
+}
 
-    const result: ClaimResult = { handled: 0, failed: 0, dead: 0 };
-    const key = (organizationId: string, id: string) => `${organizationId}/${id}`;
-    const attemptsById = new Map(due.map((d) => [key(d.organizationId, d.eventId), d.attempts]));
+/**
+ * Delivers due events at least once, and records each outcome in its own statement. A crash after
+ * delivery delivers it again when the claim runs out, so handlers must be idempotent. An event that
+ * keeps failing goes dead, visibly, and stops retrying. An outage is not the event's fault: it costs
+ * no attempts, and the rest of the batch waits rather than taking a timeout each.
+ */
+export async function dispatchDueEvents(
+  db: EnsemusDrizzle,
+  handler: (event: DispatchableEvent) => Promise<void>,
+  options: DispatchOptions = {},
+): Promise<ClaimResult> {
+  const result: ClaimResult = { handled: 0, failed: 0, deferred: 0, dead: 0 };
+  const { due, metadata } = await claimDueEvents(
+    db,
+    options.limit ?? 50,
+    new Date(Date.now() + CLAIM_LEASE_MS),
+  );
+  const key = (organizationId: string, id: string) => `${organizationId}/${id}`;
+  const attemptsById = new Map(due.map((d) => [key(d.organizationId, d.eventId), d.attempts]));
+  const isTransient = options.isTransient ?? (() => false);
+  let holding = false;
 
-    for (const event of metadata) {
-      const eventKey = key(event.organizationId, event.id);
-      const attempts = attemptsById.get(eventKey);
-      if (attempts === undefined) continue;
-      const where = and(
-        eq(outboxEvents.organizationId, event.organizationId),
-        eq(outboxEvents.eventId, event.id),
-      );
-      try {
-        await handler({
-          organizationId: event.organizationId,
-          eventId: event.id,
-          eventType: event.eventType,
-          aggregateType: event.aggregateType,
-          aggregateId: event.aggregateId,
-          attempts,
-        });
-        await tx
+  for (const event of metadata) {
+    const attempts = attemptsById.get(key(event.organizationId, event.id));
+    if (attempts === undefined) continue;
+    const where = and(
+      eq(outboxEvents.organizationId, event.organizationId),
+      eq(outboxEvents.eventId, event.id),
+    );
+    // Stopping or an outage hands the rest back right away, instead of leaving them leased.
+    if (holding || options.shouldStop?.()) {
+      await db
+        .update(outboxEvents)
+        .set({ nextAttemptAt: new Date(Date.now() + (holding ? TRANSIENT_RETRY_MS : 0)) })
+        .where(where);
+      if (holding) result.deferred += 1;
+      continue;
+    }
+    try {
+      await handler({
+        organizationId: event.organizationId,
+        eventId: event.id,
+        eventType: event.eventType,
+        aggregateType: event.aggregateType,
+        aggregateId: event.aggregateId,
+        attempts,
+      });
+      await db
+        .update(outboxEvents)
+        .set({ state: 'published', attempts: attempts + 1 })
+        .where(where);
+      result.handled += 1;
+      options.onEvent?.();
+    } catch (error) {
+      options.onEvent?.(error);
+      if (isTransient(error)) {
+        holding = true;
+        await db
           .update(outboxEvents)
-          .set({ state: 'published', attempts: attempts + 1 })
+          .set({ nextAttemptAt: new Date(Date.now() + TRANSIENT_RETRY_MS) })
           .where(where);
-        result.handled += 1;
-      } catch {
-        const next = attempts + 1;
-        if (next >= MAX_ATTEMPTS) {
-          await tx.update(outboxEvents).set({ state: 'dead', attempts: next }).where(where);
-          result.dead += 1;
-        } else {
-          await tx
-            .update(outboxEvents)
-            .set({
-              attempts: next,
-              nextAttemptAt: new Date(Date.now() + nextAttemptDelayMs(next)),
-            })
-            .where(where);
-          result.failed += 1;
-        }
+        result.deferred += 1;
+        continue;
+      }
+      const next = attempts + 1;
+      if (next >= MAX_ATTEMPTS) {
+        await db.update(outboxEvents).set({ state: 'dead', attempts: next }).where(where);
+        result.dead += 1;
+      } else {
+        await db
+          .update(outboxEvents)
+          .set({
+            attempts: next,
+            nextAttemptAt: new Date(Date.now() + nextAttemptDelayMs(next)),
+          })
+          .where(where);
+        result.failed += 1;
       }
     }
-    return result;
-  });
+  }
+  return result;
+}
+
+/**
+ * Puts dead events back in the queue with a clean count, for an operator who has fixed the cause.
+ * Handlers are idempotent, so redelivering something that half worked is safe.
+ */
+export async function redriveDeadEvents(
+  db: EnsemusDrizzle,
+  options: { organizationId?: string } = {},
+): Promise<number> {
+  const redriven = await db
+    .update(outboxEvents)
+    .set({ state: 'queued', attempts: 0, nextAttemptAt: sql`now()` })
+    .where(
+      and(
+        eq(outboxEvents.state, 'dead'),
+        options.organizationId
+          ? eq(outboxEvents.organizationId, options.organizationId)
+          : undefined,
+      ),
+    )
+    .returning({ eventId: outboxEvents.eventId });
+  return redriven.length;
+}
+
+/** Every organization ever created, from event metadata alone, so its schedule can be checked. */
+export async function listOrganizationIds(db: EnsemusDrizzle): Promise<string[]> {
+  const rows = await db
+    .selectDistinct({ organizationId: domainEvents.organizationId })
+    .from(domainEvents)
+    .where(eq(domainEvents.eventType, 'organization.created'));
+  return rows.map((row) => row.organizationId);
 }
 
 /** Operators' view of the backlog: a number and an age, with no tenant content. */

@@ -30,6 +30,10 @@ Temporal pollers authenticate independently to Temporal service. Agent/ingestion
 
 Ingress: HTTPS only to reverse proxy → web. Internal: web → PostgreSQL, object store, Valkey and local auth; dispatcher → PostgreSQL and Temporal; worker → PostgreSQL, Temporal, object store, Valkey and key material as policy. External egress only for approved provider/connector profiles; explicit blocked-by-default in Sovereign air gap. Do not expose object storage secrets or model API keys to browsers, traces, or generic worker job bodies.
 
+## Outbox and stuck work
+
+An outage of Temporal costs events no attempts, so they wait and are delivered when it returns. Only an event at fault itself goes dead, after 12 attempts. The dispatcher logs each failure as an error code. Once the cause is fixed, put dead events back in the queue with `docker compose exec dispatcher node dist/redrive.js [organization-id]`, which prints a count and no content. The dispatcher also checks every tenant's reminder schedule when it starts. Each tenant's 15-minute upkeep expires overdue approvals, finishes byte deletions the object store refused, removes uploads whose row never arrived, and marks work failed when Temporal says the run holding it has closed.
+
 ## Upgrades and rollback
 
 Dry-run migration and replay tests in staging using production-like data/roles; back up; release compatible DB changes; deploy compatible workers and web versions; canary and verify; delay destructive schema contraction. Rollbacks can be limited by irreversible database changes and Temporal workflow history version compatibility; an operator must receive those limitations before upgrade.
