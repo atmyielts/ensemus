@@ -14,6 +14,12 @@ const SAFE_FIELDS = new Set([
   'runId',
   'stepId',
   'probeId',
+  // M7 (ADR-031). IDs and codes only, like the rest.
+  'simulationId',
+  'processRunId',
+  'migrationId',
+  'installationId',
+  'packKey',
   'workflowId',
   'taskQueue',
   'status',

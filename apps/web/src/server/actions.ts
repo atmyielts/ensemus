@@ -28,12 +28,12 @@ async function submitForm(form: CredentialForm, event: string): Promise<string |
   const { log, submitCredentials } = getRuntime();
   try {
     const { outcome, status, setCookie } = await submitCredentials(form, await headers());
-    if (outcome === 'accepted') {
+    if (outcome === 'accepted' || outcome === 'two_factor') {
       const jar = await cookies();
       for (const [name, value] of parseSetCookieHeader(setCookie ?? '')) {
         jar.set(name, value.value, toCookieOptions(value));
       }
-      return null;
+      return outcome === 'two_factor' ? 'two_factor' : null;
     }
     log.info(event, { errorCode: `HTTP_${status}` });
     return outcome === 'rate_limited' ? 'rate' : 'invalid';
@@ -52,6 +52,7 @@ export async function signInAction(form: FormData) {
     },
     'auth.sign_in_failed',
   );
+  if (error === 'two_factor') redirect(withReturnPath('/sign-in/two-factor', next));
   redirect(error ? withReturnPath(`/sign-in?error=${error}`, next) : (next ?? '/'));
 }
 

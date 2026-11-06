@@ -52,6 +52,10 @@ export default async function SignInPage({
           Given a setup code? <Link href={withReturnPath('/setup', next)}>Use it here</Link>
         </p>
       )}
+      <p className="below-sheet">
+        Does your company sign in through its own provider?{' '}
+        <Link href="/sign-in/sso">Sign in that way</Link>
+      </p>
     </main>
   );
 }

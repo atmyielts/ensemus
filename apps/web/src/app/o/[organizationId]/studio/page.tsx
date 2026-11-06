@@ -1,5 +1,6 @@
 import { listAgentRegistry } from '@ensemus/application/ai-agents';
 import { can } from '@ensemus/domain/policy';
+import { canProduct } from '@ensemus/domain/product-policy';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { ActionLink, DestinationList, Empty, PageHead, formatDateTime } from '@/components/ui';
@@ -86,6 +87,10 @@ export default async function StudioPage({
         <DestinationList
           label="Assistant preparation"
           items={[
+            ...(canProduct(context.role,'pack.manage')?[{
+              href:`${base}/packs`,label:'Packs',
+              description:'Review packaged workflows and the access they request.',icon:'studio' as const,
+            }]:[]),
             ...(can(context.role, 'model.manage') || can(context.role, 'model.activate')
               ? [
                   {

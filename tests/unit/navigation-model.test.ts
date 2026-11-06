@@ -15,7 +15,7 @@ describe('working workspace navigation', () => {
   it('groups routine work, the builder and administration without future or dead destinations', () => {
     const groups = navigation('owner');
     expect(groups.map((group) => group.label)).toEqual(['Workspace', 'Build', 'Organization']);
-    expect(groups.flatMap((group) => group.items)).toHaveLength(9);
+    expect(groups.flatMap((group) => group.items)).toHaveLength(10);
     const items = groups.flatMap((group) =>
       group.items.flatMap((item) => [item, ...(item.children ?? [])]),
     );
@@ -27,6 +27,7 @@ describe('working workspace navigation', () => {
       );
       expect(existsSync(fileURLToPath(page)), item.href).toBe(true);
       expect(item.href).not.toBe(`${base}/agents`);
+      expect(['pulse','compose','objects','get-started'].map(path=>`${base}/${path}`)).not.toContain(item.href);
     }
     for (const item of visibleSettings('owner')) {
       expect(
@@ -69,6 +70,9 @@ describe('working workspace navigation', () => {
     ['/external-actions/a', 'Approvals'],
     ['/studio', 'Automation Studio'],
     ['/settings/agents', 'Automation Studio'],
+    ['/packs/installations/a', 'Automation Studio'],
+    ['/assistants/a', 'Assistants'],
+    ['/security/sso', 'Administration'],
     ['/settings/models/a', 'Administration'],
     ['/connections', 'Administration'],
     ['/knowledge/sources/a', 'Knowledge'],

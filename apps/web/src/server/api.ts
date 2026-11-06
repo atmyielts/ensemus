@@ -31,6 +31,7 @@ import type {
   ProposeEmailActionBody,
   ReviseEmailActionBody,
 } from '@ensemus/contracts/external-actions';
+import { assertTenantSignIn } from '@ensemus/application/sso';
 import type { components } from '@ensemus/contracts/openapi';
 import {
   resolveTenantContext,
@@ -164,6 +165,8 @@ export type ApiScope<P> = {
   request: Request;
   requestId: string;
   userId: string;
+  /** From the verified cookie, for recent-MFA checks. Never from the request. */
+  sessionId: string;
   context: TenantContext;
   database: AppDatabase;
   params: P;
@@ -216,10 +219,12 @@ export function apiRoute<S extends z.ZodType<{ organizationId: string }>>(
       who = { ...who, context };
       // After the membership check, so nobody outside the tenant can learn it is being restored.
       await getRestoreGate().assertServing(context);
+      await assertTenantSignIn(app, context, { sessionId: session.session.id });
       response = await handler({
         request,
         requestId,
         userId: session.user.id,
+        sessionId: session.session.id,
         context,
         database: app,
         params: params.data,

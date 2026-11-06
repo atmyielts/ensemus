@@ -19,6 +19,7 @@ await build({
     'src/healthcheck.ts',
     'src/redrive.ts',
     'src/setup-token.ts',
+    'src/identity-operator.ts',
     'src/ledger-backlog.ts',
     'src/reapply-ledger.ts',
     'src/connector-worker.ts',

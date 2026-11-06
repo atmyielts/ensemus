@@ -17,7 +17,18 @@
     "./ai-events": "./src/ai-events.ts",
     "./ai-tools": "./src/ai-tools.ts",
     "./knowledge": "./src/knowledge.ts",
-    "./knowledge-events": "./src/knowledge-events.ts"
+    "./knowledge-events": "./src/knowledge-events.ts",
+    "./product-policy": "./src/product-policy.ts",
+    "./product-events": "./src/product-events.ts",
+    "./pulse": "./src/pulse.ts",
+    "./outcome-composer": "./src/outcome-composer.ts",
+    "./agent-draft": "./src/agent-draft.ts",
+    "./simulation": "./src/simulation.ts",
+    "./process-spec": "./src/process-spec.ts",
+    "./process-run": "./src/process-run.ts",
+    "./custom-object": "./src/custom-object.ts",
+    "./pack": "./src/pack.ts",
+    "./onboarding": "./src/onboarding.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"

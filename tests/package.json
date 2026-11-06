@@ -28,12 +28,15 @@
     "@temporalio/worker": "1.25.0",
     "@temporalio/workflow": "1.25.0",
     "drizzle-orm": "0.45.4",
-    "pg": "8.23.1"
+    "pg": "8.23.1",
+    "@ensemus/packs": "workspace:*"
   },
   "devDependencies": {
     "@types/pg": "8.23.1",
     "ajv": "8.20.0",
     "ajv-formats": "3.0.1",
-    "yaml": "2.9.1"
+    "yaml": "2.9.1",
+    "samlify": "2.15.1",
+    "selfsigned": "5.5.0"
   }
 }

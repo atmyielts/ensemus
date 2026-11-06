@@ -17,6 +17,7 @@ const config: NextConfig = {
     '@ensemus/domain',
     '@ensemus/policy',
     '@ensemus/knowledge',
+    '@ensemus/packs',
     '@ensemus/secrets',
     '@ensemus/storage',
     '@ensemus/telemetry',

@@ -4,14 +4,18 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./mfa": "./src/mfa.ts",
+    "./sso": "./src/sso.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@better-auth/sso": "1.7.17",
     "@ensemus/database": "workspace:*",
     "@ensemus/telemetry": "workspace:*",
+    "@xmldom/xmldom": "0.9.12",
     "better-auth": "1.7.17"
   }
 }
