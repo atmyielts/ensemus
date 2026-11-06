@@ -4,11 +4,15 @@ import { z } from 'zod';
 
 const classificationSchema = z.enum(['public', 'internal', 'confidential', 'restricted']);
 
-const uuidList = (max: number) => z.array(z.uuid()).max(max);
+const uuid = z
+  .string()
+  .regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i)
+  .transform((value) => value.toLowerCase());
+const uuidList = (max: number) => z.array(uuid).max(max);
 
 export const sourceGrantSchema = z.discriminatedUnion('kind', [
-  z.strictObject({ kind: z.literal('membership'), membership_id: z.uuid() }),
-  z.strictObject({ kind: z.literal('team'), team_id: z.uuid() }),
+  z.strictObject({ kind: z.literal('membership'), membership_id: uuid }),
+  z.strictObject({ kind: z.literal('team'), team_id: uuid }),
   z.strictObject({ kind: z.literal('organization') }),
 ]);
 export type SourceGrantBody = z.infer<typeof sourceGrantSchema>;
@@ -57,7 +61,10 @@ export const companySearchQuerySchema = z.strictObject({
   limit: z.coerce.number().int().min(1).max(50).optional(),
 });
 
-export const askQuestionSchema = z.strictObject({ question: z.string().trim().min(1).max(4000) });
+export const askQuestionSchema = z.strictObject({
+  question: z.string().trim().min(1).max(4000),
+  classification: classificationSchema.default('restricted'),
+});
 export type AskQuestionBody = z.infer<typeof askQuestionSchema>;
 
 const subjectRef = z
@@ -71,7 +78,7 @@ export const proposeFactSchema = z.strictObject({
   evidence: z
     .array(
       z.strictObject({
-        chunk_id: z.uuid(),
+        chunk_id: uuid,
         quote_start: z.int().min(0),
         quote_end: z.int().min(1),
       }),
@@ -91,7 +98,7 @@ export type ReviewFactBody = z.infer<typeof reviewFactSchema>;
 
 const graphNode = z.strictObject({
   type: z.enum(['client', 'project', 'membership', 'team', 'work_unit', 'knowledge_source']),
-  id: z.uuid(),
+  id: uuid,
 });
 
 export const linkNodesSchema = z.strictObject({
@@ -141,20 +148,37 @@ export const reviewMcpToolSchema = z.discriminatedUnion('decision', [
 ]);
 export type ReviewMcpToolBody = z.infer<typeof reviewMcpToolSchema>;
 
-export const decideArtifactSchema = z.strictObject({
-  artifact_sha256: z.string().regex(/^[0-9a-f]{64}$/),
-  verdict: z.enum(['accepted', 'rejected']),
-  reason: z.string().trim().min(1).max(2000).optional(),
-});
+export const decideArtifactSchema = z
+  .strictObject({
+    artifact_sha256: z.string().regex(/^[0-9a-f]{64}$/),
+    objective_sha256: z
+      .string()
+      .regex(/^[0-9a-f]{64}$/)
+      .optional(),
+    citations_sha256: z
+      .string()
+      .regex(/^[0-9a-f]{64}$/)
+      .optional(),
+    verdict: z.enum(['accepted', 'rejected']),
+    reason: z.string().trim().min(1).max(2000).optional(),
+  })
+  .superRefine((value, context) => {
+    if (value.verdict === 'accepted')
+      for (const key of ['objective_sha256', 'citations_sha256'] as const)
+        if (!value[key])
+          context.addIssue({ code: 'custom', path: [key], message: 'Required for acceptance' });
+    if (value.verdict === 'rejected' && !value.reason)
+      context.addIssue({ code: 'custom', path: ['reason'], message: 'Required for rejection' });
+  });
 export type DecideArtifactBody = z.infer<typeof decideArtifactSchema>;
 
 export const startClientOnboardingSchema = z.strictObject({
   deal_ref: z.string().trim().min(1).max(128),
   client_name: z.string().trim().min(1).max(200),
   project_name: z.string().trim().min(1).max(200),
-  owner_membership_id: z.uuid(),
-  reviewer_membership_id: z.uuid(),
-  email_connection_id: z.uuid(),
+  owner_membership_id: uuid,
+  reviewer_membership_id: uuid,
+  email_connection_id: uuid,
   contact_email: z.email().max(254),
 });
 export type StartClientOnboardingBody = z.infer<typeof startClientOnboardingSchema>;

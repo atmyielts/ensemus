@@ -224,6 +224,29 @@ M4's `egress_decisions` allows a null run, and only `ensemus_agent` writes it, s
 
 **The workflow decides nothing.** It calls `advanceOnboarding` and waits on a durable timer, so a change in the steps needs no patch. It joins the replay corpus anyway.
 
+### D3 addendum. Restored generated-file deletion (0210)
+
+A restored generated-file deletion needs more than a restored tombstone. The normal restore gate
+compares the independent ledger with database tombstones. Recording a missing tombstone before a
+failed generated-file cleanup would otherwise reopen the tenant while the retained writer or artifact
+metadata was still unresolved.
+
+`artifact_lineage.restore_reapply_pending` is therefore set in the same transaction that restores a
+previously missing generated-file tombstone. The header becomes `blocked` immediately. The gate
+continues to count that ledger entry as unapplied while the marker remains, across worker restarts
+and web replicas. An ordinary asynchronous deletion never acquires this restore marker, so a current
+tenant does not close merely because background deletion is pending.
+
+The lifecycle adapter must honor holds, positively prove the exact writer generation quiescent,
+remove the generated artifact through the narrow metadata-erasure function, delete its bytes and
+verify their absence outside any SQL transaction. Only then may the final transaction retain the
+physical-erasure proof and clear the marker. SQL refuses a person or agent clearing it, a service
+clearing it without retained writer/lifecycle/metadata proof, and deletion of a header whose restore
+marker is unresolved. A missing adapter, absent object alone, timeout or elapsed lease proves nothing.
+
+This is an additive migration and source-level regression coverage. Migration, real-role restore,
+provider-writer fencing and hosted restore acceptance remain unverified until their actual gates run.
+
 ## Trade-offs
 
 - **A shared role, again.** RLS on a shared role is bug-proofing and not a boundary against a compromised web tier. A separate knowledge-worker role would make `chunks` unwritable from web. It needs the same provisioning work as M4's `ensemus_agent`, and could be the same change. The outside review should decide.

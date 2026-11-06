@@ -4,6 +4,7 @@
 import { sql, type SQL } from 'drizzle-orm';
 import {
   bigint,
+  boolean,
   check,
   customType,
   foreignKey,
@@ -19,8 +20,8 @@ import {
   uuid,
 } from 'drizzle-orm/pg-core';
 import { memberships, organizations } from './schema';
-import { connections, externalResources, integrationsSchema } from './schema-integrations';
-import { artifacts, clients, projects, teams, workSchema, workUnits } from './schema-work';
+import { connections, externalResources,externalActions, integrationsSchema } from './schema-integrations';
+import { approvals,artifacts, clients, projects, teams, workSchema, workUnits } from './schema-work';
 
 const bytea = customType<{ data: Buffer; driverData: Buffer }>({ dataType: () => 'bytea' });
 const tsvector = customType<{ data: string; driverData: string }>({ dataType: () => 'tsvector' });
@@ -173,6 +174,8 @@ export const knowledgeDocuments = knowledgeSchema.table(
     sizeBytes: bigint({ mode: 'number' }).notNull(),
     mediaType: text().notNull(),
     objectKey: text(),
+    /** Purge observed the tracked object's presence before deleting it; retained across retries. */
+    objectPurgeObserved: boolean().notNull().default(false),
     classification: text().notNull(),
     /** `not_scanned` is what it says. Nothing here claims a scan that did not run (ADR-029 D4). */
     scanState: text().notNull().default('not_scanned'),
@@ -204,7 +207,10 @@ export const knowledgeDocuments = knowledgeSchema.table(
     }),
     uniqueIndex('knowledge_documents_one_current')
       .on(t.organizationId, t.sourceId)
-      .where(sql`${t.supersededAt} is null and ${t.state} <> 'purged'`),
+      .where(sql`${t.supersededAt} is null and ${t.state} = 'searchable'`),
+    uniqueIndex('knowledge_documents_one_pending')
+      .on(t.organizationId, t.sourceId)
+      .where(sql`${t.state} in ('received','parsing')`),
     index('knowledge_documents_state_idx').on(t.organizationId, t.state, t.updatedAt),
     check(
       'knowledge_documents_state_check',
@@ -254,6 +260,41 @@ export const knowledgeDocumentStaging = knowledgeSchema.table(
       foreignColumns: [knowledgeDocuments.organizationId, knowledgeDocuments.id],
     }).onDelete('cascade'),
     check('knowledge_document_staging_bound', sql`octet_length(${t.body}) <= 26214400`),
+  ],
+);
+
+/** Durable store writer barriers. A crash leaves active until a storage adapter proves quiescence. */
+export const knowledgeObjectWriters = knowledgeSchema.table(
+  'object_writers',
+  {
+    organizationId: uuid().notNull(),
+    documentId: uuid().notNull(),
+    sourceId: uuid().notNull(),
+    generation: bigint({ mode: 'number' }).notNull(),
+    writeId: uuid().notNull(),
+    startedByMembershipId: uuid(),
+    state: text().notNull(),
+    startedAt: createdAt(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.organizationId, t.documentId] }),
+    foreignKey({
+      columns: [t.organizationId, t.documentId, t.sourceId],
+      foreignColumns: [
+        knowledgeDocuments.organizationId,
+        knowledgeDocuments.id,
+        knowledgeDocuments.sourceId,
+      ],
+    }),
+    foreignKey({
+      columns: [t.organizationId, t.startedByMembershipId],
+      foreignColumns: [memberships.organizationId, memberships.id],
+    }),
+    index('knowledge_object_writers_source_idx').on(t.organizationId, t.sourceId, t.state),
+    check(
+      'knowledge_object_writer_state',
+      sql`${t.state} in ('active','settled') and ${t.generation}>0`,
+    ),
   ],
 );
 
@@ -553,6 +594,10 @@ export const knowledgeEvidencePackages = knowledgeSchema.table(
     usedTokens: integer().notNull(),
     strongestClassification: text().notNull(),
     packageSha256: text().notNull(),
+    verifiedFactIds: uuid()
+      .array()
+      .notNull()
+      .default(sql`'{}'::uuid[]`),
     createdAt: createdAt(),
   },
   (t) => [
@@ -619,6 +664,7 @@ export const knowledgeAnswers = knowledgeSchema.table(
     id: uuid().notNull().defaultRandom(),
     requesterMembershipId: uuid().notNull(),
     question: text().notNull(),
+    questionClassification: text().notNull().default('restricted'),
     state: text().notNull().default('queued'),
     /** A code from the fixed list in @ensemus/domain/knowledge. Never provider text. */
     refusalCode: text(),
@@ -654,6 +700,10 @@ export const knowledgeAnswers = knowledgeSchema.table(
       sql`${t.state} in ('queued','running','answered','no_evidence','refused','failed')`,
     ),
     check('knowledge_answers_question_size', sql`length(${t.question}) between 1 and 4000`),
+    check(
+      'knowledge_answers_question_class',
+      sql`${t.questionClassification} in ('public','internal','confidential','restricted')`,
+    ),
     check(
       'knowledge_answers_answer_size',
       sql`${t.answerText} is null or length(${t.answerText}) <= 65536`,
@@ -731,6 +781,8 @@ export const knowledgeArtifactCitations = knowledgeSchema.table(
     contentSha256: text().notNull(),
     artifactStart: integer().notNull(),
     artifactEnd: integer().notNull(),
+    /** Named viewer who recorded this entire citation batch. Null legacy attribution never qualifies. */
+    recordedByMembershipId: uuid(),
     createdAt: createdAt(),
   },
   (t) => [
@@ -739,6 +791,10 @@ export const knowledgeArtifactCitations = knowledgeSchema.table(
       columns: [t.organizationId, t.artifactId],
       foreignColumns: [artifacts.organizationId, artifacts.id],
     }).onDelete('cascade'),
+    foreignKey({
+      columns: [t.organizationId, t.recordedByMembershipId],
+      foreignColumns: [memberships.organizationId, memberships.id],
+    }),
     index('knowledge_artifact_citations_source_idx').on(t.organizationId, t.sourceId),
     check(
       'knowledge_artifact_citations_span',
@@ -760,6 +816,10 @@ export const knowledgeArtifactVerifications = knowledgeSchema.table(
     workUnitId: uuid().notNull(),
     artifactSha256: text().notNull(),
     objectiveSha256: text().notNull(),
+    /** Exact ordered citations and recording viewer. Null legacy proofs never authorize acceptance. */
+    citationsSha256: text(),
+    /** Assigned under the artifact lock; legacy timestamps never authorize a newer decision. */
+    proofOrder: bigint({ mode: 'number' }),
     kind: text().notNull(),
     verdict: text().notNull(),
     /** A code for the grounding check. A person's own words go in `reason`. */
@@ -788,6 +848,13 @@ export const knowledgeArtifactVerifications = knowledgeSchema.table(
       t.organizationId,
       t.artifactId,
       t.createdAt,
+    ),
+    uniqueIndex('artifact_verifications_proof_order')
+      .on(t.organizationId, t.artifactId, t.proofOrder)
+      .where(sql`${t.proofOrder} is not null`),
+    check(
+      'artifact_verifications_citation_digest',
+      sql`${t.citationsSha256} is null or ${t.citationsSha256} ~ '^[0-9a-f]{64}$'`,
     ),
     check('knowledge_artifact_verifications_kind', sql`${t.kind} in ('grounding','human')`),
     check(
@@ -819,7 +886,19 @@ export const knowledgePurgeJobs = knowledgeSchema.table(
     factsRemoved: integer().notNull().default(0),
     answersRemoved: integer().notNull().default(0),
     blobsRemoved: integer().notNull().default(0),
+    transcriptsRemoved: integer().notNull().default(0),
+    derivedArtifactsRemoved:integer().notNull().default(0),
+    derivedArtifactsHeld:integer().notNull().default(0),
+    artifactsCheckedAt:timestamp({withTimezone:true}),
+    /** Proof is written only after M4 durably fences all source-using runs and verifies zero payloads. */
+    transcriptsCheckedAt: timestamp({ withTimezone: true }),
+    transcriptSourceVersion: bigint({ mode: 'number' }),
+    transcriptRunsSha256: text(),
     attempts: integer().notNull().default(0),
+    /** Scheduled workflow restart requests, independent of projection Activity attempts. */
+    retryRequests: integer().notNull().default(0),
+    nextRetryAt: timestamp({withTimezone:true}).default(sql`now()+interval '10 minutes'`),
+    lastAttemptAt: timestamp({withTimezone:true}),
     lastErrorCode: text(),
     requestedAt: createdAt(),
     completedAt: timestamp({ withTimezone: true }),
@@ -843,6 +922,11 @@ export const knowledgePurgeJobs = knowledgeSchema.table(
     check(
       'knowledge_purge_jobs_completed',
       sql`(${t.state} = 'completed') = (${t.completedAt} is not null)`,
+    ),
+    check('knowledge_purge_retry_requests',sql`${t.retryRequests}>=0`),
+    check(
+      'knowledge_purge_transcript_proof',
+      sql`${t.transcriptsRemoved}>=0 and ((${t.transcriptsCheckedAt} is null and ${t.transcriptSourceVersion} is null and ${t.transcriptRunsSha256} is null) or (${t.transcriptsCheckedAt} is not null and ${t.transcriptSourceVersion}>0 and ${t.transcriptRunsSha256} ~ '^[0-9a-f]{64}$'))`,
     ),
   ],
 );
@@ -958,6 +1042,18 @@ export const clientOnboardings = workSchema.table(
     /** The parent Work Unit. Its children are the steps, with dependencies in `work_dependencies`. */
     workUnitId: uuid().notNull(),
     state: text().notNull().default('started'),
+    ownerMembershipId:uuid(),
+    reviewerMembershipId:uuid(),
+    emailConnectionId:uuid(),
+    contactEmail:text(),
+    briefWorkUnitId:uuid(),reviewWorkUnitId:uuid(),sendWorkUnitId:uuid(),
+    parentObjectiveSha256:text(),briefObjectiveSha256:text(),reviewObjectiveSha256:text(),sendObjectiveSha256:text(),
+    /** M4's actual run; the tenant FK is added when the ai schema is joined. */
+    agentRunId:uuid(),
+    /** Immutable provenance identifier; deliberately survives the generated artifact's privacy purge. */
+    briefArtifactId:uuid(),
+    acceptedVerificationId:uuid(),
+    emailExternalActionId:uuid(),emailApprovalId:uuid(),
     stateCode: text(),
     costMicros: bigint({ mode: 'number' }),
     requestedByMembershipId: uuid().notNull(),
@@ -968,6 +1064,15 @@ export const clientOnboardings = workSchema.table(
   (t) => [
     primaryKey({ columns: [t.organizationId, t.id] }),
     unique('client_onboardings_deal').on(t.organizationId, t.dealRef),
+    foreignKey({columns:[t.organizationId,t.ownerMembershipId],foreignColumns:[memberships.organizationId,memberships.id]}),
+    foreignKey({columns:[t.organizationId,t.reviewerMembershipId],foreignColumns:[memberships.organizationId,memberships.id]}),
+    foreignKey({columns:[t.organizationId,t.emailConnectionId],foreignColumns:[connections.organizationId,connections.id]}),
+    foreignKey({columns:[t.organizationId,t.briefWorkUnitId],foreignColumns:[workUnits.organizationId,workUnits.id]}),
+    foreignKey({columns:[t.organizationId,t.reviewWorkUnitId],foreignColumns:[workUnits.organizationId,workUnits.id]}),
+    foreignKey({columns:[t.organizationId,t.sendWorkUnitId],foreignColumns:[workUnits.organizationId,workUnits.id]}),
+    foreignKey({columns:[t.organizationId,t.acceptedVerificationId],foreignColumns:[knowledgeArtifactVerifications.organizationId,knowledgeArtifactVerifications.id]}),
+    foreignKey({columns:[t.organizationId,t.emailExternalActionId],foreignColumns:[externalActions.organizationId,externalActions.id]}),
+    foreignKey({columns:[t.organizationId,t.emailApprovalId],foreignColumns:[approvals.organizationId,approvals.id]}),
     foreignKey({
       columns: [t.organizationId, t.clientId],
       foreignColumns: [clients.organizationId, clients.id],

@@ -3,6 +3,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import {
   appendAudit,
   artifacts,
+  connections,
   domainEvents,
   memberships,
   notifications,
@@ -66,10 +67,10 @@ import { emit } from './events';
 import { canonicalId, idSchema } from './ids';
 import { idFromRequest } from './request-id';
 
-// An outside system's receipt is not offered yet: nothing can provide one until external actions
-// exist, so a criterion asking for it could never be met and the work could never finish.
+// M3's receipt criterion requires an active action connection. The final M3/M4 join retains its central
+// hasActionConnection and receipt-count implementations; this foundation uses the same actual rows.
 const criteriaSchema = z.array(
-  z.strictObject({ kind: z.enum(['artifact_exists', 'reviewer_approved']) }),
+  z.strictObject({ kind: z.enum(['artifact_exists', 'reviewer_approved', 'external_receipt']) }),
 );
 
 export const createWorkInput = z.strictObject({
@@ -210,6 +211,15 @@ export async function createWorkUnit(
   context: TenantContext,
   raw: z.input<typeof createWorkInput>,
 ) {
+  return withTenantTx(database, context, (tx) => createWorkUnitInTx(tx, context, raw));
+}
+
+/** The same kernel creation operation, for atomic company workflows such as client onboarding. */
+export async function createWorkUnitInTx(
+  tx: Tx,
+  context: TenantContext,
+  raw: z.input<typeof createWorkInput>,
+) {
   if (!can(context.role, 'work.create')) throw new AppError('FORBIDDEN');
   const parsed = createWorkInput.safeParse(raw);
   if (!parsed.success) throw new AppError('INVALID_INPUT');
@@ -218,54 +228,60 @@ export async function createWorkUnit(
   const id = requestKey
     ? idFromRequest('work', context.membershipId, requestKey, content)
     : randomUUID();
-  return withTenantTx(database, context, async (tx) => {
-    const owner = input.ownerMembershipId ?? context.membershipId;
-    await assertActiveMember(tx, owner);
-    if (input.projectId) await assertProjectInTenant(tx, input.projectId);
-    const [row] = await tx
-      .insert(workUnits)
-      .values({
-        organizationId: context.organizationId,
-        id,
-        title: input.title,
-        objective: input.objective ?? null,
-        projectId: input.projectId ?? null,
-        ownerMembershipId: owner,
-        createdByMembershipId: context.membershipId,
-        classification: input.classification,
-        dueAt: input.dueAt ?? null,
-        completionCriteria: input.completionCriteria,
-        executionPlan: input.executionPlan ?? null,
-      })
-      .onConflictDoNothing()
-      .returning();
-    if (!row) return loadReadable(tx, context, id);
-    // The creator is on the work the way anyone else is: listed, and removable once it has moved.
-    await tx.insert(workAssignments).values({
+  const owner = input.ownerMembershipId ?? context.membershipId;
+  await assertActiveMember(tx, owner);
+  if (input.projectId) await assertProjectInTenant(tx, input.projectId);
+  if (input.completionCriteria.some((criterion) => criterion.kind === 'external_receipt')) {
+    const [connection] = await tx
+      .select({ id: connections.id })
+      .from(connections)
+      .where(and(eq(connections.state, 'active'), eq(connections.connectorType, 'email_smtp')))
+      .limit(1);
+    if (!connection) throw new AppError('INVALID_INPUT');
+  }
+  const [row] = await tx
+    .insert(workUnits)
+    .values({
       organizationId: context.organizationId,
-      workUnitId: id,
-      membershipId: context.membershipId,
-      responsibility: 'contributor',
-      actorType: 'human',
-    });
-    await emit(tx, context, {
-      eventType: 'work.created',
-      aggregateType: 'work_unit',
-      aggregateId: id,
-      aggregateVersion: 1,
+      id,
+      title: input.title,
+      objective: input.objective ?? null,
+      projectId: input.projectId ?? null,
+      ownerMembershipId: owner,
+      createdByMembershipId: context.membershipId,
       classification: input.classification,
-      payload: { work_unit_id: id },
-    });
-    await appendAudit(tx, {
-      organizationId: context.organizationId,
-      actorType: 'user',
-      actorId: context.membershipId,
-      action: 'work.created',
-      targetRef: `work_unit:${id}`,
-      decision: 'allow',
-    });
-    return row as WorkRow;
+      dueAt: input.dueAt ?? null,
+      completionCriteria: input.completionCriteria,
+      executionPlan: input.executionPlan ?? null,
+    })
+    .onConflictDoNothing()
+    .returning();
+  if (!row) return loadReadable(tx, context, id);
+  // The creator is on the work the way anyone else is: listed, and removable once it has moved.
+  await tx.insert(workAssignments).values({
+    organizationId: context.organizationId,
+    workUnitId: id,
+    membershipId: context.membershipId,
+    responsibility: 'contributor',
+    actorType: 'human',
   });
+  await emit(tx, context, {
+    eventType: 'work.created',
+    aggregateType: 'work_unit',
+    aggregateId: id,
+    aggregateVersion: 1,
+    classification: input.classification,
+    payload: { work_unit_id: id },
+  });
+  await appendAudit(tx, {
+    organizationId: context.organizationId,
+    actorType: 'user',
+    actorId: context.membershipId,
+    action: 'work.created',
+    targetRef: `work_unit:${id}`,
+    decision: 'allow',
+  });
+  return row as WorkRow;
 }
 
 export function getWorkUnit(database: AppDatabase, context: TenantContext, id: string) {

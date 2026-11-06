@@ -2,11 +2,18 @@
 import type { OnboardingStep } from '@ensemus/application/knowledge/onboarding';
 import type { OnboardingDeps } from './knowledge-deps';
 import type { ClientOnboardingInput } from './knowledge-schemas';
+import { advanceClientOnboarding } from '@ensemus/application/knowledge/onboarding';
+import { createServiceContext } from '@ensemus/database/service';
 
-export function createClientOnboardingActivities(_deps: OnboardingDeps) {
+export function createClientOnboardingActivities(deps: OnboardingDeps) {
   return {
-    async advanceOnboarding(_input: ClientOnboardingInput): Promise<OnboardingStep> {
-      throw new Error('NOT_IMPLEMENTED');
+    async advanceOnboarding(input: ClientOnboardingInput): Promise<OnboardingStep> {
+      return advanceClientOnboarding(
+        deps.database,
+        createServiceContext(input.organizationId),
+        deps,
+        input,
+      );
     },
   };
 }

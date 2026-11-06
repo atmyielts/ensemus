@@ -4,6 +4,10 @@ export const FILE_TOO_LARGE =
   'That file is larger than 25 MB, so it was not added. Attach a smaller one.';
 
 const MESSAGE_FOR = new Map<string, string>([
+  [
+    'IDEMPOTENCY_KEY_REUSED',
+    'This request was already submitted with different details. Reload before starting another.',
+  ],
   ['NOT_FOUND', 'Not found, or you do not have access.'],
   ['FORBIDDEN', 'You do not have permission to do that.'],
   ['VERSION_CONFLICT', 'Someone else changed this first. Check the latest version and try again.'],

@@ -8,6 +8,8 @@ export default defineConfig({
     './src/schema-work.ts',
     './src/schema-integrations.ts',
     './src/schema-knowledge.ts',
+    './src/schema-artifact-provenance.ts',
+    './src/schema-client-access.ts',
   ],
   out: './migrations',
   casing: 'snake_case',

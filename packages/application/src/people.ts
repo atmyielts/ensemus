@@ -654,7 +654,12 @@ export async function createClient(
   return withTenantTx(database, context, async (tx) => {
     const [row] = await tx
       .insert(clients)
-      .values({ organizationId: context.organizationId, id, ...input })
+      .values({
+        organizationId: context.organizationId,
+        id,
+        ownerMembershipId: context.membershipId,
+        ...input,
+      })
       .onConflictDoNothing()
       .returning();
     if (row) return row;
@@ -692,6 +697,7 @@ export async function createProject(
       return existing;
     } catch (error) {
       // A client elsewhere fails its tenant-safe key.
+      if (pgCode(error) === '42501') throw new AppError('NOT_FOUND');
       throw pgCode(error) === FOREIGN_KEY_VIOLATION ? foreignReference() : error;
     }
   });

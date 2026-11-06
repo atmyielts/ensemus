@@ -42,7 +42,12 @@ export type KnowledgeAnswerResult = {
 /** One tenant's sweep, from a Temporal Schedule (ADR-029 D1). */
 export const knowledgeSweepScheduleIdFor = (organizationId: string) =>
   `knowledge-sweep-${organizationId}`;
-export type KnowledgeSweepResult = { fetched: number; closed: number; failed: number };
+export type KnowledgeSweepResult = {
+  fetched: number;
+  closed: number;
+  failed: number;
+  purges?: readonly { sourceId: string; state: 'pending' | 'running' | 'completed' | 'failed' }[];
+};
 
 export const clientOnboardingInputSchema = z.strictObject({
   organizationId: z.uuid(),

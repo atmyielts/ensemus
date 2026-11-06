@@ -77,6 +77,9 @@ export async function addArtifact(
     stillAllowed?: (work: WorkRow) => void;
   },
 ) {
+  // Deterministic/agent writers must register their complete inputs before any bytes can be put.
+  // addGeneratedArtifact owns that protocol; a missing provenance port is never an empty inventory.
+  if (context.actorType !== 'user') throw new AppError('FORBIDDEN');
   if (input.body.length === 0) throw new AppError('INVALID_INPUT');
   if (input.body.length > MAX_FILE_BYTES) throw new AppError('FILE_TOO_LARGE');
   const name = input.name.trim().slice(0, 255);
@@ -200,6 +203,25 @@ export async function readArtifact(
     // Serving altered bytes as if they were the original would be worse than failing.
     throw new AppError('NOT_FOUND');
   }
+  // Object reads do not hold SQL locks. Recheck the source/work/tombstone fence after I/O so an ACL
+  // or source closure committed while the bytes were read cannot return the old authorization.
+  await withTenantTx(database, context, async (tx) => {
+    await loadReadable(tx, context, input.workUnitId);
+    const [current] = await tx
+      .select({ sha256: artifacts.sha256, key: artifacts.objectKey })
+      .from(workArtifacts)
+      .innerJoin(artifacts, eq(artifacts.id, workArtifacts.artifactId))
+      .where(
+        and(eq(workArtifacts.workUnitId, input.workUnitId), eq(artifacts.id, input.artifactId)),
+      );
+    if (
+      !current ||
+      current.sha256 !== row.sha256 ||
+      current.key !== row.objectKey ||
+      (await isTombstoned(tx, input.artifactId))
+    )
+      throw new AppError('NOT_FOUND');
+  });
   return { name: row.name, mimeType: row.mimeType, body };
 }
 
@@ -321,6 +343,9 @@ export async function purgeDueBlobs(
         and(
           inArray(blobLifecycle.state, ['uploading', 'deleting']),
           lte(blobLifecycle.purgeAfter, now),
+          // Generated/cited files have retained writer tokens and legal-hold-aware cleanup. A grace
+          // period and an absent HEAD cannot prove an old put is quiescent.
+          sql`not exists(select 1 from knowledge.artifact_lineage l where l.organization_id=${blobLifecycle.organizationId} and l.artifact_id=${blobLifecycle.artifactId})`,
         ),
       )
       .orderBy(asc(blobLifecycle.purgeAfter))

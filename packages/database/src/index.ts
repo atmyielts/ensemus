@@ -42,3 +42,5 @@ export {
 export * from './schema-work';
 export * from './schema-integrations';
 export * from './schema-knowledge';
+export * from './schema-artifact-provenance';
+export * from './schema-client-access';

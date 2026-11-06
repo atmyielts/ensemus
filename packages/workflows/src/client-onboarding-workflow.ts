@@ -1,7 +1,9 @@
 // Owned by the flagship slice (AGENT-12). See docs/06-delivery/m5-slices.md and ADR-029 D12. Deterministic
 // workflow code: only @temporalio/workflow and types may be imported here.
-import { ApplicationFailure } from '@temporalio/workflow';
+import { continueAsNew, proxyActivities, sleep } from '@temporalio/workflow';
 import type { ClientOnboardingInput, ClientOnboardingResult } from './knowledge-schemas';
+import type { ClientOnboardingActivities } from './client-onboarding-activities';
+import { runClientOnboarding } from './client-onboarding-step';
 
 /**
  * Calls `advanceOnboarding` on the platform queue, and sleeps on a durable timer between looks. It decides
@@ -9,7 +11,24 @@ import type { ClientOnboardingInput, ClientOnboardingResult } from './knowledge-
  * because a person's acceptance can take days.
  */
 export async function clientOnboardingWorkflow(
-  _input: ClientOnboardingInput,
+  input: ClientOnboardingInput,
 ): Promise<ClientOnboardingResult> {
-  throw ApplicationFailure.nonRetryable('Not built yet', 'NOT_IMPLEMENTED');
+  const local = proxyActivities<ClientOnboardingActivities>({
+    taskQueue: 'ensemus-platform',
+    startToCloseTimeout: '1 minute',
+    retry: { maximumAttempts: 3 },
+  });
+  const result = await runClientOnboarding({
+    advance: () => local.advanceOnboarding(input),
+    wait: (reason) =>
+      sleep(
+        reason === 'person'
+          ? '30 seconds'
+          : reason === 'external_action'
+            ? '10 seconds'
+            : '15 seconds',
+      ),
+  });
+  if ('continue' in result) return continueAsNew<typeof clientOnboardingWorkflow>(input);
+  return result;
 }

@@ -1,6 +1,6 @@
 // M5's additions to the connector SDK (ADR-029 D11). A sync connector reports what exists and who may read
 // it. This adds reading what it says. Kept apart from the SDK's contract, so M3's file does not change.
-import type { Connector, ConnectorContext } from './index';
+import type { Connector, ConnectorContext, CredentialLease } from './index';
 
 export type ContentRequest = {
   externalId: string;
@@ -36,6 +36,8 @@ export interface ContentConnector<TConfig = unknown> {
 
 export type KnowledgeConnector<TConfig = unknown> = Connector<TConfig> & {
   readonly content: ContentConnector<TConfig>;
+  /** The worker calls this in finally, including when a bounded pass stops before its last page. */
+  disposeAuthSession?(credentials: CredentialLease): void;
 };
 
 export const isKnowledgeConnector = (connector: Connector): connector is KnowledgeConnector =>
@@ -65,7 +67,7 @@ export const ROUTE_TLS_NAMES: Readonly<Record<Exclude<ProviderRoute, 'mcp_server
 
 export type ProviderRequest = {
   route: ProviderRoute;
-  method: 'GET' | 'POST';
+  method: 'GET' | 'POST' | 'DELETE';
   /** Starts with `/`, with any query. A connector builds it from a provider's IDs, percent-encoded. */
   path: string;
   headers?: Readonly<Record<string, string>>;
@@ -88,6 +90,20 @@ export type ProviderResponse = {
  */
 export interface ProviderHttpClient {
   request(request: ProviderRequest): Promise<ProviderResponse>;
+  /** One operator-approved public CDN hop. No headers/credentials are accepted or inherited. */
+  download?(request: {
+    url: string;
+    timeoutMs: number;
+    maxResponseBytes: number;
+    signal: AbortSignal;
+  }): Promise<ProviderResponse>;
+}
+
+/** The operator binding resolves and pins a public address before creating its exact-host gateway.
+ * It must reject private, loopback, link-local, metadata and DNS-rebinding targets, on every acquisition.
+ * A returned relay is only for that host on HTTPS443. No implementation is inferred from a URL here. */
+export interface PublicDownloadNetworks {
+  forPublicHost(hostname: string, signal: AbortSignal): Promise<import('./index').ConnectorNetwork>;
 }
 
 export class ProviderHttpFailed extends Error {

@@ -33,6 +33,8 @@ export type ConnectorContext<TConfig = unknown> = {
   organizationId: string;
   connectionId: string;
   config: TConfig;
+  /** Provider-confirmed consent from the connection row, never connector configuration. Missing denies. */
+  grantedScopes?: readonly string[];
   credentials: CredentialLease;
   network: ConnectorNetwork;
   /** Aborted at the deadline. A connector has to stop, and to say what it knows. */

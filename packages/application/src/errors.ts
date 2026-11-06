@@ -1,6 +1,7 @@
 // Typed, safe errors. Messages are fixed text meant for people, and never echo input or data.
 
 export type ErrorCode =
+  | 'IDEMPOTENCY_KEY_REUSED'
   | 'NOT_FOUND'
   | 'FORBIDDEN'
   | 'VERSION_CONFLICT'
@@ -43,6 +44,7 @@ export type ErrorCode =
   | 'CLIENT_ONBOARDING_EXISTS';
 
 const MESSAGES: Record<ErrorCode, string> = {
+  IDEMPOTENCY_KEY_REUSED: 'This request key was already used with different details.',
   NOT_FOUND: 'Not found or not permitted.',
   FORBIDDEN: 'You do not have permission to do that.',
   VERSION_CONFLICT: 'Someone else changed this first. Reload to see the latest version.',
@@ -112,6 +114,7 @@ export class AppError extends Error {
 export const foreignReference = () => new AppError('INVALID_INPUT', 'FOREIGN_REFERENCE');
 
 export const HTTP_STATUS: Record<ErrorCode, number> = {
+  IDEMPOTENCY_KEY_REUSED: 409,
   NOT_FOUND: 404,
   FORBIDDEN: 403,
   VERSION_CONFLICT: 409,

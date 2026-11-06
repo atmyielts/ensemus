@@ -26,6 +26,7 @@ export type EgressLedgerRow = {
  * be backfilled and that AGENT-10 reads it. Its row maps to the shape above.
  */
 export interface RunEgressDecisions {
+  /** Display pagination uses (date_trunc('milliseconds', occurred_at), id) in both ORDER BY and WHERE. */
   list(
     tx: Tx,
     query: { before: { occurredAt: Date; id: string } | null; limit: number },
@@ -42,11 +43,37 @@ export interface AgentWorkloads {
  * remove the transcripts that used it (ADR-029 D3). `sourceIds` come from `knowledge.evidence_items`.
  */
 export interface RunTranscriptPurge {
+  /**
+   * Durably fence every named run before deleting payloads. A fence prevents all later transcript
+   * writes, including a model response already in flight; cancellation alone is insufficient. This
+   * idempotent database operation is repeated on every purge attempt and immediately after deletion.
+   * An older adapter without this operation cannot certify a completed purge.
+   */
+  fenceUsing?(
+    tx: Tx,
+    context: TenantContext,
+    query: { runIds: readonly string[] },
+  ): Promise<{ fenced: boolean }>;
   purgeUsing(
     tx: Tx,
     context: TenantContext,
     query: { runIds: readonly string[] },
-  ): Promise<{ removed: number }>;
+  ): Promise<{ removed: number; remaining?: number }>;
+}
+
+/** Generated file erasure is owned by the artifact lifecycle. Provider calls occur outside the source
+ * transaction, while its final read-only proof runs under the caller's source lock. Missing adapters
+ * never imply an empty success. Counts of removed headers are cumulative and durably verified. */
+export interface DerivedArtifactPurge {
+  purgeSource(
+    context: TenantContext,
+    input: { sourceId: string; limit: number },
+  ): Promise<{ removed: number; remaining: number; held: number; confirmed: boolean }>;
+  confirmInTx(
+    tx: Tx,
+    context: TenantContext,
+    input: { sourceId: string },
+  ): Promise<{ remaining: number }>;
 }
 
 /** M4's agent runs. The flagship asks for one, and reads how it went. */
@@ -55,11 +82,19 @@ export interface AgentRuns {
   requestRun(
     tx: Tx,
     context: TenantContext,
-    input: { workUnitId: string; agentKey: string },
+    input: { workUnitId: string; agentKey: string; requestKey?: string },
   ): Promise<{ agentRunId: string }>;
   statusOf(
     tx: Tx,
     context: TenantContext,
     agentRunId: string,
-  ): Promise<{ status: string; costMicros: number | null } | null>;
+  ): Promise<{
+    status: string;
+    costMicros: number | null;
+    /** Fresh identity and actual generated artifact IDs, read from M4's authoritative records. Older
+     * adapters missing these fields cannot advance onboarding or publish its cost as measured. */
+    workUnitId?: string;
+    initiatorMembershipId?: string;
+    artifactIds?: readonly string[];
+  } | null>;
 }

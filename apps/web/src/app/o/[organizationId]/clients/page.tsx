@@ -3,7 +3,7 @@ import { listClients, listProjects } from '@ensemus/application';
 import { can } from '@ensemus/domain/policy';
 import Link from 'next/link';
 import { SubmitButton } from '@/components/submit-button';
-import { Empty, ErrorNotice, PageHead } from '@/components/ui';
+import { ClassificationBadge, Empty, ErrorNotice, PageHead } from '@/components/ui';
 import { requireTenant } from '@/server/tenant';
 import { createClientAction, createProjectAction } from '@/server/work-actions';
 
@@ -44,7 +44,17 @@ export default async function ClientsPage({
           ) : (
             <ul className="list">
               {clients.map((client) => (
-                <li key={client.id}>{client.displayName}</li>
+                <li key={client.id}>
+                  <div>
+                    <span>{client.displayName}</span>{' '}
+                    <ClassificationBadge value={client.classification} />
+                  </div>
+                  {client.ownerMembershipId === context.membershipId && (
+                    <Link href={`/o/${organizationId}/clients/${client.id}/access`}>
+                      Manage access
+                    </Link>
+                  )}
+                </li>
               ))}
             </ul>
           )}
@@ -55,6 +65,14 @@ export default async function ClientsPage({
               <label>
                 Client name
                 <input name="displayName" required maxLength={200} autoComplete="off" />
+              </label>
+              <label>
+                Who can see this client
+                <select name="classification" defaultValue="internal">
+                  <option value="internal">Everyone in this workspace</option>
+                  <option value="confidential">You, named people and administrators</option>
+                  <option value="restricted">Only you and named people</option>
+                </select>
               </label>
               <SubmitButton className="quiet">Add client</SubmitButton>
             </form>

@@ -686,7 +686,6 @@ paths:
     parameters:
       - $ref: '#/components/parameters/OrganizationID'
     post:
-      x-ensemus-status: planned
       tags: [knowledge]
       summary: Search authorized knowledge with citations
       requestBody:
@@ -728,7 +727,6 @@ paths:
     parameters:
       - $ref: '#/components/parameters/OrganizationID'
     get:
-      x-ensemus-status: planned
       tags: [knowledge]
       summary: Sources the caller can read. A manager also sees that others exist, with no title
       parameters:
@@ -758,7 +756,6 @@ paths:
         '500': {$ref: '#/components/responses/InternalError'}
         '503': {$ref: '#/components/responses/RestorePending'}
     post:
-      x-ensemus-status: planned
       tags: [knowledge]
       summary: Add a document. It becomes searchable once a worker has read it
       parameters: [{$ref: '#/components/parameters/IdempotencyKey'}]
@@ -804,7 +801,6 @@ paths:
       - $ref: '#/components/parameters/OrganizationID'
       - $ref: '#/components/parameters/SourceID'
     get:
-      x-ensemus-status: planned
       tags: [knowledge]
       summary: One source, under its ACL
       responses:
@@ -822,9 +818,18 @@ paths:
         '500': {$ref: '#/components/responses/InternalError'}
         '503': {$ref: '#/components/responses/RestorePending'}
     delete:
-      x-ensemus-status: planned
       tags: [knowledge]
       summary: Delete a source. Serving stops in this request, and what was derived goes after
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [reason]
+              properties:
+                reason: {type: string, minLength: 1, maxLength: 2000}
       parameters:
         - $ref: '#/components/parameters/IfMatch'
       responses:
@@ -846,7 +851,6 @@ paths:
       - $ref: '#/components/parameters/OrganizationID'
       - $ref: '#/components/parameters/SourceID'
     post:
-      x-ensemus-status: planned
       tags: [knowledge]
       summary: Revoke a source. It never comes back, and a re-added one is a new source
       parameters:
@@ -880,7 +884,6 @@ paths:
       - $ref: '#/components/parameters/OrganizationID'
       - $ref: '#/components/parameters/SourceID'
     get:
-      x-ensemus-status: planned
       tags: [knowledge]
       summary: How far the purge has got, with counts, and when it finished
       responses:
@@ -899,7 +902,6 @@ paths:
       - $ref: '#/components/parameters/OrganizationID'
       - $ref: '#/components/parameters/SourceID'
     patch:
-      x-ensemus-status: planned
       tags: [knowledge]
       summary: Change who can read an uploaded source. It takes effect at once
       parameters:
@@ -939,7 +941,6 @@ paths:
         required: true
         schema: {type: string, format: uuid}
     get:
-      x-ensemus-status: planned
       tags: [knowledge]
       summary: The original bytes, as a citation's way back to its source
       responses:
@@ -956,8 +957,37 @@ paths:
   /organizations/{organization_id}/knowledge/answers:
     parameters:
       - $ref: '#/components/parameters/OrganizationID'
+    get:
+      tags: [knowledge]
+      summary: The caller's private answers that remain readable
+      parameters:
+        - name: cursor
+          in: query
+          schema: {type: string, maxLength: 512}
+        - name: limit
+          in: query
+          schema: {type: integer, minimum: 1, maximum: 50}
+      responses:
+        '200':
+          description: One page
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [items, next_cursor]
+                properties:
+                  items:
+                    type: array
+                    items: {$ref: '#/components/schemas/KnowledgeAnswer'}
+                  next_cursor: {type: [string, 'null']}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
     post:
-      x-ensemus-status: planned
       tags: [knowledge]
       summary: Ask a question. A worker answers it under the asker's own access
       parameters: [{$ref: '#/components/parameters/IdempotencyKey'}]
@@ -971,6 +1001,7 @@ paths:
               required: [question]
               properties:
                 question: {type: string, minLength: 1, maxLength: 4000}
+                classification: {type: string, enum: [public, internal, confidential, restricted], default: restricted}
       responses:
         '202':
           description: Asked. Read it back by its ID
@@ -981,6 +1012,7 @@ paths:
         '401': {$ref: '#/components/responses/Unauthorized'}
         '403': {$ref: '#/components/responses/Forbidden'}
         '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
         '500': {$ref: '#/components/responses/InternalError'}
         '503': {$ref: '#/components/responses/RestorePending'}
   /organizations/{organization_id}/knowledge/answers/{answer_id}:
@@ -991,7 +1023,6 @@ paths:
         required: true
         schema: {type: string, format: uuid}
     get:
-      x-ensemus-status: planned
       tags: [knowledge]
       summary: One answer with its citations, for the person who asked, while they can read every source
       responses:
@@ -1000,6 +1031,7 @@ paths:
           content:
             application/json:
               schema: {$ref: '#/components/schemas/KnowledgeAnswer'}
+        '400': {$ref: '#/components/responses/BadRequest'}
         '401': {$ref: '#/components/responses/Unauthorized'}
         '403': {$ref: '#/components/responses/Forbidden'}
         '404': {$ref: '#/components/responses/NotFound'}
@@ -1009,7 +1041,6 @@ paths:
     parameters:
       - $ref: '#/components/parameters/OrganizationID'
     get:
-      x-ensemus-status: planned
       tags: [knowledge]
       summary: Facts the caller can read every source of
       parameters:
@@ -1042,7 +1073,6 @@ paths:
         '500': {$ref: '#/components/responses/InternalError'}
         '503': {$ref: '#/components/responses/RestorePending'}
     post:
-      x-ensemus-status: planned
       tags: [knowledge]
       summary: Propose a fact, on evidence the proposer can read. It is not trusted until reviewed
       parameters: [{$ref: '#/components/parameters/IdempotencyKey'}]
@@ -1093,7 +1123,6 @@ paths:
         required: true
         schema: {type: string, format: uuid}
     post:
-      x-ensemus-status: planned
       tags: [knowledge]
       summary: A person verifies or rejects a fact. Nothing else can make one verified
       parameters:
@@ -1127,7 +1156,6 @@ paths:
     parameters:
       - $ref: '#/components/parameters/OrganizationID'
     post:
-      x-ensemus-status: planned
       tags: [knowledge]
       summary: Walk typed links from one node, never through what the caller cannot see
       requestBody:
@@ -1187,7 +1215,6 @@ paths:
     parameters:
       - $ref: '#/components/parameters/OrganizationID'
     post:
-      x-ensemus-status: planned
       tags: [knowledge]
       summary: Add a typed link the tables do not already hold
       requestBody:
@@ -1224,7 +1251,6 @@ paths:
     parameters:
       - $ref: '#/components/parameters/OrganizationID'
     get:
-      x-ensemus-status: planned
       tags: [knowledge]
       summary: Company search over what the caller may see. Each kind filters inside its query
       parameters:
@@ -1273,7 +1299,6 @@ paths:
     parameters:
       - $ref: '#/components/parameters/OrganizationID'
     get:
-      x-ensemus-status: planned
       tags: [governance]
       summary: Which data class went, or was refused, to which provider, when, why and under which policy
       parameters:
@@ -1282,7 +1307,7 @@ paths:
           schema: {type: string, minLength: 1, maxLength: 512}
         - name: limit
           in: query
-          schema: {type: integer, minimum: 1, maximum: 500}
+          schema: {type: integer, minimum: 1, maximum: 100}
       responses:
         '200':
           description: One page, newest first. Codes and IDs, and never company text
@@ -1291,12 +1316,14 @@ paths:
               schema:
                 type: object
                 additionalProperties: false
-                required: [items, next_cursor]
+                required: [items, next_cursor, coverage]
                 properties:
+                  coverage: {type: string, enum: [knowledge_only, complete]}
                   items:
                     type: array
                     items: {$ref: '#/components/schemas/EgressLedgerEntry'}
                   next_cursor: {type: [string, 'null']}
+        '400': {$ref: '#/components/responses/BadRequest'}
         '401': {$ref: '#/components/responses/Unauthorized'}
         '403': {$ref: '#/components/responses/Forbidden'}
         '404': {$ref: '#/components/responses/NotFound'}
@@ -1306,7 +1333,6 @@ paths:
     parameters:
       - $ref: '#/components/parameters/OrganizationID'
     post:
-      x-ensemus-status: planned
       tags: [governance]
       summary: What a proposed provider would be sent. Nothing is transmitted, and nothing is stored
       requestBody:
@@ -1343,8 +1369,9 @@ paths:
               schema:
                 type: object
                 additionalProperties: false
-                required: [rows]
+                required: [rows, coverage]
                 properties:
+                  coverage: {type: string, enum: [knowledge_only, complete]}
                   rows:
                     type: array
                     items:
@@ -1370,7 +1397,6 @@ paths:
       - $ref: '#/components/parameters/OrganizationID'
       - $ref: '#/components/parameters/ConnectionID'
     get:
-      x-ensemus-status: planned
       tags: [connections]
       summary: What an MCP server says it offers, and what an admin has decided about each tool
       responses:
@@ -1400,7 +1426,6 @@ paths:
         required: true
         schema: {type: string, format: uuid}
     post:
-      x-ensemus-status: planned
       tags: [connections]
       summary: An admin approves or rejects one tool, setting its effect level themselves
       parameters:
@@ -1446,7 +1471,6 @@ paths:
         required: true
         schema: {type: string, format: uuid}
     get:
-      x-ensemus-status: planned
       tags: [work]
       summary: Whether an artifact's citations hold, and whether a person has accepted it
       responses:
@@ -1461,9 +1485,9 @@ paths:
         '500': {$ref: '#/components/responses/InternalError'}
         '503': {$ref: '#/components/responses/RestorePending'}
     post:
-      x-ensemus-status: planned
       tags: [work]
       summary: A person accepts or rejects exactly these bytes against the work's objective
+      description: Acceptance requires objective_sha256 and citations_sha256 from the read view; rejection requires a reason. Stale submitted digests are refused.
       requestBody:
         required: true
         content:
@@ -1474,6 +1498,8 @@ paths:
               required: [artifact_sha256, verdict]
               properties:
                 artifact_sha256: {type: string, pattern: '^[0-9a-f]{64}$'}
+                objective_sha256: {type: string, pattern: '^[0-9a-f]{64}$'}
+                citations_sha256: {type: string, pattern: '^[0-9a-f]{64}$'}
                 verdict: {type: string, enum: [accepted, rejected]}
                 reason: {type: string, minLength: 1, maxLength: 2000}
       responses:
@@ -1493,7 +1519,6 @@ paths:
     parameters:
       - $ref: '#/components/parameters/OrganizationID'
     post:
-      x-ensemus-status: planned
       tags: [work]
       summary: A deal was won. Starts the onboarding, once per deal
       parameters: [{$ref: '#/components/parameters/IdempotencyKey'}]
@@ -1534,7 +1559,6 @@ paths:
         required: true
         schema: {type: string, format: uuid}
     get:
-      x-ensemus-status: planned
       tags: [work]
       summary: How one onboarding stands, with its receipt and measured cost
       responses:
@@ -1583,6 +1607,57 @@ paths:
                   mode: {type: string, enum: [cloud, byom, sovereign]}
                   features: {type: array, items: {type: string}}
                   capacity: {type: object, additionalProperties: true}
+  /organizations/{organization_id}/knowledge/facts/{fact_id}:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+      - name: fact_id
+        in: path
+        required: true
+        schema: {type: string, format: uuid}
+    get:
+      tags: [knowledge]
+      summary: One fact with all its current readable evidence
+      responses:
+        '200':
+          description: The fact
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/KnowledgeFact'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+  /organizations/{organization_id}/knowledge/sources/{source_id}/classification:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+      - $ref: '#/components/parameters/SourceID'
+    patch:
+      tags: [knowledge]
+      summary: Raise source sensitivity without lowering any document sensitivity
+      parameters: [{$ref: '#/components/parameters/IfMatch'}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [classification]
+              properties:
+                classification: {type: string, enum: [public, internal, confidential, restricted]}
+      responses:
+        '204':
+          description: Sensitivity raised
+        '409': {$ref: '#/components/responses/Conflict'}
+        '428': {$ref: '#/components/responses/PreconditionRequired'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
 components:
   securitySchemes:
     sessionCookie:
@@ -1669,6 +1744,22 @@ components:
           type: [string, 'null']
           description: Null when the caller's ACL does not cover it.
         can_read: {type: boolean}
+        can_manage: {type: boolean}
+        document_id: {type: [string, 'null'], format: uuid}
+        media_type: {type: [string, 'null']}
+        size_bytes: {type: [integer, 'null'], minimum: 0}
+        source_version: {type: [string, 'null']}
+        grants:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [id, kind]
+            properties:
+              id: {type: string, format: uuid}
+              kind: {type: string, enum: [membership, team, organization]}
+              membership_id: {type: string, format: uuid}
+              team_id: {type: string, format: uuid}
         document_state:
           type: [string, 'null']
           enum: [received, parsing, searchable, rejected, failed, purged, null]
@@ -1689,7 +1780,7 @@ components:
     KnowledgePurge:
       type: object
       additionalProperties: false
-      required: [source_id, reason, state, counts, requested_at, completed_at, last_error_code]
+      required: [source_id, reason, state, counts, requested_at, completed_at, last_error_code, retry_requests, next_retry_at, retry_exhausted, held_artifacts]
       properties:
         source_id: {type: string, format: uuid}
         reason: {type: string, enum: [deleted, revoked, connection_revoked, resource_gone, restore_reapply]}
@@ -1697,7 +1788,7 @@ components:
         counts:
           type: object
           additionalProperties: false
-          required: [documents, chunks, embeddings, facts, answers, blobs]
+          required: [documents, chunks, embeddings, facts, answers, blobs, transcripts, artifacts]
           properties:
             documents: {type: integer}
             chunks: {type: integer}
@@ -1705,9 +1796,15 @@ components:
             facts: {type: integer}
             answers: {type: integer}
             blobs: {type: integer}
+            transcripts: {type: integer}
+            artifacts: {type: integer}
         requested_at: {type: string, format: date-time}
         completed_at: {type: [string, 'null'], format: date-time}
         last_error_code: {type: [string, 'null']}
+        retry_requests: {type: integer, minimum: 0, maximum: 8}
+        next_retry_at: {type: [string, 'null'], format: date-time}
+        retry_exhausted: {type: boolean}
+        held_artifacts: {type: integer, minimum: 0}
     KnowledgePassage:
       type: object
       additionalProperties: false
@@ -1721,15 +1818,18 @@ components:
         classification: {type: string, enum: [public, internal, confidential, restricted]}
         source_version: {type: [string, 'null']}
         source_url: {type: [string, 'null'], format: uri}
+        searchable_at: {type: string, format: date-time}
         source_modified_at: {type: [string, 'null'], format: date-time}
     KnowledgeAnswer:
       type: object
       additionalProperties: false
-      required: [id, state, question, answer_text, refusal_code, citations, strongest_classification, cost_micros, created_at, finished_at]
+      required: [id, state, question, question_classification, version, answer_text, refusal_code, citations, strongest_classification, cost_micros, created_at, finished_at]
       properties:
         id: {type: string, format: uuid}
         state: {type: string, enum: [queued, running, answered, no_evidence, refused, failed]}
         question: {type: string}
+        question_classification: {type: string, enum: [public, internal, confidential, restricted]}
+        version: {type: integer, minimum: 1}
         answer_text: {type: [string, 'null']}
         refusal_code: {type: [string, 'null']}
         citations:
@@ -1737,11 +1837,12 @@ components:
           items:
             type: object
             additionalProperties: false
-            required: [ordinal, answer_start, answer_end, document_id, source_id, title, excerpt, source_version, source_url, source_modified_at, freshness]
+            required: [ordinal, answer_start, answer_end, chunk_id, document_id, source_id, title, excerpt, source_version, source_url, source_modified_at, freshness]
             properties:
               ordinal: {type: integer}
               answer_start: {type: integer}
               answer_end: {type: integer}
+              chunk_id: {type: string, format: uuid}
               document_id: {type: string, format: uuid}
               source_id: {type: string, format: uuid}
               title: {type: string}
@@ -1829,15 +1930,18 @@ components:
         allowed_classes:
           type: array
           items: {type: string, enum: [public, internal, confidential]}
+        reviewed_by: {type: [string, 'null'], format: uuid}
         reviewed_at: {type: [string, 'null'], format: date-time}
         version: {type: integer}
     ArtifactVerification:
       type: object
       additionalProperties: false
-      required: [artifact_id, artifact_sha256, grounding, human, citations]
+      required: [artifact_id, artifact_sha256, objective_sha256, citations_sha256, grounding, human, citations]
       properties:
         artifact_id: {type: string, format: uuid}
         artifact_sha256: {type: string}
+        objective_sha256: {type: string}
+        citations_sha256: {type: string}
         grounding:
           type: [object, 'null']
           required: [verdict, reason_code, at]
@@ -1857,9 +1961,10 @@ components:
           type: array
           items:
             type: object
-            required: [ordinal, document_id, source_id, title, excerpt, available]
+            required: [ordinal, chunk_id, document_id, source_id, title, excerpt, available]
             properties:
               ordinal: {type: integer}
+              chunk_id: {type: string, format: uuid}
               document_id: {type: string, format: uuid}
               source_id: {type: string, format: uuid}
               title: {type: [string, 'null']}
@@ -1877,14 +1982,20 @@ components:
         client_id: {type: string, format: uuid}
         project_id: {type: string, format: uuid}
         work_unit_id: {type: string, format: uuid}
+        brief_work_unit_id: {type: [string, 'null'], format: uuid}
+        review_work_unit_id: {type: [string, 'null'], format: uuid}
+        send_work_unit_id: {type: [string, 'null'], format: uuid}
+        brief_artifact_id: {type: [string, 'null'], format: uuid}
+        reviewer_membership_id: {type: [string, 'null'], format: uuid}
         cost_micros:
           type: [integer, 'null']
           description: An estimate, in micro-USD, from the usage ledger.
         receipt:
           type: [object, 'null']
-          required: [status, external_id]
+          required: [status, external_id, basis]
           properties:
             status: {type: string}
+            basis: {type: string}
             external_id: {type: [string, 'null']}
         version: {type: integer}
         created_at: {type: string, format: date-time}
