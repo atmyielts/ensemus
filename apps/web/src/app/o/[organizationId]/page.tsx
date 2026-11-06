@@ -2,6 +2,7 @@ import { listMyPendingApprovals, listMyWork } from '@ensemus/application';
 import { isOverdue } from '@ensemus/domain/work-unit';
 import Link from 'next/link';
 import { Empty, formatDate, PageHead, StatusBadge } from '@/components/ui';
+import { homeListNotes } from '@/lib/work-view';
 import { requireTenant } from '@/server/tenant';
 
 export const metadata = { title: 'Home | Ensemus' };
@@ -25,6 +26,7 @@ export default async function HomePage({
   // What is already under Needs attention is not repeated straight below it.
   const inAttention = new Set(attention.map((item) => item.id));
   const others = work.filter((item) => !inAttention.has(item.id));
+  const notes = homeListNotes({ shown: others.length > 0, workHasMore, attentionHasMore });
   const roleOn = (item: { ownerMembershipId: string }) =>
     item.ownerMembershipId === context.membershipId ? 'You own this' : 'You are on this';
 
@@ -88,9 +90,8 @@ export default async function HomePage({
             </Empty>
           ) : (
             <>
-              {others.length === 0 ? (
-                <p className="muted">Everything you are on is listed above.</p>
-              ) : (
+              {notes.allListed && <p className="muted">{notes.allListed}</p>}
+              {others.length > 0 && (
                 <ul className="list">
                   {others.map((item) => (
                     <li key={item.id}>
@@ -107,9 +108,9 @@ export default async function HomePage({
                   ))}
                 </ul>
               )}
-              {workHasMore && (
-                <p className="gap-above">
-                  These are the most urgent. <Link href={`${base}/work`}>See all work</Link>
+              {notes.more && (
+                <p className={others.length > 0 ? 'gap-above' : undefined}>
+                  {notes.more} <Link href={`${base}/work`}>See all work</Link>
                 </p>
               )}
             </>

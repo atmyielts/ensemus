@@ -22,12 +22,15 @@ import { and, asc, eq, isNull, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { AppError, foreignReference, pgCode } from './errors';
 import { emit } from './events';
+import { idFromRequest } from './request-id';
 import { assertActiveMember, closeReviewsForLostAccess } from './work';
 
 const FOREIGN_KEY_VIOLATION = '23503';
 const name = z.string().trim().min(1).max(200);
 const classification = z.enum(['public', 'internal', 'confidential', 'restricted']);
 const identifier = z.uuid();
+/** From one rendered form, so that sending it twice makes one row (see idFromRequest). */
+const requestKey = z.uuid().optional();
 
 function requireCapability(context: TenantContext, capability: Capability) {
   if (!can(context.role, capability)) throw new AppError('FORBIDDEN');
@@ -43,21 +46,27 @@ function parse<T extends z.ZodType>(schema: T, value: unknown): z.output<T> {
 export async function createTeam(
   database: AppDatabase,
   context: TenantContext,
-  raw: { name: string; parentId?: string | null },
+  raw: { name: string; parentId?: string | null; requestKey?: string },
 ) {
   requireCapability(context, 'team.manage');
-  const input = parse(z.strictObject({ name, parentId: z.uuid().nullable().optional() }), raw);
+  const input = parse(
+    z.strictObject({ name, parentId: z.uuid().nullable().optional(), requestKey }),
+    raw,
+  );
+  const parentId = input.parentId ?? null;
+  const id = input.requestKey
+    ? idFromRequest('team', context.membershipId, input.requestKey, [input.name, parentId])
+    : randomUUID();
   return withTenantTx(database, context, async (tx) => {
     try {
       const [row] = await tx
         .insert(teams)
-        .values({
-          organizationId: context.organizationId,
-          name: input.name,
-          parentId: input.parentId ?? null,
-        })
+        .values({ organizationId: context.organizationId, id, name: input.name, parentId })
+        .onConflictDoNothing()
         .returning();
-      return row;
+      if (row) return row;
+      const [existing] = await tx.select().from(teams).where(eq(teams.id, id));
+      return existing;
     } catch (error) {
       throw teamWriteError(error);
     }
@@ -140,7 +149,13 @@ export async function removeTeamMember(
   );
 }
 
+/**
+ * Team structure, filtered by who is asking. Everyone sees which teams there are and how they nest, and
+ * how many people each has. Who is on a team is shown to people who manage teams and to those on it.
+ * Email addresses are never part of this: the directory decides who sees those.
+ */
 export async function listTeams(database: AppDatabase, context: TenantContext) {
+  const seesEveryone = can(context.role, 'team.manage');
   return withTenantTx(database, context, async (tx) => {
     const rows = await tx.select().from(teams).orderBy(asc(teams.name));
     const members = await tx
@@ -153,10 +168,17 @@ export async function listTeams(database: AppDatabase, context: TenantContext) {
       .innerJoin(memberships, eq(memberships.id, teamMemberships.membershipId))
       .innerJoin(users, eq(users.id, memberships.userId))
       .orderBy(asc(users.name));
-    return rows.map((team) => ({
-      ...team,
-      members: members.filter((member) => member.teamId === team.id),
-    }));
+    return rows.map((team) => {
+      const onTeam = members.filter((member) => member.teamId === team.id);
+      const shown =
+        seesEveryone || onTeam.some((member) => member.membershipId === context.membershipId);
+      return {
+        ...team,
+        members: shown ? onTeam : [],
+        memberCount: onTeam.length,
+        membersHidden: !shown && onTeam.length > 0,
+      };
+    });
   });
 }
 
@@ -614,19 +636,29 @@ export async function confirmInvitation(
 export async function createClient(
   database: AppDatabase,
   context: TenantContext,
-  raw: { displayName: string; classification?: string },
+  raw: { displayName: string; classification?: string; requestKey?: string },
 ) {
   requireCapability(context, 'client.manage');
-  const input = parse(
-    z.strictObject({ displayName: name, classification: classification.default('internal') }),
+  const { requestKey: key, ...input } = parse(
+    z.strictObject({
+      displayName: name,
+      classification: classification.default('internal'),
+      requestKey,
+    }),
     raw,
   );
+  const id = key
+    ? idFromRequest('client', context.membershipId, key, [input.displayName, input.classification])
+    : randomUUID();
   return withTenantTx(database, context, async (tx) => {
     const [row] = await tx
       .insert(clients)
-      .values({ organizationId: context.organizationId, ...input })
+      .values({ organizationId: context.organizationId, id, ...input })
+      .onConflictDoNothing()
       .returning();
-    return row;
+    if (row) return row;
+    const [existing] = await tx.select().from(clients).where(eq(clients.id, id));
+    return existing;
   });
 }
 
@@ -639,21 +671,24 @@ export async function listClients(database: AppDatabase, context: TenantContext)
 export async function createProject(
   database: AppDatabase,
   context: TenantContext,
-  raw: { name: string; clientId?: string },
+  raw: { name: string; clientId?: string; requestKey?: string },
 ) {
   requireCapability(context, 'project.manage');
-  const input = parse(z.strictObject({ name, clientId: z.uuid().optional() }), raw);
+  const input = parse(z.strictObject({ name, clientId: z.uuid().optional(), requestKey }), raw);
+  const clientId = input.clientId ?? null;
+  const id = input.requestKey
+    ? idFromRequest('project', context.membershipId, input.requestKey, [input.name, clientId])
+    : randomUUID();
   return withTenantTx(database, context, async (tx) => {
     try {
       const [row] = await tx
         .insert(projects)
-        .values({
-          organizationId: context.organizationId,
-          name: input.name,
-          clientId: input.clientId ?? null,
-        })
+        .values({ organizationId: context.organizationId, id, name: input.name, clientId })
+        .onConflictDoNothing()
         .returning();
-      return row;
+      if (row) return row;
+      const [existing] = await tx.select().from(projects).where(eq(projects.id, id));
+      return existing;
     } catch (error) {
       // A client elsewhere fails its tenant-safe key.
       throw pgCode(error) === FOREIGN_KEY_VIOLATION ? foreignReference() : error;

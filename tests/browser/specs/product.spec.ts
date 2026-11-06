@@ -483,7 +483,7 @@ test.describe('submitting', () => {
     const id = await createWork(alice, organization, { title: `Went stale ${randomUUID()}` });
     const page = await open(alice);
     await page.goto(workPath(organization, id));
-    await page.route('**/events', (route) => route.abort());
+    await page.route('**/events?*', (route) => route.abort());
     await page.reload();
     await submit(workPath(organization, id), alice.jar, toStatus('ready'));
     await page.getByRole('button', { name: 'Mark ready' }).click();

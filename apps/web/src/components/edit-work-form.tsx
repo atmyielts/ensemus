@@ -1,8 +1,9 @@
 'use client';
 
-import { useActionState, useState } from 'react';
+import { useActionState, useEffect, useRef, useState } from 'react';
 import { sameContent, type WorkDraft, type WorkFormState } from '@/lib/form-state';
 import { updateWorkFormAction } from '@/server/work-actions';
+import { useKept } from './kept-field';
 import { SubmitButton } from './submit-button';
 import { ErrorNotice } from './ui';
 
@@ -21,6 +22,10 @@ type Latest = WorkDraft & { version: number };
  * one this draft started from, so a change made meanwhile is refused, not overwritten. When the page
  * refreshes underneath, a status change just moves the draft on to the new version, and a change to
  * the same text is explained, with both versions in view, for the person to decide.
+ *
+ * Any other action on the page ends in a redirect, which starts this form again with its panel closed.
+ * So the draft and the version it started from are also kept for this person (see lib/drafts), and the
+ * panel opens again around them. A draft that matches what is saved has nothing left to keep.
  */
 export function EditWorkForm({
   organizationId,
@@ -32,9 +37,26 @@ export function EditWorkForm({
   current: Latest;
 }) {
   const [state, action] = useActionState(updateWorkFormAction, INITIAL);
-  const [draft, setDraft] = useState<WorkDraft>(state.values ?? contentOf(current));
-  const [base, setBase] = useState<Latest>(current);
+  const kept = useKept<{ draft: WorkDraft; base: Latest }>('edit-details');
+  const [returned] = useState(() => kept.read());
+  const [draft, setDraft] = useState<WorkDraft>(
+    state.values ?? returned?.draft ?? contentOf(current),
+  );
+  const [base, setBase] = useState<Latest>(returned?.base ?? current);
   const [seen, setSeen] = useState<WorkFormState>(INITIAL);
+  const form = useRef<HTMLFormElement>(null);
+
+  useEffect(() => {
+    if (returned && !sameContent(returned.draft, current)) {
+      form.current?.closest('details')?.setAttribute('open', '');
+    }
+    // Only for what came back when this form started. Typing keeps the panel open by itself.
+  }, []);
+
+  useEffect(() => {
+    if (sameContent(draft, current)) kept.forget();
+    else kept.write({ draft, base });
+  }, [kept, draft, base, current]);
 
   // The server refused because of a newer version. Saving again now is a knowing choice.
   if (state !== seen) {
@@ -68,7 +90,7 @@ export function EditWorkForm({
     setDraft((previous) => ({ ...previous, [name]: event.target.value }));
 
   return (
-    <form className="fields gap-above" action={action}>
+    <form ref={form} className="fields gap-above" action={action}>
       <input type="hidden" name="organizationId" value={organizationId} />
       <input type="hidden" name="id" value={workId} />
       <input type="hidden" name="version" value={base.version} />

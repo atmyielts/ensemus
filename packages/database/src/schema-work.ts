@@ -320,6 +320,8 @@ export const approvals = workSchema.table(
       foreignColumns: [memberships.organizationId, memberships.id],
     }),
     index('approvals_pending_idx').on(t.organizationId, t.approverMembershipId, t.status),
+    // A page following a Work Unit reads its reviews on every poll.
+    index('approvals_work_idx').on(t.organizationId, t.workUnitId),
     // One open decision per Work Unit, so a later request can never override an earlier one.
     uniqueIndex('approvals_one_open_per_work')
       .on(t.organizationId, t.workUnitId)

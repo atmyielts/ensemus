@@ -56,6 +56,14 @@ const text = (form: FormData, name: string) => {
 const int = (form: FormData, name: string) => Number.parseInt(text(form, name), 10);
 const orgOf = (form: FormData) => text(form, 'organizationId');
 const orUndefined = (value: string) => (value.trim() ? value : undefined);
+/**
+ * One rendered form makes one row, however many times it is sent. Only ever hashed into an ID, so
+ * something that is not a key just gets no protection from repeats.
+ */
+const requestKeyOf = (form: FormData) => {
+  const key = z.uuid().safeParse(text(form, 'requestKey'));
+  return key.success ? { requestKey: key.data } : {};
+};
 
 type Tenant = { context: TenantContext; database: AppDatabase };
 
@@ -121,8 +129,6 @@ export async function createWorkFormAction(
   const { context, database } = await requireTenant(org);
   const criteria = form.getAll('criteria').filter((c): c is string => typeof c === 'string');
   const plan = text(form, 'executionPlan');
-  // Only ever hashed into an ID. Something that is not a key just gets no protection from repeats.
-  const requestKey = z.uuid().safeParse(text(form, 'requestKey'));
   const values = {
     title: text(form, 'title'),
     objective: text(form, 'objective'),
@@ -147,7 +153,7 @@ export async function createWorkFormAction(
       ...(values.dueAt ? { dueAt: new Date(values.dueAt) } : {}),
       ...(orUndefined(values.projectId) ? { projectId: values.projectId } : {}),
       ...(values.executionPlan ? { executionPlan: 'checklist' as const } : {}),
-      ...(requestKey.success ? { requestKey: requestKey.data } : {}),
+      ...requestKeyOf(form),
     });
     id = work.id;
   } catch (error) {
@@ -309,6 +315,7 @@ export async function uploadArtifactAction(form: FormData) {
       name: file.name,
       mimeType: file.type || 'application/octet-stream',
       body: Buffer.from(await file.arrayBuffer()),
+      ...requestKeyOf(form),
     });
   });
 }
@@ -463,6 +470,7 @@ export async function createTeamAction(form: FormData) {
     await createTeam(database, context, {
       name: text(form, 'name'),
       ...(parentId ? { parentId } : {}),
+      ...requestKeyOf(form),
     });
   });
 }
@@ -505,7 +513,10 @@ export async function createClientAction(form: FormData) {
   const org = orgOf(form);
   const { context, database } = await requireTenant(org);
   await run({ context, database }, `/o/${org}/clients`, async () => {
-    await createClient(database, context, { displayName: text(form, 'displayName') });
+    await createClient(database, context, {
+      displayName: text(form, 'displayName'),
+      ...requestKeyOf(form),
+    });
   });
 }
 
@@ -517,6 +528,7 @@ export async function createProjectAction(form: FormData) {
     await createProject(database, context, {
       name: text(form, 'name'),
       ...(clientId ? { clientId } : {}),
+      ...requestKeyOf(form),
     });
   });
 }

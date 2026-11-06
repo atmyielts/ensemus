@@ -1,5 +1,5 @@
-import { AppError, listProjects, listWorkUnits } from '@ensemus/application';
-import { WORK_STATES, type WorkState } from '@ensemus/domain/work-unit';
+import { AppError, listProjects, listWorkOverview } from '@ensemus/application';
+import { WORK_STATES, type CompletionCriterion, type WorkState } from '@ensemus/domain/work-unit';
 import Link from 'next/link';
 import {
   ClassificationBadge,
@@ -9,6 +9,7 @@ import {
   PageHead,
   StatusBadge,
 } from '@/components/ui';
+import { evidenceSummary } from '@/lib/work-view';
 import { requireTenant } from '@/server/tenant';
 
 export const metadata = { title: 'Work | Ensemus' };
@@ -50,13 +51,13 @@ export default async function WorkPage({
 
   // A page reached through a broken link starts again from the top, and says so.
   let notice = error;
-  const page = await listWorkUnits(database, context, {
+  const page = await listWorkOverview(database, context, {
     ...scope,
     ...(cursor ? { cursor } : {}),
   }).catch((failure: unknown) => {
     if (!(failure instanceof AppError) || failure.code !== 'INVALID_INPUT') throw failure;
     notice = 'INVALID_INPUT';
-    return listWorkUnits(database, context, scope);
+    return listWorkOverview(database, context, scope);
   });
   const { items, nextCursor } = page;
 
@@ -122,6 +123,12 @@ export default async function WorkPage({
                   Status
                 </th>
                 <th role="columnheader" scope="col">
+                  Owner
+                </th>
+                <th role="columnheader" scope="col">
+                  Evidence
+                </th>
+                <th role="columnheader" scope="col">
                   Due
                 </th>
                 <th role="columnheader" scope="col">
@@ -130,29 +137,48 @@ export default async function WorkPage({
               </tr>
             </thead>
             <tbody role="rowgroup">
-              {items.map((work) => (
-                <tr key={work.id} role="row">
-                  <td role="cell">
-                    <Link href={`${base}/work/${work.id}`}>{work.title}</Link>
-                  </td>
-                  <td role="cell">
-                    <StatusBadge status={work.status} />
-                  </td>
-                  {work.dueAt ? (
-                    <td role="cell" className="nowrap">
-                      <span className="due-word">Due </span>
-                      {formatDate(work.dueAt)}
+              {items.map((work) => {
+                const evidence = evidenceSummary(
+                  work.status as WorkState,
+                  work.completionCriteria as CompletionCriterion[],
+                  work.evidence,
+                );
+                return (
+                  <tr key={work.id} role="row">
+                    <td role="cell">
+                      <Link href={`${base}/work/${work.id}`}>{work.title}</Link>
                     </td>
-                  ) : (
-                    <td role="cell" className="no-date">
-                      <small>None</small>
+                    <td role="cell">
+                      <StatusBadge status={work.status} />
                     </td>
-                  )}
-                  <td role="cell">
-                    <ClassificationBadge value={work.classification} />
-                  </td>
-                </tr>
-              ))}
+                    <td role="cell">
+                      <span className="due-word">Owner: </span>
+                      {work.ownerName ?? 'Unknown'}
+                    </td>
+                    <td role="cell">
+                      <span className="due-word">Evidence: </span>
+                      {evidence.tone ? (
+                        <span className={`badge ${evidence.tone}`}>{evidence.text}</span>
+                      ) : (
+                        <small>{evidence.text}</small>
+                      )}
+                    </td>
+                    {work.dueAt ? (
+                      <td role="cell" className="nowrap">
+                        <span className="due-word">Due </span>
+                        {formatDate(work.dueAt)}
+                      </td>
+                    ) : (
+                      <td role="cell" className="no-date">
+                        <small>None</small>
+                      </td>
+                    )}
+                    <td role="cell">
+                      <ClassificationBadge value={work.classification} />
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>

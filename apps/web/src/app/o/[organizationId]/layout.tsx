@@ -3,6 +3,7 @@ import { getOrganization } from '@ensemus/database';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import type { ReactNode } from 'react';
+import { DraftScope } from '@/components/kept-field';
 import { MainNav } from '@/components/main-nav';
 import { SubmitButton } from '@/components/submit-button';
 import { signOutAction } from '@/server/actions';
@@ -63,7 +64,7 @@ export default async function OrganizationLayout({
         </div>
       </aside>
       <main id="main" className="content">
-        {children}
+        <DraftScope account={actor.userId}>{children}</DraftScope>
       </main>
     </div>
   );

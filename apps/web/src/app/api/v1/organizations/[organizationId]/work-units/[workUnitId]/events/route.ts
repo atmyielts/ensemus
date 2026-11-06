@@ -1,8 +1,9 @@
 import { setTimeout as sleep } from 'node:timers/promises';
-import { AppError, getWorkUnit } from '@ensemus/application';
+import { AppError, getWorkFollowState } from '@ensemus/application';
 import { resolveTenantContext, TenantAccessDenied } from '@ensemus/database';
 import { errorCode } from '@ensemus/telemetry';
-import { apiLog, apiRoute, workUnitParams } from '@/server/api';
+import { z } from 'zod';
+import { apiLog, apiRoute, readQuery, workUnitParams } from '@/server/api';
 import { getRestoreGate, getRuntime } from '@/server/runtime';
 
 export const dynamic = 'force-dynamic';
@@ -24,11 +25,16 @@ function lastEventId(request: Request): number | null {
 
 const encoder = new TextEncoder();
 
+// The web page asks for this as well. A file or a decision on a review that does not hold the work
+// leaves the version alone, and the page still has to hear of it. Without it, only status events.
+const eventsQuery = z.object({ include: z.enum(['evidence']).optional() });
+
 export const GET = apiRoute(
   workUnitParams,
   async ({ request, requestId, userId, context, database, params }) => {
     // Checked before streaming starts, so that a refusal is a real 404 and EventSource stops trying.
-    const first = await getWorkUnit(database, context, params.workUnitId);
+    const withEvidence = readQuery(request, eventsQuery).include === 'evidence';
+    const first = await getWorkFollowState(database, context, params.workUnitId);
     const { organizationId, workUnitId } = params;
     const stop = new AbortController();
     const signal = AbortSignal.any([
@@ -39,12 +45,11 @@ export const GET = apiRoute(
     const sessionHeaders = new Headers(request.headers);
 
     /** Access is decided afresh on each pass, and nothing about the person is carried over. */
-    async function currentVersion() {
+    async function currentState() {
       const fresh = await resolveTenantContext(database, userId, organizationId);
       // A stream opened before a restore does not outlast it, or it would report a past that is gone.
       await getRestoreGate().assertServing(fresh);
-      const work = await getWorkUnit(database, fresh, workUnitId);
-      return work.version;
+      return getWorkFollowState(database, fresh, workUnitId);
     }
 
     /** A signed-out or expired session ends the stream, even when the membership is still active. */
@@ -60,18 +65,27 @@ export const GET = apiRoute(
     async function follow(controller: ReadableStreamDefaultController<Uint8Array>) {
       const write = (text: string) => controller.enqueue(encoder.encode(text));
       let sent = lastEventId(request);
-      let version = first.version;
+      let state = first;
+      let evidenceSent: string | null = null;
       let lastWrite = Date.now();
       let lastSessionCheck = Date.now();
       try {
         write(`retry: ${RECONNECT_MS}\n\n`);
         while (!signal.aborted) {
           const now = Date.now();
+          const { version } = state;
+          const evidenceMoved = withEvidence && state.evidence !== evidenceSent;
+          if (evidenceMoved) {
+            // Carries no ID, because Last-Event-ID stays a version whichever events were asked for.
+            write(`event: evidence\ndata: ${state.evidence}\n\n`);
+            evidenceSent = state.evidence;
+            lastWrite = now;
+          }
           if (version !== sent) {
             write(`id: ${version}\nevent: status\ndata: ${version}\n\n`);
             sent = version;
             lastWrite = now;
-          } else if (now - lastWrite >= HEARTBEAT_MS) {
+          } else if (!evidenceMoved && now - lastWrite >= HEARTBEAT_MS) {
             write(': keep-alive\n\n');
             lastWrite = now;
           }
@@ -80,7 +94,7 @@ export const GET = apiRoute(
             if (!(await sessionStillValid())) return;
             lastSessionCheck = Date.now();
           }
-          version = await currentVersion();
+          state = await currentState();
         }
       } catch (error) {
         // Disconnects, the lifetime cap, lost access and a restore are all normal ways for this to end.

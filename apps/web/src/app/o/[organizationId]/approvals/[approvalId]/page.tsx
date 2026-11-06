@@ -3,7 +3,7 @@ import { effectiveApprovalStatus } from '@ensemus/domain/approval';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { ConfirmForm } from '@/components/confirm-form';
-import { KeptTextarea } from '@/components/kept-field';
+import { DraftScope, KeptTextarea } from '@/components/kept-field';
 import { SubmitButton } from '@/components/submit-button';
 import {
   ClassificationBadge,
@@ -49,7 +49,7 @@ export default async function ApprovalPage({
 }) {
   const { organizationId, approvalId } = await params;
   const { error } = await searchParams;
-  const { context, database } = await requireTenant(organizationId);
+  const { actor, context, database } = await requireTenant(organizationId);
   if (!UUID.test(approvalId)) notFound();
   const { approval, work, approverName, isMine, files, missingFileCount, decisions } =
     await orNotFound(getApproval(database, context, approvalId));
@@ -78,7 +78,7 @@ export default async function ApprovalPage({
   );
 
   return (
-    <>
+    <DraftScope account={actor.userId}>
       <p className="back">
         <Link href={`${base}/approvals`}>Back to approvals</Link>
       </p>
@@ -270,6 +270,6 @@ export default async function ApprovalPage({
           </pre>
         </details>
       </div>
-    </>
+    </DraftScope>
   );
 }

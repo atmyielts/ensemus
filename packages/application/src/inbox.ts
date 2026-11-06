@@ -1,6 +1,7 @@
 // In-app notifications (UX-17). They work offline, and hold references, never content: the page
 // resolves each one with the reader's own permissions when it is opened.
 import {
+  approvals,
   notifications,
   withTenantTx,
   type AppDatabase,
@@ -78,22 +79,34 @@ const REMINDER_INTERVAL_MS = 24 * 60 * 60 * 1000;
 const MAX_REMINDERS = 3;
 
 /**
- * Raises due reminders for one tenant. A reminder moves its unread notification back to the top of the
- * recipient's inbox, up to a limit, so an approval nobody has answered keeps coming back without
- * nagging forever. This is the only channel for now, and it reaches someone when they next open
- * Ensemus: nothing goes out by email until M3. It works the same offline.
+ * Raises due reminders for one tenant. A reminder moves its notification back to the top of the
+ * recipient's inbox, unread again, up to a limit, so an approval nobody has answered keeps coming back
+ * without nagging forever. Opening the request is not answering it, so having read it stops nothing.
+ * A request that can no longer be decided is never raised. This is the only channel for now, and it
+ * reaches someone when they next open Ensemus: nothing goes out by email until M3. It works the same
+ * offline.
  */
 export function sendDueReminders(database: AppDatabase, context: TenantContext, now: Date) {
   return withTenantTx(database, context, async (tx) => {
     const updated = await tx
       .update(notifications)
       .set({
+        readAt: null,
         remindersSent: sql`${notifications.remindersSent} + 1`,
         lastRemindedAt: now,
         remindAt: sql`case when ${notifications.remindersSent} + 1 >= ${MAX_REMINDERS}
           then null else ${new Date(now.getTime() + REMINDER_INTERVAL_MS).toISOString()}::timestamptz end`,
       })
-      .where(and(lte(notifications.remindAt, now), isNull(notifications.readAt)))
+      .where(
+        and(
+          lte(notifications.remindAt, now),
+          sql`not exists (
+            select 1 from ${approvals}
+            where ${notifications.targetRef} = 'approval:' || ${approvals.id}::text
+              and (${approvals.status} <> 'pending' or ${approvals.expiresAt} <= ${now.toISOString()}::timestamptz)
+          )`,
+        ),
+      )
       .returning({ id: notifications.id });
     return updated.length;
   });

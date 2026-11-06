@@ -131,6 +131,9 @@ export function isApprovalOnlyTransition(from: WorkState, to: WorkState): boolea
   return to === 'awaiting_approval' || (from === 'awaiting_approval' && to === 'running');
 }
 
+/** The largest file a Work Unit takes. The browser checks it first, and the service checks it again. */
+export const MAX_FILE_BYTES = 25 * 1024 * 1024;
+
 /**
  * Whether a Work Unit's content and files may change now. Finished work has to be reopened first, and
  * paused work is being reviewed, so changing it would pull the content out from under the reviewer.

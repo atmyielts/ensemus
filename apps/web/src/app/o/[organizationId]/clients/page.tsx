@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { listClients, listProjects } from '@ensemus/application';
 import { can } from '@ensemus/domain/policy';
 import Link from 'next/link';
@@ -50,6 +51,7 @@ export default async function ClientsPage({
           {canAddClient && (
             <form className="inline-form divided" action={createClientAction}>
               {org}
+              <input type="hidden" name="requestKey" value={randomUUID()} />
               <label>
                 Client name
                 <input name="displayName" required maxLength={200} autoComplete="off" />
@@ -80,6 +82,7 @@ export default async function ClientsPage({
           {canAddProject && (
             <form className="inline-form divided" action={createProjectAction}>
               {org}
+              <input type="hidden" name="requestKey" value={randomUUID()} />
               <label>
                 Project name
                 <input name="name" required maxLength={200} autoComplete="off" />

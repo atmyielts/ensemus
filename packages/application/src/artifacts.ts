@@ -13,10 +13,16 @@ import {
   type Tx,
 } from '@ensemus/database';
 import { TOMBSTONE_RECORDED } from '@ensemus/domain/tombstone-ledger';
-import { canChangeContent, canDeleteFile, type WorkState } from '@ensemus/domain/work-unit';
+import {
+  canChangeContent,
+  canDeleteFile,
+  MAX_FILE_BYTES,
+  type WorkState,
+} from '@ensemus/domain/work-unit';
 import { and, asc, eq, inArray, lte, sql } from 'drizzle-orm';
 import { AppError } from './errors';
 import { emit } from './events';
+import { idFromRequest } from './request-id';
 import { closeOutdatedReviews, loadChangeable, loadReadable, type WorkRow } from './work';
 
 /** Where bytes live. An S3 adapter implements this, and tests can check calls against it. */
@@ -27,7 +33,6 @@ export interface ObjectStore {
   exists(key: string): Promise<boolean>;
 }
 
-const MAX_BYTES = 25 * 1024 * 1024;
 /** Far longer than any upload can take, so a sweep never takes bytes a request is about to attach. */
 const UPLOAD_GRACE_MS = 60 * 60 * 1000;
 /** A row that failed waits before its next try, so it stops taking a place in the next sweep's batch. */
@@ -62,38 +67,71 @@ export async function addArtifact(
      * repeat that lost the race gets the existing file, and the sweep removes the bytes it uploaded.
      */
     onlyOnce?: boolean;
+    /**
+     * From one rendered form. The same file sent again from it attaches once, so a double-click or a
+     * resent page gets the first one back. A different file, or one sent after this one was deleted,
+     * is attached as a new one.
+     */
+    requestKey?: string;
     /** Checked at both ends of the upload, for a caller whose right to add this can lapse meanwhile. */
     stillAllowed?: (work: WorkRow) => void;
   },
 ) {
-  if (input.body.length === 0 || input.body.length > MAX_BYTES) {
-    throw new AppError('INVALID_INPUT');
-  }
+  if (input.body.length === 0) throw new AppError('INVALID_INPUT');
+  if (input.body.length > MAX_FILE_BYTES) throw new AppError('FILE_TOO_LARGE');
   const name = input.name.trim().slice(0, 255);
   if (!name) throw new AppError('INVALID_INPUT');
-  const id = randomUUID();
-  const key = objectKey(context.organizationId, id);
-  const work = await withTenantTx(database, context, async (tx) => {
+  const sha256 = createHash('sha256').update(input.body).digest('hex');
+  let id = input.requestKey
+    ? idFromRequest('artifact', context.membershipId, input.requestKey, [
+        input.workUnitId,
+        name,
+        sha256,
+      ])
+    : randomUUID();
+  const attached = (tx: Tx) =>
+    tx
+      .select({ id: workArtifacts.artifactId })
+      .from(workArtifacts)
+      .where(and(eq(workArtifacts.workUnitId, input.workUnitId), eq(workArtifacts.artifactId, id)));
+  const first = await withTenantTx(database, context, async (tx) => {
     const current = await loadChangeable(tx, context, input.workUnitId);
     if (!canChangeContent(current.status as WorkState)) throw new AppError('INVALID_STATE');
     input.stillAllowed?.(current);
+    if (input.requestKey) {
+      const [repeat] = await attached(tx);
+      if (repeat) return { repeat };
+      // Deleted for good, and a tombstone stays on its ID, so what is sent now needs one of its own.
+      if (await isTombstoned(tx, id)) id = randomUUID();
+    }
     // Written before the bytes exist. If anything stops the row arriving, a crash included, the sweep
-    // finds this and removes what was uploaded.
-    await tx.insert(blobLifecycle).values({
-      organizationId: context.organizationId,
-      artifactId: id,
-      objectKey: key,
-      state: 'uploading',
-      purgeAfter: new Date(Date.now() + UPLOAD_GRACE_MS),
-    });
-    return current;
+    // finds this and removes what was uploaded. A repeat racing this one shares its row and its bytes.
+    await tx
+      .insert(blobLifecycle)
+      .values({
+        organizationId: context.organizationId,
+        artifactId: id,
+        objectKey: objectKey(context.organizationId, id),
+        state: 'uploading',
+        purgeAfter: new Date(Date.now() + UPLOAD_GRACE_MS),
+      })
+      .onConflictDoNothing();
+    return { work: current };
   });
+  if (first.repeat) return { id: first.repeat.id };
+  const { work } = first;
+  const key = objectKey(context.organizationId, id);
   await store.put(key, input.body, input.mimeType);
   return withTenantTx(database, context, async (tx) => {
     // Checked again: the work may have been paused or finished while the bytes were on their way.
     const current = await loadChangeable(tx, context, input.workUnitId);
     if (!canChangeContent(current.status as WorkState)) throw new AppError('INVALID_STATE');
     input.stillAllowed?.(current);
+    if (input.requestKey) {
+      // The row lock above puts two racing repeats in order, and the second finds the first's file.
+      const [repeat] = await attached(tx);
+      if (repeat) return { id: repeat.id };
+    }
     if (input.onlyOnce) {
       const [existing] = await tx
         .select({ id: artifacts.id })
@@ -107,11 +145,11 @@ export async function addArtifact(
       id,
       name,
       objectKey: key,
-      sha256: createHash('sha256').update(input.body).digest('hex'),
+      sha256,
       mimeType: input.mimeType,
       sizeBytes: input.body.length,
       // An artifact inherits its Work Unit's classification (secrets doc, section 6).
-      classification: work.classification,
+      classification: current.classification,
       createdByMembershipId: context.actorType === 'service' ? null : context.membershipId,
     });
     await tx.insert(workArtifacts).values({

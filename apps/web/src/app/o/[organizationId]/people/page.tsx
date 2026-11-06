@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import {
   listDirectory,
   listInvitations,
@@ -77,7 +78,15 @@ function TeamTree({
         return (
           <li key={team.id} className="block">
             <strong>{team.name}</strong>
-            {team.members.length === 0 ? (
+            {team.membersHidden ? (
+              <>
+                <br />
+                <small>
+                  {team.memberCount === 1 ? '1 person.' : `${team.memberCount} people.`} Who is on a
+                  team is shown to the people on it, and to owners and admins.
+                </small>
+              </>
+            ) : team.members.length === 0 ? (
               <>
                 <br />
                 <small>
@@ -439,6 +448,7 @@ export default async function PeoplePage({
           {canManageTeams && (
             <form className="inline-form divided" action={createTeamAction}>
               {org}
+              <input type="hidden" name="requestKey" value={randomUUID()} />
               <label>
                 Team name
                 <input name="name" required maxLength={200} autoComplete="off" />

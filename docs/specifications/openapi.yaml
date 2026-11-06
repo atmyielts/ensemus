@@ -156,13 +156,20 @@ paths:
         differs from the last one sent, and comment heartbeats in between. Status comes from PostgreSQL,
         so a reconnect to any replica resumes from Last-Event-ID. Access is checked again on every poll,
         and the stream ends when access is lost. Connections close after about 15 minutes, and
-        EventSource reconnects by itself.
+        EventSource reconnects by itself. With include=evidence it also sends an event named evidence,
+        with no id, at once and whenever the Work Unit's files or reviews change, since those can change
+        without the version moving. Its data is an opaque value to compare, and says nothing about them.
       parameters:
         - name: Last-Event-ID
           in: header
           required: false
           description: The last version received. Without a usable value, the current version is sent at once.
           schema: {type: string}
+        - name: include
+          in: query
+          required: false
+          description: Asks for evidence events as well as status events.
+          schema: {type: string, enum: [evidence]}
       responses:
         '200':
           description: Event stream

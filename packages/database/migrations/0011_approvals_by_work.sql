@@ -1,0 +1,1 @@
+CREATE INDEX "approvals_work_idx" ON "work"."approvals" USING btree ("organization_id","work_unit_id");

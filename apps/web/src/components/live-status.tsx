@@ -7,16 +7,27 @@ const FIRST_RETRY_MS = 2_000;
 const LONGEST_RETRY_MS = 30_000;
 
 /**
- * Refreshes the page when this Work Unit changes. The browser reconnects by itself when a connection
- * drops, but it gives up for good on any error answer, and an error answer is what the proxy gives
- * while web restarts. So this tries again itself, asking first whether there is still something to
- * follow: an answer that this person may not see it ends the attempts. If this never runs, the page
- * is still correct when reloaded.
+ * Refreshes the page when this Work Unit changes, whether that moves its version or only its files and
+ * reviews, which can decide what the page offers without moving the version. The browser reconnects by
+ * itself when a connection drops, but it gives up for good on any error answer, and an error answer is
+ * what the proxy gives while web restarts. So this tries again itself, asking first whether there is
+ * still something to follow: an answer that this person may not see it ends the attempts. If this never
+ * runs, the page is still correct when reloaded.
  */
-export function LiveStatus({ url, version }: { url: string; version: number }) {
+export function LiveStatus({
+  url,
+  version,
+  evidence,
+}: {
+  url: string;
+  version: number;
+  evidence: string;
+}) {
   const router = useRouter();
   const latest = useRef(version);
   latest.current = version;
+  const latestEvidence = useRef(evidence);
+  latestEvidence.current = evidence;
 
   useEffect(() => {
     let source: EventSource | undefined;
@@ -53,6 +64,13 @@ export function LiveStatus({ url, version }: { url: string; version: number }) {
         const next = Number((event as MessageEvent<string>).data);
         if (next > latest.current) {
           latest.current = next;
+          router.refresh();
+        }
+      });
+      source.addEventListener('evidence', (event) => {
+        const next = (event as MessageEvent<string>).data;
+        if (next !== latestEvidence.current) {
+          latestEvidence.current = next;
           router.refresh();
         }
       });

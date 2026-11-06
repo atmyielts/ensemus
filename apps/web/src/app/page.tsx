@@ -3,7 +3,7 @@ import type { CommercialMode } from '@ensemus/config';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import type { ReactNode } from 'react';
-import { KeptInput } from '@/components/kept-field';
+import { DraftScope, KeptInput } from '@/components/kept-field';
 import { SubmitButton } from '@/components/submit-button';
 import { ErrorNotice, Wordmark } from '@/components/ui';
 import { createOrganizationAction, signOutAction } from '@/server/actions';
@@ -56,12 +56,20 @@ function Account({ email }: { email: string }) {
   );
 }
 
-function Page({ children, email }: { children: ReactNode; email: string }) {
+function Page({
+  children,
+  actor,
+}: {
+  children: ReactNode;
+  actor: { userId: string; email: string };
+}) {
   return (
     <main className="centered">
       <Wordmark />
-      <Account email={email} />
-      <div className="sheet">{children}</div>
+      <Account email={actor.email} />
+      <div className="sheet">
+        <DraftScope account={actor.userId}>{children}</DraftScope>
+      </div>
     </main>
   );
 }
@@ -78,7 +86,7 @@ export default async function HomePage({
 
   if (only) {
     return (
-      <Page email={actor.email}>
+      <Page actor={actor}>
         <h1>Your organizations</h1>
         <ul className="list">
           {organizations.map((organization) => (
@@ -95,7 +103,7 @@ export default async function HomePage({
   const { error } = await searchParams;
   const responsibility = RESPONSIBILITY[getRuntime().config.mode];
   return (
-    <Page email={actor.email}>
+    <Page actor={actor}>
       <h1>Set up your organization</h1>
       <p className="muted">
         Your organization is where your work, people and approvals live. You can invite people as

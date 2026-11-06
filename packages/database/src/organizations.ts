@@ -21,22 +21,23 @@ import {
 export type CommercialMode = 'cloud' | 'byom' | 'sovereign';
 
 /** An ID only this person and this form can arrive at, so nobody else can aim at an organization. */
-function organizationIdFor(userId: string, requestKey: string) {
-  const hex = createHash('sha256').update(`${userId}:${requestKey}`).digest('hex');
+function organizationIdFor(userId: string, requestKey: string, name: string) {
+  const hex = createHash('sha256').update(`${userId}:${requestKey}:${name}`).digest('hex');
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-5${hex.slice(13, 16)}-8${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
 }
 
 /**
  * Creates an organization and makes this person its owner. A `requestKey` makes this safe to repeat:
- * the key from one rendered form always leads to the same organization, so a double-click or a
- * resubmitted page gets the first one back and creates nothing.
+ * one rendered form sent again with the same name leads to the same organization, so a double-click or
+ * a resubmitted page gets the first one back and creates nothing. The same form sent with another name
+ * is someone who went back and typed a new one, so it makes that one and never drops it.
  */
 export async function createOrganization(
   database: AppDatabase,
   input: { userId: string; name: string; commercialMode: CommercialMode; requestKey?: string },
 ) {
   const organizationId = input.requestKey
-    ? organizationIdFor(input.userId, input.requestKey)
+    ? organizationIdFor(input.userId, input.requestKey, input.name)
     : randomUUID();
   const membershipId = randomUUID();
   return withNewTenantTx(database, organizationId, input.userId, async (tx) => {

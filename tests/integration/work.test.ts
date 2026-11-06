@@ -317,11 +317,21 @@ describe('work', () => {
         createWorkUnit(db(), a, { title: 'Sent twice at once', requestKey }),
         createWorkUnit(db(), a, { title: 'Sent twice at once', requestKey }),
       ]);
-      const three = await createWorkUnit(db(), a, { title: 'Sent again', requestKey });
+      const three = await createWorkUnit(db(), a, { title: 'Sent twice at once', requestKey });
       expect(two.id).toBe(one.id);
       expect(three.id).toBe(one.id);
-      expect(three.title).toBe('Sent twice at once');
       expect(await titled(one.id)).toEqual({ units: 1, people: 1, events: 1 });
+    });
+
+    it('does not drop what was typed when that form comes back with something else', async () => {
+      const a = await newOrg();
+      const requestKey = randomUUID();
+      const one = await createWorkUnit(db(), a, { title: 'Typed first', requestKey });
+      const two = await createWorkUnit(db(), a, { title: 'Typed after going back', requestKey });
+      expect(two.id).not.toBe(one.id);
+      expect(two.title).toBe('Typed after going back');
+      expect(await titled(one.id)).toEqual({ units: 1, people: 1, events: 1 });
+      expect(await titled(two.id)).toEqual({ units: 1, people: 1, events: 1 });
     });
 
     it('makes another when the form is a new one', async () => {
@@ -1074,13 +1084,14 @@ describe('work', () => {
       await expect(getApproval(db(), member, created.id)).rejects.toEqual(code('NOT_FOUND'));
     });
 
-    it('sends reminders up to a limit, and only for unread items', async () => {
+    it('sends one reminder when one is due, and the next only a day later', async () => {
       const { a, approver, work } = await setup();
       await requestApproval(db(), a, {
         workUnitId: work.id,
         action: action(),
         approverMembershipId: approver.membershipId,
-        expiresAt: hour(),
+        // Still open when the reminder falls due: one past its time can no longer be decided.
+        expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
       });
       const future = new Date(Date.now() + 5 * 60 * 60 * 1000);
       expect(await sendDueReminders(db(), a, future)).toBe(1);

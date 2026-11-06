@@ -207,11 +207,14 @@ export interface paths {
         };
         /**
          * Follow a Work Unit's version as server-sent events
-         * @description Sends an event named status whose data and id are both the current version, whenever the version differs from the last one sent, and comment heartbeats in between. Status comes from PostgreSQL, so a reconnect to any replica resumes from Last-Event-ID. Access is checked again on every poll, and the stream ends when access is lost. Connections close after about 15 minutes, and EventSource reconnects by itself.
+         * @description Sends an event named status whose data and id are both the current version, whenever the version differs from the last one sent, and comment heartbeats in between. Status comes from PostgreSQL, so a reconnect to any replica resumes from Last-Event-ID. Access is checked again on every poll, and the stream ends when access is lost. Connections close after about 15 minutes, and EventSource reconnects by itself. With include=evidence it also sends an event named evidence, with no id, at once and whenever the Work Unit's files or reviews change, since those can change without the version moving. Its data is an opaque value to compare, and says nothing about them.
          */
         get: {
             parameters: {
-                query?: never;
+                query?: {
+                    /** @description Asks for evidence events as well as status events. */
+                    include?: "evidence";
+                };
                 header?: {
                     /** @description The last version received. Without a usable value, the current version is sent at once. */
                     "Last-Event-ID"?: string;

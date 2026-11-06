@@ -52,7 +52,6 @@ import {
   getTableColumns,
   inArray,
   isNotNull,
-  isNull,
   lt,
   ne,
   not,
@@ -64,6 +63,7 @@ import {
 import { z } from 'zod';
 import { AppError, foreignReference, pgCode } from './errors';
 import { emit } from './events';
+import { idFromRequest } from './request-id';
 
 // An outside system's receipt is not offered yet: nothing can provide one until external actions
 // exist, so a criterion asking for it could never be met and the work could never finish.
@@ -199,16 +199,10 @@ async function assertProjectInTenant(tx: Tx, projectId: string) {
   if (!project) throw foreignReference();
 }
 
-/** An ID only this person and this form can arrive at, so nobody else can aim at a Work Unit. */
-function workIdFor(membershipId: string, requestKey: string) {
-  const hex = createHash('sha256').update(`work:${membershipId}:${requestKey}`).digest('hex');
-  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-5${hex.slice(13, 16)}-8${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
-}
-
 /**
- * Creates a Work Unit. A `requestKey` makes this safe to repeat: the key from one rendered form always
- * leads to the same Work Unit, so a double-click or a resent page gets the first one back and creates
- * nothing.
+ * Creates a Work Unit. A `requestKey` makes this safe to repeat: one rendered form sent again with the
+ * same content leads to the same Work Unit, so a double-click or a resent page gets the first one back
+ * and creates nothing. The same form sent with other content makes its own (see idFromRequest).
  */
 export async function createWorkUnit(
   database: AppDatabase,
@@ -219,7 +213,10 @@ export async function createWorkUnit(
   const parsed = createWorkInput.safeParse(raw);
   if (!parsed.success) throw new AppError('INVALID_INPUT');
   const input = parsed.data;
-  const id = input.requestKey ? workIdFor(context.membershipId, input.requestKey) : randomUUID();
+  const { requestKey, ...content } = input;
+  const id = requestKey
+    ? idFromRequest('work', context.membershipId, requestKey, content)
+    : randomUUID();
   return withTenantTx(database, context, async (tx) => {
     const owner = input.ownerMembershipId ?? context.membershipId;
     await assertActiveMember(tx, owner);
@@ -336,6 +333,60 @@ export async function listWorkUnits(
   return {
     items,
     nextCursor: rows.length > limit && last ? encodeCursor(last.cursorAt, last.id) : null,
+  };
+}
+
+/**
+ * The work list for people: each page with who answers for each item and how its evidence stands, by
+ * the same rule as the work's own page. The API's list keeps to what its contract states.
+ */
+export async function listWorkOverview(
+  database: AppDatabase,
+  context: TenantContext,
+  options: Parameters<typeof listWorkUnits>[2] = {},
+) {
+  const page = await listWorkUnits(database, context, options);
+  const ids = page.items.map((work) => work.id);
+  if (ids.length === 0) return { ...page, items: [] };
+  const now = new Date();
+  const { owners, files, approved } = await withTenantTx(database, context, async (tx) => ({
+    owners: await tx
+      .select({ membershipId: memberships.id, name: users.name })
+      .from(memberships)
+      .innerJoin(users, eq(users.id, memberships.userId))
+      .where(
+        inArray(
+          memberships.id,
+          page.items.map((work) => work.ownerMembershipId),
+        ),
+      ),
+    files: await tx
+      .select({
+        workUnitId: workArtifacts.workUnitId,
+        id: artifacts.id,
+        createdBy: artifacts.createdByMembershipId,
+      })
+      .from(workArtifacts)
+      .innerJoin(artifacts, eq(artifacts.id, workArtifacts.artifactId))
+      .where(inArray(workArtifacts.workUnitId, ids)),
+    approved: await tx
+      .select({ workUnitId: approvals.workUnitId, ...APPROVED_REVIEW })
+      .from(approvals)
+      .where(and(inArray(approvals.workUnitId, ids), eq(approvals.status, 'approved'))),
+  }));
+  const ownerName = new Map(owners.map((owner) => [owner.membershipId, owner.name]));
+  return {
+    ...page,
+    items: page.items.map((work) => ({
+      ...work,
+      ownerName: ownerName.get(work.ownerMembershipId) ?? null,
+      evidence: countEvidence(
+        work,
+        files.filter((file) => file.workUnitId === work.id),
+        approved.filter((review) => review.workUnitId === work.id),
+        now,
+      ),
+    })),
   };
 }
 
@@ -472,18 +523,29 @@ export async function currentReviewAction(tx: Tx, work: WorkRow) {
  */
 export async function evidenceFor(tx: Tx, work: WorkRow, now = new Date()) {
   const files = await fileFacts(tx, work.id);
+  const approved = await tx
+    .select(APPROVED_REVIEW)
+    .from(approvals)
+    .where(and(eq(approvals.workUnitId, work.id), eq(approvals.status, 'approved')));
+  return countEvidence(work, files, approved, now);
+}
+
+const APPROVED_REVIEW = {
+  toolName: approvals.toolName,
+  expiresAt: approvals.expiresAt,
+  boundHash: approvals.actionHash,
+};
+
+function countEvidence(
+  work: WorkRow,
+  files: ReadonlyArray<{ id: string; createdBy: string | null }>,
+  approved: ReadonlyArray<{ toolName: string; expiresAt: Date; boundHash: string }>,
+  now: Date,
+) {
   const current = workReviewAction(
     work,
     files.map((file) => file.id),
   );
-  const approved = await tx
-    .select({
-      toolName: approvals.toolName,
-      expiresAt: approvals.expiresAt,
-      boundHash: approvals.actionHash,
-    })
-    .from(approvals)
-    .where(and(eq(approvals.workUnitId, work.id), eq(approvals.status, 'approved')));
   return {
     artifactCount: files.filter((file) => file.createdBy !== null).length,
     approvedReviewCount: approved.filter((row) =>
@@ -494,19 +556,19 @@ export async function evidenceFor(tx: Tx, work: WorkRow, now = new Date()) {
   };
 }
 
-/** Marks notifications about approvals as dealt with, so they stop asking for a decision. */
+/**
+ * Marks notifications about approvals as dealt with, so they stop asking for a decision. That includes
+ * one its reader has already opened, which would otherwise still have a reminder waiting.
+ */
 export async function clearApprovalNotifications(tx: Tx, approvalIds: readonly string[]) {
   if (approvalIds.length === 0) return;
   await tx
     .update(notifications)
-    .set({ readAt: new Date(), remindAt: null })
+    .set({ readAt: sql`coalesce(${notifications.readAt}, now())`, remindAt: null })
     .where(
-      and(
-        inArray(
-          notifications.targetRef,
-          approvalIds.map((id) => `approval:${id}`),
-        ),
-        isNull(notifications.readAt),
+      inArray(
+        notifications.targetRef,
+        approvalIds.map((id) => `approval:${id}`),
       ),
     );
 }
@@ -1438,9 +1500,39 @@ export function getWorkDetail(database: AppDatabase, context: TenantContext, id:
       reviews,
       history,
       evidence: await evidenceFor(tx, work, now),
+      evidenceStamp: await evidenceStampFor(tx, id, now),
       canChange,
       canManage,
     };
+  });
+}
+
+/**
+ * Stands for what a Work Unit's page shows about its files and reviews. A file, or a decision on a
+ * review that does not hold the work, leaves the version alone, so a page following the version alone
+ * would never hear of it. Only ever compared: it says nothing about the work.
+ */
+async function evidenceStampFor(tx: Tx, workUnitId: string, now: Date) {
+  const files = await tx
+    .select({ id: workArtifacts.artifactId })
+    .from(workArtifacts)
+    .where(eq(workArtifacts.workUnitId, workUnitId));
+  const reviews = await tx
+    .select({ id: approvals.id, status: approvals.status, expiresAt: approvals.expiresAt })
+    .from(approvals)
+    .where(eq(approvals.workUnitId, workUnitId));
+  const facts = [
+    ...files.map((file) => file.id),
+    ...reviews.map((review) => `${review.id}:${review.status}:${review.expiresAt <= now}`),
+  ].sort();
+  return createHash('sha256').update(facts.join(',')).digest('hex').slice(0, 32);
+}
+
+/** What a page following this work needs to know whether it has fallen behind. */
+export function getWorkFollowState(database: AppDatabase, context: TenantContext, id: string) {
+  return withTenantTx(database, context, async (tx) => {
+    const work = await loadReadable(tx, context, id);
+    return { version: work.version, evidence: await evidenceStampFor(tx, id, new Date()) };
   });
 }
 

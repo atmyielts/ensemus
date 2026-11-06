@@ -1,4 +1,8 @@
 // Human wording for known error codes. Kept apart from server packages so components stay light.
+/** The same words whether the browser or the server notices first. */
+export const FILE_TOO_LARGE =
+  'That file is larger than 25 MB, so it was not added. Attach a smaller one.';
+
 const MESSAGE_FOR = new Map<string, string>([
   ['NOT_FOUND', 'Not found, or you do not have access.'],
   ['FORBIDDEN', 'You do not have permission to do that.'],
@@ -19,6 +23,7 @@ const MESSAGE_FOR = new Map<string, string>([
   ],
   ['INVALID_STATE', 'That cannot be done while the work is in this status.'],
   ['INVALID_INPUT', 'Please check the details and try again.'],
+  ['FILE_TOO_LARGE', FILE_TOO_LARGE],
   ['APPROVAL_NOT_PENDING', 'This approval has already been decided or closed.'],
   ['APPROVAL_EXPIRED', 'This approval has expired.'],
   ['APPROVAL_WRONG_APPROVER', 'This approval is assigned to someone else.'],

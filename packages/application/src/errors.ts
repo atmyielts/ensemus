@@ -14,6 +14,7 @@ export type ErrorCode =
   | 'TEAM_CYCLE'
   | 'INVALID_STATE'
   | 'INVALID_INPUT'
+  | 'FILE_TOO_LARGE'
   | 'APPROVAL_NOT_PENDING'
   | 'APPROVAL_EXPIRED'
   | 'APPROVAL_WRONG_APPROVER'
@@ -40,6 +41,7 @@ const MESSAGES: Record<ErrorCode, string> = {
   TEAM_CYCLE: 'A team cannot sit inside itself or inside one of its own teams.',
   INVALID_STATE: 'That cannot be done in the current state.',
   INVALID_INPUT: 'Please check the details and try again.',
+  FILE_TOO_LARGE: 'That file is larger than 25 MB, so it was not added. Attach a smaller one.',
   APPROVAL_NOT_PENDING: 'This approval has already been decided.',
   APPROVAL_EXPIRED: 'This approval has expired.',
   APPROVAL_WRONG_APPROVER: 'This approval is assigned to someone else.',
@@ -86,6 +88,7 @@ export const HTTP_STATUS: Record<ErrorCode, number> = {
   TEAM_CYCLE: 409,
   INVALID_STATE: 409,
   INVALID_INPUT: 400,
+  FILE_TOO_LARGE: 413,
   APPROVAL_NOT_PENDING: 409,
   APPROVAL_EXPIRED: 409,
   APPROVAL_WRONG_APPROVER: 403,

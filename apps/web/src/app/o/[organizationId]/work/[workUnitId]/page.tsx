@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import {
   getWorkDetail,
   getWorkTitle,
@@ -22,7 +23,8 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { ConfirmForm } from '@/components/confirm-form';
 import { EditWorkForm } from '@/components/edit-work-form';
-import { KeptTextarea } from '@/components/kept-field';
+import { FileField } from '@/components/file-field';
+import { DraftScope, KeptTextarea } from '@/components/kept-field';
 import { LiveStatus } from '@/components/live-status';
 import { SubmitButton } from '@/components/submit-button';
 import {
@@ -37,6 +39,7 @@ import {
   StatusBadge,
   toDateInput,
 } from '@/components/ui';
+import { planNote, reopenDraftName } from '@/lib/work-view';
 import { orNotFound, requireTenant } from '@/server/tenant';
 import {
   addDependencyAction,
@@ -115,7 +118,7 @@ export default async function WorkDetailPage({
 }) {
   const { organizationId, workUnitId } = await params;
   const { error } = await searchParams;
-  const { context, database } = await requireTenant(organizationId);
+  const { actor, context, database } = await requireTenant(organizationId);
   if (!UUID.test(workUnitId)) notFound();
   const detail = await orNotFound(getWorkDetail(database, context, workUnitId));
   const {
@@ -187,6 +190,7 @@ export default async function WorkDetailPage({
   const runRequested = Boolean(work.runRequestedAt);
   const canRunPlan = canChange && hasPlan && status === 'ready' && !runRequested;
   const needsReview = criteria.some((criterion) => criterion.kind === 'reviewer_approved');
+  const whoDoesIt = planNote(status, { hasPlan, planHolds, runRequested });
 
   const openReview = reviews.find(
     (review) => review.status === 'pending' && review.expiresAt.getTime() > now,
@@ -233,15 +237,16 @@ export default async function WorkDetailPage({
   );
 
   return (
-    <>
+    <DraftScope account={actor.userId}>
       <p className="back">
         <Link href={`${base}/work`}>Back to work</Link>
       </p>
       <PageHead title={work.title} />
       <ErrorNotice code={error} />
       <LiveStatus
-        url={`/api/v1/organizations/${organizationId}/work-units/${work.id}/events`}
+        url={`/api/v1/organizations/${organizationId}/work-units/${work.id}/events?include=evidence`}
         version={work.version}
+        evidence={detail.evidenceStamp}
       />
       <div className="stack">
         <section className="card" aria-labelledby="state-heading">
@@ -323,12 +328,8 @@ export default async function WorkDetailPage({
               ) : (
                 <p>Someone can mark it done once the evidence is in place.</p>
               ))}
-            {!finished && status !== 'awaiting_approval' && (
-              <p className="muted">
-                {hasPlan
-                  ? 'A plan is attached. It only starts when someone presses Run the plan.'
-                  : 'People do this work and update its status.'}
-              </p>
+            {!finished && status !== 'awaiting_approval' && whoDoesIt && (
+              <p className="muted">{whoDoesIt}</p>
             )}
             {runRequested && status === 'ready' && (
               <p className="notice">
@@ -416,7 +417,12 @@ export default async function WorkDetailPage({
                       {status === 'completed'
                         ? 'Why does this need reopening?'
                         : 'Why is it worth trying again?'}
-                      <KeptTextarea keep="reopen" name="reason" required maxLength={2000} />
+                      <KeptTextarea
+                        keep={reopenDraftName(status, history, work.version)}
+                        name="reason"
+                        required
+                        maxLength={2000}
+                      />
                     </label>
                     <small>
                       This is kept in the history. Any earlier review stops counting, so this work
@@ -836,10 +842,10 @@ export default async function WorkDetailPage({
           {canChange && canChangeContent(status) && (
             <form className="inline-form divided" action={uploadArtifactAction}>
               {ids}
+              <input type="hidden" name="requestKey" value={randomUUID()} />
               <label>
                 Attach a file
-                <small>Up to 25 MB. Deleting a file later is permanent.</small>
-                <input name="file" type="file" required />
+                <FileField name="file" hint="Up to 25 MB. Deleting a file later is permanent." />
               </label>
               <SubmitButton className="quiet" working="Uploading">
                 Upload
@@ -878,6 +884,6 @@ export default async function WorkDetailPage({
           )}
         </section>
       </div>
-    </>
+    </DraftScope>
   );
 }
