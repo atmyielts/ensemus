@@ -1394,8 +1394,12 @@ export interface paths {
                         "application/json": components["schemas"]["LicenseStatus"];
                     };
                 };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
                 403: components["responses"]["Forbidden"];
                 404: components["responses"]["NotFound"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
             };
         };
         put?: never;
@@ -1420,7 +1424,7 @@ export interface paths {
         put?: never;
         /**
          * Install a signed license, maintenance statement, advisory or support policy
-         * @description Owners only. A file that does not verify changes nothing. Installing the same file twice is safe, and answers 200 the second time.
+         * @description Owners only. A file that does not verify changes nothing. Installing the same file twice is safe, and answers 200 the second time. A JSON body here has the same 256 KB limit as any other, and the page's form takes a document up to the limit stated on the field.
          */
         post: {
             parameters: {
@@ -1457,8 +1461,13 @@ export interface paths {
                     };
                 };
                 400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
                 403: components["responses"]["Forbidden"];
                 404: components["responses"]["NotFound"];
+                413: components["responses"]["PayloadTooLarge"];
+                415: components["responses"]["UnsupportedMediaType"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
             };
         };
         delete?: never;
@@ -1501,8 +1510,12 @@ export interface paths {
                         };
                     };
                 };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
                 403: components["responses"]["Forbidden"];
                 404: components["responses"]["NotFound"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
             };
         };
         put?: never;
@@ -1547,8 +1560,12 @@ export interface paths {
                         };
                     };
                 };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
                 403: components["responses"]["Forbidden"];
                 404: components["responses"]["NotFound"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
             };
         };
         put?: never;
@@ -1582,9 +1599,14 @@ export interface paths {
                     };
                 };
                 400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
                 403: components["responses"]["Forbidden"];
                 404: components["responses"]["NotFound"];
                 409: components["responses"]["Conflict"];
+                413: components["responses"]["PayloadTooLarge"];
+                415: components["responses"]["UnsupportedMediaType"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
             };
         };
         delete?: never;
@@ -1627,8 +1649,12 @@ export interface paths {
                         "application/json": components["schemas"]["OrganizationExport"];
                     };
                 };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
                 403: components["responses"]["Forbidden"];
                 404: components["responses"]["NotFound"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
             };
         };
         put?: never;
@@ -1667,12 +1693,16 @@ export interface paths {
                 /** @description The archive */
                 200: {
                     headers: {
+                        "Content-Disposition": string;
+                        "Cache-Control": "no-store";
                         [name: string]: unknown;
                     };
                     content: {
                         "application/x-tar": string;
                     };
                 };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
                 403: components["responses"]["Forbidden"];
                 404: components["responses"]["NotFound"];
                 409: components["responses"]["Conflict"];
@@ -1685,6 +1715,8 @@ export interface paths {
                         "application/json": components["schemas"]["Error"];
                     };
                 };
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
             };
         };
         put?: never;
@@ -1732,9 +1764,13 @@ export interface paths {
                         "application/json": components["schemas"]["OrganizationImport"];
                     };
                 };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
                 403: components["responses"]["Forbidden"];
                 404: components["responses"]["NotFound"];
                 409: components["responses"]["Conflict"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
             };
         };
         delete?: never;
@@ -1777,8 +1813,12 @@ export interface paths {
                         "application/json": components["schemas"]["OrganizationImport"];
                     };
                 };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
                 403: components["responses"]["Forbidden"];
                 404: components["responses"]["NotFound"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
             };
         };
         put?: never;
@@ -1823,8 +1863,12 @@ export interface paths {
                         };
                     };
                 };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
                 403: components["responses"]["Forbidden"];
                 404: components["responses"]["NotFound"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
             };
         };
         put?: never;
@@ -1879,9 +1923,14 @@ export interface paths {
                     };
                 };
                 400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
                 403: components["responses"]["Forbidden"];
                 404: components["responses"]["NotFound"];
                 409: components["responses"]["Conflict"];
+                413: components["responses"]["PayloadTooLarge"];
+                415: components["responses"]["UnsupportedMediaType"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
             };
         };
         delete?: never;

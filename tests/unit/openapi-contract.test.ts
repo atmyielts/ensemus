@@ -1,6 +1,6 @@
 // API-12: the spec against the routes that exist, and the validator against responses that must fail.
 // tests/stack/api.test.ts puts every real response through the same validator.
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   contractProblems,
   exportedMethods,
@@ -9,6 +9,11 @@ import {
   operations,
   spec,
 } from '../helpers/openapi';
+
+// Importing the real package from outside a server component throws, which is what it is for.
+vi.mock('../../apps/web/node_modules/server-only/index.js', () => ({}));
+
+const dto = await import('../../apps/web/src/server/sovereign-dto');
 
 describe('which methods a route file exports', () => {
   it.each([
@@ -109,18 +114,6 @@ describe('the spec and the routes', () => {
       'knowledge/search',
       'model-profiles',
       'entitlements',
-      // M6 until each route lands. The slices that build them remove these as they land (ADR-030).
-      'license',
-      'license/documents',
-      'advisories',
-      'exports',
-      'exports',
-      'exports/{export_id}',
-      'exports/{export_id}/archive',
-      'imports',
-      'imports/{import_id}',
-      'imported-people',
-      'imported-people/{source_membership_id}/link',
     ]);
   });
 });
@@ -243,5 +236,332 @@ describe('the validator', () => {
     });
     expect(operation).toBe('GET /organizations/{organization_id}/work-units');
     expect(found).toEqual([]);
+  });
+});
+
+// COMM-03, COMM-05: the shapes the Sovereign routes answer with, against the spec. tests/stack/sovereign-api.test.ts
+// puts real responses through the same validator.
+describe('what the Sovereign routes answer with', () => {
+  const organizationPath = `/api/v1/organizations/${ORG}`;
+  const answer = (method: string, path: string, status: number, body: unknown) =>
+    contractProblems({
+      method,
+      path: `${organizationPath}/${path}`,
+      status,
+      headers: json(),
+      text: JSON.stringify(body),
+    }).problems;
+
+  const when = new Date('2027-03-01T10:00:00.000Z');
+  const license = {
+    licenseId: ID,
+    licensee: { displayName: 'Test Licensee', contractReference: 'TEST-1' },
+    term: { kind: 'pilot', review_on: '2027-06-01' },
+    licensedRelease: { line: '2.0', version: '2.0.0' },
+    footprint: {
+      organizations: null,
+      seats: 12,
+      production_deployments: null,
+      nonproduction_deployments: null,
+    },
+    components: ['web'],
+    updateRights: {
+      security_patches_after_lapse: 'none',
+      major_versions_with_maintenance: 'separate_purchase',
+      releases_published_during_maintenance: 'kept_after_lapse',
+      outside_rights_on_install: 'warn',
+    },
+    issuedAt: when,
+    keyIds: ['test-key'],
+    testKey: true,
+    retiredKey: false,
+  } as const;
+  const status = {
+    standing: 'licensed',
+    license,
+    maintenance: { status: 'lapsed', lastCoveredOn: '2027-01-31' },
+    runningRelease: {
+      version: '2.0.0',
+      verdict: { covered: false, basis: null, onInstall: 'warn' },
+    },
+    seatsInUse: 3,
+    notices: ['maintenance_lapsed', 'signed_with_test_key'],
+  } as const;
+  const exportView = {
+    id: ID,
+    status: 'ready',
+    scope: 'standard',
+    recipientKeyId: 'a'.repeat(32),
+    requestedAt: when,
+    finishedAt: when,
+    expiresAt: when,
+    partCount: 2,
+    recordCount: 9,
+    archiveBytes: 1024,
+    excluded: { restrictedWork: 1, restrictedArtifacts: 0, restrictedClients: 2 },
+    failureCode: null,
+    downloadable: true,
+  } as const;
+  const importView = {
+    id: ID,
+    status: 'completed_with_warnings',
+    requestedAt: when,
+    finishedAt: when,
+    sourceOrganizationId: ORG,
+    exportedAt: when,
+    sourceRelease: '2.0.0',
+    appliedCounts: { work_units: 4 },
+    warningCounts: { PERSON_NOT_LINKED: 2 },
+    failureCode: null,
+  } as const;
+  const person = {
+    sourceMembershipId: ID,
+    displayName: 'A Person',
+    email: 'person@example.invalid',
+    sourceRole: 'admin',
+    targetMembershipId: null,
+    linkedAt: null,
+  } as const;
+
+  it('matches for a license, with every field the spec lists and no others', () => {
+    const body = dto.licenseStatusDto(status);
+    expect(answer('GET', 'license', 200, body)).toEqual([]);
+    expect(body.license).toMatchObject({
+      term: { kind: 'pilot', review_on: '2027-06-01' },
+      footprint_seats: 12,
+      test_key: true,
+    });
+    expect(body.running_release).toEqual({ version: '2.0.0', covered: false });
+    // A person reads these on the page. They are not part of what the API promises.
+    expect(JSON.stringify(body)).not.toMatch(/update_rights|updateRights|components/);
+  });
+
+  it('matches with nothing installed, and with a running release no rights were checked for', () => {
+    const empty = dto.licenseStatusDto({
+      ...status,
+      standing: 'unlicensed',
+      license: null,
+      maintenance: { status: 'no_agreement', lastCoveredOn: null },
+      runningRelease: { version: '2.0.0', verdict: null },
+      notices: ['no_license'],
+    });
+    expect(answer('GET', 'license', 200, empty)).toEqual([]);
+    expect(empty.running_release).toEqual({ version: '2.0.0', covered: null });
+    expect(
+      answer('GET', 'license', 200, dto.licenseStatusDto({ ...status, runningRelease: null })),
+    ).toEqual([]);
+  });
+
+  it('matches for a document that was installed, once and again', () => {
+    const body = dto.installedDocumentDto({
+      type: 'license',
+      id: ID,
+      created: true,
+      testKey: true,
+    });
+    expect(answer('POST', 'license/documents', 201, body)).toEqual([]);
+    expect(answer('POST', 'license/documents', 200, { ...body, created: false })).toEqual([]);
+  });
+
+  it('matches for advisories', () => {
+    const item = dto.advisoryDto({
+      advisoryId: 'ADV-1',
+      severity: 'high',
+      title: 'A title',
+      summary: 'A summary',
+      affectedVersions: ['2.0.0'],
+      fixedInVersions: ['2.0.1'],
+      issuedAt: when,
+      affectsThisRelease: null,
+      testKey: false,
+    });
+    expect(answer('GET', 'advisories', 200, { items: [item] })).toEqual([]);
+  });
+
+  it('matches for an export at every status, finished or not', () => {
+    const ready = dto.organizationExportDto(exportView);
+    expect(answer('POST', 'exports', 202, ready)).toEqual([]);
+    expect(answer('GET', 'exports', 200, { items: [ready] })).toEqual([]);
+    expect(answer('GET', `exports/${ID}`, 200, ready)).toEqual([]);
+    expect(ready.excluded).toEqual({
+      restricted_work: 1,
+      restricted_artifacts: 0,
+      restricted_clients: 2,
+    });
+    const waiting = dto.organizationExportDto({
+      ...exportView,
+      status: 'requested',
+      finishedAt: null,
+      expiresAt: null,
+      downloadable: false,
+    });
+    expect(answer('GET', `exports/${ID}`, 200, waiting)).toEqual([]);
+    const failed = dto.organizationExportDto({
+      ...exportView,
+      status: 'failed',
+      failureCode: 'BYTES_CHANGED',
+      downloadable: false,
+    });
+    expect(answer('GET', `exports/${ID}`, 200, failed)).toEqual([]);
+  });
+
+  it('matches for an import and for the people in it', () => {
+    const done = dto.organizationImportDto(importView);
+    expect(answer('GET', `imports/${ID}`, 200, done)).toEqual([]);
+    const fresh = dto.organizationImportDto({
+      ...importView,
+      status: 'requested',
+      finishedAt: null,
+      sourceOrganizationId: null,
+      exportedAt: null,
+      sourceRelease: null,
+      appliedCounts: {},
+      warningCounts: {},
+    });
+    expect(answer('POST', 'imports', 201, fresh)).toEqual([]);
+    const listed = dto.importedPersonDto(person);
+    expect(answer('GET', 'imported-people', 200, { items: [listed] })).toEqual([]);
+    const linked = dto.importedPersonDto({ ...person, targetMembershipId: ID, linkedAt: when });
+    expect(answer('POST', `imported-people/${ID}/link`, 200, linked)).toEqual([]);
+  });
+
+  it('declares every failure a route can give, as the implemented routes do', () => {
+    const sovereign = operations().filter(({ path }) =>
+      /\/(license|advisories|exports|imports|imported-people)/.test(path),
+    );
+    expect(sovereign).toHaveLength(11);
+    for (const { method, path } of sovereign) {
+      const { responses } = spec.paths[path]?.[method.toLowerCase()] as {
+        responses: Record<string, unknown>;
+      };
+      for (const code of ['400', '401', '403', '404', '500', '503']) {
+        expect(responses, `${method} ${path} lists ${code}`).toHaveProperty(code);
+      }
+    }
+  });
+
+  it('sends the archive as a download that is never stored, with a name that is safe', () => {
+    const headers = new Headers(
+      dto.archiveHeaders({ fileName: 'export "x"\r\nSet-Cookie: a.tar', totalBytes: 12 }),
+    );
+    expect(headers.get('content-type')).toBe('application/x-tar');
+    expect(headers.get('cache-control')).toBe('no-store');
+    expect(headers.get('content-length')).toBe('12');
+    expect(headers.get('content-disposition')).toMatch(/^attachment; filename="[A-Za-z0-9._-]+"$/);
+    expect(
+      contractProblems({
+        method: 'GET',
+        path: `${organizationPath}/exports/${ID}/archive`,
+        status: 200,
+        headers,
+      }).problems,
+    ).toEqual([]);
+  });
+
+  it('refuses an archive response that would be kept, or that is shown rather than saved', () => {
+    const headers = new Headers(dto.archiveHeaders({ fileName: 'a.tar', totalBytes: 1 }));
+    headers.set('cache-control', 'public');
+    expect(
+      contractProblems({
+        method: 'GET',
+        path: `${organizationPath}/exports/${ID}/archive`,
+        status: 200,
+        headers,
+      }).problems.join(),
+    ).toContain('Cache-Control');
+    headers.set('cache-control', 'no-store');
+    headers.set('content-disposition', 'inline');
+    expect(
+      contractProblems({
+        method: 'GET',
+        path: `${organizationPath}/exports/${ID}/archive`,
+        status: 200,
+        headers,
+      }).problems.join(),
+    ).toContain('Content-Disposition');
+  });
+});
+
+describe('streaming an archive', () => {
+  const noFailure = () => {
+    throw new Error('Nothing should have failed');
+  };
+
+  it('asks for a chunk only when the last has gone, and passes the bytes on unchanged', async () => {
+    let asked = 0;
+    async function* chunks() {
+      for (const text of ['one', 'two', 'three']) {
+        asked += 1;
+        yield Buffer.from(text);
+      }
+    }
+    const reader = dto.archiveStream(chunks(), noFailure).getReader();
+    const first = await reader.read();
+    expect(Buffer.from(first.value as Uint8Array).toString()).toBe('one');
+    // The stream may hold one chunk ready, and never reads ahead by more than that.
+    expect(asked).toBeLessThanOrEqual(2);
+    const rest: string[] = [];
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      rest.push(Buffer.from(value).toString());
+    }
+    expect(rest).toEqual(['two', 'three']);
+  });
+
+  it('breaks the download when the store fails, so a short file never looks whole', async () => {
+    async function* chunks() {
+      yield Buffer.from('one');
+      throw Object.assign(new Error('secret store text'), { code: 'STORE_DOWN' });
+    }
+    const failures: unknown[] = [];
+    const reader = dto
+      .archiveStream(chunks(), (error) => failures.push(error))
+      .getReader();
+    const reading = (async () => {
+      for (;;) {
+        const { done } = await reader.read();
+        if (done) return 'finished';
+      }
+    })();
+    await expect(reading).rejects.toThrow('The archive could not be read');
+    expect(failures).toHaveLength(1);
+  });
+
+  it('stops reading from the store when the person cancels', async () => {
+    let stopped = false;
+    async function* chunks() {
+      try {
+        for (;;) yield Buffer.from('more');
+      } finally {
+        stopped = true;
+      }
+    }
+    const reader = dto.archiveStream(chunks(), noFailure).getReader();
+    await reader.read();
+    await reader.cancel();
+    expect(stopped).toBe(true);
+  });
+});
+
+describe('the key field on the export form', () => {
+  const PUBLIC_KEY = Buffer.from('a public key, as a test value').toString('base64');
+
+  it('takes a key, without the spaces a paste brings', () => {
+    expect(dto.readRecipientKeyField(`  ${PUBLIC_KEY}\n`)).toEqual({ ok: true, key: PUBLIC_KEY });
+  });
+
+  it.each([
+    '-----BEGIN PRIVATE KEY-----\nMC4CAQ\n-----END PRIVATE KEY-----',
+    '-----BEGIN ENCRYPTED PRIVATE KEY-----',
+    'private key',
+  ])('says so when someone pastes the private half, and gives none of it back', (value) => {
+    const refused = dto.readRecipientKeyField(value);
+    expect(refused).toEqual({ ok: false, reason: 'private_key' });
+    expect(JSON.stringify(refused)).not.toContain('MC4CAQ');
+  });
+
+  it.each(['', '   ', 'not base64 at all!', 'A'.repeat(513)])('refuses %j', (value) => {
+    expect(dto.readRecipientKeyField(value)).toEqual({ ok: false, reason: 'invalid' });
   });
 });

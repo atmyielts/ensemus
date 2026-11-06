@@ -1,5 +1,6 @@
 import { countUnread, listMyPendingApprovals } from '@ensemus/application';
 import { getOrganization } from '@ensemus/database';
+import { can } from '@ensemus/domain/policy';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import type { ReactNode } from 'react';
@@ -49,6 +50,14 @@ export default async function OrganizationLayout({
               { href: `${base}/people`, label: 'People and teams' },
               { href: `${base}/clients`, label: 'Clients and projects' },
               { href: `${base}/inbox`, label: 'Inbox', count: unread },
+              // By role alone. This layout runs on every page, so it never reads a license: nothing
+              // about one can reach a request (ADR-030 D2).
+              ...(can(context.role, 'license.view')
+                ? [
+                    { href: `${base}/license`, label: 'License and support' },
+                    { href: `${base}/data`, label: 'Export and import' },
+                  ]
+                : []),
             ]}
           />
           <div className="sidebar-end">

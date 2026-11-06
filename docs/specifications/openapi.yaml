@@ -761,7 +761,6 @@ paths:
     parameters:
       - $ref: '#/components/parameters/OrganizationID'
     get:
-      x-ensemus-status: planned
       tags: [commercial]
       summary: What this organization's license and maintenance say
       description: >-
@@ -773,18 +772,22 @@ paths:
           content:
             application/json:
               schema: {$ref: '#/components/schemas/LicenseStatus'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
         '403': {$ref: '#/components/responses/Forbidden'}
         '404': {$ref: '#/components/responses/NotFound'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
   /organizations/{organization_id}/license/documents:
     parameters:
       - $ref: '#/components/parameters/OrganizationID'
     post:
-      x-ensemus-status: planned
       tags: [commercial]
       summary: Install a signed license, maintenance statement, advisory or support policy
       description: >-
         Owners only. A file that does not verify changes nothing. Installing the same file twice is safe, and
-        answers 200 the second time.
+        answers 200 the second time. A JSON body here has the same 256 KB limit as any other, and the page's
+        form takes a document up to the limit stated on the field.
       requestBody:
         required: true
         content:
@@ -802,13 +805,17 @@ paths:
             application/json:
               schema: {$ref: '#/components/schemas/InstalledDocument'}
         '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
         '403': {$ref: '#/components/responses/Forbidden'}
         '404': {$ref: '#/components/responses/NotFound'}
+        '413': {$ref: '#/components/responses/PayloadTooLarge'}
+        '415': {$ref: '#/components/responses/UnsupportedMediaType'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
   /organizations/{organization_id}/advisories:
     parameters:
       - $ref: '#/components/parameters/OrganizationID'
     get:
-      x-ensemus-status: planned
       tags: [commercial]
       summary: Signed security advisories installed here, newest first
       responses:
@@ -822,13 +829,16 @@ paths:
                 required: [items]
                 properties:
                   items: {type: array, items: {$ref: '#/components/schemas/Advisory'}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
         '403': {$ref: '#/components/responses/Forbidden'}
         '404': {$ref: '#/components/responses/NotFound'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
   /organizations/{organization_id}/exports:
     parameters:
       - $ref: '#/components/parameters/OrganizationID'
     get:
-      x-ensemus-status: planned
       tags: [commercial]
       summary: Archives of this organization, newest first
       responses:
@@ -842,10 +852,13 @@ paths:
                 required: [items]
                 properties:
                   items: {type: array, items: {$ref: '#/components/schemas/OrganizationExport'}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
         '403': {$ref: '#/components/responses/Forbidden'}
         '404': {$ref: '#/components/responses/NotFound'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
     post:
-      x-ensemus-status: planned
       tags: [commercial]
       summary: Ask for an archive, sealed to a public key you hold the private half of
       description: >-
@@ -863,15 +876,19 @@ paths:
             application/json:
               schema: {$ref: '#/components/schemas/OrganizationExport'}
         '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
         '403': {$ref: '#/components/responses/Forbidden'}
         '404': {$ref: '#/components/responses/NotFound'}
         '409': {$ref: '#/components/responses/Conflict'}
+        '413': {$ref: '#/components/responses/PayloadTooLarge'}
+        '415': {$ref: '#/components/responses/UnsupportedMediaType'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
   /organizations/{organization_id}/exports/{export_id}:
     parameters:
       - $ref: '#/components/parameters/OrganizationID'
       - $ref: '#/components/parameters/ExportID'
     get:
-      x-ensemus-status: planned
       tags: [commercial]
       summary: One archive's status
       responses:
@@ -880,22 +897,34 @@ paths:
           content:
             application/json:
               schema: {$ref: '#/components/schemas/OrganizationExport'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
         '403': {$ref: '#/components/responses/Forbidden'}
         '404': {$ref: '#/components/responses/NotFound'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
   /organizations/{organization_id}/exports/{export_id}/archive:
     parameters:
       - $ref: '#/components/parameters/OrganizationID'
       - $ref: '#/components/parameters/ExportID'
     get:
-      x-ensemus-status: planned
       tags: [commercial]
       summary: Download the archive, a tar of sealed parts
       responses:
         '200':
           description: The archive
+          headers:
+            Content-Disposition:
+              required: true
+              schema: {type: string, pattern: '^attachment; filename="[A-Za-z0-9._-]+"$'}
+            Cache-Control:
+              required: true
+              schema: {type: string, enum: [no-store]}
           content:
             application/x-tar:
               schema: {type: string, format: binary}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
         '403': {$ref: '#/components/responses/Forbidden'}
         '404': {$ref: '#/components/responses/NotFound'}
         '409': {$ref: '#/components/responses/Conflict'}
@@ -904,11 +933,12 @@ paths:
           content:
             application/json:
               schema: {$ref: '#/components/schemas/Error'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
   /organizations/{organization_id}/imports:
     parameters:
       - $ref: '#/components/parameters/OrganizationID'
     post:
-      x-ensemus-status: planned
       tags: [commercial]
       summary: Say this new, empty organization is to take an archive
       description: >-
@@ -920,15 +950,18 @@ paths:
           content:
             application/json:
               schema: {$ref: '#/components/schemas/OrganizationImport'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
         '403': {$ref: '#/components/responses/Forbidden'}
         '404': {$ref: '#/components/responses/NotFound'}
         '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
   /organizations/{organization_id}/imports/{import_id}:
     parameters:
       - $ref: '#/components/parameters/OrganizationID'
       - $ref: '#/components/parameters/ImportID'
     get:
-      x-ensemus-status: planned
       tags: [commercial]
       summary: How an import went, with counts and warnings
       responses:
@@ -937,13 +970,16 @@ paths:
           content:
             application/json:
               schema: {$ref: '#/components/schemas/OrganizationImport'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
         '403': {$ref: '#/components/responses/Forbidden'}
         '404': {$ref: '#/components/responses/NotFound'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
   /organizations/{organization_id}/imported-people:
     parameters:
       - $ref: '#/components/parameters/OrganizationID'
     get:
-      x-ensemus-status: planned
       tags: [commercial]
       summary: People from the archive, and which of them have been linked to a member here
       responses:
@@ -957,8 +993,12 @@ paths:
                 required: [items]
                 properties:
                   items: {type: array, items: {$ref: '#/components/schemas/ImportedPerson'}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
         '403': {$ref: '#/components/responses/Forbidden'}
         '404': {$ref: '#/components/responses/NotFound'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
   /organizations/{organization_id}/imported-people/{source_membership_id}/link:
     parameters:
       - $ref: '#/components/parameters/OrganizationID'
@@ -967,7 +1007,6 @@ paths:
         required: true
         schema: {type: string, format: uuid}
     post:
-      x-ensemus-status: planned
       tags: [commercial]
       summary: Say this member here is that person from the archive
       description: Owners only. Moves what they owned to them, and grants no role.
@@ -983,9 +1022,14 @@ paths:
             application/json:
               schema: {$ref: '#/components/schemas/ImportedPerson'}
         '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
         '403': {$ref: '#/components/responses/Forbidden'}
         '404': {$ref: '#/components/responses/NotFound'}
         '409': {$ref: '#/components/responses/Conflict'}
+        '413': {$ref: '#/components/responses/PayloadTooLarge'}
+        '415': {$ref: '#/components/responses/UnsupportedMediaType'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
 components:
   securitySchemes:
     sessionCookie:
