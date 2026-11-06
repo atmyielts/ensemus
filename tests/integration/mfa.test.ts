@@ -1,5 +1,5 @@
 // Real auth/app roles. Generated identities only; these tests are authored until the M7 DB gate runs.
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -24,7 +24,11 @@ import { assertRecentMfa } from '@ensemus/application/privileged';
 import { createMfaAdmission } from '../../packages/auth/src/mfa-admission';
 import { createAuth } from '@ensemus/auth';
 import { createMfaOperations, MFA_ACCOUNT_LOCKOUT } from '../../packages/auth/src/mfa';
-import { privateFactorRouter, fixtureCookies } from '../../packages/auth/test-support/mfa-router';
+import {
+  privateFactorRouter,
+  fixtureCookies,
+  fixturePasswordHash,
+} from '../../packages/auth/test-support/mfa-router';
 import { createPrimaryAuthentication } from '../../packages/auth/src/mfa-primary';
 import { totpFromUri } from '../helpers/totp';
 import { makePerson, makeTwoTenants, proveSecondFactor } from '../helpers/product';
@@ -400,18 +404,53 @@ describe('pinned Better Auth factor routing, enrollment and actual code verifica
   }
   async function noCredential() {
     const user = await account(),
-      providerId = `generated-primary-${randomUUID()}`;
+      providerId = `generated-primary-${randomUUID()}`,
+      subject = randomUUID();
     await driver.query(
       "delete from identity.accounts where user_id=$1 and provider_id='credential'",
       [user.session.userId],
     );
     await driver.query(
       'insert into identity.accounts(id,user_id,account_id,provider_id) values($1,$2,$3,$4)',
-      [randomUUID(), user.session.userId, randomUUID(), providerId],
+      [randomUUID(), user.session.userId, subject, providerId],
     );
-    const primary = createPrimaryAuthentication(authority.db, secret, providerId);
+    // Explicit test-only trust/receipt fixture. Real signed-token validation has its own OIDC suite.
+    const trust = {
+      providerId,
+      issuer: 'https://generated-primary.example.invalid',
+      sourceConfigSha256: createHash('sha256').update(providerId).digest('hex'),
+    };
+    const gate = createPrimaryAuthentication(
+      authority.db,
+      secret,
+      providerId,
+      undefined,
+      async () => trust,
+    );
+    const primary = {
+      isFresh: gate.isFresh,
+      record: (input: typeof user.session & { authenticatedAt?: number }, now?: Date) =>
+        gate.recordOidc(
+          {
+            ...input,
+            ...trust,
+            subject,
+            authenticatedAt: input.authenticatedAt ?? null,
+            tokenSha256: createHash('sha256')
+              .update(`generated-id-token:${providerId}`)
+              .digest('hex'),
+          },
+          now,
+        ),
+    };
     const operations = (provider: string | null = providerId) => {
-      const gate = createPrimaryAuthentication(authority.db, secret, provider ?? undefined);
+      const gate = createPrimaryAuthentication(
+        authority.db,
+        secret,
+        provider ?? undefined,
+        undefined,
+        async () => (provider === providerId ? trust : null),
+      );
       return createMfaOperations({
         baseURL: 'http://127.0.0.1:3997',
         enrollmentState: (userId) => readMfaEnrollmentState(authority.db, userId),
@@ -424,10 +463,84 @@ describe('pinned Better Auth factor routing, enrollment and actual code verifica
         prepareEnrollment: (input) => gate.prepareEnrollment(input),
         recordEnrollment: (input, candidate) => gate.recordEnrollment(input, candidate),
         enrollmentCurrent: (input) => gate.enrollmentCurrent(input),
+        enrollmentCurrentAfterRotation: (input) => gate.enrollmentCurrentAfterRotation(input),
+        completePrimaryAfterFactor: async () => true,
       });
     };
     return { ...user, providerId, primary, operations };
   }
+  it('withholds a confirmed rotated session and proof when the credential changes during confirmation', async () => {
+    const user = await account(),
+      setup = await runtime.mfa.enable({ password: user.password }, user.session, user.headers);
+    expect(setup.outcome).toBe('verified');
+    const gate = createPrimaryAuthentication(authority.db, secret, undefined);
+    let reached!: () => void, release!: () => void;
+    const barrier = new Promise<void>((resolve) => {
+        reached = resolve;
+      }),
+      unblock = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+    const operations = createMfaOperations({
+      baseURL: 'http://127.0.0.1:3997',
+      enrollmentState: (userId) => readMfaEnrollmentState(authority.db, userId),
+      managementHandler: privateCore.handler,
+      handler: async (request) => {
+        const response = await privateCore.handler(request);
+        if (
+          request.method === 'POST' &&
+          new URL(request.url).pathname.endsWith('/verify-totp') &&
+          response.status === 200
+        ) {
+          reached();
+          await unblock;
+        }
+        return response;
+      },
+      record: (input) => recordSessionAssurance(authority.db, input),
+      reserveAttempt: (userId) => reserveMfaAttempt(authority.db, userId, MFA_ACCOUNT_LOCKOUT),
+      admit: createMfaAdmission(authority.db, secret),
+      revoke: (userId) => revokeSessionAssurances(authority.db, userId),
+      prepareEnrollment: (input) => gate.prepareEnrollment(input),
+      recordEnrollment: (input, value) => gate.recordEnrollment(input, value),
+      enrollmentCurrent: (input) => gate.enrollmentCurrent(input),
+      enrollmentCurrentAfterRotation: (input) => gate.enrollmentCurrentAfterRotation(input),
+      completePrimaryAfterFactor: async () => true,
+    });
+    const pending = operations.confirmEnrollment(
+      { code: totpFromUri(setup.totpURI!, Date.now() - 30000) },
+      user.session,
+      user.headers,
+    );
+    try {
+      await Promise.race([
+        barrier,
+        pending.then(() => {
+          throw new Error('GENERATED_CONFIRMATION_DID_NOT_REACH_BARRIER');
+        }),
+      ]);
+      await driver.query(
+        "update identity.accounts set password=$1 where user_id=$2 and provider_id='credential'",
+        [
+          await fixturePasswordHash(`Changed-generated-password-${randomUUID()}`),
+          user.session.userId,
+        ],
+      );
+      release();
+      expect(await pending).toMatchObject({ outcome: 'primary_required', setCookie: null });
+      expect(
+        (
+          await driver.query(
+            "select kind from identity.session_assurances where user_id=$1 and kind in ('mfa_totp','mfa_backup_code')",
+            [user.session.userId],
+          )
+        ).rows,
+      ).toHaveLength(0);
+    } finally {
+      release();
+      await pending.catch(() => {});
+    }
+  });
   it('keeps unconfirmed enrollment off, rotates on confirmation, and writes the actual resulting session proof', async () => {
     const user = await enrolled();
     expect(
@@ -597,6 +710,16 @@ describe('pinned Better Auth factor routing, enrollment and actual code verifica
       ).rows,
     ).toEqual([]);
   });
+  it('does not promote an unknown provider authentication time or callback time into recent primary authority', async () => {
+    const user = await noCredential();
+    await user.primary.record(user.session);
+    expect(await user.primary.isFresh({ ...user.session, maxAgeSeconds: 900 })).toBe(false);
+    expect(
+      (await user.operations().enable({ password: '' }, user.session, user.headers)).outcome,
+    ).toBe('primary_required');
+    await user.primary.record({ ...user.session, authenticatedAt: Date.now() + 120000 });
+    expect(await user.primary.isFresh({ ...user.session, maxAgeSeconds: 900 })).toBe(false);
+  });
   it('enrolls an actual no-credential account only after a trusted current primary receipt (explicit provider boundary fixture)', async () => {
     const user = await noCredential(),
       mfa = user.operations();
@@ -604,8 +727,9 @@ describe('pinned Better Auth factor routing, enrollment and actual code verifica
       (await mfa.enable({ password: '', maxAgeSeconds: 60 }, user.session, user.headers)).outcome,
     ).toBe('primary_required');
     // This is the explicit auth-role boundary fixture, not evidence of a hosted provider assertion.
-    // The shipped OIDC callback hook alone mints it in runtime; bare/rotated timestamps do not.
-    await user.primary.record(user.session);
+    // The pinned OIDC adapter exposes no validated auth_time to its callback, so runtime bootstrap
+    // stays closed. Only this explicit trusted auth-role fixture supplies generated signed time.
+    await user.primary.record({ ...user.session, authenticatedAt: Date.now() });
     const setup = await mfa.enable(
       { password: '', maxAgeSeconds: 60 },
       user.session,
@@ -621,8 +745,8 @@ describe('pinned Better Auth factor routing, enrollment and actual code verifica
   });
   it('does not treat a young/rotated session or a repeated old receipt as fresh primary authentication', async () => {
     const user = await noCredential();
-    await user.primary.record(user.session, new Date(Date.now() - 120000));
-    await user.primary.record(user.session);
+    await user.primary.record({ ...user.session, authenticatedAt: Date.now() - 120000 });
+    await user.primary.record({ ...user.session, authenticatedAt: Date.now() });
     expect(await user.primary.isFresh({ ...user.session, maxAgeSeconds: 60 })).toBe(false);
     expect(await user.primary.isFresh({ ...user.session, maxAgeSeconds: 900 })).toBe(true);
     const rotated = randomUUID();
@@ -640,7 +764,7 @@ describe('pinned Better Auth factor routing, enrollment and actual code verifica
   });
   it('refuses revoked provider/account/session enrollment and rechecks the provider before confirming a pending factor', async () => {
     const user = await noCredential();
-    await user.primary.record(user.session);
+    await user.primary.record({ ...user.session, authenticatedAt: Date.now() });
     expect(
       (await user.operations(null).enable({ password: '' }, user.session, user.headers)).outcome,
     ).toBe('primary_required');

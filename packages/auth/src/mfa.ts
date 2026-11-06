@@ -4,22 +4,39 @@
 import type { BetterAuthPlugin } from 'better-auth';
 import { twoFactor } from 'better-auth/plugins';
 import { parseSetCookieHeader } from 'better-auth/cookies';
+type AfterHook = NonNullable<NonNullable<BetterAuthPlugin['hooks']>['after']>[number];
 export const MFA_ACCOUNT_LOCKOUT = {
   enabled: true,
   maxFailedAttempts: 10,
   durationSeconds: 900,
 } as const;
 
-export function mfaPlugins(): BetterAuthPlugin[] {
+export function mfaPlugins(idpHooks?: { before: AfterHook; after: AfterHook }): BetterAuthPlugin[] {
+  const native = twoFactor({
+    issuer: 'Ensemus',
+    allowPasswordless: true,
+    skipVerificationOnEnable: false,
+    totpOptions: { digits: 6, period: 30 },
+    backupCodeOptions: { storeBackupCodes: 'encrypted', amount: 10, length: 10 },
+    accountLockout: MFA_ACCOUNT_LOCKOUT,
+  });
+  if (!idpHooks) return [native];
   return [
-    twoFactor({
-      issuer: 'Ensemus',
-      allowPasswordless: true,
-      skipVerificationOnEnable: false,
-      totpOptions: { digits: 6, period: 30 },
-      backupCodeOptions: { storeBackupCodes: 'encrypted', amount: 10, length: 10 },
-      accountLockout: MFA_ACCOUNT_LOCKOUT,
-    }),
+    {
+      ...native,
+      hooks: {
+        ...native.hooks,
+        after: [
+          idpHooks.before,
+          ...native.hooks.after.map((hook) => ({
+            ...hook,
+            matcher: (context: Parameters<AfterHook['matcher']>[0]) =>
+              hook.matcher(context) || idpHooks.before.matcher(context),
+          })),
+          idpHooks.after,
+        ],
+      },
+    },
   ];
 }
 
@@ -81,6 +98,17 @@ export type MfaDependencies = {
     userId: string;
     sessionId: string;
     maxAgeSeconds: number;
+  }) => Promise<boolean>;
+  enrollmentCurrentAfterRotation: (input: {
+    userId: string;
+    sessionId: string;
+    resultingSessionId: string;
+    maxAgeSeconds: number;
+  }) => Promise<boolean>;
+  completePrimaryAfterFactor: (input: {
+    userId: string;
+    sessionId: string;
+    headers: Headers;
   }) => Promise<boolean>;
 };
 
@@ -215,6 +243,7 @@ export function createMfaOperations(deps: MfaDependencies): MfaOperations {
     headers: Headers,
     expected: Session | null,
     allowNewSession = false,
+    enrollmentReturn?: (actual: Session) => Promise<boolean>,
   ): Promise<MfaResponse> => {
     if (!validCode(input)) return refused();
     const before = await session(headers);
@@ -249,8 +278,18 @@ export function createMfaOperations(deps: MfaDependencies): MfaOperations {
       (!allowNewSession && expected && !matches(after, expected))
     )
       return refused();
+    if (enrollmentReturn && !(await enrollmentReturn(after))) return refused('primary_required');
     if (!(await deps.admit({ userId: after.userId, kind: factor(input), code: input.code })))
       return refused();
+    if (
+      !expected &&
+      !(await deps.completePrimaryAfterFactor({
+        userId: after.userId,
+        sessionId: after.sessionId,
+        headers,
+      }))
+    )
+      return refused('primary_required');
     await deps.record({
       sessionId: after.sessionId,
       userId: after.userId,
@@ -330,7 +369,13 @@ export function createMfaOperations(deps: MfaDependencies): MfaOperations {
         !(await deps.enrollmentCurrent({ ...expected, maxAgeSeconds: input.maxAgeSeconds ?? 900 }))
       )
         return refused('primary_required');
-      return verify({ code: input.code, kind: 'totp' }, headers, expected, true);
+      return verify({ code: input.code, kind: 'totp' }, headers, expected, true, (actual) =>
+        deps.enrollmentCurrentAfterRotation({
+          ...expected,
+          resultingSessionId: actual.sessionId,
+          maxAgeSeconds: input.maxAgeSeconds ?? 900,
+        }),
+      );
     },
     async enable(input, expected, headers) {
       const identity = { ...expected, maxAgeSeconds: input.maxAgeSeconds ?? 900 };

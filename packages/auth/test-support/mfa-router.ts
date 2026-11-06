@@ -3,6 +3,7 @@
 import { betterAuth } from 'better-auth';
 import { drizzleAdapter } from 'better-auth/adapters/drizzle';
 import { parseSetCookieHeader } from 'better-auth/cookies';
+export { hashPassword as fixturePasswordHash } from 'better-auth/crypto';
 import { authSchema, type openAuthDatabase } from '@ensemus/database/auth';
 import { mfaPlugins } from '../src/mfa';
 

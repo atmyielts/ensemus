@@ -2,6 +2,8 @@
 
 Scope: ADR-031 D8, ID-05, QA-045 and TR-025. This is implemented source plus focused local checks. It is **not** a database, built-stack, browser, outside-security-review or M7 acceptance claim.
 
+**Subsequent SSO source correction (unvalidated):** callback/session creation time does not prove recent IdP authentication. The active SSO work removes the earlier operator OIDC callback-time receipt. Without an actual validated signed `auth_time` binding, passwordless operator OIDC setup fails closed. SAML is being bound to the exact accepted POST and signed `AuthnInstant`, with live provider/member revocation. The commands below describe MFA checkpoint `36c3e88`; they do not validate these later SSO edits.
+
 ## Behavior
 
 An enrolled password sign-in returns the plugin's signed challenge, without a full session. The code form then verifies through a private, rate-limited Better Auth router. It checks the authoritative cookie/session identity before and after verification, admits the actual accepted account code across replicas, writes trusted recent assurance, and only then forwards the resulting cookie. Form fields cannot select a user or session. A step-up returns only to a checked path in the same company.
@@ -73,6 +75,8 @@ In parent-authorized single-process source slots:
 The first tests typecheck found an undeclared direct Better Auth dependency in the integration test. Library composition moved to the auth package's test-support directory, where the pinned direct dependency already exists; the real DB orchestration stayed under integration. No dependency, lockfile or installation change was needed. No Docker, database test, stack/browser test, watch/dev server, install, Next typegen or production build was run.
 
 ## Joined gates still owed
+
+The subsequent [company sign-in source report](sso.md) supersedes the interim OIDC callback-time limitation: actual signed-token `auth_time` binding and mandatory native provider-callback factor challenges are now authored. That subsequent batch is unvalidated until its separately recorded checks; the 25-unit results above apply to the committed MFA checkpoint only.
 
 Root must review/compose the narrow approved auth/database/privileged/helper/runtime diffs onto current milestone code, register/rehearse M7 migrations including the authored 0402 uniqueness/secret-preservation guard, and run the real-role/plugin/HTTP/browser/security gates. Source deliberately refuses duplicate rows rather than choosing an arbitrary factor.
 

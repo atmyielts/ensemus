@@ -1,5 +1,10 @@
 import 'server-only';
 import { createRestoreGate } from '@ensemus/application';
+import {
+  authorizeSsoIdentity,
+  completeSsoSignIn,
+  isSsoPrimaryCurrent,
+} from '@ensemus/application/sso';
 import { createAuth, type OidcProvider } from '@ensemus/auth';
 import { loadWebConfig, readSecret } from '@ensemus/config';
 import { openAppDatabase } from '@ensemus/database';
@@ -21,21 +26,28 @@ function loadOidc(): OidcProvider | undefined {
 function build() {
   const config = loadWebConfig();
   const oidc = loadOidc();
-  const { auth, mfa, redeemSetupToken, submitCredentials } = createAuth({
+  const app = openAppDatabase(readSecret('DATABASE_URL_APP')).db;
+  const { auth, mfa, sso, redeemSetupToken, submitCredentials } = createAuth({
     databaseUrl: readSecret('DATABASE_URL_AUTH'),
     secret: readSecret('AUTH_SECRET'),
     baseURL: config.publicUrl,
     allowSignup: config.allowSignup,
     ...(oidc ? { oidc } : {}),
+    sso: {
+      authorizeIdentity: (input) => authorizeSsoIdentity(app, input),
+      completeIdentity: async (input) => (await completeSsoSignIn(app, input)).outcome,
+      currentPrimary: (input) => isSsoPrimaryCurrent(app, input),
+    },
     plugins: [nextCookies()],
   });
   return {
     config,
     auth,
     mfa,
+    sso,
     redeemSetupToken,
     submitCredentials,
-    app: openAppDatabase(readSecret('DATABASE_URL_APP')).db,
+    app,
     log: createLogger('web'),
   };
 }

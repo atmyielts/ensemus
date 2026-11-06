@@ -60,8 +60,36 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON identity.two_factors, identity.sso_provi
 GRANT SELECT (session_id, kind, user_id, sso_provider_id, verified_at)
   ON identity.session_assurances TO ensemus_app;
 --> statement-breakpoint
+-- Auth still owns session tokens and provider configuration. These metadata columns only
+-- let tenant authority ask whether a receipt's actual session/provider remains live. No secret,
+-- cookie, assertion, signing configuration or cross-tenant provider row reaches the app role.
+GRANT SELECT (id,user_id,expires_at) ON identity.sessions TO ensemus_app;
+--> statement-breakpoint
+CREATE POLICY sessions_assurance_metadata ON identity.sessions FOR SELECT TO ensemus_app
+  USING (user_id=app.current_user_id() AND expires_at>clock_timestamp());
+--> statement-breakpoint
+GRANT SELECT (provider_id,domain_verified) ON identity.sso_providers TO ensemus_app;
+--> statement-breakpoint
+CREATE POLICY sso_providers_assurance_metadata ON identity.sso_providers FOR SELECT TO ensemus_app
+  USING (EXISTS (SELECT 1 FROM org.sso_connections c
+    WHERE c.organization_id=app.current_organization_id()
+      AND c.provider_id=identity.sso_providers.provider_id
+      AND c.state='active' AND c.domain_state='verified'));
+--> statement-breakpoint
 CREATE POLICY session_assurances_self ON identity.session_assurances FOR SELECT TO ensemus_app
-  USING (user_id = app.current_user_id());
+  USING (user_id=app.current_user_id() AND
+    (kind<>'sso_saml' OR EXISTS (
+      SELECT 1 FROM org.memberships m
+      JOIN org.sso_member_links l ON l.organization_id=m.organization_id AND l.membership_id=m.id
+      JOIN org.sso_connections c ON c.organization_id=l.organization_id AND c.id=l.connection_id
+      JOIN identity.sso_providers p ON p.provider_id=c.provider_id AND p.domain_verified
+      JOIN identity.sessions s ON s.id=identity.session_assurances.session_id
+        AND s.user_id=m.user_id AND s.expires_at>clock_timestamp()
+      WHERE m.organization_id=app.current_organization_id()
+        AND m.user_id=app.current_user_id() AND m.status='active' AND l.state='active'
+        AND c.provider_id=identity.session_assurances.sso_provider_id
+        AND c.state='active' AND c.domain_state='verified'
+    )));
 --> statement-breakpoint
 -- Whether a colleague has MFA on is something an admin's page shows. Their secret is on another table.
 GRANT SELECT (two_factor_enabled) ON identity.users TO ensemus_app;

@@ -15,6 +15,7 @@
     "@better-auth/sso": "1.7.17",
     "@ensemus/database": "workspace:*",
     "@ensemus/telemetry": "workspace:*",
+    "@xmldom/xmldom": "0.9.12",
     "better-auth": "1.7.17"
   }
 }

@@ -51,6 +51,8 @@ function fixture() {
     prepareEnrollment: vi.fn(async () => 'opaque-primary-binding'),
     recordEnrollment: vi.fn(async () => true),
     enrollmentCurrent: vi.fn(async () => true),
+    enrollmentCurrentAfterRotation: vi.fn(async () => true),
+    completePrimaryAfterFactor: vi.fn(async () => true),
   };
   return {
     session,
@@ -71,6 +73,66 @@ function fixture() {
   };
 }
 describe('MFA router boundary and session-bound recent proof', () => {
+  it('requires the protected IdP bridge after actual factor and replay admission before forwarding a new session', async () => {
+    const f = fixture(),
+      original = f.deps.handler;
+    let authenticated = false;
+    f.deps.handler = async (request) => {
+      if (new URL(request.url).pathname.endsWith('/get-session') && !authenticated)
+        return Response.json(null);
+      if (request.method === 'POST') {
+        authenticated = true;
+        return Response.json(
+          { user: { id: f.session.userId } },
+          { headers: { 'set-cookie': 'auth=actual-new-session; HttpOnly' } },
+        );
+      }
+      return original(request);
+    };
+    f.deps.completePrimaryAfterFactor = vi.fn(async () => false);
+    const result = await createMfaOperations(f.deps).completeSignIn(
+      { kind: 'totp', code },
+      f.headers,
+    );
+    expect(result).toMatchObject({ outcome: 'primary_required', setCookie: null });
+    expect(f.admit).toHaveBeenCalledOnce();
+    expect(f.deps.completePrimaryAfterFactor).toHaveBeenCalledWith({
+      ...f.session,
+      headers: f.headers,
+    });
+    expect(f.record).not.toHaveBeenCalled();
+  });
+  it('rechecks enrollment authority against the actual rotated session before forwarding its cookie or minting proof', async () => {
+    const f = fixture(),
+      rotated = randomUUID();
+    f.controls.enrolled = false;
+    const original = f.deps.handler;
+    f.deps.handler = async (request) => {
+      if (request.method === 'POST' && new URL(request.url).pathname.endsWith('/verify-totp')) {
+        f.controls.actualSession = rotated;
+        f.controls.enrolled = true;
+        return Response.json(
+          { user: { id: f.session.userId } },
+          { headers: { 'set-cookie': 'auth=rotated; HttpOnly' } },
+        );
+      }
+      return original(request);
+    };
+    f.deps.enrollmentCurrentAfterRotation = vi.fn(async () => false);
+    const result = await createMfaOperations(f.deps).confirmEnrollment(
+      { code, maxAgeSeconds: 60 },
+      f.session,
+      f.headers,
+    );
+    expect(result).toMatchObject({ outcome: 'primary_required', setCookie: null });
+    expect(f.deps.enrollmentCurrentAfterRotation).toHaveBeenCalledWith({
+      ...f.session,
+      resultingSessionId: rotated,
+      maxAgeSeconds: 60,
+    });
+    expect(f.admit).not.toHaveBeenCalled();
+    expect(f.record).not.toHaveBeenCalled();
+  });
   it('installs confirmed TOTP with encrypted recovery codes and closes factor mutation routes publicly', () => {
     expect(mfaPlugins().some((plugin) => plugin.id === 'two-factor')).toBe(true);
     expect(MFA_PRIVATE_PATHS).toEqual(

@@ -59,6 +59,15 @@ export default async function SecurityPage({
           {enrolled ? 'Manage authenticator app' : 'Set up authenticator app'}
         </Link>
       </section>
+      {canProduct(context.role, 'sso.manage') && (
+        <section className={styles.section}>
+          <h2>Company sign-in</h2>
+          <p>Connect your company’s identity provider and manage provisioning access.</p>
+          <Link className="button quiet" href={`/o/${organizationId}/security/sso`}>
+            Manage company sign-in
+          </Link>
+        </section>
+      )}
       <section className={styles.section}>
         <h2>Company confirmation rules</h2>
         <p>

@@ -42,7 +42,7 @@ export function FactorError({ code }: { code?: string | undefined }) {
           : code === 'enroll'
             ? 'Set up an authenticator app first.'
             : code === 'primary'
-              ? 'Sign in again, then restart setup. Your earlier sign-in or setup confirmation is no longer current.'
+              ? 'Sign in again, then restart setup. For company sign-in, reauthenticate with your provider first. If it cannot confirm a recent sign-in, ask your installation operator.'
               : code === 'unavailable'
                 ? 'We could not confirm this right now. Try again with a new code.'
                 : 'Those details could not be used. Check them, or wait for the next app code.';

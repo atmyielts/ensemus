@@ -11,6 +11,8 @@ import {
   releaseSetupToken,
   removeSsoProvider,
   storeSsoProvider,
+  readSsoProvider,
+  recordSsoAssurance,
 } from '@ensemus/database/auth';
 import { createLogger, errorCode } from '@ensemus/telemetry';
 import { betterAuth, type BetterAuthPlugin } from 'better-auth';
@@ -18,8 +20,12 @@ import { drizzleAdapter } from 'better-auth/adapters/drizzle';
 import { genericOAuth } from 'better-auth/plugins';
 import { createMfaOperations, mfaPlugins, MFA_PRIVATE_PATHS, MFA_ACCOUNT_LOCKOUT } from './mfa';
 import { createMfaAdmission } from './mfa-admission';
-import { createPrimaryAuthentication, primaryAuthenticationPlugin } from './mfa-primary';
-import { createSsoOperations, SSO_DISABLED_PATHS, ssoPlugins } from './sso';
+import { createPrimaryAuthentication } from './mfa-primary';
+import { createSsoOperations, SSO_DISABLED_PATHS, ssoPlugins, type SsoCallbacks } from './sso';
+import { createSamlFlow } from './sso-flow';
+import { guardSamlRequest } from './sso-request';
+import { createOperatorOidcFlow, type OidcTrust } from './oidc-primary';
+import { createIdpChallenges } from './idp-challenge';
 
 export type OidcProvider = {
   providerId: string;
@@ -34,6 +40,8 @@ export type AuthOptions = {
   baseURL: string;
   allowSignup: boolean;
   oidc?: OidcProvider;
+  /** Trusted application bindings, never assertion-supplied roles or organization IDs. */
+  sso?: SsoCallbacks;
   /** Framework plugins, such as Next.js cookies. They run last. */
   plugins?: BetterAuthPlugin[];
 };
@@ -72,7 +80,52 @@ const TOO_MANY_REQUESTS = 429;
 
 export function createAuth(options: AuthOptions) {
   const { db, close } = openAuthDatabase(options.databaseUrl);
-  const primary = createPrimaryAuthentication(db, options.secret, options.oidc?.providerId);
+  let currentOidcTrust: () => Promise<OidcTrust | null> = async () => null;
+  const primary = createPrimaryAuthentication(
+    db,
+    options.secret,
+    options.oidc?.providerId,
+    options.sso,
+    () => currentOidcTrust(),
+  );
+  const oidcFlow = createOperatorOidcFlow(options.oidc, (input) => primary.recordOidc(input));
+  const samlFlow = createSamlFlow(async (input) => {
+    if (!options.sso || (await options.sso.completeIdentity(input)) === 'refused') return false;
+    if (!(await primary.recordSaml(input))) return false;
+    // The signed identity may legitimately have no company membership. That creates no membership,
+    // SSO tenant assurance, or MFA bootstrap authority; /sso/complete explains the missing access.
+    if (await options.sso?.currentPrimary(input))
+      return recordSsoAssurance(db, {
+        sessionId: input.sessionId,
+        userId: input.userId,
+        providerId: input.providerId,
+        externalSubject: input.externalSubject,
+        expectedSha256: input.boundary,
+      });
+    return true;
+  });
+  const idpChallenges = createIdpChallenges(
+    db,
+    options.secret,
+    options.baseURL,
+    options.oidc?.providerId,
+    {
+      prepare: (input) => {
+        const identity = { userId: input.userId, sessionId: input.sourceSessionId };
+        if (input.kind === 'saml') {
+          const candidate = samlFlow.candidate();
+          return candidate && candidate.providerId === input.providerId
+            ? primary.prepareIdpChallenge(identity, { ...candidate, kind: 'saml' })
+            : Promise.resolve(null);
+        }
+        const candidate = oidcFlow.candidate();
+        return candidate && candidate.providerId === input.providerId
+          ? primary.prepareIdpChallenge(identity, { ...candidate, kind: 'oidc' })
+          : Promise.resolve(null);
+      },
+      finish: (input) => primary.finishIdpChallenge(input),
+    },
+  );
   const build = (allowSignup: boolean, privateFactorManagement = false) =>
     betterAuth({
       appName: 'Ensemus',
@@ -82,7 +135,7 @@ export function createAuth(options: AuthOptions) {
       disabledPaths: [...SSO_DISABLED_PATHS, ...(privateFactorManagement ? [] : MFA_PRIVATE_PATHS)],
       telemetry: { enabled: false },
       logger: { log: logSafely },
-      database: drizzleAdapter(db, { provider: 'pg', schema: authSchema }),
+      database: drizzleAdapter(db, { provider: 'pg', schema: authSchema, transaction: true }),
       emailAndPassword: {
         enabled: true,
         minPasswordLength: 12,
@@ -124,21 +177,52 @@ export function createAuth(options: AuthOptions) {
               }),
             ]
           : []),
-        ...mfaPlugins(),
-        ...(!privateFactorManagement ? ssoPlugins({ baseURL: options.baseURL }) : []),
+        ...mfaPlugins(privateFactorManagement ? undefined : idpChallenges),
         ...(!privateFactorManagement
-          ? [
-              primaryAuthenticationPlugin(options.oidc?.providerId, (input) =>
-                primary.record(input),
-              ),
-            ]
+          ? ssoPlugins({
+              baseURL: options.baseURL,
+              ...(options.sso ? { callbacks: options.sso } : {}),
+              verified: samlFlow.verified,
+            })
           : []),
+        ...(!privateFactorManagement ? [samlFlow.plugin] : []),
+        ...(!privateFactorManagement && options.oidc ? [oidcFlow.plugin] : []),
         // Private MFA responses are forwarded only AFTER durable admission and trusted proof.
         // Framework cookie plugins would otherwise mint the browser cookie before that decision.
         ...(privateFactorManagement ? [] : (options.plugins ?? [])),
       ],
     });
-  const auth = build(options.allowSignup);
+  const core = build(options.allowSignup);
+  currentOidcTrust = async () =>
+    oidcFlow.trust(
+      (await core.$context).socialProviders.find(
+        (provider) => provider.id === options.oidc?.providerId,
+      ),
+    );
+  const auth = {
+    ...core,
+    handler: async (request: Request) => {
+      const checked = await guardSamlRequest(request);
+      if (checked instanceof Response) return checked;
+      try {
+        return await samlFlow.run(
+          () => oidcFlow.run(() => idpChallenges.run(() => core.handler(checked.request))),
+          checked.envelope,
+        );
+      } catch (error) {
+        if (
+          /\/api\/auth\/(?:callback\/|sso\/saml2\/sp\/acs\/)/.test(new URL(request.url).pathname)
+        ) {
+          log.error('auth.callback_failed', { errorCode: errorCode(error) });
+          return Response.json(
+            { code: 'SIGN_IN_UNAVAILABLE', message: 'Sign-in could not be completed.' },
+            { status: 500, headers: { 'cache-control': 'no-store' } },
+          );
+        }
+        throw error;
+      }
+    },
+  };
 
   /**
    * Submits a sign-in or sign-up form the way /api/auth receives it. Better Auth applies its rate limit
@@ -228,12 +312,15 @@ export function createAuth(options: AuthOptions) {
     prepareEnrollment: (input) => primary.prepareEnrollment(input),
     recordEnrollment: (input, candidate) => primary.recordEnrollment(input, candidate),
     enrollmentCurrent: (input) => primary.enrollmentCurrent(input),
+    enrollmentCurrentAfterRotation: (input) => primary.enrollmentCurrentAfterRotation(input),
+    completePrimaryAfterFactor: (input) => idpChallenges.complete(input),
   });
   const sso = createSsoOperations({
+    baseURL: options.baseURL,
     store: (provider) => storeSsoProvider(db, provider),
     remove: (providerId) => removeSsoProvider(db, providerId),
-    recordAssurance: ({ sessionId, userId, ssoProviderId }) =>
-      recordSessionAssurance(db, { sessionId, userId, kind: 'sso_saml', ssoProviderId }),
+    provider: (providerId) => readSsoProvider(db, providerId),
+    verifiedSession: (input) => primary.verifiedSaml(input),
   });
 
   return { auth, close, mfa, redeemSetupToken, sso, submitCredentials };
