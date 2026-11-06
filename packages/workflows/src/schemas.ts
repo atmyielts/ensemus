@@ -88,5 +88,34 @@ export type ConnectorSyncOutcome = {
   resources: number;
 };
 
+// --- M11C (ADR-035 D3). The same rule again: which item, under which grant, and what became of it. No
+// title, no body, no organization name and no token ever goes through here.
+
+export const federationItemInputSchema = z.strictObject({
+  organizationId: z.uuid(),
+  itemId: z.uuid(),
+});
+export type FederationItemInput = z.infer<typeof federationItemInputSchema>;
+export const federationDeliveryWorkflowIdFor = (input: FederationItemInput) =>
+  `federation-delivery-${input.organizationId}-${input.itemId}`;
+export const federationWithdrawalWorkflowIdFor = (input: FederationItemInput) =>
+  `federation-withdrawal-${input.organizationId}-${input.itemId}`;
+export type FederationDeliveryOutcome = 'delivered' | 'closed' | 'refused' | 'withdrawn';
+export type FederationDeliveryResult = { itemId: string; outcome: FederationDeliveryOutcome };
+
+export const federationGrantEndedInputSchema = z.strictObject({
+  organizationId: z.uuid(),
+  grantId: z.uuid(),
+});
+export type FederationGrantEndedInput = z.infer<typeof federationGrantEndedInputSchema>;
+export const federationPurgeWorkflowIdFor = (input: FederationGrantEndedInput) =>
+  `federation-purge-${input.grantId}`;
+
+/** A whole grant's copies when it ended, or one item's when it was withdrawn. */
+export type FederationPurgeInput = FederationGrantEndedInput | FederationItemInput;
+/** How many copies one pass purged, and whether another pass is needed. */
+export type FederationPurgePass = { purged: number; more: boolean };
+export type FederationPurgeResult = { purged: number };
+
 /** Parses the IDs back out of a workflow ID. The dispatcher builds these, so the format is ours. */
 export const UUID_PATTERN = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';

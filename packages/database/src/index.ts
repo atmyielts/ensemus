@@ -19,6 +19,7 @@ export {
   pingDatabase,
   resolveTenantContext,
   TenantAccessDenied,
+  withGrantInvitationTx,
   withInvitationTx,
   withNewTenantTx,
   withTenantTx,
@@ -41,3 +42,5 @@ export {
 } from './schema';
 export * from './schema-work';
 export * from './schema-integrations';
+export * from './schema-tenancy';
+export * from './schema-federation';

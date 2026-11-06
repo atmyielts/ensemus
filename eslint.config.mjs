@@ -23,12 +23,23 @@ const broker = {
     '@ensemus/database/service',
     '@ensemus/database/dispatcher',
     '@ensemus/database/setup-token',
+    '@ensemus/database/federation',
+    '@ensemus/database/deployment',
   ],
   message: 'Worker-only: the web tier cannot unseal secrets or act as a service (ADR-024 D5).',
 };
 const authDatabase = {
   group: ['@ensemus/database/auth'],
   message: 'Only @ensemus/auth may use the auth database role.',
+};
+const bridge = {
+  group: ['@ensemus/database/federation'],
+  message:
+    'The one role that crosses tenants belongs to the federation worker alone (ADR-035 D2). Everything else stays in its tenant.',
+};
+const deployJobs = {
+  group: ['@ensemus/database/deployment'],
+  message: 'Only deploy jobs may change what a deployment is (ADR-035 D5).',
 };
 const connectorCode = {
   regex: '^@ensemus/connectors(/(?!manifest$).*)?$',
@@ -77,6 +88,17 @@ const rawNetwork = {
     'A connector goes out only through ConnectorNetwork, to the egress gateway (ADR-027 D5).',
 };
 
+/** The only code allowed the bridge role. tests/unit/federation-rules.test.ts fails if this grows. */
+const BRIDGE_FILES = [
+  'workers/workflow/src/federation-worker.ts',
+  'packages/workflows/src/federation-activities.ts',
+  'packages/workflows/src/federation-deps.ts',
+];
+const DEPLOY_JOB_FILES = [
+  'workers/workflow/src/apply-deployment-profile.ts',
+  'workers/workflow/src/isolation-report.ts',
+];
+
 export default tseslint.config(
   {
     ignores: [
@@ -122,7 +144,7 @@ export default tseslint.config(
   },
   restrict(
     ['**/*.{ts,tsx}'],
-    [rawDatabase, authDatabase],
+    [rawDatabase, authDatabase, bridge, deployJobs],
     ['packages/database/**', 'packages/auth/**', 'tests/**', 'apps/web/**'],
   ),
   restrict(['packages/auth/**/*.ts'], [rawDatabase, temporal, broker]),
@@ -132,8 +154,11 @@ export default tseslint.config(
   ),
   restrict(
     ['workers/**/*.ts', 'packages/workflows/**/*.ts'],
-    [rawDatabase, authDatabase, testDoubles],
+    [rawDatabase, authDatabase, testDoubles, bridge, deployJobs],
+    [...BRIDGE_FILES, ...DEPLOY_JOB_FILES],
   ),
+  restrict(BRIDGE_FILES, [rawDatabase, authDatabase, testDoubles, deployJobs]),
+  restrict(DEPLOY_JOB_FILES, [rawDatabase, authDatabase, testDoubles, bridge]),
   // packages/connectors, in two parts. A rule set on the same files replaces the one before it, so
   // the first has to name everything: its testing folder may use a socket, and network.ts must.
   restrict(

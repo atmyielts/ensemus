@@ -43,6 +43,27 @@ const MESSAGE_FOR = new Map<string, string>([
   ['CONNECTION_NOT_ACTIVE', 'This connection is not active.'],
   ['CONNECTOR_NOT_AVAILABLE', 'This connector is not available on this deployment.'],
   ['RESTRICTED_NOT_ALLOWED', 'Restricted work cannot be sent outside this deployment.'],
+  ['FEDERATION_NOT_AVAILABLE', 'Working with other organizations is not available here.'],
+  ['FEDERATION_DISABLED', 'Your organization has not turned on working with other organizations.'],
+  [
+    'FEDERATION_OPEN_GRANTS',
+    'End what is shared with other organizations before turning this off.',
+  ],
+  ['FEDERATION_INVITATION_INVALID', 'This invitation is not valid. Ask for a new one.'],
+  [
+    'FEDERATION_TERMS_CHANGED',
+    'What was shared for review changed. Read it again before agreeing.',
+  ],
+  ['FEDERATION_GRANT_NOT_OPEN', 'This arrangement with the other organization is not open.'],
+  ['FEDERATION_KIND_NOT_ALLOWED', 'This arrangement does not cover sending that.'],
+  [
+    'FEDERATION_CLASSIFICATION_TOO_HIGH',
+    'This is more sensitive than this arrangement allows, so it was not sent.',
+  ],
+  ['FEDERATION_ITEM_NOT_WITHDRAWABLE', 'This can no longer be withdrawn.'],
+  ['RESIDENCY_REGION_NOT_OFFERED', 'This deployment does not run in that region.'],
+  ['RESIDENCY_DENIED', 'Your organization requires its data to stay in a region this would leave.'],
+  ['TENANCY_SINGLE_ORGANIZATION', 'This deployment is dedicated to one organization.'],
   ['UNEXPECTED', 'Something went wrong on our side. Please try again.'],
 ]);
 

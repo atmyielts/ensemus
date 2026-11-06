@@ -36,6 +36,13 @@ const webSchema = z.object({
   ENSEMUS_CONNECTORS_ENABLED: z.enum(['true', 'false']).default('false'),
 });
 
+export {
+  deploymentProfileHash,
+  loadResidencyPolicy,
+  loadTenancyConfig,
+  type TenancyConfig,
+} from './tenancy';
+
 export function loadWebConfig(env: NodeJS.ProcessEnv = process.env) {
   const parsed = webSchema.safeParse(env);
   if (!parsed.success) {

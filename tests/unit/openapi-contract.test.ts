@@ -109,6 +109,27 @@ describe('the spec and the routes', () => {
       'knowledge/search',
       'model-profiles',
       'entitlements',
+      // M11C until each route lands. The api slice removes these as it builds them (ADR-035).
+      'federation/settings',
+      'federation/settings',
+      'federation/grants',
+      'federation/grants',
+      'federation/invitations/preview',
+      'federation/invitations/acceptance',
+      'federation/grants/{grant_id}',
+      'federation/grants/{grant_id}/confirmation',
+      'federation/grants/{grant_id}/ending',
+      'federation/grants/{grant_id}/items',
+      'federation/grants/{grant_id}/items',
+      'federation/outbound-items/{federation_item_id}/withdrawal',
+      'federation/inbound-items',
+      'federation/inbound-items/{federation_item_id}',
+      'federation/inbound-items/{federation_item_id}/disposition',
+      'federation/inbound-items/{federation_item_id}/file',
+      'federation/crossings',
+      'tenancy/posture',
+      'tenancy/residency-requirements',
+      'tenancy/residency-requirements',
     ]);
   });
 });

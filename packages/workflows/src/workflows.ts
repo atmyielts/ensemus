@@ -153,4 +153,6 @@ export async function tenantRemindersWorkflow(input: TenantInput): Promise<void>
 // M3 (ADR-027). Each in its own file, so a change there cannot disturb the histories above.
 export { connectorSyncWorkflow } from './connector-sync-workflow';
 export { externalActionWorkflow } from './external-action-workflow';
+// M11C (ADR-035 D3).
+export { federationDeliveryWorkflow, federationPurgeWorkflow } from './federation-workflow';
 export { webhookDeliveryWorkflow } from './webhook-workflow';

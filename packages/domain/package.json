@@ -11,7 +11,11 @@
     "./external-action": "./src/external-action.ts",
     "./integration-events": "./src/integration-events.ts",
     "./webhook": "./src/webhook.ts",
-    "./connector": "./src/connector.ts"
+    "./connector": "./src/connector.ts",
+    "./federation": "./src/federation.ts",
+    "./federation-events": "./src/federation-events.ts",
+    "./tenancy": "./src/tenancy.ts",
+    "./residency": "./src/residency.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"

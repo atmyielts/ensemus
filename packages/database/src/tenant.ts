@@ -119,6 +119,28 @@ export function withInvitationTx<T>(
   return database.transaction({ 'app.invitation_token_hash': tokenHash }, fn);
 }
 
+/**
+ * Binds one tenant and the hash of a cross-organization invitation, which reveals that one proposal to this
+ * tenant while it decides whether to accept (ADR-035 D1). Holding a token grants nothing else, and a person
+ * from another tenant holding the same token sees it only under their own.
+ */
+export async function withGrantInvitationTx<T>(
+  database: AppDatabase,
+  context: TenantContext,
+  tokenHash: string,
+  fn: (tx: Tx) => Promise<T>,
+): Promise<T> {
+  if (context[brand] !== true) throw new TenantAccessDenied();
+  return database.transaction(
+    {
+      'app.organization_id': context.organizationId,
+      'app.user_id': context.userId,
+      'app.federation_token_hash': tokenHash,
+    },
+    fn,
+  );
+}
+
 export type WebhookEndpointRow = typeof webhookEndpoints.$inferSelect;
 
 /**

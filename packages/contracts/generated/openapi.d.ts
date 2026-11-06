@@ -1359,6 +1359,994 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/organizations/{organization_id}/federation/settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+            };
+            cookie?: never;
+        };
+        /** Whether this organization works with other organizations, which is off until an owner says otherwise */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Settings */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["FederationSettings"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        /** Turn it on or off. Turning it off ends everything shared first */
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["SetFederationSettings"];
+                };
+            };
+            responses: {
+                /** @description Settings */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["FederationSettings"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                409: components["responses"]["Conflict"];
+                413: components["responses"]["PayloadTooLarge"];
+                415: components["responses"]["UnsupportedMediaType"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/organizations/{organization_id}/federation/grants": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+            };
+            cookie?: never;
+        };
+        /** Arrangements this organization is a party to */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Grants */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            items: components["schemas"]["FederationGrant"][];
+                        };
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        put?: never;
+        /** An owner offers an arrangement. The invitation token is shown once, and nothing is sent to anyone */
+        post: {
+            parameters: {
+                query?: never;
+                header: {
+                    "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                };
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["ProposeFederationGrant"];
+                };
+            };
+            responses: {
+                /** @description Proposed. Nothing crosses until the other side accepts and this side confirms */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["CreatedFederationGrant"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                409: components["responses"]["Conflict"];
+                413: components["responses"]["PayloadTooLarge"];
+                415: components["responses"]["UnsupportedMediaType"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/organizations/{organization_id}/federation/invitations/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** What an invitation offers, for an owner deciding. The token goes in the body, and never in a URL */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["RedeemFederationInvitation"];
+                };
+            };
+            responses: {
+                /** @description The terms. A wrong, used or expired token gets the same 400 */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["FederationInvitationPreview"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                409: components["responses"]["Conflict"];
+                413: components["responses"]["PayloadTooLarge"];
+                415: components["responses"]["UnsupportedMediaType"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/organizations/{organization_id}/federation/invitations/acceptance": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** An owner accepts the exact terms they read. This reveals this organization's name to the other side */
+        post: {
+            parameters: {
+                query?: never;
+                header: {
+                    "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                };
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["AcceptFederationInvitation"];
+                };
+            };
+            responses: {
+                /** @description Accepted, and waiting for the other side to confirm */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["FederationGrant"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                409: components["responses"]["Conflict"];
+                413: components["responses"]["PayloadTooLarge"];
+                415: components["responses"]["UnsupportedMediaType"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/organizations/{organization_id}/federation/grants/{grant_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+                grant_id: components["parameters"]["FederationGrantID"];
+            };
+            cookie?: never;
+        };
+        /** One arrangement. Not found unless this organization is a party to it */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                    grant_id: components["parameters"]["FederationGrantID"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Grant */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["FederationGrant"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/organizations/{organization_id}/federation/grants/{grant_id}/confirmation": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+                grant_id: components["parameters"]["FederationGrantID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** The sharing owner has seen who accepted, and says that is who they meant. Only now can anything cross */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                    grant_id: components["parameters"]["FederationGrantID"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["ConfirmFederationGrant"];
+                };
+            };
+            responses: {
+                /** @description Active */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["FederationGrant"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                409: components["responses"]["Conflict"];
+                413: components["responses"]["PayloadTooLarge"];
+                415: components["responses"]["UnsupportedMediaType"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/organizations/{organization_id}/federation/grants/{grant_id}/ending": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+                grant_id: components["parameters"]["FederationGrantID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Either side ends it, for good. What arrived stops being readable at once, and is then removed */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                    grant_id: components["parameters"]["FederationGrantID"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["EndFederationGrant"];
+                };
+            };
+            responses: {
+                /** @description Ended */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["FederationGrant"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                409: components["responses"]["Conflict"];
+                413: components["responses"]["PayloadTooLarge"];
+                415: components["responses"]["UnsupportedMediaType"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/organizations/{organization_id}/federation/grants/{grant_id}/items": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+                grant_id: components["parameters"]["FederationGrantID"];
+            };
+            cookie?: never;
+        };
+        /** What this organization has sent under this arrangement */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                    grant_id: components["parameters"]["FederationGrantID"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Items */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            items: components["schemas"]["FederationOutboundItem"][];
+                        };
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        put?: never;
+        /** Send a copy of one thing. Only what the arrangement covers, and never restricted data */
+        post: {
+            parameters: {
+                query?: never;
+                header: {
+                    "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                };
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                    grant_id: components["parameters"]["FederationGrantID"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["PublishFederationItem"];
+                };
+            };
+            responses: {
+                /** @description Queued */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["FederationOutboundItem"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                409: components["responses"]["Conflict"];
+                413: components["responses"]["PayloadTooLarge"];
+                415: components["responses"]["UnsupportedMediaType"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/organizations/{organization_id}/federation/outbound-items/{federation_item_id}/withdrawal": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+                federation_item_id: components["parameters"]["FederationItemID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Take one item back. The other side may already have read it */
+        post: {
+            parameters: {
+                query?: never;
+                header: {
+                    /** @description The version last read, as sent in the ETag response header. Weak tags, lists and * are refused. */
+                    "If-Match": components["parameters"]["IfMatch"];
+                };
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                    federation_item_id: components["parameters"]["FederationItemID"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Withdrawn */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["FederationOutboundItem"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                409: components["responses"]["Conflict"];
+                413: components["responses"]["PayloadTooLarge"];
+                415: components["responses"]["UnsupportedMediaType"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/organizations/{organization_id}/federation/inbound-items": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+            };
+            cookie?: never;
+        };
+        /** What has arrived and is still shared */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Items */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            items: components["schemas"]["FederationInboundItem"][];
+                        };
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/organizations/{organization_id}/federation/inbound-items/{federation_item_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+                federation_item_id: components["parameters"]["FederationItemID"];
+            };
+            cookie?: never;
+        };
+        /** One arrival. Not found once the arrangement has ended */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                    federation_item_id: components["parameters"]["FederationItemID"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Item */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["FederationInboundItem"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/organizations/{organization_id}/federation/inbound-items/{federation_item_id}/disposition": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+                federation_item_id: components["parameters"]["FederationItemID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** A person says what they will do with it. Accepting starts nothing by itself */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                    federation_item_id: components["parameters"]["FederationItemID"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["DisposeFederationItem"];
+                };
+            };
+            responses: {
+                /** @description Recorded */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["FederationInboundItem"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                409: components["responses"]["Conflict"];
+                413: components["responses"]["PayloadTooLarge"];
+                415: components["responses"]["UnsupportedMediaType"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/organizations/{organization_id}/federation/inbound-items/{federation_item_id}/file": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+                federation_item_id: components["parameters"]["FederationItemID"];
+            };
+            cookie?: never;
+        };
+        /** The bytes of an arrived file. Each read is audited in this organization */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                    federation_item_id: components["parameters"]["FederationItemID"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description File */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/octet-stream": string;
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/organizations/{organization_id}/federation/crossings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+            };
+            cookie?: never;
+        };
+        /** Everything that went over either way, and everything removed since. Hashes and kinds, with no content */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Crossings */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            items: components["schemas"]["FederationCrossing"][];
+                        };
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/organizations/{organization_id}/tenancy/posture": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+            };
+            cookie?: never;
+        };
+        /** What this deployment states and what was found, by surface and by aspect, and no more than that */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Posture */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["TenancyPosture"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/organizations/{organization_id}/tenancy/residency-requirements": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+            };
+            cookie?: never;
+        };
+        /** Where this organization requires its data to stay */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Requirements */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            items: components["schemas"]["ResidencyRequirement"][];
+                        };
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        /** An owner sets or removes one requirement. A region this deployment is not in is refused */
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["SetResidencyRequirement"];
+                };
+            };
+            responses: {
+                /** @description Requirements */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            items: components["schemas"]["ResidencyRequirement"][];
+                        };
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                409: components["responses"]["Conflict"];
+                413: components["responses"]["PayloadTooLarge"];
+                415: components["responses"]["UnsupportedMediaType"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1578,6 +2566,255 @@ export interface components {
             allowed_classes: string[];
             region?: string | null;
         };
+        FederationSettings: {
+            /** @description Whether this deployment offers it at all. */
+            available: boolean;
+            enabled: boolean;
+            version: number;
+            /** Format: date-time */
+            changed_at: string | null;
+        };
+        SetFederationSettings: {
+            enabled: boolean;
+            expected_version: number;
+        };
+        /** @enum {string} */
+        FederationGrantStatus: "proposed" | "accepted" | "active" | "ended";
+        /** @enum {string} */
+        FederationEndReason: "cancelled" | "declined" | "revoked" | "expired" | "disabled";
+        /** @enum {string} */
+        FederationPurpose: "delegated_work" | "document_review";
+        /** @enum {string} */
+        FederationItemKind: "work_summary" | "artifact" | "status_update";
+        /** @enum {string} */
+        FederationClassification: "public" | "internal" | "confidential";
+        /** @enum {string} */
+        FederationItemState: "queued" | "delivered" | "refused" | "withdrawn";
+        /** @enum {string} */
+        FederationDisposition: "pending" | "accepted" | "rejected";
+        /** @enum {string} */
+        FederationCrossingOutcome: "delivered" | "refused" | "purged";
+        /** @description The technical scope both owners agree to. It is not a contract and holds no legal wording. */
+        FederationTerms: {
+            /** @enum {integer} */
+            terms_version: 1;
+            purpose: components["schemas"]["FederationPurpose"];
+            max_classification: components["schemas"]["FederationClassification"];
+            forward_kinds: components["schemas"]["FederationItemKind"][];
+            return_kinds: components["schemas"]["FederationItemKind"][];
+            /** Format: uuid */
+            sharing_organization_id: string;
+            sharing_display_name: string;
+            /** Format: date-time */
+            expires_at: string;
+            note: string | null;
+        };
+        FederationGrant: {
+            /** Format: uuid */
+            id: string;
+            /** @enum {string} */
+            role: "sharing" | "receiving";
+            status: components["schemas"]["FederationGrantStatus"];
+            purpose: components["schemas"]["FederationPurpose"];
+            max_classification: components["schemas"]["FederationClassification"];
+            terms: components["schemas"]["FederationTerms"];
+            terms_hash: string;
+            /** Format: date-time */
+            expires_at: string;
+            /** Format: date-time */
+            invitation_expires_at: string;
+            /** @description The name the other side consented to show. Names are not verified. */
+            counterparty_name: string | null;
+            /** @description To compare with the other side by another route. */
+            counterparty_fingerprint: string | null;
+            /** Format: date-time */
+            proposed_at: string;
+            /** Format: date-time */
+            accepted_at: string | null;
+            /** Format: date-time */
+            confirmed_at: string | null;
+            /** Format: date-time */
+            ended_at: string | null;
+            end_reason: components["schemas"]["FederationEndReason"] | null;
+            ended_by_us: boolean;
+            version: number;
+        };
+        ProposeFederationGrant: {
+            purpose: components["schemas"]["FederationPurpose"];
+            max_classification: components["schemas"]["FederationClassification"];
+            expires_in_days: number;
+            invitation_expires_in_days: number;
+            note?: string;
+        };
+        CreatedFederationGrant: {
+            grant: components["schemas"]["FederationGrant"];
+            /** @description Shown once. Only its hash is kept. */
+            token: string;
+        };
+        RedeemFederationInvitation: {
+            token: string;
+        };
+        FederationInvitationPreview: {
+            terms_hash: string;
+            terms: components["schemas"]["FederationTerms"];
+            sharing_display_name: string;
+            sharing_fingerprint: string;
+            /** Format: date-time */
+            invitation_expires_at: string;
+        };
+        AcceptFederationInvitation: {
+            token: string;
+            terms_hash: string;
+        };
+        ConfirmFederationGrant: {
+            terms_hash: string;
+            expected_version: number;
+        };
+        EndFederationGrant: {
+            /** @enum {string} */
+            reason: "cancelled" | "declined" | "revoked";
+            expected_version: number;
+        };
+        PublishFederationItem: {
+            /** @enum {string} */
+            kind: "work_summary";
+            /** Format: uuid */
+            work_unit_id: string;
+            title: string;
+            body: {
+                objective?: string;
+                completion_criteria?: string;
+                /** Format: date-time */
+                due_at?: string;
+            };
+        } | {
+            /** @enum {string} */
+            kind: "artifact";
+            /** Format: uuid */
+            artifact_id: string;
+            title: string;
+        } | {
+            /** @enum {string} */
+            kind: "status_update";
+            title: string;
+            classification: components["schemas"]["FederationClassification"];
+            body: {
+                /** @enum {string} */
+                state: "received" | "in_progress" | "blocked" | "completed" | "declined";
+                note?: string;
+            };
+        };
+        FederationOutboundItem: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            grant_id: string;
+            kind: components["schemas"]["FederationItemKind"];
+            title: string;
+            body: {
+                [key: string]: unknown;
+            };
+            classification: components["schemas"]["FederationClassification"];
+            state: components["schemas"]["FederationItemState"];
+            refuse_code: string | null;
+            has_file: boolean;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            delivered_at: string | null;
+            /** Format: date-time */
+            withdrawn_at: string | null;
+            version: number;
+        };
+        FederationInboundItem: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            grant_id: string;
+            kind: components["schemas"]["FederationItemKind"];
+            title: string;
+            body: {
+                [key: string]: unknown;
+            };
+            classification: components["schemas"]["FederationClassification"];
+            sender_name: string;
+            sender_fingerprint: string;
+            has_file: boolean;
+            file_size_bytes: number | null;
+            file_mime_type: string | null;
+            disposition: components["schemas"]["FederationDisposition"];
+            /** Format: uuid */
+            linked_work_unit_id: string | null;
+            /** Format: date-time */
+            received_at: string;
+            version: number;
+        };
+        DisposeFederationItem: {
+            /** @enum {string} */
+            disposition: "accepted" | "rejected";
+            /** Format: uuid */
+            linked_work_unit_id?: string;
+            expected_version: number;
+        };
+        FederationCrossing: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            grant_id: string;
+            /** Format: uuid */
+            item_id: string | null;
+            /** @enum {string} */
+            direction: "sent" | "received";
+            kind: components["schemas"]["FederationItemKind"] | null;
+            outcome: components["schemas"]["FederationCrossingOutcome"];
+            code: string | null;
+            content_sha256: string | null;
+            /** Format: date-time */
+            crossed_at: string;
+        };
+        /** @enum {string} */
+        ResidencySurface: "storage" | "backups" | "support" | "embeddings" | "inference" | "telemetry";
+        /** @enum {string} */
+        ResidencyScope: "all" | "public" | "internal" | "confidential" | "restricted";
+        /** @enum {string} */
+        IsolationAspect: "database" | "network" | "worker_pool" | "temporal_namespace" | "object_store" | "backups" | "embeddings" | "telemetry" | "key_encryption_key";
+        ResidencyRequirement: {
+            scope: components["schemas"]["ResidencyScope"];
+            region: string;
+            version: number;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        SetResidencyRequirement: {
+            scope: components["schemas"]["ResidencyScope"];
+            region: string | null;
+            expected_version: number;
+        };
+        /** @description What an operator declared and what a probe found. It is not a certification, and it promises nothing. isolated and all_in_region are true only when every line beneath them says so. */
+        TenancyPosture: {
+            /** @enum {string} */
+            tier: "shared" | "dedicated";
+            home_region: string | null;
+            cross_org_enabled: boolean;
+            isolated: boolean;
+            all_in_region: boolean;
+            aspects: {
+                aspect: components["schemas"]["IsolationAspect"];
+                /** @enum {string} */
+                state: "passed" | "failed" | "declared" | "unchecked" | "stale";
+                code: string | null;
+                /** Format: date-time */
+                checked_at: string | null;
+            }[];
+            surfaces: {
+                surface: components["schemas"]["ResidencySurface"];
+                /** @enum {string} */
+                state: "declared_in_region" | "declared_elsewhere" | "undeclared";
+                regions: string[];
+                evidence_ref: string | null;
+                observed_elsewhere: string[];
+            }[];
+        };
         Error: {
             code: string;
             message: string;
@@ -1698,6 +2935,8 @@ export interface components {
         WorkUnitID: string;
         ExternalActionID: string;
         ConnectionID: string;
+        FederationGrantID: string;
+        FederationItemID: string;
     };
     requestBodies: never;
     headers: {

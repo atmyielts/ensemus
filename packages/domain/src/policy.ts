@@ -13,7 +13,14 @@ export type Capability =
   | 'work.create'
   | 'work.recover_owner'
   | 'member.view_email'
-  | 'connection.manage';
+  | 'connection.manage'
+  // ADR-035 D1. To begin or to accept takes an owner, and to stop takes less.
+  | 'federation.manage'
+  | 'federation.share'
+  | 'federation.end'
+  | 'federation.view'
+  // ADR-035 D5 and D6. What this deployment is, and what was found about it.
+  | 'tenancy.view';
 
 const GRANTS: Record<Role, ReadonlySet<Capability>> = {
   owner: new Set([
@@ -27,6 +34,11 @@ const GRANTS: Record<Role, ReadonlySet<Capability>> = {
     'work.recover_owner',
     'member.view_email',
     'connection.manage',
+    'federation.manage',
+    'federation.share',
+    'federation.end',
+    'federation.view',
+    'tenancy.view',
   ]),
   admin: new Set([
     'member.invite',
@@ -37,6 +49,10 @@ const GRANTS: Record<Role, ReadonlySet<Capability>> = {
     'work.create',
     'member.view_email',
     'connection.manage',
+    'federation.share',
+    'federation.end',
+    'federation.view',
+    'tenancy.view',
   ]),
   member: new Set(['client.manage', 'project.manage', 'work.create']),
 };

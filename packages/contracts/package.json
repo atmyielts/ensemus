@@ -6,6 +6,8 @@
   "exports": {
     ".": "./src/index.ts",
     "./external-actions": "./src/external-actions.ts",
+    "./federation": "./src/federation.ts",
+    "./tenancy": "./src/tenancy.ts",
     "./openapi": "./generated/openapi.d.ts"
   },
   "scripts": {

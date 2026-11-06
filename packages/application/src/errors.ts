@@ -30,7 +30,19 @@ export type ErrorCode =
   | 'EXTERNAL_ACTION_NOT_RETRYABLE'
   | 'CONNECTION_NOT_ACTIVE'
   | 'CONNECTOR_NOT_AVAILABLE'
-  | 'RESTRICTED_NOT_ALLOWED';
+  | 'RESTRICTED_NOT_ALLOWED'
+  | 'FEDERATION_NOT_AVAILABLE'
+  | 'FEDERATION_DISABLED'
+  | 'FEDERATION_OPEN_GRANTS'
+  | 'FEDERATION_INVITATION_INVALID'
+  | 'FEDERATION_TERMS_CHANGED'
+  | 'FEDERATION_GRANT_NOT_OPEN'
+  | 'FEDERATION_KIND_NOT_ALLOWED'
+  | 'FEDERATION_CLASSIFICATION_TOO_HIGH'
+  | 'FEDERATION_ITEM_NOT_WITHDRAWABLE'
+  | 'RESIDENCY_REGION_NOT_OFFERED'
+  | 'RESIDENCY_DENIED'
+  | 'TENANCY_SINGLE_ORGANIZATION';
 
 const MESSAGES: Record<ErrorCode, string> = {
   NOT_FOUND: 'Not found or not permitted.',
@@ -66,6 +78,19 @@ const MESSAGES: Record<ErrorCode, string> = {
   CONNECTION_NOT_ACTIVE: 'This connection is not active.',
   CONNECTOR_NOT_AVAILABLE: 'This connector is not available on this deployment.',
   RESTRICTED_NOT_ALLOWED: 'Restricted work cannot be sent outside this deployment.',
+  FEDERATION_NOT_AVAILABLE: 'Working with other organizations is not available on this deployment.',
+  FEDERATION_DISABLED: 'Your organization has not turned on working with other organizations.',
+  FEDERATION_OPEN_GRANTS: 'End what is shared with other organizations before turning this off.',
+  FEDERATION_INVITATION_INVALID: 'This invitation is not valid. Ask for a new one.',
+  FEDERATION_TERMS_CHANGED: 'What was shared for review changed. Read it again before agreeing.',
+  FEDERATION_GRANT_NOT_OPEN: 'This arrangement with the other organization is not open.',
+  FEDERATION_KIND_NOT_ALLOWED: 'This arrangement does not cover sending that.',
+  FEDERATION_CLASSIFICATION_TOO_HIGH:
+    'This is more sensitive than this arrangement allows, so it was not sent.',
+  FEDERATION_ITEM_NOT_WITHDRAWABLE: 'This can no longer be withdrawn.',
+  RESIDENCY_REGION_NOT_OFFERED: 'This deployment does not run in that region.',
+  RESIDENCY_DENIED: 'Your organization requires its data to stay in a region this would leave.',
+  TENANCY_SINGLE_ORGANIZATION: 'This deployment is dedicated to one organization.',
 };
 
 export class AppError extends Error {
@@ -118,6 +143,18 @@ export const HTTP_STATUS: Record<ErrorCode, number> = {
   CONNECTION_NOT_ACTIVE: 409,
   CONNECTOR_NOT_AVAILABLE: 409,
   RESTRICTED_NOT_ALLOWED: 403,
+  FEDERATION_NOT_AVAILABLE: 404,
+  FEDERATION_DISABLED: 409,
+  FEDERATION_OPEN_GRANTS: 409,
+  FEDERATION_INVITATION_INVALID: 400,
+  FEDERATION_TERMS_CHANGED: 409,
+  FEDERATION_GRANT_NOT_OPEN: 409,
+  FEDERATION_KIND_NOT_ALLOWED: 403,
+  FEDERATION_CLASSIFICATION_TOO_HIGH: 403,
+  FEDERATION_ITEM_NOT_WITHDRAWABLE: 409,
+  RESIDENCY_REGION_NOT_OFFERED: 409,
+  RESIDENCY_DENIED: 403,
+  TENANCY_SINGLE_ORGANIZATION: 403,
 };
 
 /** Reads the Postgres error code through the wrapper Drizzle adds. */

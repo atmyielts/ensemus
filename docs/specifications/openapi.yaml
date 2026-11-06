@@ -25,6 +25,10 @@ tags:
   - name: knowledge
   - name: models
   - name: commercial
+  - name: federation
+    description: Cross-organization work. Off unless the operator and each organization's owner turn it on (ADR-035).
+  - name: tenancy
+    description: What this deployment states and what was found about it (ADR-035).
 paths:
   /organizations/{organization_id}/work-units:
     parameters:
@@ -757,6 +761,461 @@ paths:
                   mode: {type: string, enum: [cloud, byom, sovereign]}
                   features: {type: array, items: {type: string}}
                   capacity: {type: object, additionalProperties: true}
+  /organizations/{organization_id}/federation/settings:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+    get:
+      x-ensemus-status: planned
+      tags: [federation]
+      summary: Whether this organization works with other organizations, which is off until an owner says otherwise
+      responses:
+        '200':
+          description: Settings
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/FederationSettings'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+    put:
+      x-ensemus-status: planned
+      tags: [federation]
+      summary: Turn it on or off. Turning it off ends everything shared first
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/SetFederationSettings'}
+      responses:
+        '200':
+          description: Settings
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/FederationSettings'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '413': {$ref: '#/components/responses/PayloadTooLarge'}
+        '415': {$ref: '#/components/responses/UnsupportedMediaType'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+  /organizations/{organization_id}/federation/grants:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+    get:
+      x-ensemus-status: planned
+      tags: [federation]
+      summary: Arrangements this organization is a party to
+      responses:
+        '200':
+          description: Grants
+          content:
+            application/json:
+              schema: {type: object, additionalProperties: false, required: [items], properties: {items: {type: array, items: {$ref: '#/components/schemas/FederationGrant'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+    post:
+      x-ensemus-status: planned
+      tags: [federation]
+      summary: An owner offers an arrangement. The invitation token is shown once, and nothing is sent to anyone
+      parameters: [{$ref: '#/components/parameters/IdempotencyKey'}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ProposeFederationGrant'}
+      responses:
+        '201':
+          description: Proposed. Nothing crosses until the other side accepts and this side confirms
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/CreatedFederationGrant'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '413': {$ref: '#/components/responses/PayloadTooLarge'}
+        '415': {$ref: '#/components/responses/UnsupportedMediaType'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+  /organizations/{organization_id}/federation/invitations/preview:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+    post:
+      x-ensemus-status: planned
+      tags: [federation]
+      summary: What an invitation offers, for an owner deciding. The token goes in the body, and never in a URL
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/RedeemFederationInvitation'}
+      responses:
+        '200':
+          description: The terms. A wrong, used or expired token gets the same 400
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/FederationInvitationPreview'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '413': {$ref: '#/components/responses/PayloadTooLarge'}
+        '415': {$ref: '#/components/responses/UnsupportedMediaType'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+  /organizations/{organization_id}/federation/invitations/acceptance:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+    post:
+      x-ensemus-status: planned
+      tags: [federation]
+      summary: An owner accepts the exact terms they read. This reveals this organization's name to the other side
+      parameters: [{$ref: '#/components/parameters/IdempotencyKey'}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/AcceptFederationInvitation'}
+      responses:
+        '201':
+          description: Accepted, and waiting for the other side to confirm
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/FederationGrant'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '413': {$ref: '#/components/responses/PayloadTooLarge'}
+        '415': {$ref: '#/components/responses/UnsupportedMediaType'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+  /organizations/{organization_id}/federation/grants/{grant_id}:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+      - $ref: '#/components/parameters/FederationGrantID'
+    get:
+      x-ensemus-status: planned
+      tags: [federation]
+      summary: One arrangement. Not found unless this organization is a party to it
+      responses:
+        '200':
+          description: Grant
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/FederationGrant'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+  /organizations/{organization_id}/federation/grants/{grant_id}/confirmation:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+      - $ref: '#/components/parameters/FederationGrantID'
+    post:
+      x-ensemus-status: planned
+      tags: [federation]
+      summary: The sharing owner has seen who accepted, and says that is who they meant. Only now can anything cross
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ConfirmFederationGrant'}
+      responses:
+        '200':
+          description: Active
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/FederationGrant'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '413': {$ref: '#/components/responses/PayloadTooLarge'}
+        '415': {$ref: '#/components/responses/UnsupportedMediaType'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+  /organizations/{organization_id}/federation/grants/{grant_id}/ending:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+      - $ref: '#/components/parameters/FederationGrantID'
+    post:
+      x-ensemus-status: planned
+      tags: [federation]
+      summary: Either side ends it, for good. What arrived stops being readable at once, and is then removed
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/EndFederationGrant'}
+      responses:
+        '200':
+          description: Ended
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/FederationGrant'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '413': {$ref: '#/components/responses/PayloadTooLarge'}
+        '415': {$ref: '#/components/responses/UnsupportedMediaType'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+  /organizations/{organization_id}/federation/grants/{grant_id}/items:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+      - $ref: '#/components/parameters/FederationGrantID'
+    get:
+      x-ensemus-status: planned
+      tags: [federation]
+      summary: What this organization has sent under this arrangement
+      responses:
+        '200':
+          description: Items
+          content:
+            application/json:
+              schema: {type: object, additionalProperties: false, required: [items], properties: {items: {type: array, items: {$ref: '#/components/schemas/FederationOutboundItem'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+    post:
+      x-ensemus-status: planned
+      tags: [federation]
+      summary: Send a copy of one thing. Only what the arrangement covers, and never restricted data
+      parameters: [{$ref: '#/components/parameters/IdempotencyKey'}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/PublishFederationItem'}
+      responses:
+        '201':
+          description: Queued
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/FederationOutboundItem'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '413': {$ref: '#/components/responses/PayloadTooLarge'}
+        '415': {$ref: '#/components/responses/UnsupportedMediaType'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+  /organizations/{organization_id}/federation/outbound-items/{federation_item_id}/withdrawal:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+      - $ref: '#/components/parameters/FederationItemID'
+    post:
+      x-ensemus-status: planned
+      tags: [federation]
+      summary: Take one item back. The other side may already have read it
+      parameters: [{$ref: '#/components/parameters/IfMatch'}]
+      responses:
+        '200':
+          description: Withdrawn
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/FederationOutboundItem'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '413': {$ref: '#/components/responses/PayloadTooLarge'}
+        '415': {$ref: '#/components/responses/UnsupportedMediaType'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+  /organizations/{organization_id}/federation/inbound-items:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+    get:
+      x-ensemus-status: planned
+      tags: [federation]
+      summary: What has arrived and is still shared
+      responses:
+        '200':
+          description: Items
+          content:
+            application/json:
+              schema: {type: object, additionalProperties: false, required: [items], properties: {items: {type: array, items: {$ref: '#/components/schemas/FederationInboundItem'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+  /organizations/{organization_id}/federation/inbound-items/{federation_item_id}:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+      - $ref: '#/components/parameters/FederationItemID'
+    get:
+      x-ensemus-status: planned
+      tags: [federation]
+      summary: One arrival. Not found once the arrangement has ended
+      responses:
+        '200':
+          description: Item
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/FederationInboundItem'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+  /organizations/{organization_id}/federation/inbound-items/{federation_item_id}/disposition:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+      - $ref: '#/components/parameters/FederationItemID'
+    post:
+      x-ensemus-status: planned
+      tags: [federation]
+      summary: A person says what they will do with it. Accepting starts nothing by itself
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/DisposeFederationItem'}
+      responses:
+        '200':
+          description: Recorded
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/FederationInboundItem'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '413': {$ref: '#/components/responses/PayloadTooLarge'}
+        '415': {$ref: '#/components/responses/UnsupportedMediaType'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+  /organizations/{organization_id}/federation/inbound-items/{federation_item_id}/file:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+      - $ref: '#/components/parameters/FederationItemID'
+    get:
+      x-ensemus-status: planned
+      tags: [federation]
+      summary: The bytes of an arrived file. Each read is audited in this organization
+      responses:
+        '200':
+          description: File
+          content:
+            application/octet-stream:
+              schema: {type: string, format: binary}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+  /organizations/{organization_id}/federation/crossings:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+    get:
+      x-ensemus-status: planned
+      tags: [federation]
+      summary: Everything that went over either way, and everything removed since. Hashes and kinds, with no content
+      responses:
+        '200':
+          description: Crossings
+          content:
+            application/json:
+              schema: {type: object, additionalProperties: false, required: [items], properties: {items: {type: array, items: {$ref: '#/components/schemas/FederationCrossing'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+  /organizations/{organization_id}/tenancy/posture:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+    get:
+      x-ensemus-status: planned
+      tags: [tenancy]
+      summary: What this deployment states and what was found, by surface and by aspect, and no more than that
+      responses:
+        '200':
+          description: Posture
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/TenancyPosture'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+  /organizations/{organization_id}/tenancy/residency-requirements:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+    get:
+      x-ensemus-status: planned
+      tags: [tenancy]
+      summary: Where this organization requires its data to stay
+      responses:
+        '200':
+          description: Requirements
+          content:
+            application/json:
+              schema: {type: object, additionalProperties: false, required: [items], properties: {items: {type: array, items: {$ref: '#/components/schemas/ResidencyRequirement'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+    put:
+      x-ensemus-status: planned
+      tags: [tenancy]
+      summary: An owner sets or removes one requirement. A region this deployment is not in is refused
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/SetResidencyRequirement'}
+      responses:
+        '200':
+          description: Requirements
+          content:
+            application/json:
+              schema: {type: object, additionalProperties: false, required: [items], properties: {items: {type: array, items: {$ref: '#/components/schemas/ResidencyRequirement'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '413': {$ref: '#/components/responses/PayloadTooLarge'}
+        '415': {$ref: '#/components/responses/UnsupportedMediaType'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
 components:
   securitySchemes:
     sessionCookie:
@@ -801,6 +1260,16 @@ components:
       schema: {type: string, format: uuid}
     ConnectionID:
       name: connection_id
+      in: path
+      required: true
+      schema: {type: string, format: uuid}
+    FederationGrantID:
+      name: grant_id
+      in: path
+      required: true
+      schema: {type: string, format: uuid}
+    FederationItemID:
+      name: federation_item_id
       in: path
       required: true
       schema: {type: string, format: uuid}
@@ -1046,6 +1515,303 @@ components:
         model_id: {type: string}
         allowed_classes: {type: array, items: {type: string}}
         region: {type: [string, 'null']}
+    FederationSettings:
+      type: object
+      additionalProperties: false
+      required: [available, enabled, version, changed_at]
+      properties:
+        available: {type: boolean, description: Whether this deployment offers it at all.}
+        enabled: {type: boolean}
+        version: {type: integer, minimum: 0}
+        changed_at: {type: [string, 'null'], format: date-time}
+    SetFederationSettings:
+      type: object
+      additionalProperties: false
+      required: [enabled, expected_version]
+      properties:
+        enabled: {type: boolean}
+        expected_version: {type: integer, minimum: 0}
+    FederationGrantStatus:
+      type: string
+      enum: [proposed, accepted, active, ended]
+    FederationEndReason:
+      type: string
+      enum: [cancelled, declined, revoked, expired, disabled]
+    FederationPurpose:
+      type: string
+      enum: [delegated_work, document_review]
+    FederationItemKind:
+      type: string
+      enum: [work_summary, artifact, status_update]
+    FederationClassification:
+      type: string
+      enum: [public, internal, confidential]
+    FederationItemState:
+      type: string
+      enum: [queued, delivered, refused, withdrawn]
+    FederationDisposition:
+      type: string
+      enum: [pending, accepted, rejected]
+    FederationCrossingOutcome:
+      type: string
+      enum: [delivered, refused, purged]
+    FederationTerms:
+      type: object
+      additionalProperties: false
+      description: The technical scope both owners agree to. It is not a contract and holds no legal wording.
+      required: [terms_version, purpose, max_classification, forward_kinds, return_kinds, sharing_organization_id, sharing_display_name, expires_at, note]
+      properties:
+        terms_version: {type: integer, enum: [1]}
+        purpose: {$ref: '#/components/schemas/FederationPurpose'}
+        max_classification: {$ref: '#/components/schemas/FederationClassification'}
+        forward_kinds: {type: array, items: {$ref: '#/components/schemas/FederationItemKind'}}
+        return_kinds: {type: array, items: {$ref: '#/components/schemas/FederationItemKind'}}
+        sharing_organization_id: {type: string, format: uuid}
+        sharing_display_name: {type: string}
+        expires_at: {type: string, format: date-time}
+        note: {type: [string, 'null']}
+    FederationGrant:
+      type: object
+      additionalProperties: false
+      required: [id, role, status, purpose, max_classification, terms, terms_hash, expires_at, invitation_expires_at, counterparty_name, counterparty_fingerprint, proposed_at, accepted_at, confirmed_at, ended_at, end_reason, ended_by_us, version]
+      properties:
+        id: {type: string, format: uuid}
+        role: {type: string, enum: [sharing, receiving]}
+        status: {$ref: '#/components/schemas/FederationGrantStatus'}
+        purpose: {$ref: '#/components/schemas/FederationPurpose'}
+        max_classification: {$ref: '#/components/schemas/FederationClassification'}
+        terms: {$ref: '#/components/schemas/FederationTerms'}
+        terms_hash: {type: string, pattern: '^[0-9a-f]{64}$'}
+        expires_at: {type: string, format: date-time}
+        invitation_expires_at: {type: string, format: date-time}
+        counterparty_name: {type: [string, 'null'], description: The name the other side consented to show. Names are not verified.}
+        counterparty_fingerprint: {type: [string, 'null'], description: To compare with the other side by another route.}
+        proposed_at: {type: string, format: date-time}
+        accepted_at: {type: [string, 'null'], format: date-time}
+        confirmed_at: {type: [string, 'null'], format: date-time}
+        ended_at: {type: [string, 'null'], format: date-time}
+        end_reason:
+          oneOf:
+            - {$ref: '#/components/schemas/FederationEndReason'}
+            - {type: 'null'}
+        ended_by_us: {type: boolean}
+        version: {type: integer, minimum: 1}
+    ProposeFederationGrant:
+      type: object
+      additionalProperties: false
+      required: [purpose, max_classification, expires_in_days, invitation_expires_in_days]
+      properties:
+        purpose: {$ref: '#/components/schemas/FederationPurpose'}
+        max_classification: {$ref: '#/components/schemas/FederationClassification'}
+        expires_in_days: {type: integer, minimum: 1, maximum: 365}
+        invitation_expires_in_days: {type: integer, minimum: 1, maximum: 14}
+        note: {type: string, minLength: 1, maxLength: 2000}
+    CreatedFederationGrant:
+      type: object
+      additionalProperties: false
+      required: [grant, token]
+      properties:
+        grant: {$ref: '#/components/schemas/FederationGrant'}
+        token: {type: string, description: Shown once. Only its hash is kept.}
+    RedeemFederationInvitation:
+      type: object
+      additionalProperties: false
+      required: [token]
+      properties:
+        token: {type: string, minLength: 16, maxLength: 256}
+    FederationInvitationPreview:
+      type: object
+      additionalProperties: false
+      required: [terms_hash, terms, sharing_display_name, sharing_fingerprint, invitation_expires_at]
+      properties:
+        terms_hash: {type: string, pattern: '^[0-9a-f]{64}$'}
+        terms: {$ref: '#/components/schemas/FederationTerms'}
+        sharing_display_name: {type: string}
+        sharing_fingerprint: {type: string}
+        invitation_expires_at: {type: string, format: date-time}
+    AcceptFederationInvitation:
+      type: object
+      additionalProperties: false
+      required: [token, terms_hash]
+      properties:
+        token: {type: string, minLength: 16, maxLength: 256}
+        terms_hash: {type: string, pattern: '^[0-9a-f]{64}$'}
+    ConfirmFederationGrant:
+      type: object
+      additionalProperties: false
+      required: [terms_hash, expected_version]
+      properties:
+        terms_hash: {type: string, pattern: '^[0-9a-f]{64}$'}
+        expected_version: {type: integer, minimum: 1}
+    EndFederationGrant:
+      type: object
+      additionalProperties: false
+      required: [reason, expected_version]
+      properties:
+        reason: {type: string, enum: [cancelled, declined, revoked]}
+        expected_version: {type: integer, minimum: 1}
+    PublishFederationItem:
+      oneOf:
+        - type: object
+          additionalProperties: false
+          required: [kind, work_unit_id, title, body]
+          properties:
+            kind: {type: string, enum: [work_summary]}
+            work_unit_id: {type: string, format: uuid}
+            title: {type: string, minLength: 1, maxLength: 200}
+            body:
+              type: object
+              additionalProperties: false
+              properties:
+                objective: {type: string, minLength: 1, maxLength: 20000}
+                completion_criteria: {type: string, minLength: 1, maxLength: 20000}
+                due_at: {type: string, format: date-time}
+        - type: object
+          additionalProperties: false
+          required: [kind, artifact_id, title]
+          properties:
+            kind: {type: string, enum: [artifact]}
+            artifact_id: {type: string, format: uuid}
+            title: {type: string, minLength: 1, maxLength: 200}
+        - type: object
+          additionalProperties: false
+          required: [kind, title, body, classification]
+          properties:
+            kind: {type: string, enum: [status_update]}
+            title: {type: string, minLength: 1, maxLength: 200}
+            classification: {$ref: '#/components/schemas/FederationClassification'}
+            body:
+              type: object
+              additionalProperties: false
+              required: [state]
+              properties:
+                state: {type: string, enum: [received, in_progress, blocked, completed, declined]}
+                note: {type: string, minLength: 1, maxLength: 2000}
+    FederationOutboundItem:
+      type: object
+      additionalProperties: false
+      required: [id, grant_id, kind, title, body, classification, state, refuse_code, has_file, created_at, delivered_at, withdrawn_at, version]
+      properties:
+        id: {type: string, format: uuid}
+        grant_id: {type: string, format: uuid}
+        kind: {$ref: '#/components/schemas/FederationItemKind'}
+        title: {type: string}
+        body: {type: object, additionalProperties: true}
+        classification: {$ref: '#/components/schemas/FederationClassification'}
+        state: {$ref: '#/components/schemas/FederationItemState'}
+        refuse_code: {type: [string, 'null']}
+        has_file: {type: boolean}
+        created_at: {type: string, format: date-time}
+        delivered_at: {type: [string, 'null'], format: date-time}
+        withdrawn_at: {type: [string, 'null'], format: date-time}
+        version: {type: integer, minimum: 1}
+    FederationInboundItem:
+      type: object
+      additionalProperties: false
+      required: [id, grant_id, kind, title, body, classification, sender_name, sender_fingerprint, has_file, file_size_bytes, file_mime_type, disposition, linked_work_unit_id, received_at, version]
+      properties:
+        id: {type: string, format: uuid}
+        grant_id: {type: string, format: uuid}
+        kind: {$ref: '#/components/schemas/FederationItemKind'}
+        title: {type: string}
+        body: {type: object, additionalProperties: true}
+        classification: {$ref: '#/components/schemas/FederationClassification'}
+        sender_name: {type: string}
+        sender_fingerprint: {type: string}
+        has_file: {type: boolean}
+        file_size_bytes: {type: [integer, 'null'], minimum: 0}
+        file_mime_type: {type: [string, 'null']}
+        disposition: {$ref: '#/components/schemas/FederationDisposition'}
+        linked_work_unit_id: {type: [string, 'null'], format: uuid}
+        received_at: {type: string, format: date-time}
+        version: {type: integer, minimum: 1}
+    DisposeFederationItem:
+      type: object
+      additionalProperties: false
+      required: [disposition, expected_version]
+      properties:
+        disposition: {type: string, enum: [accepted, rejected]}
+        linked_work_unit_id: {type: string, format: uuid}
+        expected_version: {type: integer, minimum: 1}
+    FederationCrossing:
+      type: object
+      additionalProperties: false
+      required: [id, grant_id, item_id, direction, kind, outcome, code, content_sha256, crossed_at]
+      properties:
+        id: {type: string, format: uuid}
+        grant_id: {type: string, format: uuid}
+        item_id: {type: [string, 'null'], format: uuid}
+        direction: {type: string, enum: [sent, received]}
+        kind:
+          oneOf:
+            - {$ref: '#/components/schemas/FederationItemKind'}
+            - {type: 'null'}
+        outcome: {$ref: '#/components/schemas/FederationCrossingOutcome'}
+        code: {type: [string, 'null']}
+        content_sha256: {type: [string, 'null']}
+        crossed_at: {type: string, format: date-time}
+    ResidencySurface:
+      type: string
+      enum: [storage, backups, support, embeddings, inference, telemetry]
+    ResidencyScope:
+      type: string
+      enum: [all, public, internal, confidential, restricted]
+    IsolationAspect:
+      type: string
+      enum: [database, network, worker_pool, temporal_namespace, object_store, backups, embeddings, telemetry, key_encryption_key]
+    ResidencyRequirement:
+      type: object
+      additionalProperties: false
+      required: [scope, region, version, updated_at]
+      properties:
+        scope: {$ref: '#/components/schemas/ResidencyScope'}
+        region: {type: string}
+        version: {type: integer, minimum: 1}
+        updated_at: {type: string, format: date-time}
+    SetResidencyRequirement:
+      type: object
+      additionalProperties: false
+      required: [scope, region, expected_version]
+      properties:
+        scope: {$ref: '#/components/schemas/ResidencyScope'}
+        region: {type: [string, 'null'], pattern: '^[a-z][a-z0-9-]{1,31}$'}
+        expected_version: {type: integer, minimum: 0}
+    TenancyPosture:
+      type: object
+      additionalProperties: false
+      description: >-
+        What an operator declared and what a probe found. It is not a certification, and it promises
+        nothing. isolated and all_in_region are true only when every line beneath them says so.
+      required: [tier, home_region, cross_org_enabled, isolated, all_in_region, aspects, surfaces]
+      properties:
+        tier: {type: string, enum: [shared, dedicated]}
+        home_region: {type: [string, 'null']}
+        cross_org_enabled: {type: boolean}
+        isolated: {type: boolean}
+        all_in_region: {type: boolean}
+        aspects:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [aspect, state, code, checked_at]
+            properties:
+              aspect: {$ref: '#/components/schemas/IsolationAspect'}
+              state: {type: string, enum: [passed, failed, declared, unchecked, stale]}
+              code: {type: [string, 'null']}
+              checked_at: {type: [string, 'null'], format: date-time}
+        surfaces:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [surface, state, regions, evidence_ref, observed_elsewhere]
+            properties:
+              surface: {$ref: '#/components/schemas/ResidencySurface'}
+              state: {type: string, enum: [declared_in_region, declared_elsewhere, undeclared]}
+              regions: {type: array, items: {type: string}}
+              evidence_ref: {type: [string, 'null']}
+              observed_elsewhere: {type: array, items: {type: string}}
     Error:
       type: object
       additionalProperties: false

@@ -41,3 +41,17 @@ DEP-TS-01,DEP,Concurrent migration jobs attempted,"Exactly one migrator, no data
 DEP-TS-02,DEP,Sovereign image signature verification,Tampered bundle rejected offline,high,not_implemented
 PERF-TS-01,PERF,Many agents during normal work,p95 web latency and fairness within tested thresholds,high,not_implemented
 DATA-TS-01,DATA,Drizzle transaction RLS pool reuse,No tenant context reused across pooled connections,high,not_implemented
+XORG-TS-01,Cross-org,Deployment or tenant has not turned cross-org on,"Every path answers as if it does not exist; no role or worker is present",critical,not_implemented
+XORG-TS-02,Cross-org,Wrong person, wrong side, wrong hash or past date at each consent step,"Refused by service and trigger; nothing crosses before the third step",critical,not_implemented
+XORG-TS-03,Cross-org,Send a kind or class the terms do not cover, or restricted data,"Refused by service and trigger",critical,not_implemented
+XORG-TS-04,Cross-org,Either side revokes, with a crash between commit and purge,"Unreadable on commit; purge completes on retry; ledger records it",critical,not_implemented
+XORG-TS-05,Cross-org,Connect as the bridge role and try every other schema,"Permission denied everywhere except what ADR-035 lists; no other role gained anything",critical,not_implemented
+XORG-TS-06,Cross-org,A third tenant with a grant ID, an item ID or a used token,"Sees nothing and cannot tell it exists",critical,not_implemented
+XORG-TS-07,Cross-org,Canary in a title and a file, then dump Temporal and logs,"Canary absent",critical,not_implemented
+XORG-TS-08,Cross-org,Delivery racing a revocation,"Either purged or never written; nothing left readable",critical,not_implemented
+TIER-TS-01,Dedicated tier,Create a second organization on a dedicated deployment,"Refused by the database for any caller",critical,not_implemented
+TIER-TS-02,Dedicated tier,Two dedicated stacks probe each other,"Database, network and worker pool cannot reach the other",critical,not_implemented
+TIER-TS-03,Dedicated tier,Read posture before probes, after a release, and after a failed probe,"Isolated stays false until every probe passed on this release",high,not_implemented
+RES-TS-01,Residency,Requirement set and each of the six surfaces undeclared or elsewhere,"Denied before the data moves, with one audit row and no content",critical,not_implemented
+RES-TS-02,Residency,A connected model profile in another region,"The all-in-region statement is withheld",critical,not_implemented
+RES-TS-03,Residency,Require a region this deployment is not in, or any region with none claimed,"Refused by trigger; no saved promise",high,not_implemented
