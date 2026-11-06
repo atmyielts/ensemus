@@ -1,0 +1,86 @@
+{
+  "schemaVersion": 1,
+  "kind": "PortableDashboard",
+  "activation": "unbound",
+  "title": "Service operations",
+  "panels": [
+    {
+      "id": "delivery",
+      "title": "Outbox delivery problems",
+      "source": { "kind": "log", "event": "dispatcher.delivery_problem", "available": true },
+      "fields": ["count"]
+    },
+    {
+      "id": "outbox-dead",
+      "title": "Dead outbox events",
+      "source": {
+        "kind": "required_projection",
+        "binding": "outbox_dead_count",
+        "available": false
+      },
+      "fields": ["dead"]
+    },
+    {
+      "id": "deletion",
+      "title": "Deletion ledger backlog",
+      "source": { "kind": "log", "event": "tombstone_ledger.backlog", "available": true },
+      "fields": ["count", "oldestSeconds"]
+    },
+    {
+      "id": "latency",
+      "title": "Web latency",
+      "source": {
+        "kind": "required_projection",
+        "binding": "web_latency_histogram",
+        "available": false
+      },
+      "fields": ["durationMs", "count"]
+    },
+    {
+      "id": "queue",
+      "title": "Agent schedule-to-start wait",
+      "source": {
+        "kind": "required_projection",
+        "binding": "agent_schedule_to_start_histogram",
+        "available": false
+      },
+      "fields": ["durationMs", "count", "taskQueue"]
+    },
+    {
+      "id": "payments",
+      "title": "Unsettled payments",
+      "source": {
+        "kind": "required_projection",
+        "binding": "unknown_payment_count",
+        "available": false
+      },
+      "fields": ["count"]
+    },
+    {
+      "id": "reconciliation",
+      "title": "Unmatched processor events",
+      "source": {
+        "kind": "required_projection",
+        "binding": "unmatched_payment_event_count",
+        "available": false
+      },
+      "fields": ["count"]
+    },
+    {
+      "id": "financial-review",
+      "title": "Reconciled cost review",
+      "source": {
+        "kind": "required_projection",
+        "binding": "operator_authorized_ledger_cost_review",
+        "available": false
+      },
+      "fields": ["count", "reasonCode"]
+    },
+    {
+      "id": "erasure",
+      "title": "Erasure checks",
+      "source": { "kind": "log", "event": "erasure.checked", "available": true },
+      "fields": ["count", "reasonCode"]
+    }
+  ]
+}

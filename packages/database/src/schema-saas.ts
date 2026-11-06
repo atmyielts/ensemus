@@ -134,6 +134,8 @@ export const planVersions = billingSchema.table(
     billingInterval: text().notNull(),
     /** Days from issue until an invoice falls due. A commercial term, so it has no default. */
     paymentTermsDays: integer().notNull(),
+    /** Null only for a legacy plan awaiting operator review. Approval and issuance require it. */
+    minorUnitExponent: integer(),
     platformFeeMicros: micros().notNull(),
     includedMicrocredits: bigint({ mode: 'bigint' }),
     rateCardId: uuid().references(() => rateCards.id),
@@ -156,6 +158,10 @@ export const planVersions = billingSchema.table(
     check('plan_versions_currency', sql`${t.currency} ~ '^[A-Z]{3}$'`),
     check('plan_versions_interval', sql`${t.billingInterval} in ('month','year')`),
     check('plan_versions_terms', sql`${t.paymentTermsDays} >= 0`),
+    check(
+      'plan_versions_precision',
+      sql`${t.minorUnitExponent} IS NULL OR ${t.minorUnitExponent} between 0 and 4`,
+    ),
     check('plan_versions_fee', sql`${t.platformFeeMicros} >= 0`),
     check(
       'plan_versions_included',
@@ -796,6 +802,37 @@ export const retentionRules = lifecycleSchema.table(
   ],
 );
 
+/** A pinned rule's sweep position. A transaction lock protects each bounded page and its deletions. */
+export const retentionCursors = lifecycleSchema.table(
+  'retention_cursors',
+  {
+    organizationId: tenantId(),
+    dataCategory: text().notNull(),
+    classification: text().notNull(),
+    ruleId: uuid().notNull(),
+    cutoffAt: timestamp({ withTimezone: true }).notNull(),
+    after: text(),
+    completed: boolean().notNull().default(false),
+    version: version(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    primaryKey({
+      name: 'retention_cursors_pk',
+      columns: [t.organizationId, t.dataCategory, t.classification],
+    }),
+    foreignKey({
+      name: 'retention_cursors_rule',
+      columns: [t.organizationId, t.ruleId],
+      foreignColumns: [retentionRules.organizationId, retentionRules.id],
+    }),
+    check(
+      'retention_cursors_classification',
+      sql`${t.classification} in ('public','internal','confidential','restricted')`,
+    ),
+  ],
+);
+
 export const retentionRuns = lifecycleSchema.table(
   'retention_runs',
   {
@@ -873,11 +910,14 @@ export const offboardings = lifecycleSchema.table(
     exportRef: text(),
     /** From the customer's contract. Until it is set and has passed, the database refuses erasure. */
     transitionEndsAt: when(),
+    transitionSetByRef: text(),
     connectionsRevokedAt: when(),
     workEndedAt: when(),
     actionsSettledAt: when(),
     erasureStartedAt: when(),
+    erasureStartedByRef: text(),
     erasureFinishedAt: when(),
+    erasureVerifiedByRef: text(),
     /** `ErasureReport` from @ensemus/saas/lifecycle: counts and codes, with no content. */
     report: jsonb(),
     reportedAt: when(),

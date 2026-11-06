@@ -45,6 +45,20 @@ export interface TaxPort {
 /** Which treatment applies to a place: the most specific approved row, region before country. */
 export function treatmentFor<
   T extends { countryCode: string; regionCode: string; version: number },
->(_approved: readonly T[], _place: { countryCode: string; regionCode: string }): T | null {
-  throw new Error('NOT_IMPLEMENTED');
+>(approved: readonly T[], place: { countryCode: string; regionCode: string }): T | null {
+  let best: T | null = null;
+  for (const row of approved) {
+    if (
+      row.countryCode !== place.countryCode ||
+      (row.regionCode !== '' && row.regionCode !== place.regionCode)
+    )
+      continue;
+    if (
+      !best ||
+      (row.regionCode !== '' && best.regionCode === '') ||
+      (row.regionCode === best.regionCode && row.version > best.version)
+    )
+      best = row;
+  }
+  return best;
 }

@@ -41,8 +41,11 @@ export type ServiceStatus = 'operational' | 'provider_degraded' | 'degraded' | '
  * What the status page says at the top, from published incidents only. An open `model_provider` incident
  * says `provider_degraded` and never `degraded`. It has no uptime percentage, since none is measured.
  */
-export function overallStatus(_open: readonly PublishedIncident[]): ServiceStatus {
-  throw new Error('NOT_IMPLEMENTED');
+export function overallStatus(open: readonly PublishedIncident[]): ServiceStatus {
+  const active = open.filter((incident) => incident.state !== 'resolved');
+  if (active.some((incident) => incident.origin === 'ensemus')) return 'degraded';
+  if (active.some((incident) => incident.origin === 'unknown')) return 'unknown';
+  return active.length ? 'provider_degraded' : 'operational';
 }
 
 export const VULNERABILITY_STATES = [

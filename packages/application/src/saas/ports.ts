@@ -55,9 +55,27 @@ export interface AgentHaltPort {
   releaseTenantAgents(tx: Tx, context: TenantContext, reasonCode: string): Promise<void>;
 }
 
+/** Owns one offboarding's halt only. Releasing it never clears budget, provider or operator stops. */
+export interface OffboardingAgentHaltPort {
+  haltOffboardingAgents(tx: Tx, context: TenantContext, offboardingId: string): Promise<void>;
+  releaseOffboardingAgents(tx: Tx, context: TenantContext, offboardingId: string): Promise<void>;
+}
+
 /** Whichever milestone owns a store of tenant data with its own purge. One per category, in a list. */
 export interface RetentionSource {
   readonly category: DataCategory;
+  /** Stable opaque keyset cursors, bound to this rule, tenant, classification and cutoff. No offsets. */
+  findExpiredPage?(
+    tx: Tx,
+    context: TenantContext,
+    input: {
+      before: Date;
+      classification: string;
+      ruleId: string;
+      limit: number;
+      after: string | null;
+    },
+  ): Promise<{ records: readonly { id: string; cursor: string }[]; more: boolean }>;
   /** IDs of records older than the cutoff, which are not already tombstoned, a bounded page at a time. */
   findExpired(
     tx: Tx,
@@ -72,6 +90,9 @@ export interface RetentionSource {
 export interface OffboardingPorts {
   exports: TenantExportPort;
   agents: AgentHaltPort;
+  offboardingAgents?: OffboardingAgentHaltPort;
+  /** Trusted M3 transaction capability. Missing with active connections refuses winding down. */
+  connections?: { revokeAllInTx(tx: Tx, context: TenantContext): Promise<void> };
   /** Other milestones' scheduled work, such as M7 automations. Each ends what it started. */
   windDowns: readonly ((tx: Tx, context: TenantContext) => Promise<void>)[];
 }

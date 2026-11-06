@@ -33,10 +33,22 @@ export type RetentionRuleFacts = {
  * null number, is null: keep it. Never computes a default.
  */
 export function retentionCutoff(
-  _rules: readonly RetentionRuleFacts[],
-  _category: DataCategory,
-  _classification: string,
-  _now: Date,
+  rules: readonly RetentionRuleFacts[],
+  category: DataCategory,
+  classification: string,
+  now: Date,
 ): Date | null {
-  throw new Error('NOT_IMPLEMENTED');
+  if (!Number.isFinite(now.getTime())) throw new RangeError('INVALID_RETENTION_CLOCK');
+  if (CATEGORIES_NOT_SWEPT.includes(category)) return null;
+  const rule =
+    rules.find(
+      (value) => value.dataCategory === category && value.classification === classification,
+    ) ?? rules.find((value) => value.dataCategory === category && value.classification === '*');
+  if (!rule || rule.retainDays === null) return null;
+  if (!Number.isSafeInteger(rule.retainDays) || rule.retainDays < 1)
+    throw new RangeError('INVALID_RETENTION_RULE');
+  const cutoff = new Date(now);
+  cutoff.setUTCDate(cutoff.getUTCDate() - rule.retainDays);
+  if (!Number.isFinite(cutoff.getTime())) throw new RangeError('INVALID_RETENTION_RULE');
+  return cutoff;
 }

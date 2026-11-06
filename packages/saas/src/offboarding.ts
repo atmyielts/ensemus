@@ -55,8 +55,27 @@ export type OffboardingFacts = {
 };
 
 /** What comes next. Pure, so a workflow's decisions can be tested without Temporal. */
-export function nextOffboardingStep(_facts: OffboardingFacts, _now: Date): OffboardingStep {
-  throw new Error('NOT_IMPLEMENTED');
+export function nextOffboardingStep(facts: OffboardingFacts, now: Date): OffboardingStep {
+  if (
+    !Number.isFinite(now.getTime()) ||
+    !Number.isSafeInteger(facts.activeHolds) ||
+    facts.activeHolds < 0 ||
+    !Number.isSafeInteger(facts.unsettledActions) ||
+    facts.unsettledActions < 0
+  )
+    throw new RangeError('INVALID_OFFBOARDING_FACTS');
+  if (facts.state === 'cancelled' || facts.state === 'reported') return { kind: 'done' };
+  if (facts.state === 'verified') return { kind: 'write_report' };
+  if (facts.state === 'erasing')
+    return facts.activeHolds ? { kind: 'blocked_by_hold' } : { kind: 'await_operator_erasure' };
+  if (facts.state === 'requested' || !facts.exportOfferedAt) return { kind: 'offer_export' };
+  if (!facts.transitionEndsAt || facts.transitionEndsAt > now)
+    return { kind: 'wait_for_transition', until: facts.transitionEndsAt };
+  if (!facts.connectionsRevokedAt) return { kind: 'revoke_connections' };
+  if (!facts.workEndedAt) return { kind: 'end_scheduled_work' };
+  if (!facts.actionsSettledAt || facts.unsettledActions) return { kind: 'settle_pending_actions' };
+  if (facts.activeHolds) return { kind: 'blocked_by_hold' };
+  return { kind: 'await_operator_erasure' };
 }
 
 export type ErasureOutcome = 'erased' | 'retained_by_rule' | 'left_over';

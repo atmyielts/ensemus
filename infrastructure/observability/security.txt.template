@@ -1,0 +1,5 @@
+# TEMPLATE ONLY: not served at /.well-known/security.txt.
+# Replace both placeholders with owner-approved values before publication and verify the contact works.
+Contact: <OWNER_APPROVED_SECURITY_CONTACT_URI>
+Expires: <OWNER_APPROVED_RFC3339_EXPIRY>
+# Safe harbor and disclosure terms require counsel; no legal protection is asserted by this template.

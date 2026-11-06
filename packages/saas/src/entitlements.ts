@@ -21,7 +21,7 @@ export const TENANT_LIFECYCLE_TRANSITIONS: Readonly<
   active: ['read_only', 'suspended', 'offboarding'],
   read_only: ['active', 'suspended', 'offboarding'],
   suspended: ['active', 'read_only', 'offboarding'],
-  offboarding: ['active', 'deleted'],
+  offboarding: ['active', 'read_only', 'suspended', 'deleted'],
   deleted: [],
 };
 
@@ -66,10 +66,48 @@ export type EntitlementDecision = {
  * M6's license check is what governs it. BYOM capacity is ALLOWED with CUSTOMER_BILLED, and never spends.
  */
 export function evaluateEntitlement(
-  _facts: EntitlementFacts,
-  _request: EntitlementRequest,
+  facts: EntitlementFacts,
+  request: EntitlementRequest,
 ): EntitlementDecision {
-  throw new Error('NOT_IMPLEMENTED');
+  const allow = (code: 'ALLOWED' | 'CUSTOMER_BILLED'): EntitlementDecision => ({
+    allowed: true,
+    code,
+    remedy: 'none',
+  });
+  if (facts.commercialMode === 'sovereign') return allow('ALLOWED');
+  if (!facts.billingEnabled)
+    return { allowed: false, code: 'BILLING_NOT_ENABLED', remedy: 'contact_operator' };
+  if (facts.lifecycle !== 'active')
+    return { allowed: false, code: 'TENANT_NOT_ACTIVE', remedy: 'contact_operator' };
+  if (facts.subscriptionStatus === 'canceled')
+    return { allowed: false, code: 'SUBSCRIPTION_CANCELED', remedy: 'upgrade' };
+  if (
+    !facts.plan ||
+    !facts.subscriptionStatus ||
+    facts.plan.commercialMode !== facts.commercialMode ||
+    facts.plan.status === 'draft'
+  ) {
+    return { allowed: false, code: 'NO_SUBSCRIPTION', remedy: 'upgrade' };
+  }
+  if (request.kind === 'feature') {
+    return facts.plan.features.includes(request.feature)
+      ? allow('ALLOWED')
+      : { allowed: false, code: 'FEATURE_NOT_LICENSED', remedy: 'upgrade' };
+  }
+  if (facts.commercialMode === 'byom') return allow('CUSTOMER_BILLED');
+  if (
+    facts.balanceMicrocredits === null ||
+    facts.balanceMicrocredits <= 0n ||
+    request.estimatedMicrocredits < 0n ||
+    facts.balanceMicrocredits < request.estimatedMicrocredits
+  ) {
+    return {
+      allowed: false,
+      code: 'CREDITS_EXHAUSTED',
+      remedy: facts.plan.overagePolicy === 'explicit_top_up' ? 'top_up' : 'upgrade',
+    };
+  }
+  return allow('ALLOWED');
 }
 
 export type TenantCounts = { activeMembers: number };
@@ -83,9 +121,24 @@ export type PlanChangeEffect = {
 
 /** What a plan change does. It removes nothing, ever (OPS-21). */
 export function planChangeEffect(
-  _from: PlanTerms,
-  _to: PlanTerms,
-  _counts: TenantCounts,
+  from: PlanTerms,
+  to: PlanTerms,
+  counts: TenantCounts,
 ): PlanChangeEffect {
-  throw new Error('NOT_IMPLEMENTED');
+  const losesFeature = from.features.some((feature) => !to.features.includes(feature));
+  const tighterMembers =
+    to.maxActiveMembers !== null &&
+    (from.maxActiveMembers === null || to.maxActiveMembers < from.maxActiveMembers);
+  const fewerCredits =
+    from.includedMicrocredits !== null &&
+    to.includedMicrocredits !== null &&
+    to.includedMicrocredits < from.includedMicrocredits;
+  const excess =
+    to.maxActiveMembers !== null && counts.activeMembers > to.maxActiveMembers
+      ? { activeMembers: counts.activeMembers - to.maxActiveMembers }
+      : {};
+  return {
+    effective: losesFeature || tighterMembers || fewerCredits ? 'period_end' : 'now',
+    excess,
+  };
 }

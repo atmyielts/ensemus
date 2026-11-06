@@ -69,10 +69,15 @@ export type ExhaustionDecision = {
  * and there is no number here. A negative balance always stops the next call and never bills anyone.
  */
 export function exhaustionDecision(
-  _balance: Microcredits,
-  _estimated: Microcredits,
-  _overagePolicy: 'pause' | 'explicit_top_up',
-  _warnBelow: Microcredits | null,
+  balance: Microcredits,
+  estimated: Microcredits,
+  overagePolicy: 'pause' | 'explicit_top_up',
+  warnBelow: Microcredits | null,
 ): ExhaustionDecision {
-  throw new Error('NOT_IMPLEMENTED');
+  const allowed = balance > 0n && estimated >= 0n && balance >= estimated;
+  return {
+    allowed,
+    action: allowed ? 'continue' : overagePolicy === 'explicit_top_up' ? 'request_top_up' : 'pause',
+    warn: warnBelow !== null && balance < warnBelow,
+  };
 }

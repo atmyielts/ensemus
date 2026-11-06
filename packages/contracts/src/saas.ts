@@ -9,6 +9,8 @@ const code = z.string().regex(/^[A-Z][A-Z0-9_]{0,63}$/);
 export const microsWireSchema = z.string().regex(/^-?(0|[1-9][0-9]{0,18})$/);
 
 export const countryCodeSchema = z.string().regex(/^[A-Z]{2}$/);
+/** Approved currency data, never inferred from a code or a floating point formatter. */
+export const minorUnitExponentSchema = z.int().min(0).max(4);
 
 export const saveBillingAccountSchema = z.strictObject({
   billing_name: shortText(200),

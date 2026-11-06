@@ -7,6 +7,7 @@ import {
   type RetentionSource,
   type TenantExportPort,
 } from '@ensemus/application/saas/ports';
+import { createRawFilesRetentionSource } from '@ensemus/application/saas/retention';
 
 /** The code a refusal carries, so an operator can tell what is missing from the log alone. */
 class PortNotWiredIn extends Error {
@@ -40,8 +41,7 @@ export function createSaasPorts(_store: unknown): {
   return {
     usage: usageNotWiredIn,
     agents: agentsNotWiredIn,
-    // The retention slice adds `raw_files` from createRawFilesRetentionSource, over `_store`.
-    retentionSources: [],
+    retentionSources: [createRawFilesRetentionSource(_store)],
     offboarding: { exports: exportsNotWiredIn, agents: agentsNotWiredIn, windDowns: [] },
   };
 }

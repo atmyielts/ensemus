@@ -64,18 +64,67 @@ export type BreakGlassDecision =
  * within the configured limit, and the time runs from the second signature. Off answers BREAK_GLASS_DISABLED.
  */
 export function signBreakGlass(
-  _facts: BreakGlassFacts,
-  _signature:
-    { side: 'operator'; operatorRef: string } | { side: 'customer'; membershipId: string },
-  _config: BreakGlassConfig,
-  _now: Date,
+  facts: BreakGlassFacts,
+  signature: { side: 'operator'; operatorRef: string } | { side: 'customer'; membershipId: string },
+  config: BreakGlassConfig,
+  now: Date,
 ): BreakGlassDecision {
-  throw new Error('NOT_IMPLEMENTED');
+  if (!config.enabled) return { ok: false, code: 'BREAK_GLASS_DISABLED' };
+  if (
+    !Number.isSafeInteger(config.maxMinutes) ||
+    config.maxMinutes < 1 ||
+    !Number.isSafeInteger(facts.requestedMinutes) ||
+    facts.requestedMinutes < 1 ||
+    facts.requestedMinutes > config.maxMinutes
+  )
+    return { ok: false, code: 'BREAK_GLASS_TOO_LONG' };
+  if (!Number.isFinite(now.getTime())) return { ok: false, code: 'BREAK_GLASS_EXPIRED' };
+  if (facts.state === 'expired' || (facts.expiresAt && facts.expiresAt <= now))
+    return { ok: false, code: 'BREAK_GLASS_EXPIRED' };
+  if (facts.state !== 'requested' || facts.authorizedFrom !== null || facts.expiresAt !== null)
+    return { ok: false, code: 'BREAK_GLASS_NOT_REQUESTED' };
+  const person = signature.side === 'operator' ? signature.operatorRef : signature.membershipId;
+  if (
+    !person ||
+    person !== person.trim() ||
+    person === facts.requestedBy ||
+    person ===
+      (signature.side === 'operator'
+        ? facts.customerAuthorizerMembershipId
+        : facts.operatorAuthorizer)
+  )
+    return { ok: false, code: 'BREAK_GLASS_SAME_PERSON' };
+  const existing =
+    signature.side === 'operator' ? facts.operatorAuthorizer : facts.customerAuthorizerMembershipId;
+  if (existing && existing !== person) return { ok: false, code: 'BREAK_GLASS_NOT_REQUESTED' };
+  const operator = signature.side === 'operator' ? person : facts.operatorAuthorizer,
+    customer = signature.side === 'customer' ? person : facts.customerAuthorizerMembershipId;
+  if (!operator || !customer) return { ok: true, state: 'requested', expiresAt: null };
+  const expiresAt = new Date(now.getTime() + facts.requestedMinutes * 60_000);
+  if (!Number.isFinite(expiresAt.getTime())) return { ok: false, code: 'BREAK_GLASS_TOO_LONG' };
+  return { ok: true, state: 'authorized', expiresAt };
 }
 
 /** Whether a grant holds right now. The clock decides, so an expiry cannot be missed by a late sweep. */
-export function breakGlassInForce(_facts: BreakGlassFacts, _now: Date): boolean {
-  throw new Error('NOT_IMPLEMENTED');
+export function breakGlassInForce(facts: BreakGlassFacts, now: Date): boolean {
+  return (
+    facts.state === 'authorized' &&
+    Boolean(
+      facts.operatorAuthorizer &&
+      facts.customerAuthorizerMembershipId &&
+      facts.operatorAuthorizer !== facts.requestedBy &&
+      facts.operatorAuthorizer !== facts.customerAuthorizerMembershipId &&
+      facts.customerAuthorizerMembershipId !== facts.requestedBy,
+    ) &&
+    Number.isSafeInteger(facts.requestedMinutes) &&
+    facts.requestedMinutes > 0 &&
+    facts.authorizedFrom !== null &&
+    facts.expiresAt !== null &&
+    Number.isFinite(now.getTime()) &&
+    facts.authorizedFrom <= now &&
+    facts.expiresAt > now &&
+    facts.expiresAt.getTime() - facts.authorizedFrom.getTime() <= facts.requestedMinutes * 60_000
+  );
 }
 
 /** A published schedule: which hours, in the schedule's own timezone. All of it is the owner's data. */
@@ -83,9 +132,51 @@ export type CoverageWindow = { day: number; from: string; to: string };
 
 /** Whether someone is rostered at `at`. No schedule published is false, and never a guess. */
 export function withinCoverage(
-  _windows: readonly CoverageWindow[] | null,
-  _timezone: string | null,
-  _at: Date,
+  windows: readonly CoverageWindow[] | null,
+  timezone: string | null,
+  at: Date,
 ): boolean {
-  throw new Error('NOT_IMPLEMENTED');
+  if (!windows?.length || !timezone || !Number.isFinite(at.getTime())) return false;
+  const minute = (value: string, end = false) => {
+    if (end && value === '24:00') return 1440;
+    if (!/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(value)) return null;
+    const [hour, minutes] = value.split(':').map(Number);
+    return hour! * 60 + minutes!;
+  };
+  if (
+    windows.some(
+      (window) =>
+        !Number.isInteger(window.day) ||
+        window.day < 0 ||
+        window.day > 6 ||
+        minute(window.from) === null ||
+        minute(window.to, true) === null,
+    )
+  )
+    return false;
+  try {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: timezone,
+      weekday: 'short',
+      hour: '2-digit',
+      minute: '2-digit',
+      hourCycle: 'h23',
+    }).formatToParts(at);
+    const day = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(
+        parts.find((part) => part.type === 'weekday')!.value,
+      ),
+      local =
+        Number(parts.find((part) => part.type === 'hour')!.value) * 60 +
+        Number(parts.find((part) => part.type === 'minute')!.value);
+    return windows.some((window) => {
+      const from = minute(window.from)!,
+        to = minute(window.to, true)!;
+      return from < to
+        ? window.day === day && local >= from && local < to
+        : from > to &&
+            ((window.day === day && local >= from) || ((window.day + 1) % 7 === day && local < to));
+    });
+  } catch {
+    return false;
+  }
 }

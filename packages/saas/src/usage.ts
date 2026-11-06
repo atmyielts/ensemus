@@ -12,11 +12,17 @@ export type UsageEntry = {
   costMicros: Micros | null;
   /** Estimated entries count, because a lost answer may have been billed (M4 FD-12). */
   status: 'estimated' | 'final' | 'correction';
+  /** The original M4 ledger entry, needed to preserve its period and credit correction link. */
+  correctsUsageId?: string | null;
   /** False for BYOM. Billing refuses to price an entry that is not billable (QA-027). */
   billable: boolean;
   occurredAt: Date;
 };
 
-export type UsagePage = { entries: readonly UsageEntry[]; nextCursor: string | null };
+export type UsagePage = {
+  entries: readonly UsageEntry[];
+  nextCursor: string | null;
+  more?: boolean;
+};
 
 export type UsageTotal = { meter: string; unit: string; quantity: bigint };

@@ -5,6 +5,7 @@ import {
   appendAudit,
   artifacts,
   blobLifecycle,
+  domainEvents,
   tombstones,
   withTenantTx,
   workArtifacts,
@@ -19,11 +20,15 @@ import {
   MAX_FILE_BYTES,
   type WorkState,
 } from '@ensemus/domain/work-unit';
-import { and, asc, eq, inArray, lte, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray, lte, ne, sql } from 'drizzle-orm';
 import { AppError } from './errors';
 import { emit } from './events';
 import { idFromRequest } from './request-id';
 import { closeOutdatedReviews, loadChangeable, loadReadable, type WorkRow } from './work';
+import {
+  assertArtifactRetentionInTx,
+  type ArtifactRetentionAuthority,
+} from './saas/retention-authority';
 
 /** Where bytes live. An S3 adapter implements this, and tests can check calls against it. */
 export interface ObjectStore {
@@ -214,70 +219,161 @@ export async function deleteArtifact(
   context: TenantContext,
   input: { workUnitId: string; artifactId: string },
 ) {
-  const key = await withTenantTx(database, context, async (tx) => {
+  const key = await withTenantTx(database, context, (tx) => deleteArtifactInTx(tx, context, input));
+  await purgeOne(database, store, context, { artifactId: input.artifactId, objectKey: key }).catch(
+    // Already recorded as still to do. Access is blocked, so nothing here is the person's problem.
+    () => undefined,
+  );
+}
+
+/** Keeps retention's per-record savepoint on the normal tombstone, ledger and review invalidation path. */
+export async function deleteArtifactInTx(
+  tx: Tx,
+  context: TenantContext,
+  input: { workUnitId: string; artifactId: string; retention?: ArtifactRetentionAuthority },
+): Promise<string> {
+  const work = await loadChangeable(tx, context, input.workUnitId);
+  if (input.retention)
+    await assertArtifactRetentionInTx(tx, context, input.artifactId, input.retention);
+  if (!canDeleteFile(work.status as WorkState) && !input.retention)
+    throw new AppError('INVALID_STATE');
+  const [found] = await tx
+    .select({ key: artifacts.objectKey })
+    .from(workArtifacts)
+    .innerJoin(artifacts, eq(artifacts.id, workArtifacts.artifactId))
+    .where(
+      and(
+        eq(workArtifacts.workUnitId, input.workUnitId),
+        eq(workArtifacts.artifactId, input.artifactId),
+      ),
+    );
+  if (!found) throw new AppError('NOT_FOUND');
+  await recordArtifactTombstoneInTx(
+    tx,
+    context,
+    {
+      artifactId: input.artifactId,
+      workUnitId: input.workUnitId,
+      ...(input.retention ? { retention: input.retention } : {}),
+    },
+    async () => {
+      await tx.delete(artifacts).where(eq(artifacts.id, input.artifactId));
+      await emit(tx, context, {
+        eventType: 'work.artifact_deleted',
+        aggregateType: 'work_unit',
+        aggregateId: input.workUnitId,
+        aggregateVersion: work.version,
+        classification: work.classification,
+        payload: { work_unit_id: input.workUnitId, artifact_id: input.artifactId },
+      });
+    },
+  );
+  await appendAudit(tx, {
+    organizationId: context.organizationId,
+    actorType: context.actorType === 'service' ? 'service' : 'user',
+    ...(context.actorType === 'service' ? {} : { actorId: context.membershipId }),
+    action: 'artifact.deleted',
+    targetRef: `artifact:${input.artifactId}`,
+    decision: 'allow',
+  });
+  await closeOutdatedReviews(tx, context, work);
+  return found.key;
+}
+
+/** Records the restore-safe deletion stage without erasing the row or touching object storage. */
+export async function recordArtifactTombstoneInTx(
+  tx: Tx,
+  context: TenantContext,
+  input: {
+    artifactId: string;
+    workUnitId?: string;
+    retention?: ArtifactRetentionAuthority;
+    offboardingId?: string;
+  },
+  beforeLedger?: () => Promise<void>,
+): Promise<{ added: boolean; objectKey: string }> {
+  let classification: string | undefined;
+  if (input.offboardingId) {
+    if (context.actorType !== 'service' || input.retention) throw new AppError('NOT_FOUND');
+    const receipt = await tx.execute(
+      sql`select exists(select 1 from lifecycle.offboardings o join org.organizations g on g.id=o.organization_id where o.organization_id=${context.organizationId}::uuid and o.id=${input.offboardingId}::uuid and o.state='erasing' and g.lifecycle='offboarding' and o.export_offered_at is not null and o.connections_revoked_at is not null and o.work_ended_at is not null and o.actions_settled_at is not null and o.transition_ends_at<=now() and not exists(select 1 from lifecycle.legal_holds h where h.organization_id=o.organization_id and h.status='active')) as allowed`,
+    );
+    if (receipt.rows[0]?.allowed !== true) throw new AppError('PREREQUISITES_INCOMPLETE');
+  } else {
+    if (!input.workUnitId) throw new AppError('INVALID_INPUT');
     const work = await loadChangeable(tx, context, input.workUnitId);
-    if (!canDeleteFile(work.status as WorkState)) throw new AppError('INVALID_STATE');
-    const [found] = await tx
-      .select({ key: artifacts.objectKey })
+    if (input.retention)
+      await assertArtifactRetentionInTx(tx, context, input.artifactId, input.retention);
+    else if (!canDeleteFile(work.status as WorkState)) throw new AppError('INVALID_STATE');
+    const [link] = await tx
+      .select({ id: workArtifacts.artifactId })
       .from(workArtifacts)
-      .innerJoin(artifacts, eq(artifacts.id, workArtifacts.artifactId))
       .where(
         and(
           eq(workArtifacts.workUnitId, input.workUnitId),
           eq(workArtifacts.artifactId, input.artifactId),
         ),
       );
-    if (!found) throw new AppError('NOT_FOUND');
-    await tx
-      .insert(tombstones)
-      .values({
-        organizationId: context.organizationId,
-        targetType: 'artifact',
-        targetId: input.artifactId,
-        reasonCode: 'USER_DELETED',
-      })
-      .onConflictDoNothing();
-    await tx.insert(blobLifecycle).values({
+    if (!link) throw new AppError('NOT_FOUND');
+    classification = work.classification;
+  }
+  const [artifact] = await tx
+    .select()
+    .from(artifacts)
+    .where(eq(artifacts.id, input.artifactId))
+    .for('update');
+  if (!artifact) throw new AppError('NOT_FOUND');
+  classification ??= artifact.classification;
+  const marked = await tx
+    .insert(tombstones)
+    .values({
       organizationId: context.organizationId,
-      artifactId: input.artifactId,
-      objectKey: found.key,
+      targetType: 'artifact',
+      targetId: input.artifactId,
+      reasonCode: input.offboardingId
+        ? 'TENANT_ERASURE'
+        : input.retention
+          ? 'RETENTION_EXPIRED'
+          : 'USER_DELETED',
+    })
+    .onConflictDoNothing()
+    .returning({ id: tombstones.targetId });
+  await tx
+    .insert(blobLifecycle)
+    .values({
+      organizationId: context.organizationId,
+      artifactId: artifact.id,
+      objectKey: artifact.objectKey,
       state: 'deleting',
       purgeAfter: new Date(),
+    })
+    .onConflictDoUpdate({
+      target: [blobLifecycle.organizationId, blobLifecycle.artifactId],
+      set: { state: 'deleting', purgeAfter: new Date() },
+      setWhere: ne(blobLifecycle.state, 'purged'),
     });
-    await tx.delete(artifacts).where(eq(artifacts.id, input.artifactId));
-    await emit(tx, context, {
-      eventType: 'work.artifact_deleted',
-      aggregateType: 'work_unit',
-      aggregateId: input.workUnitId,
-      aggregateVersion: work.version,
-      classification: work.classification,
-      payload: { work_unit_id: input.workUnitId, artifact_id: input.artifactId },
-    });
-    // Carries the tombstone to the ledger outside this database, so a restore cannot lose it
-    // (ADR-026). The artifact is the aggregate, so the dispatcher can see its ID in the metadata.
+  if (beforeLedger) await beforeLedger();
+  const [event] = await tx
+    .select({ id: domainEvents.id })
+    .from(domainEvents)
+    .where(
+      and(
+        eq(domainEvents.eventType, TOMBSTONE_RECORDED),
+        eq(domainEvents.aggregateType, 'artifact'),
+        eq(domainEvents.aggregateId, artifact.id),
+      ),
+    )
+    .limit(1);
+  if (!event)
     await emit(tx, context, {
       eventType: TOMBSTONE_RECORDED,
       aggregateType: 'artifact',
-      aggregateId: input.artifactId,
+      aggregateId: artifact.id,
       aggregateVersion: 1,
-      classification: work.classification,
-      payload: { artifact_id: input.artifactId },
+      classification,
+      payload: { artifact_id: artifact.id },
     });
-    await appendAudit(tx, {
-      organizationId: context.organizationId,
-      actorType: 'user',
-      actorId: context.membershipId,
-      action: 'artifact.deleted',
-      targetRef: `artifact:${input.artifactId}`,
-      decision: 'allow',
-    });
-    await closeOutdatedReviews(tx, context, work);
-    return found.key;
-  });
-  await purgeOne(database, store, context, { artifactId: input.artifactId, objectKey: key }).catch(
-    // Already recorded as still to do. Access is blocked, so nothing here is the person's problem.
-    () => undefined,
-  );
+  return { added: marked.length > 0, objectKey: artifact.objectKey };
 }
 
 /** Removes one object and confirms it has gone (LIFE-01, steps 5 and 7). */

@@ -41,11 +41,34 @@ export type Priced =
  * was in force, since old usage keeps the price it had.
  */
 export function priceUsage(
-  _card: RateCardFacts | null,
-  _usage: readonly { meter: string; unit: string; quantity: bigint }[],
-  _at: Date,
+  card: RateCardFacts | null,
+  usage: readonly { meter: string; unit: string; quantity: bigint }[],
+  at: Date,
 ): Priced {
-  throw new Error('NOT_IMPLEMENTED');
+  if (!card) return { ok: false, code: 'RATE_CARD_MISSING' };
+  if (card.status !== 'approved' && card.status !== 'retired') {
+    return { ok: false, code: 'RATE_CARD_NOT_APPROVED' };
+  }
+  if (
+    !card.effectiveFrom ||
+    !Number.isFinite(card.effectiveFrom.getTime()) ||
+    !Number.isFinite(at.getTime()) ||
+    card.effectiveFrom > at
+  ) {
+    return { ok: false, code: 'RATE_CARD_NOT_EFFECTIVE' };
+  }
+  const meters: PricedMeter[] = [];
+  for (const used of usage) {
+    const line = card.lines.find((candidate) => candidate.meter === used.meter);
+    if (!line) return { ok: false, code: 'METER_NOT_PRICED' };
+    if (line.unit !== used.unit) return { ok: false, code: 'UNIT_MISMATCH' };
+    meters.push({
+      ...used,
+      microcreditsPerUnit: line.microcreditsPerUnit,
+      microcredits: used.quantity * line.microcreditsPerUnit,
+    });
+  }
+  return { ok: true, meters };
 }
 
 export type PlanTerms = {
@@ -55,6 +78,7 @@ export type PlanTerms = {
   currency: string;
   billingInterval: 'month' | 'year';
   paymentTermsDays: number;
+  minorUnitExponent: number | null;
   platformFeeMicros: bigint;
   includedMicrocredits: Microcredits | null;
   rateCardId: string | null;
@@ -64,11 +88,25 @@ export type PlanTerms = {
 };
 
 /** Plan versions a tenant in this mode may start on: approved, and for its own commercial mode. */
-export function canStartOn(_plan: PlanTerms, _mode: string): boolean {
-  throw new Error('NOT_IMPLEMENTED');
+export function canStartOn(plan: PlanTerms, mode: string): boolean {
+  return (
+    plan.status === 'approved' && plan.commercialMode === mode && plan.minorUnitExponent !== null
+  );
 }
 
 /** The end of a period that starts at `start`, by calendar and in UTC, with no month ever skipped. */
-export function periodEnd(_start: Date, _interval: 'month' | 'year'): Date {
-  throw new Error('NOT_IMPLEMENTED');
+export function periodEnd(start: Date, interval: 'month' | 'year'): Date {
+  if (!Number.isFinite(start.getTime()) || (interval !== 'month' && interval !== 'year')) {
+    throw new RangeError('INVALID_PERIOD');
+  }
+  const end = new Date(start);
+  // Moving the first day cannot spill a short destination month into the month after it.
+  end.setUTCDate(1);
+  if (interval === 'month') end.setUTCMonth(end.getUTCMonth() + 1);
+  else end.setUTCFullYear(end.getUTCFullYear() + 1);
+  const lastDay = new Date(end);
+  lastDay.setUTCMonth(lastDay.getUTCMonth() + 1, 0);
+  end.setUTCDate(Math.min(start.getUTCDate(), lastDay.getUTCDate()));
+  if (!Number.isFinite(end.getTime())) throw new RangeError('INVALID_PERIOD');
+  return end;
 }

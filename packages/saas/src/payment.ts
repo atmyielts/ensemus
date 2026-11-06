@@ -177,8 +177,19 @@ export type PaymentCheckFacts = {
 export type PaymentCheck = { ok: true } | { ok: false; code: PaymentCode };
 
 /** Everything checked under the payment's lock, just before an attempt. Pure, and refuses by default. */
-export function checkBeforeCharge(_facts: PaymentCheckFacts): PaymentCheck {
-  throw new Error('NOT_IMPLEMENTED');
+export function checkBeforeCharge(facts: PaymentCheckFacts): PaymentCheck {
+  if (!['active', 'read_only', 'suspended', 'offboarding'].includes(facts.lifecycle))
+    return { ok: false, code: 'TENANT_NOT_BILLABLE' };
+  if (
+    facts.status !== 'ready' ||
+    facts.invoiceStatus !== 'open' ||
+    facts.amountMicros <= 0n ||
+    facts.amountMicros !== facts.invoiceTotalMicros
+  )
+    return { ok: false, code: 'INVOICE_NOT_OPEN' };
+  if (!facts.processorConfigured) return { ok: false, code: 'PROCESSOR_NOT_CONFIGURED' };
+  if (!facts.customerRef) return { ok: false, code: 'CUSTOMER_NOT_FOUND' };
+  return { ok: true };
 }
 
 export type PaymentAttemptDecision =
@@ -188,11 +199,27 @@ export type PaymentAttemptDecision =
   | { status: 'reconciling'; code: PaymentCode };
 
 /** Where a result leads. Retrying `not_sent` waits on a durable timer, up to MAX_PAYMENT_ATTEMPTS. */
-export function decideAfterCharge(
-  _result: ChargeResult,
-  _attemptNo: number,
-): PaymentAttemptDecision {
-  throw new Error('NOT_IMPLEMENTED');
+export function decideAfterCharge(result: ChargeResult, attemptNo: number): PaymentAttemptDecision {
+  if (!Number.isSafeInteger(attemptNo) || attemptNo < 1 || attemptNo > MAX_PAYMENT_ATTEMPTS)
+    throw new RangeError('INVALID_ATTEMPT');
+  switch (result.outcome) {
+    case 'succeeded':
+      return { status: 'succeeded', code: result.code };
+    case 'declined':
+      return { status: 'failed', code: result.code };
+    case 'indeterminate':
+      return { status: 'reconciling', code: result.code };
+    case 'not_sent':
+      if (!result.retryable) return { status: 'failed', code: result.code };
+      if (attemptNo >= MAX_PAYMENT_ATTEMPTS)
+        return { status: 'failed', code: 'ATTEMPTS_EXHAUSTED' };
+      // Operational retry pacing follows ADR-027's effect boundary, not a commercial term.
+      return {
+        status: 'ready',
+        afterMs: Math.min(30_000 * 2 ** (attemptNo - 1), 5 * 60_000),
+        code: result.code,
+      };
+  }
 }
 
 export type PaymentLookupDecision =
@@ -202,10 +229,22 @@ export type PaymentLookupDecision =
 
 /** `not_found` is `ready` only from a lookup declared `authoritative`. Anything else stays unknown. */
 export function decideAfterLookup(
-  _result: PaymentLookupResult,
-  _lookup: ProcessorManifest['lookup'],
+  result: PaymentLookupResult,
+  lookup: ProcessorManifest['lookup'],
 ): PaymentLookupDecision {
-  throw new Error('NOT_IMPLEMENTED');
+  switch (result.found) {
+    case 'succeeded':
+      return { status: 'succeeded', code: 'FOUND_BY_LOOKUP' };
+    case 'declined':
+      return { status: 'failed', code: 'REFUSED_BY_LOOKUP' };
+    case 'not_found':
+      return {
+        status: lookup === 'authoritative' ? 'ready' : 'unknown',
+        code: 'NOT_FOUND_BY_LOOKUP',
+      };
+    case 'cannot_answer':
+      return { status: 'unknown', code: 'CANNOT_ANSWER' };
+  }
 }
 
 // --- The published rules for failed payments (ADR-032 D5). Numbers are the operator's data.
@@ -224,10 +263,33 @@ export type CollectionDecision =
  * there is nothing to do, and the case waits for a person. Nothing here deletes anything, ever.
  */
 export function nextCollectionStep(
-  _steps: readonly CollectionStep[],
-  _dueAt: Date,
-  _stepNo: number,
-  _now: Date,
+  steps: readonly CollectionStep[],
+  dueAt: Date,
+  stepNo: number,
+  now: Date,
 ): CollectionDecision {
-  throw new Error('NOT_IMPLEMENTED');
+  if (
+    !Number.isSafeInteger(stepNo) ||
+    stepNo < 0 ||
+    !Number.isFinite(dueAt.getTime()) ||
+    !Number.isFinite(now.getTime()) ||
+    steps.some((s) => !Number.isSafeInteger(s.afterDays) || s.afterDays < 0)
+  )
+    throw new RangeError('INVALID_COLLECTION_STEP');
+  const step = steps[stepNo];
+  if (!step) return { kind: 'done' };
+  const dateFor = (days: number) => {
+    const at = new Date(dueAt);
+    at.setUTCDate(at.getUTCDate() + days);
+    return at;
+  };
+  const at = dateFor(step.afterDays);
+  if (now < at) return { kind: 'wait', until: at };
+  const next = steps[stepNo + 1];
+  return {
+    kind: 'act',
+    stepNo: stepNo + 1,
+    action: step.action,
+    next: next ? dateFor(next.afterDays) : null,
+  };
 }

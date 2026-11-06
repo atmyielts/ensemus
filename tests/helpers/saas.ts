@@ -115,8 +115,16 @@ export async function seedPlan(
         rateCard: SeededRateCard;
         overagePolicy?: 'pause' | 'explicit_top_up';
         approve?: boolean;
+        features?: string[];
+        maxActiveMembers?: number | null;
       }
-    | { mode: 'byom'; currency?: string; approve?: boolean },
+    | {
+        mode: 'byom';
+        currency?: string;
+        approve?: boolean;
+        features?: string[];
+        maxActiveMembers?: number | null;
+      },
 ): Promise<SeededPlan> {
   const platformFeeMicros = testAmount();
   const includedMicrocredits = options.mode === 'cloud' ? testAmount() : null;
@@ -130,8 +138,8 @@ export async function seedPlan(
     const version = await client.query<{ id: string }>(
       `insert into billing.plan_versions
          (plan_id, version, currency, billing_interval, payment_terms_days, platform_fee_micros,
-          included_microcredits, rate_card_id, overage_policy, features, drafted_by)
-       values ($1, 1, $2, 'month', 0, $3, $4, $5, $6, $7, $8) returning id`,
+          included_microcredits, rate_card_id, overage_policy, features, drafted_by, minor_unit_exponent, max_active_members)
+       values ($1, 1, $2, 'month', 0, $3, $4, $5, $6, $7, $8, $9, $10) returning id`,
       [
         planId,
         options.mode === 'cloud' ? options.rateCard.currency : (options.currency ?? 'XTS'),
@@ -139,8 +147,10 @@ export async function seedPlan(
         includedMicrocredits?.toString() ?? null,
         options.mode === 'cloud' ? options.rateCard.rateCardId : null,
         options.mode === 'cloud' ? (options.overagePolicy ?? 'explicit_top_up') : null,
-        ['work'],
+        options.features ?? ['work'],
         TEST_OPERATOR,
+        options.mode === 'cloud' ? options.rateCard.minorUnitExponent : 2,
+        options.maxActiveMembers ?? null,
       ],
     );
     const planVersionId = version.rows[0]!.id;
