@@ -1,0 +1,59 @@
+{
+  "matches": [
+    {
+      "vulnerability": {
+        "id": "CVE-0000-0001",
+        "severity": "Critical",
+        "fix": { "versions": [], "state": "not-fixed" }
+      },
+      "artifact": { "name": "pkg-critical-nofix", "version": "1.0.0", "type": "deb" }
+    },
+    {
+      "vulnerability": {
+        "id": "CVE-0000-0002",
+        "severity": "High",
+        "fix": { "versions": ["2.0.1", "3.0.1"], "state": "fixed" }
+      },
+      "artifact": { "name": "pkg-high-fixed", "version": "2.0.0", "type": "npm" }
+    },
+    {
+      "vulnerability": {
+        "id": "CVE-0000-0003",
+        "severity": "High",
+        "fix": { "versions": [], "state": "not-fixed" }
+      },
+      "artifact": { "name": "pkg-high-nofix", "version": "3.0.0", "type": "deb" }
+    },
+    {
+      "vulnerability": {
+        "id": "CVE-0000-0004",
+        "severity": "Medium",
+        "fix": { "versions": ["4.0.1"], "state": "fixed" }
+      },
+      "artifact": { "name": "pkg-medium", "version": "4.0.0", "type": "npm" }
+    },
+    {
+      "vulnerability": {
+        "id": "CVE-0000-0005",
+        "severity": "High",
+        "fix": { "versions": ["5.0.1"], "state": "fixed" }
+      },
+      "artifact": { "name": "pkg-shared-a", "version": "5.0.0", "type": "npm" }
+    },
+    {
+      "vulnerability": {
+        "id": "CVE-0000-0005",
+        "severity": "High",
+        "fix": { "versions": ["6.0.1"], "state": "fixed" }
+      },
+      "artifact": { "name": "pkg-shared-b", "version": "6.0.0", "type": "npm" }
+    }
+  ],
+  "source": { "type": "sbom", "target": "sbom-web.spdx.json" },
+  "distro": { "name": "debian", "version": "12", "idLike": ["debian"] },
+  "descriptor": {
+    "name": "grype",
+    "version": "0.0.0-fixture",
+    "timestamp": "2026-11-06T00:00:00Z"
+  }
+}
