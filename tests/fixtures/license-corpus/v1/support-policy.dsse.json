@@ -1,0 +1,10 @@
+{
+  "payloadType": "application/vnd.ensemus.support-policy+json",
+  "payload": "eyJmb3JtYXQiOiJlbnNlbXVzLnN1cHBvcnRfcG9saWN5IiwiZm9ybWF0X3ZlcnNpb24iOjEsInBvbGljeV9pZCI6ImUxNWMzYTk3LTQwZDItNGI4Zi1iNmE5LTcxZjJkOGMwNWU0NiIsImlzc3VlZF9hdCI6IjIwMjYtMTEtMDZUMDA6MDA6MDAuMDAwWiIsImJyYW5jaGVzIjpbeyJsaW5lIjoiMi4wIiwic3RhdHVzIjoic3VwcG9ydGVkIn1dLCJzZWN1cml0eV9wYXRjaGVzX2FmdGVyX2xhcHNlX2dyYW50Ijoibm9uZSJ9",
+  "signatures": [
+    {
+      "keyid": "corpus-v1-support-policy",
+      "sig": "Pbk80XAaJMzOENgFVNtWskuQj3MbFchOyKvElV7+cmV8rtTj1F7UlZjeeDm/u2/7nrxvrFCIMHFoomFtV0wkBQ=="
+    }
+  ]
+}
