@@ -99,11 +99,11 @@ export async function proveSecondFactor(
 }
 
 export const testTools: readonly ToolFacts[] = [
-  { id: 'work.read', version: '1', effect: 'read_only', requiresApproval: false },
-  { id: 'artifact.read_text', version: '1', effect: 'read_only', requiresApproval: false },
-  { id: 'artifact.draft.create', version: '1', effect: 'draft_only', requiresApproval: false },
-  { id: 'email.send', version: '1', effect: 'external_write', requiresApproval: true },
-  { id: 'agent.delegate', version: '1', effect: 'delegate', requiresApproval: false },
+  { id: 'work.read', version: '1', class: 'read_only', requiresApproval: false },
+  { id: 'artifact.read_text', version: '1', class: 'read_only', requiresApproval: false },
+  { id: 'artifact.draft.create', version: '1', class: 'draft_only', requiresApproval: false },
+  { id: 'email.send', version: '1', class: 'external_write', requiresApproval: true },
+  { id: 'agent.delegate', version: '1', class: 'delegation', requiresApproval: false },
 ];
 
 export function testAnswers(
@@ -120,6 +120,8 @@ export function testAnswers(
     maxCostMicros: 1_000_000,
     maxTurns: 10,
     maxToolCalls: 10,
+    maxTotalTokens: 100_000,
+    qualityTier: 'balanced',
     timeoutSeconds: 180,
     autonomy: 'draft_for_review',
     memoryWrite: 'none',
@@ -146,14 +148,20 @@ export function fakePorts(overrides: Partial<ProductPorts> = {}): ProductPorts &
     toolCatalog: { list: async () => testTools },
     agentRegistry: {
       ...base.agentRegistry,
-      orgLimits: async () => ({ maxTurns: 50, maxToolCalls: 50, timeoutSeconds: 3600 }),
-      publish: async (_tx, _context, input) => {
+      orgLimits: async () => ({
+        maxTurns: 50,
+        maxToolCalls: 50,
+        timeoutSeconds: 3600,
+        policyVersion: 'test-policy',
+      }),
+      list: async () => [],
+      publish: async (_context, input) => {
         published.push(input);
         return {
-          definitionId: input.definitionId ?? randomUUID(),
+          definitionId: randomUUID(),
           versionId: randomUUID(),
           versionNumber: published.length,
-          specSha256: input.specSha256,
+          specSha256: input.evaluationReport.spec_sha256,
         };
       },
     },

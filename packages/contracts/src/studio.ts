@@ -23,6 +23,8 @@ export const agentDraftAnswersSchema = z.strictObject({
   maxCostMicros: z.number().int().positive().max(1_000_000_000_000).nullable(),
   maxTurns: z.number().int().min(1).max(1000),
   maxToolCalls: z.number().int().min(0).max(1000),
+  maxTotalTokens: z.number().int().min(1).max(100_000_000),
+  qualityTier: z.enum(['economy', 'balanced', 'high']),
   timeoutSeconds: z.number().int().min(1).max(86_400),
   autonomy: z.enum(['suggest_only', 'draft_for_review', 'act_with_approval']),
   memoryWrite: z.enum(['none', 'propose_only']),

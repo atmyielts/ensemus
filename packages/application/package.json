@@ -13,7 +13,6 @@
     "./outcomes": "./src/product/outcomes.ts",
     "./onboarding": "./src/product/onboarding.ts",
     "./assistants": "./src/product/assistants.ts",
-    "./knowledge-view": "./src/product/knowledge-view.ts",
     "./agent-drafts": "./src/product/agent-drafts.ts",
     "./simulations": "./src/product/simulations.ts",
     "./publish-reviews": "./src/product/publish-reviews.ts",

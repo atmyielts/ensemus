@@ -86,6 +86,7 @@ export type AdvanceResult =
  * active, the root is not stopped, and the spec's hash is what was stored. Repeating it changes nothing:
  * every effect is keyed on (run, step), and an effect always goes through the normal service, so an external
  * action still needs its own approval, and an agent task acts as the starter (M4 FD-3), never as a service.
+ * Port calls commit in M4's own transaction, so they happen after this one, keyed on the step's Work Unit.
  */
 export async function advanceProcessRun(
   _database: AppDatabase,

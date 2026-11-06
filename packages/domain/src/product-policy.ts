@@ -81,7 +81,8 @@ export type MfaFacts = {
   verifiedAt: Date | null;
   maxAgeSeconds: number;
   mfaForAdministration: boolean;
-  actorType: 'user' | 'service';
+  /** M4 adds `agent`. Anything but a person is refused, so a new kind cannot slip through. */
+  actorType: string;
 };
 
 export type MfaDecision = 'allow' | 'require_mfa' | 'deny_service';

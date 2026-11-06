@@ -209,15 +209,15 @@ getOnboarding, decideOnboardingStep, startFirstSimulation
 
 **Denied and fault tests:** a member cannot read or change onboarding. Nothing runs before authorization: no event, no run, no Work Unit (row counts, T2). A changed preview is `OUTCOME_CHANGED`. An authorized draft cannot change (trigger). Another tenant's draft and another person's are not found. A due date that does not exist. An injection string in an objective stays text. Provider unavailable: onboarding still finishes, and core work works. The simulation produces no outbox event but `simulation.requested`, and no connector row.
 
-### surfaces: `UX-19`, Knowledge UI
+### assistants: `UX-19`
 
-The Assistants area and the Knowledge page. Acceptance: delegated runs and outcomes are visible in plain language, and the user can stop them. `QA-047`. Knowledge: UX-18's page, on M5's port (ADR-031 D2).
+The Assistants area. Acceptance: delegated runs and outcomes are visible in plain language, and the user can stop them. `QA-047`. **Knowledge UI is not here:** M5's `ui` slice owns `/o/{org}/knowledge/**` (ADR-031 D2), and M7 only links to it.
 
 **Owns:**
 
-- `packages/application/src/product/assistants.ts`, `knowledge-view.ts`
-- new `apps/web/src/app/o/[organizationId]/assistants/**`, `knowledge/**`, `apps/web/src/server/assistant-actions.ts`, `apps/web/src/components/assistants/**`, `knowledge/**`
-- new `tests/unit/assistants-wording.test.ts`, `tests/integration/assistants.test.ts`, `tests/browser/specs/assistants.spec.ts`, `knowledge.spec.ts`
+- `packages/application/src/product/assistants.ts`
+- new `apps/web/src/app/o/[organizationId]/assistants/**`, `apps/web/src/server/assistant-actions.ts`, `apps/web/src/components/assistants/**`
+- new `tests/unit/assistants-wording.test.ts`, `tests/integration/assistants.test.ts`, `tests/browser/specs/assistants.spec.ts`
 
 **Implements:**
 
@@ -227,19 +227,16 @@ listMyDelegatedRuns(context, ports, input?): Promise<AssistantsView>
 getDelegatedRun(context, ports, runId): Promise<DelegatedRun>
 stopDelegatedRun(context, ports, runId): Promise<void>
 describeRunStatus(run): string
-// @ensemus/application/knowledge-view
-readKnowledgePage(context, ports, input): Promise<KnowledgePage>
 ```
 
-**Calls:** `webProductPorts()` from `@/server/product-ports`, `AgentRunsPort`, `KnowledgeReadPort`.
+**Calls:** `webProductPorts()` from `@/server/product-ports`, `AgentRunsPort`.
 
 **Things to get right:**
 
-- **Everything is on the far side of a port,** so all rules live in M4 and M5. Add no filtering and no widening. Until the merge the real ports are unavailable, and both pages say so plainly in a dedicated state: not empty, and not an error.
-- `describeRunStatus` is a fixed sentence per status and stop code from the M4 plan's FD-7 list: `queued, preparing, running, paused, waiting_for_approval, waiting_for_child, verifying, completed, failed, cancelled, budget_exhausted, policy_denied, timed_out, outcome_unverified`, with a generic honest sentence for anything unknown. **No model text and no chain of thought, ever.** Show `label_code`s through your own wording map.
+- **Everything is on the far side of a port,** so all rules live in M4. Add no filtering and no widening. Until the merge the real port is unavailable, and the page says so plainly in a dedicated state: not empty, and not an error.
+- `describeRunStatus` is a fixed sentence per status and stop code, for every value of `AGENT_RUN_STATUSES` and `STOP_CODES` in `git show m4-foundation:packages/domain/src/ai.ts` (`queued, preparing, running, paused, waiting_for_approval, waiting_for_child, verifying, completed, failed, cancelled, budget_exhausted, policy_denied, timed_out, outcome_unverified`), with a generic honest sentence for anything unknown. Do not import M4's module, since it is not on this branch. **No model text and no chain of thought, ever.** Show `STEP_LABEL_CODES` through your own wording map.
 - Stop is a confirm form with no JavaScript. After it, the page reads the run again: **it never says stopped until the run says so.**
-- Cost is shown only if present, and labelled an estimate if `costIsEstimate`.
-- Knowledge: sources with freshness and access state, a search box, and hits with citation and a path to the original. Never a sentence composing an answer here: cited answers are M5's. Query text is never logged, and it is not put into a URL that would reach logs: use POST through a Server Action and a `no-store` page, or say why not.
+- Cost is shown only if present, and labelled an estimate if `costIsEstimate`. "My assistant" and "team assistants" (`docs/01-product/03-experience-design.md`) are headings only if real data backs them: do not invent a personal assistant that does not exist.
 
 **Denied and fault tests (T2, with `fakePorts`):** a port that throws `NOT_FOUND` for another person's run gives a 404. `CAPABILITY_UNAVAILABLE` gets the unavailable state, and never an empty list. Stop fails: the page says it did not stop. All statuses and stop codes get a sentence (T0). A canary string in a fake's step never renders.
 
@@ -314,14 +311,14 @@ requestPublishReview, listPublishReviews, getPublishReview, decidePublishReview,
 **Things to get right:**
 
 - **The wizard's steps are the "User model" in `docs/03-intelligence/03-agent-studio-and-skills.md`:** role, outcome, boundaries, knowledge, tools, trigger, spending cap, autonomy, output format, owner. Plain words, with each sensitive tool showing its risk and what approval it needs. Users cannot disable organization policy by choosing a mode, and no mode reads as "autonomous". Multi-step works with no JavaScript, one Server Action a step, saved as a draft.
-- **Spec shape:** `docs/specifications/schemas/agent-definition.schema.json` as the M4 plan amends it (section 1.4). `git show m4-foundation:docs/specifications/schemas/agent-definition.schema.json` if that branch has commits by then, and use its real shape. `assessDraft` keeps the answers' free text in `instructions` and nothing else.
+- **Spec shape:** M4's `AgentSpecV1`. Read `git show m4-foundation:packages/contracts/src/ai.ts` (`agentSpecV1Schema`, `evaluationReportSchema`), and match it field by field, including `max_cost_usd` as decimal text from `maxCostMicros`, `skills` left out, and `model.required_capabilities`. It is not on this branch, so do not import it: copy the shape into a test beside `assessDraft`, and the merge swaps that test for the real schema. `assessDraft` keeps the answers' free text in `instructions` and `objective`, and nothing else. `id` is a slug of the draft's name, and `version` comes from the registry's next number.
 - `assessDraft` refuses, never repairs: unknown tool, any `secrets.*`, restricted data, an external write without `act_with_approval`, a limit above org policy, no budget. **`riskLevel` is `elevated` for any external write, delegate tool or confidential data.** A draft with issues saves, with no hash.
 - `simulateAgent` imports nothing and has no I/O. Each proposal goes through the same rules the spec states. A scenario that proposes an ungranted tool gets `denied`, and is a failure only if the scenario expected otherwise. Ship at least a `standard` and a `prompt_injection` scenario per tool kind, synthetic. The report says on its face that the model was not called.
 - `runSimulationStep` claims `queued` to `running`, computes and stores. Re-running a finished one answers `already_finished`.
-- `publishApproved` under `FOR UPDATE` on the draft: hash equal or `SIMULATION_STALE`, review `approved` or `REVIEW_NOT_APPROVED`, recent MFA, then the registry, review, draft, audit and event, in one transaction. A second call changes nothing. Any change to a draft cancels its pending review.
+- `publishApproved`: first transaction under `FOR UPDATE` on the draft: hash equal or `SIMULATION_STALE`, review `approved` or `REVIEW_NOT_APPROVED`, recent MFA. Then, with no transaction held, an agent subject: `registry.list` finds a version with this hash or `registry.publish` makes one, with an `evaluationReport` from the simulation (`scripted_model: true`, `model_label: 'none'`, `suite_ref: 'studio-simulation'`, and `policy_version` from `orgLimits`). A process subject uses `publishProcessSpecInTx` in the first transaction. Then review, draft, audit and event in one transaction. A second call changes nothing. Any change to a draft cancels its pending review.
 - Page: version history and diff against the published spec through `AgentRegistryPort.list`, a source and permission preview, and a clear statement of what a simulation does not prove. `CAPABILITY_UNAVAILABLE` from the registry leaves the draft as a draft and says publishing needs M4.
 
-**Denied and fault tests:** publish with no simulation, a failed one, one for another hash, or another subject. Edit after simulate, after approval, and between approval and publish. Self-review of elevated, refused by the service and the trigger. A member cannot author. Another tenant's draft, simulation and review. No MFA, old MFA at decide and at publish. Registry failure rolls back the review. Simulation with `email.send` records `would_write_outside`, and no connector, model or outbox event but `simulation.requested` (`QA-034`). Double publish. A report holds no free text from the answers: canary test.
+**Denied and fault tests:** publish with no simulation, a failed one, one for another hash, or another subject. Edit after simulate, after approval, and between approval and publish. Self-review of elevated, refused by the service and the trigger. A member cannot author. Another tenant's draft, simulation and review. No MFA, old MFA at decide and at publish. Registry failure leaves the review `approved`, with nothing published, and a retry works. A crash after M4 committed: the retry finds the version by hash, and publishes no second one. Simulation with `email.send` records `would_write_outside`, and no connector, model or outbox event but `simulation.requested` (`QA-034`). Double publish. A report holds no free text from the answers: canary test.
 
 ### graph: `AGENT-09`
 
@@ -384,12 +381,12 @@ advanceProcessRun, finishProcessRun
 BUNDLED_WORKFLOWS  // the catalog's workflows, as graphs
 ```
 
-**Calls:** `createWorkUnit`, `proposeExternalActionInTx` from `@ensemus/application`, `AgentRunsPort.startInTx` and `outcome`, `UsageReadPort.costForWorkUnit`, `compileProcessGraph` and `publishProcessSpecInTx` from the graph slice (stubs until it lands, so inject in tests).
+**Calls:** `createWorkUnit`, `proposeExternalActionInTx` from `@ensemus/application`, `AgentRunsPort.latestVersionOf`, `listForWorkUnit`, `start` and `outcome`, `UsageReadPort.costForWorkUnit`, `compileProcessGraph` and `publishProcessSpecInTx` from the graph slice (stubs until it lands, so inject in tests).
 
 **Things to get right:**
 
-- **Catalog workflows** (`docs/01-product/04-capability-catalog.md`): 1. Opportunity won, onboarding plan, approval, project setup, kickoff artifact. 2. Meeting summary, action extraction, owner assignment, due-date tracking, verified completion. 3. Project completion, deliverable review, finance handoff, invoice draft in accounting system. 4. New employee, policy pack, tasks, access request and approval, onboarding checklist. 5. Client status inquiry, evidence gathering, draft update, review and send. Each compiles like a drawn graph. Include number 1 only if `git show m5-foundation` shows no flagship graph by then, and report which. **Number 3's accounting step and number 2's meeting source do not exist: put those in `needs`, the step stops with a code, and the page says what is missing. Nothing pretends they are connected. No invoice is ever finalized.** Number 4 uses no real employment data and no access is actually granted: it files a request and an approval. No catalog workflow gets a special path.
-- `advanceProcessRun` under `FOR UPDATE` on the run, and rechecks before each effect that the starter is active, the root is not stopped and the spec hash matches. **Every effect is keyed on (run, step)** so a retried Activity finds what it made: the reference columns are write-once. A step's effect goes through the normal service. An external action still needs M3's approval and shows M3's receipt, which may be `unknown`, and an `unknown` step waits for a person. **An agent task acts as the starter, never as a service,** through the port.
+- **Catalog workflows** (`docs/01-product/04-capability-catalog.md`): number 1 (opportunity won) is M5's flagship with its own workflow, so do not build it again: list it on the catalog page with a link to M5's page. 2. Meeting summary, action extraction, owner assignment, due-date tracking, verified completion. 3. Project completion, deliverable review, finance handoff, invoice draft in accounting system. 4. New employee, policy pack, tasks, access request and approval, onboarding checklist. 5. Client status inquiry, evidence gathering, draft update, review and send. Each compiles like a drawn graph. **Number 3's accounting step and number 2's meeting source do not exist: put those in `needs`, the step stops with a code, and the page says what is missing. Nothing pretends they are connected. No invoice is ever finalized.** Number 4 uses no real employment data and no access is actually granted: it files a request and an approval. No catalog workflow gets a special path.
+- `advanceProcessRun` under `FOR UPDATE` on the run, and rechecks before each effect that the starter is active, the root is not stopped and the spec hash matches. **Every effect is keyed on (run, step)** so a retried Activity finds what it made: the reference columns are write-once. A port call commits in M4's transaction, so it goes after yours: write the step's Work Unit first, then `listForWorkUnit`, then `start` only if there is none. A step's effect goes through the normal service. An external action still needs M3's approval and shows M3's receipt, which may be `unknown`, and an `unknown` step waits for a person. **An agent task acts as the starter, never as a service,** through the port.
 - Keep the workflow's shape: a small loop, `advanceRun`, a signal or timer. Change it only with a patch. `requestStopProcessRun` commits first, then `PROCESS_RUN_STOP_REQUESTED`. Worker dying mid-step repeats and adds no effect.
 - `getProcessRun` filters by who can read the root Work Unit. Cost comes from `UsageReadPort`, is null if unavailable, shown as not measured and never as zero, and labelled as an estimate when it is one.
 - `CAPABILITY_UNAVAILABLE` from an `agent_task` stops that step with a code. M3 and M4 being unmerged makes `QA-046` provable only at the merge. **Say which parts you proved.**
@@ -483,7 +480,7 @@ None of this has been built or run. What it will need, for the owner or CI:
 
 ## Merge order
 
-Nothing depends on order for compiling, since every signature exists. For tests to pass end to end: mfa, sso, objects, graph, studio, process, packs, composer-onboarding, pulse, surfaces, then close. At the final merge, `apps/web/src/server/product-ports.ts` and `workers/workflow/src/product-ports.ts` get M4's and M5's real ports, and that is the whole join.
+Nothing depends on order for compiling, since every signature exists. For tests to pass end to end: mfa, sso, objects, graph, studio, process, packs, composer-onboarding, pulse, assistants, then close. At the final merge, `apps/web/src/server/product-ports.ts` and `workers/workflow/src/product-ports.ts` get M4's and M5's real ports, and that is the whole join.
 
 ## Handoff
 

@@ -21,7 +21,9 @@ export type AgentDraftAnswers = {
   maxCostMicros: number | null;
   maxTurns: number;
   maxToolCalls: number;
+  maxTotalTokens: number;
   timeoutSeconds: number;
+  qualityTier: 'economy' | 'balanced' | 'high';
   autonomy: AutonomyMode;
   memoryWrite: MemoryWriteMode;
   outputFormat: 'markdown_brief' | 'structured_report';
@@ -29,11 +31,11 @@ export type AgentDraftAnswers = {
   ownerMembershipId: string;
 };
 
-/** Tool facts from M4's registry, reached through ToolCatalogPort. */
+/** The same shape as M4's `ToolManifest`, reached through ToolCatalogPort. */
 export type ToolFacts = {
   id: string;
   version: string;
-  effect: 'read_only' | 'draft_only' | 'external_write' | 'delegate';
+  class: 'read_only' | 'draft_only' | 'external_write' | 'delegation';
   requiresApproval: boolean;
 };
 
@@ -71,9 +73,10 @@ export type DraftAssessment = {
 };
 
 /**
- * Pure. Refuses rather than repairs: no `secrets.*` tool, no restricted data class, no external write
- * without `act_with_approval`, and a limit above `orgLimits` is an issue, not a silent cap. Implemented by
- * the studio slice. `sha256` is passed in, so this file stays free of Node modules and can run anywhere.
+ * Pure. Compiles to M4's `AgentSpecV1` (ADR-031 D5, `api_version: 'ensemus.ai/v1'`). Refuses rather than
+ * repairs: no `secrets.*` tool, no restricted data class, no external write without `act_with_approval`, and
+ * a limit above `orgLimits` is an issue, not a silent cap. Implemented by the studio slice. `sha256` is passed in, so this file
+ * stays free of Node modules and can run anywhere.
  */
 export function assessDraft(
   _answers: AgentDraftAnswers,

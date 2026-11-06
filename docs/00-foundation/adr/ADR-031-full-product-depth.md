@@ -18,7 +18,7 @@ M7 is where people who do not think about security get powerful tools. Each feat
 Three more facts shape what follows:
 
 - **The web tier has no outbound path, and the worker has none either** (ADR-024, `PLAT-16`). Anything that needs the server to contact a tenant-named host is an SSRF and an air-gap failure at once.
-- **M4 and M5 are being written at the same time as this.** `m4-foundation` and `m5-foundation` had no commits of their own when this was written, so their types are not available to read.
+- **M4 and M5 are being written at the same time as this.** Their foundations landed while this was being written (`m4-foundation` at `75ca603`, `m5-foundation` at `4dcb3c5`, still marked work in progress). The ports below are shaped to what they hold now, read with `git show` and not merged.
 - **Everything has to work in Sovereign,** with no network, no hosted service and possibly no model.
 
 ## Decisions
@@ -65,14 +65,13 @@ Each port in `ports.ts` is a real interface with one honest default: `unavailabl
 | `AgentRunsPort` | M4 S13 | Assistants, process steps, Pulse | The page says so. An `agent_task` step stops. Pulse marks that part `partial` and does not show false calm |
 | `ModelReadinessPort` | M4 S5 | Onboarding | The step reads `unavailable`, not `to_do`. Journey A: AI stays optional |
 | `UsageReadPort` | M4 S6 | Process run page | Cost is shown as not measured, never zero |
-| `KnowledgeReadPort` | M5 | Knowledge page, onboarding | The page says so |
-| `EgressSimulationPort` | M5 AGENT-11 | Onboarding | The step explains that this check is not available yet |
+| `KnowledgeReadPort` | M5's `listSources`, as a count | Onboarding | The step reads `unavailable`. The optional step does not block finishing |
 
-The shapes follow the M4 plan's FD-1 to FD-23, with money as `bigint` micro-USD (FD-6), and the capability names as FD-19 and FD-20 suggest. **If M4's real shapes differ, the merge adapts inside those two files, not in M7's services.** `AgentRunsPort.startInTx` takes the initiator's membership because FD-3 requires an agent to act as a person, never as a service.
+The shapes follow what `m4-foundation` holds: `ToolFacts` is its `ToolManifest`, the guided builder compiles to its `AgentSpecV1`, and a simulation report fills its `evaluationReportSchema` with `scripted_model: true`. **If M4's or M5's shapes move, the merge adapts inside those two files, not in M7's services.** `AgentRunsPort.start` takes the initiator's membership because FD-3 requires an agent to act as a person, never as a service. Two things have no M4 service yet, and the adapter adds them at the merge: `listMine` (a query by initiator) and `pin` (a row in `ai.agent_publications`).
 
 **Rejected: M7 reading `ai.*` tables directly.** They do not exist on this branch, and a page reading another milestone's tables would also bypass its authorization.
 
-**Knowledge UI.** The delivery plan lists it under M7, and the backlog gives it to M5 as `UX-18`. This milestone builds `/o/{org}/knowledge` on the port and adds no knowledge logic. If M5 ships the same path, the merge keeps M5's page and drops this one. Nothing else depends on it.
+**Knowledge UI.** The delivery plan lists it under M7, and the backlog gives it to M5 as `UX-18`. M5's `ui` slice owns `apps/web/src/app/o/[organizationId]/knowledge/**`, `search/**`, `settings/egress/**` and `onboarding/**`, by its own slices file, so this milestone builds no second one, and only links to it from the navigation. **If M5's `ui` slice does not land, that link is a 404 and Knowledge UI is not done: the merge has to check.** M7's own Journey A page is `/get-started`, because M5's `/onboarding` is the client onboarding flagship.
 
 ### D3. Capabilities
 
@@ -120,7 +119,7 @@ stateDiagram-v2
 ```
 
 - **One hash through everything.** `specSha256` is over the canonical spec the answers compile to. A simulation row and a review row each bind it, and no role can update that column on either. An insert trigger refuses a review whose simulation did not pass, or is for another subject or hash.
-- **Publishing rechecks.** `publishApproved` locks the draft, compares its current hash to the review's, and refuses with `SIMULATION_STALE`. Then the M4 registry's immutable version, the review and the draft move in one transaction.
+- **Publishing rechecks.** `publishApproved` locks the draft, compares its current hash to the review's, and refuses with `SIMULATION_STALE`. M4's `publishAgentVersion` commits in its own transaction, and a lock is not held across it. So `list` finds an earlier attempt by hash first, then the version is published, then the review and draft move. A crash between the two leaves an immutable version nothing points at yet, and trying again finds it and adds no second one. A draft edited in that window does not change what was published, which is exactly what was reviewed.
 - **Second person for elevated risk, by trigger.** Elevated means external writes, delegation or confidential data. The trigger refuses a decision by the requester, because web and worker share a role, and a service-side check would not survive a compromise of either. **Standard risk (read-only and drafts on public or internal data) may be decided by its author, with recent MFA and an audit row.** One-person companies exist, and a rule they can only pass by making a fake account is worse. This is the safest default that still lets the owner use the product alone with an agent that has no effect, and it is an owner decision below.
 - **A running Work Unit keeps its version.** That is M4's rule (`agent_versions` are immutable and a run is pinned), and nothing here touches it.
 
@@ -134,13 +133,13 @@ A graph is what a person draws, and a spec is what can run. `compileProcessGraph
 
 **One generic workflow, deterministic and small.** `processRunWorkflow` is a loop: call `advanceRun`, wait for a signal or five minutes, repeat. All deciding is in the Activity, which reads PostgreSQL, because long-lived workflows are the hardest code to change, and approval waits last days. A lost signal costs at most the timer. Only IDs cross Temporal.
 
-**A step gets no shortcut.** A `work_item` calls `createWorkUnit`. An `external_action` calls M3's `proposeExternalActionInTx`, so it still needs M3's own bound approval and gets M3's own receipt. An `agent_task` calls `AgentRunsPort.startInTx` as the person who started the run (FD-3), never as a service. Before each effect it rechecks that the starter is still active and the root is not stopped.
+**A step gets no shortcut.** A `work_item` calls `createWorkUnit`. An `external_action` calls M3's `proposeExternalActionInTx`, so it still needs M3's own bound approval and gets M3's own receipt. An `agent_task` has its own Work Unit, pins `latestVersionOf` and calls `AgentRunsPort.start` as the person who started the run (FD-3), never as a service. M4 allows one live run per Work Unit, and `listForWorkUnit` finds it, so a repeated step starts no second one. Before each effect it rechecks that the starter is still active and the root is not stopped.
 
 **Starting runs is a person's act.** A tenant-wide trigger on events is not in M7, because a mistake in one is a mass mailing.
 
 **The visual editor adds no dependency.** It renders server-side SVG from the graph, and edits through ordinary forms: add a node, connect two, remove one. This works with no JavaScript and a keyboard from the first day, as the existing pages do. Client code adds dragging on top. **Rejected: React Flow and the like.** A client graph library is hard to make keyboard-accessible, and needs review and bundle weight for what is mostly a nicer drag.
 
-**The bundled workflows** (`AGENT-13`) are graphs in `@ensemus/packs/bundled` that compile like any other, with no special way past the compiler. The catalog names five. Number 1 is M5's flagship (`AGENT-12`) and is included here as a graph only if M5's own does not supply it. Number 3 ends in "invoice draft in accounting system" and number 2 starts from a meeting summary: no accounting or meeting connector exists, so those steps are `needs` on the page and stop honestly. **They are not simulated as working.** Each one's acceptance needs a measured cost through M4's ledger, so `AGENT-13` cannot be fully proven until M4 and M3 are merged.
+**The bundled workflows** (`AGENT-13`) are graphs in `@ensemus/packs/bundled` that compile like any other, with no special way past the compiler. The catalog names five. Number 1 is M5's flagship (`AGENT-12`), with its own `clientOnboardingWorkflow`, so the catalog here is numbers 2 to 5, and the page links to M5's for number 1. Number 3 ends in "invoice draft in accounting system" and number 2 starts from a meeting summary: no accounting or meeting connector exists, so those steps are `needs` on the page and stop honestly. **They are not simulated as working.** Each one's acceptance needs a measured cost through M4's ledger, so `AGENT-13` cannot be fully proven until M4 and M3 are merged.
 
 ### D8. MFA
 

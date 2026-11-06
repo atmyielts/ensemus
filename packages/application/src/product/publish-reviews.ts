@@ -73,8 +73,9 @@ export async function decidePublishReview(
 
 /**
  * Needs `studio.publish` and recent MFA. Under a lock: the draft's current hash still equals the review's,
- * or SIMULATION_STALE. Then in one transaction: the M4 registry's immutable version or `publishProcessSpecInTx`,
- * the review to `published`, the draft to `published`, an audit row, and one event.
+ * or SIMULATION_STALE. An agent publishes through M4 in M4's own transaction, with no lock held across it:
+ * `list` finds an earlier attempt by hash first, so a crash between the two repeats nothing. A process goes
+ * through `publishProcessSpecInTx`. Then the review and the draft to `published`, an audit row and one event.
  */
 export async function publishApproved(
   _database: AppDatabase,

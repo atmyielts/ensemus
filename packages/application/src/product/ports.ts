@@ -1,7 +1,7 @@
 // What M7 needs from milestones written at the same time (ADR-031 D2). M4 and M5 implement these at the
 // final merge, in one wiring file each for the web and the worker. Until then every port says plainly that
 // the capability is not available here, and each page shows that: no fake ever ships as a default.
-import type { TenantContext, Tx } from '@ensemus/database';
+import type { TenantContext } from '@ensemus/database';
 import type { ToolFacts } from '@ensemus/domain/agent-draft';
 import { AppError } from '../errors';
 
@@ -17,37 +17,47 @@ export type PublishedAgentVersion = {
   specSha256: string;
 };
 
-export type AgentVersionSummary = PublishedAgentVersion & {
-  name: string;
-  publishedAt: Date;
-  active: boolean;
+export type AgentVersionSummary = PublishedAgentVersion & { publishedAt: Date };
+
+/**
+ * M4's `evaluationReportSchema`, which its publish route requires. A simulation fills it with
+ * `scripted_model: true`, which says plainly that it proves the gates and not the model (ADR-031 D5).
+ */
+export type EvaluationReportInput = {
+  report_version: 1;
+  spec_sha256: string;
+  policy_version: string;
+  suite_ref: string;
+  dataset_version: string;
+  model_label: string;
+  pass_rate: number;
+  cases: number;
+  passed: boolean;
+  scripted_model: boolean;
 };
 
-/** M4 S7. Writes the immutable version in the caller's transaction, so a publish is all or nothing. */
+/**
+ * M4's `publishAgentVersion` and `listAgentVersions`. Publishing commits in M4's own transaction, so
+ * `publishApproved` finds an earlier attempt by hash through `list` before it publishes (ADR-031 D6).
+ */
 export interface AgentRegistryPort {
   publish(
-    tx: Tx,
     context: TenantContext,
-    input: {
-      definitionId: string | null;
-      name: string;
-      ownerMembershipId: string;
-      spec: Record<string, unknown>;
-      specSha256: string;
-      /** The hash of the passed simulation report, which M4 FD-19 calls the evaluation report. */
-      evaluationReportSha256: string;
-    },
+    input: { spec: Record<string, unknown>; evaluationReport: EvaluationReportInput },
   ): Promise<PublishedAgentVersion>;
-  list(context: TenantContext, input: { definitionId?: string }): Promise<AgentVersionSummary[]>;
-  /** Points the definition back at an older version. Work already running keeps its own version. */
-  pin(tx: Tx, context: TenantContext, input: { versionId: string }): Promise<void>;
-  /** The caps a draft may not exceed. M4 calls these org policy. */
-  orgLimits(
-    context: TenantContext,
-  ): Promise<{ maxTurns: number; maxToolCalls: number; timeoutSeconds: number }>;
+  list(context: TenantContext): Promise<readonly AgentVersionSummary[]>;
+  /** Points an agent back at an older version. Work already running keeps its own version. */
+  pin(context: TenantContext, input: { versionId: string }): Promise<void>;
+  /** The caps a draft may not exceed, and the policy version a report has to name. */
+  orgLimits(context: TenantContext): Promise<{
+    maxTurns: number;
+    maxToolCalls: number;
+    timeoutSeconds: number;
+    policyVersion: string;
+  }>;
 }
 
-/** M4 S10. The tools that exist, from its code-defined registry. */
+/** M4's `TOOL_MANIFESTS`, from `@ensemus/domain/ai-tools`. */
 export interface ToolCatalogPort {
   list(context: TenantContext): Promise<readonly ToolFacts[]>;
 }
@@ -71,7 +81,10 @@ export type DelegatedRun = {
   steps: readonly { labelCode: string; state: string; at: Date }[];
 };
 
-/** M4 S13. Reading and stopping are filtered by who can read the Work Unit, inside the implementation. */
+/**
+ * M4's `getAgentRun`, `listRunSteps`, `controlAgentRun` and `startAgentRun`, each filtered by who can read
+ * the Work Unit inside M4. `listMine` has no M4 service yet, and the adapter adds that one query.
+ */
 export interface AgentRunsPort {
   listMine(
     context: TenantContext,
@@ -79,12 +92,18 @@ export interface AgentRunsPort {
   ): Promise<{ items: DelegatedRun[]; next: string | null }>;
   get(context: TenantContext, runId: string): Promise<DelegatedRun>;
   requestStop(context: TenantContext, runId: string): Promise<void>;
-  /** Used by a process step, in the caller's transaction. Commits the run and its outbox event together. */
-  startInTx(
-    tx: Tx,
+  /** The newest version of a published agent, which a process step pins when it starts. */
+  latestVersionOf(context: TenantContext, agentDefinitionId: string): Promise<string | null>;
+  /**
+   * For a process step. Commits in M4's own transaction and acts as the initiator, never as a service (M4
+   * FD-3). M4 allows one live run per Work Unit, so a repeated step finds its run through
+   * `listForWorkUnit` first and starts no second one.
+   */
+  start(
     context: TenantContext,
-    input: { workUnitId: string; agentDefinitionId: string; initiatorMembershipId: string },
+    input: { workUnitId: string; agentVersionId: string; initiatorMembershipId: string },
   ): Promise<{ runId: string }>;
+  listForWorkUnit(context: TenantContext, workUnitId: string): Promise<readonly { id: string }[]>;
   /** Whether a run has finished, for a process step that waits on one. */
   outcome(
     context: TenantContext,
@@ -107,42 +126,12 @@ export interface UsageReadPort {
 
 // --- M5: knowledge
 
-export type KnowledgeSourceView = {
-  id: string;
-  name: string;
-  kind: string;
-  classification: string;
-  /** `ok`, `stale` or `denied`: what the reader may rely on, as M5's UX-18 defines it. */
-  freshness: 'ok' | 'stale' | 'unknown';
-  lastSyncedAt: Date | null;
-  accessState: 'full' | 'partial';
-};
-
-export type KnowledgeHit = {
-  sourceId: string;
-  title: string;
-  /** A short passage, already filtered by the viewer's access inside M5. */
-  excerpt: string;
-  citationId: string;
-  freshness: 'ok' | 'stale' | 'unknown';
-  originalUrl: string | null;
-};
-
-/** M5 KNOW-01, KNOW-02 and UX-22. ACLs apply inside it. M7 never filters a result itself, or sees more. */
+/**
+ * M5's `listSources`, as a count: onboarding only has to know whether a first source exists. M5's own `ui`
+ * slice builds the Knowledge pages (UX-18), so M7 reads nothing else from it (ADR-031 D2).
+ */
 export interface KnowledgeReadPort {
-  listSources(context: TenantContext): Promise<readonly KnowledgeSourceView[]>;
-  search(
-    context: TenantContext,
-    input: { query: string; limit?: number },
-  ): Promise<readonly KnowledgeHit[]>;
-}
-
-/** M5 AGENT-11. What would go where under a proposed provider, with nothing actually sent. */
-export interface EgressSimulationPort {
-  simulate(
-    context: TenantContext,
-    input: { modelProfileId: string },
-  ): Promise<{ workflowsAffected: number; classesReaching: readonly string[] }>;
+  summary(context: TenantContext): Promise<{ sources: number }>;
 }
 
 export type ProductPorts = {
@@ -152,7 +141,6 @@ export type ProductPorts = {
   modelReadiness: ModelReadinessPort;
   usage: UsageReadPort;
   knowledge: KnowledgeReadPort;
-  egressSimulation: EgressSimulationPort;
 };
 
 const unavailable = async (): Promise<never> => {
@@ -173,12 +161,13 @@ export function unavailablePorts(): ProductPorts {
       listMine: unavailable,
       get: unavailable,
       requestStop: unavailable,
-      startInTx: unavailable,
+      latestVersionOf: unavailable,
+      start: unavailable,
+      listForWorkUnit: unavailable,
       outcome: unavailable,
     },
     modelReadiness: { summary: unavailable },
     usage: { costForWorkUnit: unavailable },
-    knowledge: { listSources: unavailable, search: unavailable },
-    egressSimulation: { simulate: unavailable },
+    knowledge: { summary: unavailable },
   };
 }
