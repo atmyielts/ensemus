@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { KeptTextarea } from './kept-field';
 import { SubmitButton } from './submit-button';
 
 /**
@@ -12,6 +13,7 @@ export function ConfirmForm({
   summaryLabel,
   consequence,
   confirmLabel,
+  confirmFullLabel,
   reasonLabel,
   children,
 }: {
@@ -21,6 +23,8 @@ export function ConfirmForm({
   summaryLabel?: string;
   consequence: string;
   confirmLabel: string;
+  /** The same words and more, for a screen reader, when the button alone would not say which. */
+  confirmFullLabel?: string;
   /** Asks why, when the reason should be on the record. */
   reasonLabel?: string;
   children?: ReactNode;
@@ -34,7 +38,12 @@ export function ConfirmForm({
         {reasonLabel && (
           <label>
             {reasonLabel}
-            <textarea name="reason" required maxLength={2000} />
+            <KeptTextarea
+              keep={`confirm-${confirmLabel}`}
+              name="reason"
+              required
+              maxLength={2000}
+            />
           </label>
         )}
         <label className="check">
@@ -42,7 +51,9 @@ export function ConfirmForm({
           {consequence}
         </label>
         <div>
-          <SubmitButton className="danger">{confirmLabel}</SubmitButton>
+          <SubmitButton className="danger" label={confirmFullLabel}>
+            {confirmLabel}
+          </SubmitButton>
         </div>
       </form>
     </details>

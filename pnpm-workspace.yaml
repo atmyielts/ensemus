@@ -3,6 +3,7 @@ packages:
   - workers/*
   - packages/*
   - tests
+  - tests/browser
 onlyBuiltDependencies:
   - '@swc/core'
   - esbuild

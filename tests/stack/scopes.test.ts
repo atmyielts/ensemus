@@ -206,10 +206,10 @@ describe('who may do what', () => {
       for (const other of [owner, delegate]) expect(html).not.toContain(other.email);
     });
 
-    it('shows an owner every address, with an email column', async () => {
+    it('shows an owner every address, under each name', async () => {
       const { html } = await read(people(), owner.jar);
       const directory = sectionOf(html, 'members-heading');
-      expect(directory).toContain('>Email<');
+      expect(directory).not.toContain('Email addresses are only shown to owners and admins.');
       for (const person of [owner, member, delegate]) expect(directory).toContain(person.email);
     });
 

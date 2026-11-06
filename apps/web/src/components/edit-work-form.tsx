@@ -68,14 +68,14 @@ export function EditWorkForm({
     setDraft((previous) => ({ ...previous, [name]: event.target.value }));
 
   return (
-    <form className="fields" action={action} style={{ marginTop: '0.75rem' }}>
+    <form className="fields gap-above" action={action}>
       <input type="hidden" name="organizationId" value={organizationId} />
       <input type="hidden" name="id" value={workId} />
       <input type="hidden" name="version" value={base.version} />
       {state.code !== 'VERSION_CONFLICT' && <ErrorNotice code={state.code} />}
       {conflict && (
         <div className="notice warn" role="status">
-          <p style={{ marginTop: 0 }}>
+          <p>
             This changed while you were editing. Your text is still below. Saving replaces what is
             there now:
           </p>
@@ -83,7 +83,7 @@ export function EditWorkForm({
             <dt>Title</dt>
             <dd>{conflict.title}</dd>
             <dt>Objective</dt>
-            <dd style={{ whiteSpace: 'pre-wrap' }}>{conflict.objective || 'None'}</dd>
+            <dd className="pre-wrap">{conflict.objective || 'None'}</dd>
             <dt>Due date</dt>
             <dd>{conflict.dueAt || 'None'}</dd>
           </dl>

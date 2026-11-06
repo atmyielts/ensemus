@@ -2,6 +2,7 @@ import { getApproval, listDirectory } from '@ensemus/application';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { ConfirmForm } from '@/components/confirm-form';
+import { KeptTextarea } from '@/components/kept-field';
 import { SubmitButton } from '@/components/submit-button';
 import {
   ClassificationBadge,
@@ -78,7 +79,7 @@ export default async function ApprovalPage({
 
   return (
     <>
-      <p>
+      <p className="back">
         <Link href={`${base}/approvals`}>Back to approvals</Link>
       </p>
       <PageHead
@@ -88,7 +89,9 @@ export default async function ApprovalPage({
       <ErrorNotice code={error} />
       <div className="stack">
         <section className="card" aria-labelledby="summary-heading">
-          <h2 id="summary-heading">What is being asked</h2>
+          <h2 id="summary-heading">
+            {status === 'pending' ? 'What is being asked' : 'What was asked'}
+          </h2>
           <dl>
             <dt>Status</dt>
             <dd>
@@ -104,12 +107,21 @@ export default async function ApprovalPage({
                 <ClassificationBadge value={work.classification} />
               </span>
             </dd>
-            <dt>Risk</dt>
-            <dd>{riskOf(approval.toolName, work.classification, holdingWork)}</dd>
+            {/* What is at stake only matters while it can still be decided. */}
+            {status === 'pending' && (
+              <>
+                <dt>Risk</dt>
+                <dd>{riskOf(approval.toolName, work.classification, holdingWork)}</dd>
+              </>
+            )}
             <dt>What this affects</dt>
             <dd>
               {isReview
-                ? `This work, and ${files.length + missingFileCount === 1 ? 'one file' : `${files.length + missingFileCount} files`}.`
+                ? ({
+                    0: 'This work. No files are attached to it.',
+                    1: 'This work, and one file.',
+                  }[files.length + missingFileCount] ??
+                  `This work, and ${files.length + missingFileCount} files.`)
                 : 'Described in the technical details below.'}
             </dd>
             <dt>Asked by</dt>
@@ -161,14 +173,14 @@ export default async function ApprovalPage({
             <h2 id="decision-heading">Decision</h2>
             <ul className="list">
               {decisions.map((decision) => (
-                <li key={decision.decidedAt.toISOString()} style={{ display: 'block' }}>
+                <li key={decision.decidedAt.toISOString()} className="block">
                   <strong>
                     {decision.decision === 'approve' ? 'Approved' : 'Denied'} by{' '}
                     {decision.actorName}
                   </strong>{' '}
                   <small>{formatDateTime(decision.decidedAt)}</small>
                   {decision.reason && (
-                    <p style={{ margin: '0.25rem 0 0', whiteSpace: 'pre-wrap' }}>
+                    <p className="pre-wrap" style={{ marginTop: '0.25rem' }}>
                       {decision.reason}
                     </p>
                   )}
@@ -178,26 +190,16 @@ export default async function ApprovalPage({
           </section>
         )}
 
-        <details className="card">
-          <summary>Technical details</summary>
-          <pre tabIndex={0} aria-label="The exact action, as stored">
-            {JSON.stringify(approval.action, null, 2)}
-          </pre>
-        </details>
-
         {canDecide && (
           <section className="card" aria-labelledby="decide-heading">
             <h2 id="decide-heading">Decide</h2>
-            <div
-              className="columns"
-              style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(16rem, 1fr))' }}
-            >
+            <div className="decide">
               <form className="fields" action={decideApprovalAction}>
                 {bound('approve')}
                 <label>
                   Note for approving
                   <small>Optional. People on this work can read it.</small>
-                  <textarea name="reason" maxLength={2000} />
+                  <KeptTextarea keep="approve" name="reason" maxLength={2000} />
                 </label>
                 <small>
                   {holdingWork
@@ -223,7 +225,7 @@ export default async function ApprovalPage({
                   <label>
                     Reason for denying
                     <small>Optional. People on this work can read it.</small>
-                    <textarea name="reason" maxLength={2000} />
+                    <KeptTextarea keep="deny" name="reason" maxLength={2000} />
                   </label>
                   <small>The work stays as it is, without your approval.</small>
                   <div>
@@ -236,13 +238,13 @@ export default async function ApprovalPage({
         )}
 
         {isMine && status === 'pending' && requestedByMe && (
-          <p className="notice warn">
+          <p className="notice warn flush">
             You asked for this approval, so someone else has to decide it. Ask for a new review from
             another person once this one has closed.
           </p>
         )}
         {status === 'expired' && (
-          <p className="notice warn">
+          <p className="notice warn flush">
             The time to decide has passed, so this can no longer be approved.{' '}
             {holdingWork
               ? 'The work it paused stops at the next periodic check, unless someone asks for a new review first.'
@@ -252,14 +254,21 @@ export default async function ApprovalPage({
           </p>
         )}
         {status === 'cancelled' && (
-          <p className="notice">
+          <p className="notice flush">
             This was closed without a decision, because the work changed, finished or was reopened,
             or the person asked lost access to it.
           </p>
         )}
         {!isMine && status === 'pending' && (
-          <p className="notice">{approverName ?? 'Someone else'} decides this one.</p>
+          <p className="notice flush">{approverName ?? 'Someone else'} decides this one.</p>
         )}
+
+        <details className="card">
+          <summary>Technical details</summary>
+          <pre tabIndex={0} aria-label="The exact action, as stored">
+            {JSON.stringify(approval.action, null, 2)}
+          </pre>
+        </details>
       </div>
     </>
   );

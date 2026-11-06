@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useActionState } from 'react';
+import { useActionState, useEffect, useRef } from 'react';
 import type { NewWorkFormState } from '@/lib/form-state';
 import { createWorkFormAction } from '@/server/work-actions';
 import { SubmitButton } from './submit-button';
@@ -27,28 +27,40 @@ const SENSITIVITY = [
   },
 ];
 
-const groupStyle = { border: 0, margin: 0, padding: 0, display: 'grid', gap: '0.375rem' };
-const legendStyle = { padding: 0, fontWeight: 540 };
-
 const INITIAL: NewWorkFormState = {};
 
 /** The new work form. A refused save comes back with everything typed, and names the field at fault. */
 export function NewWorkForm({
   organizationId,
   projects,
+  requestKey,
 }: {
   organizationId: string;
+  /** One rendered form makes one piece of work, however many times it is sent. */
+  requestKey: string;
   projects: Array<{ id: string; name: string; clientName: string | null }>;
 }) {
   const [state, action] = useActionState(createWorkFormAction, INITIAL);
+  const form = useRef<HTMLFormElement>(null);
+  const notice = useRef<HTMLDivElement>(null);
+  // The button is at the bottom and the problem is usually at the top, so go to where it is.
+  useEffect(() => {
+    if (!state.code) return;
+    const field = state.field ? form.current?.elements.namedItem(state.field) : null;
+    if (field instanceof HTMLElement) field.focus();
+    else notice.current?.scrollIntoView();
+  }, [state]);
   const values = state.values;
   const ticked = (kind: string) => values?.criteria.includes(kind) ?? false;
 
   return (
     <>
-      <ErrorNotice code={state.code} />
-      <form className="card fields" action={action}>
+      <div className="form-width" ref={notice}>
+        <ErrorNotice code={state.code} />
+      </div>
+      <form ref={form} className="card fields" action={action}>
         <input type="hidden" name="organizationId" value={organizationId} />
+        <input type="hidden" name="requestKey" value={requestKey} />
         <label>
           What should be true when this is done?
           {state.field === 'title' && (
@@ -91,7 +103,12 @@ export function NewWorkForm({
           <label>
             Project
             <small>Optional.</small>
-            <select name="projectId" defaultValue={values?.projectId ?? ''}>
+            {/* The key brings a refused choice back: React only reads defaultValue on a new select. */}
+            <select
+              key={values?.projectId ?? ''}
+              name="projectId"
+              defaultValue={values?.projectId ?? ''}
+            >
               <option value="">No project</option>
               {projects.map((project) => (
                 <option key={project.id} value={project.id}>
@@ -106,6 +123,7 @@ export function NewWorkForm({
             Sensitivity
             <small>Who can see this work and its files. It cannot be changed afterwards.</small>
             <select
+              key={values?.classification ?? ''}
               name="classification"
               defaultValue={values?.classification ?? 'internal'}
               aria-describedby="sensitivity"
@@ -126,8 +144,8 @@ export function NewWorkForm({
             ))}
           </dl>
         </div>
-        <fieldset style={groupStyle}>
-          <legend style={legendStyle}>How will we know it is done?</legend>
+        <fieldset className="group">
+          <legend>How will we know it is done?</legend>
           <small>
             Work cannot be marked done until what you tick here is true. With nothing ticked, its
             accountable owner has to confirm it themselves.
@@ -151,8 +169,8 @@ export function NewWorkForm({
             A reviewer approves
           </label>
         </fieldset>
-        <fieldset style={groupStyle}>
-          <legend style={legendStyle}>Plan</legend>
+        <fieldset className="group">
+          <legend>Plan</legend>
           <label className="check">
             <input
               type="checkbox"

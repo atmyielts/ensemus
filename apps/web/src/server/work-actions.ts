@@ -41,6 +41,7 @@ import { WORK_STATES, type WorkState } from '@ensemus/domain/work-unit';
 import { errorCode } from '@ensemus/telemetry';
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
+import { z } from 'zod';
 import type { InviteFormState, NewWorkFormState, WorkFormState } from '@/lib/form-state';
 import { requireActor } from './actor';
 import { getRuntime, getStore } from './runtime';
@@ -116,6 +117,8 @@ export async function createWorkFormAction(
   const { context, database } = await requireTenant(org);
   const criteria = form.getAll('criteria').filter((c): c is string => typeof c === 'string');
   const plan = text(form, 'executionPlan');
+  // Only ever hashed into an ID. Something that is not a key just gets no protection from repeats.
+  const requestKey = z.uuid().safeParse(text(form, 'requestKey'));
   const values = {
     title: text(form, 'title'),
     objective: text(form, 'objective'),
@@ -140,6 +143,7 @@ export async function createWorkFormAction(
       ...(values.dueAt ? { dueAt: new Date(values.dueAt) } : {}),
       ...(orUndefined(values.projectId) ? { projectId: values.projectId } : {}),
       ...(values.executionPlan ? { executionPlan: 'checklist' as const } : {}),
+      ...(requestKey.success ? { requestKey: requestKey.data } : {}),
     });
     id = work.id;
   } catch (error) {

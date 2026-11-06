@@ -22,6 +22,9 @@ export default async function HomePage({
   ]);
   const { attention, attentionHasMore, work, workHasMore } = mine;
   const firstName = actor.name.split(' ')[0];
+  // What is already under Needs attention is not repeated straight below it.
+  const inAttention = new Set(attention.map((item) => item.id));
+  const others = work.filter((item) => !inAttention.has(item.id));
   const roleOn = (item: { ownerMembershipId: string }) =>
     item.ownerMembershipId === context.membershipId ? 'You own this' : 'You are on this';
 
@@ -44,7 +47,7 @@ export default async function HomePage({
               {pending.map((approval) => (
                 <li key={approval.id}>
                   <Link href={`${base}/approvals/${approval.id}`}>{approval.workTitle}</Link>
-                  <small>Expires {formatDate(approval.expiresAt)}</small>
+                  <small className="nowrap">Expires {formatDate(approval.expiresAt)}</small>
                 </li>
               ))}
             </ul>
@@ -59,19 +62,19 @@ export default async function HomePage({
                   <span>
                     <Link href={`${base}/work/${item.id}`}>{item.title}</Link>
                     <br />
-                    <small>{roleOn(item)}</small>
+                    <small>
+                      {roleOn(item)}
+                      {item.dueAt && isOverdue(item.dueAt, now) && (
+                        <> · Was due {formatDate(item.dueAt)}</>
+                      )}
+                    </small>
                   </span>
-                  <span className="row">
-                    {item.dueAt && isOverdue(item.dueAt, now) && (
-                      <small>Was due {formatDate(item.dueAt)}</small>
-                    )}
-                    <StatusBadge status={item.status} />
-                  </span>
+                  <StatusBadge status={item.status} />
                 </li>
               ))}
             </ul>
             {attentionHasMore && (
-              <p style={{ margin: '0.75rem 0 0' }}>
+              <p className="gap-above">
                 There is more than this. <Link href={`${base}/work`}>See all your work</Link>
               </p>
             )}
@@ -85,23 +88,27 @@ export default async function HomePage({
             </Empty>
           ) : (
             <>
-              <ul className="list">
-                {work.map((item) => (
-                  <li key={item.id}>
-                    <span>
-                      <Link href={`${base}/work/${item.id}`}>{item.title}</Link>
-                      <br />
-                      <small>{roleOn(item)}</small>
-                    </span>
-                    <span className="row">
-                      {item.dueAt && <small>Due {formatDate(item.dueAt)}</small>}
+              {others.length === 0 ? (
+                <p className="muted">Everything you are on is listed above.</p>
+              ) : (
+                <ul className="list">
+                  {others.map((item) => (
+                    <li key={item.id}>
+                      <span>
+                        <Link href={`${base}/work/${item.id}`}>{item.title}</Link>
+                        <br />
+                        <small>
+                          {roleOn(item)}
+                          {item.dueAt && <> · Due {formatDate(item.dueAt)}</>}
+                        </small>
+                      </span>
                       <StatusBadge status={item.status} />
-                    </span>
-                  </li>
-                ))}
-              </ul>
+                    </li>
+                  ))}
+                </ul>
+              )}
               {workHasMore && (
-                <p style={{ margin: '0.75rem 0 0' }}>
+                <p className="gap-above">
                   These are the most urgent. <Link href={`${base}/work`}>See all work</Link>
                 </p>
               )}

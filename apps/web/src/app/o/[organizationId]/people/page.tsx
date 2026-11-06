@@ -1,5 +1,6 @@
 import { listDirectory, listInvitations, listTeams } from '@ensemus/application';
 import { can } from '@ensemus/domain/policy';
+import type { ReactNode } from 'react';
 import { ConfirmForm } from '@/components/confirm-form';
 import { InviteForm } from '@/components/invite-form';
 import { SubmitButton } from '@/components/submit-button';
@@ -54,7 +55,7 @@ function TeamTree({
   const level = teams.filter((team) => team.parentId === parentId);
   if (level.length === 0) return null;
   return (
-    <ul className="list" style={parentId ? { marginLeft: '1.25rem' } : undefined}>
+    <ul className={parentId ? 'list nested' : 'list'}>
       {level.map((team) => {
         const onTeam = new Set(team.members.map((member) => member.membershipId));
         const available = candidates.filter((member) => !onTeam.has(member.membershipId));
@@ -67,7 +68,7 @@ function TeamTree({
           </>
         );
         return (
-          <li key={team.id} style={{ display: 'block' }}>
+          <li key={team.id} className="block">
             <strong>{team.name}</strong>
             {team.members.length === 0 ? (
               <>
@@ -80,7 +81,7 @@ function TeamTree({
               <ul className="list">
                 {team.members.map((member) => (
                   <li key={member.membershipId}>
-                    {member.name}
+                    <span>{member.name}</span>
                     {canManage && (
                       <form action={removeTeamMemberAction}>
                         {fields}
@@ -98,9 +99,9 @@ function TeamTree({
               </ul>
             )}
             {canManage && available.length > 0 && (
-              <form className="row" action={addTeamMemberAction} style={{ marginTop: '0.5rem' }}>
+              <form className="inline-form gap-above" action={addTeamMemberAction}>
                 {fields}
-                <label className="check">
+                <label>
                   Add to {team.name}
                   <select name="membershipId" required defaultValue="">
                     <option value="" disabled>
@@ -119,9 +120,9 @@ function TeamTree({
               </form>
             )}
             {canManage && (parents.length > 0 || team.parentId) && (
-              <form className="row" action={setTeamParentAction} style={{ marginTop: '0.5rem' }}>
+              <form className="inline-form gap-above" action={setTeamParentAction}>
                 {fields}
-                <label className="check">
+                <label>
                   Move {team.name} under
                   <select name="parentId" defaultValue={team.parentId ?? ''}>
                     <option value="">No parent team</option>
@@ -164,6 +165,61 @@ function invitationState(invitation: {
   return 'Waiting';
 }
 
+type Invitation = Awaited<ReturnType<typeof listInvitations>>[number];
+
+function InvitationList({ invitations, org }: { invitations: Invitation[]; org: ReactNode }) {
+  return (
+    <ul className="list">
+      {invitations.map((invitation) => {
+        const state = invitationState(invitation);
+        const open = state === 'Waiting' || state === 'Asking to join';
+        return (
+          <li key={invitation.id}>
+            <span>
+              {invitation.email}{' '}
+              <small>
+                {ROLE_LABEL[invitation.role] ?? invitation.role}
+                {open && `, until ${formatDate(invitation.expiresAt)}`}
+              </small>
+            </span>
+            <span className="row">
+              <span className={`badge ${open ? 'attention' : ''}`}>{state}</span>
+              {state === 'Asking to join' && (
+                <ConfirmForm
+                  action={confirmInvitationAction}
+                  fields={
+                    <>
+                      {org}
+                      <input type="hidden" name="invitationId" value={invitation.id} />
+                    </>
+                  }
+                  summary="Confirm"
+                  summaryLabel={`Confirm ${invitation.email}`}
+                  consequence={`Let ${invitation.email} join. Someone holding this link signed in with this address, but nothing has proven the address is theirs. Only confirm if you have checked with them.`}
+                  confirmLabel="Confirm"
+                  confirmFullLabel={`Confirm ${invitation.email}`}
+                />
+              )}
+              {open && (
+                <form action={revokeInvitationAction}>
+                  {org}
+                  <input type="hidden" name="invitationId" value={invitation.id} />
+                  <SubmitButton
+                    className="quiet"
+                    label={`Withdraw the invitation for ${invitation.email}`}
+                  >
+                    Withdraw
+                  </SubmitButton>
+                </form>
+              )}
+            </span>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
 export default async function PeoplePage({
   params,
   searchParams,
@@ -195,6 +251,12 @@ export default async function PeoplePage({
   const roleChoices = iAmOwner ? ['owner', 'admin', 'member'] : ['admin', 'member'];
   const org = <input type="hidden" name="organizationId" value={organizationId} />;
   const teamCandidates = members.filter((member) => member.status === 'active');
+  const isOpen = (invitation: Invitation) => {
+    const state = invitationState(invitation);
+    return state === 'Waiting' || state === 'Asking to join';
+  };
+  const open = invitations.filter(isOpen);
+  const past = invitations.filter((invitation) => !isOpen(invitation));
 
   return (
     <>
@@ -206,159 +268,95 @@ export default async function PeoplePage({
           {!seesEmail && (
             <p className="muted">Email addresses are only shown to owners and admins.</p>
           )}
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th scope="col">Name</th>
-                  {seesEmail && <th scope="col">Email</th>}
-                  <th scope="col">Access</th>
-                  <th scope="col">Status</th>
-                  {canManage && <th scope="col">Change</th>}
-                </tr>
-              </thead>
-              <tbody>
-                {members.map((member) => (
-                  <tr key={member.membershipId}>
-                    <td>
-                      {member.name}
-                      {member.membershipId === context.membershipId && <small> (you)</small>}
-                    </td>
-                    {seesEmail && <td>{member.email}</td>}
-                    <td>{ROLE_LABEL[member.role] ?? member.role}</td>
-                    <td>
-                      <span className={`badge ${member.status === 'active' ? 'done' : ''}`}>
-                        {member.status === 'active' ? 'Active' : 'Disabled'}
-                      </span>
-                    </td>
-                    {canManage && (
-                      <td>
-                        {canChange(member) ? (
-                          <div className="row">
-                            <form className="row" action={setRoleAction}>
+          <ul className="list">
+            {members.map((member) => (
+              <li key={member.membershipId} className="block">
+                <div className="member">
+                  <div className="who">
+                    {member.name}
+                    {member.membershipId === context.membershipId && <small> (you)</small>}
+                    {seesEmail && <small className="email">{member.email}</small>}
+                  </div>
+                  <span className={`badge ${member.status === 'active' ? 'done' : ''}`}>
+                    {member.status === 'active' ? 'Active' : 'Disabled'}
+                  </span>
+                  {canManage && canChange(member) ? (
+                    <>
+                      <form className="access-form" action={setRoleAction}>
+                        {org}
+                        <input type="hidden" name="membershipId" value={member.membershipId} />
+                        <select
+                          name="role"
+                          defaultValue={member.role}
+                          aria-label={`Access for ${member.name}`}
+                        >
+                          {roleChoices.map((role) => (
+                            <option key={role} value={role}>
+                              {ROLE_LABEL[role]}
+                            </option>
+                          ))}
+                        </select>
+                        <SubmitButton className="quiet" label={`Save access for ${member.name}`}>
+                          Save
+                        </SubmitButton>
+                      </form>
+                      {/* Disabling yourself would lock you out at once. */}
+                      {member.membershipId !== context.membershipId && (
+                        <ConfirmForm
+                          action={disableMemberAction}
+                          fields={
+                            <>
                               {org}
                               <input
                                 type="hidden"
                                 name="membershipId"
                                 value={member.membershipId}
                               />
-                              <select
-                                name="role"
-                                defaultValue={member.role}
-                                aria-label={`Access for ${member.name}`}
-                                style={{ width: 'auto' }}
-                              >
-                                {roleChoices.map((role) => (
-                                  <option key={role} value={role}>
-                                    {ROLE_LABEL[role]}
-                                  </option>
-                                ))}
-                              </select>
-                              <SubmitButton
-                                className="quiet"
-                                label={`Save access for ${member.name}`}
-                              >
-                                Save
-                              </SubmitButton>
-                            </form>
-                            {/* Disabling yourself would lock you out at once. */}
-                            {member.membershipId !== context.membershipId && (
-                              <ConfirmForm
-                                action={disableMemberAction}
-                                fields={
-                                  <>
-                                    {org}
-                                    <input
-                                      type="hidden"
-                                      name="membershipId"
-                                      value={member.membershipId}
-                                    />
-                                  </>
-                                }
-                                summary="Disable"
-                                summaryLabel={`Disable ${member.name}`}
-                                consequence={`Disable ${member.name} now. They lose access on their next click, the invitations they made stop working, and open reviews they were asked for close.`}
-                                confirmLabel="Disable"
-                              />
-                            )}
-                          </div>
-                        ) : (
-                          <small>
-                            {member.status !== 'active'
-                              ? 'Disabled'
-                              : member.role === 'owner' && activeOwners.length === 1
-                                ? 'The only owner'
-                                : 'Only an owner can change this'}
-                          </small>
-                        )}
-                      </td>
-                    )}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                            </>
+                          }
+                          summary="Disable"
+                          summaryLabel={`Disable ${member.name}`}
+                          consequence={`Disable ${member.name} now. They lose access on their next click, the invitations they made stop working, and open reviews they were asked for close.`}
+                          confirmLabel="Disable"
+                        />
+                      )}
+                    </>
+                  ) : (
+                    <small>
+                      {ROLE_LABEL[member.role] ?? member.role}
+                      {canManage &&
+                        member.status === 'active' &&
+                        (member.role === 'owner' && activeOwners.length === 1
+                          ? ', the only owner'
+                          : ', and only an owner can change this')}
+                    </small>
+                  )}
+                </div>
+              </li>
+            ))}
+          </ul>
         </section>
 
         {canInvite && (
           <section className="card" aria-labelledby="invitations-heading">
             <h2 id="invitations-heading">Invitations</h2>
-            {invitations.length === 0 ? (
-              <p className="muted">Nobody has been invited yet.</p>
+            {open.length === 0 ? (
+              <p className="muted">
+                {past.length === 0 ? 'Nobody has been invited yet.' : 'None open at the moment.'}
+              </p>
             ) : (
-              <ul className="list">
-                {invitations.map((invitation) => {
-                  const state = invitationState(invitation);
-                  return (
-                    <li key={invitation.id}>
-                      <span>
-                        {invitation.email}{' '}
-                        <small>
-                          {ROLE_LABEL[invitation.role] ?? invitation.role}
-                          {(state === 'Waiting' || state === 'Asking to join') &&
-                            `, until ${formatDate(invitation.expiresAt)}`}
-                        </small>
-                      </span>
-                      <span className="row">
-                        <span
-                          className={`badge ${state === 'Waiting' || state === 'Asking to join' ? 'attention' : ''}`}
-                        >
-                          {state}
-                        </span>
-                        {state === 'Asking to join' && (
-                          <ConfirmForm
-                            action={confirmInvitationAction}
-                            fields={
-                              <>
-                                {org}
-                                <input type="hidden" name="invitationId" value={invitation.id} />
-                              </>
-                            }
-                            summary="Confirm"
-                            summaryLabel={`Confirm ${invitation.email}`}
-                            consequence={`Let ${invitation.email} join. Someone holding this link signed in with this address, but nothing has proven the address is theirs. Only confirm if you have checked with them.`}
-                            confirmLabel={`Confirm ${invitation.email}`}
-                          />
-                        )}
-                        {(state === 'Waiting' || state === 'Asking to join') && (
-                          <form action={revokeInvitationAction}>
-                            {org}
-                            <input type="hidden" name="invitationId" value={invitation.id} />
-                            <SubmitButton
-                              className="quiet"
-                              label={`Withdraw the invitation for ${invitation.email}`}
-                            >
-                              Withdraw
-                            </SubmitButton>
-                          </form>
-                        )}
-                      </span>
-                    </li>
-                  );
-                })}
-              </ul>
+              <InvitationList invitations={open} org={org} />
             )}
-            <InviteForm organizationId={organizationId} />
+            {past.length > 0 && (
+              <details className="gap-above">
+                <summary>Past invitations ({past.length})</summary>
+                <InvitationList invitations={past} org={org} />
+              </details>
+            )}
+            <div className="divided">
+              <h3>Invite someone</h3>
+              <InviteForm organizationId={organizationId} />
+            </div>
           </section>
         )}
 
@@ -380,7 +378,7 @@ export default async function PeoplePage({
             />
           )}
           {canManageTeams && (
-            <form className="fields" action={createTeamAction} style={{ marginTop: '0.75rem' }}>
+            <form className="inline-form divided" action={createTeamAction}>
               {org}
               <label>
                 Team name
@@ -388,8 +386,7 @@ export default async function PeoplePage({
               </label>
               {teams.length > 0 && (
                 <label>
-                  Part of
-                  <small>Optional.</small>
+                  Part of (optional)
                   <select name="parentId" defaultValue="">
                     <option value="">No parent team</option>
                     {teams.map((team) => (
@@ -400,9 +397,7 @@ export default async function PeoplePage({
                   </select>
                 </label>
               )}
-              <div>
-                <SubmitButton className="quiet">Create team</SubmitButton>
-              </div>
+              <SubmitButton className="quiet">Create team</SubmitButton>
             </form>
           )}
         </section>

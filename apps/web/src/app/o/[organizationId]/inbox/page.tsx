@@ -1,4 +1,9 @@
-import { countUnread, INBOX_SIZE, listMyNotifications } from '@ensemus/application';
+import {
+  countUnread,
+  INBOX_SIZE,
+  listMyNotifications,
+  listMyPendingApprovals,
+} from '@ensemus/application';
 import Link from 'next/link';
 import { SubmitButton } from '@/components/submit-button';
 import { Empty, ErrorNotice, formatDateTime, PageHead } from '@/components/ui';
@@ -41,10 +46,16 @@ export default async function InboxPage({
   const { context, database } = await requireTenant(organizationId);
   const base = `/o/${organizationId}`;
   // In the order they come back in: reminders, then anything else unread, then what has been read.
-  const [ordered, unread] = await Promise.all([
+  const [ordered, unread, pending] = await Promise.all([
     listMyNotifications(database, context),
     countUnread(database, context),
+    listMyPendingApprovals(database, context),
   ]);
+  // Notifications hold references only. A decision still waiting for this person is one they are
+  // allowed to read, so its title can be shown, which tells the rows of a busy inbox apart.
+  const titleOf = new Map(
+    pending.map((approval) => [`approval:${approval.id}`, approval.workTitle]),
+  );
 
   return (
     <>
@@ -68,7 +79,7 @@ export default async function InboxPage({
           <ul className="list">
             {ordered.map((notification) => (
               <li key={notification.id}>
-                <form action={openNotificationAction}>
+                <form className="inbox-item" action={openNotificationAction}>
                   <input type="hidden" name="organizationId" value={organizationId} />
                   <input type="hidden" name="id" value={notification.id} />
                   <input
@@ -79,6 +90,9 @@ export default async function InboxPage({
                   <SubmitButton className="link">
                     {KIND_WORDS[notification.kind] ?? 'Something needs your attention'}
                   </SubmitButton>
+                  {titleOf.has(notification.targetRef) && (
+                    <small>{titleOf.get(notification.targetRef)}</small>
+                  )}
                 </form>
                 <span className="row">
                   <small>

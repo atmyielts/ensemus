@@ -78,9 +78,9 @@ export default async function WorkPage({
           <Link href={`${base}/work`}>Show all work</Link>
         </p>
       )}
-      <form className="row" method="get" style={{ marginBottom: '1rem' }}>
+      <form className="inline-form filter" method="get" style={{ marginBottom: '1rem' }}>
         {projectId && <input type="hidden" name="project" value={projectId} />}
-        <label className="check">
+        <label>
           Status
           <select name="status" defaultValue={filter ?? ''}>
             <option value="">All</option>
@@ -96,33 +96,59 @@ export default async function WorkPage({
         </button>
       </form>
       {items.length === 0 ? (
-        <Empty action={<Link href={`${base}/work/new`}>Describe an outcome</Link>}>
+        <Empty
+          action={
+            filter || projectId ? (
+              <Link href={`${base}/work`}>Show all work</Link>
+            ) : (
+              <Link href={`${base}/work/new`}>Describe an outcome</Link>
+            )
+          }
+        >
           {filter || projectId
             ? 'No work matches this filter.'
             : 'No work yet. Start with the outcome you want.'}
         </Empty>
       ) : (
         <div className="card table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th scope="col">Work</th>
-                <th scope="col">Status</th>
-                <th scope="col">Due</th>
-                <th scope="col">Sensitivity</th>
+          {/* The roles keep this a table for a screen reader when a small screen stacks its rows. */}
+          <table className="work-table" role="table">
+            <thead role="rowgroup">
+              <tr role="row">
+                <th role="columnheader" scope="col">
+                  Work
+                </th>
+                <th role="columnheader" scope="col">
+                  Status
+                </th>
+                <th role="columnheader" scope="col">
+                  Due
+                </th>
+                <th role="columnheader" scope="col">
+                  Sensitivity
+                </th>
               </tr>
             </thead>
-            <tbody>
+            <tbody role="rowgroup">
               {items.map((work) => (
-                <tr key={work.id}>
-                  <td>
+                <tr key={work.id} role="row">
+                  <td role="cell">
                     <Link href={`${base}/work/${work.id}`}>{work.title}</Link>
                   </td>
-                  <td>
+                  <td role="cell">
                     <StatusBadge status={work.status} />
                   </td>
-                  <td>{work.dueAt ? formatDate(work.dueAt) : <small>None</small>}</td>
-                  <td>
+                  {work.dueAt ? (
+                    <td role="cell" className="nowrap">
+                      <span className="due-word">Due </span>
+                      {formatDate(work.dueAt)}
+                    </td>
+                  ) : (
+                    <td role="cell" className="no-date">
+                      <small>None</small>
+                    </td>
+                  )}
+                  <td role="cell">
                     <ClassificationBadge value={work.classification} />
                   </td>
                 </tr>
@@ -132,7 +158,7 @@ export default async function WorkPage({
         </div>
       )}
       {nextCursor && (
-        <p style={{ marginTop: '1rem' }}>
+        <p className="gap-above-large">
           <Link
             href={`${base}/work?${new URLSearchParams({
               ...(filter ? { status: filter } : {}),

@@ -47,16 +47,19 @@ pnpm stack:down
 
 ## Check it
 
-| Command                                         | What it proves                                                                |
-| ----------------------------------------------- | ----------------------------------------------------------------------------- |
-| `pnpm lint`                                     | Code quality and architecture boundaries, such as no Temporal in the web tier |
-| `pnpm typecheck`                                | Strict types across the workspace                                             |
-| `pnpm test:unit`                                | Unit tests, including crypto and redaction                                    |
-| `pnpm test:integration`                         | Tenant isolation, roles, auth and secrets on real PostgreSQL                  |
-| `pnpm test:stack`                               | Durability, isolation and confidentiality against a running stack             |
-| `node infrastructure/scripts/air-gap-gate.mjs`  | The stack passes its tests with outbound traffic blocked, with zero attempts  |
-| `node infrastructure/scripts/build-release.mjs` | SBOMs and a signed manifest, verified with no network                         |
-| `pnpm check:backlog`                            | The backlog and traceability matrix are consistent                            |
-| `pnpm check:licenses`                           | No production dependency has an unreviewed license                            |
+| Command                                         | What it proves                                                                 |
+| ----------------------------------------------- | ------------------------------------------------------------------------------ |
+| `pnpm lint`                                     | Code quality and architecture boundaries, such as no Temporal in the web tier  |
+| `pnpm typecheck`                                | Strict types across the workspace                                              |
+| `pnpm test:unit`                                | Unit tests, including crypto and redaction                                     |
+| `pnpm test:integration`                         | Tenant isolation, roles, auth and secrets on real PostgreSQL                   |
+| `pnpm test:stack`                               | Durability, isolation and confidentiality against a running stack              |
+| `pnpm test:browser`                             | Accessibility, keyboard, live status and forms in Chromium, on a running stack |
+| `node infrastructure/scripts/air-gap-gate.mjs`  | The stack passes its tests with outbound traffic blocked, with zero attempts   |
+| `node infrastructure/scripts/build-release.mjs` | SBOMs and a signed manifest, verified with no network                          |
+| `pnpm check:backlog`                            | The backlog and traceability matrix are consistent                             |
+| `pnpm check:licenses`                           | No production dependency has an unreviewed license                             |
 
 Secrets generated here are throwaway test values, kept in `.local/` and ignored by git. Never use them for anything real.
+
+Browser tests need Chromium once, with `pnpm --filter @ensemus/browser-tests exec playwright install chromium`. They save a screenshot of every page and state under `.local/screenshots`. They stop web and rename tables on purpose, so run them on a test stack and nothing else.

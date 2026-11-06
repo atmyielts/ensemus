@@ -23,7 +23,7 @@ export function InviteForm({ organizationId }: { organizationId: string }) {
             Invitation link
             <input readOnly value={state.link} />
           </label>
-          <p style={{ margin: '0.5rem 0 0' }}>
+          <p className="gap-above">
             This link is shown once, so copy it now and send it privately. It works once, for the
             email address you invited. It expires in 7 days, or as soon as you lose the right to
             invite people. If that person&apos;s address has not been proven, you confirm them here
@@ -31,7 +31,7 @@ export function InviteForm({ organizationId }: { organizationId: string }) {
           </p>
         </div>
       )}
-      <form className="fields" action={action} style={{ marginTop: '0.75rem' }}>
+      <form className="inline-form" action={action}>
         <input type="hidden" name="organizationId" value={organizationId} />
         <label>
           Email address
@@ -43,16 +43,19 @@ export function InviteForm({ organizationId }: { organizationId: string }) {
             defaultValue={state.values?.email ?? ''}
           />
         </label>
-        <label>
+        <label style={{ flex: '0 1 9rem' }}>
           Access
-          <select name="role" defaultValue={state.values?.role ?? 'member'}>
+          {/* The key brings a refused choice back: React only reads defaultValue on a new select. */}
+          <select
+            key={state.values?.role}
+            name="role"
+            defaultValue={state.values?.role ?? 'member'}
+          >
             <option value="member">Member</option>
             <option value="admin">Admin</option>
           </select>
         </label>
-        <div>
-          <SubmitButton>Create invitation</SubmitButton>
-        </div>
+        <SubmitButton>Create invitation</SubmitButton>
       </form>
     </>
   );

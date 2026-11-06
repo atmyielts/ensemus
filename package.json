@@ -15,6 +15,7 @@
     "test:integration": "vitest run --project integration",
     "test:replay": "vitest run --project replay",
     "test:stack": "vitest run --project stack",
+    "test:browser": "pnpm --filter @ensemus/browser-tests test",
     "test:upgrade": "node infrastructure/scripts/upgrade-gate.mjs",
     "check:backlog": "node docs/specifications/tools/check-backlog.mjs",
     "check:contracts": "pnpm --filter @ensemus/contracts generate && git diff --exit-code packages/contracts/generated",

@@ -103,10 +103,13 @@ describe('what the pages say', () => {
         expect(attention).not.toContain(`${title} ${suffix}`);
       }
       const mine = sectionOf(html, 'mine-heading');
-      for (const title of ['Blocked', 'Later', 'Quiet']) {
+      for (const title of ['Later', 'Quiet']) {
         expect(mine).toContain(`${title} ${suffix}`);
       }
-      expect(mine).not.toContain(`Finished ${suffix}`);
+      // Already listed under Needs attention, straight above, or finished.
+      for (const title of ['Blocked', 'Failed', 'Late ', 'Finished']) {
+        expect(mine).not.toContain(`${title} ${suffix}`);
+      }
     });
 
     it('shows nobody else’s trouble, and no work they may not see', async () => {

@@ -72,6 +72,39 @@ jobs:
         if: failure()
         run: docker compose -f infrastructure/compose/compose.yaml -f infrastructure/compose/compose.test.yaml -f infrastructure/compose/compose.airgap.yaml logs --tail 50
 
+  # Real browser tests through the proxy (UX-11 to UX-14, API-13). Chromium is installed here and only
+  # here, on the runner, so this stays apart from the air-gap gate above and never runs under it.
+  browser:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm stack:secrets
+      - name: Start the stack
+        run: docker compose -f infrastructure/compose/compose.yaml -f infrastructure/compose/compose.test.yaml up -d --build --wait --wait-timeout 300
+      - name: Install Chromium
+        run: pnpm --filter @ensemus/browser-tests exec playwright install --with-deps chromium
+      - name: Browser tests - axe, keyboard, live status, forms, no JavaScript
+        run: pnpm test:browser
+      - name: Keep the screenshots and any failure traces
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: browser-results
+          path: |
+            .local/screenshots
+            .local/playwright-results
+          include-hidden-files: true
+          if-no-files-found: ignore
+      - name: Show service logs on failure
+        if: failure()
+        run: docker compose -f infrastructure/compose/compose.yaml -f infrastructure/compose/compose.test.yaml logs --tail 50
+
   upgrade:
     runs-on: ubuntu-24.04
     timeout-minutes: 30

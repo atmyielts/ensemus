@@ -42,13 +42,42 @@ const REVIEWED_EXCEPTIONS = {
     'File-level copyleft, used unmodified. Obligations apply only to changes in those files.',
 };
 
-const output = execFileSync('pnpm', ['licenses', 'list', '--prod', '--json', '-r'], {
-  cwd: root,
-  encoding: 'utf8',
-  shell: process.platform === 'win32',
-  maxBuffer: 64 * 1024 * 1024,
-});
-const byLicense = JSON.parse(output);
+const licenses = (...args) =>
+  JSON.parse(
+    execFileSync('pnpm', ['licenses', 'list', '--json', ...args], {
+      cwd: root,
+      encoding: 'utf8',
+      shell: process.platform === 'win32',
+      maxBuffer: 64 * 1024 * 1024,
+    }),
+  );
+const byLicense = licenses('--prod', '-r');
+
+// Playwright and axe are dev dependencies of tests/browser. They are never redistributed, but their
+// licenses are still reviewed here, and neither may ever reach what ships.
+const BROWSER_TOOLS =
+  /^(@playwright\/test|playwright|playwright-core|@axe-core\/playwright|axe-core)$/;
+const shipped = Object.values(byLicense)
+  .flat()
+  .filter((p) => BROWSER_TOOLS.test(p.name))
+  .map((p) => p.name);
+if (shipped.length) {
+  console.error(`FAILED: browser test tools reached production: ${shipped.join(', ')}`);
+  process.exit(1);
+}
+const devByLicense = licenses('--dev', '--filter', '@ensemus/browser-tests');
+const tools = Object.entries(devByLicense).flatMap(([license, packages]) =>
+  packages.filter((p) => BROWSER_TOOLS.test(p.name)).map((p) => [license, p.name]),
+);
+for (const [license, name] of tools) {
+  if (!ALLOWED.has(license) && !REVIEWED_EXCEPTIONS[license]) {
+    console.error(`FAILED: ${name} is under ${license}, which has not been reviewed.`);
+    process.exit(1);
+  }
+}
+console.log(
+  `Browser test tools, dev only: ${tools.map(([license, name]) => `${name} (${license})`).join(', ')}.`,
+);
 
 const blocked = [];
 const exceptions = [];

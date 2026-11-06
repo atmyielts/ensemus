@@ -40,7 +40,7 @@ export default async function ApprovalsPage({
                   <small>{TOOL_WORDS[approval.toolName] ?? 'A proposed action'}</small>
                 </span>
                 <span className="row">
-                  <small>Until {formatDateTime(approval.expiresAt)}</small>
+                  <small className="nowrap">Until {formatDateTime(approval.expiresAt)}</small>
                   <span className="badge attention">Waiting</span>
                 </span>
               </li>

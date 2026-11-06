@@ -3,8 +3,9 @@ import type { CommercialMode } from '@ensemus/config';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import type { ReactNode } from 'react';
+import { KeptInput } from '@/components/kept-field';
 import { SubmitButton } from '@/components/submit-button';
-import { ErrorNotice } from '@/components/ui';
+import { ErrorNotice, Wordmark } from '@/components/ui';
 import { createOrganizationAction, signOutAction } from '@/server/actions';
 import { requireActor } from '@/server/actor';
 import { organizationsWithAccess } from '@/server/organizations';
@@ -44,8 +45,8 @@ const ROLE_LABEL: Record<string, string> = { owner: 'Owner', admin: 'Admin', mem
 
 function Account({ email }: { email: string }) {
   return (
-    <div className="row" style={{ justifyContent: 'space-between', marginBottom: '1.5rem' }}>
-      <span className="muted">{email}</span>
+    <div className="account-bar">
+      <span>{email}</span>
       <form action={signOutAction}>
         <button className="link" type="submit">
           Sign out
@@ -58,8 +59,9 @@ function Account({ email }: { email: string }) {
 function Page({ children, email }: { children: ReactNode; email: string }) {
   return (
     <main className="centered">
+      <Wordmark />
       <Account email={email} />
-      {children}
+      <div className="sheet">{children}</div>
     </main>
   );
 }
@@ -111,15 +113,21 @@ export default async function HomePage({
         <input type="hidden" name="requestKey" value={randomUUID()} />
         <label>
           Organization name
-          <input name="name" autoComplete="organization" required maxLength={120} />
+          <KeptInput
+            keep="organization-name"
+            name="name"
+            autoComplete="organization"
+            required
+            maxLength={120}
+          />
         </label>
-        <section className="card" aria-labelledby="responsibility-heading">
+        <section className="panel" aria-labelledby="responsibility-heading">
           <h2 id="responsibility-heading">Who is responsible for your data</h2>
           <p>This deployment is {responsibility.name}.</p>
           {responsibility.points.map((point) => (
             <p key={point}>{point}</p>
           ))}
-          <p style={{ marginBottom: 0 }}>
+          <p>
             AI features are not active yet, so nothing in your organization is sent to an AI model
             today.
           </p>

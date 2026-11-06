@@ -33,28 +33,33 @@ export default async function OrganizationLayout({
         Skip to content
       </a>
       <aside className="sidebar">
-        <div>
-          <Link className="brand" href={base}>
-            Ensemus
-          </Link>
-          <div className="org-name">{organization.name}</div>
-        </div>
-        <MainNav
-          items={[
-            { href: base, label: 'Home', exact: true },
-            { href: `${base}/work`, label: 'Work' },
-            { href: `${base}/approvals`, label: 'Approvals', count: pending.length },
-            { href: `${base}/people`, label: 'People and teams' },
-            { href: `${base}/clients`, label: 'Clients and projects' },
-            { href: `${base}/inbox`, label: 'Inbox', count: unread },
-          ]}
-        />
-        <div className="sidebar-end">
-          {organizations.length > 1 && <Link href="/">Switch organization</Link>}
-          <span className="muted">{actor.email}</span>
-          <form action={signOutAction}>
-            <SubmitButton className="link">Sign out</SubmitButton>
-          </form>
+        <div className="sidebar-inner">
+          <div>
+            <Link className="brand" href={base}>
+              Ensemus
+            </Link>
+            <div className="org-name">{organization.name}</div>
+          </div>
+          <MainNav
+            items={[
+              { href: base, label: 'Home', exact: true },
+              { href: `${base}/work`, label: 'Work' },
+              { href: `${base}/approvals`, label: 'Approvals', count: pending.length },
+              { href: `${base}/people`, label: 'People and teams' },
+              { href: `${base}/clients`, label: 'Clients and projects' },
+              { href: `${base}/inbox`, label: 'Inbox', count: unread },
+            ]}
+          />
+          <div className="sidebar-end">
+            {organizations.length > 1 && <Link href="/">Switch organization</Link>}
+            <span className="account-name">{actor.name}</span>
+            <span className="account-email">{actor.email}</span>
+            <form action={signOutAction}>
+              <SubmitButton className="link" working="Signing out">
+                Sign out
+              </SubmitButton>
+            </form>
+          </div>
         </div>
       </aside>
       <main id="main" className="content">

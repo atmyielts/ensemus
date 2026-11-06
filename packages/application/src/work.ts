@@ -1,5 +1,5 @@
 // Work Unit services. Each one checks permission itself: callers are not trusted to have done so.
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import {
   appendAudit,
   artifacts,
@@ -79,6 +79,7 @@ export const createWorkInput = z.strictObject({
   dueAt: z.coerce.date().optional(),
   completionCriteria: criteriaSchema.default([]),
   executionPlan: z.enum(['checklist']).optional(),
+  requestKey: z.uuid().optional(),
 });
 
 export const updateWorkInput = z.strictObject({
@@ -183,6 +184,17 @@ async function assertActiveMember(tx: Tx, membershipId: string) {
   if (member?.status !== 'active') throw new AppError('INVALID_INPUT');
 }
 
+/** An ID only this person and this form can arrive at, so nobody else can aim at a Work Unit. */
+function workIdFor(membershipId: string, requestKey: string) {
+  const hex = createHash('sha256').update(`work:${membershipId}:${requestKey}`).digest('hex');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-5${hex.slice(13, 16)}-8${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
+}
+
+/**
+ * Creates a Work Unit. A `requestKey` makes this safe to repeat: the key from one rendered form always
+ * leads to the same Work Unit, so a double-click or a resent page gets the first one back and creates
+ * nothing.
+ */
 export async function createWorkUnit(
   database: AppDatabase,
   context: TenantContext,
@@ -192,7 +204,7 @@ export async function createWorkUnit(
   const parsed = createWorkInput.safeParse(raw);
   if (!parsed.success) throw new AppError('INVALID_INPUT');
   const input = parsed.data;
-  const id = randomUUID();
+  const id = input.requestKey ? workIdFor(context.membershipId, input.requestKey) : randomUUID();
   return withTenantTx(database, context, async (tx) => {
     const owner = input.ownerMembershipId ?? context.membershipId;
     await assertActiveMember(tx, owner);
@@ -211,7 +223,9 @@ export async function createWorkUnit(
         completionCriteria: input.completionCriteria,
         executionPlan: input.executionPlan ?? null,
       })
+      .onConflictDoNothing()
       .returning();
+    if (!row) return loadReadable(tx, context, id);
     // The creator is on the work the way anyone else is: listed, and removable once it has moved.
     await tx.insert(workAssignments).values({
       organizationId: context.organizationId,

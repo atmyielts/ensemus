@@ -1,5 +1,6 @@
 // Shared display pieces (UX-11). Copy follows the spec's employee-facing terms: "work", "approval"
 // and plain status words, never internal names.
+import Link from 'next/link';
 import { messageFor } from '@/lib/messages';
 import type { ReactNode } from 'react';
 
@@ -41,6 +42,15 @@ const CLASSIFICATION: Record<string, string> = {
 export function ClassificationBadge({ value }: { value: string }) {
   const tone = value === 'restricted' || value === 'confidential' ? 'attention' : '';
   return <span className={`badge ${tone}`}>{CLASSIFICATION[value] ?? value}</span>;
+}
+
+/** The product's name, above the pages shown outside an organization. */
+export function Wordmark() {
+  return (
+    <Link className="wordmark" href="/">
+      Ensemus
+    </Link>
+  );
 }
 
 export function PageHead({

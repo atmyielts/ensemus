@@ -293,6 +293,64 @@ describe('work', () => {
     });
   });
 
+  describe('creating work from one form', () => {
+    const titled = async (id: string) => {
+      const su = await superuser();
+      try {
+        const { rows } = await su.query(
+          `select (select count(*)::int from work.work_units where id = $1) as units,
+                  (select count(*)::int from work.work_assignments where work_unit_id = $1) as people,
+                  (select count(*)::int from platform.domain_events
+                    where aggregate_id = $1 and event_type = 'work.created') as events`,
+          [id],
+        );
+        return rows[0];
+      } finally {
+        await su.end();
+      }
+    };
+
+    it('makes one Work Unit however many times the same form is sent', async () => {
+      const a = await newOrg();
+      const requestKey = randomUUID();
+      const [one, two] = await Promise.all([
+        createWorkUnit(db(), a, { title: 'Sent twice at once', requestKey }),
+        createWorkUnit(db(), a, { title: 'Sent twice at once', requestKey }),
+      ]);
+      const three = await createWorkUnit(db(), a, { title: 'Sent again', requestKey });
+      expect(two.id).toBe(one.id);
+      expect(three.id).toBe(one.id);
+      expect(three.title).toBe('Sent twice at once');
+      expect(await titled(one.id)).toEqual({ units: 1, people: 1, events: 1 });
+    });
+
+    it('makes another when the form is a new one', async () => {
+      const a = await newOrg();
+      const one = await createWorkUnit(db(), a, { title: 'Same', requestKey: randomUUID() });
+      const two = await createWorkUnit(db(), a, { title: 'Same', requestKey: randomUUID() });
+      const three = await createWorkUnit(db(), a, { title: 'Same' });
+      expect(new Set([one.id, two.id, three.id]).size).toBe(3);
+    });
+
+    it('gives nothing back of someone else’s, whoever holds the same key', async () => {
+      const a = await newOrg();
+      const colleague = await join(a, 'colleague');
+      const stranger = await newOrg('stranger');
+      const requestKey = randomUUID();
+      const mine = await createWorkUnit(db(), a, {
+        title: 'Restricted original',
+        classification: 'restricted',
+        requestKey,
+      });
+      const theirs = await createWorkUnit(db(), colleague, { title: 'Theirs', requestKey });
+      const outside = await createWorkUnit(db(), stranger, { title: 'Outside', requestKey });
+      expect(theirs.id).not.toBe(mine.id);
+      expect(theirs.title).toBe('Theirs');
+      expect(outside.title).toBe('Outside');
+      await expect(getWorkUnit(db(), colleague, mine.id)).rejects.toEqual(code('NOT_FOUND'));
+    });
+  });
+
   describe('versions', () => {
     it('rejects a stale edit instead of overwriting (Gate B)', async () => {
       const a = await newOrg();

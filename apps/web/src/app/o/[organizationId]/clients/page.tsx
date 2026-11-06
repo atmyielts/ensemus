@@ -48,15 +48,13 @@ export default async function ClientsPage({
             </ul>
           )}
           {canAddClient && (
-            <form className="fields" action={createClientAction} style={{ marginTop: '0.75rem' }}>
+            <form className="inline-form divided" action={createClientAction}>
               {org}
               <label>
                 Client name
                 <input name="displayName" required maxLength={200} autoComplete="off" />
               </label>
-              <div>
-                <SubmitButton>Add client</SubmitButton>
-              </div>
+              <SubmitButton className="quiet">Add client</SubmitButton>
             </form>
           )}
         </section>
@@ -80,7 +78,7 @@ export default async function ClientsPage({
             </ul>
           )}
           {canAddProject && (
-            <form className="fields" action={createProjectAction} style={{ marginTop: '0.75rem' }}>
+            <form className="inline-form divided" action={createProjectAction}>
               {org}
               <label>
                 Project name
@@ -88,8 +86,7 @@ export default async function ClientsPage({
               </label>
               {clients.length > 0 && (
                 <label>
-                  Client
-                  <small>Optional.</small>
+                  Client (optional)
                   <select name="clientId" defaultValue="">
                     <option value="">No client</option>
                     {clients.map((client) => (
@@ -100,9 +97,7 @@ export default async function ClientsPage({
                   </select>
                 </label>
               )}
-              <div>
-                <SubmitButton className="quiet">Add project</SubmitButton>
-              </div>
+              <SubmitButton className="quiet">Add project</SubmitButton>
             </form>
           )}
         </section>
