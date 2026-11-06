@@ -30,10 +30,11 @@ M3 was composed with the newer M2 controls on `codex/platform-completion` (`0cd3
 | Full PostgreSQL integration on isolated `ensemus-m3-integration` | **819 passed**, 20 files |
 | `pnpm test:replay` | **90 passed**, 16 explicit capture cases skipped |
 | Connector stack files: Slice 2, webhook route, external action API | Initial **33 passed, 1 failed, 1 skipped**; the new self-approval assertion expected 409 while the correct result was 403. Corrected API file rerun: **17 passed** |
-| Other built-stack files | **300 passed, 1 failed**; the aggregate API coverage check incorrectly included operations owned and checked by the dedicated connector file. Scoped it to its own operations; complete API file rerun: **54 passed** |
+| Other built-stack files | Initial **300 passed, 1 failed**; scoped the API coverage check to its owned operations; API rerun **54 passed**. Final full offline stack suite: **318 passed, 18 explicitly skipped**, 20 files; skips are connector-profile-only paths, covered separately |
 | Full browser run | Initial **141 passed, 6 failed**; fixed a real accessible-label mismatch and two test assumptions (oldest-first queue and sign-out navigation timing) |
 | Browser confirmation: `external-actions.spec.ts`, `drafts.spec.ts` | **27 passed**, including all affected journeys and the four receipt-state axe checks in both themes/widths |
 | Air-gap deliberate-attempt control, isolated private subnet | **Passed**: direct and DNS attempts detected; container addresses checked |
+| Full offline stack and dependency outages | **318 passed, 18 skipped**, six outage rounds matched expected responses, **zero outbound attempts** |
 | Connector zero-egress air-gap round | **11 passed**, five messages reached the test relay, **zero outbound attempts** |
 
 The SMTP reader now bounds aggregate unread wire bytes, including parsed multiline replies and queued complete replies. Four focused parser checks pass, including two negative controls that failed before the fix. No real relay or provider was contacted. Local logs are in the ignored `.local/m3-*.log`; the table records their results without treating those local files as durable CI evidence.
