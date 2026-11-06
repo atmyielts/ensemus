@@ -570,6 +570,642 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/organizations/{organization_id}/work-units/{work_unit_id}/external-actions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+                work_unit_id: components["parameters"]["WorkUnitID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Propose an email, for a named person to approve exactly as written */
+        post: {
+            parameters: {
+                query?: never;
+                header: {
+                    "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                };
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                    work_unit_id: components["parameters"]["WorkUnitID"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["ProposeEmailAction"];
+                };
+            };
+            responses: {
+                /** @description Proposed. Nothing has been sent, and nothing is sent without that approval. */
+                201: {
+                    headers: {
+                        ETag: components["headers"]["ETag"];
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ProposedExternalAction"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                409: components["responses"]["Conflict"];
+                413: components["responses"]["PayloadTooLarge"];
+                415: components["responses"]["UnsupportedMediaType"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/organizations/{organization_id}/external-actions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+            };
+            cookie?: never;
+        };
+        /** External actions on work the caller can read */
+        get: {
+            parameters: {
+                query?: {
+                    cursor?: string;
+                    status?: components["schemas"]["ExternalActionStatus"];
+                    work_unit_id?: string;
+                };
+                header?: never;
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Permission-filtered page */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            items: components["schemas"]["ExternalActionSummary"][];
+                            next_cursor: string | null;
+                        };
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                404: components["responses"]["NotFound"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/organizations/{organization_id}/external-actions/{external_action_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+                external_action_id: components["parameters"]["ExternalActionID"];
+            };
+            cookie?: never;
+        };
+        /** One external action, with its exact payload and every receipt */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                    external_action_id: components["parameters"]["ExternalActionID"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The action. `unknown` means nobody can say whether it was sent. */
+                200: {
+                    headers: {
+                        ETag: components["headers"]["ETag"];
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ExternalAction"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                404: components["responses"]["NotFound"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/organizations/{organization_id}/external-actions/{external_action_id}/revisions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+                external_action_id: components["parameters"]["ExternalActionID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Change what would be sent. This closes the action and its approval, and asks for a new one */
+        post: {
+            parameters: {
+                query?: never;
+                header: {
+                    /** @description The version last read, as sent in the ETag response header. Weak tags, lists and * are refused. */
+                    "If-Match": components["parameters"]["IfMatch"];
+                };
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                    external_action_id: components["parameters"]["ExternalActionID"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["ReviseEmailAction"];
+                };
+            };
+            responses: {
+                /** @description A new action, waiting for its own approval. The old one can no longer be sent. */
+                201: {
+                    headers: {
+                        ETag: components["headers"]["ETag"];
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ProposedExternalAction"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                409: components["responses"]["Conflict"];
+                413: components["responses"]["PayloadTooLarge"];
+                415: components["responses"]["UnsupportedMediaType"];
+                428: components["responses"]["PreconditionRequired"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/organizations/{organization_id}/external-actions/{external_action_id}/resolution": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+                external_action_id: components["parameters"]["ExternalActionID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Say what happened to an action in the unknown state. It never sends anything */
+        post: {
+            parameters: {
+                query?: never;
+                header: {
+                    /** @description The version last read, as sent in the ETag response header. Weak tags, lists and * are refused. */
+                    "If-Match": components["parameters"]["IfMatch"];
+                };
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                    external_action_id: components["parameters"]["ExternalActionID"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        /** @enum {string} */
+                        resolution: "confirmed_sent" | "confirmed_not_sent";
+                        reason: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description Recorded, as this person's word */
+                200: {
+                    headers: {
+                        ETag: components["headers"]["ETag"];
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ExternalAction"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                409: components["responses"]["Conflict"];
+                413: components["responses"]["PayloadTooLarge"];
+                415: components["responses"]["UnsupportedMediaType"];
+                428: components["responses"]["PreconditionRequired"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/organizations/{organization_id}/external-actions/{external_action_id}/retries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+                external_action_id: components["parameters"]["ExternalActionID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Ask again for an action that ended failed, as a new action with a new approval */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                    external_action_id: components["parameters"]["ExternalActionID"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        /** Format: uuid */
+                        approver_membership_id: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description A new action, waiting for its own approval */
+                201: {
+                    headers: {
+                        ETag: components["headers"]["ETag"];
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ProposedExternalAction"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                409: components["responses"]["Conflict"];
+                413: components["responses"]["PayloadTooLarge"];
+                415: components["responses"]["UnsupportedMediaType"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/organizations/{organization_id}/connections": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+            };
+            cookie?: never;
+        };
+        /** Connections in this organization, without their credentials */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Connections */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            items: components["schemas"]["Connection"][];
+                        };
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        put?: never;
+        /** Add a connection. A credential is sealed on arrival and can never be read back */
+        post: {
+            parameters: {
+                query?: never;
+                header: {
+                    "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                };
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        connector_type: string;
+                        display_name: string;
+                        /** @description Checked against that connector's settings. It can never name a host. */
+                        config: {
+                            [key: string]: unknown;
+                        };
+                        credential?: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description Connection, without its credential */
+                201: {
+                    headers: {
+                        ETag: components["headers"]["ETag"];
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Connection"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                409: components["responses"]["Conflict"];
+                413: components["responses"]["PayloadTooLarge"];
+                415: components["responses"]["UnsupportedMediaType"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/organizations/{organization_id}/connections/{connection_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+                connection_id: components["parameters"]["ConnectionID"];
+            };
+            cookie?: never;
+        };
+        /** One connection, without its credential */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                    connection_id: components["parameters"]["ConnectionID"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Connection */
+                200: {
+                    headers: {
+                        ETag: components["headers"]["ETag"];
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Connection"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        put?: never;
+        post?: never;
+        /** Revoke a connection. Nothing not yet attempted goes out through it after this */
+        delete: {
+            parameters: {
+                query?: never;
+                header: {
+                    /** @description The version last read, as sent in the ETag response header. Weak tags, lists and * are refused. */
+                    "If-Match": components["parameters"]["IfMatch"];
+                };
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                    connection_id: components["parameters"]["ConnectionID"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Revoked */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                409: components["responses"]["Conflict"];
+                428: components["responses"]["PreconditionRequired"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/organizations/{organization_id}/connections/{connection_id}/sync": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+                connection_id: components["parameters"]["ConnectionID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Ask a connection to read its source now */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                    connection_id: components["parameters"]["ConnectionID"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Asked. The connection's state shows how it went. */
+                202: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                409: components["responses"]["Conflict"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/organizations/{organization_id}/connections/{connection_id}/webhook-endpoints": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+                connection_id: components["parameters"]["ConnectionID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Make a callback address. Its URL and signing secret are shown here once, and never again */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                    connection_id: components["parameters"]["ConnectionID"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The address and its secret. Only hashes and sealed values are kept. */
+                201: {
+                    headers: {
+                        /** @description This response holds secrets, so nothing may keep it. */
+                        "Cache-Control": "no-store";
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["CreatedWebhookEndpoint"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                409: components["responses"]["Conflict"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/organizations/{organization_id}/knowledge/search": {
         parameters: {
             query?: never;
@@ -796,6 +1432,133 @@ export interface components {
             /** Format: date-time */
             confirmed_at: string;
         };
+        /** @description Plain text, with no attachments. The sender comes from the connection. */
+        EmailContent: {
+            to: string[];
+            cc?: string[];
+            bcc?: string[];
+            /** Format: email */
+            reply_to?: string;
+            subject: string;
+            text_body: string;
+        };
+        ProposeEmailAction: {
+            /** Format: uuid */
+            connection_id: string;
+            /** Format: uuid */
+            approver_membership_id: string;
+            email: components["schemas"]["EmailContent"];
+        };
+        ReviseEmailAction: {
+            /** Format: uuid */
+            approver_membership_id: string;
+            email: components["schemas"]["EmailContent"];
+        };
+        ProposedExternalAction: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            approval_id: string;
+            /** @description What the approval binds. It covers every field sent. */
+            request_hash: string;
+            status: components["schemas"]["ExternalActionStatus"];
+        };
+        /**
+         * @description `sent` means the provider accepted it, which for email is the mail server taking it and not the message reaching an inbox. `failed` means it was not sent. `unknown` means it could have gone and the provider cannot say, so it waits for a person and is never sent again by itself.
+         * @enum {string}
+         */
+        ExternalActionStatus: "awaiting_approval" | "ready" | "sending" | "reconciling" | "sent" | "failed" | "unknown" | "cancelled";
+        ExternalActionSummary: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            work_unit_id: string;
+            work_title: string;
+            tool_name: string;
+            status: components["schemas"]["ExternalActionStatus"];
+            /** @description A code from a fixed list. Never provider text. */
+            status_reason: string | null;
+            version: number;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        ExternalActionReceipt: {
+            /** @enum {string} */
+            outcome: "sent" | "failed" | "unknown" | "cancelled";
+            /**
+             * @description Whose word this is. `person` is what someone said they found, not a provider's answer.
+             * @enum {string}
+             */
+            basis: "provider" | "reconciliation" | "person" | "system";
+            code: string | null;
+            provider_status: number | null;
+            /** @description For email */
+            external_id: string | null;
+            actor_name: string | null;
+            /** Format: date-time */
+            recorded_at: string;
+        };
+        ExternalAction: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            work_unit_id: string;
+            work_title: string;
+            tool_name: string;
+            status: components["schemas"]["ExternalActionStatus"];
+            status_reason: string | null;
+            version: number;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+            connection_name: string;
+            /** @description Exactly what the approval binds. It cannot be changed once created. */
+            payload: {
+                [key: string]: unknown;
+            };
+            request_hash: string;
+            /** Format: uuid */
+            approval_id: string | null;
+            external_id: string | null;
+            /** Format: uuid */
+            supersedes_id: string | null;
+            /** Format: uuid */
+            retry_of_id: string | null;
+            attempt_count: number;
+            receipts: components["schemas"]["ExternalActionReceipt"][];
+            /** @enum {string|null} */
+            resolution: "confirmed_sent" | "confirmed_not_sent" | null;
+            resolution_reason: string | null;
+            resolved_by_name: string | null;
+            can_resolve: boolean;
+            can_retry: boolean;
+        };
+        Connection: {
+            /** Format: uuid */
+            id: string;
+            connector_type: string;
+            display_name: string;
+            /** @enum {string} */
+            state: "active" | "disabled" | "revoked";
+            has_credential: boolean;
+            last_error_code: string | null;
+            version: number;
+            /** Format: date-time */
+            created_at: string;
+        };
+        CreatedWebhookEndpoint: {
+            /** Format: uuid */
+            id: string;
+            /** @description Shown once. It holds the only copy of the token. */
+            url: string;
+            /** @description Shown once. Only a sealed copy is kept. */
+            signing_secret: string;
+            /** @enum {string} */
+            signature_scheme: "ensemus_hmac_sha256_v1";
+        };
         AgentRun: {
             /** Format: uuid */
             id: string;
@@ -930,6 +1693,11 @@ export interface components {
         /** @description Requires authenticated organization membership; UUID alone is never authorization. */
         OrganizationID: string;
         IdempotencyKey: string;
+        /** @description The version last read, as sent in the ETag response header. Weak tags, lists and * are refused. */
+        IfMatch: string;
+        WorkUnitID: string;
+        ExternalActionID: string;
+        ConnectionID: string;
     };
     requestBodies: never;
     headers: {

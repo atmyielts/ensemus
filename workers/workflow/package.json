@@ -16,8 +16,10 @@
   "devDependencies": {
     "@ensemus/application": "workspace:*",
     "@ensemus/config": "workspace:*",
+    "@ensemus/connectors": "workspace:*",
     "@ensemus/database": "workspace:*",
     "@ensemus/domain": "workspace:*",
+    "@ensemus/secrets": "workspace:*",
     "@ensemus/storage": "workspace:*",
     "@ensemus/telemetry": "workspace:*",
     "@ensemus/workflows": "workspace:*",

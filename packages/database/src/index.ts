@@ -23,13 +23,16 @@ export {
   withNewTenantTx,
   withTenantTx,
   withUserTx,
+  withWebhookEndpointTx,
   type AppDatabase,
   type TenantContext,
   type Tx,
+  type WebhookEndpointRow,
 } from './tenant';
 export {
   auditEvents,
   domainEvents,
+  inboxEvents,
   memberships,
   organizations,
   outboxEvents,
@@ -37,3 +40,4 @@ export {
   users,
 } from './schema';
 export * from './schema-work';
+export * from './schema-integrations';

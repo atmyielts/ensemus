@@ -11,13 +11,18 @@
     "./safe-logger": "./src/safe-logger.ts",
     "./schemas": "./src/schemas.ts",
     "./activities": "./src/activities.ts",
-    "./workflows": "./src/workflows.ts"
+    "./workflows": "./src/workflows.ts",
+    "./connector-deps": "./src/connector-deps.ts",
+    "./external-action-activities": "./src/external-action-activities.ts",
+    "./webhook-activities": "./src/webhook-activities.ts",
+    "./connector-sync-activities": "./src/connector-sync-activities.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@ensemus/application": "workspace:*",
+    "@ensemus/connectors": "workspace:*",
     "@ensemus/database": "workspace:*",
     "@ensemus/domain": "workspace:*",
     "@ensemus/telemetry": "workspace:*",

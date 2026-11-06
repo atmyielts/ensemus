@@ -24,7 +24,17 @@ describe('loadWebConfig', () => {
       mode: 'sovereign',
       publicUrl: 'https://e.example',
       allowSignup: false,
+      connectorsEnabled: false,
     });
+  });
+
+  it('turns connectors on only when asked', () => {
+    expect(loadWebConfig({ ...valid, ENSEMUS_CONNECTORS_ENABLED: 'true' }).connectorsEnabled).toBe(
+      true,
+    );
+    expect(() => loadWebConfig({ ...valid, ENSEMUS_CONNECTORS_ENABLED: 'yes' })).toThrow(
+      /ENSEMUS_CONNECTORS_ENABLED/,
+    );
   });
 
   it('names the bad field but never its value', () => {

@@ -1,0 +1,8 @@
+# Replay capture overlay. Lets parallel runs each reach their own Temporal, on a port they choose, to
+# record a history for tests/replay. Never used in a real deployment. Use it with compose.yaml and
+# compose.test.yaml, in a project of your own, and start only what capture needs:
+#   docker compose -p <yours> -f compose.yaml -f compose.test.yaml -f compose.capture.yaml \
+#     up -d --wait temporal-test-port
+services:
+  temporal-test-port:
+    ports: !override ['127.0.0.1:${ENSEMUS_TEST_TEMPORAL_PORT:-57233}:7233']

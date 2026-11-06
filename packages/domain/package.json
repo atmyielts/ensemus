@@ -7,7 +7,11 @@
     "./work-unit": "./src/work-unit.ts",
     "./approval": "./src/approval.ts",
     "./policy": "./src/policy.ts",
-    "./tombstone-ledger": "./src/tombstone-ledger.ts"
+    "./tombstone-ledger": "./src/tombstone-ledger.ts",
+    "./external-action": "./src/external-action.ts",
+    "./integration-events": "./src/integration-events.ts",
+    "./webhook": "./src/webhook.ts",
+    "./connector": "./src/connector.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"

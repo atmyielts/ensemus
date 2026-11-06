@@ -12,7 +12,7 @@
 - `POST /work-units` commits state/outbox and returns `202` for asynchronous activities with a resource URL. Never wait for a large model task to finish in the business mutation request.
 - `GET /work-units/{id}` and authorized status subscriptions expose durable status, timestamps, outcomes, reasons and evidence; raw internal model chain-of-thought is not exposed.
 - `POST /approvals/{id}/decision` validates actor, exact action payload hash, policy version and review state; no stale approvals.
-- Webhook receivers verify signatures, timestamps, payload limits, replay prevention and canonical mapping.
+- Webhook receivers enforce payload limits and canonical mapping, and a worker verifies signatures, timestamps and replay prevention before anything believes them ([ADR-027](../00-foundation/adr/ADR-027-verified-external-actions.md) D4).
 - OpenAPI 3.1 is the public REST contract. Server Actions are private frontend interfaces and still require validation/authorization.
 
 ## Consistency

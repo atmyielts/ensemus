@@ -1,0 +1,22 @@
+{
+  "name": "@ensemus/connectors",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./manifest": "./src/manifest.ts",
+    "./runtime": "./src/runtime/index.ts",
+    "./email": "./src/email/index.ts",
+    "./inbound": "./src/inbound/index.ts",
+    "./testing": "./src/testing/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@ensemus/contracts": "workspace:*",
+    "@ensemus/domain": "workspace:*",
+    "zod": "4.6.7"
+  }
+}

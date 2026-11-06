@@ -22,8 +22,8 @@
     },
     {
       "path": "00-foundation/03-decisions-and-adrs.md",
-      "size_bytes": 6801,
-      "sha256": "b1530ce763a90bcf5e01da83e5e73b0c9c2f799c1bfb736ddeff2cbf8f6ca023"
+      "size_bytes": 7372,
+      "sha256": "0c207701c600061a5d78bd597082effb227fdb9eeeb90010eb3b97c7d217d3f6"
     },
     {
       "path": "00-foundation/04-doc-governance.md",
@@ -32,8 +32,8 @@
     },
     {
       "path": "00-foundation/adr/ADR-024-build-start-runtime-contracts.md",
-      "size_bytes": 23137,
-      "sha256": "d322fef5d7702b62839fb05bcb1b34d5128d9d74f4cbc7f495b6f92eddb7d75e"
+      "size_bytes": 23404,
+      "sha256": "9be5508019361f113ff9f857764bc593327acbd06df07f3821ac5bd2ee0ecebc"
     },
     {
       "path": "00-foundation/adr/ADR-025-m1-implementation-decisions.md",
@@ -44,6 +44,11 @@
       "path": "00-foundation/adr/ADR-026-tombstones-survive-restore.md",
       "size_bytes": 13761,
       "sha256": "7267bd1fcd4c164d02e3924bc7e1cc85cdbc7a379c8d459f6eac77eca2540937"
+    },
+    {
+      "path": "00-foundation/adr/ADR-027-verified-external-actions.md",
+      "size_bytes": 32522,
+      "sha256": "4d4752749aac8eac69b1a664a06e118ba092e38ce68ec5e00a159c6a13d1c2ae"
     },
     {
       "path": "01-product/01-product-requirements.md",
@@ -97,13 +102,13 @@
     },
     {
       "path": "02-architecture/05-events-and-consistency.md",
-      "size_bytes": 3318,
-      "sha256": "772a5027a1d5cc9e78c1d8ca7e386ec5bb70b67ced2aad3d0eacd6512624ea18"
+      "size_bytes": 3445,
+      "sha256": "4c025ca1b33be6149c78aff06ef31cb86aa133bf3e072e72cf7f06aa16fc2573"
     },
     {
       "path": "02-architecture/06-api-contracts.md",
-      "size_bytes": 2675,
-      "sha256": "6e78537dcc54066dbaa236b982d0e3edf006e0d02b8eb4ae5c6bdb1eeae85dd1"
+      "size_bytes": 2805,
+      "sha256": "0358f362c20247e01f74a4a087af8fdc64473b0e3c2f0ab8e2b743d61df32b49"
     },
     {
       "path": "02-architecture/07-multitenancy.md",
@@ -162,8 +167,8 @@
     },
     {
       "path": "03-intelligence/06-integrations-and-tools.md",
-      "size_bytes": 2310,
-      "sha256": "4d7e8e9753c5045f7e85b4857727f31ba0c0642cb79a320b1ca8904c6cec1e0b"
+      "size_bytes": 2523,
+      "sha256": "515cd75716b1c4234fcc16602da7aad647b81bbadcf89dc6c4812682a1e3dd6e"
     },
     {
       "path": "03-intelligence/07-evaluation-and-observability.md",
@@ -286,6 +291,11 @@
       "sha256": "b055dfb10feb5f85e4295a7998614131dbd84c4428b71e0ff51118f8054b43ef"
     },
     {
+      "path": "06-delivery/m3-slices.md",
+      "size_bytes": 33733,
+      "sha256": "a6e07ed8431e6dd3dcd100e2421fc5e9af7dedda5bfa1f1f73956016cf2942fd"
+    },
+    {
       "path": "07-commercial/01-license-and-maintenance.md",
       "size_bytes": 4417,
       "sha256": "0238360e8d6d71ec4e406357f3962afe388169c7da2e77cfd8a164ede63bbc95"
@@ -312,8 +322,8 @@
     },
     {
       "path": "08-migration/02-change-log.md",
-      "size_bytes": 2922,
-      "sha256": "aa540b7332ff329801437abb23267e04f20b178cc695b2dd480508a9105033d2"
+      "size_bytes": 3210,
+      "sha256": "c5f64bf4e52d3cca7fd624dd65cae44700b5709758decd77b43ea64f1ec87614"
     },
     {
       "path": "AGENTS.md",
@@ -327,8 +337,8 @@
     },
     {
       "path": "README.md",
-      "size_bytes": 13140,
-      "sha256": "40aea62eec77616006e8413be7e1cb4d83e81d3b439974a766dd4a98009aca18"
+      "size_bytes": 13235,
+      "sha256": "e5d344e21a4e5c7584dd9a93bb2e58c97352913a156ed812b7f6e7ee7c0023cc"
     },
     {
       "path": "SOURCES.md",
@@ -442,8 +452,8 @@
     },
     {
       "path": "specifications/openapi.yaml",
-      "size_bytes": 24335,
-      "sha256": "4f6ffbb816cf0bd3500f8a1b8c6b4d8c43d673c125ec6baef0eaa96b43e9fe45"
+      "size_bytes": 46864,
+      "sha256": "874cb80a08c48b310f54197eec55c7a68833263c531c58825efd00b63171d4cc"
     },
     {
       "path": "specifications/qa-scenarios.csv",

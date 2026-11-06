@@ -31,6 +31,9 @@ const webSchema = z.object({
   ENSEMUS_MODE: z.enum(commercialModes),
   ENSEMUS_PUBLIC_URL: publicUrl,
   ENSEMUS_ALLOW_SIGNUP: z.enum(['true', 'false']).default('false'),
+  // Off unless the connector worker is running. Off means no connection can be made, and the webhook
+  // address answers as if it does not exist, so nothing waits for a worker that is not there (ADR-027).
+  ENSEMUS_CONNECTORS_ENABLED: z.enum(['true', 'false']).default('false'),
 });
 
 export function loadWebConfig(env: NodeJS.ProcessEnv = process.env) {
@@ -43,5 +46,6 @@ export function loadWebConfig(env: NodeJS.ProcessEnv = process.env) {
     mode: parsed.data.ENSEMUS_MODE,
     publicUrl: parsed.data.ENSEMUS_PUBLIC_URL,
     allowSignup: parsed.data.ENSEMUS_ALLOW_SIGNUP === 'true',
+    connectorsEnabled: parsed.data.ENSEMUS_CONNECTORS_ENABLED === 'true',
   };
 }
