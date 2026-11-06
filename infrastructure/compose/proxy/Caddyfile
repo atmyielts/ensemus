@@ -6,5 +6,12 @@
 
 {$ENSEMUS_HOSTNAME:localhost} {
 	tls internal
+
+	# Anyone can post here with no session. The route counts bytes too, and this stops them sooner.
+	@webhooks path /api/webhooks/*
+	request_body @webhooks {
+		max_size 1MB
+	}
+
 	reverse_proxy web:3000
 }
