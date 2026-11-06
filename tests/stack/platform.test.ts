@@ -6,6 +6,13 @@ import { join } from 'node:path';
 import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { connectClient, startProbe } from '@ensemus/workflows/client';
+import {
+  pinProblems,
+  pinsOf,
+  SHIPPED_CONNECTIONS,
+  TEST_CONNECTIONS,
+  type ResolvedConfig,
+} from '../helpers/compose-pins';
 import { compose, repoRoot, secret, urls } from '../helpers/stack';
 import { createOrganization, openAppDatabase } from '@ensemus/database';
 import { WorkflowFailedError } from '@temporalio/client';
@@ -200,66 +207,29 @@ describe('web tier isolation (ADR-024 D3, D5)', () => {
     expect(publishing).toEqual(['proxy']);
   });
 
-  it('pins every internal name a service could look up, so an outage sends none off the network', () => {
-    const config = JSON.parse(
+  const resolvedConfig = (...files: string[]) =>
+    JSON.parse(
       execFileSync(
         'docker',
-        ['compose', '-f', 'infrastructure/compose/compose.yaml', 'config', '--format', 'json'],
+        ['compose', ...files.flatMap((file) => ['-f', file]), 'config', '--format', 'json'],
         { cwd: repoRoot, encoding: 'utf8' },
       ),
-    ) as {
-      services: Record<
-        string,
-        {
-          networks?: Record<string, { ipv4_address?: string } | null>;
-          extra_hosts?: string[] | Record<string, string | string[]>;
-        }
-      >;
-    };
-    const pinsOf = (service: string): Record<string, string> => {
-      const hosts = config.services[service]?.extra_hosts ?? [];
-      const pairs: [string, string][] = Array.isArray(hosts)
-        ? hosts.map((entry) => {
-            const [name = '', address = ''] = entry.split(/[:=]/);
-            return [name, address];
-          })
-        : Object.entries(hosts).map(([name, value]) => [name, [value].flat()[0] ?? '']);
-      return Object.fromEntries(pairs);
-    };
-    const addressesOf = (service: string) =>
-      Object.entries(config.services[service]?.networks ?? {}).map(([network, settings]) => ({
-        network,
-        address: settings?.ipv4_address,
-      }));
-    // Who connects to whom. A new service must be added here, rather than quietly left unpinned.
-    const dataPeers = ['postgres', 'valkey', 'objects'];
-    const connections: Record<string, string[]> = {
-      proxy: ['web'],
-      web: dataPeers,
-      worker: [...dataPeers, 'temporal'],
-      dispatcher: [...dataPeers, 'temporal'],
-      migrate: dataPeers,
-      'temporal-schema': ['postgres'],
-      temporal: ['postgres'],
-      'temporal-namespace': ['temporal'],
-      postgres: [],
-      valkey: [],
-      objects: [],
-    };
-    expect(Object.keys(config.services).sort()).toEqual(Object.keys(connections).sort());
-    for (const [client, peers] of Object.entries(connections)) {
-      const networks = addressesOf(client).map(({ network }) => network);
-      const expected: Record<string, string> = {};
-      for (const peer of peers) {
-        const shared = addressesOf(peer).find(({ network }) => networks.includes(network));
-        expect(shared, `${client} shares a network with ${peer}`).toBeDefined();
-        expect(shared?.address, `${peer} on ${shared?.network}`).toMatch(/^\d+\.\d+\.\d+\.\d+$/);
-        expected[peer] = shared?.address ?? '';
-      }
-      // Exact, so this also refuses a pin the service has no use for.
-      expect(pinsOf(client), client).toEqual(expected);
-    }
-    expect(pinsOf('web')).not.toHaveProperty('temporal');
+    ) as ResolvedConfig;
+
+  it('pins every internal name a service could look up, so an outage sends none off the network', () => {
+    const config = resolvedConfig('infrastructure/compose/compose.yaml');
+    expect(pinProblems(config, SHIPPED_CONNECTIONS)).toEqual([]);
+    expect(pinsOf(config, 'web')).not.toHaveProperty('temporal');
+  });
+
+  // The air-gap gate runs with this overlay, and its second replica has to hold to the same rule.
+  it('pins the names the test overlay adds as well', () => {
+    const config = resolvedConfig(
+      'infrastructure/compose/compose.yaml',
+      'infrastructure/compose/compose.test.yaml',
+    );
+    expect(pinProblems(config, TEST_CONNECTIONS)).toEqual([]);
+    expect(pinsOf(config, 'web-2')).not.toHaveProperty('temporal');
   });
 
   it('control: the worker can reach Temporal the same way', () => {

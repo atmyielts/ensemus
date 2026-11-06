@@ -215,7 +215,9 @@ describe('who may do what', () => {
     });
 
     it('shows nobody from another tenant', async () => {
-      const { html } = await read(people(), owner.jar);
+      const { status, html } = await read(people(), owner.jar);
+      expect(status).toBe(200);
+      expect(sectionOf(html, 'members-heading')).toContain(owner.email);
       expect(html).not.toContain(rival.email);
       expect(html).not.toContain(rival.name);
     });
@@ -606,7 +608,9 @@ describe('who may do what', () => {
       const id = await createWork(typist, org, { title: `Mistake ${randomUUID()}` });
       const page = workPage(org, id);
       const form = await formOn(page, typist.jar, toStatus('ready'));
-      await post(page, typist.jar, form, { version: '99' });
+      const mistake = await post(page, typist.jar, form, { version: '99' });
+      // The mistake really happened, and reached the service, so the empty count below means something.
+      expect(locationOf(mistake)).toBe(`${page}?error=VERSION_CONFLICT`);
       const { rows } = await su.query(
         `select count(*)::int as n from governance.audit_events
          where actor_id = $1 and action like 'access.refused%'`,

@@ -3,16 +3,35 @@
 //   node infrastructure/scripts/air-gap-gate.mjs            full gate
 //   node infrastructure/scripts/air-gap-gate.mjs --control  proves a real attempt is detected
 //   node infrastructure/scripts/air-gap-gate.mjs --outages  only the outage round, without the suite
+import { File } from 'node:buffer';
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
-import { request as httpsRequest } from 'node:https';
-import { dirname, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { randomUUID } from 'node:crypto';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import {
+  containersOffTheSubnet,
+  expectedFile,
+  expectedHealth,
+  SUBNET,
+  WATCHED_PREFIX,
+  WEB_REPLICAS,
+  wrongAnswer,
+} from './air-gap-rules.mjs';
 
 // The gate's firewall rule covers the default addresses, so a site's own prefix must not move the stack.
-delete process.env.ENSEMUS_NETWORK_PREFIX;
+// Set, not deleted: Compose lets the environment beat a .env file, and with the variable gone a .env
+// value would move the stack off the watched subnet. A check after each start proves it did not.
+process.env.ENSEMUS_NETWORK_PREFIX = WATCHED_PREFIX;
+// The same goes for how the gate reaches the stack. The proxy's only site is `localhost` (it is given
+// no ENSEMUS_HOSTNAME), so requests must use that name, on the port the stack really published.
+const PORT = process.env.ENSEMUS_HTTPS_PORT ?? '8443';
+const ORIGIN = `https://localhost:${PORT}`;
+process.env.ENSEMUS_HTTPS_PORT = PORT;
+process.env.ENSEMUS_BIND_ADDRESS = '127.0.0.1';
+process.env.ENSEMUS_PUBLIC_URL = ORIGIN;
+process.env.ENSEMUS_TEST_BASE = ORIGIN; // tests/helpers/forms.ts reads this when it loads.
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
-const SUBNET = '172.30.0.0/16';
 const CHAIN = 'DOCKER-USER';
 // A pinned image that includes iptables. It needs host networking to reach the engine's firewall.
 const TOOLS = 'nicolaka/netshoot:v0.14';
@@ -112,37 +131,130 @@ function down() {
   }
 }
 
-// Stops each internal service in turn while the others keep working and requests keep arriving. A name
-// that is not pinned leaves the network here, because Docker forwards a stopped container's name.
-const OUTAGES = ['web-2', 'web', 'objects', 'valkey', 'temporal', 'postgres'];
-const OUTAGE_SECONDS = 20;
-
-function askProxy(headers) {
-  return new Promise((done) => {
-    const port = process.env.ENSEMUS_HTTPS_PORT ?? '8443';
-    const request = httpsRequest(
-      { host: '127.0.0.1', port, path: '/', headers, rejectUnauthorized: false, timeout: 3000 },
-      (response) => {
-        response.resume();
-        response.on('end', done);
-      },
+/** A result that says zero attempts means nothing for a container the rule cannot see. */
+function refuseUnlessOnTheWatchedSubnet() {
+  const containers = compose('ps', '-q')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((id) => {
+      const [name = id, ...addresses] = run('docker', [
+        'inspect',
+        id,
+        '--format',
+        '{{.Name}} {{range .NetworkSettings.Networks}}{{.IPAddress}} {{end}}',
+      ])
+        .trim()
+        .split(/\s+/);
+      return { name, addresses };
+    });
+  const problems = containersOffTheSubnet(containers);
+  if (problems.length) {
+    throw new Error(
+      `The stack is not all on ${SUBNET}, so this cannot pass: ${problems.join('; ')}`,
     );
-    request.on('timeout', () => request.destroy());
-    request.on('error', done);
-    request.end();
-  });
+  }
 }
 
+// Stops each internal service in turn while the others keep working and requests keep arriving. A name
+// that is not pinned leaves the network here, because Docker forwards a stopped container's name, but
+// only if something uses the name while its service is stopped. So every request has to get the answer
+// that shows it did. Postgres and temporal also have the worker and dispatcher as clients all the time.
+// Valkey has no client yet (ADR-025 D9), so its round can only show that nothing else breaks.
+const OUTAGES = ['web-2', 'web', 'objects', 'valkey', 'temporal', 'postgres'];
+const OUTAGE_SECONDS = 20;
+const HEALTH = '/api/health/ready';
+// The longest a request may take: the store's client tries 3 times, with 5 seconds to connect each.
+const ANSWER_MS = 45_000;
+const BACK_WITHIN_MS = 120_000;
+
+const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
+
 async function exerciseOutages() {
+  const forms = await import(pathToFileURL(join(root, 'tests/helpers/forms.ts')).href);
+
+  /** One request through the proxy, to one replica. Anything but a response is status 0. */
+  const ask = (replica, path, jar) => {
+    const answer = forms
+      .onReplica(replica, () => forms.visit(path, jar))
+      .then(async (response) => {
+        await response.arrayBuffer();
+        return { status: response.status, servedBy: response.headers.get('x-ensemus-served-by') };
+      })
+      .catch(() => ({ status: 0, servedBy: null }));
+    const late = sleep(ANSWER_MS).then(() => ({ status: 0, servedBy: null }));
+    return Promise.race([answer, late]);
+  };
+
+  // Something stored, to read back through each replica: a signed-in read is what reaches the store.
+  const owner = await forms.signUp('Outage Owner');
+  const organization = await forms.createOrganization(owner, `Outage ${randomUUID()}`);
+  const created = await forms.submit(`/o/${organization}/work/new`, owner.jar, /name="title"/, {
+    classification: 'internal',
+    title: `Through an outage ${randomUUID()}`,
+  });
+  const page = created.headers.get('location');
+  if (!page) throw new Error(`Work not created: status ${created.status}`);
+  await forms.submit(page, owner.jar, /name="file"/, {
+    file: new File(['Kept through an outage.'], 'outage.txt', { type: 'text/plain' }),
+  });
+  const file = /href="([^"]+\/files\/[0-9a-f-]{36})">outage\.txt</.exec(
+    (await forms.read(page, owner.jar)).html,
+  )?.[1];
+  if (!file) throw new Error('The file for the outage round was not stored');
+
+  const healthProblem = async (stopped, replica) =>
+    wrongAnswer(await ask(replica, HEALTH), expectedHealth(stopped, replica));
+  const fileProblem = async (stopped, replica) =>
+    wrongAnswer(await ask(replica, file, owner.jar), expectedFile(stopped, replica));
+
+  /** Before any outage, both routes must really answer. Otherwise a round proves nothing. */
+  async function bothReplicasAnswering(before) {
+    const deadline = Date.now() + BACK_WITHIN_MS;
+    for (;;) {
+      const problems = (
+        await Promise.all(
+          WEB_REPLICAS.flatMap((replica) => [
+            healthProblem(undefined, replica).then((p) => p && `${replica} health: ${p}`),
+            fileProblem(undefined, replica).then((p) => p && `${replica} file: ${p}`),
+          ]),
+        )
+      ).filter(Boolean);
+      if (problems.length === 0) return;
+      if (Date.now() > deadline) {
+        throw new Error(`Before stopping ${before}: ${problems.join('; ')}`);
+      }
+      await sleep(2000);
+    }
+  }
+
+  const wrong = new Set();
   for (const service of OUTAGES) {
+    await bothReplicasAnswering(service);
     console.log(`Outage: stopping ${service} for ${OUTAGE_SECONDS} seconds...`);
     compose('stop', service);
-    for (let elapsed = 0; elapsed < OUTAGE_SECONDS; elapsed += 2) {
-      await Promise.all([askProxy({}), askProxy({ 'X-Ensemus-Test-Replica': '2' })]);
-      await new Promise((done) => setTimeout(done, 2000));
+    const deadline = Date.now() + OUTAGE_SECONDS * 1000;
+    let exchanges = 0;
+    while (Date.now() < deadline) {
+      const asked = WEB_REPLICAS.flatMap((replica) => {
+        const note = (what) => (problem) => {
+          if (problem) wrong.add(`${service} stopped, ${replica} ${what}: ${problem}`);
+        };
+        return [
+          healthProblem(service, replica).then(note('health')),
+          // Only people's files use the store's name from web, so this is the round to ask for one.
+          ...(service === 'objects' ? [fileProblem(service, replica).then(note('file'))] : []),
+        ];
+      });
+      await Promise.all(asked);
+      exchanges += asked.length;
+      await sleep(2000);
     }
+    console.log(`  ${exchanges} requests answered as this outage should.`);
     compose('up', '-d', '--wait', '--wait-timeout', '300');
   }
+  await bothReplicasAnswering('nothing, at the end of the rounds');
+  return [...wrong];
 }
 
 const control = process.argv.includes('--control');
@@ -162,6 +274,7 @@ try {
   await new Promise((done) => setTimeout(done, 3000)); // Let the capture start.
   console.log('Starting the stack with outbound traffic blocked...');
   compose('up', '-d', '--wait', '--wait-timeout', '300');
+  refuseUnlessOnTheWatchedSubnet();
 
   if (control) {
     // The rule must see a direct connection and an outside DNS lookup from inside a container.
@@ -202,10 +315,18 @@ try {
         failed = true;
       }
     }
-    await exerciseOutages();
+    const wrongAnswers = await exerciseOutages();
+    refuseUnlessOnTheWatchedSubnet();
     const seen = attempts() - before;
     console.log(`Outbound attempts during the run: ${seen}`);
     await capture.report();
+    if (wrongAnswers.length) {
+      console.error(
+        'FAILED: during the outages, requests did not get the answer that proves them:',
+      );
+      for (const problem of wrongAnswers.slice(0, 20)) console.error(`  ${problem}`);
+      failed = true;
+    }
     if (seen > 0) {
       console.error('FAILED: something tried to reach the outside network.');
       failed = true;
@@ -213,6 +334,9 @@ try {
       console.log('OK: the stack ran offline with zero outbound attempts.');
     }
   }
+} catch (error) {
+  console.error(`FAILED: ${error instanceof Error ? error.message : String(error)}`);
+  failed = true;
 } finally {
   spawnSync('docker', ['rm', '-f', 'ensemus-airgap-capture']);
   removeRule();

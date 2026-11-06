@@ -1,7 +1,7 @@
 // UX-12, UX-13: Home, dependencies, and how forms behave under a person's hands, in a real browser.
 import type { Page } from '@playwright/test';
 import { randomUUID } from 'node:crypto';
-import { createOrganization, formOn, post, signUp, submit } from '../../helpers/forms';
+import { createOrganization, formOn, post, signUp, submit, tokenIn } from '../../helpers/forms';
 import { expect, test } from '../support/fixtures';
 import { createWork, move, toStatus, workPath } from '../support/world';
 
@@ -298,6 +298,49 @@ test.describe('a refused save keeps what was typed', () => {
     await expect(page.getByText('What was saved first.').first()).toBeVisible();
   });
 
+  test('saving over someone else: refused the first time, and saved the second', async ({
+    open,
+    world,
+  }) => {
+    const { alice, organization, sql } = world;
+    const title = `Saved twice ${randomUUID()}`;
+    const id = await createWork(alice, organization, { title, objective: 'The original.' });
+    const stored = async () =>
+      (
+        await sql.query<{ objective: string; version: number }>(
+          'select objective, version::int as version from work.work_units where id = $1',
+          [id],
+        )
+      ).rows[0];
+    const started = (await stored())?.version as number;
+
+    const page = await open(alice);
+    await page.goto(workPath(organization, id));
+    await page.getByText('Edit the details').click();
+    await page.getByLabel('Objective').fill('What I was writing.');
+    await submit(workPath(organization, id), alice.jar, /Save changes/, {
+      title,
+      objective: 'What was saved first.',
+      dueAt: '',
+    });
+    const first = { objective: 'What was saved first.', version: started + 1 };
+    expect(await stored()).toEqual(first);
+
+    // This draft still has the old version, whether or not the page has heard of the change yet.
+    const save = page.getByRole('button', { name: 'Save changes' });
+    await save.click();
+    await expect(page.getByText('This changed while you were editing.')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Keep my text' })).toHaveCount(0);
+    await expect(save).toBeEnabled();
+    await expect(page.getByLabel('Objective')).toHaveValue('What I was writing.');
+    expect(await stored()).toEqual(first);
+
+    // Having been shown what is there now, saving again is a knowing choice, and it has to go through.
+    await save.click();
+    await expect.poll(stored).toEqual({ objective: 'What I was writing.', version: started + 2 });
+    await expect(section(page, 'Purpose').locator('p').first()).toHaveText('What I was writing.');
+  });
+
   test('a reason for stopping work, when the stop is refused', async ({ open, world }) => {
     const { alice, organization } = world;
     const id = await createWork(alice, organization, { title: `Reason kept ${randomUUID()}` });
@@ -392,6 +435,77 @@ test.describe('submitting', () => {
     await expect(button).toHaveAttribute('aria-busy', 'true');
     await expect(page.getByRole('status').filter({ hasText: 'Working on it' })).toBeVisible();
     await expect(page.getByRole('heading', { name: title })).toBeVisible();
+  });
+
+  test('every form before you are in says it is working', async ({ open, world }) => {
+    const email = () => `${randomUUID()}@example.invalid`;
+    const signedOut = (fill: (page: Page) => Promise<void>) => ({ who: null, fill });
+    const newPerson = await signUp('Pending Home');
+    const invitedPerson = await signUp('Pending Invite');
+    const invitation = await submit(
+      `/o/${world.organization}/people`,
+      world.alice.jar,
+      /name="email"/,
+      { email: invitedPerson.email, role: 'member' },
+    );
+    const token = tokenIn(await invitation.text());
+    if (!token) throw new Error('No invitation link');
+    const signUpFields = async (page: Page) => {
+      await page.getByLabel('Name').fill('Pending Person');
+      await page.getByLabel('Email').fill(email());
+      await page.getByLabel('Password').fill('correct horse battery staple');
+    };
+
+    for (const { path, who, fill, button, working } of [
+      {
+        path: '/sign-in',
+        button: 'Sign in',
+        working: 'Signing in',
+        ...signedOut(async (page) => {
+          await page.getByLabel('Email').fill(email());
+          await page.getByLabel('Password').fill('not the right password');
+        }),
+      },
+      {
+        path: '/sign-up',
+        button: 'Create account',
+        working: 'Creating your account',
+        ...signedOut(signUpFields),
+      },
+      {
+        path: '/setup',
+        button: 'Create account',
+        working: 'Creating your account',
+        ...signedOut(async (page) => {
+          await page.getByLabel('Setup code').fill('not-a-code');
+          await signUpFields(page);
+        }),
+      },
+      {
+        path: '/',
+        button: 'Create organization',
+        working: 'Creating your organization',
+        who: newPerson,
+        fill: (page: Page) => page.getByLabel('Organization name').fill('Pending Organization'),
+      },
+      {
+        path: `/invite/${token}`,
+        button: 'Accept invitation',
+        working: 'Accepting',
+        who: invitedPerson,
+        fill: async () => undefined,
+      },
+    ]) {
+      const page = await open(who);
+      await page.goto(path);
+      await slowPosts(page);
+      await fill(page);
+      const submitButton = page.getByRole('button', { name: button, exact: true });
+      await submitButton.click();
+      await expect(submitButton, path).toBeDisabled();
+      await expect(submitButton, path).toHaveAttribute('aria-busy', 'true');
+      await expect(page.getByRole('status').filter({ hasText: working }), path).toBeVisible();
+    }
   });
 
   const countTitled = async (

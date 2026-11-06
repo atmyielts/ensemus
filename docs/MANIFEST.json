@@ -237,8 +237,8 @@
     },
     {
       "path": "05-operations/05-container-deployment-runbook.md",
-      "size_bytes": 17052,
-      "sha256": "577de9708536445a8f5c2943f23f0dfa466d7b3ac0a9401892e999a7b570c065"
+      "size_bytes": 17968,
+      "sha256": "8fb4c60578faeda6fdb16776079d3c7f464877668aa34ddcdbdd988de9e5dab6"
     },
     {
       "path": "05-operations/06-performance-and-load-plan.md",

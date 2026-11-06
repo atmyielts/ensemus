@@ -5,6 +5,7 @@ import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative, sep } from 'node:path';
 import { Ajv2020, type ValidateFunction } from 'ajv/dist/2020.js';
 import addFormats from 'ajv-formats';
+import ts from 'typescript';
 import { parse } from 'yaml';
 import { repoRoot } from './stack';
 
@@ -82,6 +83,42 @@ export function operations() {
 
 export const operationName = (method: string, path: string) => `${method.toUpperCase()} ${path}`;
 
+const HTTP_METHODS = new Set(['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS']);
+
+function boundNames(name: ts.BindingName): string[] {
+  return ts.isIdentifier(name)
+    ? [name.text]
+    : name.elements.flatMap((element) =>
+        ts.isBindingElement(element) ? boundNames(element.name) : [],
+      );
+}
+
+/**
+ * The HTTP methods a route module exports, in every form Next.js accepts: a variable, a destructured
+ * one, a function, or a name in an export list. It parses the file, so a comment or a string that only
+ * looks like an export does not count. A form this misses is a route the spec check cannot see.
+ */
+export function exportedMethods(source: string): string[] {
+  const names = ts
+    .createSourceFile('route.ts', source, ts.ScriptTarget.Latest)
+    .statements.flatMap((statement) => {
+      if (ts.isExportDeclaration(statement)) {
+        const clause = statement.exportClause;
+        return clause && ts.isNamedExports(clause)
+          ? clause.elements.map((element) => element.name.text)
+          : [];
+      }
+      const exported =
+        ts.canHaveModifiers(statement) &&
+        ts.getModifiers(statement)?.some((m) => m.kind === ts.SyntaxKind.ExportKeyword);
+      if (!exported) return [];
+      if (ts.isFunctionDeclaration(statement)) return statement.name ? [statement.name.text] : [];
+      if (!ts.isVariableStatement(statement)) return [];
+      return statement.declarationList.declarations.flatMap((item) => boundNames(item.name));
+    });
+  return [...new Set(names.filter((name) => HTTP_METHODS.has(name)))];
+}
+
 /** The Route Handlers that exist, as `METHOD /path` in the spec's own naming. */
 export function implementedRoutes() {
   const api = join(repoRoot, 'apps/web/src/app/api/v1');
@@ -101,9 +138,8 @@ export function implementedRoutes() {
             ),
           )
           .join('/')}`;
-        const source = readFileSync(full, 'utf8');
-        for (const [, method] of source.matchAll(/export const (GET|POST|PATCH|PUT|DELETE)\b/g)) {
-          found.push(operationName(method as string, path));
+        for (const method of exportedMethods(readFileSync(full, 'utf8'))) {
+          found.push(operationName(method, path));
         }
       }
     }

@@ -84,11 +84,24 @@ test('the confirm panel opens and works: stopping work needs the box and the rea
   const panel = page.locator('details.confirm').filter({ hasText: 'Stop this work' });
   await expect(panel.getByRole('button', { name: 'Stop this work' })).toBeHidden();
   await panel.locator('summary').click();
-  await panel.getByLabel('Why is this being stopped?').fill('Not needed any more.');
-  // The browser's own check holds the form back until the box is ticked.
+  const status = page.locator('dt:text-is("Status") + dd .badge');
+  const reason = panel.getByLabel('Why is this being stopped?');
+  // The browser's own check holds the form back until both are done, so test each without the other.
+  await panel.getByRole('checkbox').check();
+  await expect(reason).toHaveValue('');
   await panel.getByRole('button', { name: 'Stop this work' }).click();
   await expect(page).toHaveURL(new RegExp(`/work/${id}$`));
-  await expect(page.locator('dt:text-is("Status") + dd .badge')).toHaveText('Waiting to start');
+  await expect(status).toHaveText('Waiting to start');
+  expect(await reason.evaluate((field: HTMLTextAreaElement) => field.validity.valueMissing)).toBe(
+    true,
+  );
+
+  await panel.getByRole('checkbox').uncheck();
+  await reason.fill('Not needed any more.');
+  await panel.getByRole('button', { name: 'Stop this work' }).click();
+  await expect(page).toHaveURL(new RegExp(`/work/${id}$`));
+  await expect(status).toHaveText('Waiting to start');
+
   await panel.getByRole('checkbox').check();
   await panel.getByRole('button', { name: 'Stop this work' }).click();
   await expect(page.locator('dt:text-is("Status") + dd .badge')).toHaveText('Stopped');

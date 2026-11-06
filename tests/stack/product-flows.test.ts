@@ -200,12 +200,15 @@ describe('the product through its forms', () => {
       expect((await read(locationOf(first), person.jar)).status).toBe(200);
     });
 
-    it('shows that it is working on every form before you are in', async () => {
+    // Only that the place for it is in the page. That it fills in is for a browser, with a slow post:
+    // see 'every form before you are in says it is working' in tests/browser/specs/product.spec.ts.
+    it('has the place to say it is working on every form before you are in', async () => {
       const person = await signUp('Pending Forms');
       const token = await invite(owner, org, person.email);
       for (const [page, jar, match] of [
         ['/sign-in', undefined, /Sign in/],
         ['/sign-up', undefined, /Create account/],
+        ['/setup', undefined, /Create account/],
         ['/', person.jar, /Create organization/],
         [`/invite/${token}`, person.jar, /Accept invitation/],
       ] as const) {

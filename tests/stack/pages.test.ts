@@ -107,7 +107,7 @@ describe('what the pages say', () => {
         expect(mine).toContain(`${title} ${suffix}`);
       }
       // Already listed under Needs attention, straight above, or finished.
-      for (const title of ['Blocked', 'Failed', 'Late ', 'Finished']) {
+      for (const title of ['Blocked', 'Failed', 'Late', 'Finished']) {
         expect(mine).not.toContain(`${title} ${suffix}`);
       }
     });
@@ -199,7 +199,11 @@ describe('what the pages say', () => {
 
     it('offers no dependency controls to someone who may not change the work', async () => {
       const id = await createWork(owner, org, { title: `Look only ${randomUUID()}` });
-      const main = sectionOf((await read(page(id), member.jar)).html, 'dependencies-heading');
+      const { status, html } = await read(page(id), member.jar);
+      expect(status).toBe(200);
+      const main = sectionOf(html, 'dependencies-heading');
+      // The section is there and only its controls are not, rather than the page being something else.
+      expect(main).toContain('Has to finish first');
       expect(main).not.toContain('Add dependency');
     });
   });

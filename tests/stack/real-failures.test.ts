@@ -29,6 +29,7 @@ import { eventsPath, lastIdOf, openStreams } from '../helpers/streams';
 
 const RUN_TIMEOUT = 60_000;
 const POLL = { timeout: 15_000, interval: 100 };
+const RECONNECT_SETTLE_MS = 5_000;
 
 describe('the web tier going away during a real run (NEXT-04)', () => {
   let su: pg.Client;
@@ -102,6 +103,11 @@ describe('the web tier going away during a real run (NEXT-04)', () => {
       expect(second.received).toEqual([
         { event: 'status', id: String(paused.version), data: String(paused.version) },
       ]);
+    } else {
+      // The first stream already had the latest version, so this one has nothing new to say. A second
+      // copy would mean it does not hold to Last-Event-ID. Long enough for the stream to poll again.
+      await new Promise((done) => setTimeout(done, RECONNECT_SETTLE_MS));
+      expect(second.received).toEqual([]);
     }
     expect(statusOn((await read(page, owner.jar)).html)).toBe('Waiting for approval');
 

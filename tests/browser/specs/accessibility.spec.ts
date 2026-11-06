@@ -17,8 +17,14 @@ for (const state of STATES) {
     world,
   }) => {
     const page = await open(state.who(world));
-    await page.goto(state.path(world));
+    const path = state.path(world);
+    const response = await page.goto(path);
+    // A clean scan says nothing unless it is of the state named. An error page, a 404 and the sign-in
+    // page all pass axe, so each state has to show it arrived first.
+    expect(response?.status(), 'status').toBe(state.status ?? 200);
+    expect(new URL(page.url()).pathname, 'no redirect').toBe(new URL(path, page.url()).pathname);
     await state.then?.(page);
+    for (const mark of state.shows(page)) await expect(mark.first()).toBeVisible();
 
     const problems: Record<string, unknown> = {};
     for (const theme of THEMES) {

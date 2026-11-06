@@ -8,6 +8,10 @@
 # ENSEMUS_NETWORK_PREFIX if 172.30.0.0/16 is already used at your site. Automatic addresses come from
 # the top half of each subnet, so they can never take a pinned one while its service is stopped.
 # tests/stack/platform.test.ts fails if a pin is missing or wrong.
+#
+# web has a fixed address too, so `docker compose up --scale web=2` cannot work: the second container
+# asks for an address the first already holds. A second replica has to be a service of its own with its
+# own address, added to the proxy's pins and its upstreams. compose.test.yaml shows how, with web-2.
 name: ensemus
 
 x-secret-file: &restart

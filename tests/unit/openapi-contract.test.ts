@@ -3,11 +3,38 @@
 import { describe, expect, it } from 'vitest';
 import {
   contractProblems,
+  exportedMethods,
   implementedRoutes,
   operationName,
   operations,
   spec,
 } from '../helpers/openapi';
+
+describe('which methods a route file exports', () => {
+  it.each([
+    ['a const', 'export const GET = route(handler);', ['GET']],
+    ['a function', 'export function POST(request: Request) {}', ['POST']],
+    ['an async function', 'export async function PATCH(request: Request) {}', ['PATCH']],
+    ['an export list', 'const handler = 1;\nexport { handler as DELETE, PUT };', ['DELETE', 'PUT']],
+    ['a destructured const', 'export const { GET, POST } = handlers;', ['GET', 'POST']],
+    ['a renamed destructured const', 'export const { get: GET } = handlers;', ['GET']],
+    ['two in one statement', 'export const GET = a, POST = b;', ['GET', 'POST']],
+    ['a typed const', 'export const GET: Handler = a;', ['GET']],
+    ['a list from elsewhere', "export { PUT, x as DELETE } from './handlers';", ['DELETE', 'PUT']],
+    ['several forms', 'export const GET = a;\nexport async function POST() {}', ['GET', 'POST']],
+  ])('sees %s', (_, source, methods) => {
+    expect(exportedMethods(source).sort()).toEqual(methods);
+  });
+
+  it('ignores anything that is not an exported HTTP method', () => {
+    expect(exportedMethods('export const dynamic = 1;\nexport function helper() {}')).toEqual([]);
+    expect(exportedMethods('const GET = 1;')).toEqual([]);
+    expect(exportedMethods('function POST() {}\nexport { POST as helper };')).toEqual([]);
+    expect(exportedMethods("// export const GET = a;\nconst s = 'export const POST = b';")).toEqual(
+      [],
+    );
+  });
+});
 
 const ORG = '6f1c2c6e-1111-4111-8111-111111111111';
 const ID = '6f1c2c6e-2222-4222-8222-222222222222';

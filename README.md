@@ -57,8 +57,11 @@ pnpm stack:down
 | `pnpm test:browser`                             | Accessibility, keyboard, live status and forms in Chromium, on a running stack |
 | `node infrastructure/scripts/air-gap-gate.mjs`  | The stack passes its tests with outbound traffic blocked, with zero attempts   |
 | `node infrastructure/scripts/build-release.mjs` | SBOMs and a signed manifest, verified with no network                          |
+| `pnpm test:upgrade`                             | A paused approval is decided after a real release upgrade                      |
 | `pnpm check:backlog`                            | The backlog and traceability matrix are consistent                             |
 | `pnpm check:licenses`                           | No production dependency has an unreviewed license                             |
+
+`infrastructure/scripts/run-all-gates.sh` runs every gate on one machine, each from a clean stack. CI runs the same list.
 
 Secrets generated here are throwaway test values, kept in `.local/` and ignored by git. Never use them for anything real.
 
