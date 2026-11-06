@@ -49,6 +49,7 @@ export default async function OrganizationLayout({
               { href: `${base}/people`, label: 'People and teams' },
               { href: `${base}/clients`, label: 'Clients and projects' },
               { href: `${base}/inbox`, label: 'Inbox', count: unread },
+              { href: '/help', label: 'Help' },
             ]}
           />
           <div className="sidebar-end">
