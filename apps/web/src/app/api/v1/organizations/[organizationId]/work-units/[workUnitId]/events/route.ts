@@ -1,6 +1,6 @@
 import { setTimeout as sleep } from 'node:timers/promises';
-import { AppError, getWorkFollowState } from '@ensemus/application';
-import { resolveTenantContext, TenantAccessDenied } from '@ensemus/database';
+import { AppError, getWorkFollowState, getWorkFollowStateAsMember } from '@ensemus/application';
+import { TenantAccessDenied } from '@ensemus/database';
 import { errorCode } from '@ensemus/telemetry';
 import { z } from 'zod';
 import { apiLog, apiRoute, readQuery, workUnitParams } from '@/server/api';
@@ -9,8 +9,8 @@ import { getRestoreGate, getRuntime } from '@/server/runtime';
 export const dynamic = 'force-dynamic';
 
 // Live status (API-13, ADR-024 D3). PostgreSQL is the read model, so this survives a web restart and
-// works on any replica, and a reconnect resumes from Last-Event-ID. Each poll runs its own short
-// transactions, and no transaction stays open between polls.
+// works on any replica, and a reconnect resumes from Last-Event-ID. Each poll runs one short transaction
+// (ADR-037 D5), and no transaction stays open between polls.
 const POLL_MS = 1_000;
 const HEARTBEAT_MS = 15_000;
 const SESSION_CHECK_MS = 30_000;
@@ -47,10 +47,17 @@ export const GET = apiRoute(
 
     /** Access is decided afresh on each pass, and nothing about the person is carried over. */
     async function currentState() {
-      const fresh = await resolveTenantContext(database, userId, organizationId);
+      const { context: fresh, state } = await getWorkFollowStateAsMember(
+        database,
+        userId,
+        organizationId,
+        workUnitId,
+        asked,
+      );
       // A stream opened before a restore does not outlast it, or it would report a past that is gone.
+      // Outside the transaction, because a check can wait on the object store. Nothing has been written yet.
       await getRestoreGate().assertServing(fresh);
-      return getWorkFollowState(database, fresh, workUnitId, asked);
+      return state;
     }
 
     /** A signed-out or expired session ends the stream, even when the membership is still active. */
