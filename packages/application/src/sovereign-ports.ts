@@ -14,6 +14,14 @@ export type ExportPage = {
   nextCursor: string | null;
   /** Records it left out on purpose, by kind. These reach the manifest, so nothing is silently absent. */
   excluded?: Readonly<Record<string, number>>;
+  /** Original upload bytes only. The orchestrator reads/seals outside the tenant transaction,
+   * then asks the section to recheck current read authority before recording either part. */
+  originals?: readonly {
+    documentId: string;
+    objectKey: string;
+    sha256: string;
+    sizeBytes: number;
+  }[];
 };
 
 export type ImportScope = {
@@ -36,6 +44,11 @@ export type ImportedPage = {
  */
 export interface PortabilitySection {
   readonly section: ExportSection;
+  confirmOriginals?(
+    tx: Tx,
+    context: TenantContext,
+    documentIds: readonly string[],
+  ): Promise<boolean>;
   exportPage(
     tx: Tx,
     context: TenantContext,

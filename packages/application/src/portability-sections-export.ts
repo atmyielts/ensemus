@@ -147,6 +147,11 @@ const FILE_HAS_OPEN_LINK = sql`exists (
 /** Restricted by its own class, or linked only to restricted work, whatever its own class says (ADR-030 D10). */
 const FILE_RESTRICTED = sql`(
   artifacts.classification = 'restricted' or (${FILE_HAS_ANY_LINK} and not ${FILE_HAS_OPEN_LINK}))`;
+// A portable copy cannot reproduce the all-input provenance/acceptance of a generated output.
+// Only an explicitly ordinary file can use the ordinary-file importer; missing inventory denies.
+const FILE_ORDINARY = sql`exists(select 1 from knowledge.artifact_acl_catalog c
+  where c.organization_id=artifacts.organization_id and c.artifact_id=artifacts.id
+  and c.alive and c.provenance_state='ordinary')`;
 
 const PARENT_RESTRICTED = sql`exists (
   select 1 from work.work_units p
@@ -182,6 +187,7 @@ export async function nextExportableFile(tx: Tx, context: TenantContext, after: 
         upTo(artifacts.createdAt, snapshot),
         sql`not ${FILE_TOMBSTONED}`,
         sql`not ${FILE_RESTRICTED}`,
+        FILE_ORDINARY,
       ),
     )
     .orderBy(asc(artifacts.id))
@@ -548,6 +554,7 @@ const artifactsReader: KindReader = {
         at: timeText(artifacts.createdAt),
         tombstoned: sql<boolean>`${FILE_TOMBSTONED}`,
         restricted: sql<boolean>`${FILE_RESTRICTED}`,
+        ordinary: sql<boolean>`${FILE_ORDINARY}`,
       })
       .from(artifacts)
       .where(
@@ -559,7 +566,7 @@ const artifactsReader: KindReader = {
       )
       .orderBy(asc(artifacts.createdAt), asc(artifacts.id))
       .limit(limit);
-    const kept = rows.filter((row) => !row.tombstoned && !row.restricted);
+    const kept = rows.filter((row) => !row.tombstoned && !row.restricted && row.ordinary);
     // A deleted file is not a restricted one. It goes in the tombstones, and is not counted as left out.
     const excluded = excludedOf(
       'restricted_artifacts',
@@ -612,6 +619,7 @@ const workArtifactsReader: KindReader = {
           eq(workArtifacts.organizationId, context.organizationId),
           ne(workUnits.classification, 'restricted'),
           ne(artifacts.classification, 'restricted'),
+          FILE_ORDINARY,
           upTo(workUnits.createdAt, snapshot),
           upTo(artifacts.createdAt, snapshot),
           sql`not ${FILE_TOMBSTONED}`,

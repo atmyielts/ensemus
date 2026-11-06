@@ -6,7 +6,9 @@ import { createHash, randomUUID, type KeyObject } from 'node:crypto';
 import type { CoreRecord, ExportManifest } from '@ensemus/contracts/portability-records';
 import {
   artifactPartPath,
+  knowledgePartPath,
   EXPORT_MANIFEST_PATH,
+  EXPORT_SECTIONS,
   recordPartPath,
   type ExportSection,
 } from '@ensemus/domain/portability';
@@ -76,6 +78,7 @@ export type ArchiveSpec = {
     records: readonly (CoreRecord | Record<string, unknown>)[];
   }[];
   files?: Readonly<Record<string, Buffer>>;
+  knowledgeFiles?: Readonly<Record<string, Buffer>>;
   organizationId?: string;
   exportId?: string;
   excluded?: ExportManifest['excluded'];
@@ -94,6 +97,7 @@ export function manifestFor(
   spec: Pick<ArchiveSpec, 'organizationId' | 'exportId' | 'excluded'>,
 ): ExportManifest {
   const sections: ExportManifest['sections'] = {};
+  for (const section of EXPORT_SECTIONS) sections[section] = { records: 0, parts: 0 };
   for (const part of parts) {
     const totals = sections[part.section] ?? { records: 0, parts: 0 };
     sections[part.section] = { records: totals.records + part.records, parts: totals.parts + 1 };
@@ -110,7 +114,11 @@ export function manifestFor(
     initiated_by_membership_id: randomUUID(),
     source_release: 'test',
     scope: 'standard',
-    excluded: spec.excluded ?? { restricted_work: 0, restricted_artifacts: 0, restricted_clients: 0 },
+    excluded: spec.excluded ?? {
+      restricted_work: 0,
+      restricted_artifacts: 0,
+      restricted_clients: 0,
+    },
     sections,
     parts: [...parts],
     encryption: { scheme: 'ensemus.sealed/v1', recipient_key_id: recipient.keyId },
@@ -154,6 +162,11 @@ export function buildArchive(
   }
   for (const [artifactId, body] of Object.entries(spec.files ?? {})) {
     const built = sealPart(recipient, 'artifacts', artifactPartPath(artifactId), body, 1);
+    parts.push(built.part);
+    files.push(built.file);
+  }
+  for (const [documentId, body] of Object.entries(spec.knowledgeFiles ?? {})) {
+    const built = sealPart(recipient, 'knowledge', knowledgePartPath(documentId), body, 0);
     parts.push(built.part);
     files.push(built.file);
   }
@@ -215,7 +228,12 @@ export function sourceTenant(names = 'Source') {
         section: 'organizations',
         recordKind: 'organizations',
         records: [
-          { kind: 'organization', name: `${names} Ltd`, commercial_mode: 'sovereign', created_at: at },
+          {
+            kind: 'organization',
+            name: `${names} Ltd`,
+            commercial_mode: 'sovereign',
+            created_at: at,
+          },
         ],
       },
       {
@@ -319,7 +337,11 @@ export function sourceTenant(names = 'Source') {
         section: 'relations',
         recordKind: 'work_dependencies',
         records: [
-          { kind: 'work_dependency', prerequisite_id: ids.parentWork, dependent_id: ids.movingWork },
+          {
+            kind: 'work_dependency',
+            prerequisite_id: ids.parentWork,
+            dependent_id: ids.movingWork,
+          },
         ],
       },
       {
@@ -382,7 +404,12 @@ export function sourceTenant(names = 'Source') {
         section: 'tombstones',
         recordKind: 'tombstones',
         records: [
-          { kind: 'tombstone', target_type: 'artifact', target_id: ids.deletedFile, deleted_at: at },
+          {
+            kind: 'tombstone',
+            target_type: 'artifact',
+            target_id: ids.deletedFile,
+            deleted_at: at,
+          },
         ],
       },
       {

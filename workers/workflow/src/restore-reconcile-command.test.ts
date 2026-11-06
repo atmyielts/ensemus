@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   countNeedsAttention,
+  REQUIRED_RESTORE_CONTRIBUTORS,
   decideIntentAfterRestore,
   tenantOfObject,
   type LedgerReader,
@@ -70,7 +71,12 @@ const quietTenant = (organizationId: string): TenantRestoreReport => ({
   artifactsMissingBytes: 0,
   bytesUnchecked: 0,
   checksFailed: 0,
-  contributors: [],
+  contributors: REQUIRED_RESTORE_CONTRIBUTORS.map((name) => ({
+    name,
+    checked: 0,
+    changed: 0,
+    needsAttention: 0,
+  })),
 });
 
 const noStore = {} as ObjectStore & LedgerReader;
@@ -154,10 +160,14 @@ describe('the command', () => {
     const { result, reconcile } = run(['--apply', '--confirm', ref]);
     await expect(result).resolves.toBe(0);
     const input = (
-      reconcile.mock.calls as unknown as [unknown, unknown, Record<string, never>][]
+      reconcile.mock.calls as unknown as [
+        unknown,
+        unknown,
+        { ledgerOptions?: { confirmed?: ReadonlySet<string> } },
+      ][]
     )[0]?.[2];
     expect(input).toMatchObject({ mode: 'apply' });
-    expect((input?.ledgerOptions as { confirmed: Set<string> }).confirmed.has(ref)).toBe(true);
+    expect(input?.ledgerOptions?.confirmed?.has(ref)).toBe(true);
   });
 
   it('moves a quarantined object aside before anything else looks at the ledger', async () => {
@@ -222,8 +232,8 @@ describe('the command', () => {
     expect(parsed[3]).toMatchObject({ needsAttention: 2, tenants: 1 });
   });
 
-  it('starts with no contributors of its own, until M4 and M5 add theirs', () => {
-    expect(RESTORE_CONTRIBUTORS).toEqual([]);
+  it('registers every required audit while missing runtime recovery remains nonqualifying', () => {
+    expect(RESTORE_CONTRIBUTORS.map((item) => item.name)).toEqual(REQUIRED_RESTORE_CONTRIBUTORS);
   });
 });
 
@@ -329,7 +339,12 @@ describe('what counts as needing a person', () => {
     const tenants = [
       {
         ...quietTenant(organizationId),
-        contributors: [{ name: 'test', checked: 3, changed: 1, needsAttention: 2 }],
+        contributors: REQUIRED_RESTORE_CONTRIBUTORS.map((name, index) => ({
+          name,
+          checked: 3,
+          changed: 1,
+          needsAttention: index === 0 ? 2 : 0,
+        })),
       },
     ];
     expect(countNeedsAttention({ ...base, tenants, mode: 'apply' })).toBe(2);

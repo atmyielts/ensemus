@@ -18,6 +18,9 @@ import {
   isArchivePath,
   MAX_ARCHIVE_PARTS,
   MAX_PART_PLAINTEXT_BYTES,
+  EXPORT_SECTIONS,
+  matchesPortabilityInventory,
+  PORTABILITY_INVENTORY_VERSION,
   type ImportFailureCode,
 } from '@ensemus/domain/portability';
 import {
@@ -106,10 +109,11 @@ function readManifest(plain: Buffer) {
   }
   if (manifest === null || typeof manifest !== 'object') throw new Refused('MANIFEST_INVALID');
   if (manifest.format !== 'ensemus.organization_export') throw new Refused('MANIFEST_INVALID');
-  if (typeof manifest.schema_version === 'number' && manifest.schema_version > 1) {
+  if (typeof manifest.schema_version === 'number' && manifest.schema_version > 2) {
     throw new Refused('FORMAT_NOT_SUPPORTED');
   }
-  if (manifest.schema_version !== 1) throw new Refused('MANIFEST_INVALID');
+  if (manifest.schema_version !== 1 && manifest.schema_version !== 2)
+    throw new Refused('MANIFEST_INVALID');
   const encryption = manifest.encryption as { scheme?: unknown } | undefined;
   if (encryption?.scheme !== 'ensemus.sealed/v1') throw new Refused('FORMAT_NOT_SUPPORTED');
   if (typeof manifest.export_id !== 'string' || !Array.isArray(manifest.parts)) {
@@ -127,6 +131,44 @@ function readManifest(plain: Buffer) {
       throw new Refused('MANIFEST_INVALID');
     }
     seen.add(part.path);
+  }
+  if (manifest.schema_version === 2) {
+    if (
+      manifest.inventory_version !== PORTABILITY_INVENTORY_VERSION ||
+      !matchesPortabilityInventory(manifest.inventory)
+    )
+      throw new Refused('FORMAT_NOT_SUPPORTED');
+    const totals = manifest.sections;
+    if (totals === null || typeof totals !== 'object' || Array.isArray(totals))
+      throw new Refused('MANIFEST_INVALID');
+    const declared = totals as Record<string, { records?: unknown; parts?: unknown }>;
+    if (
+      Object.keys(declared).length !== EXPORT_SECTIONS.length ||
+      EXPORT_SECTIONS.some((name) => !(name in declared))
+    )
+      throw new Refused('MANIFEST_INVALID');
+    for (const name of EXPORT_SECTIONS) {
+      const parts = (manifest.parts as ManifestPart[]).filter((part) => part.section === name);
+      const total = declared[name];
+      if (
+        total === null ||
+        typeof total !== 'object' ||
+        Array.isArray(total) ||
+        Object.keys(total).sort().join(',') !== 'parts,records' ||
+        !Number.isSafeInteger(total.records) ||
+        !Number.isSafeInteger(total.parts) ||
+        total.parts !== parts.length ||
+        total.records !== parts.reduce((sum, part) => sum + part.records, 0)
+      )
+        throw new Refused('MANIFEST_INVALID');
+    }
+    if (
+      declared.skills?.parts !== 0 ||
+      declared['custom-objects']?.parts !== 0 ||
+      !Number.isSafeInteger(manifest.generated_bodies_excluded) ||
+      (manifest.generated_bodies_excluded as number) < 0
+    )
+      throw new Refused('MANIFEST_INVALID');
   }
   return { exportId: manifest.export_id, parts: manifest.parts as ManifestPart[] };
 }

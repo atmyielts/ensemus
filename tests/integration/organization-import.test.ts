@@ -110,7 +110,12 @@ describe('importing an organization archive', () => {
   const joinAs = async (owner: TenantContext, role: 'admin' | 'member') => {
     const user = await makeUser(role);
     const invitation = await createInvitation(db(), owner, { email: user.email, role });
-    await acceptInvitation(db(), { userId: user.id, email: user.email, emailVerified: true }, invitation.token);
+    await acceptInvitation(db(), {
+      userId: user.id,
+      email: user.email,
+      emailVerified: true,
+      token: invitation.token,
+    });
     return resolveTenantContext(db(), user.id, owner.organizationId);
   };
 
@@ -281,7 +286,9 @@ describe('importing an organization archive', () => {
       expect(await rows(owner, (tx) => tx.select().from(externalActions))).toEqual([]);
       expect(await rows(owner, (tx) => tx.select().from(workTransitions))).toEqual([]);
       // Those three of the history came through as history.
-      expect((await rows(owner, (tx) => tx.select().from(importedRecords))).length).toBeGreaterThanOrEqual(3);
+      expect(
+        (await rows(owner, (tx) => tx.select().from(importedRecords))).length,
+      ).toBeGreaterThanOrEqual(3);
 
       const work = await rows(owner, (tx) => tx.select().from(workUnits));
       const statusOf = (id: string) => work.find((unit) => unit.id === id)?.status;

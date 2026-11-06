@@ -10,7 +10,7 @@ These changes were authored before this integration. Recovering and composing th
 
 ## Verification still required
 
-No command that builds, installs dependencies, runs tests, starts Docker or executes a backup/restore has run for this M6 composition. Typechecks, license/hostile-archive tests, real-role migrations, API/browser checks and replay capture remain owed. The M4 browser gate is currently using the serialized verification slot.
+The initial recovery checkpoint ran no validation. The later [portability and restore source follow-up](M6-portability-source-followup.md) records 248 passing focused unit tests, two skipped cases and scoped passing format/lint/types, with a separately recorded final contributor hardening check. It does not establish database, browser, provider, bundle or restore acceptance. No build, install, Docker, database migration, backup/restore or offline acceptance ran in that follow-up.
 
 M3, M4 and the current M5 implementation must be joined before testing the complete product. Migration journals/snapshots, production ports, all-section export/import inventory, source/derived-artifact revocation, actual restore contributors, cancellation and operator commands require review at that join. Missing inventory or contributor implementations must not be treated as empty successful work. The console must use the shared interface system from the current platform integration.
 

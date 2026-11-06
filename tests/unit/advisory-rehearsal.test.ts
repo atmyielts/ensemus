@@ -18,7 +18,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join, resolve, sep } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 import { exportManifestSchema } from '@ensemus/contracts/portability-records';
 import {
@@ -31,6 +31,10 @@ import {
   EXPORT_MANIFEST_PATH,
   recordPartPath,
   artifactPartPath,
+  knowledgePartPath,
+  EXPORT_SECTIONS,
+  PORTABILITY_INVENTORY,
+  PORTABILITY_INVENTORY_VERSION,
 } from '@ensemus/domain/portability';
 import type { BundleManifest } from '@ensemus/sovereign/documents';
 import {
@@ -71,7 +75,17 @@ import {
 } from '../../workers/workflow/src/tools/recipient-key';
 
 const folder = mkdtempSync(join(tmpdir(), 'advisory-rehearsal-'));
-afterAll(() => rmSync(folder, { recursive: true, force: true }));
+afterAll(() => {
+  const owned = resolve(folder);
+  if (
+    dirname(owned) !== resolve(tmpdir()) ||
+    !basename(owned).startsWith('advisory-rehearsal-') ||
+    lstatSync(owned).isSymbolicLink()
+  )
+    throw new Error('Refusing cleanup outside this generated rehearsal folder');
+  rmSync(owned, { recursive: true, force: true });
+  expect(existsSync(owned)).toBe(false);
+});
 const inFolder = (name = randomUUID()) => join(folder, name);
 
 const sha256 = (bytes: Buffer | string) => createHash('sha256').update(bytes).digest('hex');
@@ -501,7 +515,17 @@ describe('open-archive', () => {
     source_release: '2.0.0',
     scope: 'standard',
     excluded: { restricted_work: 0, restricted_artifacts: 0, restricted_clients: 0 },
-    sections: {},
+    sections: Object.fromEntries(
+      EXPORT_SECTIONS.map((name) => {
+        const rows = (parts as { section?: string; records?: number }[]).filter(
+          (part) => part.section === name,
+        );
+        return [
+          name,
+          { records: rows.reduce((sum, part) => sum + (part.records ?? 0), 0), parts: rows.length },
+        ];
+      }),
+    ),
     parts,
     encryption: { scheme: 'ensemus.sealed/v1', recipient_key_id: keyId },
   });
@@ -598,6 +622,79 @@ describe('open-archive', () => {
     expect(readFileSync(join(outFolder, `artifacts/${fileId}.bin`))).toEqual(fileBytes);
     expect(JSON.parse(readFileSync(join(outFolder, 'manifest.json'), 'utf8'))).toEqual(manifest);
   });
+  it('decrypts v2 original knowledge bytes with only the customer tool and generated key', async () => {
+    const documentId = randomUUID(),
+      path = knowledgePartPath(documentId),
+      body = Buffer.from('The original upload.');
+    const sealed = seal(body, owner.publicKey);
+    const part = {
+      path,
+      section: 'knowledge',
+      records: 0,
+      plaintext_sha256: sha256(body),
+      sealed_sha256: sha256(sealed),
+      sealed_bytes: sealed.length,
+    };
+    const { archivePath } = buildArchive({
+      changeManifest: (m) => {
+        const parts = [...m.parts, part] as { section: string; records: number }[];
+        const sections = Object.fromEntries(
+          EXPORT_SECTIONS.map((name) => [
+            name,
+            {
+              parts: parts.filter((p) => p.section === name).length,
+              records: parts
+                .filter((p) => p.section === name)
+                .reduce((sum, p) => sum + p.records, 0),
+            },
+          ]),
+        );
+        return {
+          ...m,
+          parts,
+          schema_version: 2,
+          inventory_version: PORTABILITY_INVENTORY_VERSION,
+          inventory: PORTABILITY_INVENTORY,
+          generated_bodies_excluded: 0,
+          sections,
+        };
+      },
+      changeEntries: (entries) => [...entries, { path, bytes: sealed }],
+    });
+    const { result, outFolder } = await openIt(archivePath);
+    expect(result).toMatchObject({ ok: true, parts: 3 });
+    expect(resolve(outFolder).startsWith(resolve(folder) + sep)).toBe(true);
+    expect(readFileSync(join(outFolder, 'knowledge', `${documentId}.bin`))).toEqual(body);
+  });
+  it.each(['unknown section', 'missing section', 'missing inventory'] as const)(
+    'refuses v2 %s without publishing output',
+    async (caseName) => {
+      const { archivePath } = buildArchive({
+        changeManifest: (m) => {
+          const sections = { ...m.sections };
+          if (caseName === 'unknown section') sections.unknown = { parts: 0, records: 0 };
+          if (caseName === 'missing section') delete sections.policy;
+          return {
+            ...m,
+            schema_version: 2,
+            inventory_version: PORTABILITY_INVENTORY_VERSION,
+            inventory:
+              caseName === 'missing inventory'
+                ? PORTABILITY_INVENTORY.slice(1)
+                : PORTABILITY_INVENTORY,
+            generated_bodies_excluded: 0,
+            sections,
+          };
+        },
+      });
+      const { result, outFolder } = await openIt(archivePath);
+      expect(result).toMatchObject({
+        ok: false,
+        code: caseName === 'missing inventory' ? 'FORMAT_NOT_SUPPORTED' : 'MANIFEST_INVALID',
+      });
+      expectNothingLeft(outFolder);
+    },
+  );
 
   it('reads a manifest the export contract accepts, so the tool and the contract agree', () => {
     const { manifest } = buildArchive();
@@ -774,7 +871,7 @@ describe('open-archive', () => {
     ],
     [
       'a version from the future',
-      (m: ReturnType<typeof manifestFor>) => ({ ...m, schema_version: 2 }),
+      (m: ReturnType<typeof manifestFor>) => ({ ...m, schema_version: 3 }),
       'FORMAT_NOT_SUPPORTED',
     ],
     [

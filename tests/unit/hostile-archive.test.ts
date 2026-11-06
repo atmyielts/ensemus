@@ -20,11 +20,13 @@ import {
   type AppDatabase,
 } from '@ensemus/database';
 import { createServiceContext } from '@ensemus/database/service';
-import { getTableConfig, type PgTable } from 'drizzle-orm/pg-core';
+import { getTableConfig, PgDialect, type PgTable } from 'drizzle-orm/pg-core';
+import type { SQL } from 'drizzle-orm';
 import {
   EXPORT_MANIFEST_PATH,
   MAX_RECORD_BYTES,
   recordPartPath,
+  PORTABILITY_INVENTORY,
 } from '@ensemus/domain/portability';
 import { ledgerKeyFor, serializeLedgerEntry } from '@ensemus/domain/tombstone-ledger';
 import { describe, expect, it } from 'vitest';
@@ -37,6 +39,7 @@ import {
   sealPart,
   sourceTenant,
   type ArchiveSpec,
+  manifestFor,
 } from '../integration/fixtures/archive-builder';
 import { testRecipient } from '../helpers/sovereign';
 
@@ -63,7 +66,7 @@ const withReplacedRecords = (section: 'clients' | 'work', lines: Buffer, records
   const path = recordPartPath(section, section === 'clients' ? 'clients' : 'work_units', 1);
   const { file, part } = sealPart(recipient, section, path, lines, records);
   const honest = buildArchive(recipient, clientsOnly([]));
-  const manifest = { ...honest.manifest, parts: [part] };
+  const manifest = { ...honest.manifest, ...manifestFor(recipient, [part], {}) };
   return buildTar([sealManifest(recipient, manifest), file]);
 };
 
@@ -252,7 +255,7 @@ describe('a hostile archive is a named failure', () => {
     const { file, part } = sealPart(other, 'clients', path, lines, 1);
     const honest = buildArchive(recipient, clientsOnly([]));
     const bytes = buildTar([
-      sealManifest(recipient, { ...honest.manifest, parts: [part] }),
+      sealManifest(recipient, { ...honest.manifest, ...manifestFor(recipient, [part], {}) }),
       file,
     ]);
     expect(await inspect(bytes)).toEqual({
@@ -370,9 +373,9 @@ describe('a hostile archive is a named failure', () => {
 
   it('a record over MAX_RECORD_BYTES', async () => {
     const line = JSON.stringify({ ...goodClient(), display_name: 'x'.repeat(MAX_RECORD_BYTES) });
-    expect(await inspect(withReplacedRecords('clients', Buffer.from(`${line}\n`), 1))).toMatchObject(
-      { ok: false, code: 'RECORD_REFUSED' },
-    );
+    expect(
+      await inspect(withReplacedRecords('clients', Buffer.from(`${line}\n`), 1)),
+    ).toMatchObject({ ok: false, code: 'RECORD_REFUSED' });
   });
 
   it.each([
@@ -391,7 +394,7 @@ describe('a hostile archive is a named failure', () => {
 
   it('a schema version from the future', async () => {
     const built = buildArchive(recipient, clientsOnly([]), ({ manifest }) => ({
-      manifest: { ...manifest, schema_version: 2, a_new_field: true },
+      manifest: { ...manifest, schema_version: 3, a_new_field: true },
     }));
     expect(await inspect(built.bytes)).toMatchObject({ ok: false, code: 'FORMAT_NOT_SUPPORTED' });
   });
@@ -436,7 +439,7 @@ function fakeDatabase(row: Record<string, unknown>) {
   const writes: { table: string; values: Record<string, unknown> }[] = [];
   const updates: { table: string; set: Record<string, unknown> }[] = [];
   const nameOf = getTableConfigName;
-  const chain =(result: () => unknown[]): unknown =>
+  const chain = (result: () => unknown[]): unknown =>
     new Proxy(
       {},
       {
@@ -469,6 +472,21 @@ function fakeDatabase(row: Record<string, unknown>) {
     return [{ n: 0, id: 'found' }];
   };
   const tx = {
+    execute: async (query: SQL) => {
+      const text = new PgDialect().sqlToQuery(query).sql;
+      if (text.includes('to_regclass'))
+        return { rows: PORTABILITY_INVENTORY.map((entry) => ({ table_name: entry.table })) };
+      if (text.includes('pg_catalog.pg_tables'))
+        return {
+          rows: PORTABILITY_INVENTORY.filter((entry) =>
+            /^(ai|knowledge|integrations)\./.test(entry.table),
+          ).map((entry) => ({ table_name: entry.table })),
+        };
+      if (text.includes("'knowledge_source' as kind")) return { rows: [] };
+      throw new Error(
+        'This unit fixture has no answer for that SQL; use the real-role integration gate.',
+      );
+    },
     select: () => ({ from: (table: PgTable) => chain(() => rowsOf(table)) }),
     insert: (table: PgTable) => ({
       values: (values: Record<string, unknown>) => {
@@ -757,7 +775,8 @@ describe('the runner', () => {
     ).toEqual([]);
     expect(
       fake.writes.filter(
-        ({ table, values }) => table === 'platform.tombstones' && values.targetId === ids.deletedFile,
+        ({ table, values }) =>
+          table === 'platform.tombstones' && values.targetId === ids.deletedFile,
       ),
     ).toHaveLength(1);
   });
@@ -824,7 +843,7 @@ describe('the runner', () => {
     expect(fake.writes.map(({ table }) => table)).not.toContain('work.artifacts');
   });
 
-  it('counts a section nothing here implements, rather than dropping it silently', async () => {
+  it('refuses a legacy archive claiming an unimplemented extension, with nothing applied', async () => {
     const row = importRow(organizationId);
     const fake = fakeDatabase(row);
     const built = buildArchive(recipient, {
@@ -837,8 +856,11 @@ describe('the runner', () => {
       ],
     });
     const result = await run(fake, row, built.bytes);
-    expect(result.warningCounts.SECTION_NOT_SUPPORTED).toBe(1);
-    expect(result.status).toBe('completed_with_warnings');
+    expect(result).toMatchObject({
+      status: 'failed',
+      failureCode: 'MANIFEST_INVALID',
+      appliedCounts: {},
+    });
   });
 
   it('counts what was excluded at the source, so nothing is missing silently', async () => {

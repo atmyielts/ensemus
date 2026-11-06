@@ -42,6 +42,7 @@ import { and, asc, eq, gt, inArray, isNull } from 'drizzle-orm';
 import { objectKey, type ObjectStore } from './artifacts';
 import { emit } from './events';
 import type { ContributorReport, RestoreContributor, RunProbe } from './sovereign-ports';
+import { missingRestoreContributors } from './restore-contributors';
 import {
   reapplyTombstoneLedger,
   type LedgerReader,
@@ -209,7 +210,15 @@ export function countNeedsAttention(
       tenant.artifactsMissingBytes +
       tenant.bytesUnchecked +
       tenant.checksFailed +
-      tenant.contributors.reduce((sum, contributor) => sum + contributor.needsAttention, 0) +
+      missingRestoreContributors(tenant.contributors) +
+      tenant.contributors.reduce(
+        (sum, contributor) =>
+          sum +
+          (Number.isSafeInteger(contributor.needsAttention)
+            ? Math.max(0, contributor.needsAttention)
+            : 0),
+        0,
+      ) +
       (mode === 'report' ? tenant.runsClosed : 0);
   }
   return total;
@@ -648,7 +657,15 @@ async function runContributors(step: TenantStep): Promise<ContributorReport[]> {
   const reports: ContributorReport[] = [];
   for (const contributor of input.contributors) {
     try {
-      reports.push(await contributor.reconcile(database, context));
+      const report = await contributor.reconcile(database, context);
+      if (
+        report.name !== contributor.name ||
+        [report.checked, report.changed, report.needsAttention].some(
+          (value) => !Number.isSafeInteger(value) || value < 0,
+        )
+      )
+        throw new Error('RESTORE_PROOF_INVALID');
+      reports.push(report);
     } catch {
       find({ code: 'CONTRIBUTOR_FAILED', step: contributor.name });
       reports.push({ name: contributor.name, checked: 0, changed: 0, needsAttention: 1 });
@@ -697,6 +714,14 @@ export async function reconcileAfterRestore(
   store: ObjectStore & LedgerReader,
   input: Reconcile,
 ): Promise<RestoreReport> {
+  const contributorInventory = input.contributors.map(({ name }) => ({
+    name,
+    checked: 0,
+    changed: 0,
+    needsAttention: 0,
+  }));
+  if (missingRestoreContributors(contributorInventory) > 0)
+    throw new Error('RESTORE_CONTRIBUTOR_INVENTORY_INCOMPLETE');
   const { contextFor, mode } = input;
   const ledgerOptions = input.ledgerOptions ?? {};
   const onFinding = input.onFinding ?? (() => undefined);

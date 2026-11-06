@@ -1,11 +1,12 @@
 // Owned by the import slice (COMM-05). See docs/06-delivery/m6-slices.md and ADR-030 D8 and D9. An archive is
 // hostile input until proven otherwise, it goes only into an organization with nothing in it, and it starts
 // nothing. It runs in an operator's command, so the private key that opens it stays in that one process.
-import { createHash, createPublicKey, type KeyObject } from 'node:crypto';
+import { createHash, createPublicKey, randomUUID, type KeyObject } from 'node:crypto';
 import {
   artifacts,
   blobLifecycle,
   clients,
+  connections,
   importedPeople,
   importedRecords,
   memberships,
@@ -23,11 +24,16 @@ import {
 } from '@ensemus/database';
 import {
   exportManifestSchema,
+  coreRecordSchema,
+  validatePortableRecord,
   type CoreRecord,
   type ExportManifest,
 } from '@ensemus/contracts/portability-records';
 import {
   artifactPartPath,
+  knowledgePartPath,
+  matchesPortabilityInventory,
+  assertPortabilitySections,
   EXPORT_MANIFEST_PATH,
   EXPORT_SECTIONS,
   isArchivePath,
@@ -79,10 +85,19 @@ import {
 } from './portability-sections-import';
 import type { ImportScope, PortabilitySection } from './sovereign-ports';
 import type { LedgerReader } from './tombstone-ledger';
+import { assertJoinedPortabilitySchema, quarantinePortableRecord } from './portability-extensions';
+import { queryRows } from './portability-sql';
 
 export { parentsFirst } from './portability-sections-import';
 
-import { assertActiveMember, auditAction, loadChangeable, loadReadable, notify, setOwner } from './work';
+import {
+  assertActiveMember,
+  auditAction,
+  loadChangeable,
+  loadReadable,
+  notify,
+  setOwner,
+} from './work';
 
 export type OrganizationImportView = {
   id: string;
@@ -125,13 +140,28 @@ const countOf = async (tx: Tx, table: PgTable) => {
 };
 
 /** What makes an organization not empty, by the record kind that fills it. People are counted separately. */
-const countsOfContent = async (tx: Tx) => ({
-  work_unit: await countOf(tx, workUnits),
-  client: await countOf(tx, clients),
-  project: await countOf(tx, projects),
-  team: await countOf(tx, teams),
-  artifact: await countOf(tx, artifacts),
-});
+const countsOfContent = async (tx: Tx, importId?: string) => {
+  await assertJoinedPortabilitySchema(tx);
+  const extra = await queryRows<{ kind: string; n: number }>(
+    tx,
+    sql`
+    select 'knowledge_source' as kind,count(*)::int as n from knowledge.sources
+    union all select 'knowledge_document',count(*)::int from knowledge.documents d
+      ${importId ? sql`where d.id not in(select sovereign.reserved_import_document_ids(${importId}::uuid))` : sql``}
+    union all select 'model_profile',count(*)::int from ai.model_profiles
+    union all select 'agent_definition',count(*)::int from ai.agent_definitions
+    union all select 'budget',count(*)::int from platform.budgets`,
+  );
+  return {
+    work_unit: await countOf(tx, workUnits),
+    client: await countOf(tx, clients),
+    project: await countOf(tx, projects),
+    team: await countOf(tx, teams),
+    artifact: await countOf(tx, artifacts),
+    connection: await countOf(tx, connections),
+    ...Object.fromEntries(extra.map((row) => [row.kind, row.n])),
+  };
+};
 
 /**
  * An owner saying this organization is to take an archive. Needs `organization.import`. Refuses with
@@ -325,12 +355,15 @@ function parseManifest(plain: Buffer): ExportManifest {
   if (
     fields.format === 'ensemus.organization_export' &&
     typeof fields.schema_version === 'number' &&
-    fields.schema_version !== 1
+    fields.schema_version !== 1 &&
+    fields.schema_version !== 2
   ) {
     throw new ImportFailure('FORMAT_NOT_SUPPORTED');
   }
   const parsed = exportManifestSchema.safeParse(raw);
   if (!parsed.success) throw new ImportFailure('MANIFEST_INVALID');
+  if (parsed.data.schema_version === 2 && !matchesPortabilityInventory(parsed.data.inventory))
+    throw new ImportFailure('FORMAT_NOT_SUPPORTED');
   return parsed.data;
 }
 
@@ -463,6 +496,21 @@ function validateCorePart(section: CoreExportSection, lines: readonly unknown[])
   return records;
 }
 
+function validatePart(section: string, lines: readonly unknown[]) {
+  const records = lines.map((raw) => {
+    try {
+      const core = coreRecordSchema.safeParse(raw);
+      return core.success
+        ? validateCoreRecord(section as CoreExportSection, raw)
+        : validatePortableRecord(section, raw);
+    } catch {
+      throw new RecordRefused();
+    }
+  });
+  if (records.some((record) => record.kind !== records[0]?.kind)) throw new RecordRefused();
+  return records;
+}
+
 type TombstoneSet = Map<
   string,
   { targetType: string; targetId: string; deletedAt: Date; onlyInLedger?: true }
@@ -499,7 +547,7 @@ async function verifyEveryPart(opened: OpenedArchive, tombstoned: TombstoneSet) 
   for (const part of opened.manifest.parts) {
     if (part.section === 'tombstones') continue;
     if (isArtifactBytes(part)) {
-      const artifactId = part.path.slice('artifacts/'.length, -'.bin.sealed'.length);
+      const artifactId = part.path.slice(part.section.length + 1, -'.bin.sealed'.length);
       if (tombstoned.has(tombstoneKey('artifact', artifactId))) {
         await readSealedPart(opened, part);
       } else {
@@ -508,9 +556,14 @@ async function verifyEveryPart(opened: OpenedArchive, tombstoned: TombstoneSet) 
       continue;
     }
     const lines = readLines(await readPart(opened, part), part);
-    if (!CORE_SECTIONS.has(part.section)) continue;
-    for (const record of validateCorePart(part.section as CoreExportSection, lines)) {
-      assertArtifactFacts(record, bytesParts);
+    for (const record of validatePart(part.section, lines)) {
+      if (coreRecordSchema.safeParse(record).success)
+        assertArtifactFacts(record as CoreRecord, bytesParts);
+      if (record.kind === 'knowledge_document') {
+        const bytes = bytesParts.get(knowledgePartPath(record.id));
+        if (!bytes || bytes.plaintext_sha256 !== record.content_sha256)
+          throw new ImportFailure('PART_CHANGED');
+      }
     }
   }
 }
@@ -591,6 +644,29 @@ const KIND_ORDER = [
   'work_assignment',
   'artifact',
   'work_artifact',
+  'service_identity',
+  'agent_definition',
+  'agent_version',
+  'model_profile',
+  'rate_card',
+  'agent_run',
+  'execution_step',
+  'agent_assignment',
+  'budget',
+  'usage_entry',
+  'policy_definition',
+  'external_resource',
+  'external_acl',
+  'mcp_definition',
+  'client_reader',
+  'knowledge_source',
+  'source_grant',
+  'knowledge_document',
+  'embedding_space',
+  'fact_definition',
+  'fact_evidence',
+  'graph_edge',
+  'artifact_citation',
 ];
 
 const recordKindOf = (path: string) =>
@@ -598,7 +674,11 @@ const recordKindOf = (path: string) =>
 
 function kindRank(path: string) {
   const name = recordKindOf(path);
-  const singular = name === 'people' ? 'person' : name.replace(/ies$/, 'y').replace(/s$/, '');
+  const singular = KIND_ORDER.includes(name)
+    ? name
+    : name === 'people'
+      ? 'person'
+      : name.replace(/ies$/, 'y').replace(/s$/, '');
   const rank = KIND_ORDER.indexOf(singular);
   return rank === -1 ? KIND_ORDER.length : rank;
 }
@@ -677,10 +757,10 @@ function claimImport(database: AppDatabase, context: TenantContext, importId: st
  */
 async function assertStillEmpty(database: AppDatabase, context: TenantContext, state: RunState) {
   const fits = await withTenantTx(database, context, async (tx) => {
-    const content = await countsOfContent(tx);
+    const content = await countsOfContent(tx, state.row.id);
     // Fewer is fine: the ledger may have taken something back out since.
     const only = Object.entries(content).every(
-      ([kind, count]) => count <= (state.applied[kind] ?? 0),
+      ([kind, count]) => count <= (kind === 'knowledge_document' ? 0 : (state.applied[kind] ?? 0)),
     );
     return only && (state.done.size > 0 || (await countOf(tx, memberships)) === 1);
   });
@@ -881,15 +961,7 @@ async function applyParts(
     const section = implemented.get(part.section);
     const warnings: WarningCounts = {};
     if (!section) {
-      addWarnings(warnings, { SECTION_NOT_SUPPORTED: 1 });
-      const next = { ...state.warnings };
-      addWarnings(next, warnings);
-      await withTenantTx(database, context, async (tx) => {
-        await insertPart(tx, part, 0, 1);
-        await saveProgress(tx, state, state.applied, next);
-      });
-      state.warnings = next;
-      return;
+      throw new ImportFailure('FORMAT_NOT_SUPPORTED');
     }
     const lines = readLines(await readPart(opened, part), part);
     let records: readonly unknown[] = lines;
@@ -920,6 +992,21 @@ async function applyParts(
       },
       isTombstoned: (targetType, targetId) => tombstoned.has(tombstoneKey(targetType, targetId)),
     };
+    if (part.section === 'knowledge') {
+      const stored = await storeKnowledgeBytes(
+        opened,
+        database,
+        context,
+        deps.store,
+        records,
+        tombstoned,
+        bytesParts,
+        scope,
+      );
+      records = stored.keep;
+      filesFinished = stored.finishedPaths;
+      addWarnings(warnings, stored.warnings);
+    }
     const kind = (lines[0] as { kind?: unknown } | undefined)?.kind;
     const countKey = typeof kind === 'string' ? kind : part.section;
     const nextApplied = { ...state.applied };
@@ -969,6 +1056,115 @@ async function applyParts(
     });
     state.warnings = next;
   }
+}
+
+/** Reserve the exact document/writer before any store call. A crashed or unknown writer must be
+ * positively fenced by the knowledge recovery adapter; neither a lease nor an absent HEAD clears it. */
+async function storeKnowledgeBytes(
+  opened: OpenedArchive,
+  database: AppDatabase,
+  context: TenantContext,
+  store: Pick<ObjectStore, 'put' | 'delete' | 'exists'> & Partial<Pick<ObjectStore, 'get'>>,
+  raw: readonly unknown[],
+  tombstoned: TombstoneSet,
+  parts: ReadonlyMap<string, ManifestPart>,
+  scope: ImportScope,
+) {
+  const keep: unknown[] = [],
+    finishedPaths: ManifestPart[] = [];
+  const warnings: WarningCounts = {};
+  for (const value of raw) {
+    const record = validatePortableRecord('knowledge', value);
+    if (record.kind !== 'knowledge_document') {
+      keep.push(record);
+      continue;
+    }
+    const part = parts.get(knowledgePartPath(record.id));
+    if (!part) throw new ImportFailure('PART_MISSING');
+    if (
+      tombstoned.has(tombstoneKey('knowledge_source', record.source_id)) ||
+      tombstoned.has(tombstoneKey('knowledge_document', record.id))
+    ) {
+      addWarnings(warnings, { TOMBSTONED_SKIPPED: 1 });
+      finishedPaths.push(part);
+      continue;
+    }
+    const token = randomUUID();
+    const key = `${context.organizationId}/knowledge/${record.id}`;
+    const reservation = await withTenantTx(database, context, async (tx) => {
+      const [source] = await queryRows<{ id: string; state: string; classification: string }>(
+        tx,
+        sql`select id,state,classification
+        from knowledge.sources where organization_id=${context.organizationId}::uuid and id=${record.source_id}::uuid
+        and kind='upload' for update`,
+      );
+      if (!source) return 'provider' as const;
+      if (source.state !== 'active' || source.classification === 'restricted')
+        throw new RecordRefused();
+      await quarantinePortableRecord(tx, context, scope, record);
+      const [existing] = await queryRows<{ state: string; content_sha256: string }>(
+        tx,
+        sql`select state,content_sha256
+        from knowledge.documents where organization_id=${context.organizationId}::uuid and id=${record.id}::uuid for update`,
+      );
+      const [writer] = await queryRows<{ state: string }>(
+        tx,
+        sql`select state from knowledge.object_writers
+        where organization_id=${context.organizationId}::uuid and document_id=${record.id}::uuid for update`,
+      );
+      if (
+        existing?.content_sha256 !== undefined &&
+        existing.content_sha256 !== record.content_sha256
+      )
+        throw new RecordRefused();
+      if (writer?.state === 'active') throw new RecordRefused();
+      if (existing) {
+        if (writer?.state !== 'settled') throw new RecordRefused();
+        return 'already' as const;
+      }
+      await tx.execute(sql`insert into knowledge.documents(organization_id,id,source_id,version_no,title,
+        content_sha256,size_bytes,media_type,object_key,classification,state,superseded_at,created_at,source_version)
+        values(${context.organizationId}::uuid,${record.id}::uuid,${record.source_id}::uuid,${record.version_no},${record.title},
+          ${record.content_sha256},${record.size_bytes},${record.media_type},${key},${record.classification},
+          ${record.superseded_at ? 'failed' : 'received'},${record.superseded_at}::timestamptz,${record.created_at}::timestamptz,${record.source_version})`);
+      await tx.execute(sql`insert into knowledge.object_writers(organization_id,document_id,source_id,generation,write_id,state)
+        values(${context.organizationId}::uuid,${record.id}::uuid,${record.source_id}::uuid,1,${token}::uuid,'active')`);
+      return 'write' as const;
+    });
+    if (reservation === 'provider') {
+      keep.push(record);
+      finishedPaths.push(part);
+      addWarnings(warnings, { PROVIDER_RECONNECTION_REQUIRED: 1 });
+      continue;
+    }
+    const bytes = await readPart(opened, part);
+    if (bytes.length !== record.size_bytes || sha256(bytes) !== record.content_sha256)
+      throw new ImportFailure('PART_CHANGED');
+    if (reservation === 'already') {
+      if (!store.get) throw new RecordRefused();
+      const existing = await store.get(key);
+      if (existing.length !== record.size_bytes || sha256(existing) !== record.content_sha256)
+        throw new ImportFailure('PART_CHANGED');
+    } else {
+      await store.put(key, bytes, record.media_type);
+      await withTenantTx(database, context, async (tx) => {
+        const [source] = await queryRows<{ state: string }>(
+          tx,
+          sql`select state from knowledge.sources
+          where organization_id=${context.organizationId}::uuid and id=${record.source_id}::uuid for update`,
+        );
+        if (source?.state !== 'active') throw new RecordRefused();
+        const settled = await tx.execute(sql`update knowledge.object_writers set state='settled'
+          where organization_id=${context.organizationId}::uuid and document_id=${record.id}::uuid
+          and write_id=${token}::uuid and generation=1 and state='active' returning document_id`);
+        if (settled.rows.length !== 1) throw new RecordRefused();
+      });
+    }
+    keep.push(record);
+    finishedPaths.push(part);
+    addWarnings(warnings, { SOURCE_REQUIRES_REINGEST: 1 });
+  }
+  return { keep, finishedPaths, warnings };
 }
 
 /** Step 6. Facts only, and nothing starts from them. */
@@ -1063,6 +1259,14 @@ export async function runOrganizationImport(
     const opened = await openArchive(input.archive, input.recipientPrivateKeyPem);
     assertSameArchive(opened, state);
     const { manifest } = opened;
+    if (manifest.schema_version === 2) {
+      try {
+        assertPortabilitySections(deps.sections.map((section) => section.section));
+      } catch {
+        throw new ImportFailure('FORMAT_NOT_SUPPORTED');
+      }
+      await withTenantTx(database, context, assertJoinedPortabilitySchema);
+    } else state.warnings.CORE_ONLY_ARCHIVE = 1;
     const tombstoned = await readArchiveTombstones(opened);
     await readSourceLedger(deps.ledger, manifest.organization_id, tombstoned);
     await verifyEveryPart(opened, tombstoned);
@@ -1383,7 +1587,10 @@ async function joinTeam(
   holding: ImportHolding,
   membershipId: string,
 ) {
-  const [team] = await tx.select({ id: teams.id }).from(teams).where(eq(teams.id, holding.target_id));
+  const [team] = await tx
+    .select({ id: teams.id })
+    .from(teams)
+    .where(eq(teams.id, holding.target_id));
   if (!team) return;
   await tx
     .insert(teamMemberships)

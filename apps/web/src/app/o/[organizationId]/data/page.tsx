@@ -52,6 +52,9 @@ export default async function DataPage({
             import one or link the people in it. Ask an owner of this organization if you need one.
           </p>
           <p>{historyLink}</p>
+          <p>
+            <Link href={`/o/${organizationId}/data/definitions`}>Review imported definitions</Link>
+          </p>
         </section>
       </>
     );
@@ -129,6 +132,11 @@ export default async function DataPage({
         {importView && FINISHED.has(importView.status) && (
           <section className="panel" aria-labelledby="data-history">
             <h2 id="data-history">History</h2>
+            <p>
+              <Link href={`/o/${organizationId}/data/definitions`}>
+                Review imported definitions and settings
+              </Link>
+            </p>
             <p>
               Approvals, decisions and status changes from the archive are kept as a record, by
               work. {historyLink}.

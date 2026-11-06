@@ -8,7 +8,10 @@
 // again. A file deleted after the tombstones were read is not in the archive's tombstones at all, so the archive
 // cannot be downloaded (`EXPORT_SUPERSEDED`), and upkeep removes it.
 import { createHash, randomUUID } from 'node:crypto';
-import { coreRecordSchema, exportManifestSchema } from '@ensemus/contracts/portability-records';
+import {
+  exportManifestSchema,
+  validatePortableRecord,
+} from '@ensemus/contracts/portability-records';
 import {
   organizationExportParts,
   organizationExports,
@@ -21,7 +24,10 @@ import {
 import { can } from '@ensemus/domain/policy';
 import {
   artifactPartPath,
-  CORE_EXPORT_SECTIONS,
+  knowledgePartPath,
+  assertPortabilitySections,
+  PORTABILITY_INVENTORY,
+  PORTABILITY_INVENTORY_VERSION,
   EXPORT_FAILURE_CODES,
   EXPORT_MANIFEST_PATH,
   EXPORT_SECTIONS,
@@ -58,6 +64,9 @@ import { AppError } from './errors';
 import { emit } from './events';
 import { idSchema } from './ids';
 import { CORE_SECTION_EXPORTERS, nextExportableFile } from './portability-sections-export';
+import { assertJoinedPortabilitySchema } from './portability-extensions';
+import { queryRows } from './portability-sql';
+import { assertExportEpoch, isExportEpochCurrent } from './portability-epoch';
 import type { ExportPage, PortabilitySection } from './sovereign-ports';
 import { auditAction, notify } from './work';
 
@@ -207,6 +216,7 @@ async function findExport(tx: Tx, context: TenantContext, exportId: string, lock
  * the archive does not hold, and the ledger re-apply writing an old time is caught the same way.
  */
 async function isSuperseded(tx: Tx, context: TenantContext, row: ExportRow) {
+  if (!(await isExportEpochCurrent(tx, context, row.id))) return true;
   if (!row.tombstonesThrough) return true;
   const [totals] = await tx
     .select({
@@ -391,11 +401,15 @@ async function* archiveChunks(
   const mtime = Math.floor((row.finishedAt ?? row.requestedAt).getTime() / 1000);
 
   async function* entry(path: string, key: string, expectedSha256: string | null) {
+    await withTenantTx(database, context, (tx) => assertExportEpoch(tx, context, row.id));
     const body = await fromStore(() => store.get(key));
+    await withTenantTx(database, context, (tx) => assertExportEpoch(tx, context, row.id));
     // Whoever is downloading gets what was recorded or nothing. An import would refuse it anyway.
     if (sha256(body) !== expectedSha256) throw new AppError('EXPORT_NOT_READY');
     yield tarHeader(path, body.length, mtime);
+    await withTenantTx(database, context, (tx) => assertExportEpoch(tx, context, row.id));
     yield body;
+    await withTenantTx(database, context, (tx) => assertExportEpoch(tx, context, row.id));
     yield tarPadding(body.length);
   }
 
@@ -415,6 +429,7 @@ async function* archiveChunks(
       yield* entry(part.path, part.objectKey, part.sealedSha256);
     }
   }
+  await withTenantTx(database, context, (tx) => assertExportEpoch(tx, context, row.id));
   yield tarEnd();
 }
 
@@ -479,14 +494,17 @@ export async function beginExport(
   deps: ExportDeps,
 ): Promise<ExportStep> {
   requireWorker(context);
+  assertPortabilitySections(deps.sections.map((section) => section.section));
   const id = exportIdFrom(input.exportId);
   return withTenantTx(database, context, async (tx) => {
+    await assertJoinedPortabilitySchema(tx);
     const row = await findExport(tx, context, id, true);
     if (row.status !== 'requested') return stepOf(row);
     const [claimed] = await tx
       .update(organizationExports)
       .set({
         status: 'running',
+        exportEpoch: sql`(select epoch from sovereign.export_epochs where organization_id=${context.organizationId}::uuid)`,
         // The database's own clock, because every row this is compared with was stamped by it.
         snapshotAt: sql`now()`,
         startedAt: nowOf(deps),
@@ -505,38 +523,19 @@ export async function beginExport(
 type EncodedPage =
   { ok: true; body: Buffer; count: number } | { ok: false; why: 'refused' | 'too_big' };
 
-const isCoreSection = (section: string) =>
-  (CORE_EXPORT_SECTIONS as readonly string[]).includes(section);
-
-/**
- * A later milestone's section has its own schema, and these are the rules no section may break: a record is an
- * object, it does not name a tenant, and it is not restricted.
- */
-function checkPortRecord(record: unknown): unknown {
-  if (record === null || typeof record !== 'object' || Array.isArray(record)) return undefined;
-  const fields = record as Record<string, unknown>;
-  if ('organization_id' in fields || 'organizationId' in fields) return undefined;
-  if (fields.classification === 'restricted') return undefined;
-  return record;
-}
-
 /**
  * One page as JSONL. Each core record goes through its strict schema and what comes out is what is written, so
  * a new column, a credential or a restricted class has nowhere to go. No text from a record reaches the answer.
  */
 export function encodeExportPage(section: string, records: readonly unknown[]): EncodedPage {
-  const core = isCoreSection(section);
   const lines: Buffer[] = [];
   let total = 0;
   for (const record of records) {
     let checked: unknown;
-    if (core) {
-      const parsed = coreRecordSchema.safeParse(record);
-      if (!parsed.success) return { ok: false, why: 'refused' };
-      checked = parsed.data;
-    } else {
-      checked = checkPortRecord(record);
-      if (checked === undefined) return { ok: false, why: 'refused' };
+    try {
+      checked = validatePortableRecord(section, record);
+    } catch {
+      return { ok: false, why: 'refused' };
     }
     const line = Buffer.from(`${JSON.stringify(checked)}\n`);
     if (line.length > MAX_RECORD_BYTES) return { ok: false, why: 'refused' };
@@ -577,10 +576,12 @@ async function storePart(
   plaintext: Buffer,
 ): Promise<PartValues> {
   const { context, row, store } = run;
+  await assertRunEpoch(run);
   const sealed = seal(plaintext, parseRecipientPublicKey(row.recipientPublicKey));
   const objectKey = exportObjectKey(context.organizationId, row.id, path);
   if (Date.now() - run.startedAtMs > STEP_DEADLINE_MS) throw new ExportStoreUnavailable();
   await fromStore(() => store.put(objectKey, sealed, SEALED_MIME));
+  await assertRunEpoch(run);
   return {
     organizationId: context.organizationId,
     exportId: row.id,
@@ -596,6 +597,7 @@ async function storePart(
 
 type CommitChange = {
   part?: PartValues;
+  parts?: readonly PartValues[];
   /** Added to what the row has. */
   excluded?: Readonly<Record<string, number>>;
   /** Worked out under the row's lock, because some of it depends on what the tables say at that moment. */
@@ -618,9 +620,11 @@ function commitStep(run: Run, change: CommitChange): Promise<ExportStep> {
   const { database, context, row, deps } = run;
   return withTenantTx(database, context, async (tx) => {
     const current = await findExport(tx, context, row.id, true);
+    await assertExportEpoch(tx, context, row.id);
     if (current.status !== 'running' || current.version !== row.version) return stepOf(current);
-    if (change.part) {
-      await tx.insert(organizationExportParts).values(change.part).onConflictDoNothing();
+    const added = [...(change.part ? [change.part] : []), ...(change.parts ?? [])];
+    if (added.length) {
+      await tx.insert(organizationExportParts).values(added).onConflictDoNothing();
     }
     const outcome = await change.next(tx, current);
     const base: ExcludedCounts = outcome.resetExcluded ?? {
@@ -634,9 +638,9 @@ function commitStep(run: Run, change: CommitChange): Promise<ExportStep> {
         progress: outcome.progress,
         version: current.version + 1,
         updatedAt: nowOf(deps),
-        partCount: current.partCount + (change.part ? 1 : 0),
-        recordCount: current.recordCount + (change.part?.recordCount ?? 0),
-        archiveBytes: current.archiveBytes + (change.part?.sealedBytes ?? 0),
+        partCount: current.partCount + added.length,
+        recordCount: current.recordCount + added.reduce((sum, part) => sum + part.recordCount, 0),
+        archiveBytes: current.archiveBytes + added.reduce((sum, part) => sum + part.sealedBytes, 0),
         excludedRestrictedWork: base.work + (change.excluded?.restricted_work ?? 0),
         excludedRestrictedArtifacts: base.artifacts + (change.excluded?.restricted_artifacts ?? 0),
         excludedRestrictedClients: base.clients + (change.excluded?.restricted_clients ?? 0),
@@ -688,7 +692,12 @@ async function writeRecords(
   for (;;) {
     const size = limit;
     page = await withTenantTx(database, context, (tx) =>
-      exportPage(tx, context, { cursor: progress.cursor, limit: size }),
+      (async () => {
+        await assertExportEpoch(tx, context, row.id);
+        const page = await exportPage(tx, context, { cursor: progress.cursor, limit: size });
+        await assertExportEpoch(tx, context, row.id);
+        return page;
+      })(),
     );
     encoded = encodeExportPage(section, page.records);
     if (encoded.ok || encoded.why === 'refused' || limit === 1) break;
@@ -717,11 +726,42 @@ async function writeRecords(
     return failStep(run, 'RECORD_REFUSED');
   }
   const part = await storePart(run, section, path, encoded.count, encoded.body);
+  const originals: PartValues[] = [];
+  for (const original of read.originals ?? []) {
+    if (
+      section !== 'knowledge' ||
+      original.objectKey !== `${context.organizationId}/knowledge/${original.documentId}` ||
+      original.sizeBytes > 26214400 ||
+      row.partCount + originals.length + 2 > MAX_ARCHIVE_PARTS
+    )
+      return failStep(run, 'RECORD_REFUSED');
+    await assertRunEpoch(run);
+    const bytes = await fromStore(() => run.store.get(original.objectKey));
+    await assertRunEpoch(run);
+    if (bytes.length !== original.sizeBytes || sha256(bytes) !== original.sha256)
+      return failStep(run, 'BYTES_CHANGED');
+    originals.push(await storePart(run, section, knowledgePartPath(original.documentId), 0, bytes));
+  }
   const sequences = { ...progress.sequences, [sequenceKey]: sequence };
   return commitStep(run, {
     part,
+    parts: originals,
     ...excluded,
-    next: (tx, current) => next(read, sequences, tx, current),
+    next: async (tx, current) => {
+      if (originals.length) {
+        const owner = run.deps.sections.find((item) => item.section === section);
+        if (
+          !owner?.confirmOriginals ||
+          !(await owner.confirmOriginals(
+            tx,
+            context,
+            (read.originals ?? []).map((item) => item.documentId),
+          ))
+        )
+          throw new AppError('FORBIDDEN');
+      }
+      return next(read, sequences, tx, current);
+    },
   });
 }
 
@@ -777,8 +817,11 @@ async function filesPiece(run: Run): Promise<ExportStep> {
 
   let body: Buffer;
   try {
+    await assertRunEpoch(run);
     body = await store.get(file.objectKey);
-  } catch {
+    await assertRunEpoch(run);
+  } catch (error) {
+    if (error instanceof AppError && error.code === 'EXPORT_SUPERSEDED') throw error;
     if (await fromStore(() => store.exists(file.objectKey))) throw new ExportStoreUnavailable();
     // Gone. Being deleted just now is an ordinary reason. Otherwise something lost a file nobody deleted.
     const stillThere = await withTenantTx(database, context, async (tx) =>
@@ -903,6 +946,7 @@ function tombstonesPiece(run: Run): Promise<ExportStep> {
 /** Writes the manifest from the part rows, and makes the export `ready`, with who asked told. */
 async function manifestPiece(run: Run): Promise<ExportStep> {
   const { database, store, context, progress, row, deps } = run;
+  await assertRunEpoch(run);
 
   // Files deleted after their bytes were sealed. Their part rows stay, since those are append-only, and their
   // bytes go, and neither the manifest nor the download mentions them.
@@ -969,9 +1013,20 @@ async function manifestPiece(run: Run): Promise<ExportStep> {
   }
 
   const now = nowOf(deps);
+  const [omitted] = await withTenantTx(database, context, (tx) =>
+    queryRows<{ count: number }>(
+      tx,
+      sql`
+    select count(*)::int as count from knowledge.artifact_acl_catalog
+    where organization_id=${context.organizationId}::uuid and alive and provenance_state<>'ordinary'`,
+    ),
+  );
   const manifest = exportManifestSchema.safeParse({
     format: 'ensemus.organization_export',
-    schema_version: 1,
+    schema_version: 2,
+    inventory_version: PORTABILITY_INVENTORY_VERSION,
+    inventory: PORTABILITY_INVENTORY,
+    generated_bodies_excluded: omitted?.count ?? 0,
     export_id: row.id,
     organization_id: context.organizationId,
     exported_at: now.toISOString(),
@@ -997,10 +1052,12 @@ async function manifestPiece(run: Run): Promise<ExportStep> {
   const manifestKey = exportObjectKey(context.organizationId, row.id, EXPORT_MANIFEST_PATH);
   if (Date.now() - run.startedAtMs > STEP_DEADLINE_MS) throw new ExportStoreUnavailable();
   await fromStore(() => store.put(manifestKey, sealed, SEALED_MIME));
+  await assertRunEpoch(run);
   archiveBytes += tarEntryBytes(sealed.length);
 
   return withTenantTx(database, context, async (tx) => {
     const current = await findExport(tx, context, row.id, true);
+    await assertExportEpoch(tx, context, row.id);
     if (current.status !== 'running' || current.version !== row.version) return stepOf(current);
     const [ready] = await tx
       .update(organizationExports)
@@ -1069,6 +1126,7 @@ async function readRun(
   if (settled) return settled;
   // Nothing has claimed it, so nothing has a snapshot to read against. A workflow always begins first.
   if (row.status === 'requested') throw new AppError('INVALID_STATE');
+  await withTenantTx(database, context, (tx) => assertExportEpoch(tx, context, row.id));
   return {
     database,
     store,
@@ -1081,6 +1139,8 @@ async function readRun(
 }
 
 const isRun = (value: Run | ExportStep): value is Run => 'row' in value;
+const assertRunEpoch = (run: Run) =>
+  withTenantTx(run.database, run.context, (tx) => assertExportEpoch(tx, run.context, run.row.id));
 
 /**
  * One bounded step: one page of one section, or one file's bytes, sealed and written, then its part row and

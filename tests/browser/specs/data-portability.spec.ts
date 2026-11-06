@@ -77,6 +77,29 @@ async function tabTo(page: Page, wanted: RegExp, limit = 80) {
 }
 
 test.describe('who can reach it', () => {
+  test('an owner can inspect the definitions explanation without JavaScript', async ({
+    open,
+    world,
+  }) => {
+    const page = await open(world.alice, { javaScriptEnabled: false });
+    const response = await page.goto(`${dataPage(world.organization)}/definitions`);
+    expect(response?.status()).toBe(200);
+    await expect(
+      page.getByRole('heading', { name: 'Imported definitions', exact: true }),
+    ).toBeVisible();
+    await expect(page.getByText('These records need review', { exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: /activate|verify|approve/i })).toHaveCount(0);
+    await expectNoProblems(page);
+  });
+  test('a member or outsider cannot inspect imported definitions', async ({ open, world }) => {
+    for (const person of [world.bob, world.quiet]) {
+      const page = await open(person);
+      expect((await page.goto(`${dataPage(world.organization)}/definitions`))?.status()).toBe(404);
+      await expect(
+        page.getByRole('heading', { name: 'Imported definitions', exact: true }),
+      ).toHaveCount(0);
+    }
+  });
   test('a member gets the usual not found, and no link to it', async ({ open, world }) => {
     const page = await open(world.bob);
     const response = await page.goto(dataPage(world.organization));
@@ -218,7 +241,11 @@ test.describe('importing', () => {
   test('sends a box left unticked back with an error, not a change', async ({ open }) => {
     const person = await signUp('Una Unticked');
     const organization = await createOrganization(person, 'Not meant yet');
-    const response = await submit(dataPage(organization), person.jar, /Get this organization ready/);
+    const response = await submit(
+      dataPage(organization),
+      person.jar,
+      /Get this organization ready/,
+    );
     expect(response.headers.get('location')).toContain('error=INVALID_INPUT');
     const page = await open(person);
     await page.goto(dataPage(organization));

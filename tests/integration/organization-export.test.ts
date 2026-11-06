@@ -12,7 +12,7 @@ import {
   addArtifact,
   addTeamMember,
   beginExport,
-  CORE_PORTABILITY_SECTIONS,
+  SOURCE_PORTABILITY_SECTIONS,
   createClient,
   createInvitation,
   createProject,
@@ -107,7 +107,7 @@ class MemoryStore implements ObjectStore {
 
 const NOW = () => new Date();
 const deps: ExportDeps = {
-  sections: CORE_PORTABILITY_SECTIONS,
+  sections: SOURCE_PORTABILITY_SECTIONS,
   sourceRelease: 'test-release',
   retentionHours: 24,
 };
@@ -1083,6 +1083,12 @@ describe('organization export', () => {
           exportPage: async () => ({ recordKind: 'clients', records, nextCursor: null }),
           importPage: async () => ({ applied: 0 }),
         } satisfies PortabilitySection,
+        ...SOURCE_PORTABILITY_SECTIONS.filter((section) => section.section !== 'clients').map(
+          (section) => ({
+            ...section,
+            exportPage: async () => ({ recordKind: 'records', records: [], nextCursor: null }),
+          }),
+        ),
       ],
     });
 

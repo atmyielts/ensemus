@@ -31,6 +31,14 @@ const WARNING_WORDS: Record<ImportWarningCode, string> = {
     'links pointed at something the archive does not hold, so those links were left out.',
   WORK_PAUSED_ON_IMPORT:
     'pieces of work were moving when the archive was made. Nothing restarted: each one waits here as blocked, for a person.',
+  DEFINITION_REQUIRES_REVIEW:
+    'definitions or historical records need review before they can be used here.',
+  SOURCE_REQUIRES_REINGEST:
+    'uploaded originals need local processing before they can be searched. Their old search index was not copied.',
+  PROVIDER_RECONNECTION_REQUIRED:
+    'provider-backed documents remain reference material until the connection and its current permissions have been checked again.',
+  CORE_ONLY_ARCHIVE:
+    'archive uses the older core-only format. It does not carry the complete agent and knowledge inventory.',
 };
 
 const FAILURE_WORDS: Record<ImportFailureCode, string> = {

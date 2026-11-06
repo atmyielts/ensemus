@@ -113,6 +113,8 @@ export const organizationExports = sovereignSchema.table(
     status: text().notNull().default('requested'),
     /** Only `standard`, which leaves restricted work out (ADR-030 D10). A wider scope is a migration. */
     scope: text().notNull().default('standard'),
+    /** Pinned once at the real begin transition. Legacy/missing pins never authorize download. */
+    exportEpoch: bigint({ mode: 'bigint' }),
     recipientPublicKey: text().notNull(),
     recipientKeyId: text().notNull(),
     requestedByMembershipId: uuid().notNull(),

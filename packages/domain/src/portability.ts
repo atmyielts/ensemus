@@ -39,6 +39,151 @@ export const CORE_EXPORT_SECTIONS = [
 ] as const satisfies readonly ExportSection[];
 export type CoreExportSection = (typeof CORE_EXPORT_SECTIONS)[number];
 
+/** Archive v2 has an explicit implementation for every source section in M3–M5. Studio's
+ * custom objects have no source tables in this profile; that is an explicit absence, not a plugin skip. */
+export const PORTABLE_SOURCE_SECTIONS = [
+  ...CORE_EXPORT_SECTIONS,
+  'knowledge',
+  'agents',
+  'skills',
+  'policy',
+] as const;
+export const PORTABILITY_INVENTORY_VERSION = 'ensemus.m3-m5/1' as const;
+type InventoryDisposition =
+  | 'records'
+  | 'quarantined'
+  | 'original_bytes'
+  | 'rebuild'
+  | 'private_excluded'
+  | 'credentials_excluded'
+  | 'operational_excluded';
+const inventory = (table: string, section: ExportSection, disposition: InventoryDisposition) => ({
+  table,
+  section,
+  disposition,
+  version: 1 as const,
+});
+
+/** This is a reviewed source-table inventory, not a catalog query that exports new columns by accident.
+ * Unknown schemas fail at composition; adding a source table requires a new inventory profile. */
+export const PORTABILITY_INVENTORY = [
+  inventory('org.organizations', 'organizations', 'records'),
+  inventory('org.memberships', 'people', 'records'),
+  inventory('org.teams', 'people', 'records'),
+  inventory('org.team_memberships', 'people', 'records'),
+  inventory('work.clients', 'clients', 'records'),
+  inventory('work.client_readers', 'clients', 'quarantined'),
+  inventory('work.projects', 'projects', 'records'),
+  inventory('work.work_units', 'work', 'records'),
+  inventory('work.work_dependencies', 'relations', 'records'),
+  inventory('work.work_assignments', 'relations', 'records'),
+  inventory('work.artifacts', 'artifacts', 'original_bytes'),
+  inventory('work.work_artifacts', 'relations', 'records'),
+  inventory('work.approvals', 'history', 'quarantined'),
+  inventory('work.approval_decisions', 'history', 'quarantined'),
+  inventory('work.work_transitions', 'history', 'quarantined'),
+  inventory('platform.tombstones', 'tombstones', 'records'),
+  inventory('governance.audit_events', 'audit-redacted', 'quarantined'),
+  inventory('integrations.connections', 'connections', 'records'),
+  inventory('integrations.external_resources', 'connections', 'quarantined'),
+  inventory('integrations.external_resource_acl', 'connections', 'quarantined'),
+  inventory('integrations.sync_cursors', 'connections', 'operational_excluded'),
+  inventory('integrations.external_actions', 'history', 'quarantined'),
+  inventory('integrations.external_action_attempts', 'history', 'quarantined'),
+  inventory('integrations.external_action_receipts', 'history', 'quarantined'),
+  inventory('integrations.webhook_endpoints', 'connections', 'credentials_excluded'),
+  inventory('integrations.webhook_deliveries', 'connections', 'private_excluded'),
+  inventory('integrations.mcp_tools', 'connections', 'quarantined'),
+  inventory('org.service_identities', 'agents', 'quarantined'),
+  inventory('ai.model_profiles', 'agents', 'quarantined'),
+  inventory('ai.rate_cards', 'agents', 'quarantined'),
+  inventory('ai.model_evaluations', 'agents', 'operational_excluded'),
+  inventory('ai.agent_definitions', 'agents', 'quarantined'),
+  inventory('ai.agent_versions', 'agents', 'quarantined'),
+  inventory('ai.agent_publications', 'agents', 'operational_excluded'),
+  inventory('ai.agent_runs', 'agents', 'quarantined'),
+  inventory('ai.run_controls', 'agents', 'operational_excluded'),
+  inventory('ai.execution_steps', 'agents', 'quarantined'),
+  inventory('ai.step_payloads', 'agents', 'private_excluded'),
+  inventory('ai.tool_proposals', 'agents', 'private_excluded'),
+  inventory('ai.artifact_evidence', 'agents', 'operational_excluded'),
+  inventory('work.agent_assignments', 'agents', 'quarantined'),
+  inventory('platform.budgets', 'policy', 'quarantined'),
+  inventory('platform.budget_reservations', 'policy', 'operational_excluded'),
+  inventory('platform.usage_ledger', 'policy', 'quarantined'),
+  inventory('platform.entitlements', 'policy', 'operational_excluded'),
+  inventory('governance.egress_decisions', 'policy', 'operational_excluded'),
+  inventory('governance.policy_bundles', 'policy', 'quarantined'),
+  inventory('governance.kill_switches', 'policy', 'operational_excluded'),
+  inventory('knowledge.sources', 'knowledge', 'records'),
+  inventory('knowledge.source_grants', 'knowledge', 'records'),
+  inventory('knowledge.documents', 'knowledge', 'original_bytes'),
+  inventory('knowledge.document_staging', 'knowledge', 'operational_excluded'),
+  inventory('knowledge.object_writers', 'knowledge', 'operational_excluded'),
+  inventory('knowledge.chunks', 'knowledge', 'rebuild'),
+  inventory('knowledge.embedding_spaces', 'knowledge', 'quarantined'),
+  inventory('knowledge.embeddings', 'knowledge', 'rebuild'),
+  inventory('knowledge.facts', 'knowledge', 'quarantined'),
+  inventory('knowledge.fact_evidence', 'knowledge', 'quarantined'),
+  inventory('knowledge.edges', 'knowledge', 'quarantined'),
+  inventory('knowledge.evidence_packages', 'knowledge', 'private_excluded'),
+  inventory('knowledge.evidence_items', 'knowledge', 'private_excluded'),
+  inventory('knowledge.answers', 'knowledge', 'private_excluded'),
+  inventory('knowledge.answer_sources', 'knowledge', 'private_excluded'),
+  inventory('knowledge.answer_citations', 'knowledge', 'private_excluded'),
+  inventory('knowledge.artifact_citations', 'knowledge', 'quarantined'),
+  inventory('knowledge.artifact_verifications', 'knowledge', 'operational_excluded'),
+  inventory('knowledge.purge_jobs', 'knowledge', 'operational_excluded'),
+  inventory('knowledge.model_calls', 'knowledge', 'operational_excluded'),
+  inventory('knowledge.artifact_acl_catalog', 'artifacts', 'operational_excluded'),
+  inventory('knowledge.artifact_work_links', 'artifacts', 'operational_excluded'),
+  inventory('knowledge.artifact_lineage', 'artifacts', 'operational_excluded'),
+  inventory('knowledge.artifact_lineage_sources', 'artifacts', 'operational_excluded'),
+  inventory('knowledge.artifact_lineage_packages', 'artifacts', 'operational_excluded'),
+  inventory('knowledge.artifact_lineage_inputs', 'artifacts', 'operational_excluded'),
+  inventory('knowledge.artifact_lineage_records', 'artifacts', 'operational_excluded'),
+  inventory('knowledge.structured_record_catalog', 'artifacts', 'operational_excluded'),
+  inventory('knowledge.structured_work_assignments', 'artifacts', 'operational_excluded'),
+  inventory('work.client_onboardings', 'history', 'private_excluded'),
+  inventory('secrets.sealed_secrets', 'connections', 'credentials_excluded'),
+] as const;
+
+export function matchesPortabilityInventory(value: unknown): boolean {
+  if (!Array.isArray(value) || value.length !== PORTABILITY_INVENTORY.length) return false;
+  const seen = new Set<string>();
+  for (const raw of value) {
+    if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return false;
+    const entry = raw as Record<string, unknown>;
+    if (
+      Object.keys(entry).sort().join(',') !== 'disposition,section,table,version' ||
+      typeof entry.table !== 'string' ||
+      seen.has(entry.table)
+    )
+      return false;
+    seen.add(entry.table);
+    const expected = PORTABILITY_INVENTORY.find((item) => item.table === entry.table);
+    if (
+      !expected ||
+      entry.section !== expected.section ||
+      entry.disposition !== expected.disposition ||
+      entry.version !== expected.version
+    )
+      return false;
+  }
+  return true;
+}
+
+export function assertPortabilitySections(sections: readonly string[]): void {
+  const supplied = new Set(sections);
+  if (
+    supplied.size !== sections.length ||
+    supplied.size !== PORTABLE_SOURCE_SECTIONS.length ||
+    PORTABLE_SOURCE_SECTIONS.some((name) => !supplied.has(name))
+  ) {
+    throw new Error('PORTABILITY_INVENTORY_INCOMPLETE');
+  }
+}
+
 export const EXPORT_MANIFEST_PATH = 'manifest.json.sealed';
 export const EXPORT_OBJECT_PREFIX = 'organization-exports/v1/';
 
@@ -69,6 +214,11 @@ export function artifactPartPath(artifactId: string) {
   return `artifacts/${artifactId}.bin.sealed`;
 }
 
+export function knowledgePartPath(documentId: string) {
+  if (!IS_UUID.test(documentId)) throw new Error('Not a valid part');
+  return `knowledge/${documentId}.bin.sealed`;
+}
+
 /**
  * Whether a path from an archive is one this format makes. An archive is untrusted input, so this is an
  * allowlist rather than a hunt for `..`: a path that is not exactly this shape is refused, whatever it
@@ -80,7 +230,9 @@ export function isArchivePath(path: string): boolean {
   if (!match) return false;
   const [, section, file] = match as unknown as [string, string, string];
   if (!isExportSection(section)) return false;
-  return file.endsWith('.bin') ? section === 'artifacts' && IS_UUID.test(file.slice(0, 36)) : true;
+  return file.endsWith('.bin')
+    ? (section === 'artifacts' || section === 'knowledge') && IS_UUID.test(file.slice(0, 36))
+    : true;
 }
 
 export const exportObjectKey = (organizationId: string, exportId: string, path: string) => {
@@ -153,6 +305,10 @@ export const IMPORT_WARNING_CODES = [
   'BYTES_MISSING',
   'RELATION_DANGLING',
   'WORK_PAUSED_ON_IMPORT',
+  'DEFINITION_REQUIRES_REVIEW',
+  'SOURCE_REQUIRES_REINGEST',
+  'PROVIDER_RECONNECTION_REQUIRED',
+  'CORE_ONLY_ARCHIVE',
 ] as const;
 export type ImportWarningCode = (typeof IMPORT_WARNING_CODES)[number];
 
