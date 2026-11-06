@@ -164,7 +164,7 @@ describe('register in instrumentation.ts', () => {
 // decides is shown to work on what a sink would have written.
 describe('reading what a sink wrote', () => {
   const folder = mkdtempSync(join(tmpdir(), 'otlp-sink-'));
-  const file = join(folder, 'spans.jsonl');
+  let file: string;
 
   const anExport = (service: string, name: string, attributes: Record<string, unknown>) =>
     JSON.stringify({
@@ -190,8 +190,12 @@ describe('reading what a sink wrote', () => {
       ],
     });
 
-  afterEach(() => rmSync(file, { force: true }));
-  afterAll(() => rmSync(folder, { recursive: true, force: true }));
+  // A file of its own for each test, and one removal at the end, because deleting can stall for many
+  // seconds on a loaded Windows machine, and a hook that overruns fails the test it follows.
+  beforeEach(() => {
+    file = join(folder, `${randomUUID()}.jsonl`);
+  });
+  afterAll(() => rmSync(folder, { recursive: true, force: true }), 60_000);
 
   it('reads an empty file and a missing one as nothing yet', () => {
     expect(readSink(file)).toBe('');

@@ -26,7 +26,13 @@ const ids = (findings: { id: string; package: string }[]) =>
   findings.map((finding) => `${finding.id} ${finding.package}`);
 
 const report = (...matches: unknown[]) => ({ ...fixture, matches });
-const match = (id: string, severity: string, state: string, name = 'pkg', versions: string[] = []) => ({
+const match = (
+  id: string,
+  severity: string,
+  state: string,
+  name = 'pkg',
+  versions: string[] = [],
+) => ({
   vulnerability: { id, severity, fix: { versions, state } },
   artifact: { name, version: '1.0.0', type: 'npm' },
 });
@@ -51,7 +57,11 @@ describe('the policy', () => {
 
   it('fails a critical whatever its fix state says', () => {
     for (const state of ['fixed', 'wont-fix', 'unknown', '']) {
-      const { failing } = evaluateScan(report(match('CVE-0000-0001', 'Critical', state)), NONE, NOW);
+      const { failing } = evaluateScan(
+        report(match('CVE-0000-0001', 'Critical', state)),
+        NONE,
+        NOW,
+      );
       expect(ids(failing)).toEqual(['CVE-0000-0001 pkg']);
     }
   });
@@ -68,7 +78,11 @@ describe('the policy', () => {
 
   it('lists a high with no fix', () => {
     for (const state of ['not-fixed', 'wont-fix', 'unknown', '']) {
-      const { failing, listed } = evaluateScan(report(match('CVE-0000-0003', 'High', state)), NONE, NOW);
+      const { failing, listed } = evaluateScan(
+        report(match('CVE-0000-0003', 'High', state)),
+        NONE,
+        NOW,
+      );
       expect(failing).toEqual([]);
       expect(ids(listed)).toEqual(['CVE-0000-0003 pkg']);
     }
@@ -76,7 +90,11 @@ describe('the policy', () => {
 
   it('lists a medium and everything below, even with a fix', () => {
     for (const severity of ['Medium', 'Low', 'Negligible', 'Unknown']) {
-      const { failing, listed } = evaluateScan(report(match('CVE-0000-0004', severity, 'fixed')), NONE, NOW);
+      const { failing, listed } = evaluateScan(
+        report(match('CVE-0000-0004', severity, 'fixed')),
+        NONE,
+        NOW,
+      );
       expect(failing).toEqual([]);
       expect(ids(listed)).toEqual(['CVE-0000-0004 pkg']);
     }
@@ -210,13 +228,18 @@ describe('an exception', () => {
     expect(problems).toEqual([expect.stringContaining('twice')]);
   });
 
-  it.each([[null], [undefined], ['text'], [[]], [{}], [{ exceptions: 'none' }], [{ exceptions: [1] }]])(
-    'reads %j as a problem and never as no exceptions',
-    (file) => {
-      expect(exceptionProblems(file, NOW).length).toBeGreaterThan(0);
-      expect(evaluateScan(report(), file, NOW).problems.length).toBeGreaterThan(0);
-    },
-  );
+  it.each([
+    [null],
+    [undefined],
+    ['text'],
+    [[]],
+    [{}],
+    [{ exceptions: 'none' }],
+    [{ exceptions: [1] }],
+  ])('reads %j as a problem and never as no exceptions', (file) => {
+    expect(exceptionProblems(file, NOW).length).toBeGreaterThan(0);
+    expect(evaluateScan(report(), file, NOW).problems.length).toBeGreaterThan(0);
+  });
 
   it('the file that ships starts empty, and is valid', () => {
     const file = JSON.parse(
@@ -249,13 +272,20 @@ describe('a report that cannot be trusted', () => {
     }
   });
 
-  it.each([[null], [undefined], ['{}'], [[]], [7]])('is a problem when the report is %j', (scan) => {
-    expect(evaluateScan(scan, NONE, NOW).problems.length).toBeGreaterThan(0);
-  });
+  it.each([[null], [undefined], ['{}'], [[]], [7]])(
+    'is a problem when the report is %j',
+    (scan) => {
+      expect(evaluateScan(scan, NONE, NOW).problems.length).toBeGreaterThan(0);
+    },
+  );
 
   it('is a problem when matches is absent or not a list', () => {
     const { descriptor } = fixture;
-    for (const scan of [{ descriptor }, { descriptor, matches: null }, { descriptor, matches: {} }]) {
+    for (const scan of [
+      { descriptor },
+      { descriptor, matches: null },
+      { descriptor, matches: {} },
+    ]) {
       const { problems } = evaluateScan(scan, NONE, NOW);
       expect(problems).toEqual([expect.stringContaining('matches')]);
     }
@@ -265,7 +295,10 @@ describe('a report that cannot be trusted', () => {
     const bad = [
       {},
       { vulnerability: {}, artifact: { name: 'pkg', version: '1.0.0' } },
-      { vulnerability: { id: 'CVE-0000-0008', severity: 'High' }, artifact: { name: 'pkg', version: '1.0.0' } },
+      {
+        vulnerability: { id: 'CVE-0000-0008', severity: 'High' },
+        artifact: { name: 'pkg', version: '1.0.0' },
+      },
       match('CVE-0000-0008', 'High', 'fixed', ''),
       { ...match('CVE-0000-0008', 'High', 'fixed'), artifact: undefined },
       {
@@ -285,13 +318,21 @@ describe('a report that cannot be trusted', () => {
   });
 
   it('is a problem with a severity it does not know, which must not read as merely listed', () => {
-    const { listed, problems } = evaluateScan(report(match('CVE-0000-0009', 'CRITICAL', 'fixed')), NONE, NOW);
+    const { listed, problems } = evaluateScan(
+      report(match('CVE-0000-0009', 'CRITICAL', 'fixed')),
+      NONE,
+      NOW,
+    );
     expect(listed).toEqual([]);
     expect(problems).toEqual([expect.stringContaining('CRITICAL')]);
   });
 
   it('is a problem with a fix state it does not know, which must not read as no fix', () => {
-    const { listed, problems } = evaluateScan(report(match('CVE-0000-0010', 'High', 'Fixed')), NONE, NOW);
+    const { listed, problems } = evaluateScan(
+      report(match('CVE-0000-0010', 'High', 'Fixed')),
+      NONE,
+      NOW,
+    );
     expect(listed).toEqual([]);
     expect(problems).toEqual([expect.stringContaining('Fixed')]);
   });
@@ -323,7 +364,11 @@ describe('both images together', () => {
   const forWeb = { exceptions: [exception({ id: 'CVE-0000-0011', package: 'pkg-web' })] };
 
   it('does not call an exception unused because only one image has the package', () => {
-    const { images, problems } = evaluateScans({ web: { report: web }, worker: { report: worker } }, forWeb, NOW);
+    const { images, problems } = evaluateScans(
+      { web: { report: web }, worker: { report: worker } },
+      forWeb,
+      NOW,
+    );
     expect(problems).toEqual([]);
     expect(ids(images.web!.listed)).toEqual(['CVE-0000-0011 pkg-web']);
     expect(images.web!.failing).toEqual([]);

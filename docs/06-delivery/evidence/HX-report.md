@@ -1,0 +1,7 @@
+# Hardening source recovery checkpoint
+
+2026-11-07. Six committed Claude slices and five preserved dirty snapshots are composed in `codex/hardening-integration`, reusing the clean existing `wf_9ae245df-7f2-1` checkout. Original worktrees and recovery snapshots remain intact. Ten untracked source/test files were copied after containment/collision checks and verified by hash; tracked patches passed `git apply --check` and the composed diff passed `git diff --check`.
+
+Recovered source covers pin/reproducibility checks, SBOM scanning policy, external release-key trust, web/worker tracing, a single-transaction status poll, Temporal retention configuration and proxy/client-address diagnostics. No hardening install, typecheck, unit/integration/stack/browser/replay run, image build, scanner or Docker command was performed for this recovery. Historical slice reports are not revalidation of this composition.
+
+The final join must preserve the newer M4 cleanup/disk safeguards, selected image tags and workflow tests; merge shared tenant bindings and HTTP authorization explicitly; preserve M5 fresh ACL and actor bindings; and run the actual pin, audit, scan, trace confidentiality, retention, release-signing and image-rebuild gates. Reproducibility is still reporting behavior until demonstrated on rebuilt binaries; no reproducible-release claim follows from source recovery. No real signing key, customer content or external collector was used. Outside review and production key custody remain open.

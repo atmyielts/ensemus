@@ -2,9 +2,11 @@ import 'server-only';
 import { AppError, auditTenantRefusal } from '@ensemus/application';
 import { resolveTenantContext, TenantAccessDenied } from '@ensemus/database';
 import { errorCode } from '@ensemus/telemetry';
+import { headers } from 'next/headers';
 import { notFound, redirect } from 'next/navigation';
 import { cache } from 'react';
 import { requireActor } from './actor';
+import { noteClientAddress } from './client-address';
 import { getRestoreGate, getRuntime } from './runtime';
 
 /**
@@ -13,6 +15,7 @@ import { getRestoreGate, getRuntime } from './runtime';
  */
 export const requireTenant = cache(async (organizationId: string) => {
   const actor = await requireActor();
+  noteClientAddress((await headers()).get('x-forwarded-for'), actor.userId);
   const { app } = getRuntime();
   try {
     const context = await resolveTenantContext(app, actor.userId, organizationId);

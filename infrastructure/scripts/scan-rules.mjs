@@ -190,7 +190,9 @@ export function readGrypeRun(name, { error, status, stdout, stderr }) {
   if (isRecord(report) && !(isRecord(distro) && isText(distro.name))) {
     return {
       report,
-      problems: [`Grype recognised no Linux distribution for ${name}, so OS packages were not checked`],
+      problems: [
+        `Grype recognised no Linux distribution for ${name}, so OS packages were not checked`,
+      ],
     };
   }
   return { report, problems: [] };

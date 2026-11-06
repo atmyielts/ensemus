@@ -4,7 +4,7 @@
 import { writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { readSecret } from '@ensemus/config';
+import { loadTracingConfig, readSecret } from '@ensemus/config';
 import {
   dispatchDueEvents,
   eventBacklog,
@@ -24,6 +24,7 @@ import {
 import { TOMBSTONE_RECORDED } from '@ensemus/domain/tombstone-ledger';
 import { S3ObjectStore } from '@ensemus/storage';
 import { createLogger, errorCode } from '@ensemus/telemetry';
+import { withSpan } from '@ensemus/telemetry/tracing';
 import { AesGcmPayloadCodec } from '@ensemus/workflows/codec';
 import { PLATFORM_TASK_QUEUE } from '@ensemus/workflows/constants';
 import {
@@ -68,6 +69,14 @@ const LEDGER_REQUEST_MS = CALL_DEADLINE_MS;
 const LEDGER_BACKLOG_CHECK_MS = 60_000;
 
 async function main() {
+  const tracingConfig = loadTracingConfig();
+  const release = process.env.ENSEMUS_RELEASE;
+  // Only when an operator named a collector, so that a default install never loads the SDK (ADR-037 D3).
+  const tracing = tracingConfig.enabled
+    ? await (
+        await import('@ensemus/telemetry/tracing-sdk')
+      ).startTracing('dispatcher', tracingConfig, release ? { release } : {})
+    : null;
   const connection = openDispatcherConnection(process.env.TEMPORAL_ADDRESS ?? 'temporal:7233');
   const client = new Client({
     connection,
@@ -232,7 +241,11 @@ async function main() {
   };
 
   const handle = (event: DispatchableEvent) =>
-    connection.withDeadline(Date.now() + CALL_DEADLINE_MS, () => deliver(event));
+    withSpan(
+      'dispatcher.deliver',
+      { eventType: event.eventType, organizationId: event.organizationId },
+      () => connection.withDeadline(Date.now() + CALL_DEADLINE_MS, () => deliver(event)),
+    );
 
   let running = true;
   const stop = () => {
@@ -312,6 +325,10 @@ async function main() {
   }
   await close();
   await connection.close();
+  // Last, and losing the last spans is not a failed stop, so it says so and stops anyway.
+  await tracing?.shutdown().catch((error: unknown) => {
+    log.warn('dispatcher.tracing_shutdown_failed', { errorCode: errorCode(error) });
+  });
   log.info('dispatcher.stopped');
 }
 
