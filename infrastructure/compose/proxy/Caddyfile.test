@@ -1,0 +1,20 @@
+# Test overlay only: the deployed proxy (Caddyfile) knows one web service, and this file is what lets
+# a test choose a replica. A request with X-Ensemus-Test-Replica: 2 goes to web-2, and anything else
+# goes to web. Same address, so cookies, Origin and the Server Action check all behave as deployed.
+# X-Ensemus-Served-By proves where a response really came from.
+{
+	admin off
+	skip_install_trust
+}
+
+{$ENSEMUS_HOSTNAME:localhost} {
+	tls internal
+
+	@second header X-Ensemus-Test-Replica 2
+	reverse_proxy @second web-2:3000 {
+		header_down X-Ensemus-Served-By web-2
+	}
+	reverse_proxy web:3000 {
+		header_down X-Ensemus-Served-By web
+	}
+}

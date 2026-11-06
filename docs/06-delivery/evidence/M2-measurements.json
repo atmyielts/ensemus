@@ -7,55 +7,145 @@
   "readOneRow": {
     "baselineNoIsolation": {
       "samples": 1000,
-      "p50Ms": 1.59,
-      "p95Ms": 1.85,
-      "p99Ms": 2.11,
-      "maxMs": 2.95
+      "p50Ms": 1.58,
+      "p95Ms": 1.76,
+      "p99Ms": 1.98,
+      "maxMs": 2.39
     },
     "withIsolation": {
       "samples": 1000,
       "p50Ms": 2.14,
-      "p95Ms": 2.43,
-      "p99Ms": 2.7,
-      "maxMs": 5.5
+      "p95Ms": 2.36,
+      "p99Ms": 2.74,
+      "maxMs": 17.7
     },
     "withTenantTxAndOrm": {
       "samples": 1000,
-      "p50Ms": 2.78,
-      "p95Ms": 3.17,
-      "p99Ms": 3.59,
-      "maxMs": 7.07
+      "p50Ms": 2.76,
+      "p95Ms": 3.08,
+      "p99Ms": 3.44,
+      "maxMs": 8.22
     }
   },
   "readPageOf50": {
     "baselineNoIsolation": {
       "samples": 1000,
       "p50Ms": 2.38,
-      "p95Ms": 2.87,
-      "p99Ms": 3.41,
-      "maxMs": 5.83
+      "p95Ms": 2.66,
+      "p99Ms": 3.2,
+      "maxMs": 7.32
     },
     "withIsolation": {
       "samples": 1000,
-      "p50Ms": 4.06,
-      "p95Ms": 4.59,
-      "p99Ms": 5.19,
-      "maxMs": 8.34
+      "p50Ms": 4.07,
+      "p95Ms": 4.48,
+      "p99Ms": 5.72,
+      "maxMs": 8.77
     }
   },
   "dispatcherDelayIdle": {
     "samples": 30,
-    "p50Ms": 289.26,
-    "p95Ms": 510.27,
-    "p99Ms": 532.17,
-    "maxMs": 532.17
+    "p50Ms": 288.3,
+    "p95Ms": 521.1,
+    "p99Ms": 534.84,
+    "maxMs": 534.84
   },
   "dispatcherDelayBurstOf200": {
     "samples": 200,
-    "p50Ms": 1982.74,
-    "p95Ms": 3642.03,
-    "p99Ms": 3736.47,
-    "maxMs": 3752.7,
-    "eventsPerSecond": 53
+    "p50Ms": 1983.71,
+    "p95Ms": 3725.25,
+    "p99Ms": 3870.32,
+    "maxMs": 3885.4,
+    "eventsPerSecond": 51
+  },
+  "statusStreams": {
+    "note": "One web replica behind the proxy, with one stream per Work Unit, each polling once a second. Delivery delay runs from the committed change to the event arriving here.",
+    "pollIntervalMs": 1000,
+    "idle": {
+      "streams": 0,
+      "statementsPerSecond": 11,
+      "transactionsPerSecond": 40,
+      "containers": {
+        "web": {
+          "cpuPercent": 0.04,
+          "memory": "65.02MiB"
+        },
+        "postgres": {
+          "cpuPercent": 1.27,
+          "memory": "151.4MiB"
+        }
+      },
+      "workPage": {
+        "samples": 30,
+        "p50Ms": 11.81,
+        "p95Ms": 18.92,
+        "p99Ms": 20.45,
+        "maxMs": 20.45
+      }
+    },
+    "withStreams": [
+      {
+        "streams": 50,
+        "statementsPerSecond": 496,
+        "statementsPerSecondPerStream": 9.7,
+        "transactionsPerSecond": 111,
+        "delivery": {
+          "samples": 300,
+          "p50Ms": 725,
+          "p95Ms": 986,
+          "p99Ms": 1003,
+          "maxMs": 1011,
+          "missed": 0
+        },
+        "workPageWhileStreaming": {
+          "samples": 30,
+          "p50Ms": 16.53,
+          "p95Ms": 24.01,
+          "p99Ms": 70.47,
+          "maxMs": 70.47
+        },
+        "containers": {
+          "web": {
+            "cpuPercent": 15.38,
+            "memory": "127.2MiB"
+          },
+          "postgres": {
+            "cpuPercent": 4.96,
+            "memory": "186.6MiB"
+          }
+        }
+      },
+      {
+        "streams": 200,
+        "statementsPerSecond": 1994,
+        "statementsPerSecondPerStream": 9.91,
+        "transactionsPerSecond": 413,
+        "delivery": {
+          "samples": 300,
+          "p50Ms": 865,
+          "p95Ms": 991,
+          "p99Ms": 1003,
+          "maxMs": 1006,
+          "missed": 0
+        },
+        "workPageWhileStreaming": {
+          "samples": 30,
+          "p50Ms": 15.85,
+          "p95Ms": 47.12,
+          "p99Ms": 49.37,
+          "maxMs": 49.37
+        },
+        "containers": {
+          "web": {
+            "cpuPercent": 20.36,
+            "memory": "155.6MiB"
+          },
+          "postgres": {
+            "cpuPercent": 17.3,
+            "memory": "187.6MiB"
+          }
+        }
+      }
+    ]
   }
 }

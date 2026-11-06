@@ -1,6 +1,7 @@
 // Drives the product the way a browser does with JavaScript off: it reads the page, takes the hidden
 // fields Next.js and the page rendered, and posts the form back, through the proxy, against built
 // images. Nothing here reaches past what a person's browser could send.
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { randomUUID } from 'node:crypto';
 
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0'; // The proxy uses a local test certificate.
@@ -23,7 +24,22 @@ export function remember(jar: Jar, response: Response) {
   jar.cookie = [...merged].map(([k, v]) => `${k}=${v}`).join('; ');
 }
 
-const headersOf = (jar?: Jar): Record<string, string> => (jar ? { cookie: jar.cookie } : {});
+const replica = new AsyncLocalStorage<'web' | 'web-2'>();
+
+/**
+ * Sends the requests made inside `work` to one web replica, through the same proxy and address. Only
+ * the test overlay's proxy understands this (see infrastructure/compose/proxy/Caddyfile.test).
+ */
+export const onReplica = <T>(name: 'web' | 'web-2', work: () => Promise<T>) =>
+  replica.run(name, work);
+
+const replicaHeaders = (): Record<string, string> =>
+  replica.getStore() === 'web-2' ? { 'x-ensemus-test-replica': '2' } : {};
+
+const headersOf = (jar?: Jar): Record<string, string> => ({
+  ...(jar ? { cookie: jar.cookie } : {}),
+  ...replicaHeaders(),
+});
 
 /** One request, without following redirects, so tests see exactly what the server answered. */
 export const visit = (path: string, jar?: Jar) =>
@@ -184,6 +200,12 @@ export const tokenIn = (html: string) => /\/invite\/([A-Za-z0-9_-]{43})/.exec(ht
  */
 export async function join(inviter: Person, organization: string, name: string): Promise<Person> {
   const person = await signUp(name);
+  await bringIn(inviter, organization, person);
+  return person;
+}
+
+/** The same, for someone who already has an account, and so can belong to several organizations. */
+export async function bringIn(inviter: Person, organization: string, person: Person) {
   const people = `/o/${organization}/people`;
   const invited = await submit(people, inviter.jar, /name="email"/, {
     email: person.email,
@@ -204,5 +226,4 @@ export async function join(inviter: Person, organization: string, name: string):
   if (confirmed.headers.get('location') !== people) {
     throw new Error(`Invitation not confirmed (status ${confirmed.status})`);
   }
-  return person;
 }

@@ -15,7 +15,7 @@ gate() {
     tail -25 "/tmp/gate-$$.log" | cut -c1-200
     failed=1
   fi
-  grep -E "^ +Tests |Outbound attempts|Control:|Signature:|Control,|no unreviewed|Checked [0-9]+|tickets:" "/tmp/gate-$$.log" |
+  grep -E "^ +Tests |Outbound attempts|Control:|Signature:|Control,|no unreviewed|Checked [0-9]+|tickets:|^OK: an approval" "/tmp/gate-$$.log" |
     sed 's/^ */      /' | cut -c1-120
 }
 
@@ -36,6 +36,8 @@ docker compose "${compose_files[@]}" --profile test-oidc down -v --remove-orphan
 gate "air-gap control detects an attempt" node infrastructure/scripts/air-gap-gate.mjs --control
 gate "air-gap: stack tests, zero outbound" node infrastructure/scripts/air-gap-gate.mjs --keep
 gate "SBOMs and offline signature check" node infrastructure/scripts/build-release.mjs
+# main holds only the specification so far. Drop --from once a release is on main.
+gate "paused approval across a release upgrade" node infrastructure/scripts/upgrade-gate.mjs --from a603fc9
 
 rm -f "/tmp/gate-$$.log"
 exit "$failed"

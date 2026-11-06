@@ -1,8 +1,10 @@
-// The measurements the M2 exit criteria ask for: what tenant isolation costs per transaction, and how
-// long the outbox takes to deliver. Needs the running stack, and writes what it saw to
+// The measurements the M2 exit criteria ask for: what tenant isolation costs per transaction, how long
+// the outbox takes to deliver, and what status streams cost (ADR-024). Needs the running stack, and
+// writes what it saw to
 // docs/06-delivery/evidence/M2-measurements.json:
 //   pnpm stack:secrets && docker compose ... up -d --build --wait && pnpm measure:m2
 // These are numbers from one machine, not a capacity claim. Read the differences, not the absolutes.
+import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { writeFileSync } from 'node:fs';
 import { cpus } from 'node:os';
@@ -10,7 +12,12 @@ import { join } from 'node:path';
 import { sql } from 'drizzle-orm';
 import pg from 'pg';
 import { afterAll, beforeAll, describe, it } from 'vitest';
-import { createWorkUnit, requestExecution, transitionWorkUnit } from '@ensemus/application';
+import {
+  createWorkUnit,
+  requestExecution,
+  transitionWorkUnit,
+  updateWorkUnit,
+} from '@ensemus/application';
 import {
   createOrganization,
   openAppDatabase,
@@ -18,12 +25,20 @@ import {
   withTenantTx,
   type TenantContext,
 } from '@ensemus/database';
-import { repoRoot, urls } from '../helpers/stack';
+import { createOrganization as createOrganizationPage, signUp, visit } from '../helpers/forms';
+import { compose, repoRoot, urls } from '../helpers/stack';
+import { eventsPath, openStreams, type Stream } from '../helpers/streams';
 
 const ROWS_PER_TENANT = 5_000;
 const OTHER_TENANTS = 5;
 const SAMPLES = 1_000;
 const WARMUP = 100;
+const STREAM_COUNTS = [50, 200];
+/** How long each size runs with nothing changing, to see what simply keeping streams open costs. */
+const IDLE_SAMPLE_MS = 30_000;
+const CHANGE_ROUNDS = 15;
+const CHANGES_PER_ROUND = 20;
+const PAGE_SAMPLES = 30;
 
 function percentile(sorted: number[], p: number) {
   return sorted[Math.min(sorted.length - 1, Math.floor((sorted.length * p) / 100))] ?? 0;
@@ -234,4 +249,174 @@ describe('M2 measurements', () => {
       eventsPerSecond: Math.round(ids.length / (elapsed(burstStarted) / 1000)),
     };
   }, 600_000);
+
+  /** Database work by the roles a status stream uses, counted by PostgreSQL itself. */
+  async function databaseWork() {
+    const statements = await su.query(
+      `select coalesce(sum(s.calls), 0)::bigint as calls from pg_stat_statements s
+       join pg_roles r on r.oid = s.userid
+       where r.rolname in ('ensemus_app', 'ensemus_auth')`,
+    );
+    const transactions = await su.query(
+      `select xact_commit + xact_rollback as count from pg_stat_database where datname = 'ensemus'`,
+    );
+    return {
+      statements: Number(statements.rows[0].calls),
+      transactions: Number(transactions.rows[0].count),
+    };
+  }
+
+  /** What Docker says each container is using right now. */
+  function containerUse(service: string) {
+    const output = execFileSync(
+      'docker',
+      [
+        'stats',
+        '--no-stream',
+        '--format',
+        '{{.CPUPerc}}|{{.MemUsage}}',
+        compose('ps', '-q', service).trim(),
+      ],
+      { encoding: 'utf8' },
+    ).trim();
+    const [cpu, memory] = output.split('|');
+    return { cpuPercent: Number.parseFloat(cpu ?? '0'), memory: memory?.split(' / ')[0] };
+  }
+
+  /** What the same stack does over a stretch of time, per second and per stream. */
+  async function idleCost(streamCount: number) {
+    const started = await databaseWork();
+    const from = Date.now();
+    await new Promise((done) => setTimeout(done, IDLE_SAMPLE_MS));
+    const ended = await databaseWork();
+    const seconds = (Date.now() - from) / 1000;
+    const statementsPerSecond = (ended.statements - started.statements) / seconds;
+    const transactionsPerSecond = (ended.transactions - started.transactions) / seconds;
+    return {
+      streams: streamCount,
+      statementsPerSecond: Math.round(statementsPerSecond),
+      transactionsPerSecond: Math.round(transactionsPerSecond),
+    };
+  }
+
+  /** How long someone else's page takes while the streams run. */
+  async function pageTimes(path: string, jar: { cookie: string }) {
+    const samples: number[] = [];
+    for (let i = 0; i < PAGE_SAMPLES; i++) {
+      const started = process.hrtime.bigint();
+      const response = await visit(path, jar);
+      await response.text();
+      samples.push(elapsed(started));
+    }
+    return summarize(samples);
+  }
+
+  async function measureStreams(count: number, baseline: { statementsPerSecond: number }) {
+    const person = await signUp(`Streams ${count}`);
+    const organizationId = await createOrganizationPage(person, `Streams ${randomUUID()}`);
+    const { rows } = await su.query('select id from identity.users where email = $1', [
+      person.email,
+    ]);
+    const tenant = await resolveTenantContext(app.db, rows[0].id, organizationId);
+    const ids: string[] = [];
+    for (let i = 0; i < count; i++) {
+      ids.push((await createWorkUnit(app.db, tenant, { title: `Stream ${i}` })).id);
+    }
+
+    const { follow, closeAll } = openStreams();
+    try {
+      // Opened in small groups, as people arriving do, and each stream is heard from before counting.
+      const streams: Stream[] = [];
+      for (let at = 0; at < count; at += 10) {
+        streams.push(
+          ...(await Promise.all(
+            ids.slice(at, at + 10).map((id) => follow(person.jar, eventsPath(organizationId, id))),
+          )),
+        );
+      }
+      const refused = streams.filter((stream) => stream.status !== 200).length;
+      if (refused > 0) throw new Error(`${refused} of ${count} streams were refused`);
+      const openBy = Date.now() + 60_000;
+      while (streams.some((stream) => !stream.arrivals.has('1'))) {
+        if (Date.now() > openBy) throw new Error('streams did not all start');
+        await new Promise((done) => setTimeout(done, 100));
+      }
+
+      const idle = await idleCost(count);
+      const netStatements = idle.statementsPerSecond - baseline.statementsPerSecond;
+      const use = {
+        web: containerUse('web'),
+        postgres: containerUse('postgres'),
+      };
+
+      // Changes made through the services, so the delay is the stream's and not a web request's.
+      const delays: number[] = [];
+      const versions = new Map(ids.map((id) => [id, 1]));
+      let missed = 0;
+      for (let round = 0; round < CHANGE_ROUNDS; round++) {
+        const chosen = Array.from(
+          { length: Math.min(CHANGES_PER_ROUND, count) },
+          (_, i) => (round * CHANGES_PER_ROUND + i) % count,
+        );
+        const pending: Array<{ stream: Stream; version: string; at: number }> = [];
+        for (const index of chosen) {
+          const id = ids[index]!;
+          const version = versions.get(id)!;
+          await updateWorkUnit(app.db, tenant, id, version, { title: `Changed ${version}` });
+          versions.set(id, version + 1);
+          pending.push({ stream: streams[index]!, version: String(version + 1), at: Date.now() });
+        }
+        const deadline = Date.now() + 30_000;
+        while (
+          Date.now() < deadline &&
+          pending.some(({ stream, version }) => !stream.arrivals.has(version))
+        ) {
+          await new Promise((done) => setTimeout(done, 20));
+        }
+        for (const { stream, version, at } of pending) {
+          const arrived = stream.arrivals.get(version);
+          if (arrived === undefined) missed += 1;
+          else delays.push(Math.max(0, arrived - at));
+        }
+      }
+
+      const pages = await pageTimes(`/o/${organizationId}/work`, person.jar);
+      return {
+        streams: count,
+        statementsPerSecond: idle.statementsPerSecond,
+        statementsPerSecondPerStream: Math.round((netStatements / count) * 100) / 100,
+        transactionsPerSecond: idle.transactionsPerSecond,
+        delivery: { ...summarize(delays), missed },
+        workPageWhileStreaming: pages,
+        containers: use,
+      };
+    } finally {
+      closeAll();
+    }
+  }
+
+  it('what status streams cost', async () => {
+    // Off by default, and only the test overlay loads the library this needs.
+    await su.query('create extension if not exists pg_stat_statements');
+    const baseline = await idleCost(0);
+    const quiet = { web: containerUse('web'), postgres: containerUse('postgres') };
+    const person = await signUp('No streams');
+    const organizationId = await createOrganizationPage(person, `No streams ${randomUUID()}`);
+    const measured = [];
+    for (const count of STREAM_COUNTS) {
+      measured.push(await measureStreams(count, baseline));
+      // Long enough for the closed streams to stop polling before the next size starts.
+      await new Promise((done) => setTimeout(done, 5_000));
+    }
+    results.statusStreams = {
+      note: 'One web replica behind the proxy, with one stream per Work Unit, each polling once a second. Delivery delay runs from the committed change to the event arriving here.',
+      pollIntervalMs: 1_000,
+      idle: {
+        ...baseline,
+        containers: quiet,
+        workPage: await pageTimes(`/o/${organizationId}/work`, person.jar),
+      },
+      withStreams: measured,
+    };
+  }, 900_000);
 });

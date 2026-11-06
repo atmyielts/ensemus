@@ -232,8 +232,8 @@
     },
     {
       "path": "05-operations/05-container-deployment-runbook.md",
-      "size_bytes": 7994,
-      "sha256": "0844e585795029fc9f8c1607ae77a20c0ed2cad930fa6999ce23e179da0281eb"
+      "size_bytes": 8588,
+      "sha256": "589ebb45ee45047ec37b1f2402ddee35c3d43b148fec617d1e0f2006e31f98d2"
     },
     {
       "path": "05-operations/06-performance-and-load-plan.md",
@@ -277,8 +277,8 @@
     },
     {
       "path": "06-delivery/evidence/M2-measurements.json",
-      "size_bytes": 1272,
-      "sha256": "5132b31600aea443a8f55e59005ecf4d65451638b2f9219d2c18f287a8b8d168"
+      "size_bytes": 3496,
+      "sha256": "b055dfb10feb5f85e4295a7998614131dbd84c4428b71e0ff51118f8054b43ef"
     },
     {
       "path": "07-commercial/01-license-and-maintenance.md",

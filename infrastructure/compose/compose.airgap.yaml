@@ -4,17 +4,30 @@
 x-airgap-dns: &dns
   dns: ['203.0.113.53']
 
+# A test stops Temporal on purpose (tests/stack/work-execution.test.ts). Docker's DNS has no answer
+# for a stopped container, so it forwards its clients' next lookup of "temporal" to the host's
+# resolver. That is not the product calling out, and this one name, and no other, is pinned so that
+# it does not count as if it were. It does happen on a real install during a Temporal outage.
+x-temporal-client: &temporal-client
+  dns: ['203.0.113.53']
+  extra_hosts: ['temporal:172.30.3.250']
+
 services:
   proxy: *dns
   web: *dns
-  worker: *dns
-  dispatcher: *dns
+  web-2: *dns
+  worker: *temporal-client
+  dispatcher: *temporal-client
   migrate: *dns
   postgres: *dns
-  temporal: *dns
+  temporal:
+    <<: *dns
+    networks:
+      temporal: { ipv4_address: 172.30.3.250 }
+      temporal-db: {}
   temporal-schema: *dns
   temporal-namespace: *dns
-  temporal-test-port: *dns
+  temporal-test-port: *temporal-client
   valkey: *dns
   objects: *dns
 
