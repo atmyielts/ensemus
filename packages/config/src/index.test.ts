@@ -2,7 +2,49 @@ import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { ConfigError, loadWebConfig, readSecret } from './index';
+import { ConfigError, loadTracingConfig, loadWebConfig, readSecret } from './index';
+
+describe('loadTracingConfig (ADR-037 D3)', () => {
+  const ENDPOINT = 'http://collector.internal:4318/v1/traces';
+
+  it('is off unless an operator names a collector', () => {
+    expect(loadTracingConfig({})).toEqual({ enabled: false });
+  });
+
+  it('reads a collector, and keeps every trace unless told otherwise', () => {
+    expect(loadTracingConfig({ ENSEMUS_OTEL_ENDPOINT: ENDPOINT })).toEqual({
+      enabled: true,
+      endpoint: ENDPOINT,
+      sampleRatio: 1,
+    });
+    expect(
+      loadTracingConfig({ ENSEMUS_OTEL_ENDPOINT: ENDPOINT, ENSEMUS_OTEL_SAMPLE_RATIO: '0.25' }),
+    ).toMatchObject({ sampleRatio: 0.25 });
+  });
+
+  it.each([
+    ['not a URL', 'collector'],
+    ['another protocol', 'ftp://collector.internal/v1/traces'],
+    ['a username', 'http://someone@collector.internal/v1/traces'],
+    ['a password', 'http://someone:sk-CANARY@collector.internal/v1/traces'],
+    ['a query', 'http://collector.internal/v1/traces?token=sk-CANARY'],
+    ['a fragment', 'http://collector.internal/v1/traces#sk-CANARY'],
+  ])('refuses %s, and does not repeat the value', (_label, value) => {
+    const load = () => loadTracingConfig({ ENSEMUS_OTEL_ENDPOINT: value });
+    expect(load).toThrow(ConfigError);
+    expect(load).not.toThrow(/CANARY/);
+  });
+
+  it.each(['-0.1', '1.1', 'half'])('refuses a sample ratio of %s', (ratio) => {
+    expect(() =>
+      loadTracingConfig({ ENSEMUS_OTEL_ENDPOINT: ENDPOINT, ENSEMUS_OTEL_SAMPLE_RATIO: ratio }),
+    ).toThrow(ConfigError);
+  });
+
+  it('refuses a sample ratio with nowhere to send, which looks on and is not', () => {
+    expect(() => loadTracingConfig({ ENSEMUS_OTEL_SAMPLE_RATIO: '0.5' })).toThrow(ConfigError);
+  });
+});
 
 describe('readSecret', () => {
   it('prefers the mounted file', () => {

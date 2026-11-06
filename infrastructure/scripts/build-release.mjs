@@ -8,12 +8,12 @@ import { copyFileSync, mkdirSync, readdirSync, readFileSync, writeFileSync } fro
 import { createHash, generateKeyPairSync, sign } from 'node:crypto';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { SYFT } from './tool-images.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const out = join(root, '.local', 'release');
 mkdirSync(out, { recursive: true });
 
-const SYFT = 'anchore/syft:v1.56.0';
 const NODE = 'node:24-slim@sha256:01d566e8d94d8c619591d78652babfccd3c6992a3dffa9ed5ab39e11cf6c70e9';
 const IMAGES = { web: 'ensemus/web:local', worker: 'ensemus/worker:local' };
 
@@ -35,7 +35,7 @@ for (const [name, image] of Object.entries(IMAGES)) {
     '--rm',
     '-v',
     '/var/run/docker.sock:/var/run/docker.sock',
-    SYFT,
+    SYFT.image,
     image,
     '-o',
     'spdx-json',

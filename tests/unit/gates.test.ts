@@ -41,6 +41,10 @@ const COMMANDS: Record<string, string> = {
   // The stack suite runs here, with outbound traffic blocked. Nothing runs test:stack by name.
   'test:stack': 'node infrastructure/scripts/air-gap-gate.mjs',
   'build-release.mjs': 'build-release.mjs',
+  'check:pins': 'pnpm check:pins',
+  'image scan': 'node infrastructure/scripts/scan-images.mjs',
+  // ADR-037 D1 says when --report-only goes. Until then the log and the report say the images differ.
+  reproducible: 'node infrastructure/scripts/reproducible-gate.mjs --report-only',
   // test:upgrade is this script without --from.
   'test:upgrade': 'upgrade-gate.mjs --from',
 };
@@ -64,6 +68,16 @@ describe('every gate runs in both places', () => {
     const named = Object.values(COMMANDS).join(' ');
     expect(gateScripts.filter((name) => !named.includes(name))).toEqual([]);
     expect(gateScripts.length).toBeGreaterThan(0);
+  });
+
+  it('lets no job fail without failing the run', () => {
+    expect(ci).not.toContain('continue-on-error');
+  });
+
+  it('scans images only after the step that makes what it reads', () => {
+    for (const file of [local, ci]) {
+      expect(file.indexOf('scan-images.mjs')).toBeGreaterThan(file.indexOf('build-release.mjs'));
+    }
   });
 
   it('runs the full air-gap round in both, and not only the control', () => {

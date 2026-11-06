@@ -25,6 +25,9 @@ const config: NextConfig = {
   // Nothing may be fetched from an outside host at runtime (ADR-021).
   images: { unoptimized: true },
   ...(release ? { deploymentId: release } : {}),
+  // The default is random, and it is written into the image, so no two builds could ever match
+  // (ADR-037 D1).
+  generateBuildId: async () => release ?? 'local',
   async headers() {
     return [
       {

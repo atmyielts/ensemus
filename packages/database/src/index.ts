@@ -20,6 +20,7 @@ export {
   resolveTenantContext,
   TenantAccessDenied,
   withInvitationTx,
+  withMemberTenantTx,
   withNewTenantTx,
   withTenantTx,
   withUserTx,

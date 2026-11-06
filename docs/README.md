@@ -119,6 +119,7 @@
 - [Efficiency, cost controls, and capacity planning](05-operations/04-cost-and-capacity.md)
 - [Container-first runbook (reference design, not runnable product)](05-operations/05-container-deployment-runbook.md)
 - [Performance, load and chaos test plan](05-operations/06-performance-and-load-plan.md)
+- [Image size and rebuild disk use: Dockerfile guidance](05-operations/07-image-size-and-rebuild-guidance.md)
 
 ### Engineering delivery
 

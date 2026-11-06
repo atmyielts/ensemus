@@ -77,6 +77,16 @@ const rawNetwork = {
     'A connector goes out only through ConnectorNetwork, to the egress gateway (ADR-027 D5).',
 };
 
+const openTelemetry = {
+  group: ['@opentelemetry/*'],
+  message:
+    'Only @ensemus/telemetry touches OpenTelemetry, behind its redaction (ADR-037 D3). Use withSpan.',
+};
+const tracingInWorkflow = {
+  group: ['@ensemus/telemetry', '@ensemus/telemetry/*'],
+  message: 'A workflow has to replay, and only IDs cross Temporal (ADR-024, ADR-037 D3).',
+};
+
 export default tseslint.config(
   {
     ignores: [
@@ -122,17 +132,33 @@ export default tseslint.config(
   },
   restrict(
     ['**/*.{ts,tsx}'],
-    [rawDatabase, authDatabase],
-    ['packages/database/**', 'packages/auth/**', 'tests/**', 'apps/web/**'],
+    [rawDatabase, authDatabase, openTelemetry],
+    [
+      'packages/database/**',
+      'packages/auth/**',
+      'packages/telemetry/**',
+      'tests/**',
+      'apps/web/**',
+    ],
   ),
-  restrict(['packages/auth/**/*.ts'], [rawDatabase, temporal, broker]),
+  restrict(['packages/telemetry/**/*.ts'], [rawDatabase, authDatabase]),
+  restrict(['packages/database/**/*.ts'], [openTelemetry]),
+  restrict(['packages/auth/**/*.ts'], [rawDatabase, temporal, broker, openTelemetry]),
   restrict(
     ['apps/web/**/*.{ts,tsx}'],
-    [rawDatabase, authDatabase, temporal, broker, connectorCode],
+    [rawDatabase, authDatabase, temporal, broker, connectorCode, openTelemetry],
   ),
   restrict(
     ['workers/**/*.ts', 'packages/workflows/**/*.ts'],
-    [rawDatabase, authDatabase, testDoubles],
+    [rawDatabase, authDatabase, testDoubles, openTelemetry],
+  ),
+  restrict(
+    [
+      'packages/workflows/src/workflows.ts',
+      'packages/workflows/src/*-workflow.ts',
+      'packages/workflows/src/review-wait.ts',
+    ],
+    [rawDatabase, authDatabase, testDoubles, openTelemetry, tracingInWorkflow],
   ),
   // packages/connectors, in two parts. A rule set on the same files replaces the one before it, so
   // the first has to name everything: its testing folder may use a socket, and network.ts must.

@@ -22,8 +22,8 @@
     },
     {
       "path": "00-foundation/03-decisions-and-adrs.md",
-      "size_bytes": 7372,
-      "sha256": "0c207701c600061a5d78bd597082effb227fdb9eeeb90010eb3b97c7d217d3f6"
+      "size_bytes": 7977,
+      "sha256": "baa0c37d3646c773a99623ba9e4ad9bb26e90455efac18702f822c48158b4a83"
     },
     {
       "path": "00-foundation/04-doc-governance.md",
@@ -49,6 +49,11 @@
       "path": "00-foundation/adr/ADR-027-verified-external-actions.md",
       "size_bytes": 32522,
       "sha256": "4d4752749aac8eac69b1a664a06e118ba092e38ce68ec5e00a159c6a13d1c2ae"
+    },
+    {
+      "path": "00-foundation/adr/ADR-037-hardening-backlog.md",
+      "size_bytes": 20006,
+      "sha256": "abd65acde971b30f40d4f545e6d5723c315e4219929758f3d596c698d29afe21"
     },
     {
       "path": "01-product/01-product-requirements.md",
@@ -251,6 +256,11 @@
       "sha256": "fa815b95829c8355bc6d432b868679312e18e0b748d49775064245681c66989c"
     },
     {
+      "path": "05-operations/07-image-size-and-rebuild-guidance.md",
+      "size_bytes": 6151,
+      "sha256": "623850006415dbbf1fa6b4135721b8195eb0401d532a0c23efe6458c77854788"
+    },
+    {
       "path": "06-delivery/01-build-plan.md",
       "size_bytes": 3936,
       "sha256": "80087fefce4166ae9cb7967e060725bee52a1325f12ea18dc6c1994942e08d66"
@@ -289,6 +299,11 @@
       "path": "06-delivery/evidence/M2-measurements.json",
       "size_bytes": 3496,
       "sha256": "b055dfb10feb5f85e4295a7998614131dbd84c4428b71e0ff51118f8054b43ef"
+    },
+    {
+      "path": "06-delivery/hx-slices.md",
+      "size_bytes": 34346,
+      "sha256": "602a6120f9760700bdc06c510ce706a9ef9f46292a0f7a06b422dbc8035b3273"
     },
     {
       "path": "06-delivery/m3-slices.md",
@@ -337,8 +352,8 @@
     },
     {
       "path": "README.md",
-      "size_bytes": 13235,
-      "sha256": "e5d344e21a4e5c7584dd9a93bb2e58c97352913a156ed812b7f6e7ee7c0023cc"
+      "size_bytes": 13345,
+      "sha256": "ab1304394719cdaa420310d8b81ccf0a3b0954b3385d0357720c2b7e3e63de0c"
     },
     {
       "path": "SOURCES.md",

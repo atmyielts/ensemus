@@ -9,3 +9,8 @@ onlyBuiltDependencies:
   - esbuild
   - sharp
   - '@temporalio/core-bridge'
+# drizzle-kit reaches esbuild 0.18 through @esbuild-kit, a dev-only loader that nobody maintains now, and
+# that release is under the development-server advisory GHSA-67mh-4wv8-2f99. Only this path moves, and to
+# the version drizzle-kit itself already uses, so no second esbuild comes in (ADR-037 D8).
+overrides:
+  '@esbuild-kit/core-utils>esbuild': 0.25.12

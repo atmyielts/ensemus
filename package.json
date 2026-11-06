@@ -2,7 +2,7 @@
   "name": "ensemus",
   "private": true,
   "type": "module",
-  "packageManager": "pnpm@10.17.0",
+  "packageManager": "pnpm@10.17.0+sha512.fce8a3dd29a4ed2ec566fb53efbb04d8c44a0f05bc6f24a73046910fb9c3ce7afa35a0980500668fa3573345bd644644fa98338fa168235c80f4aa17aa17fbef",
   "engines": {
     "node": ">=24.0.0 <25"
   },
@@ -21,6 +21,7 @@
     "check:contracts": "pnpm --filter @ensemus/contracts generate && git diff --exit-code packages/contracts/generated",
     "check:licenses": "node infrastructure/scripts/check-licenses.mjs",
     "check:proxy": "node infrastructure/scripts/check-proxy.mjs",
+    "check:pins": "node infrastructure/scripts/check-pins.mjs",
     "measure:m2": "vitest run --project measure",
     "stack:secrets": "node infrastructure/scripts/generate-test-secrets.mjs",
     "stack:up": "docker compose -f infrastructure/compose/compose.yaml -f infrastructure/compose/compose.test.yaml up -d --build --wait",

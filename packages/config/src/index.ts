@@ -49,3 +49,44 @@ export function loadWebConfig(env: NodeJS.ProcessEnv = process.env) {
     connectorsEnabled: parsed.data.ENSEMUS_CONNECTORS_ENABLED === 'true',
   };
 }
+
+export type TracingConfig =
+  { enabled: false } | { enabled: true; endpoint: string; sampleRatio: number };
+
+const DEFAULT_SAMPLE_RATIO = 1;
+
+/**
+ * Traces go nowhere unless an operator names their own collector (ADR-037 D3), so an install that says
+ * nothing makes no outbound attempt. A collector address is not a place for a credential, and a bad
+ * value stops the process, because tracing that looks on and is not would be a false reading. The error
+ * names the setting, never its value.
+ */
+export function loadTracingConfig(env: NodeJS.ProcessEnv = process.env): TracingConfig {
+  const endpoint = env.ENSEMUS_OTEL_ENDPOINT;
+  if (!endpoint) {
+    if (env.ENSEMUS_OTEL_SAMPLE_RATIO) {
+      throw new ConfigError('ENSEMUS_OTEL_SAMPLE_RATIO is set without ENSEMUS_OTEL_ENDPOINT');
+    }
+    return { enabled: false };
+  }
+  let url: URL;
+  try {
+    url = new URL(endpoint);
+  } catch {
+    throw new ConfigError('ENSEMUS_OTEL_ENDPOINT is not a URL');
+  }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+    throw new ConfigError('ENSEMUS_OTEL_ENDPOINT must be http or https');
+  }
+  if (url.username || url.password || url.search || url.hash) {
+    throw new ConfigError(
+      'ENSEMUS_OTEL_ENDPOINT must not carry credentials, a query or a fragment',
+    );
+  }
+  const ratio = env.ENSEMUS_OTEL_SAMPLE_RATIO;
+  const sampleRatio = ratio ? Number(ratio) : DEFAULT_SAMPLE_RATIO;
+  if (!(sampleRatio >= 0 && sampleRatio <= 1)) {
+    throw new ConfigError('ENSEMUS_OTEL_SAMPLE_RATIO must be between 0 and 1');
+  }
+  return { enabled: true, endpoint, sampleRatio };
+}

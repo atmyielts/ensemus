@@ -17,7 +17,7 @@ gate() {
     tail -25 "/tmp/gate-$$.log" | cut -c1-200
     failed=1
   fi
-  grep -E "^ +Tests |^ +[0-9]+ (passed|failed)|Outbound attempts|Control:|Signature:|Control,|no unreviewed|Checked [0-9]+|tickets:|^OK: an approval" "/tmp/gate-$$.log" |
+  grep -E "^ +Tests |^ +[0-9]+ (passed|failed)|Outbound attempts|Control:|Signature:|Control,|no unreviewed|Checked [0-9]+|tickets:|^OK: an approval|^Reproducible:|^Image scan:|^Pins:" "/tmp/gate-$$.log" |
     sed 's/^ */      /' | cut -c1-120
 }
 
@@ -60,6 +60,7 @@ gate "unit tests" pnpm test:unit
 gate "backlog and traceability" pnpm check:backlog
 gate "contracts match the spec" pnpm check:contracts
 gate "licenses" pnpm check:licenses
+gate "tools, images and actions are pinned" pnpm check:pins
 # Throwaway containers with no network, and no stack, so it needs no clearing either side.
 gate "deployed proxy: forged address, trusted proxy, hostname" node infrastructure/scripts/check-proxy.mjs
 gate "docs manifest is current" manifest_is_current
@@ -70,6 +71,12 @@ gate "air-gap control detects an attempt" fresh node infrastructure/scripts/air-
 gate "air-gap: stack tests and outages, zero outbound" fresh node infrastructure/scripts/air-gap-gate.mjs
 # Only reads the images the air-gap gate built, so it needs no stack.
 gate "SBOMs and offline signature check" node infrastructure/scripts/build-release.mjs
+# Reads the SBOMs from the gate above. It fetches the vulnerability database, so it stays outside the
+# air-gap gate (ADR-037 D2).
+gate "image vulnerability scan" node infrastructure/scripts/scan-images.mjs
+# Two builds of each image, with no cache, and it takes a lot of disk while it runs. Report only until the
+# Dockerfile changes in ADR-037 D1 are made. Then drop the flag here and in ci.yml.
+gate "reproducible images (report only)" node infrastructure/scripts/reproducible-gate.mjs --report-only
 gate "browser tests in Chromium" fresh browser_tests
 # main holds only the specification so far. Drop --from once a release is on main.
 gate "paused approval across a release upgrade" node infrastructure/scripts/upgrade-gate.mjs --from a603fc9

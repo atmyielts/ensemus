@@ -47,14 +47,27 @@ export class AppDatabase {
   }
   transaction<T>(bindings: Record<string, string>, fn: (tx: Tx) => Promise<T>): Promise<T> {
     return this.#db.transaction(async (tx) => {
-      // set_config because SET LOCAL cannot take a bind parameter (ADR-024 D4).
-      for (const [name, value] of Object.entries(bindings)) {
-        await tx.execute(sql`select set_config(${name}, ${value}, true)`);
-      }
+      await applyBindings(tx, bindings);
       return fn(tx);
     });
   }
 }
+
+async function applyBindings(tx: Tx, bindings: Record<string, string>) {
+  // set_config because SET LOCAL cannot take a bind parameter (ADR-024 D4).
+  for (const [name, value] of Object.entries(bindings)) {
+    await tx.execute(sql`select set_config(${name}, ${value}, true)`);
+  }
+}
+
+/**
+ * Everything row-level security reads about who is acting. There is one list, and both ways of binding a
+ * tenant use it, so a new binding cannot reach one and miss the other (ADR-037 D5).
+ */
+const tenantBindings = (context: TenantContext): Record<string, string> => ({
+  'app.organization_id': context.organizationId,
+  'app.user_id': context.userId,
+});
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -92,10 +105,7 @@ export async function withTenantTx<T>(
   fn: (tx: Tx) => Promise<T>,
 ): Promise<T> {
   if (context[brand] !== true) throw new TenantAccessDenied();
-  return database.transaction(
-    { 'app.organization_id': context.organizationId, 'app.user_id': context.userId },
-    fn,
-  );
+  return database.transaction(tenantBindings(context), fn);
 }
 
 /** Binds a brand-new tenant, so row-level policies apply to its first inserts like any other. */
@@ -157,24 +167,27 @@ export async function resolveTenantContext(
   organizationId: string,
 ): Promise<TenantContext> {
   assertUuid(organizationId);
-  const [membership] = await withUserTx(database, userId, (tx) =>
-    tx
-      .select({
-        id: memberships.id,
-        role: memberships.role,
-        organizationId: memberships.organizationId,
-      })
-      .from(memberships)
-      .where(
-        and(
-          eq(memberships.organizationId, organizationId),
-          eq(memberships.userId, userId),
-          eq(memberships.status, 'active'),
-        ),
+  return withUserTx(database, userId, (tx) => readMembership(tx, userId, organizationId));
+}
+
+/** Only ever runs with the user bound and no tenant, which is when the self-only policy applies. */
+async function readMembership(tx: Tx, userId: string, organizationId: string) {
+  const [membership] = await tx
+    .select({
+      id: memberships.id,
+      role: memberships.role,
+      organizationId: memberships.organizationId,
+    })
+    .from(memberships)
+    .where(
+      and(
+        eq(memberships.organizationId, organizationId),
+        eq(memberships.userId, userId),
+        eq(memberships.status, 'active'),
       ),
-  );
+    );
   if (!membership) throw new TenantAccessDenied();
-  return {
+  const context: TenantContext = {
     organizationId: membership.organizationId,
     userId,
     membershipId: membership.id,
@@ -182,6 +195,28 @@ export async function resolveTenantContext(
     actorType: 'user',
     [brand]: true,
   };
+  return context;
+}
+
+/**
+ * `resolveTenantContext` then `withTenantTx`, as one transaction, for a path that asks both every second
+ * (ADR-037 D5). The membership is read with only the user bound, and the tenant is bound from that row
+ * before `fn` runs, with the same list `withTenantTx` uses, so `fn` sees exactly what `withTenantTx` would
+ * show it. No membership means `fn` never runs and the same `TenantAccessDenied` is thrown. Keep `fn`
+ * short: it holds a connection, so it must not wait on anything outside this database.
+ */
+export function withMemberTenantTx<T>(
+  database: AppDatabase,
+  userId: string,
+  organizationId: string,
+  fn: (tx: Tx, context: TenantContext) => Promise<T>,
+): Promise<T> {
+  assertUuid(organizationId);
+  return withUserTx(database, userId, async (tx) => {
+    const context = await readMembership(tx, userId, organizationId);
+    await applyBindings(tx, tenantBindings(context));
+    return fn(tx, context);
+  });
 }
 
 /** Confirms the database answers. Reads no tenant data. */
