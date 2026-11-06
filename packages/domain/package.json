@@ -11,7 +11,11 @@
     "./external-action": "./src/external-action.ts",
     "./integration-events": "./src/integration-events.ts",
     "./webhook": "./src/webhook.ts",
-    "./connector": "./src/connector.ts"
+    "./connector": "./src/connector.ts",
+    "./business-connector": "./src/business-connector.ts",
+    "./meeting": "./src/meeting.ts",
+    "./department-pack": "./src/department-pack.ts",
+    "./expansion-events": "./src/expansion-events.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"
