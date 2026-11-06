@@ -57,7 +57,7 @@ export function setTransitionEnd(
 
 /**
  * Service only. The one step the workflow asks for each time, each idempotent, each recording its own time:
- * offer the export through the port, revoke connections with M3's `revokeConnection`, end schedules by emitting
+ * tell the owners about their export and record any they have taken, revoke connections with M3's `revokeConnection`, end schedules by emitting
  * TENANT_SCHEDULES_ENDED, halt agents, and wait for unsettled external actions. It stops at
  * `await_operator_erasure`, or `blocked_by_hold`, and tells the owners. Pending M3 actions never just vanish.
  */

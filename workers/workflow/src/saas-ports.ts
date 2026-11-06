@@ -26,7 +26,7 @@ const agentsNotWiredIn: AgentHaltPort = {
 };
 
 const exportsNotWiredIn: TenantExportPort = {
-  offerExport() {
+  latestExport() {
     throw new PortNotWiredIn('EXPORT');
   },
 };

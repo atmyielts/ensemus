@@ -36,7 +36,7 @@ M8 is the first time Ensemus takes money and the first time it decides what happ
 
 Exact sums stay on the invoice lines. A processor can only charge whole minor units, so the total rounds, and the difference is its own `rounding` line, so an invoice still adds up to the micro. How many decimals a currency has is `minor_unit_exponent` on the rate card, because that is data and not ours to assume. Rounding half away from zero is a reversible default, and it is listed for the finance adviser.
 
-`@ensemus/saas` holds the state tables, rules and ports, and lint keeps it pure. M4's plan names a `packages/commercial` for signed entitlements and mode rules, which is M4's to create. This is a separate package so the two cannot collide, and `COMM-01`'s entitlement evaluation is handed over through a plain object (D9).
+`@ensemus/saas` holds the state tables, rules and ports, and lint keeps it pure. `packages/commercial`, which M4 created and which owns the `Entitlements` port and the `/entitlements` route, is a different thing: it says what a mode means, and this says what is owed. They stay separate so they cannot collide, and `COMM-01`'s evaluation reaches M4's port through a plain object in that port's shape, as M6's `createSovereignEntitlements` does (D9).
 
 **Sovereign.** `ENSEMUS_BILLING_ENABLED` defaults to off, and `loadSaasConfig` refuses it with `ENSEMUS_MODE=sovereign`. `evaluateEntitlement` answers `ALLOWED` there, with M6's license check governing, so nothing waits for a payment confirmation (`docs/07-commercial/02`, section 4).
 
@@ -170,13 +170,13 @@ A hold is audited with IDs and no matter text, and `matter_ref` is a reference r
 
 ### D7. Offboarding
 
-The workflow does what is reversible, one idempotent step at a time, and reads what to do next from the row: export offered through M6's port, the contract's transition period, connections revoked, schedules ended, agents halted, unsettled external actions waited on (pending M3 actions never just vanish, and `unknown` ones need a person). Then it stops at `ready_for_erasure`.
+The workflow does what is reversible, one idempotent step at a time, and reads what to do next from the row: export offered to the owners, the contract's transition period, connections revoked, schedules ended, agents halted, unsettled external actions waited on (pending M3 actions never just vanish, and `unknown` ones need a person). Then it stops at `ready_for_erasure`.
 
 **The last step is an operator's, on purpose.** `node dist/ops.js erase` needs the eraser role, which an operator has to enable. Moving to `erasing` is refused by trigger while any hold is active, any step is unfinished, or the transition has not ended. Automating it would be simple, and it would mean a bug or a forged request could end a customer. This default is reversible, and the owner may automate it later, once they have run a few.
 
 **A hold anywhere stops all of it.** That is stricter than needed, since a hold on one project could let the rest go. It is the safe default, because erasing around a hold correctly needs a list of everything the hold protects, and getting that wrong is unrecoverable. The state is shown to the customer as blocked, not silently waiting.
 
-**How the role works.** Migration 0501 grants `SELECT (organization_id), DELETE` on every tenant table in every schema that exists when it runs, which is why this milestone's migrations come last, except a retained set: `billing`, `governance`, `lifecycle`, `operations`, `identity`, and most of `platform`. Policies add `lifecycle.erasure_open`. `app.reject_change` lets exactly this role delete past append-only triggers, and that is the one change to an existing rule. Audit keeps its own function and is untouched.
+**How the role works.** Migration 0999, last by number so it comes after every milestone's tables, calls `lifecycle.extend_eraser_reach`, which grants `SELECT (organization_id), DELETE` on every tenant table in every schema, except a retained set: `billing`, `governance`, `lifecycle`, `operations`, `identity`, and most of `platform`. Policies add `lifecycle.erasure_open`. `app.reject_change` lets exactly this role delete past append-only triggers, and that is the one change to an existing rule. Audit keeps its own function and is untouched.
 
 Blobs go first by the existing tombstone path (ADR-026), so a restore cannot bring bytes back. Rows go table by table, passing over the list until nothing moves, since foreign keys order them. Anything it cannot empty is `left_over`, and is never forced.
 
@@ -200,13 +200,24 @@ Each is small, lives in `@ensemus/application/saas/ports`, and refuses where not
 
 | Port | From | Refuses as |
 |---|---|---|
-| `UsageLedgerPort`, `ProviderCostPort` | M4's `platform.usage_ledger` | `UsageUnavailable`: no invoice with usage |
-| `AgentHaltPort` | M4's kill switch (`SEC-06`) | `PORT_NOT_WIRED_IN_AGENTS` |
-| `TenantExportPort` | M6's `COMM-05` | `PORT_NOT_WIRED_IN_EXPORT`: offboarding waits at its first step |
+| `UsageLedgerPort`, `ProviderCostPort` | M4's `platform.usage_ledger`, through readers here in raw SQL | `UsageUnavailable`: no invoice with usage |
+| `AgentHaltPort` | M4's `governance.kill_switches`, `organization` scope (`SEC-06`) | `PORT_NOT_WIRED_IN_AGENTS` |
+| `TenantExportPort` | M6's `listOrganizationExports` (`COMM-05`) | `PORT_NOT_WIRED_IN_EXPORT`: offboarding waits at its first step |
 | `RetentionSource` | Each store with its own purge, M4 and M5 | A category with no source is not swept |
-| `createEntitlementChecker` | Called by M4's `Entitlements.check` | Not applicable: this one is M8's to provide |
+| `createEntitlementChecker` | Goes the other way: M4's `Entitlements` port calls this | Not applicable: this one is M8's to provide |
 
-No sibling foundation had committed when this was written, so these were designed from M4's written plan and need checking against what landed. M4's ledger columns are assumed to be those in its plan, section 1.2.
+**These were checked against the real code.** `m4-foundation` and `m6-foundation` landed while this was being written, and were read with `git show`, without merging. The ledger's columns, its `model_input_tokens`-style meters, the `Entitlements` shape, the kill switch and M6's export calls are as they stand there. M6's export takes the customer's own public key, so nothing here can start one: "export offered" means the owners were told and given the link, which is what the spec means by offered.
+
+### Merge notes
+
+The final merge has to do these, and none is optional. The first fails to compile if missed.
+
+1. **M3 `applyVerifiedDelivery`:** add a `payment_event` branch before its `else`, calling `handlers.recordPaymentEvent`. As it stands that `else` would treat a payment as a sync request, and lose it. M3's `createWebhookEffectHandlers` gains `recordPaymentEvent`, calling `recordPaymentEventInTx`.
+2. **M4 `@ensemus/commercial`:** `createEntitlements` calls `createEntitlementChecker` for Cloud and BYOM, and `getEntitlementsView` calls `getEntitlements`. It stays denying until that happens.
+3. **M6 export:** its page and route use `requireTenant`, and its service writes through `withTenantTx`, so a suspended or leaving tenant could not export. Give that one path `requireAccountTenant` and `forExportInAnyStanding`. D5 promises this, and it is the customer's way out.
+4. **`workers/workflow/src/saas-ports.ts`:** wire in `createUsageLedgerReader`, M4's kill switch, M6's exports, and each milestone's `RetentionSource`.
+5. **Journal:** 0500, 0501 and 0999, in that order among everything else. `tests/integration/tenant-isolation.test.ts` is left alone, and `saas-schema.test.ts` covers the new schemas.
+6. **Upgrade gate:** `upgrade-roles-m8.sql` before the migrations.
 
 ### D10. Observability, incidents and disclosure
 

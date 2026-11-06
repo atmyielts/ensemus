@@ -98,6 +98,15 @@ export function enterProviderBill(
 }
 
 /**
+ * The real reader, in raw SQL over M4's `platform.usage_ledger` columns as landed (`provider_kind`, `billable`,
+ * `cost_micros`, `created_at`). Raw, so this file does not need M4's Drizzle table to compile. Migration 0501
+ * grants the operator this table once it exists.
+ */
+export function createProviderCostReader(_db: OperatorDb): import('./ports').ProviderCostPort {
+  throw new Error('NOT_IMPLEMENTED');
+}
+
+/**
  * Sets a bill against the ledger through ProviderCostPort, and stores the difference. It reports, and
  * decides nothing: a person says reconciled or disputed (BILL-04). There is no tolerance in code.
  */

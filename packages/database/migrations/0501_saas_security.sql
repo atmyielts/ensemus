@@ -190,15 +190,23 @@ END $$;
 CREATE FUNCTION billing.check_card_part() RETURNS trigger
   LANGUAGE plpgsql
   AS $$
-DECLARE card_id uuid;
-DECLARE card_status text;
+DECLARE
+  card_id uuid;
+  card_status text;
 BEGIN
-  card_id := CASE WHEN TG_OP = 'DELETE' THEN OLD.rate_card_id ELSE NEW.rate_card_id END;
+  IF TG_OP = 'DELETE' THEN
+    card_id := OLD.rate_card_id;
+  ELSE
+    card_id := NEW.rate_card_id;
+  END IF;
   SELECT c.status INTO card_status FROM billing.rate_cards c WHERE c.id = card_id FOR SHARE;
   IF card_status IS DISTINCT FROM 'draft' THEN
     RAISE EXCEPTION 'PUBLISHED_RULES_IMMUTABLE' USING ERRCODE = 'EN801';
   END IF;
-  RETURN CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END;
+  IF TG_OP = 'DELETE' THEN
+    RETURN OLD;
+  END IF;
+  RETURN NEW;
 END $$;
 --> statement-breakpoint
 CREATE TRIGGER rate_card_lines_check BEFORE INSERT OR UPDATE OR DELETE ON billing.rate_card_lines
@@ -214,6 +222,10 @@ BEGIN
   IF NEW.status = 'approved' AND OLD.status = 'draft'
      AND NOT EXISTS (SELECT 1 FROM billing.rate_card_lines l WHERE l.rate_card_id = NEW.id) THEN
     RAISE EXCEPTION 'RATE_CARD_EMPTY' USING ERRCODE = 'EN801';
+  END IF;
+  -- When a price starts is part of the price.
+  IF OLD.status <> 'draft' AND NEW.effective_from IS DISTINCT FROM OLD.effective_from THEN
+    RAISE EXCEPTION 'PUBLISHED_RULES_IMMUTABLE' USING ERRCODE = 'EN801';
   END IF;
   RETURN NEW;
 END $$;
@@ -467,18 +479,27 @@ CREATE TRIGGER invoices_keep BEFORE DELETE OR TRUNCATE ON billing.invoices
 CREATE FUNCTION billing.check_invoice_line() RETURNS trigger
   LANGUAGE plpgsql
   AS $$
-DECLARE invoice_status text;
-DECLARE owner_org uuid;
-DECLARE owner_invoice uuid;
+DECLARE
+  invoice_status text;
+  owner_org uuid;
+  owner_invoice uuid;
 BEGIN
-  owner_org := CASE WHEN TG_OP = 'DELETE' THEN OLD.organization_id ELSE NEW.organization_id END;
-  owner_invoice := CASE WHEN TG_OP = 'DELETE' THEN OLD.invoice_id ELSE NEW.invoice_id END;
+  IF TG_OP = 'DELETE' THEN
+    owner_org := OLD.organization_id;
+    owner_invoice := OLD.invoice_id;
+  ELSE
+    owner_org := NEW.organization_id;
+    owner_invoice := NEW.invoice_id;
+  END IF;
   SELECT i.status INTO invoice_status FROM billing.invoices i
    WHERE i.organization_id = owner_org AND i.id = owner_invoice FOR SHARE;
   IF invoice_status IS DISTINCT FROM 'draft' THEN
     RAISE EXCEPTION 'INVOICE_IMMUTABLE' USING ERRCODE = 'EN802';
   END IF;
-  RETURN CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END;
+  IF TG_OP = 'DELETE' THEN
+    RETURN OLD;
+  END IF;
+  RETURN NEW;
 END $$;
 --> statement-breakpoint
 CREATE TRIGGER invoice_lines_check BEFORE INSERT OR UPDATE OR DELETE ON billing.invoice_lines
@@ -863,11 +884,11 @@ CREATE POLICY eraser_read ON lifecycle.legal_holds FOR SELECT TO ensemus_eraser
   USING (organization_id = app.current_organization_id());
 --> statement-breakpoint
 
--- What the eraser reaches: every tenant table holding customer content, in whatever schemas exist when
--- this runs, which is why this milestone's migrations come last. It can delete and count, and can read
--- only the tenant column, so it never sees what it removes. Billing records, audit, tombstones, events
--- and the erasure log stay: they are the retained exceptions the report names (LIFE-04). A test compares
--- this set with every tenant table, so a table added later cannot go unnoticed.
+-- What the eraser reaches: every tenant table holding customer content, in whatever schemas exist. It can
+-- delete and count, and can read only the tenant column, so it never sees what it removes. Billing records,
+-- audit, tombstones, events and the erasure log stay: they are the retained exceptions the report names
+-- (LIFE-04). Other milestones' migrations number past this one, so 0999 runs this after all of them, and a
+-- test compares the result with every tenant table, so a table added later cannot go unnoticed.
 CREATE FUNCTION lifecycle.retained_table(p_schema text, p_table text) RETURNS boolean
   LANGUAGE sql IMMUTABLE
   AS $$
@@ -876,7 +897,10 @@ CREATE FUNCTION lifecycle.retained_table(p_schema text, p_table text) RETURNS bo
       OR (p_schema = 'support' AND p_table IN ('coverage_schedules','break_glass_requests','break_glass_log'))
 $$;
 --> statement-breakpoint
-DO $$
+-- Run by the migrator, in 0999. A repeat changes nothing.
+CREATE FUNCTION lifecycle.extend_eraser_reach() RETURNS void
+  LANGUAGE plpgsql
+  AS $$
 DECLARE t record;
 BEGIN
   FOR t IN
@@ -891,10 +915,16 @@ BEGIN
   LOOP
     EXECUTE format('GRANT USAGE ON SCHEMA %I TO ensemus_eraser', t.table_schema);
     EXECUTE format('GRANT SELECT (organization_id), DELETE ON %I.%I TO ensemus_eraser', t.table_schema, t.table_name);
-    EXECUTE format(
-      'CREATE POLICY eraser_delete ON %I.%I TO ensemus_eraser '
-      'USING (organization_id = app.current_organization_id() AND lifecycle.erasure_open(organization_id))',
-      t.table_schema, t.table_name);
+    IF NOT EXISTS (
+      SELECT 1 FROM pg_policies p
+       WHERE p.schemaname = t.table_schema AND p.tablename = t.table_name
+         AND p.policyname = 'eraser_delete'
+    ) THEN
+      EXECUTE format(
+        'CREATE POLICY eraser_delete ON %I.%I TO ensemus_eraser '
+        'USING (organization_id = app.current_organization_id() AND lifecycle.erasure_open(organization_id))',
+        t.table_schema, t.table_name);
+    END IF;
   END LOOP;
 END $$;
 --> statement-breakpoint
@@ -1038,7 +1068,8 @@ CREATE TRIGGER break_glass_requests_check_change BEFORE UPDATE ON support.break_
 
 -- === Incidents. The public can see what was published about the service, and nothing else, with no tenant
 -- bound. A drill is never published (the check on the table). Reports of vulnerabilities are operator-only.
-GRANT SELECT (id, severity, state, origin, provider_kind, public_title, started_at, resolved_at, updated_at)
+-- `published` as well, because the policy on updates below reads it as this role. It can only ever see true.
+GRANT SELECT (id, severity, state, origin, provider_kind, public_title, published, started_at, resolved_at, updated_at)
   ON operations.incidents TO ensemus_app;
 --> statement-breakpoint
 CREATE POLICY published_read ON operations.incidents FOR SELECT TO ensemus_app USING (published);

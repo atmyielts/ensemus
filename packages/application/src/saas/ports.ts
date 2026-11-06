@@ -37,12 +37,19 @@ export class UsageUnavailable extends Error {
   }
 }
 
-/** M6's `COMM-05`. Offers the tenant an export. A reference, since the archive is not in this database. */
+/**
+ * M6's `COMM-05`. An export needs the customer's own public key (`requestOrganizationExport`), so nothing here
+ * can start one. Offering means telling the owners and linking there, and this says what they have taken, from
+ * `listOrganizationExports`. Refusing, where M6 is not wired in, keeps offboarding at its first step.
+ */
 export interface TenantExportPort {
-  offerExport(tx: Tx, context: TenantContext): Promise<{ exportRef: string }>;
+  latestExport(tx: Tx, context: TenantContext): Promise<{ exportRef: string } | null>;
 }
 
-/** M4's kill switch (`SEC-06`). Stops new runs and winds down live ones. A repeat does nothing new. */
+/**
+ * M4's kill switch (`SEC-06`), which is an `organization`-scoped row in `governance.kill_switches`. Stops new
+ * runs and winds down live ones. A repeat does nothing new.
+ */
 export interface AgentHaltPort {
   haltTenantAgents(tx: Tx, context: TenantContext, reasonCode: string): Promise<void>;
   releaseTenantAgents(tx: Tx, context: TenantContext, reasonCode: string): Promise<void>;

@@ -8,7 +8,7 @@ If you need a change to a file you do not own, or to anything in "Fixed" below, 
 
 | What | Where |
 |---|---|
-| Migrations, RLS, roles and triggers. **No builder adds a migration** | `packages/database/migrations/0500_*`, `0501_*`, `packages/database/src/schema-saas.ts`, `infrastructure/compose/postgres/provision.sql`, `upgrade-roles-m8.sql` |
+| Migrations, RLS, roles and triggers. **No builder adds a migration** | `packages/database/migrations/0500_*`, `0501_*`, `0999_*`, `packages/database/src/schema-saas.ts`, `infrastructure/compose/postgres/provision.sql`, `upgrade-roles-m8.sql` |
 | Journal. The final merge stitches it in | `packages/database/migrations/meta/` |
 | Tenant binding and read-only enforcement | `packages/database/src/tenant.ts`, `account.ts`, `payment-routing.ts`, `operator.ts`, `support.ts` |
 | Standing checks, and the refusal mapping | `assertServing` in `packages/application/src/saas/standing.ts`, `refusalFromDatabase` in `errors.ts`, `apps/web/src/server/tenant.ts`, `api.ts`, `work-actions.ts`, `apps/web/src/app/o/[organizationId]/layout.tsx` |
@@ -91,7 +91,8 @@ listTopUpOffers(database, context): Promise<readonly TopUpQuote[]>
 
 // @ensemus/application/saas/operator-catalog, all on `OperatorDb`
 draftRateCard, approveRateCard, draftPlanVersion, approvePlanVersion,
-publishCollectionPolicy, publishTaxTreatment, enterProviderBill, reconcileProviderBill
+publishCollectionPolicy, publishTaxTreatment, enterProviderBill, reconcileProviderBill,
+createProviderCostReader   // raw SQL over M4's platform.usage_ledger, as it stands on m4-foundation
 
 // workers/workflow/src/ops-catalog.ts
 catalogCommand(args: string[]): Promise<number>   // 0 done, 1 left to do, 2 refused
@@ -116,7 +117,7 @@ Subscriptions, entitlements, standing, provisioning and the account's front page
 - `packages/saas/src/entitlements.ts` (the stubs), new `entitlements.test.ts`
 - `packages/application/src/saas/subscriptions.ts`, `entitlements.ts`, `standing.ts` (not `assertServing`)
 - `workers/workflow/src/ops-tenant.ts`
-- new `apps/web/src/app/api/v1/organizations/[organizationId]/entitlements/route.ts`, `billing/route.ts`, `billing/account/route.ts`, `billing/plans/route.ts`, `billing/subscription/route.ts`
+- new `apps/web/src/app/api/v1/organizations/[organizationId]/billing/route.ts`, `billing/account/route.ts`, `billing/plans/route.ts`, `billing/subscription/route.ts`. **The `/entitlements` route is M4's,** and calls your `getEntitlements` after the merge
 - new `apps/web/src/app/o/[organizationId]/account/page.tsx`, `account/billing/**`, new `apps/web/src/server/billing-actions.ts`, new `apps/web/src/components/billing-*.tsx`
 - new `tests/integration/saas-subscriptions.test.ts`, `saas-standing.test.ts`, `saas-entitlements.test.ts`, `tests/stack/saas-billing-api.test.ts`, `tests/browser/specs/account.spec.ts`
 
@@ -139,7 +140,8 @@ advanceSubscriptionInTx(tx, context, { subscriptionId, now }): Promise<'advanced
 // @ensemus/application/saas/entitlements
 checkEntitlementInTx(tx, context, request, { billingEnabled }): Promise<EntitlementDecision>
 getEntitlements(database, context, { billingEnabled }): Promise<EntitlementsView>
-createEntitlementChecker(database, billingEnabled)   // what M4's Entitlements.check calls
+createEntitlementChecker(database, billingEnabled)   // { check(context, feature), decide(context, request) }
+// `check` is M4's Entitlements port, as `git show m4-foundation:packages/application/src/ai/ports.ts` has it.
 
 // @ensemus/application/saas/standing
 setTenantStandingInTx(tx, context, { to, reasonCode, actor }, agents): Promise<'changed' | 'unchanged'>
@@ -169,7 +171,7 @@ The allowance, consumption from M4's ledger, and explicit top-ups. Acceptance: r
 **Owns:**
 
 - `packages/saas/src/credits.ts` (the stub), new `credits.test.ts`
-- `packages/application/src/saas/credits.ts`, `top-ups.ts`
+- `packages/application/src/saas/credits.ts`, `top-ups.ts`, `usage-reader.ts`
 - `packages/workflows/src/credit-activities.ts`
 - new `apps/web/src/app/api/v1/organizations/[organizationId]/billing/credits/route.ts`, `billing/top-ups/route.ts`
 - new `apps/web/src/app/o/[organizationId]/account/credits/**`, new `apps/web/src/server/credit-actions.ts`
@@ -191,6 +193,9 @@ loadCreditBalanceInTx(tx, context): Promise<bigint>
 requestTopUp(database, context, { offerId, quoteHash, requestKey }): Promise<{ topUpId; invoiceId }>
 creditPaidTopUpInTx(tx, context, { invoiceId }): Promise<'credited' | 'not_a_top_up' | 'already_credited'>
 listTopUps(database, context): Promise<readonly {...}[]>
+
+// @ensemus/application/saas/usage-reader, raw SQL over M4's platform.usage_ledger as it stands on m4-foundation
+createUsageLedgerReader(): UsageLedgerPort
 
 // @ensemus/workflows/credit-activities
 createCreditActivities(deps: BillingActivityDeps) -> { consumeUsagePage }
@@ -421,6 +426,7 @@ eraseCommand(args: string[]): Promise<number>
 
 **Things to get right:**
 
+- **Offering an export means telling the owners and linking to it.** M6's export takes the customer's own public key, so nothing here can start one. Record `export_ref` from `TenantExportPort.latestExport` when there is one. A refusing port keeps it at this step, truthfully.
 - **The workflow stops at `ready_for_erasure`, and nothing automated erases.** `advanceOffboardingStep` is one idempotent step, each recording its time. A durable `sleep` until `transition_ends_at`. No transition set: stays waiting and says so, and erasure is refused.
 - **External actions in `sending`, `reconciling` or `unknown` hold up winding down**, and a person is told. They never just vanish.
 - `requestOffboarding`: owner only, a person only, and the exact name typed. Case-sensitive, and a mismatch does nothing.
@@ -583,6 +589,7 @@ The one writer after the merge: flips the spec, proves it together, and says wha
 
 **Does:**
 
+0. Do the merge notes in ADR-032 D9 that are not done: M3's `payment_event` branch, M4's `Entitlements` calling `createEntitlementChecker`, M6's export in any standing, and `saas-ports.ts`. Each is a small named change in a file owned elsewhere, and this slice is the one writer allowed.
 1. For each route that exists, remove `x-ensemus-status: planned` and its line in the test, and regenerate with `pnpm --filter @ensemus/contracts generate`. Leave anything not built marked planned.
 2. Write the M8 slice on real containers, for later: an operator approves a card and plan. A tenant subscribes. Usage comes in through a fixture for the ledger. The cycle invoices it, and the invoice matches. The fake processor is injected into a test-only worker image, **never the shipped one**, and charges once, with a timeout-after-charge variant ending `unknown`. A webhook comes down M3's path and settles it. A top-up at zero credits, with `QA-026` end to end, and `QA-027` for a BYOM tenant. A failed payment follows a published policy to read-only and back, with no row lost. A legal hold stops a deletion. Offboarding reaches `ready_for_erasure`, the operator erases, and the report is true. Support reads no content. Canaries are absent from Temporal, logs and events.
 3. Runbook: turning on billing, the three roles and `upgrade-roles-m8.sql`, operator commands, and what stays off until the owner decides.

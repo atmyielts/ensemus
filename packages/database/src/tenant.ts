@@ -130,6 +130,15 @@ export async function withAccountTx<T>(
 }
 
 /**
+ * The same person, allowed to write, for one service another milestone wrote with withTenantTx that still has
+ * to work in any standing. That is M6's export, today (ADR-032 D5). Lint keeps it where withAccountTx is.
+ */
+export function accountContextOf(context: TenantContext): TenantContext {
+  if (context[brand] !== true) throw new TenantAccessDenied();
+  return { ...context, serving: 'full' };
+}
+
+/**
  * A processor's event names a customer, and this binds only the hash of that reference, which reveals
  * that one billing account, and from its row binds the tenant, so nothing about the tenant comes from the
  * event (ADR-032 D4). Answers null, without calling `fn`, when nobody has that reference. Worker-only:

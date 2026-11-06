@@ -24,8 +24,8 @@ export function checkEntitlementInTx(
 }
 
 /**
- * For the `/entitlements` route, for any member. It holds no key and nothing a tenant could not see, and
- * nothing here can override a policy decision.
+ * What M4's `getEntitlementsView` and its `/entitlements` route read for a Cloud or BYOM tenant, for any member.
+ * It holds no key and nothing a tenant could not see, and nothing here can override a policy decision.
  */
 export function getEntitlements(
   _database: AppDatabase,
@@ -35,13 +35,23 @@ export function getEntitlements(
   throw new Error('NOT_IMPLEMENTED');
 }
 
+/** M4's `EntitlementResult` from `@ensemus/application/ai-ports`, as written there (ADR-028 FD-8). */
+export type EntitlementPortResult =
+  | { ok: true; billable: boolean; commercialMode: 'cloud' | 'byom' | 'sovereign' }
+  | { ok: false; code: 'ENTITLEMENT_DENIED' };
+
 /**
- * The port M4's `Entitlements.check(ctx, feature)` is wired to at the final merge. A plain object, so it can
- * be handed over without M4 importing anything else from here.
+ * M4's `Entitlements` port for Cloud and BYOM, in that port's shape so it needs no import from M4, the same
+ * as M6's `createSovereignEntitlements`. `@ensemus/commercial`'s `createEntitlements` calls this at the final
+ * merge. `check` answers M4's features: `model.call` is a capacity check, where BYOM is `billable: false`,
+ * and anything else is a feature on the plan. `decide` is the richer answer, for an admin's diagnostics.
  */
 export function createEntitlementChecker(_database: AppDatabase, _billingEnabled: boolean) {
   return {
-    check(_context: TenantContext, _request: EntitlementRequest): Promise<EntitlementDecision> {
+    check(_context: TenantContext, _feature: string): Promise<EntitlementPortResult> {
+      throw new Error('NOT_IMPLEMENTED');
+    },
+    decide(_context: TenantContext, _request: EntitlementRequest): Promise<EntitlementDecision> {
       throw new Error('NOT_IMPLEMENTED');
     },
   };

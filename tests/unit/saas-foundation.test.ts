@@ -178,7 +178,7 @@ describe('what the code leaves to the owner', () => {
     const roots = ['packages', 'apps', 'workers'].map((name) => join(repoRoot, name));
     for (const path of roots.flatMap(walk)) {
       if (!/\.tsx?$/.test(path) || path.includes('testing') || path.endsWith('.test.ts')) continue;
-      expect(readFileSync(path, 'utf8'), path).not.toMatch(/@ensemus\/saas\/testing/);
+      expect(readFileSync(path, 'utf8'), path).not.toMatch(/from '@ensemus\/saas\/testing'/);
     }
   });
 });

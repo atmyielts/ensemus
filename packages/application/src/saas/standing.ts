@@ -1,6 +1,7 @@
 // Owned by the subscriptions slice (OPS-21). A tenant's standing, which is what suspension is. Moving it
 // never deletes anything, and the database refuses a move with no record beside it. See ADR-032 D5.
 import type { AppDatabase, TenantContext, Tx } from '@ensemus/database';
+import { accountContextOf } from '@ensemus/database/account';
 import type { TenantLifecycle } from '@ensemus/saas/entitlements';
 import { AppError } from '../errors';
 
@@ -22,6 +23,12 @@ export function setTenantStandingInTx(
 ): Promise<'changed' | 'unchanged'> {
   throw new Error('NOT_IMPLEMENTED');
 }
+
+/**
+ * For handing M6's export service a context that can write in any standing, since a customer leaving or
+ * suspended must still be able to get their data out (ADR-032 D5). Nothing else should need this.
+ */
+export const forExportInAnyStanding = (context: TenantContext) => accountContextOf(context);
 
 export type AccountSurface = 'core' | 'account';
 
