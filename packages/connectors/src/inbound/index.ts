@@ -4,6 +4,7 @@ import { inboundWebhookEnvelopeSchema } from '@ensemus/contracts/external-action
 import { EMAIL_SEND_TOOL, EMAIL_SEND_VERSION } from '@ensemus/domain/external-action';
 import { z } from 'zod';
 import { MalformedWebhook, type Connector, type WebhookEffect } from '../index';
+import { INBOUND_CONNECTOR_MANIFEST } from '../manifest';
 
 export const INBOUND_CONNECTOR_TYPE = 'inbound_webhook';
 
@@ -33,21 +34,7 @@ function parseEnvelope(body: Uint8Array) {
  */
 export function createInboundConnector(): Connector<InboundConfig> {
   return {
-    manifest: {
-      type: INBOUND_CONNECTOR_TYPE,
-      version: '1',
-      displayName: 'Signed webhook',
-      capabilities: {
-        actions: [],
-        reconcile: 'none',
-        nativeIdempotency: false,
-        sync: null,
-        aclMapping: false,
-        webhooks: { scheme: 'ensemus_hmac_sha256_v1' },
-        network: 'none',
-      },
-      credential: { required: false, purpose: 'webhook_signing' },
-    },
+    manifest: INBOUND_CONNECTOR_MANIFEST,
     parseConfig: (raw) => configSchema.parse(raw) as InboundConfig,
     webhooks: {
       interpret(_context, webhook): readonly WebhookEffect[] {

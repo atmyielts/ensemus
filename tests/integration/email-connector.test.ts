@@ -210,21 +210,7 @@ describe('every sink mode, against the real client', () => {
   });
 });
 
-// runSend is the sdk slice's. These join in once it is merged, and do not pretend to pass before then.
-const runSendExists = (() => {
-  try {
-    void runSend({
-      connector: { manifest: {}, parseConfig: () => ({}) },
-      context: {},
-      request: {},
-    } as never);
-    return true;
-  } catch {
-    return false;
-  }
-})();
-
-describe.runIf(runSendExists)('through the real runSend', () => {
+describe('through the real runSend', () => {
   const through = (relay: { port: number }, deadlineMs: number) => {
     const connector = createEmailConnector({
       tls: 'none',

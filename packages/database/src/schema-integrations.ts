@@ -86,6 +86,8 @@ export const externalResources = integrationsSchema.table(
     organizationId: uuid().notNull(),
     id: uuid().notNull().defaultRandom(),
     connectionId: uuid().notNull(),
+    /** Which stream found it. A full sync decides what has gone one stream at a time, by this. */
+    stream: text().notNull(),
     resourceType: text().notNull(),
     externalId: text().notNull(),
     externalVersion: text(),
@@ -109,8 +111,10 @@ export const externalResources = integrationsSchema.table(
     index('external_resources_generation_idx').on(
       t.organizationId,
       t.connectionId,
+      t.stream,
       t.seenGeneration,
     ),
+    check('external_resources_stream_format', sql`${t.stream} ~ '^[a-z0-9_.-]{1,64}$'`),
     check('external_resources_acl_state', sql`${t.aclState} in ('mapped','partial','unmapped')`),
     check(
       'external_resources_classification',
@@ -181,6 +185,9 @@ export const syncCursors = integrationsSchema.table(
     generation: bigint({ mode: 'number' }).notNull().default(0),
     /** Moves on each full sync. Resources not seen in the latest full one have gone at the source. */
     fullSyncGeneration: bigint({ mode: 'number' }).notNull().default(0),
+    /** From a full sync's first read until its last page commits, however many passes that takes. */
+    fullSyncInProgress: boolean().notNull().default(false),
+    /** How the last pass stands. `resync_required` means a full sync is owed and has not started. */
     state: text().notNull().default('idle'),
     leaseUntil: timestamp({ withTimezone: true }),
     lastSyncedAt: timestamp({ withTimezone: true }),

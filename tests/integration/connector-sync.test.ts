@@ -417,7 +417,7 @@ describe('connector sync', () => {
           connectionId,
           lease,
           page: {
-            ...page([resource('one', { resourceType: 'other_stream' })]),
+            ...page([resource('one', { resourceType: 'Not a Type!' })]),
             mappedGrants: [[]],
           },
         }),
@@ -542,6 +542,121 @@ describe('connector sync', () => {
       expect(after.grants).toHaveLength(1);
 
       await expect(takeLease(serviceA, connectionId)).resolves.toMatchObject({ fullSync: false });
+    });
+
+    it('decides by the stream that found a thing, whatever kind of thing it is', async () => {
+      const connectionId = await newConnection(ownerA);
+      const shared = { resourceType: 'document' };
+      const read = async (stream: string, resources: SyncedResource[]) => {
+        const lease = await takeLease(serviceA, connectionId, stream);
+        await commit(serviceA, connectionId, lease, page(resources));
+        await finish(serviceA, connectionId, stream);
+      };
+      await read(STREAM, [resource('in-files', shared)]);
+      await read('notes', [resource('in-notes', shared), resource('note-gone', shared)]);
+
+      // A full sync of notes that no longer has one of its own, and never saw what files holds.
+      await finishSyncStream(db(), serviceA, {
+        connectionId,
+        stream: 'notes',
+        outcome: { resyncRequired: true },
+      });
+      await read('notes', [resource('in-notes', shared)]);
+
+      const after = await snapshot(serviceA, connectionId);
+      const named = Object.fromEntries(after.resources.map((r) => [r.externalId, r]));
+      expect(named['note-gone']?.deletedAt).toBeInstanceOf(Date);
+      expect(named['in-notes']?.deletedAt).toBeNull();
+      expect(named['in-files']?.deletedAt).toBeNull();
+      expect(named['in-files']).toMatchObject({ stream: STREAM, resourceType: 'document' });
+      expect(named['in-notes']).toMatchObject({ stream: 'notes', resourceType: 'document' });
+    });
+
+    it('refuses the same source ID from another stream, and writes nothing', async () => {
+      const connectionId = await newConnection(ownerA);
+      const lease = await takeLease(serviceA, connectionId);
+      await commit(serviceA, connectionId, lease, page([resource('one')]));
+      await finish(serviceA, connectionId);
+      const before = await snapshot(serviceA, connectionId);
+
+      const other = await takeLease(serviceA, connectionId, 'notes');
+      await expect(commit(serviceA, connectionId, other, page([resource('one')]))).rejects.toEqual(
+        code('INVALID_INPUT'),
+      );
+      expect(await snapshot(serviceA, connectionId)).toEqual(before);
+    });
+
+    it('will not let the application move a resource to another stream', async () => {
+      const connectionId = await newConnection(ownerA);
+      const lease = await takeLease(serviceA, connectionId);
+      await commit(serviceA, connectionId, lease, page([resource('one')]));
+      await expect(
+        withTenantTx(db(), serviceA, (tx) =>
+          tx
+            .update(externalResources)
+            .set({ stream: 'notes' })
+            .where(eq(externalResources.connectionId, connectionId)),
+        ),
+      ).rejects.toMatchObject({
+        cause: expect.objectContaining({ message: expect.stringMatching(/permission denied/) }),
+      });
+    });
+
+    it('says a full sync is under way across passes, and when it has ended', async () => {
+      const connectionId = await newConnection(ownerA);
+      const flag = async () => {
+        const row = await cursorRow(serviceA, connectionId);
+        return { state: row?.state, running: row?.fullSyncInProgress };
+      };
+      const first = await takeLease(serviceA, connectionId);
+      await expect(flag()).resolves.toEqual({ state: 'running', running: true });
+      const middle = await commit(
+        serviceA,
+        connectionId,
+        first,
+        page([resource('one')], { nextCursor: 'p1', hasMore: true }),
+      );
+      await finish(serviceA, connectionId);
+      // Between passes nothing is running, and a full sync is still under way.
+      await expect(flag()).resolves.toEqual({ state: 'idle', running: true });
+
+      const next = await takeLease(serviceA, connectionId);
+      expect(next).toMatchObject({
+        fullSync: true,
+        cursor: 'p1',
+        fullSyncGeneration: middle?.fullSyncGeneration,
+      });
+      await commit(serviceA, connectionId, next, page([resource('two')], { nextCursor: 'p2' }));
+      await expect(flag()).resolves.toEqual({ state: 'running', running: false });
+      await finish(serviceA, connectionId);
+      await expect(flag()).resolves.toEqual({ state: 'idle', running: false });
+      await expect(takeLease(serviceA, connectionId)).resolves.toMatchObject({ fullSync: false });
+    });
+
+    it('starts again when the cursor is lost partway through a full sync', async () => {
+      const connectionId = await newConnection(ownerA);
+      const first = await takeLease(serviceA, connectionId);
+      await commit(
+        serviceA,
+        connectionId,
+        first,
+        page([resource('one')], { nextCursor: 'p1', hasMore: true }),
+      );
+      await finishSyncStream(db(), serviceA, {
+        connectionId,
+        stream: STREAM,
+        outcome: { resyncRequired: true },
+      });
+      await expect(cursorRow(serviceA, connectionId)).resolves.toMatchObject({
+        state: 'resync_required',
+        fullSyncInProgress: false,
+        cursor: null,
+      });
+      await expect(takeLease(serviceA, connectionId)).resolves.toMatchObject({
+        fullSync: true,
+        cursor: null,
+        fullSyncGeneration: 2,
+      });
     });
 
     it('carries on a full sync interrupted by a crash, from its cursor, in the same mode', async () => {
@@ -846,7 +961,8 @@ describe('connector sync', () => {
       const row = await cursorRow(serviceA, connectionId);
       expect(row?.lastErrorCode).toBe('SYNC_FAILED');
       // Its first pass is a full sync, and a failure leaves it one, to carry on from where it got to.
-      expect(row?.state).toBe('resync_required');
+      expect(row?.state).toBe('failed');
+      expect(row?.fullSyncInProgress).toBe(true);
       const [connection] = await withTenantTx(db(), ownerA, (tx) =>
         tx.select().from(connections).where(eq(connections.id, connectionId)),
       );

@@ -48,7 +48,6 @@ import {
   EMAIL_SEND_TOOL,
   EMAIL_SEND_VERSION,
   MAX_SEND_ATTEMPTS,
-  type AttemptResult,
   type ExternalActionStatus,
   type ReconcileResult,
 } from '@ensemus/domain/external-action';
@@ -68,41 +67,6 @@ import {
   type ScriptedGateway,
   type SendScript,
 } from './fixtures/scripted-gateway';
-
-// The SDK's own runSend has its own tests in its own slice, and its stub throws until that lands. This
-// double does the part of its job the connector gateway leans on: NotSent means not sent, and anything
-// else is indeterminate.
-vi.mock('@ensemus/connectors/runtime', async () => {
-  const { NotSent: Thrown } = await import('@ensemus/connectors');
-  return {
-    runSend: async (call: {
-      connector: Connector;
-      context: object;
-      request: never;
-    }): Promise<AttemptResult> => {
-      try {
-        return await call.connector.actions!.send(
-          { ...call.context, signal: new AbortController().signal } as never,
-          call.request,
-        );
-      } catch (error) {
-        if (error instanceof Thrown) {
-          return { outcome: 'not_sent', code: error.code, retryable: error.retryable };
-        }
-        return { outcome: 'indeterminate', code: 'CONNECTION_LOST_AFTER_COMMIT' };
-      }
-    },
-    runReconcile: async (call: {
-      connector: Connector;
-      context: object;
-      request: never;
-    }): Promise<ReconcileResult> =>
-      call.connector.actions!.reconcile(
-        { ...call.context, signal: new AbortController().signal } as never,
-        call.request,
-      ),
-  };
-});
 
 const code = (name: string) => expect.objectContaining({ code: name });
 const SENDER = 'sender@example.invalid';
@@ -263,7 +227,11 @@ describe('verified external actions', () => {
     );
   const eventsAbout = (id: string) =>
     withTenantTx(db(), owner, (tx) =>
-      tx.select().from(domainEvents).where(eq(domainEvents.aggregateId, id)),
+      tx
+        .select()
+        .from(domainEvents)
+        .where(eq(domainEvents.aggregateId, id))
+        .orderBy(domainEvents.occurredAt),
     );
 
   const inputFor = (id: string, context = owner) => ({

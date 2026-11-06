@@ -290,7 +290,9 @@ describe('the suite catches', () => {
   it('a page its own stream could not have produced', async () => {
     const elsewhere: SyncPage = {
       ...page,
-      resources: [{ externalId: 'one', resourceType: 'other', externalVersion: '1', acl: [] }],
+      resources: [
+        { externalId: 'one', resourceType: 'Not a Type!', externalVersion: '1', acl: [] },
+      ],
     };
     const failed = await broken(() => createFakeConnector({ pages: { files: [elsewhere] } }));
     expect(failed).toContain('sync: pages are valid for their stream');

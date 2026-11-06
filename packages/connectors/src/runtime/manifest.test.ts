@@ -72,8 +72,20 @@ describe('what a sync page may hold', () => {
     expect(isValidSyncPage('files', page({ nextCursor: null, resources: [] }))).toBe(true);
   });
 
+  // Which stream found a resource is stored apart from what kind of thing it is, so this is no refusal.
+  it('takes a kind of thing named differently from its stream', () => {
+    expect(
+      isValidSyncPage('files', page({ resources: [resource({ resourceType: 'document' })] })),
+    ).toBe(true);
+  });
+
+  it('refuses a stream that could not exist', () => {
+    expect(isValidSyncPage('Not a Stream!', page())).toBe(false);
+  });
+
   it.each<[string, SyncPage]>([
-    ['another stream', page({ resources: [resource({ resourceType: 'notes' })] })],
+    ['a type that is not one', page({ resources: [resource({ resourceType: 'Not a Type!' })] })],
+    ['no type', page({ resources: [resource({ resourceType: undefined as never })] })],
     ['an empty ID', page({ resources: [resource({ externalId: '' })] })],
     ['a repeated ID', page({ resources: [resource(), resource()] })],
     ['an ID both present and gone', page({ deletedExternalIds: ['one'] })],

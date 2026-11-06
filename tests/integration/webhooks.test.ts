@@ -508,8 +508,9 @@ describe('webhooks', () => {
 
     it('two deliveries of one event ID at the same moment make one effect', async () => {
       const eventId = randomUUID();
-      await post(endpointA, { eventId, timestamp: nowSeconds() });
-      await post(endpointA, { eventId, timestamp: nowSeconds() - 1 });
+      const now = nowSeconds();
+      await post(endpointA, { eventId, timestamp: now });
+      await post(endpointA, { eventId, timestamp: now - 1 });
       const ids = (await waiting(endpointA)).map((row) => row.id);
       expect(ids).toHaveLength(2);
       const outcomes = await Promise.all(
@@ -1283,13 +1284,12 @@ describe('webhooks', () => {
     });
 
     it('rejects a proposal the intent service refuses, such as restricted work', async () => {
-      const real = createWebhookActivities(
-        deps,
-        createWebhookEffectHandlers(async () => {
-          throw new AppError('RESTRICTED_NOT_ALLOWED');
-        }),
-      );
-      const work = await createWorkUnit(app.db, ctxA, { title: 'Same', objective: 'Same.' });
+      const real = createWebhookActivities(deps);
+      const work = await createWorkUnit(app.db, ctxA, {
+        title: 'Same',
+        objective: 'Same.',
+        classification: 'restricted',
+      });
       const mail = await seedConnection(app.db, ctxA, {
         config: { fromAddress: 'a@example.invalid' },
       });

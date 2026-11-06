@@ -92,8 +92,8 @@
     },
     {
       "path": "02-architecture/03-data-model.md",
-      "size_bytes": 10520,
-      "sha256": "f7231cec1178a9bdc2df95801aabb271de4bb41ef7fdbf7183e263d61861ce33"
+      "size_bytes": 10905,
+      "sha256": "e6717b671264f245805e41ebed52097f098616e7cedec28b22ed028cee2817d2"
     },
     {
       "path": "02-architecture/04-work-kernel.md",
@@ -292,8 +292,8 @@
     },
     {
       "path": "06-delivery/evidence/M3-report.md",
-      "size_bytes": 5942,
-      "sha256": "d18461e497593ddf15228b835718ce3050666ab0fdeae977bc97161e3e201f5c"
+      "size_bytes": 6725,
+      "sha256": "650d014296ea011d28030da831365b7bfda697284a574d234be897ea79b5566c"
     },
     {
       "path": "06-delivery/m3-slices.md",
@@ -457,8 +457,8 @@
     },
     {
       "path": "specifications/openapi.yaml",
-      "size_bytes": 46864,
-      "sha256": "874cb80a08c48b310f54197eec55c7a68833263c531c58825efd00b63171d4cc"
+      "size_bytes": 46761,
+      "sha256": "83f178783b2303ec82b62f9df1cfa7410329cb90b1698bcce2e2fdf941148ff0"
     },
     {
       "path": "specifications/qa-scenarios.csv",

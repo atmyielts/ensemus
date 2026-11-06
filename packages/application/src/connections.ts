@@ -373,6 +373,7 @@ export async function leaseSyncStream(
         cursor: syncCursors.cursor,
         generation: syncCursors.generation,
         fullSyncGeneration: syncCursors.fullSyncGeneration,
+        fullSyncInProgress: syncCursors.fullSyncInProgress,
         state: syncCursors.state,
         held: sql<boolean>`coalesce(${syncCursors.leaseUntil} > now(), false)`,
       })
@@ -382,14 +383,16 @@ export async function leaseSyncStream(
     if (!row || row.held) return null;
 
     const firstEver = row.generation === 0 && row.cursor === null;
-    const starting = firstEver || (row.state === 'resync_required' && row.cursor === null);
-    const fullSync = starting || row.state === 'resync_required';
+    const fullSync = firstEver || row.fullSyncInProgress || row.state === 'resync_required';
+    // Carrying on from a page it committed keeps its generation. With no page yet, it starts afresh.
+    const starting = fullSync && row.cursor === null;
     const generation = row.generation + (starting ? 1 : 0);
     const fullSyncGeneration = row.fullSyncGeneration + (starting ? 1 : 0);
     await tx
       .update(syncCursors)
       .set({
-        state: fullSync ? 'resync_required' : 'running',
+        state: 'running',
+        fullSyncInProgress: fullSync,
         leaseUntil: sql`now() + make_interval(secs => ${input.leaseMs / 1000})`,
         generation,
         fullSyncGeneration,
@@ -512,6 +515,7 @@ async function applyResource(
   context: TenantContext,
   input: {
     connectionId: string;
+    stream: string;
     resource: SyncedResource;
     grants: ReadonlyArray<MappedGrantRow>;
     existing: typeof externalResources.$inferSelect | undefined;
@@ -519,7 +523,7 @@ async function applyResource(
     fullSync: boolean;
   },
 ) {
-  const { connectionId, resource, existing, generation, fullSync } = input;
+  const { connectionId, stream, resource, existing, generation, fullSync } = input;
   const desired = desiredGrants(input.grants);
   const mapped = [...desired.values()].filter((g) => g.membershipId || g.teamId).length;
   const aclState = aclStateOf(desired.size, mapped);
@@ -531,6 +535,7 @@ async function applyResource(
       .values({
         organizationId: context.organizationId,
         connectionId,
+        stream,
         resourceType: resource.resourceType,
         externalId: resource.externalId,
         ...fields,
@@ -542,6 +547,8 @@ async function applyResource(
     return;
   }
   // The same ID under another stream would have one stream's full sync decide the other's resources.
+  if (existing.stream !== stream) throw new AppError('INVALID_INPUT');
+  // The same ID as another kind of thing is not the same thing, so it cannot quietly become it.
   if (existing.resourceType !== resource.resourceType) throw new AppError('INVALID_INPUT');
 
   // A version says whether anything changed. With none to go on, the fields themselves have to.
@@ -641,6 +648,7 @@ export async function commitSyncPage(
       for (const [index, resource] of page.resources.entries()) {
         await applyResource(tx, context, {
           connectionId,
+          stream: lease.stream,
           resource,
           grants: page.mappedGrants[index] ?? [],
           existing: byExternalId.get(resource.externalId),
@@ -662,12 +670,13 @@ export async function commitSyncPage(
 
       const finishesFullSync = lease.fullSync && !page.hasMore;
       if (finishesFullSync) {
-        // What this full sync did not see has gone at the source. Only this stream's: see SyncedResource.
+        // What this full sync did not see has gone at the source. Only this stream's: another stream
+        // has its own full sync, and it may hold the same kind of thing.
         await markGone(
           tx,
           and(
             ofThisConnection,
-            eq(externalResources.resourceType, lease.stream),
+            eq(externalResources.stream, lease.stream),
             lt(externalResources.seenGeneration, lease.fullSyncGeneration),
             isNull(externalResources.deletedAt),
           ),
@@ -684,7 +693,7 @@ export async function commitSyncPage(
             cursor: page.nextCursor,
             generation,
             ...(page.watermark ? { watermark: page.watermark } : {}),
-            ...(finishesFullSync ? { state: 'running' } : {}),
+            ...(finishesFullSync ? { fullSyncInProgress: false } : {}),
             updatedAt: sql`now()`,
           })
           .where(streamIs(connectionId, lease.stream));
@@ -730,12 +739,13 @@ export async function finishSyncStream(
       .for('update');
     if (!row) throw new AppError('NOT_FOUND');
 
-    const midFullSync = row.state === 'resync_required';
     if ('resyncRequired' in outcome) {
       await tx
         .update(syncCursors)
         .set({
           state: 'resync_required',
+          // Owed from the start again, so one already under way counts for nothing.
+          fullSyncInProgress: false,
           cursor: null,
           generation: row.generation + 1,
           leaseUntil: null,
@@ -747,7 +757,7 @@ export async function finishSyncStream(
       await tx
         .update(syncCursors)
         .set({
-          state: midFullSync ? 'resync_required' : 'idle',
+          state: 'idle',
           leaseUntil: null,
           lastErrorCode: null,
           lastSyncedAt: sql`now()`,
@@ -758,7 +768,7 @@ export async function finishSyncStream(
       await tx
         .update(syncCursors)
         .set({
-          state: midFullSync ? 'resync_required' : 'failed',
+          state: 'failed',
           leaseUntil: null,
           lastErrorCode: safeSyncErrorCode(outcome.code),
           updatedAt: sql`now()`,

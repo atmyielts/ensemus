@@ -178,8 +178,8 @@ export function createConnectorSyncActivities(deps: ConnectorActivityDeps) {
       result = { streams: 0, pages: 0, resources: 0, failed: 0 };
     }
 
-    // A connection.revoked arriving while this run is open starts nothing, because this run covers it.
-    // So this looks again before it ends, or the sealed value could outlive the connection.
+    // A revoke landing during this pass has its own run on the way. Looking again here means the sealed
+    // value stops now, rather than whenever that run gets its turn.
     const after = await loadConnectionForWorker(database, context, connectionId);
     if (after?.state === 'revoked') {
       await revokeSecrets(organizationId, after);

@@ -27,11 +27,7 @@ export type SourceGrant = {
 
 export type SyncedResource = {
   externalId: string;
-  /**
-   * The name of the stream this came from. A full sync finds what has gone by absence, one stream at a
-   * time, and this is how it knows which resources were that stream's, so a page saying otherwise is
-   * refused.
-   */
+  /** What kind of thing this is at the source. Which stream found it is kept apart from this. */
   resourceType: string;
   /** The source's revision. A page holding the version already stored changes nothing. */
   externalVersion: string | null;
@@ -66,6 +62,7 @@ export function aclStateOf(grants: number, mapped: number): AclState {
 
 export const CONNECTOR_TYPE_PATTERN = /^[a-z][a-z0-9_]{1,63}$/;
 export const SYNC_STREAM_PATTERN = /^[a-z0-9_.-]{1,64}$/;
+const RESOURCE_TYPE_PATTERN = /^[a-z0-9_.-]{1,64}$/;
 
 /**
  * Why a stream's last read failed, shown to an administrator. A fixed list, because a connector's own
@@ -101,10 +98,11 @@ const MAX_NAME_LENGTH = 500;
 const isShortText = (value: unknown, limit: number): value is string =>
   typeof value === 'string' && value.length > 0 && value.length <= limit;
 
-function isValidResource(stream: string, resource: SyncedResource): boolean {
+function isValidResource(resource: SyncedResource): boolean {
   return (
     isShortText(resource.externalId, MAX_ID_LENGTH) &&
-    resource.resourceType === stream &&
+    typeof resource.resourceType === 'string' &&
+    RESOURCE_TYPE_PATTERN.test(resource.resourceType) &&
     (resource.externalVersion === null || isShortText(resource.externalVersion, MAX_ID_LENGTH)) &&
     (resource.displayName === undefined || isShortText(resource.displayName, MAX_NAME_LENGTH)) &&
     (resource.contentSha256 === undefined || /^[0-9a-f]{64}$/.test(resource.contentSha256)) &&
@@ -121,8 +119,9 @@ function isValidResource(stream: string, resource: SyncedResource): boolean {
   );
 }
 
-/** Whether a page is one this stream could have produced. Each external ID may appear only once. */
+/** Whether a page is one a stream could have produced. Each external ID may appear only once. */
 export function isValidSyncPage(stream: string, page: SyncPage): boolean {
+  if (!SYNC_STREAM_PATTERN.test(stream)) return false;
   if (!Array.isArray(page.resources) || page.resources.length > MAX_SYNC_PAGE_RESOURCES) {
     return false;
   }
@@ -134,7 +133,7 @@ export function isValidSyncPage(stream: string, page: SyncPage): boolean {
   }
   if (page.nextCursor !== null && !isShortText(page.nextCursor, MAX_CURSOR_LENGTH)) return false;
   if (typeof page.hasMore !== 'boolean') return false;
-  if (!page.resources.every((resource) => isValidResource(stream, resource))) return false;
+  if (!page.resources.every(isValidResource)) return false;
   if (!page.deletedExternalIds.every((id) => isShortText(id, MAX_ID_LENGTH))) return false;
   const ids = [
     ...page.resources.map((resource) => resource.externalId),

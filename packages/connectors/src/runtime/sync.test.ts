@@ -186,7 +186,7 @@ describe('runSyncPass', () => {
   it('fails a page it cannot accept, and commits nothing of it', async () => {
     const memory = memoryStore();
     const connector = createFakeConnector({
-      pages: { files: [{ ...page(), resources: [resource('a', 'somewhere_else')] }] },
+      pages: { files: [{ ...page(), resources: [resource('a', 'Not a Type!')] }] },
     });
     await runSyncPass({ connector, context, store: memory.store, maxPages: 5 });
     expect(memory.committed).toEqual([]);

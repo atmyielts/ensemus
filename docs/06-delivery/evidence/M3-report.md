@@ -20,6 +20,8 @@ M3 is what lets Ensemus do something it cannot take back. The exit in the [deliv
 
 Stack tests, browser tests and the air-gap gate do not run on the development machine. Only CI runs them.
 
+**On the integrator's machine, on the merged tree, and not CI:** format, lint, typecheck, unit, replay, backlog, contracts and licenses passed, and so did every file of the integration suite except the OIDC part of `tests/integration/auth.test.ts`, which could not start its mock because another project on that machine held its fixed port. That part is unchanged by M3. None of this is a pass in the table above.
+
 ## What each exit scenario is held by
 
 Each of these is written. None has been run, so none is evidence yet.
@@ -33,6 +35,8 @@ Each of these is written. None has been run, so none is evidence yet.
 | `QA-019` | `makes one intent, whichever way it is replayed` | ADR-027 D4's three replays, one intent, and nothing sent |
 | Denied | `refuses an unsigned post...`, `does nothing for another tenant's token...`, `shows a member of another tenant nothing...`, `lets only the person named...`, `lets only someone who manages connections...` | Unsigned, wrong key, altered body, an unknown address, another tenant's token and pages by every path, and the wrong approver |
 | Confidentiality | `keeps a recipient, a subject and a body out of Temporal, logs and events` | Canaries in a recipient, a subject and a body, with a control for each scan, and a credential, secret and token absent from Temporal, logs and the database |
+
+The same path with no containers beyond PostgreSQL is in `tests/integration/verified-actions-path.test.ts`: real outbox and dispatcher role, real broker, real email connector over real TLS, the real egress gateway code in-process, and a relay in the test process. Temporal and the web server are not in it, so it is not the exit and does not replace the table above.
 
 What sits underneath, in each slice's own tests: `tests/integration/external-actions.test.ts`, `connections.test.ts`, `connector-sync.test.ts`, `webhooks.test.ts`, `email-connector.test.ts` and `receipts.test.ts`, with `tests/stack/external-actions-api.test.ts`, `webhook-route.test.ts` and `tests/browser/specs/external-actions.spec.ts`.
 

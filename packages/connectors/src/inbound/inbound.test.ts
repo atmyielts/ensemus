@@ -138,15 +138,6 @@ describe('reading a verified body', () => {
   });
 });
 
-// The suite belongs to the sdk slice, and until that lands it is a stub that throws. The guard only ever
-// turns that one stub into a pending test, so this runs for real once the slices are merged.
-try {
-  describeConnectorConformance('inbound_webhook', () => createInboundConnector(), {
-    config: {},
-  });
-} catch (error) {
-  if ((error as Error).message !== 'NOT_IMPLEMENTED') throw error;
-  describe('inbound_webhook conformance', () => {
-    it.todo('runs once the sdk slice lands');
-  });
-}
+describeConnectorConformance('inbound_webhook', () => createInboundConnector(), {
+  config: {},
+});

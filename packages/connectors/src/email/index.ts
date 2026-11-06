@@ -3,12 +3,8 @@
 // It never retries and never asks what happened, because SMTP has no way to ask.
 import { z } from 'zod';
 import { emailSendPayloadSchema } from '@ensemus/contracts/external-actions';
-import { SECRET_PURPOSE_CONNECTOR_CREDENTIAL } from '@ensemus/domain/connector';
-import {
-  EMAIL_CONNECTOR_TYPE,
-  EMAIL_SEND_TOOL,
-  EMAIL_SEND_VERSION,
-} from '@ensemus/domain/external-action';
+import { EMAIL_SEND_TOOL, EMAIL_SEND_VERSION } from '@ensemus/domain/external-action';
+import { EMAIL_CONNECTOR_MANIFEST } from '../manifest';
 import { NotSent, type ActionRequest, type Connector, type ConnectorContext } from '../index';
 import { buildMessage, dotStuff, UnsafeMessage } from './message';
 import { deliver, RefusedBeforeCommit } from './smtp';
@@ -130,21 +126,7 @@ export function createEmailConnector(options: {
   }
 
   return {
-    manifest: {
-      type: EMAIL_CONNECTOR_TYPE,
-      version: EMAIL_SEND_VERSION,
-      displayName: 'Email (SMTP)',
-      capabilities: {
-        actions: [EMAIL_SEND_TOOL],
-        reconcile: 'none',
-        nativeIdempotency: false,
-        sync: null,
-        aclMapping: false,
-        webhooks: null,
-        network: 'egress_gateway',
-      },
-      credential: { required: true, purpose: SECRET_PURPOSE_CONNECTOR_CREDENTIAL },
-    },
+    manifest: EMAIL_CONNECTOR_MANIFEST,
     parseConfig(raw) {
       const parsed = configSchema.safeParse(raw);
       // A fixed message: what was refused could hold anything, including something secret.

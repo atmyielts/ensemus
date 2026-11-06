@@ -208,7 +208,11 @@ const requestFor = (attempt: PreparedAttempt): ActionRequest => ({
  * lease, and its way out only through the egress gateway. Anything stopping it before the connector runs
  * means nothing was contacted, so those are `not_sent`, and trying again would not help.
  */
-export function createConnectorGateway(deps: ConnectorActivityDeps): ExternalActionGateway {
+export function createConnectorGateway(
+  deps: ConnectorActivityDeps,
+  /** Only a test changes this, so that a relay going quiet does not take the whole of runSend's minute. */
+  options: { sendDeadlineMs?: number } = {},
+): ExternalActionGateway {
   const unavailable: AttemptResult = {
     outcome: 'not_sent',
     code: 'CONNECTOR_UNAVAILABLE',
@@ -250,7 +254,11 @@ export function createConnectorGateway(deps: ConnectorActivityDeps): ExternalAct
       if (call.connector.manifest.credential.required && !attempt.connection.credentialSecretId) {
         return { outcome: 'not_sent', code: 'CREDENTIAL_UNAVAILABLE', retryable: false };
       }
-      return runSend(call);
+      return runSend(
+        options.sendDeadlineMs === undefined
+          ? call
+          : { ...call, deadlineMs: options.sendDeadlineMs },
+      );
     },
     async reconcile(organizationId, attempt) {
       const call = callFor(organizationId, attempt);

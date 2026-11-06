@@ -67,9 +67,9 @@
 | Table | Key fields | Constraints |
 |---|---|---|
 | `connections` | organization_id, id, connector_type, credential_secret_id, config, state | No plaintext secrets, and a reference that cannot name another tenant's secret. As built, a reference and not the `encrypted_handle` planned. Settings can never name a host |
-| `external_resources` | organization_id, connection_id, external_id, external_version, acl_state | Stable sync references. Anything but `mapped` denies |
+| `external_resources` | organization_id, connection_id, stream, resource_type, external_id, external_version, acl_state | Stable sync references. Anything but `mapped` denies. `stream` is which stream found it, fixed once written: a full sync decides what has gone one stream at a time, by this |
 | `external_resource_acl` | organization_id, resource_id, principal, access, membership_id or team_id | Source grants are kept even when they map to nobody, which grants nothing |
-| `sync_cursors` | organization_id, connection_id, stream, cursor, generation, lease_until | Retry-safe sync progress, by compare-and-swap. A cursor never crosses Temporal |
+| `sync_cursors` | organization_id, connection_id, stream, cursor, generation, full_sync_in_progress, state, lease_until | Retry-safe sync progress, by compare-and-swap. A cursor never crosses Temporal. `full_sync_in_progress` holds from a full sync's first read until its last page commits, across passes. `state` says how the last pass stands, and `resync_required` means a full sync is owed and has not started |
 | `external_actions` | organization_id, idempotency_key, request_hash, approval_id, external_id, status, resolution | Side-effect reconciliation. What the effect is cannot be updated by any role. A trigger holds the status to the state machine, and one approval authorizes one intent |
 | `external_action_attempts` | organization_id, external_action_id, attempt_no, request_hash, outcome | Committed before any byte leaves. A trigger refuses another while an earlier one could have sent. An empty outcome means it may still be in flight |
 | `external_action_receipts` | organization_id, external_action_id, outcome, basis, code, actor_membership_id | Append-only for everyone, and each one says on whose word it rests. A person's is named |
