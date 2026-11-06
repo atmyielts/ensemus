@@ -62,8 +62,8 @@
     },
     {
       "path": "01-product/03-experience-design.md",
-      "size_bytes": 4480,
-      "sha256": "dc45ef458216ad7c44368b2a17b355f288f35b056e8c5e44c8d3a8d567281230"
+      "size_bytes": 4690,
+      "sha256": "f83c3918b622e99297e9aa2546e5655ca99dc12e87e2ebb55e76200c0521ab2f"
     },
     {
       "path": "01-product/04-capability-catalog.md",
@@ -79,6 +79,11 @@
       "path": "01-product/06-packaging-and-economics.md",
       "size_bytes": 3901,
       "sha256": "0efe60488b6780e757913cd23f70571d2ceef1cb9b0f6e8927a30dbaad839c00"
+    },
+    {
+      "path": "01-product/07-interface-system.md",
+      "size_bytes": 5383,
+      "sha256": "309004069602506755324c0e44a81e06028bf7d75944177b2460b43548c2747a"
     },
     {
       "path": "02-architecture/01-system-architecture.md",
@@ -297,8 +302,8 @@
     },
     {
       "path": "06-delivery/evidence/M3-report.md",
-      "size_bytes": 6725,
-      "sha256": "650d014296ea011d28030da831365b7bfda697284a574d234be897ea79b5566c"
+      "size_bytes": 8610,
+      "sha256": "326ce1d0e202a03fe15bcc838e758042597497a879e8f4ff38acbb41b5b21122"
     },
     {
       "path": "06-delivery/m3-slices.md",
@@ -307,8 +312,8 @@
     },
     {
       "path": "06-delivery/platform-completion-progress.md",
-      "size_bytes": 5368,
-      "sha256": "6df7cb34c3e07cc2da33925eee967db8af7fff45c238d6e9b58f79060b0c11b6"
+      "size_bytes": 6700,
+      "sha256": "968a1b8c8c29e172e31390eff47a0f10e09831ea3dfc9ccec02fed8360d48b37"
     },
     {
       "path": "07-commercial/01-license-and-maintenance.md",
@@ -457,8 +462,8 @@
     },
     {
       "path": "specifications/implementation-backlog.csv",
-      "size_bytes": 24583,
-      "sha256": "a6f97fb0002d969acb49fd18e3a74328bc86b3878af6d235bbef66cf499c1fa5"
+      "size_bytes": 24567,
+      "sha256": "c8241c6b2c2aafbe083a5d700fccfe506e38d9a8158259058c7a54a5ea1153ec"
     },
     {
       "path": "specifications/model-conformance-matrix.csv",

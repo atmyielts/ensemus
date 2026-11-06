@@ -1,7 +1,7 @@
 # M3 evidence report: verified external actions
 
 **Date:** 2026-11-06
-**Status: not closed, and not yet shown to work.** This file was written with the end-to-end tests and before they first ran. **Nothing below is a pass unless the results table says so, with a CI run to point at.** Whoever merges the slices and sees CI updates this file, and only from what CI showed.
+**Status: implemented and exercised locally; formal closure remains open.** The original report preceded execution. The continuation below records actual merged-tree results separately from CI and external acceptance. No new CI run or production release is claimed.
 
 M3 is what lets Ensemus do something it cannot take back. The exit in the [delivery plan](../06-end-to-end-delivery-plan.md) is Slice 2 passing, and `QA-007`, `QA-008`, `QA-019` and `AI-TS-01` passing, with fault injection at timeout-after-send. The decisions are in [ADR-027](../../00-foundation/adr/ADR-027-verified-external-actions.md), which is **proposed** and awaits the owner and an outside security review.
 
@@ -14,17 +14,33 @@ M3 is what lets Ensemus do something it cannot take back. The exit in the [deliv
 | Format, lint, typecheck, unit and replay after the merge | CI `quality` | **Not yet run on the merged tree** |
 | Integration tests, real PostgreSQL roles | CI `integration` | **Not yet run on the merged tree** |
 | Stack suite with no profile, zero outbound attempts | CI `stack` | **Not yet run on the merged tree** |
-| Slice 2 and the exit scenarios, `tests/stack/slice-2.test.ts` | CI `connectors` | **Not yet run anywhere** |
-| Air-gap gate, `--connectors` round | CI `connectors` | **Not yet run anywhere** |
+| Slice 2 and the exit scenarios, `tests/stack/slice-2.test.ts` | CI `connectors` | **Not yet run in CI on the merged tree** |
+| Air-gap gate, `--connectors` round | CI `connectors` | **Not yet run in CI on the merged tree** |
 | Replay of the new workflows' histories | CI `quality` | **Not yet run on the merged tree** |
 
-Stack tests, browser tests and the air-gap gate do not run on the development machine. Only CI runs them.
+The owner authorized continued platform completion. The integrator runs isolated local container projects with generated test configuration; these local checks do not substitute for the CI or outside-review gates.
 
-**On the integrator's machine, on the merged tree, and not CI:** format, lint, typecheck, unit, replay, backlog, contracts and licenses passed, and so did every file of the integration suite except the OIDC part of `tests/integration/auth.test.ts`, which could not start its mock because another project on that machine held its fixed port. That part is unchanged by M3. None of this is a pass in the table above.
+## Local continuation, 2026-11-06
+
+M3 was composed with the newer M2 controls on `codex/platform-completion` (`0cd34eb`, followed by `bb3b27b` and `9357d37`). Source worktrees and their uncommitted work were preserved before integration.
+
+| Command / scope | Actual local result |
+|---|---|
+| `pnpm test:unit` | **831 passed**, 46 files; includes bounded SMTP reply and gate/pin regressions |
+| Full PostgreSQL integration on isolated `ensemus-m3-integration` | **819 passed**, 20 files |
+| `pnpm test:replay` | **90 passed**, 16 explicit capture cases skipped |
+| Connector stack files: Slice 2, webhook route, external action API | Initial **33 passed, 1 failed, 1 skipped**; the new self-approval assertion expected 409 while the correct result was 403. Corrected API file rerun: **17 passed** |
+| Other built-stack files | **300 passed, 1 failed**; the aggregate API coverage check incorrectly included operations owned and checked by the dedicated connector file. Scoped it to its own operations; complete API file rerun: **54 passed** |
+| Full browser run | Initial **141 passed, 6 failed**; fixed a real accessible-label mismatch and two test assumptions (oldest-first queue and sign-out navigation timing) |
+| Browser confirmation: `external-actions.spec.ts`, `drafts.spec.ts` | **27 passed**, including all affected journeys and the four receipt-state axe checks in both themes/widths |
+| Air-gap deliberate-attempt control, isolated private subnet | **Passed**: direct and DNS attempts detected; container addresses checked |
+| Connector zero-egress air-gap round | **11 passed**, five messages reached the test relay, **zero outbound attempts** |
+
+The SMTP reader now bounds aggregate unread wire bytes, including parsed multiline replies and queued complete replies. Four focused parser checks pass, including two negative controls that failed before the fix. No real relay or provider was contacted. Local logs are in the ignored `.local/m3-*.log`; the table records their results without treating those local files as durable CI evidence.
 
 ## What each exit scenario is held by
 
-Each of these is written. None has been run, so none is evidence yet.
+These scenarios were exercised by the local connector stack run above. CI confirmation and independent review remain open.
 
 | Scenario | The test in `tests/stack/slice-2.test.ts` | What it checks on real containers |
 |---|---|---|
@@ -42,14 +58,14 @@ What sits underneath, in each slice's own tests: `tests/integration/external-act
 
 ## Ticket status
 
-The backlog and `qa-scenarios.csv` are unchanged, because they move only on evidence.
+M3 backlog rows are partial pending the remaining gates. The exact email scenarios now have local evidence; formal CI status remains separate.
 
 | Ticket | Status | What is missing |
 |---|---|---|
-| `WORK-08` External tool intent and reconciliation | Not shown | The `connectors` job |
-| `CONNECT-01` Connector SDK and cursor protocol | Not shown | The merged integration tests |
-| `CONNECT-02` Webhook authentication and dedupe | Not shown | The merged tests and the `connectors` job |
-| `CONNECT-06` External action outbox and receipt UI | Not shown | The merged tests, browser specs and the `connectors` job |
+| `WORK-08` External tool intent and reconciliation | Locally exercised | The `connectors` job |
+| `CONNECT-01` Connector SDK and cursor protocol | Locally exercised | The merged integration tests |
+| `CONNECT-02` Webhook authentication and dedupe | Locally exercised | The merged tests and the `connectors` job |
+| `CONNECT-06` External action outbox and receipt UI | Locally exercised | The merged tests, browser specs and the `connectors` job |
 
 ## What this will not prove, even when it passes
 

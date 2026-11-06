@@ -1212,6 +1212,8 @@ describe('public API', () => {
     it('has validated a real response from every operation that exists', () => {
       const implemented = operations()
         .filter((operation) => operation.status === undefined)
+        // These operations have their own successful-response coverage assertion.
+        .filter(({ path }) => !/\/(external-actions|connections)(\/|$)/.test(path))
         .map(({ method, path }) => operationName(method, path));
       expect(implemented.length).toBeGreaterThan(0);
       expect([...validated].sort()).toEqual(implemented.sort());

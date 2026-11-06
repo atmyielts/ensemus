@@ -20,7 +20,7 @@ import {
   wrongAnswer,
 } from './air-gap-rules.mjs';
 
-// The gate's firewall rule covers the default addresses, so a site's own prefix must not move the stack.
+// The gate's firewall rule covers its selected private /16, so a site's own prefix must not move the stack.
 // Set, not deleted: Compose lets the environment beat a .env file, and with the variable gone a .env
 // value would move the stack off the watched subnet. A check after each start proves it did not.
 process.env.ENSEMUS_NETWORK_PREFIX = WATCHED_PREFIX;
