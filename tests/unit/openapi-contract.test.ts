@@ -117,6 +117,7 @@ describe('the spec and the routes', () => {
       'invoice-drafts',
       'business-actions/{external_action_id}/revisions',
       'business-actions/{external_action_id}/retries',
+      // Meetings, which their own slice removes.
       'meeting-settings',
       'meeting-settings',
       'meeting-provider-approvals',
