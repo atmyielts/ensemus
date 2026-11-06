@@ -26,6 +26,7 @@ import { isTerminal, type WorkState } from '@ensemus/domain/work-unit';
 import { and, asc, eq, gt, inArray, lte, sql } from 'drizzle-orm';
 import { AppError, pgCode, type ErrorCode } from './errors';
 import { emit } from './events';
+import { canonicalId } from './ids';
 import {
   applyTransition,
   assertCanBeAskedToReview,
@@ -101,14 +102,15 @@ export async function createApprovalInTx(
   const work = await loadChangeable(tx, context, input.workUnitId);
   if (isTerminal(work.status as WorkState)) throw new AppError('INVALID_STATE');
 
+  const approver = canonicalId(input.approverMembershipId);
   const requestedBy =
     input.requestedByMembershipId !== undefined
-      ? input.requestedByMembershipId
+      ? input.requestedByMembershipId && canonicalId(input.requestedByMembershipId)
       : context.actorType === 'service'
         ? null
         : context.membershipId;
   // They could never decide it, and with one open at a time nobody else could be asked meanwhile.
-  if (requestedBy === input.approverMembershipId) throw new AppError('APPROVAL_SELF_APPROVAL');
+  if (requestedBy === approver) throw new AppError('APPROVAL_SELF_APPROVAL');
 
   // One open decision at a time. A second one could override the first, or be used to replace the
   // person a plan named, so a new request has to wait until the open one is settled.
@@ -131,7 +133,7 @@ export async function createApprovalInTx(
     await recordExpiry(tx, context, work, open, now, 'REPLACED');
   }
 
-  await assertCanBeAskedToReview(tx, work, input.approverMembershipId);
+  await assertCanBeAskedToReview(tx, work, approver);
 
   const id = randomUUID();
   const hash = actionHash(input.action);
@@ -147,7 +149,7 @@ export async function createApprovalInTx(
       action: input.action,
       actionHash: hash,
       targetRef: input.action.targetRef,
-      approverMembershipId: input.approverMembershipId,
+      approverMembershipId: approver,
       requestedByMembershipId: requestedBy,
       holdsWork,
       runId: input.runId ?? null,
@@ -159,7 +161,7 @@ export async function createApprovalInTx(
   }
   await tx.insert(notifications).values({
     organizationId: context.organizationId,
-    recipientMembershipId: input.approverMembershipId,
+    recipientMembershipId: approver,
     kind: 'approval.requested',
     targetRef: `approval:${id}`,
     remindAt: new Date(Date.now() + REMINDER_DELAY_MS),

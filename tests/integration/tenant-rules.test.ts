@@ -34,6 +34,7 @@ import {
   setOwner,
   setTeamParent,
   transitionWorkUnit,
+  unassign,
   type LedgerReader,
   type ObjectStore,
 } from '@ensemus/application';
@@ -223,6 +224,182 @@ describe('tenant rules', () => {
         [org.organizationId, stranger.id],
       );
       expect(rows).toEqual([{ target_ref: `organization:${org.organizationId}` }]);
+    });
+  });
+
+  // A form can send an ID in any spelling, and PostgreSQL stores the one spelling whatever it is given.
+  // A rule that compares the text before it gets there can be walked around with the shift key.
+  describe('a membership ID or a work ID in capitals', () => {
+    const openReviews = async (workUnitId: string) =>
+      (await su.query('select id from work.approvals where work_unit_id = $1', [workUnitId])).rows;
+
+    /** Ready to run, with a plan that needs someone other than the person running it to review. */
+    async function plannedWork(context: TenantContext) {
+      const work = await createWorkUnit(db(), context, {
+        title: 'Planned',
+        executionPlan: 'checklist',
+        completionCriteria: [{ kind: 'reviewer_approved' }],
+      });
+      await move(context, work.id, 'ready');
+      return work;
+    }
+
+    it('cannot name yourself as the reviewer of your own plan', async () => {
+      const org = await newOrg('own-plan');
+      await join(org, 'other');
+      const work = await plannedWork(org);
+      await expect(
+        requestExecution(db(), org, work.id, {
+          reviewerMembershipId: org.membershipId.toUpperCase(),
+        }),
+      ).rejects.toEqual(code('APPROVAL_SELF_APPROVAL'));
+      const { rows } = await su.query(
+        'select run_requested_at, plan_reviewer_membership_id from work.work_units where id = $1',
+        [work.id],
+      );
+      expect(rows).toEqual([{ run_requested_at: null, plan_reviewer_membership_id: null }]);
+    });
+
+    it('cannot ask yourself to review', async () => {
+      const org = await newOrg('own-review');
+      const work = await createWorkUnit(db(), org, { title: 'Reviewed' });
+      await expect(
+        requestWorkReview(db(), org, {
+          workUnitId: work.id,
+          expectedVersion: work.version,
+          approverMembershipId: org.membershipId.toUpperCase(),
+        }),
+      ).rejects.toEqual(code('APPROVAL_SELF_APPROVAL'));
+      expect(await openReviews(work.id)).toEqual([]);
+    });
+
+    it('cannot be the reviewer of a request made in your own name, whichever side is in capitals', async () => {
+      const org = await newOrg('own-request');
+      const work = await createWorkUnit(db(), org, { title: 'Requested' });
+      const action = {
+        toolName: 'work.review',
+        toolVersion: '2',
+        targetRef: `work_unit:${work.id}`,
+        payload: {},
+      };
+      const expiresAt = new Date(Date.now() + 60_000);
+      await expect(
+        requestApproval(db(), org, {
+          workUnitId: work.id,
+          action,
+          approverMembershipId: org.membershipId,
+          requestedByMembershipId: org.membershipId.toUpperCase(),
+          expiresAt,
+        }),
+      ).rejects.toEqual(code('APPROVAL_SELF_APPROVAL'));
+      expect(await openReviews(work.id)).toEqual([]);
+    });
+
+    it('leaves a review open that the person it names can actually decide', async () => {
+      const org = await newOrg('other-review');
+      const reviewer = await join(org, 'reviewer', 'admin');
+      const work = await createWorkUnit(db(), org, { title: 'Reviewed' });
+      await requestWorkReview(db(), org, {
+        workUnitId: work.id,
+        expectedVersion: work.version,
+        approverMembershipId: reviewer.membershipId.toUpperCase(),
+      });
+      const { rows } = await su.query(
+        'select approver_membership_id as approver from work.approvals where work_unit_id = $1',
+        [work.id],
+      );
+      expect(rows).toEqual([{ approver: reviewer.membershipId }]);
+    });
+
+    it('lets someone on the work take themselves off, as in any other spelling', async () => {
+      const org = await newOrg('off');
+      const member = await join(org, 'member');
+      const work = await createWorkUnit(db(), org, { title: 'On it' });
+      await assignContributor(db(), org, { id: work.id, membershipId: member.membershipId });
+      await unassign(db(), member, {
+        id: work.id,
+        membershipId: member.membershipId.toUpperCase(),
+      });
+      const { rows } = await su.query(
+        'select 1 from work.work_assignments where work_unit_id = $1 and membership_id = $2',
+        [work.id, member.membershipId],
+      );
+      expect(rows).toEqual([]);
+    });
+
+    it('does not tell you about what you did yourself, and records one spelling', async () => {
+      const org = await newOrg('self');
+      const work = await createWorkUnit(db(), org, { title: 'Mine' });
+      await unassign(db(), org, { id: work.id, membershipId: org.membershipId });
+      await assignContributor(db(), org, {
+        id: work.id,
+        membershipId: org.membershipId.toUpperCase(),
+      });
+      const told = await su.query(
+        `select 1 from platform.notifications
+         where recipient_membership_id = $1 and target_ref = $2`,
+        [org.membershipId, `work_unit:${work.id}`],
+      );
+      expect(told.rows).toEqual([]);
+      const events = await su.query(
+        `select payload ->> 'membership_id' as membership from platform.domain_events
+         where aggregate_id = $1 and event_type = 'work.assigned'`,
+        [work.id],
+      );
+      expect(events.rows).toEqual([{ membership: org.membershipId }]);
+    });
+
+    it('moves work to someone under one spelling, and tells them', async () => {
+      const org = await newOrg('owner');
+      const next = await join(org, 'next');
+      const work = await createWorkUnit(db(), org, { title: 'Moved' });
+      await setOwner(db(), org, {
+        id: work.id,
+        expectedVersion: work.version,
+        ownerMembershipId: next.membershipId.toUpperCase(),
+      });
+      const events = await su.query(
+        `select payload ->> 'owner_membership_id' as owner from platform.domain_events
+         where aggregate_id = $1 and event_type = 'work.owner_changed'`,
+        [work.id],
+      );
+      expect(events.rows).toEqual([{ owner: next.membershipId }]);
+    });
+
+    it('cannot make work depend on itself', async () => {
+      const org = await newOrg('itself');
+      const work = await createWorkUnit(db(), org, { title: 'Itself' });
+      await expect(
+        addDependency(db(), org, { dependentId: work.id, prerequisiteId: work.id.toUpperCase() }),
+      ).rejects.toEqual(code('DEPENDENCY_CYCLE'));
+    });
+
+    it('treats a form sent twice as one form, whichever spelling its key and references use', async () => {
+      const org = await newOrg('repeat');
+      const requestKey = randomUUID();
+      const first = await createWorkUnit(db(), org, {
+        title: 'Once',
+        ownerMembershipId: org.membershipId,
+        requestKey,
+      });
+      const again = await createWorkUnit(db(), org, {
+        title: 'Once',
+        ownerMembershipId: org.membershipId.toUpperCase(),
+        requestKey: requestKey.toUpperCase(),
+      });
+      expect(again.id).toBe(first.id);
+
+      const parent = await createTeam(db(), org, { name: 'Parent' });
+      const parentId = parent?.id as string;
+      const teamKey = randomUUID();
+      const team = await createTeam(db(), org, { name: 'Child', parentId, requestKey: teamKey });
+      const sameTeam = await createTeam(db(), org, {
+        name: 'Child',
+        parentId: parentId.toUpperCase(),
+        requestKey: teamKey.toUpperCase(),
+      });
+      expect(sameTeam?.id).toBe(team?.id);
+      expect(team?.id).toBeDefined();
     });
   });
 

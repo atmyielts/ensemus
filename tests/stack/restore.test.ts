@@ -2,6 +2,9 @@
 // the runbook's backup and restore section: a real pg_dump and pg_restore into the running database,
 // the real object store, the images' own commands, and the product through its pages.
 import { randomUUID } from 'node:crypto';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { objectKey, readArtifact, type ReapplyResult } from '@ensemus/application';
@@ -92,24 +95,49 @@ const restore = (name: string) =>
     `/tmp/${name}.dump`,
   );
 
-/** The operator's command. It exits non-zero while anything is left to decide, and still reports. */
-function reapply(...args: string[]) {
-  let output: string;
+/**
+ * Runs the operator's command, from the image. A failure to run it at all has no status of its own to
+ * report, so this hands back the exit status as well as the output, and each test says what it expects.
+ */
+function runReapply(mounts: string[], args: string[]) {
   try {
-    output = compose(
+    const output = compose(
       'run',
       '--rm',
       '--no-deps',
+      ...mounts.flatMap((mount) => ['-v', mount]),
       'worker',
       'node',
       'dist/reapply-ledger.js',
       ...args,
     );
+    return { status: 0, output };
   } catch (error) {
-    output = String((error as { stdout?: unknown }).stdout ?? '');
-    if (!output.includes('tombstone_ledger.reapplied')) throw error;
+    const failure = error as { status?: unknown; stdout?: unknown };
+    if (typeof failure.status !== 'number') throw error;
+    return { status: failure.status, output: String(failure.stdout ?? '') };
   }
-  return logged(output, 'tombstone_ledger.reapplied') as unknown as ReapplyResult;
+}
+
+/** What the command reported, and the exit status the runbook tells an operator to go by. */
+function reapply(...args: string[]) {
+  const { status, output } = runReapply([], args);
+  return {
+    ...(logged(output, 'tombstone_ledger.reapplied') as unknown as ReapplyResult),
+    status,
+  };
+}
+
+/** The runbook's way of giving the command a list: the file is mounted, and read from there. */
+function reapplyWithList(...lines: string[]) {
+  const folder = mkdtempSync(join(tmpdir(), 'reapply-list-'));
+  const path = join(folder, 'confirm.txt');
+  writeFileSync(path, `${lines.join('\n')}\n`, { mode: 0o644 });
+  try {
+    return runReapply([`${path}:/tmp/confirm.txt:ro`], ['--confirm-file', '/tmp/confirm.txt']);
+  } finally {
+    rmSync(folder, { recursive: true, force: true });
+  }
 }
 
 const backlog = () =>
@@ -450,6 +478,7 @@ describe('restoring a database backup', () => {
       // because whoever holds the dispatcher's credential can write an entry. Nothing changes yet.
       const asked = reapply();
       expect(asked).toMatchObject({
+        status: 1,
         unconfirmed: 1,
         tombstonesAdded: 0,
         artifactsRemoved: 0,
@@ -465,6 +494,7 @@ describe('restoring a database backup', () => {
         ledgerRef({ organizationId: org, targetType: 'artifact', targetId: doomed }),
       );
       expect(first).toMatchObject({
+        status: 0,
         unconfirmed: 0,
         tombstonesAdded: 1,
         artifactsRemoved: 1,
@@ -508,6 +538,7 @@ describe('restoring a database backup', () => {
       const before = await stateOf(org, work);
       const second = reapply();
       expect(second).toMatchObject({
+        status: 0,
         tombstonesAdded: 0,
         artifactsRemoved: 0,
         bytesRemoved: 0,
@@ -589,13 +620,28 @@ describe('restoring a database backup', () => {
 
       const result = reapply();
       expect(result.unconfirmed).toBe(1);
+      expect(result.status).toBe(1);
       expect(await admin().exists(objectKey(tenant, file))).toBe(true);
       const rows = await su.query('select 1 from work.artifacts where id = $1', [file]);
       expect(rows.rows).toHaveLength(1);
 
+      // A list only speaks for what it names. This one names another entry, and the file is safe.
+      const listed = reapplyWithList(
+        ledgerRef({ organizationId: tenant, targetType: 'artifact', targetId: randomUUID() }),
+      );
+      expect(listed.status).toBe(1);
+      expect(logged(listed.output, 'tombstone_ledger.reapplied').unconfirmed).toBe(1);
+      expect(await admin().exists(objectKey(tenant, file))).toBe(true);
+      // Nor can it speak for a whole tenant, and a list that tries stops the command before it starts.
+      const everything = reapplyWithList(`${tenant}:artifact:*`);
+      expect(everything.status).toBe(2);
+      expect(everything.output).not.toContain('tombstone_ledger.reapplied');
+      expect(await admin().exists(objectKey(tenant, file))).toBe(true);
+
       // The operator did not restore anything, so this entry is not a deletion.
       const cleared = reapply('--quarantine', ledgerRef(entry));
       expect(cleared.unconfirmed).toBe(0);
+      expect(cleared.status).toBe(0);
       expect(await admin().exists(ledgerKeyFor(entry))).toBe(false);
       expect(await admin().exists(quarantineKeyFor(ledgerKeyFor(entry)))).toBe(true);
       await expect.poll(async () => (await visit(path, person.jar)).status, WAIT).toBe(200);

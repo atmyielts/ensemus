@@ -8,8 +8,8 @@ import {
   type TenantContext,
 } from '@ensemus/database';
 import { and, eq, isNull, lte, sql } from 'drizzle-orm';
-import { z } from 'zod';
 import { AppError } from './errors';
+import { idSchema } from './ids';
 
 export const INBOX_SIZE = 50;
 
@@ -61,7 +61,7 @@ export async function countUnread(database: AppDatabase, context: TenantContext)
 
 export async function markRead(database: AppDatabase, context: TenantContext, id: string) {
   // Checked here, because a value the database cannot read as an ID would otherwise fail in SQL.
-  if (!z.uuid().safeParse(id).success) throw new AppError('INVALID_INPUT');
+  if (!idSchema.safeParse(id).success) throw new AppError('INVALID_INPUT');
   return withTenantTx(database, context, (tx) =>
     tx
       .update(notifications)

@@ -621,6 +621,156 @@ describe('the tombstone ledger', () => {
       pass(30_001);
       await expect(gate.assertServing(a)).rejects.toEqual(closed);
     });
+
+    describe('with a store that is slow and still answers', () => {
+      /** With limits a test can sit through. The clock is ours, and the waits are real. */
+      function slowGate(store: Pick<LedgerReader, 'listPages'>) {
+        let clock = 1_000_000;
+        const reported: unknown[] = [];
+        const gate = createRestoreGate({
+          database: db(),
+          store,
+          now: () => clock,
+          waitMs: 800,
+          recheckWaitMs: 300,
+          onCheckFailed: (error) => reported.push(error),
+        });
+        return { gate, reported, pass: (ms: number) => (clock += ms) };
+      }
+
+      /** Long enough for a check that was let go to finish behind the requests. */
+      const settled = () => new Promise((done) => setTimeout(done, 100));
+
+      /** How long the promise took to settle. */
+      async function timed(answer: Promise<unknown>) {
+        const started = performance.now();
+        await answer;
+        return performance.now() - started;
+      }
+
+      const answerOf = (gate: ReturnType<typeof createRestoreGate>, context: TenantContext) =>
+        gate.assertServing(context).then(
+          () => 'open',
+          () => 'closed',
+        );
+
+      it('waits for the first check only, however long the store goes on taking', async () => {
+        const a = await newOrg();
+        const held = heldStore();
+        const { gate, reported, pass } = slowGate(held.reader);
+
+        // The first check past its limit. Requests have nothing to go on, and this is the owner's call.
+        held.hold();
+        await expect(gate.assertServing(a)).resolves.toBeUndefined();
+        expect(reported).toEqual([expect.objectContaining({ code: 'CHECK_TIMEOUT' })]);
+        // It answers in the end, without ever failing, so nothing has gone wrong except the time.
+        held.release();
+        await settled();
+
+        for (let round = 2; round <= 4; round += 1) {
+          held.hold();
+          pass(30_001);
+          // The store hangs here, so anything that waited for this check would take the full limit.
+          expect(await timed(gate.assertServing(a))).toBeLessThan(100);
+          expect(held.asked()).toBe(round);
+          // Held for longer than any limit, so each of these is a slow answer and not a quick one.
+          await new Promise((done) => setTimeout(done, 350));
+          held.release();
+          await settled();
+        }
+      });
+
+      it('does not wait for a store that stays under the first limit either', async () => {
+        const a = await newOrg();
+        const slow = {
+          async *listPages(prefix: string) {
+            await new Promise((done) => setTimeout(done, 400));
+            yield* new MemoryStore().listPages(prefix);
+          },
+        };
+        const { gate, reported, pass } = slowGate(slow);
+        await gate.assertServing(a);
+        expect(reported).toEqual([]);
+
+        pass(30_001);
+        expect(await timed(gate.assertServing(a))).toBeLessThan(100);
+      });
+
+      it('still says so, and still counts what the slow check found', async () => {
+        const a = await newOrg();
+        const held = heldStore();
+        const { gate, reported, pass } = slowGate(held.reader);
+        held.hold();
+        await gate.assertServing(a);
+        held.release();
+        await settled();
+        reported.length = 0;
+
+        // Answered from memory while it runs, and it is said aloud once it has gone past the limit.
+        held.hold();
+        pass(30_001);
+        await gate.assertServing(a);
+        inLedger(held.store, a.organizationId, randomUUID());
+        await expect.poll(() => reported.length, { timeout: 2_000 }).toBe(1);
+        expect(reported).toEqual([expect.objectContaining({ code: 'CHECK_TIMEOUT' })]);
+
+        // A slow store delays the answer and never hides a restore from it.
+        held.release();
+        await expect.poll(() => answerOf(gate, a)).toBe('closed');
+      });
+
+      it('never holds a request for the first limit once it has an answer to give', async () => {
+        const a = await newOrg();
+        const held = heldStore();
+        const { gate, reported, pass } = slowGate(held.reader);
+        await gate.assertServing(a);
+        expect(reported).toEqual([]);
+
+        // Healthy until now, so this one does wait, but only for a moment.
+        held.hold();
+        pass(30_001);
+        expect(await timed(gate.assertServing(a))).toBeLessThan(600);
+        expect(reported).toEqual([expect.objectContaining({ code: 'CHECK_TIMEOUT' })]);
+        held.release();
+      });
+
+      it('goes back to refusing at the first request once the store is quick again', async () => {
+        const a = await newOrg();
+        const held = heldStore();
+        const { gate, pass } = slowGate(held.reader);
+        held.hold();
+        await gate.assertServing(a);
+        held.release();
+        await settled();
+
+        // This check runs behind the request and finds the store quick.
+        pass(30_001);
+        await gate.assertServing(a);
+        await settled();
+
+        inLedger(held.store, a.organizationId, randomUUID());
+        pass(30_001);
+        await expect(gate.assertServing(a)).rejects.toEqual(closed);
+      });
+
+      it('answers a closed tenant from memory too, without waiting', async () => {
+        const a = await newOrg();
+        const held = heldStore();
+        inLedger(held.store, a.organizationId, randomUUID());
+        const { gate, pass } = slowGate(held.reader);
+        held.hold();
+        await gate.assertServing(a);
+        held.release();
+        await expect.poll(() => answerOf(gate, a)).toBe('closed');
+
+        held.hold();
+        pass(2_001);
+        const started = performance.now();
+        await expect(gate.assertServing(a)).rejects.toEqual(closed);
+        expect(performance.now() - started).toBeLessThan(100);
+        held.release();
+      });
+    });
   });
 
   describe('re-applying the ledger', () => {

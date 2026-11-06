@@ -10,6 +10,7 @@ import {
   AppError,
   assignContributor,
   auditRefusal,
+  canonicalId,
   confirmInvitation,
   createClient,
   createInvitation,
@@ -21,6 +22,7 @@ import {
   disableMember,
   getApproval,
   getWorkUnit,
+  idSchema,
   isAuditedRefusal,
   markRead,
   recoverWorkOwner,
@@ -43,7 +45,6 @@ import { WORK_STATES, type WorkState } from '@ensemus/domain/work-unit';
 import { errorCode } from '@ensemus/telemetry';
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
-import { z } from 'zod';
 import type { InviteFormState, NewWorkFormState, WorkFormState } from '@/lib/form-state';
 import { requireActor } from './actor';
 import { getRestoreGate, getRuntime, getStore } from './runtime';
@@ -53,15 +54,16 @@ const text = (form: FormData, name: string) => {
   const value = form.get(name);
   return typeof value === 'string' ? value : '';
 };
+const idOf = (form: FormData, name: string) => canonicalId(text(form, name));
 const int = (form: FormData, name: string) => Number.parseInt(text(form, name), 10);
-const orgOf = (form: FormData) => text(form, 'organizationId');
+const orgOf = (form: FormData) => idOf(form, 'organizationId');
 const orUndefined = (value: string) => (value.trim() ? value : undefined);
 /**
  * One rendered form makes one row, however many times it is sent. Only ever hashed into an ID, so
  * something that is not a key just gets no protection from repeats.
  */
 const requestKeyOf = (form: FormData) => {
-  const key = z.uuid().safeParse(text(form, 'requestKey'));
+  const key = idSchema.safeParse(text(form, 'requestKey'));
   return key.success ? { requestKey: key.data } : {};
 };
 
@@ -133,7 +135,7 @@ export async function createWorkFormAction(
     title: text(form, 'title'),
     objective: text(form, 'objective'),
     dueAt: text(form, 'dueAt'),
-    projectId: text(form, 'projectId'),
+    projectId: idOf(form, 'projectId'),
     classification: text(form, 'classification'),
     criteria,
     executionPlan: plan === 'checklist',
@@ -167,7 +169,7 @@ export async function updateWorkFormAction(
   form: FormData,
 ): Promise<WorkFormState> {
   const org = orgOf(form);
-  const id = text(form, 'id');
+  const id = idOf(form, 'id');
   const { context, database } = await requireTenant(org);
   const values = {
     title: text(form, 'title'),
@@ -205,7 +207,7 @@ export async function updateWorkFormAction(
 
 export async function transitionWorkAction(form: FormData) {
   const org = orgOf(form);
-  const id = text(form, 'id');
+  const id = idOf(form, 'id');
   const { context, database } = await requireTenant(org);
   const to = text(form, 'to') as WorkState;
   const reason = orUndefined(text(form, 'reason'));
@@ -226,9 +228,9 @@ export async function transitionWorkAction(form: FormData) {
 
 export async function runPlanAction(form: FormData) {
   const org = orgOf(form);
-  const id = text(form, 'id');
+  const id = idOf(form, 'id');
   const { context, database } = await requireTenant(org);
-  const reviewerMembershipId = orUndefined(text(form, 'reviewerMembershipId'));
+  const reviewerMembershipId = orUndefined(idOf(form, 'reviewerMembershipId'));
   await run({ context, database }, `/o/${org}/work/${id}`, async () => {
     await requestExecution(database, context, id, {
       ...(reviewerMembershipId ? { reviewerMembershipId } : {}),
@@ -238,31 +240,31 @@ export async function runPlanAction(form: FormData) {
 
 export async function addDependencyAction(form: FormData) {
   const org = orgOf(form);
-  const id = text(form, 'id');
+  const id = idOf(form, 'id');
   const { context, database } = await requireTenant(org);
   await run({ context, database }, `/o/${org}/work/${id}`, async () => {
     await addDependency(database, context, {
       dependentId: id,
-      prerequisiteId: text(form, 'prerequisiteId'),
+      prerequisiteId: idOf(form, 'prerequisiteId'),
     });
   });
 }
 
 export async function removeDependencyAction(form: FormData) {
   const org = orgOf(form);
-  const id = text(form, 'id');
+  const id = idOf(form, 'id');
   const { context, database } = await requireTenant(org);
   await run({ context, database }, `/o/${org}/work/${id}`, async () => {
     await removeDependency(database, context, {
       dependentId: id,
-      prerequisiteId: text(form, 'prerequisiteId'),
+      prerequisiteId: idOf(form, 'prerequisiteId'),
     });
   });
 }
 
 export async function removeStoppedHiddenPrerequisitesAction(form: FormData) {
   const org = orgOf(form);
-  const id = text(form, 'id');
+  const id = idOf(form, 'id');
   const { context, database } = await requireTenant(org);
   await run({ context, database }, `/o/${org}/work/${id}`, async () => {
     await removeStoppedHiddenPrerequisites(database, context, { dependentId: id });
@@ -271,41 +273,41 @@ export async function removeStoppedHiddenPrerequisitesAction(form: FormData) {
 
 export async function setOwnerAction(form: FormData) {
   const org = orgOf(form);
-  const id = text(form, 'id');
+  const id = idOf(form, 'id');
   const { context, database } = await requireTenant(org);
   await run({ context, database }, `/o/${org}/work/${id}`, async () => {
     await setOwner(database, context, {
       id,
       expectedVersion: int(form, 'version'),
-      ownerMembershipId: text(form, 'membershipId'),
+      ownerMembershipId: idOf(form, 'membershipId'),
     });
   });
 }
 
 export async function assignAction(form: FormData) {
   const org = orgOf(form);
-  const id = text(form, 'id');
+  const id = idOf(form, 'id');
   const { context, database } = await requireTenant(org);
   await run({ context, database }, `/o/${org}/work/${id}`, async () => {
     await assignContributor(database, context, {
       id,
-      membershipId: text(form, 'membershipId'),
+      membershipId: idOf(form, 'membershipId'),
     });
   });
 }
 
 export async function unassignAction(form: FormData) {
   const org = orgOf(form);
-  const id = text(form, 'id');
+  const id = idOf(form, 'id');
   const { context, database } = await requireTenant(org);
   await run({ context, database }, `/o/${org}/work/${id}`, async () => {
-    await unassign(database, context, { id, membershipId: text(form, 'membershipId') });
+    await unassign(database, context, { id, membershipId: idOf(form, 'membershipId') });
   });
 }
 
 export async function uploadArtifactAction(form: FormData) {
   const org = orgOf(form);
-  const id = text(form, 'id');
+  const id = idOf(form, 'id');
   const { context, database } = await requireTenant(org);
   const file = form.get('file');
   await run({ context, database }, `/o/${org}/work/${id}`, async () => {
@@ -322,13 +324,13 @@ export async function uploadArtifactAction(form: FormData) {
 
 export async function deleteArtifactAction(form: FormData) {
   const org = orgOf(form);
-  const id = text(form, 'id');
+  const id = idOf(form, 'id');
   const { context, database } = await requireTenant(org);
   await run({ context, database }, `/o/${org}/work/${id}`, async () => {
     assertConfirmed(form);
     await deleteArtifact(database, getStore(), context, {
       workUnitId: id,
-      artifactId: text(form, 'artifactId'),
+      artifactId: idOf(form, 'artifactId'),
     });
   });
 }
@@ -336,21 +338,21 @@ export async function deleteArtifactAction(form: FormData) {
 // --- Approvals
 export async function requestReviewAction(form: FormData) {
   const org = orgOf(form);
-  const id = text(form, 'id');
+  const id = idOf(form, 'id');
   const { context, database } = await requireTenant(org);
   await run({ context, database }, `/o/${org}/work/${id}`, async () => {
     // What the review covers is read by the service. The form only says who should give it.
     await requestWorkReview(database, context, {
       workUnitId: id,
       expectedVersion: int(form, 'version'),
-      approverMembershipId: text(form, 'approverMembershipId'),
+      approverMembershipId: idOf(form, 'approverMembershipId'),
     });
   });
 }
 
 export async function decideApprovalAction(form: FormData) {
   const org = orgOf(form);
-  const approvalId = text(form, 'approvalId');
+  const approvalId = idOf(form, 'approvalId');
   const { context, database } = await requireTenant(org);
   const decision = text(form, 'decision') === 'approve' ? 'approve' : 'deny';
   const reason = orUndefined(text(form, 'reason'));
@@ -397,7 +399,7 @@ export async function revokeInvitationAction(form: FormData) {
   const org = orgOf(form);
   const { context, database } = await requireTenant(org);
   await run({ context, database }, `/o/${org}/people`, async () => {
-    await revokeInvitation(database, context, { invitationId: text(form, 'invitationId') });
+    await revokeInvitation(database, context, { invitationId: idOf(form, 'invitationId') });
   });
 }
 
@@ -406,7 +408,7 @@ export async function confirmInvitationAction(form: FormData) {
   const { context, database } = await requireTenant(org);
   await run({ context, database }, `/o/${org}/people`, async () => {
     assertConfirmed(form);
-    await confirmInvitation(database, context, { invitationId: text(form, 'invitationId') });
+    await confirmInvitation(database, context, { invitationId: idOf(form, 'invitationId') });
   });
 }
 
@@ -433,7 +435,7 @@ export async function setRoleAction(form: FormData) {
   const { context, database } = await requireTenant(org);
   await run({ context, database }, `/o/${org}/people`, async () => {
     await setMemberRole(database, context, {
-      membershipId: text(form, 'membershipId'),
+      membershipId: idOf(form, 'membershipId'),
       role: text(form, 'role') as 'member',
     });
   });
@@ -444,7 +446,7 @@ export async function disableMemberAction(form: FormData) {
   const { context, database } = await requireTenant(org);
   await run({ context, database }, `/o/${org}/people`, async () => {
     assertConfirmed(form);
-    await disableMember(database, context, { membershipId: text(form, 'membershipId') });
+    await disableMember(database, context, { membershipId: idOf(form, 'membershipId') });
   });
 }
 
@@ -455,9 +457,9 @@ export async function recoverWorkOwnerAction(form: FormData) {
   await run({ context, database }, `/o/${org}/people`, async () => {
     assertConfirmed(form);
     await recoverWorkOwner(database, context, {
-      id: text(form, 'id'),
+      id: idOf(form, 'id'),
       expectedVersion: int(form, 'version'),
-      ownerMembershipId: text(form, 'membershipId'),
+      ownerMembershipId: idOf(form, 'membershipId'),
     });
   });
 }
@@ -465,7 +467,7 @@ export async function recoverWorkOwnerAction(form: FormData) {
 export async function createTeamAction(form: FormData) {
   const org = orgOf(form);
   const { context, database } = await requireTenant(org);
-  const parentId = orUndefined(text(form, 'parentId'));
+  const parentId = orUndefined(idOf(form, 'parentId'));
   await run({ context, database }, `/o/${org}/people`, async () => {
     await createTeam(database, context, {
       name: text(form, 'name'),
@@ -480,8 +482,8 @@ export async function addTeamMemberAction(form: FormData) {
   const { context, database } = await requireTenant(org);
   await run({ context, database }, `/o/${org}/people`, async () => {
     await addTeamMember(database, context, {
-      teamId: text(form, 'teamId'),
-      membershipId: text(form, 'membershipId'),
+      teamId: idOf(form, 'teamId'),
+      membershipId: idOf(form, 'membershipId'),
     });
   });
 }
@@ -491,8 +493,8 @@ export async function removeTeamMemberAction(form: FormData) {
   const { context, database } = await requireTenant(org);
   await run({ context, database }, `/o/${org}/people`, async () => {
     await removeTeamMember(database, context, {
-      teamId: text(form, 'teamId'),
-      membershipId: text(form, 'membershipId'),
+      teamId: idOf(form, 'teamId'),
+      membershipId: idOf(form, 'membershipId'),
     });
   });
 }
@@ -502,8 +504,8 @@ export async function setTeamParentAction(form: FormData) {
   const { context, database } = await requireTenant(org);
   await run({ context, database }, `/o/${org}/people`, async () => {
     await setTeamParent(database, context, {
-      teamId: text(form, 'teamId'),
-      parentId: orUndefined(text(form, 'parentId')) ?? null,
+      teamId: idOf(form, 'teamId'),
+      parentId: orUndefined(idOf(form, 'parentId')) ?? null,
     });
   });
 }
@@ -523,7 +525,7 @@ export async function createClientAction(form: FormData) {
 export async function createProjectAction(form: FormData) {
   const org = orgOf(form);
   const { context, database } = await requireTenant(org);
-  const clientId = orUndefined(text(form, 'clientId'));
+  const clientId = orUndefined(idOf(form, 'clientId'));
   await run({ context, database }, `/o/${org}/clients`, async () => {
     await createProject(database, context, {
       name: text(form, 'name'),
@@ -538,7 +540,7 @@ export async function openNotificationAction(form: FormData) {
   const org = orgOf(form);
   const { context, database } = await requireTenant(org);
   await run({ context, database }, `/o/${org}/inbox`, async () => {
-    await markRead(database, context, text(form, 'id'));
+    await markRead(database, context, idOf(form, 'id'));
     const target = text(form, 'target');
     // Only ever a path inside this organization, built by our own page.
     return target.startsWith(`/o/${org}/`) ? target : `/o/${org}/inbox`;

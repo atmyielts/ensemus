@@ -26,6 +26,7 @@ import {
   listTeams,
   listWorkOverview,
   markRead,
+  requestApproval,
   requestWorkReview,
   sendDueReminders,
   transitionWorkUnit,
@@ -587,6 +588,36 @@ describe('web behaviour', () => {
         classification: 'restricted',
       });
       await expect(getWorkFollowState(db(), member, work.id)).rejects.toEqual(code('NOT_FOUND'));
+      await expect(getWorkFollowState(db(), member, work.id, { evidence: false })).rejects.toEqual(
+        code('NOT_FOUND'),
+      );
+    });
+
+    it('hears of the version without asking about the evidence, for a stream that did not want it', async () => {
+      const org = await newOrg();
+      const work = await createWorkUnit(db(), org, { title: 'Plain' });
+      const plain = () => getWorkFollowState(db(), org, work.id, { evidence: false });
+      expect(await plain()).toEqual({ version: work.version, evidence: null });
+      await move(org, work.id, 'ready');
+      expect((await plain()).version).toBeGreaterThan(work.version);
+    });
+
+    it('notices a review running out, which only time changes', async () => {
+      const org = await newOrg();
+      const approver = await join(org, 'approver', 'admin');
+      const work = await createWorkUnit(db(), org, { title: 'Timed' });
+      await requestApproval(db(), org, {
+        workUnitId: work.id,
+        action: { toolName: 'x', toolVersion: '1', targetRef: null, payload: {} },
+        approverMembershipId: approver.membershipId,
+        expiresAt: new Date(Date.now() + 1_000),
+      });
+      const before = await getWorkFollowState(db(), org, work.id);
+      await expect
+        .poll(async () => (await getWorkFollowState(db(), org, work.id)).evidence, {
+          timeout: 5_000,
+        })
+        .not.toBe(before.evidence);
     });
   });
 });

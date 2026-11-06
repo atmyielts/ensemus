@@ -5,6 +5,7 @@ import {
   auditRefusal,
   auditTenantRefusal,
   HTTP_STATUS,
+  idSchema,
   isAuditedRefusal,
   refusalCode,
 } from '@ensemus/application';
@@ -261,7 +262,7 @@ export function readIfMatch(request: Request): number {
 /** The version as an entity tag, which a client can send straight back in If-Match. */
 export const etag = (version: number) => `"${version}"`;
 
-const uuid = z.uuid();
+const uuid = idSchema;
 export const organizationParams = z.object({ organizationId: uuid });
 export const workUnitParams = z.object({ organizationId: uuid, workUnitId: uuid });
 export const approvalParams = z.object({ organizationId: uuid, approvalId: uuid });

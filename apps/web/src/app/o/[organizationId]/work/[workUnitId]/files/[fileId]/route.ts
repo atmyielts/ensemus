@@ -1,4 +1,4 @@
-import { AppError, auditRefusal, readArtifact } from '@ensemus/application';
+import { AppError, auditRefusal, idSchema, readArtifact } from '@ensemus/application';
 import { errorCode } from '@ensemus/telemetry';
 import { unstable_rethrow } from 'next/navigation';
 import { z } from 'zod';
@@ -8,9 +8,9 @@ import { requireTenant } from '@/server/tenant';
 export const dynamic = 'force-dynamic';
 
 const pathIds = z.object({
-  organizationId: z.uuid(),
-  workUnitId: z.uuid(),
-  fileId: z.uuid(),
+  organizationId: idSchema,
+  workUnitId: idSchema,
+  fileId: idSchema,
 });
 
 // The stored type is whatever the uploader's browser claimed, so it is only ever used to pick from

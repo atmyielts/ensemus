@@ -84,8 +84,13 @@ const CLEAR_FOR_MS = 30_000;
 /** Far shorter, so that people are let back in soon after the restore is finished. */
 const CLOSED_FOR_MS = 2_000;
 const MAX_REMEMBERED = 10_000;
-/** The most anyone waits for one check, however many pages of the ledger it has to read. */
+/** The most anyone waits for a tenant's first check, when there is no answer yet to give them. */
 const WAIT_FOR_CHECK_MS = 2_000;
+/**
+ * The most anyone waits for a later check, when there is an answer to give them. A check that takes
+ * longer than this counts as slow, and the checks after it make nobody wait at all.
+ */
+const WAIT_FOR_RECHECK_MS = 500;
 
 /**
  * Refuses a tenant's requests while its database is behind the ledger. It looks at the data, so it
@@ -93,10 +98,12 @@ const WAIT_FOR_CHECK_MS = 2_000;
  * it. If the store cannot be asked it stays as it was, or open if this is the first time. A store
  * outage must not stop the rest of the product, and with the store down there are no bytes to serve.
  *
- * Requests wait for a check only while the store seems able to answer, and for one limit however long
- * the listing is. Once a check has failed, the next ones run behind the requests, so an outage costs
- * each tenant one wait on each web replica and not one every interval. A check past its limit carries
- * on behind them too, so a slow store delays the answer without ever hiding a restore from it.
+ * Requests wait for a check only while the store is quick and answering, which is what lets the first
+ * request after an interval see a restore, however long the tenant was idle. Once a check has failed or
+ * has taken longer than a moment, the next ones run behind the requests, which get the last answer
+ * until one of those checks comes back quickly. So an outage or a slow store costs each tenant one wait
+ * on each web replica and not one every interval. A check past its limit carries on behind them too,
+ * so a slow store delays the answer without ever hiding a restore from it.
  */
 export function createRestoreGate(options: {
   database: AppDatabase;
@@ -105,16 +112,20 @@ export function createRestoreGate(options: {
   onClosed?: (organizationId: string, missing: number) => void;
   now?: () => number;
   waitMs?: number;
+  recheckWaitMs?: number;
 }) {
   const now = options.now ?? Date.now;
   const waitMs = options.waitMs ?? WAIT_FOR_CHECK_MS;
-  const known = new Map<string, { closed: boolean; until: number; failed: boolean }>();
+  const recheckWaitMs = options.recheckWaitMs ?? WAIT_FOR_RECHECK_MS;
+  const known = new Map<string, { closed: boolean; until: number; behind: boolean }>();
   const checking = new Map<string, Promise<boolean>>();
 
   const check = async (tenant: GateTenant) => {
     const before = known.get(tenant.organizationId)?.closed ?? false;
     let closed = before;
     let failed = false;
+    // The real time, since `now` is what the intervals are measured on and a test can stop it.
+    const started = performance.now();
     try {
       const missing = await countMissing(options.store, tenant);
       closed = missing > 0;
@@ -126,14 +137,14 @@ export function createRestoreGate(options: {
     if (known.size >= MAX_REMEMBERED) known.clear();
     known.set(tenant.organizationId, {
       closed,
-      failed,
+      behind: failed || performance.now() - started > recheckWaitMs,
       until: now() + (closed ? CLOSED_FOR_MS : CLEAR_FOR_MS),
     });
     return closed;
   };
 
   /** Runs a check. What this returns settles when it ends, or at the limit with the last answer. */
-  const startCheck = (tenant: GateTenant) => {
+  const startCheck = (tenant: GateTenant, limitMs: number) => {
     const { organizationId } = tenant;
     const finished = check(tenant).finally(() => checking.delete(organizationId));
     const answer = new Promise<boolean>((resolve) => {
@@ -144,7 +155,7 @@ export function createRestoreGate(options: {
           Object.assign(new Error('Still checking'), { code: 'CHECK_TIMEOUT' }),
         );
         resolve(known.get(organizationId)?.closed ?? false);
-      }, waitMs);
+      }, limitMs);
       void finished.then((closed) => {
         clearTimeout(limit);
         resolve(closed);
@@ -159,8 +170,11 @@ export function createRestoreGate(options: {
     const { organizationId } = tenant;
     const current = known.get(organizationId);
     if (current && current.until > now()) return Promise.resolve(current.closed);
-    const running = checking.get(organizationId) ?? startCheck(tenant);
-    return current?.failed ? Promise.resolve(current.closed) : running;
+    // Behind the requests nobody is waiting, and the limit only decides when that gets said.
+    const running =
+      checking.get(organizationId) ??
+      startCheck(tenant, current && !current.behind ? recheckWaitMs : waitMs);
+    return current?.behind ? Promise.resolve(current.closed) : running;
   };
 
   return {

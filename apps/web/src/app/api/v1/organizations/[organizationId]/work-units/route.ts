@@ -1,4 +1,10 @@
-import { createWorkUnit, listWorkUnits, requestHash, runIdempotent } from '@ensemus/application';
+import {
+  createWorkUnit,
+  idSchema,
+  listWorkUnits,
+  requestHash,
+  runIdempotent,
+} from '@ensemus/application';
 import { WORK_STATES } from '@ensemus/domain/work-unit';
 import { z } from 'zod';
 import {
@@ -30,7 +36,7 @@ export const GET = apiRoute(organizationParams, async ({ request, context, datab
 const createBody = z.strictObject({
   title: z.string().trim().min(1).max(300),
   objective: z.string().trim().min(1).max(10_000),
-  project_id: z.uuid().nullable().optional(),
+  project_id: idSchema.nullable().optional(),
   due_at: z.iso.datetime({ offset: true }).nullable().optional(),
   completion_criteria: z
     .strictObject({

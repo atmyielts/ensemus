@@ -22,15 +22,16 @@ import { and, asc, eq, isNull, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { AppError, foreignReference, pgCode } from './errors';
 import { emit } from './events';
+import { idSchema } from './ids';
 import { idFromRequest } from './request-id';
 import { assertActiveMember, closeReviewsForLostAccess } from './work';
 
 const FOREIGN_KEY_VIOLATION = '23503';
 const name = z.string().trim().min(1).max(200);
 const classification = z.enum(['public', 'internal', 'confidential', 'restricted']);
-const identifier = z.uuid();
+const identifier = idSchema;
 /** From one rendered form, so that sending it twice makes one row (see idFromRequest). */
-const requestKey = z.uuid().optional();
+const requestKey = idSchema.optional();
 
 function requireCapability(context: TenantContext, capability: Capability) {
   if (!can(context.role, capability)) throw new AppError('FORBIDDEN');
@@ -50,7 +51,7 @@ export async function createTeam(
 ) {
   requireCapability(context, 'team.manage');
   const input = parse(
-    z.strictObject({ name, parentId: z.uuid().nullable().optional(), requestKey }),
+    z.strictObject({ name, parentId: idSchema.nullable().optional(), requestKey }),
     raw,
   );
   const parentId = input.parentId ?? null;
@@ -674,7 +675,7 @@ export async function createProject(
   raw: { name: string; clientId?: string; requestKey?: string },
 ) {
   requireCapability(context, 'project.manage');
-  const input = parse(z.strictObject({ name, clientId: z.uuid().optional(), requestKey }), raw);
+  const input = parse(z.strictObject({ name, clientId: idSchema.optional(), requestKey }), raw);
   const clientId = input.clientId ?? null;
   const id = input.requestKey
     ? idFromRequest('project', context.membershipId, input.requestKey, [input.name, clientId])

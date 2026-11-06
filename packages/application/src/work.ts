@@ -63,6 +63,7 @@ import {
 import { z } from 'zod';
 import { AppError, foreignReference, pgCode } from './errors';
 import { emit } from './events';
+import { canonicalId, idSchema } from './ids';
 import { idFromRequest } from './request-id';
 
 // An outside system's receipt is not offered yet: nothing can provide one until external actions
@@ -74,13 +75,13 @@ const criteriaSchema = z.array(
 export const createWorkInput = z.strictObject({
   title: z.string().trim().min(1).max(300),
   objective: z.string().trim().max(10_000).optional(),
-  projectId: z.uuid().optional(),
-  ownerMembershipId: z.uuid().optional(),
+  projectId: idSchema.optional(),
+  ownerMembershipId: idSchema.optional(),
   classification: z.enum(['public', 'internal', 'confidential', 'restricted']).default('internal'),
   dueAt: z.coerce.date().optional(),
   completionCriteria: criteriaSchema.default([]),
   executionPlan: z.enum(['checklist']).optional(),
-  requestKey: z.uuid().optional(),
+  requestKey: idSchema.optional(),
 });
 
 export const updateWorkInput = z.strictObject({
@@ -182,7 +183,7 @@ async function loadManageable(tx: Tx, context: TenantContext, id: string) {
  * Someone disabled is an ordinary thing to run into, on a page that was open when it happened.
  */
 export async function assertActiveMember(tx: Tx, membershipId: string) {
-  if (!z.uuid().safeParse(membershipId).success) throw new AppError('INVALID_INPUT');
+  if (!idSchema.safeParse(membershipId).success) throw new AppError('INVALID_INPUT');
   const [member] = await tx
     .select({ status: memberships.status })
     .from(memberships)
@@ -399,7 +400,7 @@ const CURSOR_TIME = /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(\.\d{1,6})?(Z|[+-]\
 function decodeCursor(cursor: string): { at: string; id: string } {
   try {
     const parsed = z
-      .tuple([z.string().regex(CURSOR_TIME), z.uuid()])
+      .tuple([z.string().regex(CURSOR_TIME), idSchema])
       .parse(JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8')));
     return { at: parsed[0], id: parsed[1] };
   } catch {
@@ -581,7 +582,7 @@ export async function notify(
   kind: string,
   targetRef: string,
 ) {
-  const unique = new Set(recipients.filter((id): id is string => Boolean(id)));
+  const unique = new Set(recipients.filter((id): id is string => Boolean(id)).map(canonicalId));
   unique.delete(context.membershipId);
   if (unique.size === 0) return;
   await tx.insert(notifications).values(
@@ -1010,7 +1011,7 @@ export function requestExecution(
     const needsReview = (current.completionCriteria as CompletionCriterion[]).some(
       (criterion) => criterion.kind === 'reviewer_approved',
     );
-    const reviewer = options.reviewerMembershipId ?? current.ownerMembershipId;
+    const reviewer = canonicalId(options.reviewerMembershipId ?? current.ownerMembershipId);
     if (needsReview) {
       if (reviewer === context.membershipId) throw new AppError('APPROVAL_SELF_APPROVAL');
       // Checked here, while a person can still be told. Access lost after this ends in a failed run.
@@ -1046,7 +1047,9 @@ export async function addDependency(
   context: TenantContext,
   input: { dependentId: string; prerequisiteId: string },
 ) {
-  if (input.dependentId === input.prerequisiteId) throw new AppError('DEPENDENCY_CYCLE');
+  if (canonicalId(input.dependentId) === canonicalId(input.prerequisiteId)) {
+    throw new AppError('DEPENDENCY_CYCLE');
+  }
   return withTenantTx(database, context, async (tx) => {
     // The cycle trigger takes this same lock. Taken before any row lock, two opposite inserts queue
     // here, and the second gets a clean refusal instead of a deadlock with the first's foreign key.
@@ -1190,12 +1193,13 @@ async function moveOwner(
   auditReason?: string,
 ) {
   if (current.version !== input.expectedVersion) throw new AppError('VERSION_CONFLICT');
-  await assertActiveMember(tx, input.ownerMembershipId);
+  const owner = canonicalId(input.ownerMembershipId);
+  await assertActiveMember(tx, owner);
   const nextVersion = current.version + 1;
   const [row] = await tx
     .update(workUnits)
     .set({
-      ownerMembershipId: input.ownerMembershipId,
+      ownerMembershipId: owner,
       version: nextVersion,
       updatedAt: new Date(),
     })
@@ -1208,10 +1212,10 @@ async function moveOwner(
     aggregateId: input.id,
     aggregateVersion: nextVersion,
     classification: current.classification,
-    payload: { work_unit_id: input.id, owner_membership_id: input.ownerMembershipId },
+    payload: { work_unit_id: input.id, owner_membership_id: owner },
   });
   await auditAction(tx, context, 'work.owner_changed', `work_unit:${input.id}`, auditReason);
-  await notify(tx, context, [input.ownerMembershipId], 'work.assigned', `work_unit:${input.id}`);
+  await notify(tx, context, [owner], 'work.assigned', `work_unit:${input.id}`);
   // Ownership grants access, so moving it can take access away from a reviewer.
   await closeReviewsForLostAccess(tx, context, { workUnitId: input.id });
   return row;
@@ -1297,16 +1301,17 @@ export function assignContributor(
   context: TenantContext,
   input: { id: string; membershipId: string; responsibility?: 'contributor' | 'reviewer' },
 ) {
+  const membershipId = canonicalId(input.membershipId);
   return withTenantTx(database, context, async (tx) => {
     const work = await loadManageable(tx, context, input.id);
     if (isTerminal(work.status as WorkState)) throw new AppError('INVALID_STATE');
-    await assertActiveMember(tx, input.membershipId);
+    await assertActiveMember(tx, membershipId);
     const added = await tx
       .insert(workAssignments)
       .values({
         organizationId: context.organizationId,
         workUnitId: input.id,
-        membershipId: input.membershipId,
+        membershipId,
         responsibility: input.responsibility ?? 'contributor',
         actorType: 'human',
       })
@@ -1320,10 +1325,10 @@ export function assignContributor(
       aggregateId: input.id,
       aggregateVersion: work.version,
       classification: work.classification,
-      payload: { work_unit_id: input.id, membership_id: input.membershipId },
+      payload: { work_unit_id: input.id, membership_id: membershipId },
     });
-    await appendAssignmentAudit(tx, context, 'work.assigned', work, input.membershipId);
-    await notify(tx, context, [input.membershipId], 'work.assigned', `work_unit:${input.id}`);
+    await appendAssignmentAudit(tx, context, 'work.assigned', work, membershipId);
+    await notify(tx, context, [membershipId], 'work.assigned', `work_unit:${input.id}`);
   });
 }
 
@@ -1336,15 +1341,16 @@ export function unassign(
   context: TenantContext,
   input: { id: string; membershipId: string },
 ) {
+  const membershipId = canonicalId(input.membershipId);
   return withTenantTx(database, context, async (tx) => {
     const work = await loadChangeable(tx, context, input.id);
-    if (input.membershipId !== context.membershipId) await assertCanManage(tx, context, work);
+    if (membershipId !== context.membershipId) await assertCanManage(tx, context, work);
     const removed = await tx
       .delete(workAssignments)
       .where(
         and(
           eq(workAssignments.workUnitId, input.id),
-          eq(workAssignments.membershipId, input.membershipId),
+          eq(workAssignments.membershipId, membershipId),
         ),
       )
       .returning({ id: workAssignments.membershipId });
@@ -1355,9 +1361,9 @@ export function unassign(
       aggregateId: input.id,
       aggregateVersion: work.version,
       classification: work.classification,
-      payload: { work_unit_id: input.id, membership_id: input.membershipId },
+      payload: { work_unit_id: input.id, membership_id: membershipId },
     });
-    await appendAssignmentAudit(tx, context, 'work.unassigned', work, input.membershipId);
+    await appendAssignmentAudit(tx, context, 'work.unassigned', work, membershipId);
     await closeReviewsForLostAccess(tx, context, { workUnitId: input.id });
   });
 }
@@ -1513,26 +1519,37 @@ export function getWorkDetail(database: AppDatabase, context: TenantContext, id:
  * would never hear of it. Only ever compared: it says nothing about the work.
  */
 async function evidenceStampFor(tx: Tx, workUnitId: string, now: Date) {
-  const files = await tx
-    .select({ id: workArtifacts.artifactId })
+  // One round trip, because a page following its work asks this every second.
+  const rows = await tx
+    .select({ fact: sql<string>`${workArtifacts.artifactId}::text` })
     .from(workArtifacts)
-    .where(eq(workArtifacts.workUnitId, workUnitId));
-  const reviews = await tx
-    .select({ id: approvals.id, status: approvals.status, expiresAt: approvals.expiresAt })
-    .from(approvals)
-    .where(eq(approvals.workUnitId, workUnitId));
-  const facts = [
-    ...files.map((file) => file.id),
-    ...reviews.map((review) => `${review.id}:${review.status}:${review.expiresAt <= now}`),
-  ].sort();
+    .where(eq(workArtifacts.workUnitId, workUnitId))
+    .unionAll(
+      tx
+        .select({
+          fact: sql<string>`${approvals.id}::text || ':' || ${approvals.status} || ':' || (${approvals.expiresAt} <= ${now.toISOString()}::timestamptz)::text`,
+        })
+        .from(approvals)
+        .where(eq(approvals.workUnitId, workUnitId)),
+    );
+  const facts = rows.map((row) => row.fact).sort();
   return createHash('sha256').update(facts.join(',')).digest('hex').slice(0, 32);
 }
 
-/** What a page following this work needs to know whether it has fallen behind. */
-export function getWorkFollowState(database: AppDatabase, context: TenantContext, id: string) {
+/**
+ * What someone following this work needs to know whether it has fallen behind. Access is decided each
+ * time. Only a page asks about the evidence, which takes a further query on every poll.
+ */
+export function getWorkFollowState(
+  database: AppDatabase,
+  context: TenantContext,
+  id: string,
+  options: { evidence?: boolean } = {},
+) {
   return withTenantTx(database, context, async (tx) => {
     const work = await loadReadable(tx, context, id);
-    return { version: work.version, evidence: await evidenceStampFor(tx, id, new Date()) };
+    const evidence = options.evidence === false ? null : await evidenceStampFor(tx, id, new Date());
+    return { version: work.version, evidence };
   });
 }
 

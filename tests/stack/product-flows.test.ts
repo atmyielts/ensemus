@@ -916,6 +916,28 @@ describe('the product through its forms', () => {
     });
   });
 
+  describe('an ID in capitals, sent through a real form', () => {
+    it('cannot name yourself as the reviewer of your own plan', async () => {
+      const id = await createWork(owner, {
+        title: `Shouted ${randomUUID()}`,
+        executionPlan: 'checklist',
+        criteria: ['reviewer_approved'],
+      });
+      const page = workPage(id);
+      await move(owner, id, 'ready');
+      const form = await formOn(page, owner.jar, /Run the plan/);
+      const refused = await post(page, owner.jar, form, {
+        reviewerMembershipId: (await membershipOf(owner)).toUpperCase(),
+      });
+      expect(locationOf(refused)).toBe(`${page}?error=APPROVAL_SELF_APPROVAL`);
+      const { rows } = await su.query(
+        'select run_requested_at as requested from work.work_units where id = $1',
+        [id],
+      );
+      expect(rows).toEqual([{ requested: null }]);
+    });
+  });
+
   describe('restricted work (UX-12, UX-14, security blueprint section 5)', () => {
     it('is invisible to a member on every page, and visible to the people on it', async () => {
       const secret = `Restricted ${randomUUID()}`;

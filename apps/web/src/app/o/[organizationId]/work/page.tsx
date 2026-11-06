@@ -40,7 +40,8 @@ export default async function WorkPage({
   const { context, database } = await requireTenant(organizationId);
   const base = `/o/${organizationId}`;
   const filter = WORK_STATES.includes(status as WorkState) ? (status as WorkState) : undefined;
-  const projectId = typeof project === 'string' && UUID.test(project) ? project : undefined;
+  const projectId =
+    typeof project === 'string' && UUID.test(project) ? project.toLowerCase() : undefined;
   const scope = {
     ...(filter ? { status: filter } : {}),
     ...(projectId ? { projectId } : {}),

@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { canonicalId } from './ids';
 
 /**
  * The ID something gets from one rendered form. Only this person and this form can arrive at it, so
@@ -13,7 +14,7 @@ export function idFromRequest(
   content: unknown,
 ) {
   const hex = createHash('sha256')
-    .update(JSON.stringify([kind, membershipId, requestKey, content]))
+    .update(JSON.stringify([kind, membershipId, canonicalId(requestKey), content]))
     .digest('hex');
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-5${hex.slice(13, 16)}-8${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
 }

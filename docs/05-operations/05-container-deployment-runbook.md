@@ -131,7 +131,7 @@ This prints how many deletions have not reached the ledger (`queued`, and `dead`
    compose run --rm --no-deps worker node dist/reapply-ledger.js
    ```
 
-   It prints counts and IDs, and no names: `entries`, `tombstonesAdded`, `artifactsRemoved`, `bytesRemoved`, `organizationsMissing`, `invalid`, `unconfirmed` and `failed`. It exits non-zero if `failed`, `invalid` or `unconfirmed` is above zero. For `failed`, fix the cause and run it again. Running it again is always safe. For `invalid` and `unconfirmed`, see the next section: those tenants stay refused until you decide.
+   It prints counts and IDs, and no names: `entries`, `tombstonesAdded`, `artifactsRemoved`, `bytesRemoved`, `organizationsMissing`, `invalid`, `unconfirmed` and `failed`. It exits 1 if `failed`, `invalid` or `unconfirmed` is above zero, 2 if it refused to start because an argument was not one it can take, and 0 only when nothing is left to do. For `failed`, fix the cause and run it again. Running it again is always safe. For `invalid` and `unconfirmed`, see the next section: those tenants stay refused until you decide.
 
 7. Start everything:
 
@@ -139,7 +139,7 @@ This prints how many deletions have not reached the ledger (`queued`, and `dead`
    compose up -d
    ```
 
-If step 6 is skipped or fails, the product protects itself: anyone in an organization whose database is behind the ledger lands on a page saying it is being restored (503), and the API answers 503 `RESTORE_PENDING`, until the re-apply succeeds. This holds while the object store can answer the check. If it cannot, the gate stays as it was, or open for a process that has just started, so keep the web tier stopped until step 6 has succeeded. A web process left running through a restore can take up to 30 seconds to notice, which is why step 1 stops it. Other organizations are not affected.
+If step 6 is skipped or fails, the product protects itself: anyone in an organization whose database is behind the ledger lands on a page saying it is being restored (503), and the API answers 503 `RESTORE_PENDING`, until the re-apply succeeds. This holds while the object store can answer the check. If it cannot, the gate stays as it was, or open for a process that has just started, so keep the web tier stopped until step 6 has succeeded. A web process left running through a restore can take up to 30 seconds to notice, and longer if the store is slow, which is why step 1 stops it. Other organizations are not affected.
 
 ### When the re-apply asks you to decide
 
@@ -151,6 +151,14 @@ The re-apply does not destroy a file that still has its row and its bytes on the
   compose run --rm --no-deps worker node dist/reapply-ledger.js --confirm <ledgerEntry>
   ```
 
+  A restore where bytes survived can leave many of these. To confirm them in one run, list them in a file, one `ledgerEntry` to a line, and mount the file into the command. The path has to be absolute, and the file readable by everyone, because the command does not run as root:
+
+  ```sh
+  compose run --rm --no-deps -v "$PWD/confirm.txt:/tmp/confirm.txt:ro" worker node dist/reapply-ledger.js --confirm-file /tmp/confirm.txt
+  ```
+
+  Each line says that this one deletion is real, exactly as `--confirm` does, so it has to be a whole `ledgerEntry`. There are no patterns and no way to name everything in a tenant. A line that is anything else, an empty file or a file it cannot read stops the command with exit status 2 before it has changed anything. An entry the list leaves out stays `unconfirmed`, and the command exits non-zero. **The list is what stands between a forged entry and a live file.** The `tombstone_ledger.entry_unconfirmed` lines are a place to start it, but copied as they are they confirm any forgery among them. Keep an entry only if the file's deletion fits what you know, such as the tenant, what its people say they deleted, and the time of the backup. If an entry cannot be accounted for, treat it as the next case.
+
 - **You did not restore anything**, so nothing can be behind the ledger and this entry is not a deletion. Do not confirm it, because that destroys a live file. Move it aside, which also lets the tenant back in:
 
   ```sh
@@ -161,7 +169,7 @@ The re-apply does not destroy a file that still has its row and its bytes on the
 
 `invalid` means an object under `tombstone-ledger/` is not a valid entry. The command logs `tombstone_ledger.entry_invalid` with a `ledgerEntry` if the object's key names one. Look at the object, then quarantine it the same way. If no `ledgerEntry` was logged, its key names nothing and no tenant is refused because of it. Find it by listing the prefix, and pass its whole key to `--quarantine`. Quarantining an object whose key names a real deletion brings that file back, so if the body is damaged and the deletion is real, delete the file again once the tenant is back in.
 
-Both options can be repeated and combined, and the command re-applies everything else in the same run.
+All of these options can be repeated and combined, and the command re-applies everything else in the same run.
 
 The same applies if a tenant is refused with no restore behind it, which is what a forged entry looks like from outside.
 

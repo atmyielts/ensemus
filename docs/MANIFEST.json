@@ -42,8 +42,8 @@
     },
     {
       "path": "00-foundation/adr/ADR-026-tombstones-survive-restore.md",
-      "size_bytes": 13761,
-      "sha256": "7267bd1fcd4c164d02e3924bc7e1cc85cdbc7a379c8d459f6eac77eca2540937"
+      "size_bytes": 14971,
+      "sha256": "bcd23a6992a8b91bde7849a34b8b94399937796fe796f2966132dcdb0a50d17c"
     },
     {
       "path": "01-product/01-product-requirements.md",
@@ -237,8 +237,8 @@
     },
     {
       "path": "05-operations/05-container-deployment-runbook.md",
-      "size_bytes": 17968,
-      "sha256": "8fb4c60578faeda6fdb16776079d3c7f464877668aa34ddcdbdd988de9e5dab6"
+      "size_bytes": 19355,
+      "sha256": "7c8f679df94a7bb7a79f0dc5faa52a59f896789aeb8d05ba781e3c8216a7c289"
     },
     {
       "path": "05-operations/06-performance-and-load-plan.md",

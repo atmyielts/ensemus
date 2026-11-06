@@ -446,6 +446,9 @@ describe('public API', () => {
       expectError(await depend(b.id, a.id), 409, 'DEPENDENCY_CYCLE');
       expectError(await depend(c.id, a.id), 409, 'DEPENDENCY_CYCLE');
       expectError(await depend(a.id, a.id), 409, 'DEPENDENCY_CYCLE');
+      // The same work whichever spelling names it, on either side.
+      expectError(await depend(a.id, a.id.toUpperCase()), 409, 'DEPENDENCY_CYCLE');
+      expectError(await depend(a.id.toUpperCase(), a.id), 409, 'DEPENDENCY_CYCLE');
     });
 
     it('treats adding the same prerequisite again as done', async () => {

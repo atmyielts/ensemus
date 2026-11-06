@@ -34,7 +34,8 @@ export const GET = apiRoute(
   async ({ request, requestId, userId, context, database, params }) => {
     // Checked before streaming starts, so that a refusal is a real 404 and EventSource stops trying.
     const withEvidence = readQuery(request, eventsQuery).include === 'evidence';
-    const first = await getWorkFollowState(database, context, params.workUnitId);
+    const asked = { evidence: withEvidence };
+    const first = await getWorkFollowState(database, context, params.workUnitId, asked);
     const { organizationId, workUnitId } = params;
     const stop = new AbortController();
     const signal = AbortSignal.any([
@@ -49,7 +50,7 @@ export const GET = apiRoute(
       const fresh = await resolveTenantContext(database, userId, organizationId);
       // A stream opened before a restore does not outlast it, or it would report a past that is gone.
       await getRestoreGate().assertServing(fresh);
-      return getWorkFollowState(database, fresh, workUnitId);
+      return getWorkFollowState(database, fresh, workUnitId, asked);
     }
 
     /** A signed-out or expired session ends the stream, even when the membership is still active. */
