@@ -37,6 +37,14 @@ const SAFE_FIELDS = new Set([
   'failed',
   // IDs and a type, which an operator needs in order to decide about one entry (ADR-026).
   'ledgerEntry',
+  // Governed AI (ADR-028). Identifiers, counters and codes. Never a prompt, an answer or a URL.
+  'agentRunId',
+  'modelProfileId',
+  'decisionCode',
+  'stopCode',
+  'inputTokens',
+  'outputTokens',
+  'costMicros',
 ]);
 
 // Safe values are short and machine-shaped. Free text is refused even under a safe field name.

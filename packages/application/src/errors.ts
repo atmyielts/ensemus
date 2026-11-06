@@ -30,7 +30,26 @@ export type ErrorCode =
   | 'EXTERNAL_ACTION_NOT_RETRYABLE'
   | 'CONNECTION_NOT_ACTIVE'
   | 'CONNECTOR_NOT_AVAILABLE'
-  | 'RESTRICTED_NOT_ALLOWED';
+  | 'RESTRICTED_NOT_ALLOWED'
+  | 'MODEL_PROFILE_NOT_ACTIVE'
+  | 'MODEL_PROBE_REQUIRED'
+  | 'MODEL_ENDPOINT_NOT_ALLOWED'
+  | 'MODEL_CREDENTIALS_NOT_REVIEWED'
+  | 'MODEL_UNAVAILABLE'
+  | 'RATE_CARD_MISSING'
+  | 'BUDGET_NOT_CONFIGURED'
+  | 'BUDGET_EXHAUSTED'
+  | 'ENTITLEMENT_DENIED'
+  | 'POLICY_DENIED'
+  | 'AGENT_SPEC_INVALID'
+  | 'AGENT_EVALUATION_REQUIRED'
+  | 'AGENT_RUN_ACTIVE'
+  | 'AGENT_RUN_NOT_CONTROLLABLE'
+  | 'AI_HALTED'
+  | 'KILL_SWITCH_NOT_YOURS'
+  | 'TOOL_DENIED'
+  | 'NO_ELIGIBLE_APPROVER'
+  | 'DELEGATION_DENIED';
 
 const MESSAGES: Record<ErrorCode, string> = {
   NOT_FOUND: 'Not found or not permitted.',
@@ -66,6 +85,25 @@ const MESSAGES: Record<ErrorCode, string> = {
   CONNECTION_NOT_ACTIVE: 'This connection is not active.',
   CONNECTOR_NOT_AVAILABLE: 'This connector is not available on this deployment.',
   RESTRICTED_NOT_ALLOWED: 'Restricted work cannot be sent outside this deployment.',
+  MODEL_PROFILE_NOT_ACTIVE: "This model profile is not active.",
+  MODEL_PROBE_REQUIRED: "This model profile has to pass its test before it can be used.",
+  MODEL_ENDPOINT_NOT_ALLOWED: "That address cannot be used for a model on this deployment.",
+  MODEL_CREDENTIALS_NOT_REVIEWED: "Keys for hosted providers are not enabled on this deployment yet.",
+  MODEL_UNAVAILABLE: "The approved model is not available, so nothing was sent. Your work is unchanged.",
+  RATE_CARD_MISSING: "This model profile has no rate card, so its cost cannot be measured.",
+  BUDGET_NOT_CONFIGURED: "No budget is set, so agents cannot run yet.",
+  BUDGET_EXHAUSTED: "The budget for this has been used up.",
+  ENTITLEMENT_DENIED: "Your plan does not include this.",
+  POLICY_DENIED: "Your organization’s policy does not allow this.",
+  AGENT_SPEC_INVALID: "This agent definition is not valid.",
+  AGENT_EVALUATION_REQUIRED: "This agent version needs a passing evaluation before it can be published.",
+  AGENT_RUN_ACTIVE: "An agent is already running on this work.",
+  AGENT_RUN_NOT_CONTROLLABLE: "This run has finished, so it cannot be changed.",
+  AI_HALTED: "Agents are stopped on this deployment right now.",
+  KILL_SWITCH_NOT_YOURS: "This stop was set by the operator of this deployment.",
+  TOOL_DENIED: "This agent is not allowed to do that.",
+  NO_ELIGIBLE_APPROVER: "Nobody else can approve this, so it was not sent.",
+  DELEGATION_DENIED: "An agent cannot give another agent more than it has itself.",
 };
 
 export class AppError extends Error {
@@ -118,6 +156,25 @@ export const HTTP_STATUS: Record<ErrorCode, number> = {
   CONNECTION_NOT_ACTIVE: 409,
   CONNECTOR_NOT_AVAILABLE: 409,
   RESTRICTED_NOT_ALLOWED: 403,
+  MODEL_PROFILE_NOT_ACTIVE: 409,
+  MODEL_PROBE_REQUIRED: 409,
+  MODEL_ENDPOINT_NOT_ALLOWED: 400,
+  MODEL_CREDENTIALS_NOT_REVIEWED: 409,
+  MODEL_UNAVAILABLE: 503,
+  RATE_CARD_MISSING: 409,
+  BUDGET_NOT_CONFIGURED: 409,
+  BUDGET_EXHAUSTED: 409,
+  ENTITLEMENT_DENIED: 403,
+  POLICY_DENIED: 403,
+  AGENT_SPEC_INVALID: 400,
+  AGENT_EVALUATION_REQUIRED: 409,
+  AGENT_RUN_ACTIVE: 409,
+  AGENT_RUN_NOT_CONTROLLABLE: 409,
+  AI_HALTED: 503,
+  KILL_SWITCH_NOT_YOURS: 403,
+  TOOL_DENIED: 403,
+  NO_ELIGIBLE_APPROVER: 409,
+  DELEGATION_DENIED: 403,
 };
 
 /** Reads the Postgres error code through the wrapper Drizzle adds. */

@@ -7,7 +7,11 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@ensemus/agent-runtime": "workspace:*",
     "@ensemus/application": "workspace:*",
+    "@ensemus/commercial": "workspace:*",
+    "@ensemus/intelligence": "workspace:*",
+    "@ensemus/policy": "workspace:*",
     "@ensemus/auth": "workspace:*",
     "@ensemus/connectors": "workspace:*",
     "@ensemus/contracts": "workspace:*",

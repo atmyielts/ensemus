@@ -13,7 +13,16 @@ export type Capability =
   | 'work.create'
   | 'work.recover_owner'
   | 'member.view_email'
-  | 'connection.manage';
+  | 'connection.manage'
+  // Governed AI (ADR-028 FD-20). Named roles arrive in M7. Until then these map to owner and admin.
+  | 'model.manage'
+  | 'model.activate'
+  | 'agent.publish'
+  | 'agent.run'
+  | 'agent.stop'
+  | 'ai.halt'
+  | 'budget.manage'
+  | 'usage.view';
 
 const GRANTS: Record<Role, ReadonlySet<Capability>> = {
   owner: new Set([
@@ -27,6 +36,14 @@ const GRANTS: Record<Role, ReadonlySet<Capability>> = {
     'work.recover_owner',
     'member.view_email',
     'connection.manage',
+    'model.manage',
+    'model.activate',
+    'agent.publish',
+    'agent.run',
+    'agent.stop',
+    'ai.halt',
+    'budget.manage',
+    'usage.view',
   ]),
   admin: new Set([
     'member.invite',
@@ -37,6 +54,14 @@ const GRANTS: Record<Role, ReadonlySet<Capability>> = {
     'work.create',
     'member.view_email',
     'connection.manage',
+    'model.manage',
+    'model.activate',
+    'agent.publish',
+    'agent.run',
+    'agent.stop',
+    'ai.halt',
+    'budget.manage',
+    'usage.view',
   ]),
   member: new Set(['client.manage', 'project.manage', 'work.create']),
 };

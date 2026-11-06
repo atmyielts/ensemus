@@ -1,0 +1,17 @@
+{
+  "name": "@ensemus/policy",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./endpoint": "./src/endpoint.ts",
+    "./agent-spec-lint": "./src/agent-spec-lint.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@ensemus/domain": "workspace:*"
+  }
+}

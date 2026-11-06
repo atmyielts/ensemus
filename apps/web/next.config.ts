@@ -9,11 +9,13 @@ const config: NextConfig = {
   transpilePackages: [
     '@ensemus/application',
     '@ensemus/auth',
+    '@ensemus/commercial',
     '@ensemus/config',
     '@ensemus/connectors',
     '@ensemus/contracts',
     '@ensemus/database',
     '@ensemus/domain',
+    '@ensemus/policy',
     '@ensemus/secrets',
     '@ensemus/storage',
     '@ensemus/telemetry',

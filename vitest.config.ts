@@ -10,13 +10,18 @@ export default defineConfig({
             'packages/**/src/**/*.test.ts',
             'workers/**/src/**/*.test.ts',
             'tests/unit/**/*.test.ts',
+            // Shared suites a real implementation and its double both pass, and evaluation over a
+            // scripted model, which proves the harness and the gates and not any model (ADR-028).
+            'tests/contract/**/*.test.ts',
+            'tests/eval/**/*.test.ts',
           ],
         },
       },
       {
         test: {
           name: 'integration',
-          include: ['tests/integration/**/*.test.ts'],
+          // Red-team cases at the gateway level use the same database (ADR-028).
+          include: ['tests/integration/**/*.test.ts', 'tests/security/**/*.test.ts'],
           globalSetup: ['tests/integration/global-setup.ts'],
           fileParallelism: false,
           testTimeout: 60_000,
@@ -29,6 +34,16 @@ export default defineConfig({
           include: ['tests/replay/**/*.test.ts'],
           fileParallelism: false,
           testTimeout: 60_000,
+        },
+      },
+      // An in-process worker on a real Temporal server. CI gets a gate for this when containers do.
+      {
+        test: {
+          name: 'temporal',
+          include: ['tests/temporal/**/*.test.ts'],
+          fileParallelism: false,
+          testTimeout: 120_000,
+          hookTimeout: 120_000,
         },
       },
       {

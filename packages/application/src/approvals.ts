@@ -218,7 +218,7 @@ export async function decideApproval(
   context: TenantContext,
   input: { approvalId: string; decision: 'approve' | 'deny'; shownHash: string; reason?: string },
 ) {
-  if (context.actorType === 'service') throw new AppError('FORBIDDEN');
+  if (context.actorType !== 'user') throw new AppError('FORBIDDEN');
   return withTenantTx(database, context, async (tx) => {
     const [found] = await tx.select().from(approvals).where(eq(approvals.id, input.approvalId));
     if (!found) throw new AppError('NOT_FOUND');

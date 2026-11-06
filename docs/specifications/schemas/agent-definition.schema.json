@@ -4,17 +4,18 @@
   "title": "Ensemus Agent Version v1",
   "type": "object",
   "additionalProperties": false,
-  "required": ["api_version", "id", "version", "objective", "model", "context", "tools", "execution", "output", "evaluation"],
+  "required": ["api_version", "id", "version", "objective", "instructions", "model", "context", "tools", "execution", "output", "evaluation"],
   "properties": {
     "api_version": {"type": "string", "const": "ensemus.ai/v1"},
     "id": {"type": "string", "pattern": "^[a-z][a-z0-9-]{2,80}$"},
     "version": {"type": "integer", "minimum": 1},
     "objective": {"type": "string", "minLength": 10, "maxLength": 1000},
+    "instructions": {"type": "string", "minLength": 1, "maxLength": 8000, "description": "Policy text for the prompt. Never interpolated with data, and holds no secret."},
     "model": {
       "type": "object", "additionalProperties": false,
       "required": ["required_capabilities", "quality_tier", "fallback"],
       "properties": {
-        "required_capabilities": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string"}},
+        "required_capabilities": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"enum": ["text", "tools", "structured_output", "vision", "long_context"]}},
         "quality_tier": {"enum": ["economy", "balanced", "high"]},
         "fallback": {"enum": ["approved_profiles_only", "disabled"]}
       }
@@ -24,11 +25,11 @@
       "required": ["allowed_scopes", "memory_write_policy"],
       "properties": {
         "allowed_scopes": {"type": "array", "items": {"type": "string"}},
-        "memory_write_policy": {"enum": ["none", "propose_only", "verified_by_policy"]},
+        "memory_write_policy": {"enum": ["none", "propose_only"]},
         "max_input_tokens": {"type": "integer", "minimum": 128}
       }
     },
-    "skills": {"type": "array", "uniqueItems": true, "items": {"type": "string"}},
+    "skills": {"type": "array", "uniqueItems": true, "items": {"type": "string"}, "description": "Refused at publish in M4: skills arrive with Studio (ADR-028 G10)."},
     "tools": {
       "type": "object", "additionalProperties": false,
       "required": ["allow"],
@@ -39,12 +40,13 @@
     },
     "execution": {
       "type": "object", "additionalProperties": false,
-      "required": ["max_model_turns", "max_tool_calls", "max_cost_usd", "timeout_seconds", "max_delegation_depth"],
+      "required": ["max_model_turns", "max_tool_calls", "max_total_tokens", "max_cost_usd", "timeout_seconds", "max_delegation_depth"],
       "properties": {
         "max_model_turns": {"type": "integer", "minimum": 1, "maximum": 100},
         "max_tool_calls": {"type": "integer", "minimum": 0, "maximum": 500},
-        "max_cost_usd": {"type": "number", "minimum": 0},
-        "timeout_seconds": {"type": "integer", "minimum": 1},
+        "max_total_tokens": {"type": "integer", "minimum": 1},
+        "max_cost_usd": {"type": "string", "pattern": "^[0-9]{1,9}([.][0-9]{1,6})?$", "description": "Decimal text, parsed once to integer micro-USD at publish (ADR-028 FD-6)."},
+        "timeout_seconds": {"type": "integer", "minimum": 1, "description": "Active time only. Approval waits and paused time do not count (ADR-028 FD-22)."},
         "max_delegation_depth": {"type": "integer", "minimum": 0, "maximum": 5}
       }
     },

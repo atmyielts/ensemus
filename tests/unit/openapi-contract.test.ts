@@ -91,8 +91,15 @@ describe('the spec and the routes', () => {
   it('marks what does not exist yet', () => {
     const planned = operations().filter((operation) => operation.status === 'planned');
     expect(planned.map(({ path }) => path.split('/').slice(3).join('/'))).toEqual([
+      // M4 until each route lands. The wiring slice removes these once its routes are merged (ADR-028).
+      'agent-runs',
       'agent-runs',
       'agent-runs/{agent_run_id}',
+      'agent-runs/{agent_run_id}/controls',
+      'agent-runs/{agent_run_id}/steps',
+      'agent-versions',
+      'agent-versions',
+      'agent-versions/{agent_version_id}',
       // M3 until each route lands. The receipts slice removes these as it builds them (ADR-027).
       'work-units/{work_unit_id}/external-actions',
       'external-actions',
@@ -108,6 +115,14 @@ describe('the spec and the routes', () => {
       'connections/{connection_id}/webhook-endpoints',
       'knowledge/search',
       'model-profiles',
+      'model-profiles',
+      'model-profiles/{model_profile_id}',
+      'model-profiles/{model_profile_id}',
+      'model-profiles/{model_profile_id}/credential',
+      'model-profiles/{model_profile_id}/activation',
+      'model-profiles/{model_profile_id}/rate-cards',
+      'budgets',
+      'usage',
       'entitlements',
     ]);
   });

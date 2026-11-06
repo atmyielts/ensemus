@@ -154,3 +154,7 @@ export async function tenantRemindersWorkflow(input: TenantInput): Promise<void>
 export { connectorSyncWorkflow } from './connector-sync-workflow';
 export { externalActionWorkflow } from './external-action-workflow';
 export { webhookDeliveryWorkflow } from './webhook-workflow';
+
+// M4 (ADR-028). The same rule: their own files, their own histories.
+export { agentRunWorkflow } from './agent-run';
+export { modelProbeWorkflow } from './model-probe';

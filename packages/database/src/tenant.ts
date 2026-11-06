@@ -11,9 +11,29 @@ export type TenantContext = Readonly<{
   userId: string;
   membershipId: string;
   role: string;
-  actorType: 'user' | 'service';
+  actorType: 'user' | 'service' | 'agent';
+  /** Which run this is acting for. Set only on an agent's context. */
+  agentRunId?: string;
   [brand]: true;
 }>;
+
+/**
+ * An agent acting with its initiator's authority, and no more (ADR-028 FD-3). Every Work Unit check runs
+ * against the initiator's membership, because only a service context skips them.
+ */
+export type AgentContext = TenantContext & { actorType: 'agent'; agentRunId: string };
+
+/** How audit rows and events name who acted. An agent is named as itself, with its run as the ID. */
+export function actorOf(context: TenantContext): {
+  actorType: 'user' | 'service' | 'agent';
+  actorId?: string;
+} {
+  if (context.actorType === 'service') return { actorType: 'service' };
+  if (context.actorType === 'agent') {
+    return { actorType: 'agent', ...(context.agentRunId ? { actorId: context.agentRunId } : {}) };
+  }
+  return { actorType: 'user', actorId: context.membershipId };
+}
 
 /**
  * A worker acting for a tenant, with no person behind the transaction. Only workers may import
@@ -182,6 +202,60 @@ export async function resolveTenantContext(
     actorType: 'user',
     [brand]: true,
   };
+}
+
+/**
+ * For a worker's agent process only (`@ensemus/database/agent`, enforced by lint). Reads the initiator's
+ * membership now, so a disabled or removed initiator stops the run at its next step (04-security/04 §6).
+ * Call it again for every model turn and tool call rather than keeping the result. Throws
+ * TenantAccessDenied when the membership is not active.
+ */
+export async function createAgentContext(
+  database: AppDatabase,
+  input: { organizationId: string; initiatorMembershipId: string; agentRunId: string },
+): Promise<AgentContext> {
+  assertUuid(input.organizationId);
+  assertUuid(input.initiatorMembershipId);
+  assertUuid(input.agentRunId);
+  const [membership] = await database.transaction(
+    { 'app.organization_id': input.organizationId },
+    (tx) =>
+      tx
+        .select({
+          id: memberships.id,
+          role: memberships.role,
+          userId: memberships.userId,
+          organizationId: memberships.organizationId,
+        })
+        .from(memberships)
+        .where(
+          and(eq(memberships.id, input.initiatorMembershipId), eq(memberships.status, 'active')),
+        ),
+  );
+  if (!membership) throw new TenantAccessDenied();
+  return {
+    organizationId: membership.organizationId,
+    userId: membership.userId,
+    membershipId: membership.id,
+    role: membership.role,
+    actorType: 'agent',
+    agentRunId: input.agentRunId.toLowerCase(),
+    [brand]: true,
+  };
+}
+
+/**
+ * Binds one tenant with no person and no context, to find a queued run and read kill switches before
+ * any initiator is known. It hands back only the transaction: no service code can be called with it,
+ * because every application service takes a context. Same import rule as above.
+ */
+export function withRunLookupTx<T>(
+  database: AppDatabase,
+  organizationId: string,
+  fn: (tx: Tx) => Promise<T>,
+): Promise<T> {
+  assertUuid(organizationId);
+  return database.transaction({ 'app.organization_id': organizationId.toLowerCase() }, fn);
 }
 
 /** Confirms the database answers. Reads no tenant data. */

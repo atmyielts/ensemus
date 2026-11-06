@@ -14,7 +14,11 @@
     "@temporalio/worker": "1.25.0"
   },
   "devDependencies": {
+    "@ensemus/agent-runtime": "workspace:*",
     "@ensemus/application": "workspace:*",
+    "@ensemus/commercial": "workspace:*",
+    "@ensemus/intelligence": "workspace:*",
+    "@ensemus/policy": "workspace:*",
     "@ensemus/config": "workspace:*",
     "@ensemus/connectors": "workspace:*",
     "@ensemus/database": "workspace:*",

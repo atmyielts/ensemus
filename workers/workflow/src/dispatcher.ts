@@ -13,6 +13,12 @@ import {
   type DispatchableEvent,
 } from '@ensemus/database/dispatcher';
 import {
+  AGENT_RUN_CONTROL_REQUESTED,
+  AGENT_RUN_REQUESTED,
+  AGGREGATE_MODEL_PROFILE,
+  MODEL_PROFILE_PROBE_REQUESTED,
+} from '@ensemus/domain/ai-events';
+import {
   AGGREGATE_CONNECTION,
   AGGREGATE_EXTERNAL_ACTION,
   AGGREGATE_WEBHOOK_DELIVERY,
@@ -25,7 +31,8 @@ import { TOMBSTONE_RECORDED } from '@ensemus/domain/tombstone-ledger';
 import { S3ObjectStore } from '@ensemus/storage';
 import { createLogger, errorCode } from '@ensemus/telemetry';
 import { AesGcmPayloadCodec } from '@ensemus/workflows/codec';
-import { PLATFORM_TASK_QUEUE } from '@ensemus/workflows/constants';
+import { modelProbeInputSchema, modelProbeWorkflowIdFor } from '@ensemus/workflows/agent-schemas';
+import { AGENT_RUN_CONTROL_SIGNAL, PLATFORM_TASK_QUEUE } from '@ensemus/workflows/constants';
 import {
   connectorSyncInputSchema,
   connectorSyncWorkflowIdFor,
@@ -171,6 +178,54 @@ async function main() {
           if (!(error instanceof WorkflowNotFoundError)) throw error;
         }
         return;
+
+      // An agent run uses the Work Unit's standard workflow ID, so approval.resolved and
+      // work.stop_requested above reach it unchanged, and the stranded-run sweep probes the right
+      // thing (ADR-028 FD-1). The first Activity finds the queued run in PostgreSQL. If a workflow is
+      // already open on this work, the request stands and is picked up from there.
+      case AGENT_RUN_REQUESTED:
+        if (!input) return;
+        try {
+          await client.workflow.start('agentRunWorkflow', {
+            args: [input],
+            taskQueue: PLATFORM_TASK_QUEUE,
+            workflowId: workflowIdFor(input),
+            workflowIdReusePolicy: 'ALLOW_DUPLICATE',
+          });
+        } catch (error) {
+          if (!(error instanceof WorkflowExecutionAlreadyStartedError)) throw error;
+        }
+        return;
+
+      // A wake-up. The stop or pause itself is already committed in ai.run_controls, and each step
+      // rechecks it, so a lost signal delays this and cannot lose it.
+      case AGENT_RUN_CONTROL_REQUESTED:
+        if (!input) return;
+        try {
+          await client.workflow.getHandle(workflowIdFor(input)).signal(AGENT_RUN_CONTROL_SIGNAL);
+        } catch (error) {
+          if (!(error instanceof WorkflowNotFoundError)) throw error;
+        }
+        return;
+
+      case MODEL_PROFILE_PROBE_REQUESTED: {
+        if (event.aggregateType !== AGGREGATE_MODEL_PROFILE) return;
+        const probeInput = modelProbeInputSchema.parse({
+          organizationId: event.organizationId,
+          modelProfileId: event.aggregateId,
+        });
+        try {
+          await client.workflow.start('modelProbeWorkflow', {
+            args: [probeInput],
+            taskQueue: PLATFORM_TASK_QUEUE,
+            workflowId: modelProbeWorkflowIdFor(probeInput),
+            workflowIdReusePolicy: 'ALLOW_DUPLICATE',
+          });
+        } catch (error) {
+          if (!(error instanceof WorkflowExecutionAlreadyStartedError)) throw error;
+        }
+        return;
+      }
 
       case 'organization.created':
         await ensureReminderSchedule(event.organizationId);

@@ -24,6 +24,8 @@ export {
   withTenantTx,
   withUserTx,
   withWebhookEndpointTx,
+  actorOf,
+  type AgentContext,
   type AppDatabase,
   type TenantContext,
   type Tx,
@@ -41,3 +43,4 @@ export {
 } from './schema';
 export * from './schema-work';
 export * from './schema-integrations';
+export * from './schema-ai';

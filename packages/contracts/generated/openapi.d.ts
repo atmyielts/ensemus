@@ -320,7 +320,40 @@ export interface paths {
             };
             cookie?: never;
         };
-        get?: never;
+        /** List runs on a Work Unit the caller can read */
+        get: {
+            parameters: {
+                query: {
+                    work_unit_id: string;
+                };
+                header?: never;
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Runs on this Work Unit */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            items: components["schemas"]["AgentRun"][];
+                        };
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
         put?: never;
         /** Start bounded agent execution on a Work Unit */
         post: {
@@ -337,17 +370,11 @@ export interface paths {
             };
             requestBody: {
                 content: {
-                    "application/json": {
-                        /** Format: uuid */
-                        work_unit_id: string;
-                        /** Format: uuid */
-                        agent_version_id: string;
-                        max_cost_usd?: number;
-                    };
+                    "application/json": components["schemas"]["StartAgentRunRequest"];
                 };
             };
             responses: {
-                /** @description Durable run queued */
+                /** @description Durable run queued. Limits come from the agent version, never the request */
                 202: {
                     headers: {
                         [name: string]: unknown;
@@ -356,8 +383,13 @@ export interface paths {
                         "application/json": components["schemas"]["AgentRun"];
                     };
                 };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
                 403: components["responses"]["Forbidden"];
-                422: components["responses"]["Validation"];
+                404: components["responses"]["NotFound"];
+                409: components["responses"]["Conflict"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
             };
         };
         delete?: never;
@@ -400,7 +432,251 @@ export interface paths {
                         "application/json": components["schemas"]["AgentRun"];
                     };
                 };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
                 404: components["responses"]["NotFound"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/organizations/{organization_id}/agent-runs/{agent_run_id}/controls": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+                agent_run_id: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Stop, pause or resume a run */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                    agent_run_id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["RunControlRequest"];
+                };
+            };
+            responses: {
+                /** @description Recorded. Each step rechecks this before acting */
+                202: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                409: components["responses"]["Conflict"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/organizations/{organization_id}/agent-runs/{agent_run_id}/steps": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+                agent_run_id: string;
+            };
+            cookie?: never;
+        };
+        /** Read a run as codes and counters, with no model text */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                    agent_run_id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Steps, oldest first */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            items: components["schemas"]["ExecutionStep"][];
+                        };
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/organizations/{organization_id}/agent-versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+            };
+            cookie?: never;
+        };
+        /** List published agent versions */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Published versions */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            items: components["schemas"]["AgentVersion"][];
+                        };
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        put?: never;
+        /** Publish an immutable agent version */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["PublishAgentVersionRequest"];
+                };
+            };
+            responses: {
+                /** @description Published */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["AgentVersion"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                409: components["responses"]["Conflict"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/organizations/{organization_id}/agent-versions/{agent_version_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+                agent_version_id: string;
+            };
+            cookie?: never;
+        };
+        /** Read one published agent version */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                    agent_version_id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Version record */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["AgentVersion"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
             };
         };
         put?: never;
@@ -1296,10 +1572,395 @@ export interface paths {
                     };
                     content: {
                         "application/json": {
-                            profiles?: components["schemas"]["ModelProfile"][];
+                            items: components["schemas"]["ModelProfile"][];
                         };
                     };
                 };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        put?: never;
+        /** Register a model profile as a draft */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["CreateModelProfileRequest"];
+                };
+            };
+            responses: {
+                /** @description Draft profile. It cannot be used until a probe passes */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ModelProfile"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                409: components["responses"]["Conflict"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/organizations/{organization_id}/model-profiles/{model_profile_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+                model_profile_id: string;
+            };
+            cookie?: never;
+        };
+        /** Read one profile without secrets */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                    model_profile_id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Profile metadata */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ModelProfile"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Change a profile. A changed endpoint voids its key and returns it to draft */
+        patch: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                    model_profile_id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["UpdateModelProfileRequest"];
+                };
+            };
+            responses: {
+                /** @description Updated profile */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ModelProfile"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                409: components["responses"]["Conflict"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        trace?: never;
+    };
+    "/organizations/{organization_id}/model-profiles/{model_profile_id}/credential": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+                model_profile_id: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /** Seal a key for this profile and endpoint. It can never be read back */
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                    model_profile_id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["ModelCredentialRequest"];
+                };
+            };
+            responses: {
+                /** @description The profile, back in draft, showing only that a key is on file */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ModelProfile"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                409: components["responses"]["Conflict"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/organizations/{organization_id}/model-profiles/{model_profile_id}/activation": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+                model_profile_id: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Ask for a probe. The profile goes active only if it passes */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                    model_profile_id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["ActivateModelProfileRequest"];
+                };
+            };
+            responses: {
+                /** @description Probe requested */
+                202: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                409: components["responses"]["Conflict"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/organizations/{organization_id}/model-profiles/{model_profile_id}/rate-cards": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+                model_profile_id: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Add a rate card. Immutable, and the newest applies from now on */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                    model_profile_id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["CreateRateCardRequest"];
+                };
+            };
+            responses: {
+                /** @description Rate card added */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/organizations/{organization_id}/budgets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Set a spending limit. No budget means no run */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["SetBudgetRequest"];
+                };
+            };
+            responses: {
+                /** @description Budget set */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/organizations/{organization_id}/usage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+            };
+            cookie?: never;
+        };
+        /** Read measured usage for one period */
+        get: {
+            parameters: {
+                query: {
+                    period: string;
+                };
+                header?: never;
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Usage. BYOM and Sovereign cost figures are labelled estimates */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["UsageSummary"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
             };
         };
         put?: never;
@@ -1339,16 +2000,15 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": {
-                            /** @enum {string} */
-                            mode: "cloud" | "byom" | "sovereign";
-                            features: string[];
-                            capacity?: {
-                                [key: string]: unknown;
-                            };
-                        };
+                        "application/json": components["schemas"]["Entitlements"];
                     };
                 };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
             };
         };
         put?: never;
@@ -1559,24 +2219,188 @@ export interface components {
             /** @enum {string} */
             signature_scheme: "ensemus_hmac_sha256_v1";
         };
+        /** @enum {string} */
+        Classification: "public" | "internal" | "confidential" | "restricted";
+        StartAgentRunRequest: {
+            /** Format: uuid */
+            work_unit_id: string;
+            /** Format: uuid */
+            agent_version_id: string;
+        };
+        RunControlRequest: {
+            /** @enum {string} */
+            kind: "stop" | "pause" | "resume";
+        };
         AgentRun: {
             /** Format: uuid */
             id: string;
-            status: string;
+            /** Format: uuid */
+            work_unit_id: string;
             /** Format: uuid */
             agent_version_id: string;
             /** Format: uuid */
-            work_unit_id: string;
-            estimated_cost_usd?: number | null;
-            status_url?: string;
+            parent_run_id: string | null;
+            /** @enum {string} */
+            status: "queued" | "preparing" | "running" | "paused" | "waiting_for_approval" | "waiting_for_child" | "verifying" | "completed" | "failed" | "cancelled" | "budget_exhausted" | "policy_denied" | "timed_out" | "outcome_unverified";
+            stop_code: string | null;
+            effective_classification: components["schemas"]["Classification"];
+            model_turns: number;
+            tool_calls: number;
+            input_tokens: number;
+            output_tokens: number;
+            cost_micros: number;
+            cost_is_estimate: boolean;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            ended_at: string | null;
         };
+        /** @description Codes, counters and times. There is no field a model's words could reach. */
+        ExecutionStep: {
+            step_number: number;
+            /** @enum {string} */
+            kind: "prepare" | "model_turn" | "tool_call" | "approval_wait" | "delegation" | "verification";
+            /** @enum {string} */
+            state: "in_flight" | "completed" | "failed" | "cancelled";
+            label_code: string;
+            outcome: string | null;
+            decision_code: string | null;
+            /** Format: date-time */
+            started_at: string;
+            /** Format: date-time */
+            ended_at: string | null;
+        };
+        PublishAgentVersionRequest: {
+            /** @description An agent spec, per schemas/agent-definition.schema.json */
+            spec: Record<string, never>;
+            /** @description A report bound to this spec's SHA-256 and the policy version */
+            evaluation_report: Record<string, never>;
+        };
+        AgentVersion: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            definition_id: string;
+            version_number: number;
+            spec_sha256: string;
+            evaluation_report_sha256: string;
+            policy_version: string;
+            /** Format: uuid */
+            published_by_membership_id: string;
+            /** Format: date-time */
+            published_at: string;
+        };
+        CreateModelProfileRequest: {
+            /** @enum {string} */
+            provider_kind: "openai_hosted" | "anthropic_hosted" | "openai_compatible" | "local_openai_compatible";
+            model_id: string;
+            alias: string;
+            /** Format: uri */
+            endpoint_url: string;
+            /** @enum {string} */
+            billing_owner: "customer" | "ensemus";
+            region: string | null;
+            capabilities: ("text" | "tools" | "structured_output" | "vision" | "long_context")[];
+            limits: {
+                max_input_tokens: number;
+                max_output_tokens: number;
+            };
+            allowed_classes: components["schemas"]["Classification"][];
+            allowed_purposes: ("classify" | "extract" | "reason" | "research" | "compose")[];
+            /** @enum {string} */
+            retention_basis: "unreviewed" | "contract_recorded" | "self_hosted";
+            contract_ref: string | null;
+            fallback_profile_ids: string[];
+        };
+        UpdateModelProfileRequest: {
+            expected_version: number;
+            model_id?: string;
+            alias?: string;
+            /** Format: uri */
+            endpoint_url?: string;
+            /** @enum {string} */
+            billing_owner?: "customer" | "ensemus";
+            region?: string | null;
+            capabilities?: ("text" | "tools" | "structured_output" | "vision" | "long_context")[];
+            limits?: {
+                max_input_tokens: number;
+                max_output_tokens: number;
+            };
+            allowed_classes?: components["schemas"]["Classification"][];
+            allowed_purposes?: ("classify" | "extract" | "reason" | "research" | "compose")[];
+            /** @enum {string} */
+            retention_basis?: "unreviewed" | "contract_recorded" | "self_hosted";
+            contract_ref?: string | null;
+            fallback_profile_ids?: string[];
+        };
+        ModelCredentialRequest: {
+            expected_version: number;
+            /** @description Sealed at once. No response ever carries it. */
+            key: string;
+        };
+        ActivateModelProfileRequest: {
+            expected_version: number;
+        };
+        CreateRateCardRequest: {
+            input_micros_per_mtok: number;
+            output_micros_per_mtok: number;
+        };
+        /** @description Never a key or a reference to one. Only whether one is on file. */
         ModelProfile: {
             /** Format: uuid */
             id: string;
-            provider: string;
+            version: number;
+            /** @enum {string} */
+            provider_kind: "openai_hosted" | "anthropic_hosted" | "openai_compatible" | "local_openai_compatible";
+            has_credential: boolean;
+            /** @enum {string} */
+            status: "draft" | "probing" | "probe_failed" | "active" | "disabled";
+            /** Format: date-time */
+            qualified_at: string | null;
             model_id: string;
-            allowed_classes: string[];
-            region?: string | null;
+            alias: string;
+            /** Format: uri */
+            endpoint_url: string;
+            /** @enum {string} */
+            billing_owner: "customer" | "ensemus";
+            region: string | null;
+            capabilities: ("text" | "tools" | "structured_output" | "vision" | "long_context")[];
+            limits: {
+                max_input_tokens: number;
+                max_output_tokens: number;
+            };
+            allowed_classes: components["schemas"]["Classification"][];
+            allowed_purposes: ("classify" | "extract" | "reason" | "research" | "compose")[];
+            /** @enum {string} */
+            retention_basis: "unreviewed" | "contract_recorded" | "self_hosted";
+            contract_ref: string | null;
+            fallback_profile_ids: string[];
+        };
+        SetBudgetRequest: {
+            /** @enum {string} */
+            scope: "organization" | "agent_version";
+            /** Format: uuid */
+            agent_version_id: string | null;
+            period: string;
+            limit_micros: number;
+        };
+        UsageSummary: {
+            period: string;
+            limit_micros: number | null;
+            reserved_micros: number;
+            spent_micros: number;
+            billable: boolean;
+            is_estimate: boolean;
+            input_tokens: number;
+            output_tokens: number;
+        };
+        Entitlements: {
+            /** @enum {string} */
+            mode: "cloud" | "byom" | "sovereign";
+            features: string[];
+            capacity: {
+                [key: string]: number;
+            };
         };
         Error: {
             code: string;

@@ -41,3 +41,4 @@ DEP-TS-01,DEP,Concurrent migration jobs attempted,"Exactly one migrator, no data
 DEP-TS-02,DEP,Sovereign image signature verification,Tampered bundle rejected offline,high,not_implemented
 PERF-TS-01,PERF,Many agents during normal work,p95 web latency and fairness within tested thresholds,high,not_implemented
 DATA-TS-01,DATA,Drizzle transaction RLS pool reuse,No tenant context reused across pooled connections,high,not_implemented
+QA-AI-KILL,AI,"Kill switch engaged at each scope, with a stop committed and its signal lost",Queued runs and the next model call or tool effect are blocked; in-flight calls abort; unreadable switch state counts as halted,critical,not_implemented

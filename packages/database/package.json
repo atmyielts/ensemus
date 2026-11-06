@@ -9,6 +9,8 @@
     "./secrets": "./src/secrets.ts",
     "./migrate": "./src/migrate.ts",
     "./service": "./src/service.ts",
+    "./agent": "./src/agent.ts",
+    "./halt-operator": "./src/halt-operator.ts",
     "./dispatcher": "./src/dispatcher.ts",
     "./setup-token": "./src/setup-token.ts"
   },

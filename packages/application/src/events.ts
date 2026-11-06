@@ -26,8 +26,18 @@ export async function emit(tx: Tx, context: TenantContext, event: EmittedEvent):
     aggregateType: event.aggregateType,
     aggregateId: event.aggregateId,
     aggregateVersion: event.aggregateVersion,
-    actorType: context.actorType === 'service' ? 'system' : 'membership',
-    actorId: context.actorType === 'service' ? null : context.membershipId,
+    actorType:
+      context.actorType === 'service'
+        ? 'system'
+        : context.actorType === 'agent'
+          ? 'agent'
+          : 'membership',
+    actorId:
+      context.actorType === 'service'
+        ? null
+        : context.actorType === 'agent'
+          ? (context.agentRunId ?? null)
+          : context.membershipId,
     classification: event.classification,
     payload: event.payload,
     correlationId: event.correlationId ?? id,

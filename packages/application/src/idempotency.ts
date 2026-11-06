@@ -46,7 +46,7 @@ export async function runIdempotent<R>(
   perform: (database: AppDatabase) => Promise<R>,
   toResponse: (result: R) => StoredResponse,
 ): Promise<IdempotentOutcome> {
-  if (context.actorType === 'service') throw new AppError('FORBIDDEN');
+  if (context.actorType !== 'user') throw new AppError('FORBIDDEN');
   const parsed = keySchema.safeParse(request.key);
   if (!parsed.success) throw new AppError('INVALID_INPUT');
   const key = parsed.data;

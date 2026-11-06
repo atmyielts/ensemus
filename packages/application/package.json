@@ -4,7 +4,23 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./ai-ports": "./src/ai/ports.ts",
+    "./ai-model-profiles": "./src/ai/model-profiles.ts",
+    "./ai-model-probe-store": "./src/ai/model-probe-store.ts",
+    "./ai-usage": "./src/ai/usage.ts",
+    "./ai-budget": "./src/ai/budget.ts",
+    "./ai-agents": "./src/ai/agents.ts",
+    "./ai-runs": "./src/ai/runs.ts",
+    "./ai-tool-steps": "./src/ai/tool-steps.ts",
+    "./ai-tool-approvals": "./src/ai/tool-approvals.ts",
+    "./ai-external-action-port": "./src/ai/external-action-port.ts",
+    "./ai-halt": "./src/ai/halt.ts",
+    "./ai-timeline": "./src/ai/timeline.ts",
+    "./ai-run-control": "./src/ai/run-control.ts",
+    "./ai-delegation": "./src/ai/delegation.ts",
+    "./ai-context-source": "./src/ai/context-source.ts",
+    "./ai-egress-log": "./src/ai/egress-log.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"
@@ -13,6 +29,7 @@
     "@ensemus/contracts": "workspace:*",
     "@ensemus/database": "workspace:*",
     "@ensemus/domain": "workspace:*",
+    "@ensemus/policy": "workspace:*",
     "drizzle-orm": "0.45.4",
     "zod": "4.6.7"
   }

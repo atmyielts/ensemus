@@ -36,7 +36,7 @@ const connectorCode = {
     'Connectors run in the connector worker. The web tier may read manifests only (ADR-027).',
 };
 const testDoubles = {
-  group: ['@ensemus/connectors/testing'],
+  group: ['@ensemus/connectors/testing', '@ensemus/intelligence/testing'],
   message: 'Test doubles never reach a shipped image.',
 };
 const connectorReach = {
@@ -76,6 +76,85 @@ const rawNetwork = {
   message:
     'A connector goes out only through ConnectorNetwork, to the egress gateway (ADR-027 D5).',
 };
+
+// Governed AI (ADR-028). Only agent-worker's code may open the agent role or reach a model.
+const agentDatabase = {
+  group: ['@ensemus/database/agent', '@ensemus/database/halt-operator'],
+  message: 'Agent-worker only: this role can read prompts and write usage (ADR-028 FD-4).',
+};
+const agentCodeFromWeb = {
+  group: [
+    '@ensemus/intelligence',
+    '@ensemus/intelligence/*',
+    '@ensemus/agent-runtime',
+    '@ensemus/agent-runtime/*',
+    '@ensemus/application/ai-usage',
+    '@ensemus/application/ai-runs',
+    '@ensemus/application/ai-tool-steps',
+    '@ensemus/application/ai-delegation',
+    '@ensemus/application/ai-context-source',
+    '@ensemus/application/ai-external-action-port',
+    '@ensemus/application/ai-model-probe-store',
+  ],
+  message: 'The web tier starts and shows runs. It never runs one, and has no key (ADR-028 FD-2).',
+};
+const serviceContext = {
+  group: ['@ensemus/database/service'],
+  message:
+    'An agent acts as its initiator through createAgentContext. A service context skips every Work Unit check (ADR-028 FD-3).',
+};
+const anyDatabase = {
+  group: ['@ensemus/database', '@ensemus/database/*', 'drizzle-orm', 'drizzle-orm/*'],
+  message:
+    'No database here. Name what you need in @ensemus/application/ai-ports, so a model call can never sit inside a transaction (ADR-028).',
+};
+const aiCore = {
+  regex: '^(ai(/.*)?|@ai-sdk/gateway(/.*)?)$',
+  message:
+    'Provider packages only. The core retries by default, and a bare model string can resolve to a hosted gateway (ADR-028 FD-11).',
+};
+const policyReach = {
+  group: [
+    '@ensemus/application',
+    '@ensemus/application/*',
+    '@ensemus/database',
+    '@ensemus/database/*',
+    '@ensemus/intelligence',
+    '@ensemus/intelligence/*',
+    '@ensemus/agent-runtime',
+    '@ensemus/agent-runtime/*',
+    '@ensemus/secrets',
+    '@ensemus/secrets/*',
+    '@ai-sdk/*',
+    'undici',
+    'drizzle-orm',
+    'drizzle-orm/*',
+    '@temporalio/*',
+  ],
+  message: 'Policy is pure: no database, SDK or network, and it never asks a model (ADR-012).',
+};
+const anything = {
+  regex: '.*',
+  message: 'The reducer imports nothing, so the workflow sandbox can load it and tests reach it all.',
+};
+const rawNetworkForModels = {
+  regex: '^((node:)?(net|http|https|http2|dgram|dns|tls)|undici)$',
+  message: 'A model call goes out only through the guarded fetch in src/net (ADR-028 FD-10).',
+};
+
+// Files that are agent-worker's own, so they alone may name the agent database entry.
+const agentWorkerFiles = [
+  'workers/workflow/src/agent-main.ts',
+  'workers/workflow/src/kill-switch.ts',
+  'workers/workflow/src/halt-global.ts',
+  'packages/workflows/src/agent-activities.ts',
+  'packages/application/src/ai/runs.ts',
+  'packages/application/src/ai/usage.ts',
+  'packages/application/src/ai/tool-steps.ts',
+  'packages/application/src/ai/delegation.ts',
+  'packages/application/src/ai/context-source.ts',
+  'packages/application/src/ai/model-probe-store.ts',
+];
 
 export default tseslint.config(
   {
@@ -122,17 +201,58 @@ export default tseslint.config(
   },
   restrict(
     ['**/*.{ts,tsx}'],
-    [rawDatabase, authDatabase],
+    [rawDatabase, authDatabase, agentDatabase],
     ['packages/database/**', 'packages/auth/**', 'tests/**', 'apps/web/**'],
   ),
   restrict(['packages/auth/**/*.ts'], [rawDatabase, temporal, broker]),
   restrict(
     ['apps/web/**/*.{ts,tsx}'],
-    [rawDatabase, authDatabase, temporal, broker, connectorCode],
+    [rawDatabase, authDatabase, temporal, broker, connectorCode, agentDatabase, agentCodeFromWeb, testDoubles],
   ),
   restrict(
     ['workers/**/*.ts', 'packages/workflows/**/*.ts'],
-    [rawDatabase, authDatabase, testDoubles],
+    [rawDatabase, authDatabase, testDoubles, agentDatabase],
+    agentWorkerFiles,
+  ),
+  // Agent code. A rule set on the same files replaces the one before it, so each names everything.
+  restrict(
+    ['packages/policy/**/*.ts'],
+    [rawDatabase, authDatabase, policyReach, aiCore, rawNetworkForModels],
+  ),
+  restrict(
+    ['packages/commercial/**/*.ts'],
+    [rawDatabase, authDatabase, agentDatabase, serviceContext],
+  ),
+  restrict(
+    ['packages/application/src/ai/**/*.ts'],
+    [rawDatabase, authDatabase, agentDatabase, serviceContext, temporal],
+    agentWorkerFiles,
+  ),
+  restrict(
+    agentWorkerFiles,
+    [rawDatabase, authDatabase, serviceContext],
+    ['workers/workflow/src/halt-global.ts'],
+  ),
+  restrict(['workers/workflow/src/halt-global.ts'], [rawDatabase, authDatabase, serviceContext]),
+  restrict(
+    ['packages/agent-runtime/**/*.ts'],
+    [rawDatabase, authDatabase, anyDatabase, serviceContext, temporal, aiCore],
+    ['packages/agent-runtime/src/reducer.ts'],
+  ),
+  restrict(['packages/agent-runtime/src/reducer.ts'], [anything]),
+  restrict(
+    ['packages/intelligence/**/*.ts'],
+    [rawDatabase, authDatabase, anyDatabase, serviceContext, temporal, aiCore, rawNetworkForModels],
+    ['packages/intelligence/src/net/**', 'packages/intelligence/src/testing/**'],
+  ),
+  restrict(
+    ['packages/intelligence/src/net/**', 'packages/intelligence/src/testing/**'],
+    [rawDatabase, authDatabase, anyDatabase, serviceContext, temporal, aiCore],
+  ),
+  // The agent's workflow files are workflow code: nothing but the SDK, types and the reducer.
+  restrict(
+    ['packages/workflows/src/agent-run.ts', 'packages/workflows/src/model-probe.ts'],
+    [rawDatabase, authDatabase, agentDatabase, serviceContext, testDoubles],
   ),
   // packages/connectors, in two parts. A rule set on the same files replaces the one before it, so
   // the first has to name everything: its testing folder may use a socket, and network.ts must.
@@ -153,6 +273,19 @@ export default tseslint.config(
         {
           name: 'fetch',
           message: 'A connector goes out only through ConnectorNetwork (ADR-027 D5).',
+        },
+      ],
+    },
+  },
+  {
+    files: ['packages/intelligence/**/*.ts'],
+    ignores: ['packages/intelligence/src/net/**', 'packages/intelligence/src/testing/**'],
+    rules: {
+      'no-restricted-globals': [
+        'error',
+        {
+          name: 'fetch',
+          message: 'A model call uses the guarded fetch it was handed (ADR-028 FD-10).',
         },
       ],
     },

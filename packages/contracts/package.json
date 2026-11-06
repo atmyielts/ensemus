@@ -6,6 +6,8 @@
   "exports": {
     ".": "./src/index.ts",
     "./external-actions": "./src/external-actions.ts",
+    "./ai": "./src/ai.ts",
+    "./ai-tools": "./src/ai-tools.ts",
     "./openapi": "./generated/openapi.d.ts"
   },
   "scripts": {

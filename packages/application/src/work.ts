@@ -1,6 +1,7 @@
 // Work Unit services. Each one checks permission itself: callers are not trusted to have done so.
 import { createHash, randomUUID } from 'node:crypto';
 import {
+  actorOf,
   appendAudit,
   artifacts,
   domainEvents,
@@ -136,7 +137,7 @@ export async function memberCanRead(
 /**
  * Loads a Work Unit for reading. Work someone may not see is reported as not found, so its existence
  * does not leak. Workflow Activities run as a service, and only ever on the unit they were started
- * for; agent runs get real delegation checks in M4.
+ * for. An agent is not a service: it falls through here to its initiator's access (ADR-028 FD-3).
  */
 export async function loadReadable(tx: Tx, context: TenantContext, id: string, lock = false) {
   const query = tx.select().from(workUnits).where(eq(workUnits.id, id));
@@ -605,8 +606,7 @@ export async function auditAction(
 ) {
   await appendAudit(tx, {
     organizationId: context.organizationId,
-    actorType: context.actorType === 'service' ? 'service' : 'user',
-    ...(context.actorType === 'service' ? {} : { actorId: context.membershipId }),
+    ...actorOf(context),
     action,
     targetRef,
     decision: 'allow',
@@ -858,8 +858,7 @@ export async function applyTransition(
   });
   await appendAudit(tx, {
     organizationId: context.organizationId,
-    actorType: context.actorType === 'service' ? 'service' : 'user',
-    ...(context.actorType === 'service' ? {} : { actorId: context.membershipId }),
+    ...actorOf(context),
     action: 'work.transitioned',
     targetRef: `work_unit:${current.id}`,
     decision: 'allow',

@@ -11,7 +11,11 @@
     "./external-action": "./src/external-action.ts",
     "./integration-events": "./src/integration-events.ts",
     "./webhook": "./src/webhook.ts",
-    "./connector": "./src/connector.ts"
+    "./connector": "./src/connector.ts",
+    "./ai": "./src/ai.ts",
+    "./ai-binding": "./src/ai-binding.ts",
+    "./ai-events": "./src/ai-events.ts",
+    "./ai-tools": "./src/ai-tools.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"

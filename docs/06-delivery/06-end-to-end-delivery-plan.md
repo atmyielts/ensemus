@@ -136,7 +136,7 @@ Every milestone must meet the spec's [Definition of Done](../06-delivery/03-acce
 - Emergency kill switch, evaluation harness and red-team suite.
 - BYOM credential capture.
 
-**Tickets:** `MODEL-01–04/06`, `AI-13`, `AGENT-01–06`, `SEC-01/02/04/06/11`, `COMM-02`.
+**Tickets:** `MODEL-01–04/06`, `AI-13`, `AGENT-01–06/15/16`, `SEC-01/02/04/06/11/13/14`, `COMM-02`. Decisions are in [ADR-028](../00-foundation/adr/ADR-028-governed-ai.md), and who builds what is in [m4-slices.md](m4-slices.md).
 
 **Exit:** Slice 3 passes. `QA-009/010/012–014` and `QA-018` pass. Gate C passes for one agent. You use it with your own keys.
 
