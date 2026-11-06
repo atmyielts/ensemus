@@ -551,25 +551,77 @@ export async function auditAction(
   });
 }
 
-/** Closes approvals on a Work Unit that can no longer mean anything. */
+/**
+ * Everything closing an open approval has to do once it is closed, whatever closed it: nobody is left
+ * being asked, the record says why, the event gives it an end, and the people relying on it are told.
+ * `kind` has to state the true reason, because it is what the inbox shows them. The work is given as
+ * it now stands, so the event's version is not behind a transition in the same transaction.
+ */
+export async function recordApprovalClosed(
+  tx: Tx,
+  context: TenantContext,
+  work: { id: string; version: number; classification: string },
+  approvalId: string,
+  closing: {
+    reason: string;
+    kind: string;
+    tell: ReadonlyArray<string | null | undefined>;
+  },
+) {
+  await clearApprovalNotifications(tx, [approvalId]);
+  await auditAction(tx, context, 'approval.closed', `approval:${approvalId}`, closing.reason);
+  await emit(tx, context, {
+    eventType: 'approval.resolved',
+    aggregateType: 'work_unit',
+    aggregateId: work.id,
+    aggregateVersion: work.version,
+    classification: work.classification,
+    payload: { approval_id: approvalId, work_unit_id: work.id, outcome: 'cancelled' },
+  });
+  await notify(tx, context, closing.tell, closing.kind, `work_unit:${work.id}`);
+}
+
+/** The work finished or went round again, which is a different thing to tell someone. */
+const CLOSED_WITH_THE_WORK = {
+  WORK_FINISHED: 'approval.work_finished',
+  WORK_REOPENED: 'approval.work_reopened',
+} as const;
+
+/**
+ * Closes approvals on a Work Unit that can no longer mean anything. An approved one was resolved when
+ * it was decided, so it ends with no second resolution and nobody to tell.
+ */
 async function closeApprovals(
   tx: Tx,
   context: TenantContext,
-  workUnitId: string,
+  work: WorkRow,
   statuses: readonly string[],
-  reason: string,
+  reason: keyof typeof CLOSED_WITH_THE_WORK,
 ) {
+  const open = new Map(
+    (
+      await tx
+        .select({ id: approvals.id, requestedBy: approvals.requestedByMembershipId })
+        .from(approvals)
+        .where(and(eq(approvals.workUnitId, work.id), eq(approvals.status, 'pending')))
+    ).map((row) => [row.id, row.requestedBy]),
+  );
   const closed = await tx
     .update(approvals)
     .set({ status: 'cancelled', decidedAt: new Date() })
-    .where(and(eq(approvals.workUnitId, workUnitId), inArray(approvals.status, [...statuses])))
+    .where(and(eq(approvals.workUnitId, work.id), inArray(approvals.status, [...statuses])))
     .returning({ id: approvals.id });
-  await clearApprovalNotifications(
-    tx,
-    closed.map((row) => row.id),
-  );
   for (const { id } of closed) {
-    await auditAction(tx, context, 'approval.closed', `approval:${id}`, reason);
+    if (open.has(id)) {
+      await recordApprovalClosed(tx, context, work, id, {
+        reason,
+        kind: CLOSED_WITH_THE_WORK[reason],
+        tell: [open.get(id)],
+      });
+    } else {
+      await clearApprovalNotifications(tx, [id]);
+      await auditAction(tx, context, 'approval.closed', `approval:${id}`, reason);
+    }
   }
 }
 
@@ -577,10 +629,19 @@ async function closeApprovals(
  * The work changed, so an open review of its old content is no longer the question. Closing it means
  * nobody is asked about something that has gone. Approved reviews need no change here: evidence is
  * worked out from what they bound, so they stop counting by themselves.
+ *
+ * Content cannot change while a review holds its work, so only re-applying the tombstone ledger can
+ * bring that here. It ends the same way as a reviewer losing access: a plan cannot go on without its
+ * reviewer, so that run fails, and paused manual work stays paused for someone to ask another person.
  */
 export async function closeOutdatedReviews(tx: Tx, context: TenantContext, work: WorkRow) {
   const open = await tx
-    .select({ id: approvals.id, hash: approvals.actionHash })
+    .select({
+      id: approvals.id,
+      hash: approvals.actionHash,
+      holdsWork: approvals.holdsWork,
+      requestedBy: approvals.requestedByMembershipId,
+    })
     .from(approvals)
     .where(
       and(
@@ -597,8 +658,13 @@ export async function closeOutdatedReviews(tx: Tx, context: TenantContext, work:
       .update(approvals)
       .set({ status: 'cancelled', decidedAt: new Date() })
       .where(eq(approvals.id, review.id));
-    await clearApprovalNotifications(tx, [review.id]);
-    await auditAction(tx, context, 'approval.closed', `approval:${review.id}`, 'CONTENT_CHANGED');
+    const paused = review.holdsWork && work.status === 'awaiting_approval';
+    const now = paused && work.runId ? await failRun(tx, context, work) : work;
+    await recordApprovalClosed(tx, context, now, review.id, {
+      reason: 'CONTENT_CHANGED',
+      kind: 'approval.outdated',
+      tell: [review.requestedBy, paused ? work.ownerMembershipId : null],
+    });
   }
 }
 
@@ -650,31 +716,12 @@ export async function closeReviewsForLostAccess(
       .returning({ id: approvals.id });
     // It was decided while this waited for the lock, so that decision stands and nothing closed.
     if (closed.length === 0) continue;
-    await clearApprovalNotifications(tx, [review.id]);
-    await auditAction(
-      tx,
-      context,
-      'approval.closed',
-      `approval:${review.id}`,
-      'APPROVER_LOST_ACCESS',
-    );
-    await notify(
-      tx,
-      context,
-      [work.ownerMembershipId, review.requestedBy],
-      'approval.closed',
-      `work_unit:${work.id}`,
-    );
-    if (review.holdsWork && work.status === 'awaiting_approval' && work.runId) {
-      await failRun(tx, context, work);
-    }
-    await emit(tx, context, {
-      eventType: 'approval.resolved',
-      aggregateType: 'work_unit',
-      aggregateId: work.id,
-      aggregateVersion: work.version,
-      classification: work.classification,
-      payload: { approval_id: review.id, work_unit_id: work.id, outcome: 'cancelled' },
+    const endsRun = review.holdsWork && work.status === 'awaiting_approval' && work.runId;
+    const now = endsRun ? await failRun(tx, context, work) : work;
+    await recordApprovalClosed(tx, context, now, review.id, {
+      reason: 'APPROVER_LOST_ACCESS',
+      kind: 'approval.closed',
+      tell: [work.ownerMembershipId, review.requestedBy],
     });
   }
 }
@@ -725,6 +772,7 @@ export async function applyTransition(
   await tx.insert(workTransitions).values({
     organizationId: context.organizationId,
     workUnitId: current.id,
+    fromVersion: current.version,
     fromStatus: current.status,
     toStatus: to,
     actorMembershipId: context.actorType === 'service' ? null : context.membershipId,
@@ -768,13 +816,25 @@ export async function applyTransition(
     });
   }
 
+  // A person moving work out of ready withdraws any plan run asked for, so whoever asked is told. A
+  // run claiming the work acts as a service, and that is the request being answered.
+  if (current.status === 'ready' && current.runRequestedAt && context.actorType === 'user') {
+    await notify(
+      tx,
+      context,
+      [current.runRequestedByMembershipId],
+      'work.run_withdrawn',
+      `work_unit:${current.id}`,
+    );
+  }
+
   // Finished work has nothing left to decide, so nobody is left being asked.
   if (to === 'cancelled' || to === 'completed' || to === 'failed') {
-    await closeApprovals(tx, context, current.id, ['pending'], 'WORK_FINISHED');
+    await closeApprovals(tx, context, row, ['pending'], 'WORK_FINISHED');
   }
   // Going round again starts afresh: a review from an earlier round is not a review of this one.
   if (to === 'ready' && (current.status === 'completed' || current.status === 'failed')) {
-    await closeApprovals(tx, context, current.id, ['pending', 'approved'], 'WORK_REOPENED');
+    await closeApprovals(tx, context, row, ['pending', 'approved'], 'WORK_REOPENED');
   }
   if (to === 'cancelled' || to === 'failed') {
     const kind = to === 'cancelled' ? 'work.stopped' : 'work.failed';
@@ -849,10 +909,30 @@ export function transitionWorkUnit(
 }
 
 /**
+ * Refuses someone a review cannot be asked of. Shared, so that disabling or demoting this person at
+ * this moment either waits for this request to commit and then closes it, or commits first and is
+ * seen here. Plain reads would miss each other. Being asked is not an access grant, and an approver has
+ * to be able to see what they are approving.
+ */
+export async function assertCanBeAskedToReview(tx: Tx, work: WorkRow, membershipId: string) {
+  await assertActiveMember(tx, membershipId);
+  const [approver] = await tx
+    .select({ id: memberships.id, role: memberships.role, status: memberships.status })
+    .from(memberships)
+    .where(eq(memberships.id, membershipId))
+    .for('share');
+  if (approver?.status !== 'active') throw new AppError('INVALID_INPUT');
+  if (!(await memberCanRead(tx, work, { membershipId: approver.id, role: approver.role }))) {
+    throw new AppError('INVALID_INPUT');
+  }
+}
+
+/**
  * Asks for this Work Unit's plan to run. The dispatcher starts the workflow from this event. When the
  * plan needs a review, it is decided now who gives it, and that can never be the person running it.
  * A request that stands cannot be repeated, or a second person could replace the named reviewer. If
- * nothing picks it up, the periodic sweep asks again, and starting by hand withdraws it.
+ * nothing picks it up, the periodic sweep asks again, and starting by hand withdraws it. It moves the
+ * version like any other change, so a form rendered before it cannot withdraw it without seeing it.
  */
 export function requestExecution(
   database: AppDatabase,
@@ -871,25 +951,31 @@ export function requestExecution(
     const reviewer = options.reviewerMembershipId ?? current.ownerMembershipId;
     if (needsReview) {
       if (reviewer === context.membershipId) throw new AppError('APPROVAL_SELF_APPROVAL');
-      await assertActiveMember(tx, reviewer);
+      // Checked here, while a person can still be told. Access lost after this ends in a failed run.
+      await assertCanBeAskedToReview(tx, current, reviewer);
     }
-    await tx
+    const nextVersion = current.version + 1;
+    const [row] = await tx
       .update(workUnits)
       .set({
         runRequestedAt: new Date(),
         runRequestedByMembershipId: context.membershipId,
         planReviewerMembershipId: needsReview ? reviewer : null,
+        version: nextVersion,
+        updatedAt: new Date(),
       })
-      .where(eq(workUnits.id, id));
+      .where(and(eq(workUnits.id, id), eq(workUnits.version, current.version)))
+      .returning();
+    if (!row) throw new AppError('VERSION_CONFLICT');
     await emit(tx, context, {
       eventType: 'work.execution_requested',
       aggregateType: 'work_unit',
       aggregateId: id,
-      aggregateVersion: current.version,
+      aggregateVersion: nextVersion,
       classification: current.classification,
       payload: { work_unit_id: id },
     });
-    return current;
+    return row;
   });
 }
 
@@ -1331,7 +1417,12 @@ export function getWorkDetail(database: AppDatabase, context: TenantContext, id:
       .leftJoin(memberships, eq(memberships.id, workTransitions.actorMembershipId))
       .leftJoin(users, eq(users.id, memberships.userId))
       .where(eq(workTransitions.workUnitId, id))
-      .orderBy(desc(workTransitions.occurredAt));
+      // Moves in one transaction share a time, so the version is what puts them in order. Rows from
+      // before it was recorded are the oldest, and have only their time to go on.
+      .orderBy(
+        sql`${workTransitions.fromVersion} desc nulls last`,
+        desc(workTransitions.occurredAt),
+      );
     const facts = accessFacts(work, await assignedTo(tx, context, id));
     const isService = context.actorType === 'service';
     const canChange = isService || canChangeWork(facts, viewer(context));

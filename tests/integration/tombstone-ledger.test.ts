@@ -12,11 +12,17 @@ import {
   createWorkUnit,
   deleteArtifact,
   getApproval,
+  getWorkUnit,
+  listMyNotifications,
   objectKey,
   purgeDueBlobs,
+  quarantineLedgerObject,
   readArtifact,
   reapplyTombstoneLedger,
+  requestExecution,
   requestWorkReview,
+  transitionWorkUnit,
+  updateWorkUnit,
   type LedgerReader,
   type ObjectStore,
 } from '@ensemus/application';
@@ -35,9 +41,13 @@ import {
 import { createServiceContext } from '@ensemus/database/service';
 import {
   ledgerKeyFor,
+  ledgerRef,
+  quarantineKeyFor,
   serializeLedgerEntry,
   TOMBSTONE_RECORDED,
+  type LedgerEntry,
 } from '@ensemus/domain/tombstone-ledger';
+import { createActivities } from '@ensemus/workflows/activities';
 import { sql } from 'drizzle-orm';
 import { urls } from '../helpers/stack';
 
@@ -291,6 +301,43 @@ describe('the tombstone ledger', () => {
       await createWorkUnit(db(), a, { title: 'Another event entirely' });
       expect((await eventBacklog(dispatcher.db, TOMBSTONE_RECORDED)).queued).toBe(0);
     });
+
+    it('writes a tombstone during a Temporal outage, which it does not need Temporal for', async () => {
+      const a = await newOrg();
+      const store = new MemoryStore();
+      const work = await createWorkUnit(db(), a, { title: 'W' });
+      const { id } = await file(a, store, work.id);
+      await drain();
+      // Ahead of the tombstone in the queue, with something else behind it.
+      await updateWorkUnit(db(), a, work.id, 1, { title: 'Ahead of it' });
+      await deleteArtifact(db(), store, a, { workUnitId: work.id, artifactId: id });
+      await createWorkUnit(db(), a, { title: 'Behind it' });
+
+      const written: string[] = [];
+      let tried = 0;
+      const result = await dispatchDueEvents(
+        dispatcher.db,
+        async (event) => {
+          if (event.eventType === TOMBSTONE_RECORDED) {
+            written.push(event.aggregateId);
+            return;
+          }
+          tried += 1;
+          throw new Error('Temporal is down');
+        },
+        {
+          classify: () => 'outage',
+          needsOnlyTheStore: (event) => event.eventType === TOMBSTONE_RECORDED,
+        },
+      );
+
+      expect(written).toEqual([id]);
+      // The first failure still holds everything that needs Temporal, instead of a timeout each.
+      expect(tried).toBe(1);
+      expect(result.handled).toBe(1);
+      expect(result.deferred).toBeGreaterThanOrEqual(2);
+      expect(await eventBacklog(dispatcher.db, TOMBSTONE_RECORDED)).toMatchObject({ queued: 0 });
+    });
   });
 
   describe('noticing a database that went back in time', () => {
@@ -451,9 +498,143 @@ describe('the tombstone ledger', () => {
       await gate.assertServing(a);
       expect(asked).toBe(2);
     });
+
+    /** A store that answers only when told to, and fails or lists nothing depending on the test. */
+    function heldStore() {
+      const store = new MemoryStore();
+      let asked = 0;
+      let down = false;
+      let release: () => void = () => undefined;
+      let held: Promise<void> | null = null;
+      return {
+        store,
+        asked: () => asked,
+        goDown: () => (down = true),
+        comeBack: () => (down = false),
+        hold: () => (held = new Promise((done) => (release = done))),
+        release: () => {
+          held = null;
+          release();
+        },
+        reader: {
+          async *listPages(prefix: string) {
+            asked += 1;
+            if (held) await held;
+            if (down) throw new Error('store is down');
+            yield* store.listPages(prefix);
+          },
+        },
+      };
+    }
+
+    it('makes nobody wait again once a check has failed, for as long as the store stays down', async () => {
+      const a = await newOrg();
+      const held = heldStore();
+      const { gate, failures, pass } = gateOver(held.reader);
+      await gate.assertServing(a);
+
+      held.goDown();
+      pass(30_001);
+      // The check that finds out: this one can wait, and it reports the failure.
+      await gate.assertServing(a);
+      expect(failures).toHaveLength(1);
+      expect(held.asked()).toBe(2);
+
+      // The store now hangs. If anyone waited for this check, the test would never get past here.
+      held.hold();
+      pass(30_001);
+      await expect(gate.assertServing(a)).resolves.toBeUndefined();
+      await expect(gate.assertServing(a)).resolves.toBeUndefined();
+      expect(held.asked()).toBe(3);
+
+      // It finishes behind them, and the answer holds for the next ones.
+      held.comeBack();
+      inLedger(held.store, a.organizationId, randomUUID());
+      held.release();
+      await expect
+        .poll(() =>
+          gate.assertServing(a).then(
+            () => 'open',
+            () => 'closed',
+          ),
+        )
+        .toBe('closed');
+    });
+
+    it('stays closed without waiting while the store is down', async () => {
+      const a = await newOrg();
+      const held = heldStore();
+      inLedger(held.store, a.organizationId, randomUUID());
+      const { gate, pass } = gateOver(held.reader);
+      await expect(gate.assertServing(a)).rejects.toEqual(closed);
+
+      held.goDown();
+      pass(2_001);
+      await expect(gate.assertServing(a)).rejects.toEqual(closed);
+
+      held.hold();
+      pass(2_001);
+      await expect(gate.assertServing(a)).rejects.toEqual(closed);
+      held.release();
+    });
+
+    it('waits for one check no longer than its limit, however many pages it has to read', async () => {
+      const a = await newOrg();
+      const held = heldStore();
+      held.hold();
+      const reported: unknown[] = [];
+      const gate = createRestoreGate({
+        database: db(),
+        store: held.reader,
+        now: () => 1_000_000,
+        waitMs: 300,
+        onCheckFailed: (error) => reported.push(error),
+      });
+      // The first check of this tenant has nothing to go on, and is not left waiting for ever.
+      await expect(gate.assertServing(a)).resolves.toBeUndefined();
+      expect(reported).toEqual([expect.objectContaining({ code: 'CHECK_TIMEOUT' })]);
+      // Everyone else asking meanwhile does not start the wait again.
+      const started = Date.now();
+      await expect(gate.assertServing(a)).resolves.toBeUndefined();
+      expect(Date.now() - started).toBeLessThan(200);
+      expect(held.asked()).toBe(1);
+
+      // The slow check still counts when it ends, so a slow store cannot hide a restore for good.
+      inLedger(held.store, a.organizationId, randomUUID());
+      held.release();
+      await expect
+        .poll(() =>
+          gate.assertServing(a).then(
+            () => 'open',
+            () => 'closed',
+          ),
+        )
+        .toBe('closed');
+    });
+
+    it('still refuses at the first request after its interval while the store is healthy', async () => {
+      const a = await newOrg();
+      const store = new MemoryStore();
+      const { gate, pass } = gateOver(store);
+      await gate.assertServing(a);
+      inLedger(store, a.organizationId, randomUUID());
+      pass(30_001);
+      await expect(gate.assertServing(a)).rejects.toEqual(closed);
+    });
   });
 
   describe('re-applying the ledger', () => {
+    /** What an operator says for an entry naming a file that is still whole. */
+    const confirming = (organizationId: string, ...ids: string[]) => ({
+      confirmed: new Set(
+        ids.map((targetId) => ledgerRef({ organizationId, targetType: 'artifact', targetId })),
+      ),
+    });
+
+    /** The usual state after a restore: the row came back, and the bytes went at deletion. */
+    const withoutBytes = (store: MemoryStore, organizationId: string, id: string) =>
+      store.objects.delete(objectKey(organizationId, id));
+
     it('blocks the file, removes its references and its bytes, and leaves other files', async () => {
       const a = await newOrg();
       const store = new MemoryStore();
@@ -468,7 +649,13 @@ describe('the tombstone ledger', () => {
         (await readArtifact(db(), store, a, { workUnitId: work.id, artifactId: doomed.id })).name,
       ).toBe('doomed.txt');
 
-      const result = await reapplyTombstoneLedger(db(), store, createServiceContext);
+      const result = await reapplyTombstoneLedger(
+        db(),
+        store,
+        createServiceContext,
+        undefined,
+        confirming(a.organizationId, doomed.id),
+      );
       expect(result).toMatchObject({
         tombstonesAdded: 1,
         artifactsRemoved: 1,
@@ -518,7 +705,9 @@ describe('the tombstone ledger', () => {
       const work = await createWorkUnit(db(), a, { title: 'W' });
       const doomed = await file(a, store, work.id);
       inLedger(store, a.organizationId, doomed.id);
+      withoutBytes(store, a.organizationId, doomed.id);
       const first = await reapplyTombstoneLedger(db(), store, createServiceContext);
+      expect(first.tombstonesAdded).toBeGreaterThanOrEqual(1);
       const before = await stateOf(a.organizationId);
       const objects = [...store.objects.keys()].sort();
 
@@ -530,6 +719,7 @@ describe('the tombstone ledger', () => {
         bytesRemoved: 0,
         organizationsMissing: first.organizationsMissing,
         invalid: 0,
+        unconfirmed: 0,
         failed: 0,
       });
       expect(await stateOf(a.organizationId)).toEqual(before);
@@ -542,10 +732,12 @@ describe('the tombstone ledger', () => {
       const work = await createWorkUnit(db(), a, { title: 'W' });
       const doomed = await file(a, store, work.id);
       inLedger(store, a.organizationId, doomed.id);
+      withoutBytes(store, a.organizationId, doomed.id);
       await reapplyTombstoneLedger(db(), store, createServiceContext);
       const before = await stateOf(a.organizationId);
 
-      // An object store rolled back separately from the database.
+      // An object store rolled back separately from the database. The database's own tombstone says
+      // this file was deleted, so this needs nobody's word for it.
       const key = objectKey(a.organizationId, doomed.id);
       store.objects.set(key, Buffer.from('back again'));
       const again = await reapplyTombstoneLedger(db(), store, createServiceContext);
@@ -588,11 +780,254 @@ describe('the tombstone ledger', () => {
         approverMembershipId: approver.membershipId,
       });
       inLedger(store, a.organizationId, doomed.id);
+      withoutBytes(store, a.organizationId, doomed.id);
 
       await reapplyTombstoneLedger(db(), store, createServiceContext);
 
       const approval = await getApproval(db(), a, review.id);
       expect(approval.approval.status).toBe('cancelled');
+    });
+
+    const resolvedOutcomes = async (workUnitId: string) =>
+      (
+        await su.query(
+          `select payload->>'outcome' as outcome from platform.domain_events
+           where aggregate_id = $1 and event_type = 'approval.resolved'`,
+          [workUnitId],
+        )
+      ).rows.map((row: { outcome: string }) => row.outcome);
+
+    it('tells people when the review it closes was holding manual work, which stays paused', async () => {
+      const a = await newOrg();
+      const asker = await join(a, 'asker');
+      const approver = await join(a, 'approver');
+      const store = new MemoryStore();
+      const work = await createWorkUnit(db(), a, { title: 'W' });
+      const doomed = await file(a, store, work.id);
+      let current = await getWorkUnit(db(), a, work.id);
+      for (const to of ['ready', 'running'] as const) {
+        current = await transitionWorkUnit(db(), a, {
+          id: work.id,
+          expectedVersion: current.version,
+          to,
+        });
+      }
+      await requestWorkReview(db(), asker, {
+        workUnitId: work.id,
+        expectedVersion: current.version,
+        approverMembershipId: approver.membershipId,
+      });
+      expect((await getWorkUnit(db(), a, work.id)).status).toBe('awaiting_approval');
+      inLedger(store, a.organizationId, doomed.id);
+      withoutBytes(store, a.organizationId, doomed.id);
+
+      await reapplyTombstoneLedger(db(), store, createServiceContext);
+
+      // Only a decision can release it, and there is now nothing to decide, so someone has to ask.
+      expect((await getWorkUnit(db(), a, work.id)).status).toBe('awaiting_approval');
+      expect(await resolvedOutcomes(work.id)).toEqual(['cancelled']);
+      const told = async (context: TenantContext) =>
+        (await listMyNotifications(db(), context)).map((n) => n.kind);
+      expect(await told(a)).toContain('approval.outdated');
+      expect(await told(asker)).toContain('approval.outdated');
+    });
+
+    it('ends the run when the review it closes was holding a plan', async () => {
+      const a = await newOrg();
+      const approver = await join(a, 'approver');
+      const store = new MemoryStore();
+      const work = await createWorkUnit(db(), a, {
+        title: 'W',
+        executionPlan: 'checklist',
+        completionCriteria: [{ kind: 'reviewer_approved' }],
+      });
+      const doomed = await file(a, store, work.id);
+      const edited = await getWorkUnit(db(), a, work.id);
+      await transitionWorkUnit(db(), a, {
+        id: work.id,
+        expectedVersion: edited.version,
+        to: 'ready',
+      });
+      await requestExecution(db(), a, work.id, { reviewerMembershipId: approver.membershipId });
+      const activities = createActivities({ database: db(), store });
+      const run = { organizationId: a.organizationId, workUnitId: work.id, runId: randomUUID() };
+      await activities.prepareWork(run);
+      await activities.requestReview(run);
+      expect((await getWorkUnit(db(), a, work.id)).status).toBe('awaiting_approval');
+      inLedger(store, a.organizationId, doomed.id);
+      withoutBytes(store, a.organizationId, doomed.id);
+
+      await reapplyTombstoneLedger(db(), store, createServiceContext);
+
+      const after = await getWorkUnit(db(), a, work.id);
+      expect(after.status).toBe('failed');
+      expect(after.runId).toBeNull();
+      expect(await resolvedOutcomes(work.id)).toEqual(['cancelled']);
+      expect((await listMyNotifications(db(), a)).map((n) => n.kind)).toContain('work.failed');
+    });
+
+    describe('when an entry names a file that is still whole', () => {
+      /** A live file, and an entry for it that only someone with the ledger credential could write. */
+      async function forged() {
+        const a = await newOrg();
+        const store = new MemoryStore();
+        const work = await createWorkUnit(db(), a, { title: 'W' });
+        const live = await file(a, store, work.id, 'live.txt');
+        inLedger(store, a.organizationId, live.id);
+        return { a, store, work, live };
+      }
+
+      it('does not destroy it on the ledger word alone, and says which entry it is', async () => {
+        const { a, store, work, live } = await forged();
+        const before = await stateOf(a.organizationId);
+        const named: LedgerEntry[] = [];
+
+        const result = await reapplyTombstoneLedger(db(), store, createServiceContext, undefined, {
+          onUnconfirmed: (entry) => named.push(entry),
+        });
+
+        expect(result).toMatchObject({
+          unconfirmed: 1,
+          tombstonesAdded: 0,
+          artifactsRemoved: 0,
+          bytesRemoved: 0,
+          failed: 0,
+        });
+        expect(named.map((entry) => entry.targetId)).toEqual([live.id]);
+        expect(await stateOf(a.organizationId)).toEqual(before);
+        expect(store.objects.has(objectKey(a.organizationId, live.id))).toBe(true);
+        expect(
+          (await readArtifact(db(), store, a, { workUnitId: work.id, artifactId: live.id })).name,
+        ).toBe('live.txt');
+        // The tenant stays refused, because nobody has yet said what this entry is.
+        expect(await countUnappliedTombstones(db(), store, a)).toBe(1);
+      });
+
+      it('applies it once an operator confirms that entry, and no other', async () => {
+        const { a, store, work, live } = await forged();
+        const other = await file(a, store, work.id, 'other.txt');
+        inLedger(store, a.organizationId, other.id);
+
+        const result = await reapplyTombstoneLedger(
+          db(),
+          store,
+          createServiceContext,
+          undefined,
+          confirming(a.organizationId, live.id),
+        );
+
+        expect(result).toMatchObject({ unconfirmed: 1, artifactsRemoved: 1, bytesRemoved: 1 });
+        expect(store.objects.has(objectKey(a.organizationId, live.id))).toBe(false);
+        expect(store.objects.has(objectKey(a.organizationId, other.id))).toBe(true);
+      });
+
+      it('applies by itself when the bytes have gone, so an ordinary restore needs no decision', async () => {
+        const { a, store, live } = await forged();
+        withoutBytes(store, a.organizationId, live.id);
+
+        const result = await reapplyTombstoneLedger(db(), store, createServiceContext);
+
+        expect(result).toMatchObject({
+          unconfirmed: 0,
+          tombstonesAdded: 1,
+          artifactsRemoved: 1,
+          bytesRemoved: 0,
+        });
+        expect(await countUnappliedTombstones(db(), store, a)).toBe(0);
+      });
+
+      it('changes nothing if the store cannot say whether the bytes exist', async () => {
+        const { a, store, work, live } = await forged();
+        const before = await stateOf(a.organizationId);
+        const blind = Object.assign(Object.create(store) as MemoryStore, {
+          exists: async () => {
+            throw new Error('store is down');
+          },
+        });
+
+        const result = await reapplyTombstoneLedger(db(), blind, createServiceContext);
+
+        expect(result).toMatchObject({ failed: 1, unconfirmed: 0, artifactsRemoved: 0 });
+        expect(await stateOf(a.organizationId)).toEqual(before);
+        expect(
+          (await readArtifact(db(), store, a, { workUnitId: work.id, artifactId: live.id })).name,
+        ).toBe('live.txt');
+      });
+    });
+
+    describe('quarantining an entry', () => {
+      it('takes a forged entry out of the ledger, opens the gate, and keeps it for inspection', async () => {
+        const a = await newOrg();
+        const store = new MemoryStore();
+        const work = await createWorkUnit(db(), a, { title: 'W' });
+        const live = await file(a, store, work.id, 'live.txt');
+        const key = inLedger(store, a.organizationId, live.id);
+        const body = store.objects.get(key);
+        expect(await countUnappliedTombstones(db(), store, a)).toBe(1);
+
+        await quarantineLedgerObject(db(), store, createServiceContext, key);
+
+        expect(store.objects.has(key)).toBe(false);
+        expect(store.objects.get(quarantineKeyFor(key))).toEqual(body);
+        expect(await countUnappliedTombstones(db(), store, a)).toBe(0);
+        const again = await reapplyTombstoneLedger(db(), store, createServiceContext);
+        expect(again).toMatchObject({ unconfirmed: 0, artifactsRemoved: 0, invalid: 0 });
+        expect(
+          (await readArtifact(db(), store, a, { workUnitId: work.id, artifactId: live.id })).name,
+        ).toBe('live.txt');
+        const { rows } = await su.query(
+          `select actor_type, target_ref, safe_reason from governance.audit_events
+           where organization_id = $1 and action = 'tombstone_ledger.entry_quarantined'`,
+          [a.organizationId],
+        );
+        expect(rows).toEqual([
+          {
+            actor_type: 'system',
+            target_ref: `artifact:${live.id}`,
+            safe_reason: 'OPERATOR_QUARANTINE',
+          },
+        ]);
+      });
+
+      it('clears an object that is not a valid entry, which otherwise refuses the tenant for good', async () => {
+        const a = await newOrg();
+        const store = new MemoryStore();
+        const id = randomUUID();
+        const key = ledgerKeyFor({
+          organizationId: a.organizationId,
+          targetType: 'artifact',
+          targetId: id,
+        });
+        store.objects.set(key, Buffer.from(''));
+        expect((await reapplyTombstoneLedger(db(), store, createServiceContext)).invalid).toBe(1);
+        expect(await countUnappliedTombstones(db(), store, a)).toBe(1);
+
+        await quarantineLedgerObject(db(), store, createServiceContext, key);
+
+        expect(await countUnappliedTombstones(db(), store, a)).toBe(0);
+        expect((await reapplyTombstoneLedger(db(), store, createServiceContext)).invalid).toBe(0);
+      });
+
+      it('touches nothing outside the ledger', async () => {
+        const a = await newOrg();
+        const store = new MemoryStore();
+        const work = await createWorkUnit(db(), a, { title: 'W' });
+        const live = await file(a, store, work.id, 'live.txt');
+        const bytes = objectKey(a.organizationId, live.id);
+        await expect(
+          quarantineLedgerObject(db(), store, createServiceContext, bytes),
+        ).rejects.toEqual(expect.objectContaining({ code: 'INVALID_INPUT' }));
+        expect(store.objects.has(bytes)).toBe(true);
+      });
+
+      it('moves an entry of an organization this backup predates, with no audit row to write', async () => {
+        const store = new MemoryStore();
+        const missing = randomUUID();
+        const key = inLedger(store, missing, randomUUID());
+        await quarantineLedgerObject(db(), store, createServiceContext, key);
+        expect(store.objects.has(key)).toBe(false);
+        expect(store.objects.has(quarantineKeyFor(key))).toBe(true);
+      });
     });
 
     it('leaves the bytes marked as still to remove if the store refuses, and blocks access', async () => {
@@ -608,8 +1043,12 @@ describe('the tombstone ledger', () => {
       });
       const errors: unknown[] = [];
 
-      const result = await reapplyTombstoneLedger(db(), refusing, createServiceContext, (error) =>
-        errors.push(error),
+      const result = await reapplyTombstoneLedger(
+        db(),
+        refusing,
+        createServiceContext,
+        (error) => errors.push(error),
+        confirming(a.organizationId, doomed.id),
       );
       expect(result.failed).toBe(1);
       expect(result.bytesRemoved).toBe(0);
@@ -684,6 +1123,7 @@ describe('the tombstone ledger', () => {
         Buffer.from('{"not":"an entry"}'),
       );
       inLedger(store, a.organizationId, good.id);
+      withoutBytes(store, a.organizationId, good.id);
 
       const result = await reapplyTombstoneLedger(db(), store, createServiceContext);
       expect(result.invalid).toBe(1);

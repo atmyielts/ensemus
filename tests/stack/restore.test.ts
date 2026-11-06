@@ -9,6 +9,9 @@ import { openAppDatabase, resolveTenantContext } from '@ensemus/database';
 import {
   ledgerKeyFor,
   LEDGER_PREFIX,
+  LEDGER_QUARANTINE_PREFIX,
+  ledgerRef,
+  quarantineKeyFor,
   serializeLedgerEntry,
   TOMBSTONE_RECORDED,
 } from '@ensemus/domain/tombstone-ledger';
@@ -89,11 +92,25 @@ const restore = (name: string) =>
     `/tmp/${name}.dump`,
   );
 
-const reapply = () =>
-  logged(
-    compose('run', '--rm', '--no-deps', 'worker', 'node', 'dist/reapply-ledger.js'),
-    'tombstone_ledger.reapplied',
-  ) as unknown as ReapplyResult;
+/** The operator's command. It exits non-zero while anything is left to decide, and still reports. */
+function reapply(...args: string[]) {
+  let output: string;
+  try {
+    output = compose(
+      'run',
+      '--rm',
+      '--no-deps',
+      'worker',
+      'node',
+      'dist/reapply-ledger.js',
+      ...args,
+    );
+  } catch (error) {
+    output = String((error as { stdout?: unknown }).stdout ?? '');
+    if (!output.includes('tombstone_ledger.reapplied')) throw error;
+  }
+  return logged(output, 'tombstone_ledger.reapplied') as unknown as ReapplyResult;
+}
 
 const backlog = () =>
   logged(
@@ -429,9 +446,26 @@ describe('restoring a database backup', () => {
         .poll(async () => (await visit(doomedPath, owner.jar)).status, GATE_INTERVAL)
         .toBe(307);
 
-      // Re-applied by the operator's command.
-      const first = reapply();
+      // The operator's command will not destroy a file that is still whole on the ledger's word alone,
+      // because whoever holds the dispatcher's credential can write an entry. Nothing changes yet.
+      const asked = reapply();
+      expect(asked).toMatchObject({
+        unconfirmed: 1,
+        tombstonesAdded: 0,
+        artifactsRemoved: 0,
+        bytesRemoved: 0,
+        failed: 0,
+      });
+      expect(await admin().exists(doomedBytes)).toBe(true);
+      expect((await visit(doomedPath, owner.jar)).status).toBe(307);
+
+      // This operator knows the restore happened and that the store went back with it, so says so.
+      const first = reapply(
+        '--confirm',
+        ledgerRef({ organizationId: org, targetType: 'artifact', targetId: doomed }),
+      );
       expect(first).toMatchObject({
+        unconfirmed: 0,
         tombstonesAdded: 1,
         artifactsRemoved: 1,
         bytesRemoved: 1,
@@ -517,11 +551,89 @@ describe('restoring a database backup', () => {
     );
     expect(await admin().exists(bytes)).toBe(true);
 
+    // Nor what an operator has moved aside, so it cannot put a quarantined entry back or remove it.
+    const aside = `${LEDGER_QUARANTINE_PREFIX}${org}/artifact/${randomUUID()}.json`;
+    await refused(narrow.put(aside, Buffer.from('x'), 'application/json'));
+    await refused(narrow.exists(aside));
+
     // The control: the same credential does reach the ledger, so those refusals are about scope.
     const [entry] = await ledgerKeys();
     expect(entry).toBeDefined();
     expect(await narrow.exists(entry as string)).toBe(true);
   });
+
+  it(
+    'cannot use the ledger credential to destroy a live file, and an operator can clear the forgery',
+    async () => {
+      const person = await signUp('Fran Forged');
+      const tenant = await createOrganization(person, `Forged ${randomUUID()}`);
+      const work = await createWork(person, tenant, { title: `Forged ${randomUUID()}` });
+      const file = await upload(
+        person,
+        tenant,
+        work,
+        new File(['still wanted'], 'wanted.txt', { type: 'text/plain' }),
+      );
+      const path = filesPath(tenant, work, file);
+      const entry = {
+        organizationId: tenant,
+        targetType: 'artifact',
+        targetId: file,
+        deletedAt: new Date(),
+      };
+      // Written with nothing but the dispatcher's credential, naming a real file.
+      await ledgerOnly().put(ledgerKeyFor(entry), serializeLedgerEntry(entry), 'application/json');
+      await expect
+        .poll(async () => (await visit(path, person.jar)).status, GATE_INTERVAL)
+        .toBe(307);
+
+      const result = reapply();
+      expect(result.unconfirmed).toBe(1);
+      expect(await admin().exists(objectKey(tenant, file))).toBe(true);
+      const rows = await su.query('select 1 from work.artifacts where id = $1', [file]);
+      expect(rows.rows).toHaveLength(1);
+
+      // The operator did not restore anything, so this entry is not a deletion.
+      const cleared = reapply('--quarantine', ledgerRef(entry));
+      expect(cleared.unconfirmed).toBe(0);
+      expect(await admin().exists(ledgerKeyFor(entry))).toBe(false);
+      expect(await admin().exists(quarantineKeyFor(ledgerKeyFor(entry)))).toBe(true);
+      await expect.poll(async () => (await visit(path, person.jar)).status, WAIT).toBe(200);
+      expect(await (await visit(path, person.jar)).text()).toBe('still wanted');
+    },
+    LONG,
+  );
+
+  it(
+    'writes a deletion to the ledger through a Temporal outage, and a dispatcher restart during it',
+    async () => {
+      const work = await createWork(owner, org, { title: `No Temporal ${randomUUID()}` });
+      const file = await upload(
+        owner,
+        org,
+        work,
+        new File(['gone'], 'gone.txt', { type: 'text/plain' }),
+      );
+      const healthOf = (service: string) =>
+        compose('ps', '--format', '{{.Health}}', service).trim();
+      compose('stop', 'temporal');
+      try {
+        // A process that had to reach Temporal to start would crash here, and go on crashing.
+        compose('restart', 'dispatcher');
+        await remove(owner, org, work, file);
+        await expect.poll(() => admin().exists(keyFor(org, file)), LEDGER_WAIT).toBe(true);
+        expect(backlog()).toMatchObject({ queued: 0, dead: 0 });
+      } finally {
+        compose('start', 'temporal');
+      }
+      // Later tests need these, and the worker cannot run without Temporal.
+      const BACK = { timeout: 180_000, interval: 1_000 };
+      await expect.poll(() => healthOf('temporal'), BACK).toBe('healthy');
+      await expect.poll(() => healthOf('worker'), BACK).toBe('healthy');
+      await expect.poll(() => healthOf('dispatcher'), BACK).toBe('healthy');
+    },
+    LONG,
+  );
 
   it(
     'holds a deletion while the object store is down, costs it no attempts, and writes it afterwards',

@@ -33,7 +33,10 @@ const SAFE_FIELDS = new Set([
   'bytesRemoved',
   'organizationsMissing',
   'invalid',
+  'unconfirmed',
   'failed',
+  // IDs and a type, which an operator needs in order to decide about one entry (ADR-026).
+  'ledgerEntry',
 ]);
 
 // Safe values are short and machine-shaped. Free text is refused even under a safe field name.

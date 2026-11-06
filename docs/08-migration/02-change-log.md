@@ -4,6 +4,7 @@
 
 - Added [ADR-025](../00-foundation/adr/ADR-025-m1-implementation-decisions.md), recording decisions made while building M1, including a fifth database role and the closed Server Action key spike.
 - Added [ADR-026](../00-foundation/adr/ADR-026-tombstones-survive-restore.md), which keeps tombstones in a ledger outside the database and re-applies them after a restore, with backup and restore steps in the runbook (M2).
+- Changed ADR-026 so that re-applying the ledger destroys a file that is still whole only once an operator confirms that entry, with a way to quarantine a forged or damaged entry, and added a backlog drain to the runbook's restore (M2).
 - Moved the suite into the product repository under `docs/`.
 - Added the [M1 evidence report](../06-delivery/evidence/M1-report.md) and updated ticket statuses from test results.
 

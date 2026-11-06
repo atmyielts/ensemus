@@ -54,7 +54,11 @@ export function getStore() {
   return store;
 }
 
-/** A slow store costs a tenant's first request this long at most, and then the check is remembered. */
+/**
+ * One request to the store during a check. A check can take several, but nobody waits for all of them:
+ * the gate has its own limit on how long a request waits for a check, and answers from the last result
+ * once one has failed.
+ */
 const GATE_REQUEST_MS = 2_000;
 let restoreGate: ReturnType<typeof createRestoreGate> | undefined;
 

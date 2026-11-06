@@ -64,6 +64,20 @@
       "when": 1793933677249,
       "tag": "0008_delegates_refusals_setup_security",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1793963052689,
+      "tag": "0009_transition_from_version",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1793963057263,
+      "tag": "0010_closed_review_notifications_security",
+      "breakpoints": true
     }
   ]
 }

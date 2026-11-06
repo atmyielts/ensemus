@@ -10,6 +10,12 @@ export class LedgerUnavailable extends Error {
 
 /** After a failure, how long the rest are refused without asking, so a dead store costs one wait. */
 const STORE_DOWN_MS = 30_000;
+/**
+ * How long one batch may spend writing entries before the rest of it waits for their retry. A store
+ * that answers slowly never fails, so nothing else stops it holding up the Temporal signals behind it,
+ * one event at a time. This is about as long as one Temporal call may take.
+ */
+const BATCH_BUDGET_MS = 10_000;
 
 export function createLedgerWriter(
   store: {
@@ -19,7 +25,8 @@ export function createLedgerWriter(
   now: () => number = Date.now,
 ) {
   let downUntil = 0;
-  return async (event: DispatchableEvent) => {
+  let spent = 0;
+  const write = async (event: DispatchableEvent) => {
     const entry = {
       organizationId: event.organizationId,
       targetType: event.aggregateType,
@@ -29,13 +36,22 @@ export function createLedgerWriter(
     // Outside the try: an event that cannot become an entry is at fault itself, and goes dead visibly.
     const key = ledgerKeyFor(entry);
     const body = serializeLedgerEntry(entry);
-    if (now() < downUntil) throw new LedgerUnavailable();
+    if (now() < downUntil || spent >= BATCH_BUDGET_MS) throw new LedgerUnavailable();
+    const started = now();
     try {
       // Delivery is at least once. The first write stands, so an entry is never changed.
       if (!(await store.exists(key))) await store.put(key, body, 'application/json');
     } catch (error) {
       downUntil = now() + STORE_DOWN_MS;
       throw new LedgerUnavailable(undefined, { cause: error });
+    } finally {
+      spent += now() - started;
     }
   };
+  return Object.assign(write, {
+    /** A new batch has a new budget. */
+    startBatch: () => {
+      spent = 0;
+    },
+  });
 }

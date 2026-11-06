@@ -16,7 +16,7 @@ import { TOMBSTONE_RECORDED } from '@ensemus/domain/tombstone-ledger';
 import { S3ObjectStore } from '@ensemus/storage';
 import { createLogger, errorCode } from '@ensemus/telemetry';
 import { AesGcmPayloadCodec } from '@ensemus/workflows/codec';
-import { PLATFORM_TASK_QUEUE, TEMPORAL_CHANNEL_ARGS } from '@ensemus/workflows/constants';
+import { PLATFORM_TASK_QUEUE } from '@ensemus/workflows/constants';
 import {
   reminderScheduleIdFor,
   workflowIdFor,
@@ -26,13 +26,13 @@ import {
 } from '@ensemus/workflows/schemas';
 import {
   Client,
-  Connection,
   ScheduleOverlapPolicy,
   WorkflowExecutionAlreadyStartedError,
   WorkflowNotFoundError,
   ScheduleAlreadyRunning,
 } from '@temporalio/client';
-import { classifyDeliveryError } from './dispatch-errors';
+import { classifyDeliveryError, needsOnlyTheStore } from './dispatch-errors';
+import { openDispatcherConnection } from './temporal-connection';
 import { createLedgerWriter } from './tombstone-ledger';
 
 const log = createLogger('dispatcher');
@@ -53,10 +53,7 @@ const LEDGER_REQUEST_MS = CALL_DEADLINE_MS;
 const LEDGER_BACKLOG_CHECK_MS = 60_000;
 
 async function main() {
-  const connection = await Connection.connect({
-    address: process.env.TEMPORAL_ADDRESS ?? 'temporal:7233',
-    channelArgs: TEMPORAL_CHANNEL_ARGS,
-  });
+  const connection = openDispatcherConnection(process.env.TEMPORAL_ADDRESS ?? 'temporal:7233');
   const client = new Client({
     connection,
     namespace: process.env.TEMPORAL_NAMESPACE ?? 'default',
@@ -214,8 +211,10 @@ async function main() {
       );
     }
     try {
+      writeLedgerEntry.startBatch();
       const result = await dispatchDueEvents(db, handle, {
         classify: classifyDeliveryError,
+        needsOnlyTheStore,
         shouldStop: () => !running,
         onEvent: (error) => {
           beat();

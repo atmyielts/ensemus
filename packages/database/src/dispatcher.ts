@@ -62,6 +62,12 @@ export type DispatchOptions = {
   onEvent?: (error?: unknown) => void;
   /** Checked between events, so stopping does not have to wait for the batch. */
   shouldStop?: () => boolean;
+  /**
+   * Events that need nothing an `outage` takes away, so they go ahead while the rest of the batch
+   * waits. A tombstone needs only the object store, and every minute it waits for Temporal is a
+   * deletion a restore could not put back (ADR-026).
+   */
+  needsOnlyTheStore?: (event: { eventType: string }) => boolean;
 };
 
 /**
@@ -144,12 +150,13 @@ export async function dispatchDueEvents(
     );
     // Stopping or an outage hands the rest back right away, instead of leaving them leased. Due means
     // due by the database's clock, so "now" is its clock too: this one can run a little ahead.
-    if (holding || options.shouldStop?.()) {
+    const held = holding && !options.needsOnlyTheStore?.(event);
+    if (held || options.shouldStop?.()) {
       await db
         .update(outboxEvents)
-        .set({ nextAttemptAt: holding ? new Date(Date.now() + TRANSIENT_RETRY_MS) : sql`now()` })
+        .set({ nextAttemptAt: held ? new Date(Date.now() + TRANSIENT_RETRY_MS) : sql`now()` })
         .where(where);
-      if (holding) result.deferred += 1;
+      if (held) result.deferred += 1;
       continue;
     }
     try {

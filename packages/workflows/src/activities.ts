@@ -3,8 +3,6 @@
 import {
   addArtifact,
   applyTransition,
-  auditAction,
-  clearApprovalNotifications,
   closeOutdatedReviews,
   createApprovalInTx,
   currentReviewAction,
@@ -13,8 +11,8 @@ import {
   failRun,
   listHeldRuns,
   loadChangeable,
-  notify,
   purgeDueBlobs,
+  recordApprovalClosed,
   reissueStaleRunRequests,
   REVIEW_HOURS,
   sendDueReminders,
@@ -217,13 +215,12 @@ export function createActivities(deps: {
           .set({ status: 'cancelled', decidedAt: new Date() })
           .where(and(eq(approvals.workUnitId, work.id), eq(approvals.status, 'pending')))
           .returning({ id: approvals.id, requestedBy: approvals.requestedByMembershipId });
-        await clearApprovalNotifications(
-          tx,
-          superseded.map((row) => row.id),
-        );
         for (const { id, requestedBy } of superseded) {
-          await auditAction(tx, ctx, 'approval.closed', `approval:${id}`, 'PLAN_STARTED');
-          await notify(tx, ctx, [requestedBy], 'approval.closed', `work_unit:${work.id}`);
+          await recordApprovalClosed(tx, ctx, work, id, {
+            reason: 'PLAN_STARTED',
+            kind: 'approval.superseded',
+            tell: [requestedBy],
+          });
         }
         const expiresAt = new Date(Date.now() + REVIEW_HOURS * 60 * 60 * 1000);
         const created = await createApprovalInTx(tx, ctx, {

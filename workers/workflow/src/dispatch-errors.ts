@@ -1,7 +1,12 @@
 // Tells an outage from a bad event. An outage says nothing about the event, so it must not push the
 // event towards going dead. Pure, so it can be tested without a server.
 import type { DeliveryFailure } from '@ensemus/database/dispatcher';
+import { TOMBSTONE_RECORDED } from '@ensemus/domain/tombstone-ledger';
 import { LedgerUnavailable } from './tombstone-ledger';
+
+/** Writing the tombstone ledger uses the object store and no Temporal call at all. */
+export const needsOnlyTheStore = (event: { eventType: string }) =>
+  event.eventType === TOMBSTONE_RECORDED;
 
 // gRPC status codes that mean "try again later": CANCELLED, DEADLINE_EXCEEDED, RESOURCE_EXHAUSTED,
 // ABORTED, UNAVAILABLE.

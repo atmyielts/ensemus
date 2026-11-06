@@ -42,8 +42,8 @@
     },
     {
       "path": "00-foundation/adr/ADR-026-tombstones-survive-restore.md",
-      "size_bytes": 9226,
-      "sha256": "ca93960e3121f4131cb17cf9741cd8eac1a916558f65cd57a113368d896f36c9"
+      "size_bytes": 13761,
+      "sha256": "7267bd1fcd4c164d02e3924bc7e1cc85cdbc7a379c8d459f6eac77eca2540937"
     },
     {
       "path": "01-product/01-product-requirements.md",
@@ -92,8 +92,8 @@
     },
     {
       "path": "02-architecture/04-work-kernel.md",
-      "size_bytes": 7692,
-      "sha256": "bb9b2c83f7ec2b7cea6e05b7f9024435a9c87a10f76162d940b0ddcf269f5b98"
+      "size_bytes": 8078,
+      "sha256": "ee944b0c5393c2c566af2b20eb0bb12e516dd87a296e65708d9ffa58ad0c6cdd"
     },
     {
       "path": "02-architecture/05-events-and-consistency.md",
@@ -202,8 +202,8 @@
     },
     {
       "path": "04-security/05-data-lifecycle.md",
-      "size_bytes": 5098,
-      "sha256": "a879f823b674037a4088cd28721def78e95b88748d2fdec577b4ac2b00b78546"
+      "size_bytes": 5348,
+      "sha256": "6a0b0a82b8756c85393ae6bc517296c82ba817e4a8a13cfe79661df3c109102a"
     },
     {
       "path": "04-security/06-assurance-and-incidents.md",
@@ -237,8 +237,8 @@
     },
     {
       "path": "05-operations/05-container-deployment-runbook.md",
-      "size_bytes": 13497,
-      "sha256": "f4b868875994e3132f72c474d2f815d0194eb1f29133b45b08cc8c72c95a1de4"
+      "size_bytes": 17052,
+      "sha256": "577de9708536445a8f5c2943f23f0dfa466d7b3ac0a9401892e999a7b570c065"
     },
     {
       "path": "05-operations/06-performance-and-load-plan.md",
@@ -312,8 +312,8 @@
     },
     {
       "path": "08-migration/02-change-log.md",
-      "size_bytes": 2685,
-      "sha256": "2d6b91d7c4c6ab477c93d5aec4b7d5262ee70222ec74cd925ddd7b56799534a6"
+      "size_bytes": 2922,
+      "sha256": "aa540b7332ff329801437abb23267e04f20b178cc695b2dd480508a9105033d2"
     },
     {
       "path": "AGENTS.md",

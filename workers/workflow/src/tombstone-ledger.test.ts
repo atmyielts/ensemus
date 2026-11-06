@@ -86,6 +86,69 @@ describe('writing the tombstone ledger', () => {
     expect(store.objects.size).toBe(1);
   });
 
+  it('stops spending a batch on a store that is slow without ever failing', async () => {
+    const store = memory();
+    let clock = 1_000;
+    // Every call answers, and takes 8 seconds. Nothing here ever trips the wait after a failure.
+    const slow = {
+      exists: async (key: string) => {
+        clock += 8_000;
+        return store.exists(key);
+      },
+      put: async (key: string, body: Buffer) => {
+        clock += 8_000;
+        return store.put(key, body);
+      },
+    };
+    const write = createLedgerWriter(slow, () => clock);
+    write.startBatch();
+
+    const other = (n: number) => ({
+      ...event,
+      aggregateId: `22222222-2222-4222-8222-22222222222${n}`,
+    });
+    await write(other(1));
+    expect(store.puts).toBe(1);
+
+    // The rest of this batch waits, so the signals behind it are not held up by each of them in turn.
+    const asksBefore = store.asks;
+    const failure = await write(other(2)).catch((error: unknown) => error);
+    expect(failure).toBeInstanceOf(LedgerUnavailable);
+    expect(classifyDeliveryError(failure)).toBe('partial_outage');
+    expect(store.asks).toBe(asksBefore);
+
+    // The next batch gets another try, so the backlog still drains.
+    write.startBatch();
+    await write(other(2));
+    expect(store.puts).toBe(2);
+  });
+
+  it('never runs out of budget against a store that is merely busy', async () => {
+    const store = memory();
+    let clock = 1_000;
+    const write = createLedgerWriter(
+      {
+        exists: async (key) => {
+          clock += 20;
+          return store.exists(key);
+        },
+        put: async (key, body) => {
+          clock += 20;
+          return store.put(key, body);
+        },
+      },
+      () => clock,
+    );
+    write.startBatch();
+    for (let n = 0; n < 50; n += 1) {
+      await write({
+        ...event,
+        aggregateId: `22222222-2222-4222-8222-2222222222${String(n).padStart(2, '0')}`,
+      });
+    }
+    expect(store.puts).toBe(50);
+  });
+
   it('blames the event when it cannot become an entry, whatever the store is doing', async () => {
     const store = memory();
     const failure = await createLedgerWriter(store)({

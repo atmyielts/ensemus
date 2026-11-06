@@ -18,8 +18,10 @@ import {
 import {
   LEDGER_PREFIX,
   ledgerPrefixFor,
+  ledgerRef,
   parseLedgerEntry,
   parseLedgerKey,
+  quarantineKeyFor,
   type LedgerEntry,
 } from '@ensemus/domain/tombstone-ledger';
 import { and, eq, inArray } from 'drizzle-orm';
@@ -82,12 +84,19 @@ const CLEAR_FOR_MS = 30_000;
 /** Far shorter, so that people are let back in soon after the restore is finished. */
 const CLOSED_FOR_MS = 2_000;
 const MAX_REMEMBERED = 10_000;
+/** The most anyone waits for one check, however many pages of the ledger it has to read. */
+const WAIT_FOR_CHECK_MS = 2_000;
 
 /**
  * Refuses a tenant's requests while its database is behind the ledger. It looks at the data, so it
  * needs nobody to remember anything: a restored database closes it, and re-applying the ledger opens
  * it. If the store cannot be asked it stays as it was, or open if this is the first time. A store
  * outage must not stop the rest of the product, and with the store down there are no bytes to serve.
+ *
+ * Requests wait for a check only while the store seems able to answer, and for one limit however long
+ * the listing is. Once a check has failed, the next ones run behind the requests, so an outage costs
+ * each tenant one wait on each web replica and not one every interval. A check past its limit carries
+ * on behind them too, so a slow store delays the answer without ever hiding a restore from it.
  */
 export function createRestoreGate(options: {
   database: AppDatabase;
@@ -95,40 +104,63 @@ export function createRestoreGate(options: {
   onCheckFailed?: (error: unknown) => void;
   onClosed?: (organizationId: string, missing: number) => void;
   now?: () => number;
+  waitMs?: number;
 }) {
   const now = options.now ?? Date.now;
-  const known = new Map<string, { closed: boolean; until: number }>();
+  const waitMs = options.waitMs ?? WAIT_FOR_CHECK_MS;
+  const known = new Map<string, { closed: boolean; until: number; failed: boolean }>();
   const checking = new Map<string, Promise<boolean>>();
 
   const check = async (tenant: GateTenant) => {
     const before = known.get(tenant.organizationId)?.closed ?? false;
     let closed = before;
+    let failed = false;
     try {
       const missing = await countMissing(options.store, tenant);
       closed = missing > 0;
       if (closed) options.onClosed?.(tenant.organizationId, missing);
     } catch (error) {
+      failed = true;
       options.onCheckFailed?.(error);
     }
     if (known.size >= MAX_REMEMBERED) known.clear();
     known.set(tenant.organizationId, {
       closed,
+      failed,
       until: now() + (closed ? CLOSED_FOR_MS : CLEAR_FOR_MS),
     });
     return closed;
   };
 
-  /** One check at a time for each tenant. Everyone asking meanwhile waits for the same answer. */
+  /** Runs a check. What this returns settles when it ends, or at the limit with the last answer. */
+  const startCheck = (tenant: GateTenant) => {
+    const { organizationId } = tenant;
+    const finished = check(tenant).finally(() => checking.delete(organizationId));
+    const answer = new Promise<boolean>((resolve) => {
+      const limit = setTimeout(() => {
+        // Not a failure yet, since it may still answer. Requests are going ahead without it, though,
+        // and that should not go unsaid.
+        options.onCheckFailed?.(
+          Object.assign(new Error('Still checking'), { code: 'CHECK_TIMEOUT' }),
+        );
+        resolve(known.get(organizationId)?.closed ?? false);
+      }, waitMs);
+      void finished.then((closed) => {
+        clearTimeout(limit);
+        resolve(closed);
+      });
+    });
+    checking.set(organizationId, answer);
+    return answer;
+  };
+
+  /** One check at a time for each tenant. Everyone asking meanwhile shares the same wait. */
   const isClosed = (tenant: GateTenant) => {
     const { organizationId } = tenant;
     const current = known.get(organizationId);
     if (current && current.until > now()) return Promise.resolve(current.closed);
-    let running = checking.get(organizationId);
-    if (!running) {
-      running = check(tenant).finally(() => checking.delete(organizationId));
-      checking.set(organizationId, running);
-    }
-    return running;
+    const running = checking.get(organizationId) ?? startCheck(tenant);
+    return current?.failed ? Promise.resolve(current.closed) : running;
   };
 
   return {
@@ -163,9 +195,41 @@ export type ReapplyResult = {
   organizationsMissing: number;
   /** Objects that are not valid entries. Nothing is done for them, and the gate stays closed. */
   invalid: number;
+  /**
+   * Entries naming a file whose row and bytes both still exist. Nothing is done for them until an
+   * operator confirms or quarantines each one, and the gate stays closed.
+   */
+  unconfirmed: number;
   /** Entries that could not be finished. Running this again picks them up. */
   failed: number;
 };
+
+export type ReapplyOptions = {
+  /** Entries an operator has confirmed, by `ledgerRef`, for which a whole file may be destroyed. */
+  confirmed?: ReadonlySet<string>;
+  /** Called with each entry that is waiting for that decision, so the operator can be told which. */
+  onUnconfirmed?: (entry: LedgerEntry) => void;
+  /** Called with each object that is not a valid entry, with its key if the key names one. */
+  onInvalid?: (named: Omit<LedgerEntry, 'deletedAt'> | null) => void;
+};
+
+/**
+ * Whether this entry is asking to destroy a file that is still whole. The dispatcher's credential can
+ * write any entry it likes, so an entry is not proof of a deletion (ADR-026 D3). Its own word is enough
+ * when the bytes have gone, which is what a real deletion leaves behind, because then nothing can be
+ * lost by believing it. A row with its bytes takes a person who knows that a restore really happened.
+ */
+async function isWholeFile(
+  database: AppDatabase,
+  store: ObjectStore,
+  context: TenantContext,
+  targetId: string,
+) {
+  const [artifact] = await withTenantTx(database, context, (tx) =>
+    tx.select({ key: artifacts.objectKey }).from(artifacts).where(eq(artifacts.id, targetId)),
+  );
+  return artifact ? store.exists(artifact.key) : false;
+}
 
 /** One entry. Blocks access first, in one transaction, and only then touches any bytes. */
 async function reapplyEntry(
@@ -174,8 +238,17 @@ async function reapplyEntry(
   context: TenantContext,
   entry: LedgerEntry,
   result: ReapplyResult,
+  options: ReapplyOptions,
 ) {
   const { organizationId, targetType, targetId } = entry;
+  if (
+    !options.confirmed?.has(ledgerRef(entry)) &&
+    (await isWholeFile(database, store, context, targetId))
+  ) {
+    result.unconfirmed += 1;
+    options.onUnconfirmed?.(entry);
+    return;
+  }
   const applied = await withTenantTx(database, context, async (tx) => {
     const [organization] = await tx
       .select({ id: organizations.id })
@@ -221,7 +294,8 @@ async function reapplyEntry(
         .where(eq(workArtifacts.artifactId, targetId));
       // Takes its links to work with it, through the foreign key.
       await tx.delete(artifacts).where(eq(artifacts.id, targetId));
-      // A review open in the backup may cover this file, exactly as when it was first deleted.
+      // A review open in the backup may cover this file. Unlike an ordinary deletion, that review can
+      // be holding its work, because the backup can hold what a person was never able to do.
       for (const { id } of works) {
         await closeOutdatedReviews(tx, context, await loadChangeable(tx, context, id));
       }
@@ -272,6 +346,7 @@ export async function reapplyTombstoneLedger(
   store: ObjectStore & LedgerReader,
   contextFor: (organizationId: string) => TenantContext,
   onFailed?: (error: unknown) => void,
+  options: ReapplyOptions = {},
 ): Promise<ReapplyResult> {
   const result: ReapplyResult = {
     entries: 0,
@@ -280,6 +355,7 @@ export async function reapplyTombstoneLedger(
     bytesRemoved: 0,
     organizationsMissing: 0,
     invalid: 0,
+    unconfirmed: 0,
     failed: 0,
   };
   for await (const page of store.listPages(LEDGER_PREFIX)) {
@@ -289,9 +365,17 @@ export async function reapplyTombstoneLedger(
         const entry = parseLedgerEntry(key, (await store.get(key)).toString('utf8'));
         if (!entry) {
           result.invalid += 1;
+          options.onInvalid?.(parseLedgerKey(key));
           continue;
         }
-        await reapplyEntry(database, store, contextFor(entry.organizationId), entry, result);
+        await reapplyEntry(
+          database,
+          store,
+          contextFor(entry.organizationId),
+          entry,
+          result,
+          options,
+        );
       } catch (error) {
         result.failed += 1;
         onFailed?.(error);
@@ -299,4 +383,40 @@ export async function reapplyTombstoneLedger(
     }
   }
   return result;
+}
+
+/**
+ * Takes an object an operator has judged not to be a real deletion out of the ledger, and keeps it for
+ * whoever investigates. The gate compares keys, so this is what opens a tenant closed by a forged or
+ * damaged object. It is a judgement: if the entry was real, the deleted file stays back. So it is on
+ * the record, for any organization this database knows.
+ */
+export async function quarantineLedgerObject(
+  database: AppDatabase,
+  store: ObjectStore,
+  contextFor: (organizationId: string) => TenantContext,
+  key: string,
+) {
+  if (!key.startsWith(LEDGER_PREFIX)) throw new AppError('INVALID_INPUT');
+  await store.put(quarantineKeyFor(key), await store.get(key), 'application/json');
+  await store.delete(key);
+  if (await store.exists(key)) throw new Error('Object still present after delete');
+
+  const named = parseLedgerKey(key);
+  if (!named) return;
+  await withTenantTx(database, contextFor(named.organizationId), async (tx) => {
+    const [organization] = await tx
+      .select({ id: organizations.id })
+      .from(organizations)
+      .where(eq(organizations.id, named.organizationId));
+    if (!organization) return;
+    await appendAudit(tx, {
+      organizationId: named.organizationId,
+      actorType: 'system',
+      action: 'tombstone_ledger.entry_quarantined',
+      targetRef: `${named.targetType}:${named.targetId}`,
+      decision: 'allow',
+      safeReason: 'OPERATOR_QUARANTINE',
+    });
+  });
 }

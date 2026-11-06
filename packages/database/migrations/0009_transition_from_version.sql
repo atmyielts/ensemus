@@ -1,0 +1,1 @@
+ALTER TABLE "work"."work_transitions" ADD COLUMN "from_version" integer;

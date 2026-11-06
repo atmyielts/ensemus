@@ -30,8 +30,8 @@ Retention is configured by data class, source, customer contract, workspace need
 
 A tombstone in the database cannot protect against restoring that database. So each tombstone is also written, with IDs, a type and a time and nothing else, to an append-only ledger in the object store ([ADR-026](../00-foundation/adr/ADR-026-tombstones-survive-restore.md)). The steps are in the [runbook](../05-operations/05-container-deployment-runbook.md#backup-and-restore).
 
-- **After a restore**, a tenant whose database lacks a ledger entry is refused until an operator re-applies the ledger, which puts back the tombstones, removes the rows and references, and deletes the bytes. The refusal comes from comparing the two, so nobody has to remember it.
-- **What it cannot do:** a deletion whose ledger write had not happened when the database was lost comes back as a name, usually without its bytes. That window is one dispatcher poll in ordinary running, and has no upper limit during a dispatcher or store outage, when it shows as the ledger backlog.
+- **After a restore**, a tenant whose database lacks a ledger entry is refused until an operator re-applies the ledger, which puts back the tombstones, removes the rows and references, and deletes the bytes. The refusal comes from comparing the two, so nobody has to remember it. A file whose row and bytes both survived is destroyed only once the operator confirms that entry, because an entry alone does not prove a deletion happened.
+- **What it cannot do:** a deletion whose ledger write had not happened when the database was lost comes back as a name, usually without its bytes. That window is one dispatcher poll in ordinary running, and has no upper limit during a dispatcher or store outage, when it shows as the ledger backlog. Restoring over a running database destroys that backlog too, so the runbook drains it first.
 - **What stays true of backups:** a dump still holds deleted rows until it expires. This keeps them out of the product and does not erase them from the backup (`LIFE-02`).
 
 ## 6. Export contract

@@ -1,9 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import {
   ledgerKeyFor,
+  ledgerKeyFromRef,
   ledgerPrefixFor,
+  ledgerRef,
   parseLedgerEntry,
   parseLedgerKey,
+  quarantineKeyFor,
   serializeLedgerEntry,
 } from './tombstone-ledger';
 
@@ -74,5 +77,33 @@ describe('the tombstone ledger format', () => {
   ])('refuses an object holding %s', (_, body) => {
     const text = typeof body === 'string' ? body : JSON.stringify(body);
     expect(parseLedgerEntry(key, text)).toBeNull();
+  });
+
+  it('moves a quarantined object out of the prefix everything reads and the ledger identity reaches', () => {
+    const moved = quarantineKeyFor(key);
+    expect(moved).toBe(
+      `tombstone-ledger-quarantine/v1/${organizationId}/artifact/${targetId}.json`,
+    );
+    expect(moved.startsWith('tombstone-ledger/')).toBe(false);
+    expect(parseLedgerKey(moved)).toBeNull();
+  });
+
+  it('gives an operator a reference that fits in a log line and leads back to the key', () => {
+    const ref = ledgerRef(entry);
+    expect(ref).toBe(`${organizationId}:artifact:${targetId}`);
+    // The logger refuses any other characters, and the operator needs to read this there.
+    expect(ref).toMatch(/^[A-Za-z0-9._:-]{1,128}$/);
+    expect(ledgerKeyFromRef(ref)).toBe(key);
+  });
+
+  it.each([
+    ['nothing', ''],
+    ['a key', key],
+    ['a name', `${organizationId}:artifact:minutes.pdf`],
+    ['an unknown type', `${organizationId}:client:${targetId}`],
+    ['too many parts', `${organizationId}:artifact:${targetId}:more`],
+    ['too few parts', `${organizationId}:${targetId}`],
+  ])('refuses %s as a reference', (_, ref) => {
+    expect(ledgerKeyFromRef(ref)).toBeNull();
   });
 });

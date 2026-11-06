@@ -2810,7 +2810,7 @@ describe('work', () => {
       const run = input(a, work.id);
       expect((await activities().prepareWork(run)).status).toBe('running');
       expect((await activities().prepareWork(run)).status).toBe('running');
-      expect((await getWorkUnit(db(), a, work.id)).version).toBe(3);
+      expect((await getWorkUnit(db(), a, work.id)).version).toBe(4);
     });
 
     it('leaves work alone that someone started by hand', async () => {
@@ -3221,7 +3221,9 @@ describe('work', () => {
       expect(await auditRows(a, 'approval.closed')).toEqual([
         { actor_id: null, target_ref: `approval:${manual.id}`, safe_reason: 'PLAN_STARTED' },
       ]);
-      expect((await listMyNotifications(db(), a)).map((n) => n.kind)).toContain('approval.closed');
+      expect((await listMyNotifications(db(), a)).map((n) => n.kind)).toContain(
+        'approval.superseded',
+      );
     });
 
     it('refuses a person asking for a review while a plan holds the work', async () => {

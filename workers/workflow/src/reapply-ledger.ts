@@ -1,17 +1,39 @@
 // Operator command, run after restoring a database backup and before anyone is let back in (ADR-026
 // and the runbook). It puts back every deletion the tombstone ledger knows about, and running it again
-// changes nothing. It prints counts and no names, and exits non-zero if anything is left to do.
-//   node dist/reapply-ledger.js
-import { reapplyTombstoneLedger } from '@ensemus/application';
+// changes nothing. It prints counts and IDs, no names, and exits non-zero if anything is left to do.
+//   node dist/reapply-ledger.js [--confirm <entry>]... [--quarantine <entry or key>]...
+// An <entry> is what this prints as ledgerEntry. --confirm says that a deletion it could not take on
+// the ledger's word alone is real. --quarantine says that it is not, and moves the object aside.
+import { parseArgs } from 'node:util';
+import { quarantineLedgerObject, reapplyTombstoneLedger } from '@ensemus/application';
 import { readSecret } from '@ensemus/config';
 import { openAppDatabase } from '@ensemus/database';
 import { createServiceContext } from '@ensemus/database/service';
+import { LEDGER_PREFIX, ledgerKeyFromRef, ledgerRef } from '@ensemus/domain/tombstone-ledger';
 import { S3ObjectStore } from '@ensemus/storage';
 import { createLogger, errorCode } from '@ensemus/telemetry';
 
 const log = createLogger('reapply-ledger');
 
+/** A mistyped ID must stop the command, or it would look as though an entry was dealt with. */
+function refuse(): never {
+  log.error('tombstone_ledger.reapply_refused', { reasonCode: 'NOT_A_LEDGER_ENTRY' });
+  process.exit(2);
+}
+
 async function main() {
+  const { values } = parseArgs({
+    options: {
+      confirm: { type: 'string', multiple: true, default: [] },
+      quarantine: { type: 'string', multiple: true, default: [] },
+    },
+  });
+  for (const ref of values.confirm) if (!ledgerKeyFromRef(ref)) refuse();
+  // A key as well as a reference, because an object with no valid key has no reference to give.
+  const toQuarantine = values.quarantine.map((given) =>
+    given.startsWith(LEDGER_PREFIX) ? given : (ledgerKeyFromRef(given) ?? refuse()),
+  );
+
   const { db, close } = openAppDatabase(readSecret('DATABASE_URL_APP'));
   const store = new S3ObjectStore({
     endpoint: process.env.OBJECT_STORAGE_ENDPOINT ?? 'http://objects:8333',
@@ -19,12 +41,30 @@ async function main() {
     accessKey: readSecret('OBJECT_STORAGE_ACCESS_KEY'),
     secretKey: readSecret('OBJECT_STORAGE_SECRET_KEY'),
   });
-  const result = await reapplyTombstoneLedger(db, store, createServiceContext, (error) =>
-    log.warn('tombstone_ledger.entry_failed', { errorCode: errorCode(error) }),
+  for (const key of toQuarantine) {
+    await quarantineLedgerObject(db, store, createServiceContext, key);
+    log.warn('tombstone_ledger.entry_quarantined', { count: 1 });
+  }
+  const result = await reapplyTombstoneLedger(
+    db,
+    store,
+    createServiceContext,
+    (error) => log.warn('tombstone_ledger.entry_failed', { errorCode: errorCode(error) }),
+    {
+      confirmed: new Set(values.confirm),
+      onUnconfirmed: (entry) =>
+        log.warn('tombstone_ledger.entry_unconfirmed', { ledgerEntry: ledgerRef(entry) }),
+      // A key that names no entry can hold anything, so it stays out of the log. It is in the store.
+      onInvalid: (named) =>
+        log.warn(
+          'tombstone_ledger.entry_invalid',
+          named ? { ledgerEntry: ledgerRef(named) } : { count: 1 },
+        ),
+    },
   );
   log.info('tombstone_ledger.reapplied', result);
   await close();
-  if (result.failed > 0 || result.invalid > 0) process.exit(1);
+  if (result.failed > 0 || result.invalid > 0 || result.unconfirmed > 0) process.exit(1);
 }
 
 main().catch((error: unknown) => {

@@ -363,6 +363,8 @@ export const workTransitions = workSchema.table(
     organizationId: uuid().notNull(),
     id: uuid().notNull().defaultRandom(),
     workUnitId: uuid().notNull(),
+    /** The version this move started from. Empty only on rows written before this was recorded. */
+    fromVersion: integer(),
     fromStatus: text().notNull(),
     toStatus: text().notNull(),
     actorMembershipId: uuid(),

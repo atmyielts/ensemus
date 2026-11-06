@@ -28,13 +28,12 @@ import { AppError, pgCode, type ErrorCode } from './errors';
 import { emit } from './events';
 import {
   applyTransition,
-  assertActiveMember,
+  assertCanBeAskedToReview,
   auditAction,
   clearApprovalNotifications,
   currentReviewAction,
   loadChangeable,
   loadReadable,
-  memberCanRead,
   notify,
   visibleTo,
 } from './work';
@@ -132,19 +131,7 @@ export async function createApprovalInTx(
     await recordExpiry(tx, context, work, open, now, 'REPLACED');
   }
 
-  await assertActiveMember(tx, input.approverMembershipId);
-  // Shared, so that disabling or demoting this person at this moment either waits for this request
-  // to commit and then closes it, or commits first and is seen here. Plain reads would miss each other.
-  const [approver] = await tx
-    .select({ id: memberships.id, role: memberships.role, status: memberships.status })
-    .from(memberships)
-    .where(eq(memberships.id, input.approverMembershipId))
-    .for('share');
-  if (approver?.status !== 'active') throw new AppError('INVALID_INPUT');
-  // An approver has to be able to see what they are approving.
-  if (!(await memberCanRead(tx, work, { membershipId: approver.id, role: approver.role }))) {
-    throw new AppError('INVALID_INPUT');
-  }
+  await assertCanBeAskedToReview(tx, work, input.approverMembershipId);
 
   const id = randomUUID();
   const hash = actionHash(input.action);
@@ -177,12 +164,15 @@ export async function createApprovalInTx(
     targetRef: `approval:${id}`,
     remindAt: new Date(Date.now() + REMINDER_DELAY_MS),
   });
-  if (work.status === 'running') await applyTransition(tx, context, work, 'awaiting_approval');
+  const now =
+    work.status === 'running'
+      ? await applyTransition(tx, context, work, 'awaiting_approval')
+      : work;
   await emit(tx, context, {
     eventType: 'approval.requested',
     aggregateType: 'work_unit',
     aggregateId: input.workUnitId,
-    aggregateVersion: work.version,
+    aggregateVersion: now.version,
     classification: work.classification,
     payload: { approval_id: id, work_unit_id: input.workUnitId },
   });
@@ -285,16 +275,16 @@ export async function decideApproval(
 
     // Only the approval that caused the pause can end it. A later review of the same work is just a
     // review: it records an opinion, and overrides nobody.
-    if (holdingWork) {
-      await applyTransition(tx, context, work, status === 'approved' ? 'running' : 'cancelled', {
-        ...(reason ? { reason } : {}),
-      });
-    }
+    const now = holdingWork
+      ? await applyTransition(tx, context, work, status === 'approved' ? 'running' : 'cancelled', {
+          ...(reason ? { reason } : {}),
+        })
+      : work;
     await emit(tx, context, {
       eventType: 'approval.resolved',
       aggregateType: 'work_unit',
       aggregateId: approval.workUnitId,
-      aggregateVersion: work.version,
+      aggregateVersion: now.version,
       classification: work.classification,
       payload: { approval_id: approval.id, work_unit_id: approval.workUnitId, outcome: status },
     });

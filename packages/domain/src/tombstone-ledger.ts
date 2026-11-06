@@ -25,6 +25,16 @@ const KEY = new RegExp(`^tombstone-ledger/v1/(${UUID})/([a-z_]+)/(${UUID})\\.jso
 export const ledgerPrefixFor = (organizationId: string) => `${LEDGER_PREFIX}${organizationId}/`;
 
 /**
+ * Where an operator moves an object they have decided is not a real deletion. Nothing reads this as
+ * ledger, so the gate and the re-apply stop seeing it, and the ledger identity cannot reach it, because
+ * its policy stops at `tombstone-ledger/`.
+ */
+export const LEDGER_QUARANTINE_PREFIX = 'tombstone-ledger-quarantine/v1/';
+
+export const quarantineKeyFor = (key: string) =>
+  `${LEDGER_QUARANTINE_PREFIX}${key.slice(LEDGER_PREFIX.length)}`;
+
+/**
  * Deterministic, so delivering the same tombstone twice lands on the same object. Throws on anything
  * that is not exactly an ID or a known type, which also keeps every key free of names.
  */
@@ -48,6 +58,24 @@ export function parseLedgerKey(key: string): Omit<LedgerEntry, 'deletedAt'> | nu
     targetType: match[2] as string,
     targetId: match[3] as string,
   };
+}
+
+/**
+ * How an operator names an entry on a command line. It is IDs and a known type, so it can go in a log
+ * line, which a key cannot: logs refuse values with a slash in them.
+ */
+export const ledgerRef = (entry: Omit<LedgerEntry, 'deletedAt'>) =>
+  `${entry.organizationId}:${entry.targetType}:${entry.targetId}`;
+
+/** The key an operator's reference names, or null unless it is exactly one. */
+export function ledgerKeyFromRef(ref: string): string | null {
+  const [organizationId, targetType, targetId, extra] = ref.split(':');
+  if (!organizationId || !targetType || !targetId || extra !== undefined) return null;
+  try {
+    return ledgerKeyFor({ organizationId, targetType, targetId });
+  } catch {
+    return null;
+  }
 }
 
 export function serializeLedgerEntry(entry: LedgerEntry): Buffer {

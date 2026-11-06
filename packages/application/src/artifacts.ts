@@ -124,7 +124,8 @@ export async function addArtifact(
       eventType: 'work.artifact_added',
       aggregateType: 'work_unit',
       aggregateId: input.workUnitId,
-      aggregateVersion: work.version,
+      // What it is now. The work may have moved on while the bytes were uploading.
+      aggregateVersion: current.version,
       classification: work.classification,
       payload: { work_unit_id: input.workUnitId, artifact_id: id },
     });

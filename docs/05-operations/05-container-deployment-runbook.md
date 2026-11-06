@@ -84,17 +84,32 @@ Keep the dump somewhere encrypted and away from this host. It holds customer dat
 compose run --rm --no-deps dispatcher node dist/ledger-backlog.js
 ```
 
-This prints how many deletions have not reached the ledger (`queued`, and `dead` if any went dead) and how long the oldest has waited (`oldestSeconds`). **These are the deletions a restore could not put back if the database were lost now.** The dispatcher also logs `tombstone_ledger.backlog` every minute while any are waiting. Normally the count is zero. A store outage costs them no attempts, and they are written when it ends.
+This prints how many deletions have not reached the ledger (`queued`, and `dead` if any went dead) and how long the oldest has waited (`oldestSeconds`). **These are the deletions a restore could not put back if the database were lost now.** The dispatcher also logs `tombstone_ledger.backlog` every minute while any are waiting. Normally the count is zero. A store or Temporal outage costs them no attempts. A store outage holds them until it ends, and a Temporal outage does not hold them at all.
 
 ### Restore
 
-1. Stop everything that uses the database:
+1. Stop what people reach the database through, and leave the dispatcher running:
 
    ```sh
-   compose stop proxy web worker dispatcher
+   compose stop proxy web
    ```
 
-2. Put the dump in the container and restore it into the running database. It runs in one transaction, so a failure changes nothing:
+2. **If the database you are replacing is still running, drain the ledger backlog first.** The restore replaces the outbox, so a deletion still waiting there is destroyed with it, and that file comes back with nothing to say it was deleted. Put any dead events back in the queue, then check until both counts are zero:
+
+   ```sh
+   compose exec dispatcher node dist/redrive.js
+   compose run --rm --no-deps dispatcher node dist/ledger-backlog.js
+   ```
+
+   If it will not drain, for example because the object store is down, fix that if you can. If you have to go on anyway, note the `queued` and `dead` counts. Those deletions will come back, as the section below describes, and the people affected need telling. Skip this step if the database has been lost.
+
+3. Stop everything else that uses the database:
+
+   ```sh
+   compose stop worker dispatcher
+   ```
+
+4. Put the dump in the container and restore it into the running database. It runs in one transaction, so a failure changes nothing:
 
    ```sh
    compose cp ./ensemus.dump postgres:/tmp/ensemus.dump
@@ -102,27 +117,51 @@ This prints how many deletions have not reached the ledger (`queued`, and `dead`
    compose exec -T postgres rm /tmp/ensemus.dump
    ```
 
-3. If this release has migrations newer than the dump, apply them:
+5. If this release has migrations newer than the dump, apply them:
 
    ```sh
    compose run --rm --no-deps migrate
    ```
 
-4. Re-apply the tombstone ledger. **Do this before anyone is let back in.**
+6. Re-apply the tombstone ledger. **Do this before anyone is let back in.**
 
    ```sh
    compose run --rm --no-deps worker node dist/reapply-ledger.js
    ```
 
-   It prints counts and no names: `entries`, `tombstonesAdded`, `artifactsRemoved`, `bytesRemoved`, `organizationsMissing`, `invalid` and `failed`. It exits non-zero if `failed` or `invalid` is above zero. For `failed`, fix the cause and run it again. Access is already blocked, and running it again is always safe. For `invalid`, an object under `tombstone-ledger/` is not a valid entry, so look at it before deciding anything: that tenant stays refused until it is resolved.
+   It prints counts and IDs, and no names: `entries`, `tombstonesAdded`, `artifactsRemoved`, `bytesRemoved`, `organizationsMissing`, `invalid`, `unconfirmed` and `failed`. It exits non-zero if `failed`, `invalid` or `unconfirmed` is above zero. For `failed`, fix the cause and run it again. Running it again is always safe. For `invalid` and `unconfirmed`, see the next section: those tenants stay refused until you decide.
 
-5. Start everything:
+7. Start everything:
 
    ```sh
    compose up -d
    ```
 
-If step 4 is skipped or fails, the product protects itself: anyone in an organization whose database is behind the ledger lands on a page saying it is being restored (503), and the API answers 503 `RESTORE_PENDING`, until the re-apply succeeds. A web process left running through a restore can take up to 30 seconds to notice, which is why step 1 stops it. Other organizations are not affected.
+If step 6 is skipped or fails, the product protects itself: anyone in an organization whose database is behind the ledger lands on a page saying it is being restored (503), and the API answers 503 `RESTORE_PENDING`, until the re-apply succeeds. This holds while the object store can answer the check. If it cannot, the gate stays as it was, or open for a process that has just started, so keep the web tier stopped until step 6 has succeeded. A web process left running through a restore can take up to 30 seconds to notice, which is why step 1 stops it. Other organizations are not affected.
+
+### When the re-apply asks you to decide
+
+The re-apply does not destroy a file that still has its row and its bytes on the ledger's word alone, because an entry can be forged by anyone holding the dispatcher's credential ([ADR-026](../00-foundation/adr/ADR-026-tombstones-survive-restore.md), D3). It logs `tombstone_ledger.entry_unconfirmed` with a `ledgerEntry`, changes nothing for that file, and leaves its tenant refused. Decide for each one:
+
+- **You restored a backup older than this deletion**, and the object store went back too, or a purge had not finished. The deletion is real, so confirm it:
+
+  ```sh
+  compose run --rm --no-deps worker node dist/reapply-ledger.js --confirm <ledgerEntry>
+  ```
+
+- **You did not restore anything**, so nothing can be behind the ledger and this entry is not a deletion. Do not confirm it, because that destroys a live file. Move it aside, which also lets the tenant back in:
+
+  ```sh
+  compose run --rm --no-deps worker node dist/reapply-ledger.js --quarantine <ledgerEntry>
+  ```
+
+  Then treat `objects_ledger_*` as stolen: rotate the credential, and tell the security owner. The object is kept under `tombstone-ledger-quarantine/` for them.
+
+`invalid` means an object under `tombstone-ledger/` is not a valid entry. The command logs `tombstone_ledger.entry_invalid` with a `ledgerEntry` if the object's key names one. Look at the object, then quarantine it the same way. If no `ledgerEntry` was logged, its key names nothing and no tenant is refused because of it. Find it by listing the prefix, and pass its whole key to `--quarantine`. Quarantining an object whose key names a real deletion brings that file back, so if the body is damaged and the deletion is real, delete the file again once the tenant is back in.
+
+Both options can be repeated and combined, and the command re-applies everything else in the same run.
+
+The same applies if a tenant is refused with no restore behind it, which is what a forged entry looks like from outside.
 
 ### What this does not bring back or remove
 
@@ -135,6 +174,8 @@ If step 4 is skipped or fails, the product protects itself: anyone in an organiz
 ## Upgrades and rollback
 
 Plan runs must drain before upgrading across migration 0004 (commit 4c207fd) to any later release. A run started before `work_units.run_id` existed replays correctly and then ends without moving its work and without reporting it (`docs/02-architecture/04-work-kernel.md`). Before such an upgrade, let every plan run finish or stop it, and check that no work is `running` or `awaiting_approval` under a plan. No deployment of that code is known to exist.
+
+If a run did cross that migration, its work is left `running` or `awaiting_approval` with an empty `run_id`, and a person has to move it by hand: the page offers the ordinary buttons. The periodic check deliberately does not fail such work when its workflow has closed. A person starting planned work by hand leaves exactly the same row, with no workflow behind it, so the check would fail work that somebody is doing. Nothing recorded on the row tells the two apart.
 
 `pnpm test:upgrade` is how a release proves it can take over paused work. It builds the images of an earlier commit (the merge-base with `main`, or `--from <ref>`) in a temporary worktree, opens a plan through that release's own pages until its approval is paused, upgrades to the current images with their migrations, approves, and checks that the same run reaches Checking and that a person can finish it. It runs as its own Compose project on port 18443 and removes everything it made. It refuses a base that has no stack, no page that can run a plan, or that is older than migration 0004.
 

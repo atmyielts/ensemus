@@ -17,6 +17,12 @@ const KIND_WORDS: Record<string, string> = {
   'approval.decided': 'A review of your work was decided',
   'approval.expired': 'A review of your work ran out of time',
   'approval.closed': 'A review of your work was closed, because the reviewer lost access',
+  'approval.outdated': 'A review of your work was closed, because the work changed',
+  'approval.superseded':
+    'A review you asked for was closed, because a plan started and asks its own reviewer',
+  'approval.work_finished': 'A review you asked for was closed, because the work finished',
+  'approval.work_reopened': 'A review you asked for was closed, because the work was reopened',
+  'work.run_withdrawn': 'A plan you asked to run was withdrawn, because someone moved the work',
   'work.stopped': 'Work you own was stopped',
   'work.failed': 'Work you own did not finish',
   'work.assigned': 'You were put on some work',
