@@ -5,6 +5,9 @@ import {
   claimSetupToken,
   openAuthDatabase,
   recordSessionAssurance,
+  revokeSessionAssurances,
+  reserveMfaAttempt,
+  readMfaEnrollmentState,
   releaseSetupToken,
   removeSsoProvider,
   storeSsoProvider,
@@ -13,7 +16,9 @@ import { createLogger, errorCode } from '@ensemus/telemetry';
 import { betterAuth, type BetterAuthPlugin } from 'better-auth';
 import { drizzleAdapter } from 'better-auth/adapters/drizzle';
 import { genericOAuth } from 'better-auth/plugins';
-import { createMfaOperations, mfaPlugins } from './mfa';
+import { createMfaOperations, mfaPlugins, MFA_PRIVATE_PATHS, MFA_ACCOUNT_LOCKOUT } from './mfa';
+import { createMfaAdmission } from './mfa-admission';
+import { createPrimaryAuthentication, primaryAuthenticationPlugin } from './mfa-primary';
 import { createSsoOperations, SSO_DISABLED_PATHS, ssoPlugins } from './sso';
 
 export type OidcProvider = {
@@ -54,7 +59,7 @@ export type CredentialForm =
   | { path: '/sign-up/email'; body: { name: string; email: string; password: string } };
 
 export type CredentialOutcome = {
-  outcome: 'accepted' | 'refused' | 'rate_limited';
+  outcome: 'accepted' | 'two_factor' | 'refused' | 'rate_limited';
   /** The HTTP status behind the outcome, for the log. */
   status: number;
   /** The cookies to set, which the caller's framework has to pass on to the browser. */
@@ -67,13 +72,14 @@ const TOO_MANY_REQUESTS = 429;
 
 export function createAuth(options: AuthOptions) {
   const { db, close } = openAuthDatabase(options.databaseUrl);
-  const build = (allowSignup: boolean) =>
+  const primary = createPrimaryAuthentication(db, options.secret, options.oidc?.providerId);
+  const build = (allowSignup: boolean, privateFactorManagement = false) =>
     betterAuth({
       appName: 'Ensemus',
       baseURL: options.baseURL,
       secret: options.secret,
       trustedOrigins: [options.baseURL],
-      disabledPaths: [...SSO_DISABLED_PATHS],
+      disabledPaths: [...SSO_DISABLED_PATHS, ...(privateFactorManagement ? [] : MFA_PRIVATE_PATHS)],
       telemetry: { enabled: false },
       logger: { log: logSafely },
       database: drizzleAdapter(db, { provider: 'pg', schema: authSchema }),
@@ -102,7 +108,7 @@ export function createAuth(options: AuthOptions) {
         defaultCookieAttributes: { httpOnly: true, sameSite: 'lax' },
       },
       plugins: [
-        ...(options.oidc
+        ...(options.oidc && !privateFactorManagement
           ? [
               genericOAuth({
                 config: [
@@ -119,8 +125,17 @@ export function createAuth(options: AuthOptions) {
             ]
           : []),
         ...mfaPlugins(),
-        ...ssoPlugins({ baseURL: options.baseURL }),
-        ...(options.plugins ?? []),
+        ...(!privateFactorManagement ? ssoPlugins({ baseURL: options.baseURL }) : []),
+        ...(!privateFactorManagement
+          ? [
+              primaryAuthenticationPlugin(options.oidc?.providerId, (input) =>
+                primary.record(input),
+              ),
+            ]
+          : []),
+        // Private MFA responses are forwarded only AFTER durable admission and trusted proof.
+        // Framework cookie plugins would otherwise mint the browser cookie before that decision.
+        ...(privateFactorManagement ? [] : (options.plugins ?? [])),
       ],
     });
   const auth = build(options.allowSignup);
@@ -150,9 +165,18 @@ export function createAuth(options: AuthOptions) {
         body: JSON.stringify(form.body),
       }),
     );
+    const data =
+      response.status === 200
+        ? ((await response
+            .clone()
+            .json()
+            .catch(() => null)) as { twoFactorRedirect?: unknown } | null)
+        : null;
     return {
       outcome: response.ok
-        ? 'accepted'
+        ? data?.twoFactorRedirect === true
+          ? 'two_factor'
+          : 'accepted'
         : response.status === TOO_MANY_REQUESTS
           ? 'rate_limited'
           : 'refused',
@@ -187,10 +211,23 @@ export function createAuth(options: AuthOptions) {
     }
   }
 
+  let factorManagement: typeof auth | undefined;
+  const factorRouter = (request: Request) => {
+    factorManagement ??= build(false, true);
+    return factorManagement.handler(request);
+  };
   const mfa = createMfaOperations({
-    handler: (request) => auth.handler(request),
+    handler: factorRouter,
+    managementHandler: factorRouter,
     baseURL: options.baseURL,
+    enrollmentState: (userId) => readMfaEnrollmentState(db, userId),
     record: (proof) => recordSessionAssurance(db, proof),
+    reserveAttempt: (userId) => reserveMfaAttempt(db, userId, MFA_ACCOUNT_LOCKOUT),
+    admit: createMfaAdmission(db, options.secret),
+    revoke: (userId) => revokeSessionAssurances(db, userId),
+    prepareEnrollment: (input) => primary.prepareEnrollment(input),
+    recordEnrollment: (input, candidate) => primary.recordEnrollment(input, candidate),
+    enrollmentCurrent: (input) => primary.enrollmentCurrent(input),
   });
   const sso = createSsoOperations({
     store: (provider) => storeSsoProvider(db, provider),

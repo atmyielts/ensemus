@@ -53,7 +53,7 @@ export const twoFactors = identitySchema.table(
     failedVerificationCount: integer().notNull().default(0),
     lockedUntil: timestamp({ withTimezone: true }),
   },
-  (t) => [index('two_factors_user_idx').on(t.userId)],
+  (t) => [uniqueIndex('two_factors_one_per_user').on(t.userId)],
 );
 
 /**

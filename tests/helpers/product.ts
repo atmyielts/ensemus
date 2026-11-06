@@ -5,7 +5,8 @@ import { randomUUID } from 'node:crypto';
 import { unavailablePorts, type ProductPorts } from '@ensemus/application/product-ports';
 import { openAppDatabase, createOrganization, resolveTenantContext } from '@ensemus/database';
 import type { TenantContext } from '@ensemus/database';
-import { recordSessionAssurance, openAuthDatabase } from '@ensemus/database/auth';
+import { authSchema, recordSessionAssurance, openAuthDatabase } from '@ensemus/database/auth';
+import { eq } from 'drizzle-orm';
 import type { AgentDraftAnswers, ToolFacts } from '@ensemus/domain/agent-draft';
 import pg from 'pg';
 import { urls } from './stack';
@@ -88,6 +89,10 @@ export async function proveSecondFactor(
 ) {
   const { db, close } = openAuthDatabase(urls.auth());
   try {
+    await db
+      .update(authSchema.user)
+      .set({ twoFactorEnabled: true })
+      .where(eq(authSchema.user.id, person.userId));
     await recordSessionAssurance(
       db,
       { sessionId: person.sessionId, userId: person.userId, kind: 'mfa_totp' },

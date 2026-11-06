@@ -1,7 +1,13 @@
 // Recent MFA for privileged actions (ID-05, ADR-031 D8). Every privileged service calls this in the same
 // transaction as its effect, so there is no window between the check and the write. The proof comes from a
 // table the application role can read and never write.
-import { withTenantTx, type AppDatabase, type TenantContext, type Tx } from '@ensemus/database';
+import {
+  users,
+  withTenantTx,
+  type AppDatabase,
+  type TenantContext,
+  type Tx,
+} from '@ensemus/database';
 import { securityPolicies, sessionAssurances } from '@ensemus/database/product';
 import {
   DEFAULT_MFA_MAX_AGE_SECONDS,
@@ -31,6 +37,7 @@ export async function assertRecentMfa(
   proof: SessionProof | null,
   now: Date = new Date(),
 ): Promise<void> {
+  if (context.actorType !== 'user') throw new AppError('MFA_REQUIRED');
   const [policy] = await tx
     .select({
       mfaForAdministration: securityPolicies.mfaForAdministration,
@@ -42,6 +49,12 @@ export async function assertRecentMfa(
     ? await tx
         .select({ verifiedAt: sessionAssurances.verifiedAt })
         .from(sessionAssurances)
+        // Removal changes this flag before revoke-all. Even a crash in that cleanup gap must not
+        // leave an old assurance usable. Only this narrow, already-granted account field is read.
+        .innerJoin(
+          users,
+          and(eq(users.id, sessionAssurances.userId), eq(users.twoFactorEnabled, true)),
+        )
         .where(
           and(
             eq(sessionAssurances.sessionId, proof.sessionId),

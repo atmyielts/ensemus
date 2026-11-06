@@ -1,0 +1,31 @@
+// Test-only pinned-library composition. No production export or runtime module imports test-support.
+// The integration runner supplies the real auth-role connection; nothing here mints a fake proof.
+import { betterAuth } from 'better-auth';
+import { drizzleAdapter } from 'better-auth/adapters/drizzle';
+import { parseSetCookieHeader } from 'better-auth/cookies';
+import { authSchema, type openAuthDatabase } from '@ensemus/database/auth';
+import { mfaPlugins } from '../src/mfa';
+
+export function privateFactorRouter(
+  database: ReturnType<typeof openAuthDatabase>['db'],
+  secret: string,
+  baseURL: string,
+): { handler: (request: Request) => Promise<Response> } {
+  const auth = betterAuth({
+    appName: 'Ensemus',
+    database: drizzleAdapter(database, { provider: 'pg', schema: authSchema }),
+    secret,
+    baseURL,
+    trustedOrigins: [baseURL],
+    advanced: { database: { generateId: 'uuid' }, useSecureCookies: false },
+    plugins: mfaPlugins(),
+    rateLimit: { enabled: true, storage: 'database' },
+    telemetry: { enabled: false },
+    logger: { log: () => {} },
+  });
+  return { handler: (request) => auth.handler(request) };
+}
+export const fixtureCookies = (setCookie: string | null) =>
+  [...parseSetCookieHeader(setCookie ?? '')]
+    .map(([name, value]) => `${name}=${value.value}`)
+    .join('; ');
