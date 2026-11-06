@@ -162,7 +162,8 @@ export type FinishAttemptInput = {
   attempt: number;
   result: SandboxJobResult;
   /** Parsed and checked by the Activity: null output means it did not parse or did not pass. */
-  output: { ok: true; value: unknown } | { ok: false; code: 'OUTPUT_NOT_JSON' | 'OUTPUT_FAILED_SCHEMA' };
+  output:
+    { ok: true; value: unknown } | { ok: false; code: 'OUTPUT_NOT_JSON' | 'OUTPUT_FAILED_SCHEMA' };
 };
 
 /**
@@ -186,7 +187,10 @@ export function finishSandboxAttempt(
 export function abandonSandboxAttempt(
   _database: AppDatabase,
   _context: TenantContext,
-  _input: { sandboxRunId: string; code: Extract<SandboxOutcomeCode, 'RUNNER_UNREACHABLE' | 'RUNNER_NOT_CONFIGURED'> },
+  _input: {
+    sandboxRunId: string;
+    code: Extract<SandboxOutcomeCode, 'RUNNER_UNREACHABLE' | 'RUNNER_NOT_CONFIGURED'>;
+  },
 ): Promise<SandboxRunStatus> {
   throw new Error('NOT_IMPLEMENTED');
 }

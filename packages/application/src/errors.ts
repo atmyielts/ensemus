@@ -87,7 +87,8 @@ const MESSAGES: Record<ErrorCode, string> = {
   FEATURE_NOT_ENABLED: 'This is not switched on for this deployment.',
   SKILL_NAME_TAKEN: 'A skill with that name already exists here. Choose another.',
   SKILL_SIGNER_KEY_INVALID: 'That is not a valid Ed25519 public key.',
-  SKILL_SIGNER_EXISTS: 'That key is already on file. A key that was revoked cannot be trusted again.',
+  SKILL_SIGNER_EXISTS:
+    'That key is already on file. A key that was revoked cannot be trusted again.',
   SKILL_BUNDLE_TOO_LARGE: 'That bundle is larger than 8 MiB, so it was not stored.',
   SKILL_VERSION_NOT_PUBLISHABLE:
     'This version cannot be published. It has to be verified, and its signer still trusted.',

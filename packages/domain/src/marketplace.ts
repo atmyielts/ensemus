@@ -113,7 +113,9 @@ export function reviewCanApprove(
     const result = checks[check];
     if (result === 'pass') return true;
     return (
-      result === 'not_applicable' && check === 'code_read_for_abuse' && executionKind === 'declarative'
+      result === 'not_applicable' &&
+      check === 'code_read_for_abuse' &&
+      executionKind === 'declarative'
     );
   });
 }

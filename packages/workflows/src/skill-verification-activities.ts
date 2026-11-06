@@ -1,9 +1,5 @@
 // Owned by the skill-verification slice (EXP-04). See docs/06-delivery/m11b-slices.md and ADR-034 D1, D2.
-import type {
-  SkillCheckStep,
-  SkillVerificationInput,
-  SkillVerificationOutcome,
-} from './schemas';
+import type { SkillCheckStep, SkillVerificationInput, SkillVerificationOutcome } from './schemas';
 import type { SkillActivityDeps } from './skill-deps';
 
 /** On the platform queue. Reading a bundle takes no secret and no runner. */

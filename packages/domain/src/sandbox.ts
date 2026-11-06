@@ -149,8 +149,7 @@ export type SandboxPolicyRequest = {
 export type PolicyRefusal = 'RUNTIME_NOT_SUPPORTED' | 'NETWORK_NOT_ALLOWED' | 'LIMITS_OVER_CEILING';
 
 export type CompiledSandboxPolicy =
-  | { ok: true; policy: SandboxPolicy; policyHash: string }
-  | { ok: false; code: PolicyRefusal };
+  { ok: true; policy: SandboxPolicy; policyHash: string } | { ok: false; code: PolicyRefusal };
 
 /**
  * Turns what a package's manifest asks for, and what this deployment allows, into the rule for a run.

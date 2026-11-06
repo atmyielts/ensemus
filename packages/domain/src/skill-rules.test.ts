@@ -72,9 +72,12 @@ describe('whether a version may be used', () => {
     expect(skillUseDenial({ ...usable, packageState: 'disabled' })).toBe('PACKAGE_DISABLED');
   });
 
-  it.each(['revoked', null] as const)('refuses a tenant package whose signer is %s', (signerState) => {
-    expect(skillUseDenial({ ...usable, signerState })).toBe('SIGNER_REVOKED');
-  });
+  it.each(['revoked', null] as const)(
+    'refuses a tenant package whose signer is %s',
+    (signerState) => {
+      expect(skillUseDenial({ ...usable, signerState })).toBe('SIGNER_REVOKED');
+    },
+  );
 
   it('keeps a marketplace copy working after new installs stop, and stops it on a revoke', () => {
     const copy = { ...usable, origin: 'marketplace' as const, signerState: null };
@@ -130,7 +133,9 @@ describe('sandbox runs', () => {
 });
 
 describe('a probe report', () => {
-  const report = (checks: ReadonlyArray<{ check: (typeof ISOLATION_CHECKS)[number]; passed: boolean }>) => ({
+  const report = (
+    checks: ReadonlyArray<{ check: (typeof ISOLATION_CHECKS)[number]; passed: boolean }>,
+  ) => ({
     runtime: 'test',
     runtimeVersion: '0',
     probedAt: new Date(0).toISOString(),

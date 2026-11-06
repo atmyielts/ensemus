@@ -195,9 +195,9 @@ describe('skill, sandbox and marketplace rules in the database', () => {
     });
 
     it('shows nothing at all with no tenant bound, including listings', async () => {
-      await expect(
-        database.db.run((tx) => tx.select().from(marketplaceListings)),
-      ).resolves.toEqual([]);
+      await expect(database.db.run((tx) => tx.select().from(marketplaceListings))).resolves.toEqual(
+        [],
+      );
       await expect(database.db.run((tx) => tx.select().from(skillVersions))).resolves.toEqual([]);
     });
   });
@@ -205,10 +205,12 @@ describe('skill, sandbox and marketplace rules in the database', () => {
   describe('what each role can reach', () => {
     it('gives the application role no write on a review or a listing', async () => {
       const app = await client(urls.app());
-      await expect(app.query('delete from marketplace.listings')).rejects.toThrow(/permission denied/);
-      await expect(
-        app.query(`update marketplace.listings set state = 'listed'`),
-      ).rejects.toThrow(/permission denied/);
+      await expect(app.query('delete from marketplace.listings')).rejects.toThrow(
+        /permission denied/,
+      );
+      await expect(app.query(`update marketplace.listings set state = 'listed'`)).rejects.toThrow(
+        /permission denied/,
+      );
       await expect(
         app.query(`insert into marketplace.security_reviews (id) values (gen_random_uuid())`),
       ).rejects.toThrow(/permission denied/);
@@ -320,7 +322,9 @@ describe('skill, sandbox and marketplace rules in the database', () => {
         tx
           .update(skillVersions)
           .set({ ...set, version: sql`version + 1` })
-          .where(and(eq(skillVersions.organizationId, context.organizationId), eq(skillVersions.id, id))),
+          .where(
+            and(eq(skillVersions.organizationId, context.organizationId), eq(skillVersions.id, id)),
+          ),
       );
 
     it('cannot skip being checked', async () => {
@@ -447,7 +451,10 @@ describe('skill, sandbox and marketplace rules in the database', () => {
               version: sql`version + 1`,
             })
             .where(
-              and(eq(trustedSigners.organizationId, ctxA.organizationId), eq(trustedSigners.id, id)),
+              and(
+                eq(trustedSigners.organizationId, ctxA.organizationId),
+                eq(trustedSigners.id, id),
+              ),
             ),
         );
       await set('revoked');
@@ -720,9 +727,9 @@ describe('skill, sandbox and marketplace rules in the database', () => {
       await expect(
         review(operator, values, { checks: { only_one: 'pass' } }),
       ).rejects.toMatchObject({ code: 'ES005' });
-      await expect(
-        review(operator, values, { findings: ['HARMFUL_CODE'] }),
-      ).rejects.toMatchObject({ code: 'ES005' });
+      await expect(review(operator, values, { findings: ['HARMFUL_CODE'] })).rejects.toMatchObject({
+        code: 'ES005',
+      });
       await expect(review(operator, values, { digest: randomHex() })).rejects.toMatchObject({
         code: 'ES004',
       });

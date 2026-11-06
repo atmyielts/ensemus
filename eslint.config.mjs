@@ -208,11 +208,18 @@ export default tseslint.config(
   restrict(['workers/workflow/src/sandbox-runner.ts'], [rawDatabase, runnerReach, testDoubles]),
   restrict(
     ['packages/sandbox/**/*.ts'],
-    [sandboxReach, { group: ['@ensemus/skills', '@ensemus/skills/*'], message: 'A job is only bytes.' }],
+    [
+      sandboxReach,
+      { group: ['@ensemus/skills', '@ensemus/skills/*'], message: 'A job is only bytes.' },
+    ],
   ),
   restrict(
     ['packages/skills/**/*.ts'],
-    [skillReach, rawNetwork, { group: ['node:child_process', 'child_process'], message: 'Reading a bundle runs nothing.' }],
+    [
+      skillReach,
+      rawNetwork,
+      { group: ['node:child_process', 'child_process'], message: 'Reading a bundle runs nothing.' },
+    ],
   ),
   // packages/connectors, in two parts. A rule set on the same files replaces the one before it, so
   // the first has to name everything: its testing folder may use a socket, and network.ts must.

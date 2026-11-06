@@ -550,10 +550,7 @@ export const marketplaceListings = marketplaceSchema.table(
     check('marketplace_listings_digest', sql`${t.digest} ~ '^[0-9a-f]{64}$'`),
     check('marketplace_listings_key_size', sql`octet_length(${t.signerPublicKey}) = 32`),
     check('marketplace_listings_signature_size', sql`octet_length(${t.signature}) = 64`),
-    check(
-      'marketplace_listings_execution',
-      sql`${t.executionKind} in ('declarative','sandbox')`,
-    ),
+    check('marketplace_listings_execution', sql`${t.executionKind} in ('declarative','sandbox')`),
     check(
       'marketplace_listings_max_classification',
       sql`${t.maxClassification} in ('public','internal','confidential')`,

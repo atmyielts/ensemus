@@ -46,9 +46,12 @@ function transitionsIn(functionName: string, column: string) {
   expect(start, functionName).toBeGreaterThan(-1);
   const body = security.slice(start, security.indexOf('END $$;', start));
   return Object.fromEntries(
-    [...body.matchAll(new RegExp(`WHEN '([a-z_]+)' THEN NEW\\.${column} IN \\(([^)]+)\\)`, 'g'))].map(
-      ([, from, to]) => [from, (to ?? '').split(',').map((state) => state.trim().replaceAll("'", ''))],
-    ),
+    [
+      ...body.matchAll(new RegExp(`WHEN '([a-z_]+)' THEN NEW\\.${column} IN \\(([^)]+)\\)`, 'g')),
+    ].map(([, from, to]) => [
+      from,
+      (to ?? '').split(',').map((state) => state.trim().replaceAll("'", '')),
+    ]),
   );
 }
 

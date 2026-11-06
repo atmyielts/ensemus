@@ -148,11 +148,12 @@ export function updateSkillPackage(
 }
 
 /**
- * The web tier's whole job with a bundle: count it, hash it, store it, write the row and the event in one
- * transaction. It parses nothing and believes nothing (ADR-034 D2). Bytes over the limit are refused with
- * SKILL_BUNDLE_TOO_LARGE. The same bytes sent again find the same row, and store nothing twice. A failed
- * insert leaves an object with no row, for the upkeep sweep the artifacts slice already has to find: the
- * row is written after the bytes, so no row ever names bytes that are not there.
+ * The web tier's whole job with a bundle: count it, hash it, store it, write the row and the event. It parses
+ * nothing and believes nothing (ADR-034 D2). Bytes over the limit are refused with SKILL_BUNDLE_TOO_LARGE. The
+ * same bytes sent again find the same row, and store nothing twice. Follows addArtifact's order, with the
+ * version's ID as the blob's: a `blob_lifecycle` row marked `uploading` first, then the bytes, then the version
+ * row, the event and removing the marker in one transaction. So no row ever names bytes that are not there, and
+ * a crash leaves bytes the existing upkeep sweep already removes.
  */
 export function uploadSkillBundle(
   _database: AppDatabase,

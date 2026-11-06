@@ -22,8 +22,8 @@
     },
     {
       "path": "00-foundation/03-decisions-and-adrs.md",
-      "size_bytes": 7372,
-      "sha256": "0c207701c600061a5d78bd597082effb227fdb9eeeb90010eb3b97c7d217d3f6"
+      "size_bytes": 8106,
+      "sha256": "ceb04b63058dc5b4a4f758facb17e0d22b1396938b9c575988cc7238defcee56"
     },
     {
       "path": "00-foundation/04-doc-governance.md",
@@ -49,6 +49,11 @@
       "path": "00-foundation/adr/ADR-027-verified-external-actions.md",
       "size_bytes": 32522,
       "sha256": "4d4752749aac8eac69b1a664a06e118ba092e38ce68ec5e00a159c6a13d1c2ae"
+    },
+    {
+      "path": "00-foundation/adr/ADR-034-skills-sandbox-marketplace.md",
+      "size_bytes": 28710,
+      "sha256": "77b313af86eda8ae435b15dd50875b93816de20ad93c9f97b57574c1ee06b33c"
     },
     {
       "path": "01-product/01-product-requirements.md",
@@ -291,6 +296,11 @@
       "sha256": "b055dfb10feb5f85e4295a7998614131dbd84c4428b71e0ff51118f8054b43ef"
     },
     {
+      "path": "06-delivery/m11b-slices.md",
+      "size_bytes": 52879,
+      "sha256": "010244f343ccd59939af06fa2a03b110085710200ed21173c403244d8f33e2e4"
+    },
+    {
       "path": "06-delivery/m3-slices.md",
       "size_bytes": 33733,
       "sha256": "a6e07ed8431e6dd3dcd100e2421fc5e9af7dedda5bfa1f1f73956016cf2942fd"
@@ -452,13 +462,13 @@
     },
     {
       "path": "specifications/openapi.yaml",
-      "size_bytes": 46864,
-      "sha256": "874cb80a08c48b310f54197eec55c7a68833263c531c58825efd00b63171d4cc"
+      "size_bytes": 89815,
+      "sha256": "eb8ea177e8c0006308bcd248c4e3d3c9cf6a2131a1c048c19a39b833be050fac"
     },
     {
       "path": "specifications/qa-scenarios.csv",
-      "size_bytes": 4888,
-      "sha256": "8ec27a9242e0701e4614d7c02462cbdf947da183d5df10b6594be8e54fb0be0a"
+      "size_bytes": 7484,
+      "sha256": "95b43a95e2e9d3c3b42b4e4daefb83968faddbec518bde40c9bb94d0e85edd1b"
     },
     {
       "path": "specifications/schema.sql",
@@ -482,8 +492,8 @@
     },
     {
       "path": "specifications/threat-register.csv",
-      "size_bytes": 3766,
-      "sha256": "cf71f8a285b6bf528b73f3118d437f905f7581e291c312f106ecbbb27b20495b"
+      "size_bytes": 4945,
+      "sha256": "5243ca90288cfde5b43f681e42f4c8ce3777f3101569f26c5aec20b8dab80c80"
     },
     {
       "path": "specifications/tools/check-backlog.mjs",
@@ -497,8 +507,8 @@
     },
     {
       "path": "specifications/traceability.csv",
-      "size_bytes": 3160,
-      "sha256": "3be0d7764245422edbf67c39835390548260d171d6d3cec3d1b960b590000a08"
+      "size_bytes": 3656,
+      "sha256": "48389c12ce794598ab53e9517f9f68b91c5911e0cc5f0453295615d06974573f"
     },
     {
       "path": "specifications/typescript/agent-manifest.reference.ts",

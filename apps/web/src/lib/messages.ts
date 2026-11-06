@@ -55,7 +55,10 @@ const MESSAGE_FOR = new Map<string, string>([
     'SKILL_VERSION_NOT_PUBLISHABLE',
     'This version cannot be published. It has to be verified, and its signer still trusted.',
   ],
-  ['SKILL_PUBLISH_SAME_PERSON', 'Someone other than whoever uploaded this version has to publish it.'],
+  [
+    'SKILL_PUBLISH_SAME_PERSON',
+    'Someone other than whoever uploaded this version has to publish it.',
+  ],
   ['SKILL_VERSION_NOT_USABLE', 'This version cannot be used right now.'],
   ['SANDBOX_INPUT_TOO_LARGE', 'That input is larger than 1 MiB, so it was not accepted.'],
   ['SANDBOX_CLASSIFICATION_NOT_ALLOWED', 'This skill cannot be given data of that classification.'],

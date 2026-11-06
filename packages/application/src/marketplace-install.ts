@@ -2,7 +2,12 @@
 // A tenant's side of taking a listing. Installing copies bytes and grants nothing (AGENT-14's rule), and the
 // copy goes through the same verification as an upload, and someone here still has to publish it.
 import type { AppDatabase, TenantContext } from '@ensemus/database';
-import type { DelistMode, InstallationFailureCode, InstallationState, ListingState } from '@ensemus/domain/marketplace';
+import type {
+  DelistMode,
+  InstallationFailureCode,
+  InstallationState,
+  ListingState,
+} from '@ensemus/domain/marketplace';
 import type { ObjectStore } from './artifacts';
 import type { SkillFeatureGate } from './skill-ports';
 
@@ -136,7 +141,10 @@ export function materializeInstallation(
 export function finishInstallation(
   _database: AppDatabase,
   _context: TenantContext,
-  _input: { installationId: string; outcome: { ok: true } | { ok: false; code: InstallationFailureCode } },
+  _input: {
+    installationId: string;
+    outcome: { ok: true } | { ok: false; code: InstallationFailureCode };
+  },
 ): Promise<void> {
   throw new Error('NOT_IMPLEMENTED');
 }

@@ -24,10 +24,7 @@ export const SKILL_VERSION_TRANSITIONS: Record<SkillVersionState, readonly Skill
   yanked: [],
 };
 
-export function canTransitionSkillVersion(
-  from: SkillVersionState,
-  to: SkillVersionState,
-): boolean {
+export function canTransitionSkillVersion(from: SkillVersionState, to: SkillVersionState): boolean {
   return SKILL_VERSION_TRANSITIONS[from].includes(to);
 }
 
@@ -153,7 +150,8 @@ export function skillUseDenial(facts: SkillUseFacts): SkillUseDenial | null {
 /**
  * The licences a package may declare, for itself and for anything it vendors. Deliberately the same short
  * list check-licenses.mjs allows without a named exception. Copyleft and unknown licences are refused
- * here, because Sovereign redistributes, and a reviewer should not have to catch it.
+ * here, because Sovereign redistributes, and a reviewer should not have to catch it. The last is a tenant's
+ * way of saying a package is its own and goes nowhere, and marketplace review refuses it.
  */
 export const SKILL_ALLOWED_LICENSES = [
   'MIT',

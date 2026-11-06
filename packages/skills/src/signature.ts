@@ -20,13 +20,17 @@ export function signingPayload(_digest: string): Buffer {
 }
 
 /** Answers false for any failure at all, including a malformed key or signature, and never throws. */
-export function verifySkillSignature(
-  _input: { digest: string; signature: Buffer; publicKey: Buffer },
-): boolean {
+export function verifySkillSignature(_input: {
+  digest: string;
+  signature: Buffer;
+  publicKey: Buffer;
+}): boolean {
   throw new Error('NOT_IMPLEMENTED');
 }
 
-export type SignerLookup = (keyId: string) => { publicKey: Buffer; state: 'active' | 'revoked' } | null;
+export type SignerLookup = (
+  keyId: string,
+) => { publicKey: Buffer; state: 'active' | 'revoked' } | null;
 
 /**
  * The whole trust decision for a tenant upload: the key named by the signature is on file, active, hashes

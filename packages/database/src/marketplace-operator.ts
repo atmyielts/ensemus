@@ -1,7 +1,12 @@
 // For the marketplace operator command only (lint blocks this everywhere else). Its role crosses tenants, and
 // reaches the marketplace schema and nothing else: no skills, no work, no secrets. It exists only on a server
 // whose operator ran provision-marketplace.sql (ADR-034 D6). Owned by the marketplace-operator slice.
-import type { DelistCode, DelistMode, ReviewAttestation, ReviewVerdict } from '@ensemus/domain/marketplace';
+import type {
+  DelistCode,
+  DelistMode,
+  ReviewAttestation,
+  ReviewVerdict,
+} from '@ensemus/domain/marketplace';
 import { openDatabase, type EnsemusDrizzle } from './connection';
 import type {
   MarketplaceListingRow,
@@ -14,7 +19,9 @@ export function openMarketplaceOperatorDatabase(url: string) {
 }
 
 /** Oldest first: everything `submitted` or `in_review`, and approved ones with a delisting asked for. */
-export function listOperatorQueue(_db: EnsemusDrizzle): Promise<readonly MarketplaceSubmissionRow[]> {
+export function listOperatorQueue(
+  _db: EnsemusDrizzle,
+): Promise<readonly MarketplaceSubmissionRow[]> {
   throw new Error('NOT_IMPLEMENTED');
 }
 

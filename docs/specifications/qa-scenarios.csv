@@ -41,3 +41,23 @@ DEP-TS-01,DEP,Concurrent migration jobs attempted,"Exactly one migrator, no data
 DEP-TS-02,DEP,Sovereign image signature verification,Tampered bundle rejected offline,high,not_implemented
 PERF-TS-01,PERF,Many agents during normal work,p95 web latency and fairness within tested thresholds,high,not_implemented
 DATA-TS-01,DATA,Drizzle transaction RLS pool reuse,No tenant context reused across pooled connections,high,not_implemented
+SKL-TS-01,Skills,Bundle changed after signing,Version rejected; nothing from the bundle stored,critical,not_implemented
+SKL-TS-02,Skills,Bundle signed by a key the tenant does not trust,Version rejected at the table as well as in code,critical,not_implemented
+SKL-TS-03,Skills,Uploader publishes own version,Denied at the service and by a table check,high,not_implemented
+SKL-TS-04,Skills,Signer revoked after publishing,Every version it signed yanked; next use denied,critical,not_implemented
+SKL-TS-05,Skills,Published version edited behind the application's back,Refused by trigger for every role,critical,not_implemented
+SBX-TS-01,Sandbox,Job opens a socket or resolves a name,No network path; probe check fails if it succeeds,critical,not_implemented
+SBX-TS-02,Sandbox,Job reads environment and mounted secrets,Finds nothing it was not given,critical,not_implemented
+SBX-TS-03,Sandbox,Job writes outside /tmp or overfills it,Refused or stopped by the size limit,critical,not_implemented
+SBX-TS-04,Sandbox,Job sleeps or spins past its limits,Killed; run ends timed_out,critical,not_implemented
+SBX-TS-05,Sandbox,Job allocates past its memory limit,Killed; run ends memory_exceeded,critical,not_implemented
+SBX-TS-06,Sandbox,No runner or no runtime configured,Nothing runs; run ends runner_unavailable with no plain-process fallback,critical,not_implemented
+SBX-TS-07,Sandbox,Stored bundle changed after verification,Run ends SKILL_BYTES_CHANGED and never starts,critical,not_implemented
+SBX-TS-08,Sandbox,Restricted data given to a sandbox,Refused by a table check whatever the package says,critical,not_implemented
+MKT-TS-01,Marketplace,Listing with no approved review of this digest,Refused by trigger for every role,critical,not_implemented
+MKT-TS-02,Marketplace,Web tier or worker tries to write a review or a listing,Permission denied: no grant and no policy,critical,not_implemented
+MKT-TS-03,Marketplace,Listing row with a forged or unknown review signature,Install fails ATTESTATION_INVALID,critical,not_implemented
+MKT-TS-04,Marketplace,Package not marked public is submitted,Refused; nothing crosses to a reviewer or another tenant,critical,not_implemented
+MKT-TS-05,Marketplace,Listing revoked after a tenant installed it,Next use denied in that tenant; existing copy cannot run,critical,not_implemented
+MKT-TS-06,Marketplace,Installing a listing,Grants nothing; copy is verified again and someone in the tenant must publish it,high,not_implemented
+MKT-TS-07,Marketplace,Tenant B reads tenant A's installations or submissions,Denied or empty; no data leak,critical,not_implemented

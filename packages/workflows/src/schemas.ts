@@ -143,8 +143,7 @@ export const marketplaceInstallWorkflowIdFor = (input: MarketplaceInstallInput) 
   `marketplace-install-${input.organizationId}-${input.installationId}`;
 export type MarketplaceInstallOutcome = 'installed' | 'failed';
 export type MarketplaceInstallStep =
-  | { step: 'failed' }
-  | { step: 'verify'; skillVersionId: string };
+  { step: 'failed' } | { step: 'verify'; skillVersionId: string };
 
 /** Parses the IDs back out of a workflow ID. The dispatcher builds these, so the format is ours. */
 export const UUID_PATTERN = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';

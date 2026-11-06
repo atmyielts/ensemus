@@ -2,7 +2,11 @@
 // starts jobs. It holds no secret but its own request token, reaches no database and has no route out. It
 // passes a job nothing from its own environment, because the job's environment is written in the OCI spec.
 import type { Server } from 'node:http';
-import type { IsolationProbeReport, SandboxJobEnding, SandboxLimits } from '@ensemus/domain/sandbox';
+import type {
+  IsolationProbeReport,
+  SandboxJobEnding,
+  SandboxLimits,
+} from '@ensemus/domain/sandbox';
 import type { OciSpec } from './oci';
 
 /** What a runtime reports about one job, in numbers and no text. */
@@ -41,7 +45,10 @@ export interface ContainerRuntime {
  * shell. Which binary is the operator's setting, and there is no default: with none, the runner refuses
  * every job with RUNNER_NOT_CONFIGURED, because falling back to a plain process would be no boundary at all.
  */
-export function createOciCliRuntime(_config: { binary: string; stateDir: string }): ContainerRuntime {
+export function createOciCliRuntime(_config: {
+  binary: string;
+  stateDir: string;
+}): ContainerRuntime {
   throw new Error('NOT_IMPLEMENTED');
 }
 

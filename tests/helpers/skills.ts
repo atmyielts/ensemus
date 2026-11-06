@@ -14,7 +14,11 @@ import {
   type AppDatabase,
   type TenantContext,
 } from '@ensemus/database';
-import { SANDBOX_DEFAULT_CEILINGS, sandboxPolicyHash, type SandboxPolicy } from '@ensemus/domain/sandbox';
+import {
+  SANDBOX_DEFAULT_CEILINGS,
+  sandboxPolicyHash,
+  type SandboxPolicy,
+} from '@ensemus/domain/sandbox';
 import type { SkillVersionState } from '@ensemus/domain/skill';
 import { skillBundleObjectKey } from '@ensemus/domain/skill';
 import { eq, and, sql } from 'drizzle-orm';
@@ -98,7 +102,14 @@ export function testManifest(name: string, semver: string, kind: 'declarative' |
             runtime: 'node24',
             entry: 'main.mjs',
             network: { mode: 'none' },
-            limits: { wall_ms: 1000, cpu_ms: 1000, memory_mb: 64, tmpfs_mb: 1, output_kb: 16, pids: 4 },
+            limits: {
+              wall_ms: 1000,
+              cpu_ms: 1000,
+              memory_mb: 64,
+              tmpfs_mb: 1,
+              output_kb: 16,
+              pids: 4,
+            },
           },
     tests: [{ name: 'one', input: 'in.json', expected_output: 'out.json' }],
     files: [{ path: 'instructions.md', sha256: randomHex(), size_bytes: 1 }],
@@ -154,10 +165,7 @@ export async function seedVersion(
     manifest,
     sizeBytes,
   };
-  const where = and(
-    eq(skillVersions.organizationId, organizationId),
-    eq(skillVersions.id, id),
-  );
+  const where = and(eq(skillVersions.organizationId, organizationId), eq(skillVersions.id, id));
   await withTenantTx(database, context, (tx) =>
     tx.insert(skillVersions).values({
       organizationId,
@@ -299,9 +307,7 @@ export async function provisionMarketplaceRole() {
   const su = new pg.Client({ connectionString: urls.superuser() });
   await su.connect();
   try {
-    const { rows } = await su.query(
-      `select 1 from pg_roles where rolname = 'ensemus_marketplace'`,
-    );
+    const { rows } = await su.query(`select 1 from pg_roles where rolname = 'ensemus_marketplace'`);
     if (rows.length === 0) {
       await su.query(
         `create role ensemus_marketplace login nosuperuser nocreaterole nobypassrls password '${OPERATOR_PASSWORD}'`,

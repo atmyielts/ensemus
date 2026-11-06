@@ -14,7 +14,8 @@ export type ParsedSkillBundle = {
   digest: string;
 };
 
-export type BundleCheck = { ok: true; parsed: ParsedSkillBundle } | { ok: false; code: SkillRejectCode };
+export type BundleCheck =
+  { ok: true; parsed: ParsedSkillBundle } | { ok: false; code: SkillRejectCode };
 
 /** SHA-256 of the domain prefix and the manifest's canonicalJson. What a signature covers. */
 export function manifestDigest(_manifest: SkillManifest): string {

@@ -137,10 +137,13 @@ export const skillManifestSchema = z
       .min(1)
       .max(500),
   })
-  .refine((manifest) => new Set(manifest.files.map((file) => file.path)).size === manifest.files.length, {
-    path: ['files'],
-    message: 'FILE_DUPLICATED',
-  });
+  .refine(
+    (manifest) => new Set(manifest.files.map((file) => file.path)).size === manifest.files.length,
+    {
+      path: ['files'],
+      message: 'FILE_DUPLICATED',
+    },
+  );
 export type SkillManifest = z.infer<typeof skillManifestSchema>;
 
 /** The whole package as one JSON document, so nothing here has to unpack an archive (ADR-034 D2). */
