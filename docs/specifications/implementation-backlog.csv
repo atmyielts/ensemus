@@ -36,10 +36,10 @@ UX-15,UX,People and Teams,frontend,"UX-11,FOUND-02",all,M2,"Directory and team s
 UX-16,UX,Clients and Projects,core/work,"UX-11,WORK-01",all,M2,"Tenant-safe entities linked to work, with same-named clients isolated across tenants",verified_ci,
 UX-17,UX,Notifications and approval reminders,core/work,"WORK-05,WORK-06",all,M2,Approvers are told and reminded through at least one channel that works offline; no confidential content in external channels by default,verified_ci,
 LIFE-01,LIFECYCLE,Tombstones and deletion sequence,core/work,"WORK-01,FOUND-03",all,M2,"Deleted sources block retrieval at once, and restore tests cannot bring them back",verified_ci,
-WORK-08,WORK,External tool intent and reconciliation,core/work,WORK-07,all,M3,Timeout-after-send does not duplicate side effect,not_started,
-CONNECT-01,CONNECT,Connector SDK and cursor protocol,integrations,"WORK-06,FOUND-05",all,M3,Incremental sync idempotent and source ACL mapped,not_started,
-CONNECT-02,CONNECT,Webhook authentication and dedupe,integrations,CONNECT-01,all,M3,Replayed/malicious callback rejected,not_started,
-CONNECT-06,CONNECT,External action outbox + receipt UI,integrations,"CONNECT-02,WORK-08",all,M3,Unknown external state visible for manual review,not_started,
+WORK-08,WORK,External tool intent and reconciliation,core/work,WORK-07,all,M3,Timeout-after-send does not duplicate side effect,partial,
+CONNECT-01,CONNECT,Connector SDK and cursor protocol,integrations,"WORK-06,FOUND-05",all,M3,Incremental sync idempotent and source ACL mapped,partial,
+CONNECT-02,CONNECT,Webhook authentication and dedupe,integrations,CONNECT-01,all,M3,Replayed/malicious callback rejected,partial,
+CONNECT-06,CONNECT,External action outbox + receipt UI,integrations,"CONNECT-02,WORK-08",all,M3,Unknown external state visible for manual review,partial,
 MODEL-01,MODEL,Provider profile registry,ai/platform,FOUND-05,all,M4,"Vault credential refs plus policy metadata, no raw keys",not_started,
 MODEL-02,MODEL,Portable model adapter and gateway,ai/platform,MODEL-01,all,M4,At least two hosted providers and one local model pass output schema and conformance tests; unapproved fallback rejected,not_started,AI-10
 MODEL-03,MODEL,Capability-aware policy-first router,ai/platform,MODEL-02,all,M4,Forbidden provider is never selected by cost fallback; restricted and wrong-region payloads fail closed,not_started,AI-11

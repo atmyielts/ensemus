@@ -33,8 +33,14 @@ Dirty scratch test configs and `zz-*` files are preserved in the snapshots and a
 - The SMTP reader previously bounded only the partial-line string. Fragmented multiline and queued complete replies could grow without bound. Two regression tests failed before the fix; four parser tests and the existing connector tests now pass. The fix bounds aggregate unread bytes and releases budget on consumption; independent internal review found no further issue.
 - The first merged unit run exposed skipped ID normalization in new forms/services. Existing regression tests caught it; the merged suite subsequently passed **826 unit tests**. Further gate-coverage and API regressions are being added, so this is a checkpoint count, not the final result.
 - Replay of M2 and new connector/webhook/action histories passed **90 tests**, with 16 explicit history-capture cases skipped.
-- Full merged PostgreSQL integration and built-image connector/browser/fault tests are running. Their outcomes must be recorded before claiming the corresponding acceptance.
+- Merged M3 integration passed 819 checks; receipt/draft browser confirmation passed 27 checks after correcting an accessible label and two test assumptions. Slice 2 exercised send, worker-loss uncertainty, revised recipients and replay. Detailed initial failures and focused reruns are in the M3 report. The air-gap control detected deliberate attempts; the connector isolation round passed 11 checks, five relay messages and zero outbound attempts.
 
 ## Owner and external decisions
 
 The owner directed that entity/jurisdiction and residency choices not hold up implementation. Those values remain unset rather than invented. Outside security review, production signing custody, independent restore/accessibility testing, provider-backed commercial acceptance, legal review and final launch approvals remain external gates. Test configuration and generated values are used while code is built and verified.
+
+## Active M4 and design continuation
+
+All nine preserved dirty M4 slices were composed with the four committed slices in `codex/m4-integration`. The runtime now binds real policy/router/usage/context/tool/approval ports, bounded object reads and the kill watcher. Agent role provisioning and the migration journal are being tested against an isolated database. The combined unit checkpoint passed **2,860 tests**. The first real-role integration run passed 1,170 and failed five test setup assertions; all 112 checks in those three affected files passed after correction. A final whole-tree typecheck and built-image agent/canary gates are still required.
+
+The owner explicitly requires excellent, uniform design and intuitive navigation for non-developers while accommodating the platform's complexity. [The shared interface contract](../01-product/07-interface-system.md) applies to all milestones. A dedicated agent is consolidating shared controls and workspace/Studio/administration navigation. A document is not a completed visual acceptance pass.
