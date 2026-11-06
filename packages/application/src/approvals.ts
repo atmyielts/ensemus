@@ -22,10 +22,12 @@ import {
   WORK_REVIEW_VERSION,
   type ProposedAction,
 } from '@ensemus/domain/approval';
+import { EMAIL_SEND_TOOL } from '@ensemus/domain/external-action';
 import { isTerminal, type WorkState } from '@ensemus/domain/work-unit';
 import { and, asc, eq, gt, inArray, lte, sql } from 'drizzle-orm';
 import { AppError, pgCode, type ErrorCode } from './errors';
 import { emit } from './events';
+import { assertIntentMatchesApproval, onApprovalClosedInTx } from './external-actions';
 import {
   applyTransition,
   assertCanBeAskedToReview,
@@ -52,6 +54,7 @@ async function recordExpiry(
     .set({ status: 'expired', decidedAt: now })
     .where(eq(approvals.id, approval.id));
   await clearApprovalNotifications(tx, [approval.id]);
+  await onApprovalClosedInTx(tx, context, { approvalId: approval.id, outcome: 'expired' });
   await emit(tx, context, {
     eventType: 'approval.resolved',
     aggregateType: 'work_unit',
@@ -251,6 +254,8 @@ export async function decideApproval(
       const current = await currentReviewAction(tx, work);
       if (actionHash(current) !== approval.actionHash) throw new AppError('APPROVAL_STALE');
     }
+    // The same for a send: what was shown has to be what would go, and it is the intent that would go.
+    if (action.toolName === EMAIL_SEND_TOOL) await assertIntentMatchesApproval(tx, approval);
 
     const reason = input.reason?.trim().slice(0, MAX_REASON_LENGTH) || undefined;
     const holdingWork = approval.holdsWork && work.status === 'awaiting_approval';
@@ -272,6 +277,7 @@ export async function decideApproval(
       reason: reason ?? null,
     });
     await clearApprovalNotifications(tx, [approval.id]);
+    await onApprovalClosedInTx(tx, context, { approvalId: approval.id, outcome: status });
 
     // Only the approval that caused the pause can end it. A later review of the same work is just a
     // review: it records an opinion, and overrides nobody.
