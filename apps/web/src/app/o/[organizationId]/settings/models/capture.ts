@@ -1,9 +1,6 @@
 import 'server-only';
 import { AppError } from '@ensemus/application';
-import {
-  attachModelKey,
-  prepareModelKeyCapture,
-} from '@ensemus/application/ai-model-profiles';
+import { attachModelKey, prepareModelKeyCapture } from '@ensemus/application/ai-model-profiles';
 import { loadModelEgressSettings, readSecret } from '@ensemus/config';
 import type { ModelProfileView } from '@ensemus/contracts/ai';
 import type { AppDatabase, TenantContext } from '@ensemus/database';

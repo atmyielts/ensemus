@@ -70,6 +70,10 @@ jobs:
   # machine, infrastructure/scripts/run-all-gates.sh clears the stack between them instead.
   stack:
     runs-on: ubuntu-24.04
+    env:
+      COMPOSE_PROJECT_NAME: ensemus-ci-stack
+      # The test overlay supplies a private wire-format model; these gates must not silently skip.
+      ENSEMUS_AI_ENABLED: 'true'
     # Two builds, the whole stack suite, and six outages with real answers to wait for.
     timeout-minutes: 45
     steps:
@@ -97,6 +101,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     env:
+      COMPOSE_PROJECT_NAME: ensemus-ci-connectors
       COMPOSE_PROFILES: connectors
       ENSEMUS_CONNECTORS_ENABLED: 'true'
     steps:
@@ -128,6 +133,8 @@ jobs:
   # here, on the runner, so this stays apart from the air-gap gate above and never runs under it.
   browser:
     runs-on: ubuntu-24.04
+    env:
+      COMPOSE_PROJECT_NAME: ensemus-ci-browser
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -141,6 +148,9 @@ jobs:
         run: docker compose -f infrastructure/compose/compose.yaml -f infrastructure/compose/compose.test.yaml up -d --build --wait --wait-timeout 300
       - name: Install Chromium
         run: pnpm --filter @ensemus/browser-tests exec playwright install --with-deps chromium
+      # These UI fixtures advance agent states directly. Real execution is exercised in the stack gate.
+      - name: Keep the agent UI fixtures under test control
+        run: docker compose -f infrastructure/compose/compose.yaml -f infrastructure/compose/compose.test.yaml stop agent-worker
       - name: Browser tests - axe, keyboard, live status, forms, no JavaScript
         run: pnpm test:browser
       - name: Keep the screenshots and any failure traces

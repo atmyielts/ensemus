@@ -74,17 +74,35 @@ describe('every gate runs in both places', () => {
     expect(local).toMatch(fullRun);
     expect(ci).toMatch(fullRun);
   });
+
+  it('enables the real AI contract and canary cases in the offline CI stack job', () => {
+    const stackJob = ci.slice(ci.indexOf('\n  stack:'), ci.indexOf('\n  connectors:'));
+    expect(stackJob).toMatch(/ENSEMUS_AI_ENABLED:\s*'true'/);
+  });
+
+  it('enables those same AI cases in the local full offline round', () => {
+    expect(local).toMatch(
+      /fresh env ENSEMUS_AI_ENABLED=true node infrastructure\/scripts\/air-gap-gate\.mjs\s*$/m,
+    );
+  });
 });
 
 describe('on one machine', () => {
   const gateLines = local.split('\n').filter((line) => line.startsWith('gate "'));
 
-  it('starts every gate on project "ensemus" from nothing, and leaves nothing', () => {
+  it('starts every disposable gate from nothing, and leaves nothing', () => {
     const usesTheProject = gateLines.filter((line) =>
       /test:integration|air-gap-gate|browser_tests|connectors_tests/.test(line),
     );
     expect(usesTheProject).toHaveLength(6);
     for (const line of usesTheProject) expect(line).toMatch(/^gate "[^"]+" fresh /);
+  });
+
+  it('uses its own invocation project and refuses low disk space before any stack cleanup', () => {
+    expect(local).toContain('export COMPOSE_PROJECT_NAME="ensemus-gates-${BASHPID:-$$}"');
+    expect(local.indexOf('node infrastructure/scripts/disk-headroom.mjs || exit 1')).toBeLessThan(
+      local.indexOf('\nclean_stack\n'),
+    );
   });
 
   it('clears the stack on both sides of a gate, whatever its result', () => {

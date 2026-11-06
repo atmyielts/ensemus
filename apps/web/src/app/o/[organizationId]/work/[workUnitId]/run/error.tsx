@@ -31,8 +31,8 @@ export default function RunError({
     <>
       <PageHead title="This run could not be shown" />
       <p role="alert">
-        We could not read this run just now, so we cannot say what it is doing. If it was running, it
-        may still be, and nothing on this page stopped it.
+        We could not read this run just now, so we cannot say what it is doing. If it was running,
+        it may still be, and nothing on this page stopped it.
       </p>
       <div className="row">
         <button type="button" onClick={tryAgain}>

@@ -10,6 +10,7 @@ import { getRunTimeline, type RunSummary } from '@ensemus/application/ai-timelin
 import { RUN_CONTROL_KINDS, type RunControlKind } from '@ensemus/domain/ai';
 import { can } from '@ensemus/domain/policy';
 import type { Metadata } from 'next';
+import { Suspense } from 'react';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { SubmitButton } from '@/components/submit-button';
@@ -28,6 +29,7 @@ import {
   stopReason,
 } from './run-view';
 import { RunWatcher } from './run-watcher';
+import { RunLoading } from './run-loading';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -160,6 +162,32 @@ export default async function AgentRunPage({
   const timeline = await orNotFound(
     getRunTimeline(database, context, workUnitId, askedFor ? { runId: askedFor } : {}),
   );
+  // Refusals must resolve before a streaming boundary commits HTTP headers. Secondary display queries
+  // can stream after the tenant, work and selected run have all been authorized.
+  return (
+    <Suspense fallback={<RunLoading />}>
+      <AgentRunContent
+        organizationId={organizationId}
+        error={error}
+        tenant={{ context, database }}
+        timeline={timeline}
+      />
+    </Suspense>
+  );
+}
+
+async function AgentRunContent({
+  organizationId,
+  error,
+  tenant,
+  timeline,
+}: {
+  organizationId: string;
+  error: string | undefined;
+  tenant: Pick<Awaited<ReturnType<typeof requireTenant>>, 'context' | 'database'>;
+  timeline: Awaited<ReturnType<typeof getRunTimeline>>;
+}) {
+  const { context, database } = tenant;
   const { work, runs, selected, steps, latestControl } = timeline;
 
   const page = `/o/${organizationId}/work/${work.id}/run`;
@@ -201,8 +229,8 @@ export default async function AgentRunPage({
       />
     ) : (
       <p className="muted">
-        No agent has been published yet, so there is nothing to start. Someone who manages agents has
-        to publish one first.
+        No agent has been published yet, so there is nothing to start. Someone who manages agents
+        has to publish one first.
       </p>
     )
   ) : null;

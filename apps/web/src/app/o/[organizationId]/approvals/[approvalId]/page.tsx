@@ -200,11 +200,7 @@ export default async function ApprovalPage({
                     {decision.actorName}
                   </strong>{' '}
                   <small>{formatDateTime(decision.decidedAt)}</small>
-                  {decision.reason && (
-                    <p className="pre-wrap gap-above-small">
-                      {decision.reason}
-                    </p>
-                  )}
+                  {decision.reason && <p className="pre-wrap gap-above-small">{decision.reason}</p>}
                 </li>
               ))}
             </ul>

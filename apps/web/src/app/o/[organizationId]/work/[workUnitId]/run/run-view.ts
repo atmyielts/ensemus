@@ -111,8 +111,7 @@ const UNKNOWN_STATUS: StatusWords = {
   note: 'This run is in a state this page does not recognise, so it cannot say what the run is doing.',
 };
 
-export const runStatusWords = (status: string): StatusWords =>
-  STATUS.get(status) ?? UNKNOWN_STATUS;
+export const runStatusWords = (status: string): StatusWords => STATUS.get(status) ?? UNKNOWN_STATUS;
 
 export const isLiveStatus = (status: string) => runStatusWords(status).live;
 
@@ -224,7 +223,9 @@ const DECISION_NOTE = new Map<string, string>(
 /** Why a rule decided a step the way it did. Null when there is nothing to explain. */
 export function decisionNote(code: string | null): string | null {
   if (code === null || code === 'ALLOWED') return null;
-  return DECISION_NOTE.get(code) ?? 'A rule decided this, for a reason this page does not recognise.';
+  return (
+    DECISION_NOTE.get(code) ?? 'A rule decided this, for a reason this page does not recognise.'
+  );
 }
 
 const OUTCOME_NOTE = new Map<string, string>([

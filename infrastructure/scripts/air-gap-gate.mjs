@@ -10,6 +10,9 @@ import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { tmpdir } from 'node:os';
+import { assertDiskHeadroom } from './disk-headroom.mjs';
+import { disposableAirgapProject } from './test-stack-settings.mjs';
 import {
   containersOffTheSubnet,
   expectedFile,
@@ -24,6 +27,9 @@ import {
 // Set, not deleted: Compose lets the environment beat a .env file, and with the variable gone a .env
 // value would move the stack off the watched subnet. A check after each start proves it did not.
 process.env.ENSEMUS_NETWORK_PREFIX = WATCHED_PREFIX;
+const PROJECT = disposableAirgapProject(process.env.COMPOSE_PROJECT_NAME);
+process.env.COMPOSE_PROJECT_NAME = PROJECT;
+const CAPTURE_CONTAINER = `${PROJECT}-capture-${randomUUID()}`;
 // The same goes for how the gate reaches the stack. A site's own ENSEMUS_HOSTNAME must not move the
 // proxy's only site off `localhost`, so requests can use that name, on the port the stack really
 // published.
@@ -91,7 +97,7 @@ function startCapture() {
     'run',
     '--rm',
     '--name',
-    'ensemus-airgap-capture',
+    CAPTURE_CONTAINER,
     '--privileged',
     '--network',
     'host',
@@ -110,7 +116,7 @@ function startCapture() {
   return {
     async report() {
       const closed = new Promise((done) => child.on('close', done));
-      spawnSync('docker', ['stop', '-t', '1', 'ensemus-airgap-capture']);
+      spawnSync('docker', ['stop', '-t', '1', CAPTURE_CONTAINER]);
       // The synchronous calls above block the event loop, so output is only read while waiting here.
       await closed;
       const packets = lines.join('').split(/\r?\n/).filter(Boolean);
@@ -273,6 +279,7 @@ const control = process.argv.includes('--control');
 const outagesOnly = process.argv.includes('--outages');
 let failed = false;
 
+assertDiskHeadroom([root, tmpdir()]);
 try {
   run('docker', ['pull', '-q', TOOLS]);
   down();
@@ -383,7 +390,7 @@ try {
   console.error(`FAILED: ${error instanceof Error ? error.message : String(error)}`);
   failed = true;
 } finally {
-  spawnSync('docker', ['rm', '-f', 'ensemus-airgap-capture']);
+  spawnSync('docker', ['rm', '-f', CAPTURE_CONTAINER], { stdio: 'ignore' });
   removeRule();
   if (!process.argv.includes('--keep')) down();
 }

@@ -303,6 +303,7 @@ export async function loadConnectionForWorker(
   credentialSecretId: string | null;
   /** Secrets its webhook endpoints verify with, which a revoke has to stop as well. */
   signingSecretIds: readonly string[];
+  grantedScopes: readonly string[];
 } | null> {
   requireWorker(context);
   if (!isIdentifier(connectionId)) return null;
@@ -326,6 +327,7 @@ export async function loadConnectionForWorker(
       config: row.config,
       credentialSecretId: row.credentialSecretId,
       signingSecretIds: [...new Set(signing)],
+      grantedScopes: [...row.grantedScopes],
     };
   });
 }

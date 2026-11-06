@@ -1,6 +1,6 @@
 # Ensemus 2.0: end-to-end delivery plan
 
-**Status, updated 2026-11-06:** approved by the project owner on 2026-11-05. M0's document changes are applied. Product code exists: **M3 is the current integration milestone.** The owner has requested continued implementation of the entire platform, including Claude's unfinished later milestones. M1's outside security review and signing-key custody decisions remain open. Legal entity/jurisdiction and data residency are deferred deployment settings at the owner's direction; no values have been invented. Only throwaway test credentials are used. In this plan, "you" means the project owner.
+**Status, updated 2026-11-07:** approved by the project owner on 2026-11-05. M0's document changes are applied. Product code exists: **M4 is the current integration milestone.** The owner has requested continued implementation of the entire platform, including Claude's unfinished later milestones. M1's outside security review and signing-key custody decisions remain open. Legal entity/jurisdiction and data residency are deferred deployment settings at the owner's direction; no values have been invented. Only throwaway test credentials are used. In this plan, "you" means the project owner.
 
 Implementation evidence is recorded separately from the planned scope below:
 
@@ -8,8 +8,9 @@ Implementation evidence is recorded separately from the planned scope below:
 |---|---|---|
 | M1 | Foundation implemented; milestone remains open | [M1 report](evidence/M1-report.md), including outside review and owner decisions |
 | M2 | Core implemented; committed baseline passed CI; continuation checks passed locally | [M2 report](evidence/M2-report.md). Exact email-recipient scenario QA-007 remains partial until M3; no overall sign-off claimed |
-| M3 | Integrating `m3-verified-actions` (`78b38e9`) with newer M2 fixes on `codex/platform-completion` | [Platform progress](platform-completion-progress.md); merged quality/integration/connector/fault/browser gates are being run. No milestone acceptance claimed |
-| M4–M11 | Separate local branches/worktrees contain preparatory and partial implementation work | Branch names and commits do not establish milestone acceptance; follow dependency order and verify each integrated result |
+| M3 | Integrated with newer M2 fixes on `codex/platform-completion`; local integration, receipts, connector faults and offline gates passed | [M3 report](evidence/M3-report.md); independent and hosted acceptance remain open |
+| M4 | Governed AI and shared interface integrated locally; runtime confidentiality, full replay and full browser gates passed | [M4 report](evidence/M4-report.md); isolation, upgrade and release checks continue |
+| M5–M11 | Later branches contain active implementation and preserved partial work | [Platform progress](platform-completion-progress.md); knowledge and SaaS services are being implemented, and M6 source has been recovered. Branches and source checkpoints do not establish milestone acceptance |
 
 Ticket IDs refer to the [reconciled backlog](../specifications/implementation-backlog.csv), whose `milestone` column is authoritative. Run `node specifications/tools/check-backlog.mjs` to validate it.
 

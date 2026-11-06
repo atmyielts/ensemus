@@ -51,7 +51,12 @@ class SyncStoreUnavailable extends Error {
 function contextFor(
   deps: ConnectorActivityDeps,
   connector: Connector,
-  connection: { id: string; config: unknown; credentialSecretId: string | null },
+  connection: {
+    id: string;
+    config: unknown;
+    credentialSecretId: string | null;
+    grantedScopes: readonly string[];
+  },
   organizationId: string,
 ): Omit<ConnectorContext, 'signal'> {
   const { credentialSecretId } = connection;
@@ -60,6 +65,7 @@ function contextFor(
     organizationId,
     connectionId: connection.id,
     config: connection.config,
+    grantedScopes: [...connection.grantedScopes],
     // The binding is this connection's own reference, read under this tenant, and the broker's seal
     // covers the tenant and purpose too, so there is no way to ask for anyone else's.
     credentials: {

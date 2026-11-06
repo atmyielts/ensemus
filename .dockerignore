@@ -5,6 +5,15 @@
 .github
 .local
 .claude
+.playwright-cli
+.serena
+output
+evaluations
+*.log
+.local-*.patch
+.env
+.env.*
+!.env.example
 docs
 tests
 *.diff

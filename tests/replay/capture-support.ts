@@ -3,7 +3,7 @@
 import { randomUUID } from 'node:crypto';
 import { existsSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { Client, Connection } from '@temporalio/client';
+import { Client, Connection, type WorkflowHandle } from '@temporalio/client';
 import { historyToJSON } from '@temporalio/common/lib/proto-utils';
 import { bundleWorkflowCode, NativeConnection, Worker } from '@temporalio/worker';
 import { AesGcmPayloadCodec } from '@ensemus/workflows/codec';
@@ -18,7 +18,13 @@ export type CaptureRun = {
   /** Records one workflow run under this name, unless that history already exists. */
   record(
     name: string,
-    start: { workflowType: string; args: unknown[]; signals?: readonly string[] },
+    start: {
+      workflowType: string;
+      args: unknown[];
+      signals?: readonly string[];
+      /** Optional precise barrier/assertion for new captures. Existing histories/callers are unchanged. */
+      afterStart?: (handle: WorkflowHandle) => Promise<void>;
+    },
   ): Promise<void>;
   /** A second queue's Activities run here too, so a workflow routing to it needs no extra worker. */
   taskQueue: string;
@@ -29,7 +35,7 @@ export type CaptureRun = {
  * uses, with stub Activities and the corpus's own key. A recorded history is never rewritten.
  */
 export async function withCaptureWorkers(
-  options: { activities: object; queues: readonly string[] },
+  options: { activities: object; queues: readonly string[]; heartbeatThrottleMs?: number },
   body: (run: CaptureRun) => Promise<void>,
 ): Promise<void> {
   const connection = await NativeConnection.connect({ address: address() });
@@ -52,6 +58,12 @@ export async function withCaptureWorkers(
         workflowBundle: { code },
         activities: options.activities,
         dataConverter,
+        ...(options.heartbeatThrottleMs === undefined
+          ? {}
+          : {
+              maxHeartbeatThrottleInterval: options.heartbeatThrottleMs,
+              defaultHeartbeatThrottleInterval: options.heartbeatThrottleMs,
+            }),
       }),
     ),
   );
@@ -69,12 +81,25 @@ export async function withCaptureWorkers(
           taskQueue,
           workflowId: `replay-${name}-${randomUUID()}`,
         });
-        for (const signal of start.signals ?? []) {
-          await new Promise((done) => setTimeout(done, 1_500));
-          await handle.signal(signal);
+        let written = false;
+        try {
+          await start.afterStart?.(handle);
+          for (const signal of start.signals ?? []) {
+            await new Promise((done) => setTimeout(done, 1_500));
+            await handle.signal(signal);
+          }
+          await handle.result().catch(() => undefined);
+          // The exists check makes repeat captures cheap; wx also prevents a concurrent overwrite.
+          writeFileSync(file, historyToJSON(await handle.fetchHistory()), { flag: 'wx' });
+          written = true;
+        } finally {
+          if (!written) {
+            await handle.cancel().catch(() => undefined);
+            // Drain this capture's cleanup while its corpus-key worker is still alive. Otherwise an
+            // unfinished Activity could be picked up later by the deployment worker with another key.
+            await handle.result().catch(() => undefined);
+          }
         }
-        await handle.result().catch(() => undefined);
-        writeFileSync(file, historyToJSON(await handle.fetchHistory()));
       },
     });
   } finally {

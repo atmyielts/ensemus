@@ -287,8 +287,8 @@
     },
     {
       "path": "06-delivery/06-end-to-end-delivery-plan.md",
-      "size_bytes": 21497,
-      "sha256": "79c3f6ecaa4901d1412e89552e66a5f5925cf7eec8de5637e1554a9691ef1923"
+      "size_bytes": 21745,
+      "sha256": "5ffc6d5f31036c4870d7184501626a42d5f34fe5b86947e9d9216c5bdae85e31"
     },
     {
       "path": "06-delivery/evidence/M1-report.md",
@@ -312,18 +312,18 @@
     },
     {
       "path": "06-delivery/evidence/M4-report.md",
-      "size_bytes": 5736,
-      "sha256": "025f276698927b1b3941079ad1f51f5659525e26aa21ced195b3b1c0e555b9d9"
+      "size_bytes": 10207,
+      "sha256": "b79c90f68c0a3bd75202d3f24c3ba626409450062b1f698df90a32cd856029a0"
     },
     {
       "path": "06-delivery/evidence/m4/assurance.md",
-      "size_bytes": 9042,
-      "sha256": "704ff683ff5b4aa56a9c06e832c2f5650fac24c5003669ccf456ff1330f5dec4"
+      "size_bytes": 9266,
+      "sha256": "267f3bcd188b5d4609a4f5bdd4b07257f0fd5b1d744d430c68064e259e439999"
     },
     {
       "path": "06-delivery/evidence/m4/interface-system.md",
-      "size_bytes": 7881,
-      "sha256": "d0c09af94ffb57ffb283f41da5e6395f4c6f084d93e020bd6824f7819008cd67"
+      "size_bytes": 9568,
+      "sha256": "239b014862317f5c0c9d7cca9d60498ad4d43266211e90093192b7773ff1f722"
     },
     {
       "path": "06-delivery/evidence/m4/scripted-baseline-regression-control.json",
@@ -346,6 +346,11 @@
       "sha256": "474d5db2a740cf9c658accccbcce20c2cff8d58b6bd7104b3e0fb118af33e431"
     },
     {
+      "path": "06-delivery/evidence/m4/workflow-replay.md",
+      "size_bytes": 6992,
+      "sha256": "66d1990fba558e0d8c43dcef2f5baf2e292ac82d2e9eb9514292339223b0a24c"
+    },
+    {
       "path": "06-delivery/m3-slices.md",
       "size_bytes": 33733,
       "sha256": "a6e07ed8431e6dd3dcd100e2421fc5e9af7dedda5bfa1f1f73956016cf2942fd"
@@ -357,8 +362,8 @@
     },
     {
       "path": "06-delivery/platform-completion-progress.md",
-      "size_bytes": 7041,
-      "sha256": "887374ff9d0b6aacac6951826c2692f608857fea36d49140db06cecd03a34038"
+      "size_bytes": 8432,
+      "sha256": "3f649354518e100bd99045b857b6703281b668749fc1af7f17eccaaa18e46116"
     },
     {
       "path": "07-commercial/01-license-and-maintenance.md",

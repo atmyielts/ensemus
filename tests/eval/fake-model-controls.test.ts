@@ -53,6 +53,18 @@ describe('test-only private model controls', () => {
     expect(fake.hits).toBe(1);
   });
 
+  it('a busy model cannot mark a new model’s complete bounded capture as truncated', async () => {
+    fake = await startFakeModel();
+    for (let index = 0; index < 130; index += 1) await call('fake:text');
+    await scriptFakeModel(fake.url, 'fake:isolated', [{ text: 'The current model result.' }]);
+    await call('fake:isolated');
+    const own = await fakeModelRequests(fake.url, 'fake:isolated');
+    expect(own.requests).toHaveLength(1);
+    expect(own.total).toBe(1);
+    expect(own.historyTruncated).toBe(false);
+    expect((await fakeModelRequests(fake.url, 'fake:text')).historyTruncated).toBe(true);
+  });
+
   it('rejects unknown keys, unsafe tool names, oversized bodies and excessive reply lists', async () => {
     fake = await startFakeModel();
     const send = (body: unknown) =>

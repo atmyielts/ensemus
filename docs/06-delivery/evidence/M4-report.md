@@ -1,6 +1,6 @@
 # M4 continuation: governed AI and shared interface
 
-**2026-11-06. Core implementation is integrated in `codex/m4-integration`; verification and formal closure remain open.** This report records local evidence. No CI, live-provider qualification, outside security approval or production acceptance is claimed.
+**2026-11-07. Core implementation is integrated in `codex/m4-integration`; verification and formal closure remain open.** This report records local evidence. No CI, live-provider qualification, outside security approval or production acceptance is claimed.
 
 ## Implemented
 
@@ -16,15 +16,23 @@ The owner requires a uniform, polished interface for non-developers. The [interf
 
 | Check | Result |
 |---|---|
-| Combined unit suite | **2,873 passed**, 87 files |
+| Combined unit suite | **2,883 passed**, 89 files in the final serialized run |
 | Fresh real PostgreSQL suite | **1,177 passed**, 32 files |
-| Whole-workspace typecheck and `tests/tsconfig.json` | Passed at the recorded checkpoint; repeat after remaining changes |
+| Whole-workspace typecheck and `tests/tsconfig.json` | Passed in the final serialized repeat, including fresh Next route generation |
 | Built-image M4 API test | **4 passed**; successful OpenAPI validation of all **18** activated operations, including real private-profile activation, generated-key sealing, exact idempotent run request, control and cross-tenant refusals |
-| Real agent confidentiality gate | **3 passed**: BYOM, Sovereign and an unprotected Temporal positive control |
+| Real agent confidentiality gate | **4 passed**: Cloud, BYOM, Sovereign and an unprotected Temporal positive control |
 | Scripted assurance | Passing baseline plus deliberately wrong fixture, baseline regression and fabricated-citation controls; [details](m4/assurance.md) |
-| Full replay, browser, M4 air-gap, upgrade and release checks | Remaining; do not treat focused results as these gates |
+| Actual Temporal capture/replay | **33 new histories**, **71 histories replayed**; the final full replay project passed **158 checks** with 20 opt-in capture checks skipped, including the new continuation-link assertions; [details](m4/workflow-replay.md) |
+| Fresh connector consent | **60 real-role connector sync checks passed**, including recorded scopes independent of forged configuration and a subsequent changed-consent pass |
+| Focused interface browser check | **11 passed**, including 64 page/theme/width accessibility and overflow combinations; [details](m4/interface-system.md) |
+| Full browser suite | **195 passed in 11.5 minutes** on the freshly rebuilt web image; local log `.local-m4-browser-full-final.log` |
+| Upgrade rehearsal | Interrupted when the host disk filled; a fresh complete rehearsal remains owed |
+| M4 air-gap control | Infrastructure failure: Docker API returned HTTP 500 before the control could run |
+| M4 air-gap and release checks | Remaining; do not treat focused results as these gates |
 
-The real confidentiality journey starts through HTTP, outbox and Temporal, reads a stored artifact, calls the private wire-format fake, creates a draft and evidence through a tool, calls the model again and receives a raw provider error. Each mode completes with two model turns and one tool call. Raw and encoded test markers are absent from Temporal persistence, service logs, audit, public run/steps APIs and HTML/RSC views on both replicas. Positive controls prove the artifact/prompt/tool path ran, the draft exists and the same persistence scan detects an unprotected payload. This is a synthetic private-provider check, not a live hosted-provider or model-quality result. Cloud stack coverage is still owed.
+Backlog/traceability, generated-contract consistency and the production-license inventory passed on this composition. The production dependency audit passed the configured high-severity gate; it still reports one moderate esbuild development-server advisory. This is not a claim of a vulnerability-free dependency tree.
+
+The real confidentiality journey starts through HTTP, outbox and Temporal, reads a stored artifact, calls the private wire-format fake, creates a draft and evidence through a tool, calls the model again and receives a raw provider error. Each mode completes with two model turns and one tool call. Raw and encoded test markers are absent from Temporal persistence, service logs, audit, public run/steps APIs and HTML/RSC views on both replicas. Positive controls prove the artifact/prompt/tool path ran, the draft exists and the same persistence scan detects an unprotected payload. Cloud uses an explicit current-period entitlement, Ensemus-owned private profile and synthetic versioned test rate card; the test checks actual mode and billing ledger facts. This is a synthetic private-provider check, not a live hosted-provider or model-quality result.
 
 ## Failures found and corrected
 
@@ -34,8 +42,18 @@ The first actual worker journey then found the queued-work request/claim mismatc
 
 ## Outstanding acceptance
 
-Capture and replay agent-loop histories, complete recovery/delegation/budget fault journeys, verify the shared interface in the full browser suite, and repeat isolation/upgrade/release gates for this exact composition. Bind later knowledge/commercial integrations without replacing governed ports with test doubles. Independent security/accessibility review, reviewed hosted credentials and real-provider/commercial acceptance remain external gates. No real credential or customer document was used here.
+Repeat isolation/upgrade/release gates for this exact composition. Agent-loop replay and the full browser suite now have the local evidence above; killed-worker, rolling-deployment and real-provider recovery remain distinct acceptance work. Bind later knowledge/commercial integrations without replacing governed ports with test doubles. Independent security/accessibility review, reviewed hosted credentials and real-provider/commercial acceptance remain external gates. No real credential or customer document was used here.
 
 ## Temporary resources
 
-The owner explicitly requires careful cleanup. Only test projects created for this work are disposable. The original `ensemus` project, source worktrees, preserved Claude recovery snapshots and unrelated Docker/PC data are retained. Completed `ensemus-platform-test` resources were removed after checking project ownership: 16 containers, three volumes and six networks. The fresh integration and live M4 preview projects remain temporarily in use and must be removed when their checks finish. No broad Docker prune or disk sweep is authorized.
+The owner explicitly requires careful cleanup. Only test projects created for this work are disposable. The original `ensemus` project, source worktrees, preserved Claude recovery snapshots and unrelated Docker/PC data are retained. Completed `ensemus-platform-test` resources were removed after checking project ownership: 16 containers, three volumes and six networks. The completed M4 integration project was later removed: one container, one volume and four networks. The live M4 preview remains in use. No broad Docker prune or disk sweep is authorized.
+
+The host C: drive subsequently reached zero free space during parallel rehearsals. Resource-heavy checks were stopped. Two scoped generated-file deletion attempts were blocked by automatic approval review and did not run. The owner restarted Docker after its engine became unresponsive. Ownership of 49 recent build records was checked against the Ensemus repository before exact cache-ID cleanup; about 22 GB of selected Ensemus cache was reclaimed. The interrupted upgrade's three volumes, four networks, four image tags and clean temporary worktree were removed. The temporary path and base commit were verified before Git removed the worktree; only its two generated YAML files and empty parent directory were then removed. Original platform volumes were inspected and remain present.
+
+Docker trimmed 24,059,297,792 already-free bytes. Windows refused compaction from this non-administrator session, so the owner ran the reviewed `Optimize-VHD -Mode Quick` command with Docker fully stopped. The virtual disk length fell from approximately 160.0 GB to 138.2 GB and C: reported 27.0 GB free afterward. The shared virtual disk was neither deleted nor reset. Subsequent checks run serially with free-space monitoring; rebuilding the corrected web image consumes part of that recovered headroom.
+
+The local all-gates runner now chooses a disposable Compose project for each invocation, rather than deleting volumes from the existing `ensemus` project. Heavy offline/upgrade rehearsals refuse to start below 16 GiB host disk headroom. **42 focused safeguards/runner checks passed**; workflow package typecheck passed. Executing the new preflight on this low-space host refused as expected, before touching Docker. The standalone air-gap runner refuses ordinary project names before cleanup and uses a unique capture container. Release scanning honors the selected isolated image tags. These are preventive checks, not evidence that the interrupted product gates passed.
+
+The upgrade cleanup no longer falls back to recursive deletion after Git refuses its temporary worktree. It verifies the exact resolved parent/tree, refuses junctions and unexpected scratch files, uses normal Git worktree removal and removes only its two generated YAML files plus an empty parent. Four real-filesystem tests passed, covering successful cleanup, preservation of an unexpected file, a refused dirty tree and a substituted Windows junction whose destination remains untouched.
+
+The browser rerun corrected two real interface faults: the run page streamed before authorization and therefore returned HTTP 200 for an inaccessible run, and model controls had accessible names that omitted their visible action text. Authorization now precedes streaming; accessible names include the visible labels. Fixture repairs use the real profile state transition, the fake model's actual port and explicit alert text. Agent execution is paused only during browser tests whose fixtures manually advance run states; runtime checks use the real worker.

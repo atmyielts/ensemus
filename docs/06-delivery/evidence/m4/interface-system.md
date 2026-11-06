@@ -47,15 +47,20 @@ Spacing tokens use the 4/8/12/16/20/24/32/40/48px scale. Controls are 40px on de
 
 Equivalent component migration is additive: reuse these primitives/tokens before adding another feature convention. Existing CSS aliases preserve functioning routes during later milestone integration. The low-level global error page is a deliberate standalone fallback, not a second application style system.
 
-## Verification and remaining rendered gate
+## Verification and rendered evidence
 
-Executed locally for this pass: 12 navigation tests passed; web TypeScript passed; browser TypeScript passed; scoped ESLint and diff checks passed. The navigation tests verify real route existence, role filtering, correct active section on deep links, segment boundaries and organization isolation in the navigation model. These checks do not replace page authorization or visual acceptance.
+Executed locally for this pass: 12 navigation tests passed; web TypeScript passed; browser TypeScript passed; scoped ESLint and diff checks passed. The combined focused assurance/adapter/approval/navigation run passed 416 tests in 8 files. The navigation tests verify real route existence, role filtering, correct active section on deep links, segment boundaries and organization isolation in the navigation model.
 
-`tests/browser/specs/interface-system.spec.ts` is written and typechecked. Root owns the actual built-image browser run. It covers:
+The focused real-image command below was executed after root rebuilt the M4 web image with the long-name correction: **11 browser tests passed in 2.4 minutes**. `tests/browser/specs/interface-system.spec.ts` covers:
 
 1. Light and dark at 320, 768, 1024 and 1440px: Home, work list, long work detail, approval, Administration, Models, budgets and Studio. Each requires a successful real response, one page title, no sideways overflow, WCAG 2.2 AA axe findings empty and saved screenshots.
 2. Native mobile menu with keyboard/JavaScript disabled, through Administration to Models.
 3. Ordinary members see workspace links and get 404 for privileged Administration/Studio deep links.
+4. An actual new account and organization with long, unbroken names fit a 320px workspace. The closed sidebar header must stay within 220px and the native menu must remain reachable.
+
+The 64 page/theme/width combinations had zero axe findings, no sideways overflow, no uncaught page errors and no browser requests outside the proxy origin. No-JavaScript navigation and member deep-link denial passed. The first render review caught an important limitation of overflow-only tests: a long account name squeezed the organization column until the header became 2,401px tall. The stronger header bound was confirmed to fail against that image, then passed after the source fix and a fresh image rebuild. The corrected long-name screenshot was visually inspected; the full names remain in accessible text and native titles while the compact header limits their visual footprint.
+
+Screenshots inspected directly include `output/playwright/ensemus-home-before.png`, `ensemus-home-after.png`, `ensemus-administration-light.png`, `ensemus-administration-dark.png`, `ensemus-administration-mobile-dark.png`, `ensemus-navigation-mobile-dark.png`, `ensemus-studio-mobile-dark.png` and `.local/screenshots/interface-long-names/workspace-320.png`. The full responsive matrix is saved under `.local/screenshots/interface-{light,dark}-{320,768,1024,1440}/`. These are local task artifacts, kept out of source control.
 
 Reproduction on the isolated M4 test stack:
 
@@ -65,4 +70,4 @@ $env:ENSEMUS_TEST_BASE = 'https://localhost:19443'
 pnpm --filter @ensemus/browser-tests test specs/interface-system.spec.ts
 ```
 
-The rebuilt-image render review and these browser results must be added before accepting this design pass. Human review of accessibility, dense populated states and later Knowledge/billing/assistant journeys remains necessary; automated screenshots or a guideline alone are not full design acceptance.
+The actual run sourced root's `.local/m4-stack-env.ps1` and used `--max-failures=1`; all 11 cases ran and passed. Root owns container lifecycle; this agent issued no container command. The shared M4 foundation is implemented and locally verified on real test images. Independent human accessibility/design review and later Knowledge/billing/assistant journeys remain separate acceptance work; these checks do not claim those future interfaces or subjective design approval are complete.

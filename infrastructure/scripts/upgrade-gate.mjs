@@ -10,10 +10,12 @@
 // removes the project, its images and its worktree afterwards, including what a failed run left.
 import { execFileSync, spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { cpSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { assertDiskHeadroom } from './disk-headroom.mjs';
+import { cleanupUpgradeScratch } from './upgrade-cleanup.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const PROJECT = 'ensemus-upgrade';
@@ -90,6 +92,9 @@ function stack(label, tree, scratch) {
       ENSEMUS_TRUSTED_PROXIES: '',
       ENSEMUS_PUBLIC_URL: BASE_URL,
       ENSEMUS_ALLOW_SIGNUP: 'true',
+      // Every additional worker/replica in the current Compose file must use this release too.
+      ENSEMUS_WEB_IMAGE: `ensemus-upgrade/web:${label}`,
+      ENSEMUS_WORKER_IMAGE: `ensemus-upgrade/worker:${label}`,
     },
   });
   const command = ['compose', '-p', PROJECT, ...files];
@@ -124,6 +129,7 @@ function expectEqual(actual, expected, what) {
 }
 
 async function main() {
+  assertDiskHeadroom([root, tmpdir()]);
   const baseCommit = chooseBase();
   const current = git('rev-parse', 'HEAD');
   const dirty = git('status', '--porcelain') !== '';
@@ -137,7 +143,8 @@ async function main() {
     stdio: 'inherit',
   });
 
-  const scratch = mkdtempSync(join(realpathSync.native(tmpdir()), 'ensemus-upgrade-'));
+  const scratchParent = realpathSync.native(tmpdir());
+  const scratch = mkdtempSync(join(scratchParent, 'ensemus-upgrade-'));
   const tree = join(scratch, 'base');
   const before = stack('base', tree, scratch);
   const after = stack('current', root, scratch);
@@ -151,9 +158,14 @@ async function main() {
         });
       }
     }
-    spawnSync('git', ['worktree', 'remove', '--force', tree], { cwd: root, stdio: 'ignore' });
-    spawnSync('git', ['worktree', 'prune'], { cwd: root, stdio: 'ignore' });
-    rmSync(scratch, { recursive: true, force: true });
+    cleanupUpgradeScratch({
+      scratchParent,
+      scratch,
+      tree,
+      removeWorktree: (verifiedTree) =>
+        spawnSync('git', ['worktree', 'remove', verifiedTree], { cwd: root, stdio: 'ignore' })
+          .status === 0,
+    });
   };
 
   let failed = false;
@@ -164,6 +176,7 @@ async function main() {
     cpSync(join(root, '.local', 'secrets'), join(tree, '.local', 'secrets'), { recursive: true });
     before.run('build');
     step('Building the images of this checkout');
+    assertDiskHeadroom([root, scratch]);
     after.run('build');
 
     step('Starting the base release');

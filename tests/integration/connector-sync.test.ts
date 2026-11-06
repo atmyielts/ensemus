@@ -39,6 +39,7 @@ import {
 import {
   CursorExpired,
   type Connector,
+  type ConnectorContext,
   type ConnectorRegistry,
   type CredentialLease,
 } from '@ensemus/connectors';
@@ -1176,6 +1177,45 @@ describe('connector sync', () => {
       await expect(
         syncConnection({ organizationId: ownerA.organizationId, connectionId }),
       ).resolves.toEqual({ outcome: 'synced', pages: 2, resources: 2 });
+    });
+
+    it('uses current recorded consent independently of forged config scopes', async () => {
+      const connectionId = await newConnection(ownerA);
+      const setup = new pg.Client({ connectionString: urls.superuser() });
+      await setup.connect();
+      const readPage = vi.fn(async (context: ConnectorContext) => {
+        expect(context.config).toEqual({ grantedScopes: ['forged-admin'] });
+        return page([]);
+      });
+      const { syncConnection } = activitiesFor(
+        createConnectorRegistry([{ ...fake(), parseConfig: (raw) => raw, sync: { readPage } }]),
+      );
+      try {
+        await setup.query(
+          'update integrations.connections set config = $1, granted_scopes = $2 where organization_id = $3 and id = $4',
+          [
+            { grantedScopes: ['forged-admin'] },
+            ['recorded-read'],
+            ownerA.organizationId,
+            connectionId,
+          ],
+        );
+        await expect(
+          syncConnection({ organizationId: ownerA.organizationId, connectionId }),
+        ).resolves.toMatchObject({ outcome: 'synced' });
+        expect(readPage.mock.calls[0]?.[0].grantedScopes).toEqual(['recorded-read']);
+        await setup.query(
+          'update integrations.connections set granted_scopes = $1 where organization_id = $2 and id = $3',
+          [[], ownerA.organizationId, connectionId],
+        );
+        await expect(
+          syncConnection({ organizationId: ownerA.organizationId, connectionId }),
+        ).resolves.toMatchObject({ outcome: 'synced' });
+        expect(readPage).toHaveBeenCalledTimes(2);
+        expect(readPage.mock.calls[1]?.[0].grantedScopes).toEqual([]);
+      } finally {
+        await setup.end();
+      }
     });
 
     it('does not claim to have synced a stream another pass holds', async () => {

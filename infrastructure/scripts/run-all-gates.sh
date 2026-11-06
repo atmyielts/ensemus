@@ -5,6 +5,11 @@
 set -u
 cd "$(dirname "$0")/../.."
 
+# Every disposable stack belongs to this invocation, even if a developer has an existing "ensemus"
+# project or COMPOSE_PROJECT_NAME in their environment. Never run down -v on that project.
+export COMPOSE_PROJECT_NAME="ensemus-gates-${BASHPID:-$$}"
+node infrastructure/scripts/disk-headroom.mjs || exit 1
+
 failed=0
 gate() {
   local name="$1"
@@ -28,7 +33,7 @@ clean_stack() {
     down -v --remove-orphans >/dev/null 2>&1
 }
 
-# Integration, the air-gap gate and the browser tests all use project "ensemus", on the same addresses
+# Integration, the air-gap gate and the browser tests use this invocation's disposable project, on the same addresses
 # and port. What one leaves behind, data included, the next would pick up. So each starts from nothing
 # and leaves nothing. The upgrade gate has its own project, addresses and port, and removes them itself.
 fresh() {
@@ -41,6 +46,7 @@ fresh() {
 
 browser_tests() {
   docker compose "${compose_files[@]}" up -d --build --wait --wait-timeout 300 &&
+    docker compose "${compose_files[@]}" stop agent-worker &&
     pnpm --filter @ensemus/browser-tests exec playwright install chromium &&
     pnpm test:browser
 }
@@ -75,7 +81,7 @@ gate "dependency audit (production, high and above)" pnpm audit --prod --audit-l
 gate "workflow replay corpus" pnpm test:replay
 gate "integration tests on real PostgreSQL" fresh pnpm test:integration
 gate "air-gap control detects an attempt" fresh node infrastructure/scripts/air-gap-gate.mjs --control
-gate "air-gap: stack tests and outages, zero outbound" fresh node infrastructure/scripts/air-gap-gate.mjs
+gate "air-gap: stack tests and outages, zero outbound" fresh env ENSEMUS_AI_ENABLED=true node infrastructure/scripts/air-gap-gate.mjs
 # Only reads the images the air-gap gate built, so it needs no stack.
 gate "SBOMs and offline signature check" node infrastructure/scripts/build-release.mjs
 gate "browser tests in Chromium" fresh browser_tests

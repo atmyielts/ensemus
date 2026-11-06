@@ -323,10 +323,15 @@ export async function startFakeModel(options = {}) {
     }
     if (req.method === 'GET' && path.split('?')[0] === '/__fake/requests') {
       const model = new URL(path, 'http://fixture.invalid').searchParams.get('model');
+      const selected = model ? requests.filter((entry) => entry.body?.model === model) : requests;
+      const scripted = model ? scripts.get(model) : undefined;
+      const total = scripted ? scripted.hits : state.hits;
       json(res, 200, {
-        requests: model ? requests.filter((entry) => entry.body?.model === model) : requests,
-        total: state.hits,
-        historyTruncated: state.hits > requests.length,
+        requests: selected,
+        total,
+        // Another model filling the bounded history cannot make this model's complete capture
+        // look truncated. Unknown/uncontrolled models conservatively retain the global warning.
+        historyTruncated: scripted ? total > selected.length : state.hits > requests.length,
       });
       return;
     }
@@ -367,13 +372,15 @@ export async function startFakeModel(options = {}) {
         return;
       }
       state.scriptBytes += bytes - (previous?.bytes ?? 0);
-      scripts.set(body.model, { replies: body.replies, next: 0, bytes });
+      scripts.set(body.model, { replies: body.replies, next: 0, bytes, hits: 0 });
       json(res, 201, { model: body.model, replies: body.replies.length });
       return;
     }
     requests.push({ method: req.method, path, headers: { ...req.headers }, raw, body });
     if (requests.length > MAX_REQUESTS) requests.shift();
     const seen = ++state.hits;
+    const scripted = scripts.get(body?.model);
+    if (scripted) scripted.hits += 1;
 
     const format = path.endsWith('/messages')
       ? 'anthropic'

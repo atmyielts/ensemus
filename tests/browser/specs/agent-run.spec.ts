@@ -77,11 +77,12 @@ async function seedAgent(organization: string, ownerMembership: string): Promise
        values ($1, $2, 'local_openai_compatible', 'scripted-test-model', $3,
                'http://127.0.0.1:59999/v1', '{text,tools}',
                '{"maxInputTokens":4096,"maxOutputTokens":512}', '{public,internal}',
-               '{reason,compose}', 'self_hosted', 'probing')`,
+               '{reason,compose}', 'self_hosted', 'draft')`,
       [organization, profileId, `test-${profileId.slice(0, 8)}`],
     );
     // Only the agent role can record a passed probe. That is the rule, so the seed goes through it.
     await agent.query(`select set_config('app.organization_id', $1, false)`, [organization]);
+    await agent.query(`update ai.model_profiles set status = 'probing' where id = $1`, [profileId]);
     await agent.query(
       `update ai.model_profiles set status = 'active', qualified_at = now() where id = $1`,
       [profileId],
@@ -125,20 +126,15 @@ async function seedRun(input: {
          join ai.agent_definitions d
            on d.organization_id = v.organization_id and d.id = v.definition_id
         where v.id = $4`,
-      [
-        input.organization,
-        runId,
-        input.workUnitId,
-        input.versionId,
-        input.initiatorMembership,
-      ],
+      [input.organization, runId, input.workUnitId, input.versionId, input.initiatorMembership],
     );
     await agent.query(`select set_config('app.organization_id', $1, false)`, [input.organization]);
     for (const status of input.path) {
-      await agent.query(
-        `update ai.agent_runs set status = $2, stop_code = $3 where id = $1`,
-        [runId, status, status === input.path.at(-1) ? (input.stopCode ?? null) : null],
-      );
+      await agent.query(`update ai.agent_runs set status = $2, stop_code = $3 where id = $1`, [
+        runId,
+        status,
+        status === input.path.at(-1) ? (input.stopCode ?? null) : null,
+      ]);
     }
     const stepId = randomUUID();
     await agent.query(
@@ -376,7 +372,11 @@ test.describe('an agent run, as a person sees it', () => {
     await expect(page.getByRole('button', { name: /Stop|Pause|Resume/ })).toHaveCount(0);
 
     // Alice's own form, sent by Bob, is what a forgery looks like.
-    const form = await formOn(path, world.alice.jar, (found) => found.hidden.get('kind') === 'stop');
+    const form = await formOn(
+      path,
+      world.alice.jar,
+      (found) => found.hidden.get('kind') === 'stop',
+    );
     const forged = await post(path, world.bob.jar, form);
     expect(forged.headers.get('location')).toContain('error=FORBIDDEN');
     const direct = await fetch(`${BASE}${api(world.organization, `/${runId}/controls`)}`, {
@@ -506,11 +506,14 @@ test.describe('an agent run, as a person sees it', () => {
       await new Promise((resolve) => setTimeout(resolve, 1_000));
       await route.continue();
     });
-    await page.evaluate((path) => {
-      const link = document.createElement('a');
-      link.href = path;
-      document.querySelector('main')?.append(link);
-    }, runPath(world.organization, workUnitId));
+    await page.evaluate(
+      (path) => {
+        const link = document.createElement('a');
+        link.href = path;
+        document.querySelector('main')?.append(link);
+      },
+      runPath(world.organization, workUnitId),
+    );
     await page.goto(runPath(world.organization, workUnitId));
     await expect(page.locator('dt:text-is("Status") + dd .badge')).toHaveText('Failed');
     await expect(page.getByText('Something went wrong on our side.')).toBeVisible();

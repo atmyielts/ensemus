@@ -1,8 +1,9 @@
 // Real M4 stack setup. Auth, publication, work creation and run start use HTTP; the active keyless
-// private profile and budget are explicit seeds, not claims about activation or commercial onboarding.
+// private profile, budget and Cloud entitlement are explicit seeds, not activation or commercial onboarding.
 import { randomUUID } from 'node:crypto';
 import { addArtifact } from '@ensemus/application';
 import { getAgentPolicyVersion } from '@ensemus/application/ai-agents';
+import { FEATURE_AGENT_RUN, FEATURE_MODEL_CALL, type CommercialMode } from '@ensemus/commercial';
 import { openAppDatabase, resolveTenantContext } from '@ensemus/database';
 import { S3ObjectStore } from '@ensemus/storage';
 import pg from 'pg';
@@ -31,7 +32,7 @@ export async function startAiCanaryRun(
     toolArgument: string;
     providerError: string;
   },
-  mode: 'byom' | 'sovereign' = 'byom',
+  mode: CommercialMode = 'byom',
 ) {
   // A job opting into AI must fail if its service wiring is absent.
   expect(compose('ps', '-q', 'agent-worker').trim()).not.toBe('');
@@ -63,13 +64,31 @@ export async function startAiCanaryRun(
     ]);
     const context = await resolveTenantContext(app.db, users[0]!.id as string, organizationId);
     const model = `fake:canary-${randomUUID()}`;
-    await seedActiveProfile(app.db, agent.db, context, {
+    const profileId = await seedActiveProfile(app.db, agent.db, context, {
       modelId: model,
       endpointUrl: MODEL_ORIGIN,
+      billingOwner: mode === 'cloud' ? 'ensemus' : 'customer',
       allowedClasses: ['public', 'internal', 'confidential', 'restricted'],
       limits: { maxInputTokens: 16000, maxOutputTokens: 1024 },
-    }).then((profile) => seedRateCard(app.db, context, profile));
+    });
+    await seedRateCard(app.db, context, profileId);
     await seedOrganizationBudget(app.db, context, 10_000_000);
+    if (mode === 'cloud') {
+      // This explicit test grant stands in for the later entitlement issuer. Cloud receives no
+      // default allowance. Private inference permits either billing owner under the actual policy;
+      // this exercises Ensemus-owned billing with the same approved keyless endpoint, without a
+      // hosted credential, cross-billing consent, new egress permission or a production plan.
+      await su.query(
+        `insert into platform.entitlements
+           (organization_id, mode, version, period, features, capacities)
+         values ($1, 'cloud', 1, $2, $3, '{}'::jsonb)`,
+        [
+          organizationId,
+          new Date().toISOString().slice(0, 7),
+          [FEATURE_AGENT_RUN, FEATURE_MODEL_CALL],
+        ],
+      );
+    }
 
     const spec = {
       ...assuranceSpec,
@@ -133,6 +152,7 @@ export async function startAiCanaryRun(
       workUnitId,
       runId,
       versionId,
+      profileId,
       model,
       su,
       close,

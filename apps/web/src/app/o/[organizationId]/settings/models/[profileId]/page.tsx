@@ -110,7 +110,10 @@ export default async function ModelProfilePage({
           {canActivate && (
             <form className="inline-form gap-above" action={requestProbeAction}>
               {identity}
-              <SubmitButton className="quiet" label={`Test ${profile.alias}`}>
+              <SubmitButton
+                className="quiet"
+                label={`${profile.status === 'probing' ? 'Ask for the test again' : 'Test this model'}: ${profile.alias}`}
+              >
                 {profile.status === 'probing' ? 'Ask for the test again' : 'Test this model'}
               </SubmitButton>
             </form>
@@ -175,7 +178,7 @@ export default async function ModelProfilePage({
                 Dollars per million output tokens
                 <input name="outputUsd" required inputMode="decimal" maxLength={16} />
               </label>
-              <SubmitButton className="quiet" label={`Save the cost estimate for ${profile.alias}`}>
+              <SubmitButton className="quiet" label={`Save estimate for ${profile.alias}`}>
                 Save estimate
               </SubmitButton>
             </form>

@@ -48,12 +48,12 @@ pnpm exec vitest run --project stack tests/stack/ai-canary.test.ts
 Focused commands run by this agent:
 
 ```powershell
-pnpm exec vitest run --project unit tests/eval tests/contract/real-adapters.test.ts packages/application/src/ai/tool-approvals.test.ts
+pnpm exec vitest run --project unit tests/eval tests/contract/real-adapters.test.ts packages/application/src/ai/tool-approvals.test.ts tests/unit/navigation-model.test.ts
 pnpm exec eslint --max-warnings 0 evaluations tests/eval tests/security tests/stack/ai-canary.test.ts tests/fixtures/fake-model/server.mjs tests/conformance/fake-model.ts tests/conformance/adapter-conformance.suite.ts packages/application/src/ai/tool-approvals.ts packages/application/src/ai/tool-approvals.test.ts
 pnpm exec tsc --noEmit --target ES2023 --lib ES2023 --module ESNext --moduleResolution Bundler --strict --noUncheckedIndexedAccess --exactOptionalPropertyTypes --noImplicitOverride --esModuleInterop --skipLibCheck --types node tests/eval/scripted-harness.test.ts tests/eval/gateway-red-team.test.ts tests/eval/canary-controls.test.ts tests/eval/fake-model-controls.test.ts tests/eval/scripted-evidence.test.ts tests/stack/ai-canary.test.ts
 ```
 
-Focused strict TypeScript and ESLint passed. The final focused unit run passed **403 tests in 7 files**. No result from an unrun command is counted. Prettier and `git diff --check` passed for owned code; the evidence generator passed separately and wrote the four JSON artifacts. Regenerate the four synthetic artifacts explicitly:
+Focused strict TypeScript and ESLint passed. The latest focused unit run, including shared navigation, passed **416 tests in 8 files**. No result from an unrun command is counted. Prettier and `git diff --check` passed for owned code; the evidence generator passed separately and wrote the four JSON artifacts. The bounded fake-model capture also has a regression proving that 130 unrelated requests cannot mark a new scripted model’s complete capture as truncated. Regenerate the four synthetic artifacts explicitly:
 
 ```powershell
 $env:ENSEMUS_WRITE_M4_EVIDENCE = '1'

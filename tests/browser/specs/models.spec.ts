@@ -8,7 +8,8 @@ import { BASE } from '../../helpers/forms';
 import { expect, test } from '../support/fixtures';
 import { axeFindings } from '../support/look';
 
-const PRIVATE_ENDPOINT = process.env.ENSEMUS_TEST_PRIVATE_MODEL_ENDPOINT ?? 'http://fake-model:8080/v1';
+const PRIVATE_ENDPOINT =
+  process.env.ENSEMUS_TEST_PRIVATE_MODEL_ENDPOINT ?? 'http://fake-model:8000/v1';
 const ORIGIN = new URL(BASE).origin;
 
 /** Built when the test runs, so nothing that looks like a key is committed. */
@@ -74,10 +75,7 @@ async function tabTo(page: Page, reached: () => Promise<boolean>, limit = 60) {
 }
 
 const focusOn = (page: Page, name: string) => () =>
-  page.evaluate(
-    (wanted) => document.activeElement?.getAttribute('name') === wanted,
-    name,
-  );
+  page.evaluate((wanted) => document.activeElement?.getAttribute('name') === wanted, name);
 
 test.describe('the model settings', () => {
   test('a person adds a model and its key with only the keyboard, and it is gone once saved', async ({
@@ -243,10 +241,10 @@ test.describe('the model settings', () => {
     expect(refused.status()).toBe(400);
     expect(((await refused.json()) as { code: string }).code).toBe('MODEL_ENDPOINT_NOT_ALLOWED');
 
-    await page.goto(
-      `/o/${world.organization}/settings/models?error=MODEL_ENDPOINT_NOT_ALLOWED`,
-    );
-    await expect(page.getByRole('alert')).toHaveText(/cannot be used for a model/);
+    await page.goto(`/o/${world.organization}/settings/models?error=MODEL_ENDPOINT_NOT_ALLOWED`);
+    await expect(
+      page.getByRole('alert').filter({ hasText: /cannot be used for a model/ }),
+    ).toHaveText(/cannot be used for a model/);
   });
 
   test('an endpoint change voids the key and returns the profile to draft', async ({

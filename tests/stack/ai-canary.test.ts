@@ -12,7 +12,7 @@ import { holdsEncodedCanary, scanCanarySurfaces } from '../../evaluations/safety
 import { BASE } from '../helpers/forms';
 import { api } from '../helpers/slice-2';
 import { compose, secret } from '../helpers/stack';
-import { startAiCanaryRun } from '../security/m4-stack-fixture';
+import { MODEL_ORIGIN, startAiCanaryRun } from '../security/m4-stack-fixture';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const poll = { timeout: 90000, interval: 500 };
@@ -45,7 +45,7 @@ describe.skipIf(!enabled)('M4 real agent-run confidentiality', () => {
     await connection?.close();
   });
 
-  it.each(['byom', 'sovereign'] as const)(
+  it.each(['cloud', 'byom', 'sovereign'] as const)(
     '%s: keeps four real-path canaries off persistence, logs, audit and views',
     async (mode) => {
       const canaries = {
@@ -76,6 +76,62 @@ describe.skipIf(!enabled)('M4 real agent-run confidentiality', () => {
       await expect.poll(async () => (await handle.describe()).status.name, poll).toBe('COMPLETED');
       const outcome = await handle.result();
       expect(outcome).toMatchObject({ status: 'failed', agentRunId: fixture.runId });
+
+      // Assert the real stored mode and pinned profile, rather than renaming a BYOM journey Cloud.
+      // The private fake exercises Cloud entitlement/billing semantics, not a hosted provider.
+      const { rows: bound } = await fixture.su.query(
+        `select o.commercial_mode, r.bound_profile_id, p.provider_kind, p.endpoint_url,
+                p.billing_owner, p.secret_ref is null as keyless,
+                p.cross_billing_approved_by_membership_id is null as no_cross_billing_consent
+           from ai.agent_runs r
+           join org.organizations o on o.id = r.organization_id
+           join ai.model_profiles p
+             on p.organization_id = r.organization_id and p.id = r.bound_profile_id
+          where r.organization_id = $1 and r.id = $2`,
+        [fixture.organizationId, fixture.runId],
+      );
+      expect(bound).toEqual([
+        {
+          commercial_mode: mode,
+          bound_profile_id: fixture.profileId,
+          provider_kind: 'local_openai_compatible',
+          endpoint_url: MODEL_ORIGIN,
+          billing_owner: mode === 'cloud' ? 'ensemus' : 'customer',
+          keyless: true,
+          no_cross_billing_consent: true,
+        },
+      ]);
+      if (mode === 'cloud') {
+        const { rows: grants } = await fixture.su.query(
+          `select mode, period, features from platform.entitlements
+            where organization_id = $1 order by version desc limit 1`,
+          [fixture.organizationId],
+        );
+        expect(grants).toEqual([
+          {
+            mode: 'cloud',
+            period: new Date().toISOString().slice(0, 7),
+            features: ['agent.run', 'model.call'],
+          },
+        ]);
+      }
+      const { rows: usage } = await fixture.su.query<{
+        meter: string;
+        commercial_mode: string;
+        billable: boolean;
+        profile_id: string | null;
+      }>(
+        `select meter, commercial_mode, billable, profile_id from platform.usage_ledger
+          where organization_id = $1 and run_id = $2`,
+        [fixture.organizationId, fixture.runId],
+      );
+      expect(usage.length).toBeGreaterThan(0);
+      expect(usage.every((entry) => entry.commercial_mode === mode)).toBe(true);
+      const modelUsage = usage.filter((entry) => entry.meter.startsWith('model_'));
+      expect(modelUsage.length).toBeGreaterThan(0);
+      expect(modelUsage.every((entry) => entry.profile_id === fixture.profileId)).toBe(true);
+      expect(modelUsage.every((entry) => entry.billable === (mode === 'cloud'))).toBe(true);
+      if (mode !== 'cloud') expect(usage.every((entry) => !entry.billable)).toBe(true);
 
       // Positive controls show all stages ran. The private fake really received the source and prompt;
       // the next call really received the tool transcript; the draft and its evidence really committed.
