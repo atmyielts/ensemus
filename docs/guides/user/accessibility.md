@@ -17,7 +17,7 @@ This page says what has been checked and what has not. No independent accessibil
 
 ## What has been tested
 
-These are automated tests in a real browser. They have passed in the project's automated build for an earlier version of the core pages. A pass covers the version it ran on, and does not carry over to later ones.
+These are automated tests in a real browser. They passed in the project's automated build on the core pages as they stood when this page was written. A pass covers the version it ran on, and does not carry over to later ones.
 
 - **Automated page checks.** A tool called axe checks each page state against the rules it has for WCAG 2.2 levels A and AA, and each state is also checked for sideways scrolling. Each one runs in the light and dark themes, at a wide and a phone-sized width, with panels closed and then open.
 - **Keyboard only.** With no mouse, a person can sign in and approve an approval, open the deny panel and deny, and sign up and create an organization. **Skip to content** is the first stop on a page. Focus stays visible on the way through those tasks, and on the main pages it can be walked through and back out in both directions.
