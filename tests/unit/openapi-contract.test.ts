@@ -90,9 +90,7 @@ describe('the spec and the routes', () => {
 
   it('marks what does not exist yet', () => {
     const planned = operations().filter((operation) => operation.status === 'planned');
-    expect(planned.map(({ path }) => path.split('/').slice(3).join('/'))).toEqual([
-      'knowledge/search',
-    ]);
+    expect(planned.map(({ path }) => path.split('/').slice(3).join('/'))).toEqual([]);
   });
 });
 

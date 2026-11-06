@@ -218,6 +218,15 @@ export async function createWorkUnit(
   context: TenantContext,
   raw: z.input<typeof createWorkInput>,
 ) {
+  return withTenantTx(database, context, (tx) => createWorkUnitInTx(tx, context, raw));
+}
+
+/** The same kernel operation, for an atomic company workflow hierarchy. */
+export async function createWorkUnitInTx(
+  tx: Tx,
+  context: TenantContext,
+  raw: z.input<typeof createWorkInput>,
+) {
   if (!can(context.role, 'work.create')) throw new AppError('FORBIDDEN');
   const parsed = createWorkInput.safeParse(raw);
   if (!parsed.success) throw new AppError('INVALID_INPUT');
@@ -226,58 +235,55 @@ export async function createWorkUnit(
   const id = requestKey
     ? idFromRequest('work', context.membershipId, requestKey, content)
     : randomUUID();
-  return withTenantTx(database, context, async (tx) => {
-    const owner = input.ownerMembershipId ?? context.membershipId;
-    await assertActiveMember(tx, owner);
-    if (input.projectId) await assertProjectInTenant(tx, input.projectId);
-    const asksForReceipt = input.completionCriteria.some(
-      (criterion) => criterion.kind === 'external_receipt',
-    );
-    if (asksForReceipt && !(await hasActionConnection(tx))) throw new AppError('INVALID_INPUT');
-    const [row] = await tx
-      .insert(workUnits)
-      .values({
-        organizationId: context.organizationId,
-        id,
-        title: input.title,
-        objective: input.objective ?? null,
-        projectId: input.projectId ?? null,
-        ownerMembershipId: owner,
-        createdByMembershipId: context.membershipId,
-        classification: input.classification,
-        dueAt: input.dueAt ?? null,
-        completionCriteria: input.completionCriteria,
-        executionPlan: input.executionPlan ?? null,
-      })
-      .onConflictDoNothing()
-      .returning();
-    if (!row) return loadReadable(tx, context, id);
-    // The creator is on the work the way anyone else is: listed, and removable once it has moved.
-    await tx.insert(workAssignments).values({
+  const owner = input.ownerMembershipId ?? context.membershipId;
+  await assertActiveMember(tx, owner);
+  if (input.projectId) await assertProjectInTenant(tx, input.projectId);
+  const asksForReceipt = input.completionCriteria.some(
+    (criterion) => criterion.kind === 'external_receipt',
+  );
+  if (asksForReceipt && !(await hasActionConnection(tx))) throw new AppError('INVALID_INPUT');
+  const [row] = await tx
+    .insert(workUnits)
+    .values({
       organizationId: context.organizationId,
-      workUnitId: id,
-      membershipId: context.membershipId,
-      responsibility: 'contributor',
-      actorType: 'human',
-    });
-    await emit(tx, context, {
-      eventType: 'work.created',
-      aggregateType: 'work_unit',
-      aggregateId: id,
-      aggregateVersion: 1,
+      id,
+      title: input.title,
+      objective: input.objective ?? null,
+      projectId: input.projectId ?? null,
+      ownerMembershipId: owner,
+      createdByMembershipId: context.membershipId,
       classification: input.classification,
-      payload: { work_unit_id: id },
-    });
-    await appendAudit(tx, {
-      organizationId: context.organizationId,
-      actorType: 'user',
-      actorId: context.membershipId,
-      action: 'work.created',
-      targetRef: `work_unit:${id}`,
-      decision: 'allow',
-    });
-    return row as WorkRow;
+      dueAt: input.dueAt ?? null,
+      completionCriteria: input.completionCriteria,
+      executionPlan: input.executionPlan ?? null,
+    })
+    .onConflictDoNothing()
+    .returning();
+  if (!row) return loadReadable(tx, context, id);
+  await tx.insert(workAssignments).values({
+    organizationId: context.organizationId,
+    workUnitId: id,
+    membershipId: context.membershipId,
+    responsibility: 'contributor',
+    actorType: 'human',
   });
+  await emit(tx, context, {
+    eventType: 'work.created',
+    aggregateType: 'work_unit',
+    aggregateId: id,
+    aggregateVersion: 1,
+    classification: input.classification,
+    payload: { work_unit_id: id },
+  });
+  await appendAudit(tx, {
+    organizationId: context.organizationId,
+    actorType: 'user',
+    actorId: context.membershipId,
+    action: 'work.created',
+    targetRef: `work_unit:${id}`,
+    decision: 'allow',
+  });
+  return row as WorkRow;
 }
 
 export function getWorkUnit(database: AppDatabase, context: TenantContext, id: string) {

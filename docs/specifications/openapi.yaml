@@ -3,14 +3,18 @@ info:
   title: Ensemus Canonical API (Reference Contract)
   version: 2.0.0
   description: >-
-    Next.js Route Handler reference interface for tenant-aware work, agent, approval, search and provider
-    policies. The work-unit routes, and the approval list, read and decision routes, are implemented, and
-    accept a browser session cookie, with writes also checked against the Origin header. Bearer tokens are
-    not accepted yet. An operation marked x-ensemus-status planned is an architectural specification and
-    does not exist yet. Real responses from every other operation are validated against this file by
-    tests/stack/api.test.ts, and tests/unit/openapi-contract.test.ts keeps the two lists honest. The public
-    webhook address, POST /api/webhooks/{token}, is not here: it takes no session, it is not a client API,
-    and it answers only 202, 404, 413 and 429 with no body, so a stranger learns nothing (ADR-027 D4).
+    Next.js Route Handler reference interface for tenant-aware work, agent,
+    approval, search and provider policies. The work-unit routes, and the
+    approval list, read and decision routes, are implemented, and accept a
+    browser session cookie, with writes also checked against the Origin header.
+    Bearer tokens are not accepted yet. An operation marked x-ensemus-status
+    planned is an architectural specification and does not exist yet. Real
+    responses from every other operation are validated against this file by
+    tests/stack/api.test.ts, and tests/unit/openapi-contract.test.ts keeps the
+    two lists honest. The public webhook address, POST /api/webhooks/{token}, is
+    not here: it takes no session, it is not a client API, and it answers only
+    202, 404, 413 and 429 with no body, so a stranger learns nothing (ADR-027
+    D4).
 servers:
   - url: https://ensemus.example.invalid/api/v1
     description: Illustrative placeholder; not a live endpoint.
@@ -23,6 +27,7 @@ tags:
   - name: external-actions
   - name: connections
   - name: knowledge
+  - name: governance
   - name: models
   - name: commercial
 paths:
@@ -30,15 +35,15 @@ paths:
     parameters:
       - $ref: '#/components/parameters/OrganizationID'
     get:
-      tags: [work]
+      tags: [ work ]
       summary: List permitted Work Units
       parameters:
         - name: cursor
           in: query
-          schema: {type: string, minLength: 1, maxLength: 512}
+          schema: { type: string, minLength: 1, maxLength: 512 }
         - name: status
           in: query
-          schema: {$ref: '#/components/schemas/WorkStatus'}
+          schema: { $ref: '#/components/schemas/WorkStatus' }
       responses:
         '200':
           description: Permission-filtered page
@@ -47,74 +52,75 @@ paths:
               schema:
                 type: object
                 additionalProperties: false
-                required: [items, next_cursor]
+                required: [ items, next_cursor ]
                 properties:
-                  items: {type: array, items: {$ref: '#/components/schemas/WorkUnit'}}
-                  next_cursor: {type: [string, 'null']}
-        '400': {$ref: '#/components/responses/BadRequest'}
-        '401': {$ref: '#/components/responses/Unauthorized'}
-        '403': {$ref: '#/components/responses/Forbidden'}
-        '404': {$ref: '#/components/responses/NotFound'}
-        '500': {$ref: '#/components/responses/InternalError'}
-        '503': {$ref: '#/components/responses/RestorePending'}
+                  items: { type: array, items: { $ref: '#/components/schemas/WorkUnit' } }
+                  next_cursor: { type: [ string, 'null' ] }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
+        '503': { $ref: '#/components/responses/RestorePending' }
     post:
-      tags: [work]
+      tags: [ work ]
       summary: Create a Work Unit
-      parameters: [{$ref: '#/components/parameters/IdempotencyKey'}]
+      parameters: [ { $ref: '#/components/parameters/IdempotencyKey' } ]
       requestBody:
         required: true
         content:
           application/json:
-            schema: {$ref: '#/components/schemas/CreateWorkUnit'}
+            schema: { $ref: '#/components/schemas/CreateWorkUnit' }
       responses:
         '201':
           description: Created
           headers:
-            ETag: {$ref: '#/components/headers/ETag'}
+            ETag: { $ref: '#/components/headers/ETag' }
           content:
             application/json:
-              schema: {$ref: '#/components/schemas/WorkUnit'}
-        '400': {$ref: '#/components/responses/BadRequest'}
-        '401': {$ref: '#/components/responses/Unauthorized'}
-        '403': {$ref: '#/components/responses/Forbidden'}
-        '404': {$ref: '#/components/responses/NotFound'}
-        '409': {$ref: '#/components/responses/Conflict'}
-        '413': {$ref: '#/components/responses/PayloadTooLarge'}
-        '415': {$ref: '#/components/responses/UnsupportedMediaType'}
-        '500': {$ref: '#/components/responses/InternalError'}
-        '503': {$ref: '#/components/responses/RestorePending'}
+              schema: { $ref: '#/components/schemas/WorkUnit' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '500': { $ref: '#/components/responses/InternalError' }
+        '503': { $ref: '#/components/responses/RestorePending' }
   /organizations/{organization_id}/work-units/{work_unit_id}:
     parameters:
       - $ref: '#/components/parameters/OrganizationID'
       - name: work_unit_id
         in: path
         required: true
-        schema: {type: string, format: uuid}
+        schema: { type: string, format: uuid }
     get:
-      tags: [work]
+      tags: [ work ]
       summary: Read permitted Work Unit
       responses:
         '200':
           description: Work Unit
           headers:
-            ETag: {$ref: '#/components/headers/ETag'}
+            ETag: { $ref: '#/components/headers/ETag' }
           content:
             application/json:
-              schema: {$ref: '#/components/schemas/WorkUnit'}
-        '400': {$ref: '#/components/responses/BadRequest'}
-        '401': {$ref: '#/components/responses/Unauthorized'}
-        '404': {$ref: '#/components/responses/NotFound'}
-        '500': {$ref: '#/components/responses/InternalError'}
-        '503': {$ref: '#/components/responses/RestorePending'}
+              schema: { $ref: '#/components/schemas/WorkUnit' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
+        '503': { $ref: '#/components/responses/RestorePending' }
     patch:
-      tags: [work]
+      tags: [ work ]
       summary: Patch with optimistic version check
       parameters:
         - name: If-Match
           in: header
           required: true
-          description: The version last read, as sent in the ETag response header. Weak tags, lists and * are refused.
-          schema: {type: string}
+          description: The version last read, as sent in the ETag response header. Weak
+            tags, lists and * are refused.
+          schema: { type: string }
       requestBody:
         required: true
         content:
@@ -124,76 +130,80 @@ paths:
               additionalProperties: false
               minProperties: 1
               properties:
-                title: {type: string, minLength: 1, maxLength: 300}
-                objective: {type: string, maxLength: 10000}
-                due_at: {type: [string, 'null'], format: date-time}
+                title: { type: string, minLength: 1, maxLength: 300 }
+                objective: { type: string, maxLength: 10000 }
+                due_at: { type: [ string, 'null' ], format: date-time }
       responses:
         '200':
           description: Updated Work Unit
           headers:
-            ETag: {$ref: '#/components/headers/ETag'}
+            ETag: { $ref: '#/components/headers/ETag' }
           content:
             application/json:
-              schema: {$ref: '#/components/schemas/WorkUnit'}
-        '400': {$ref: '#/components/responses/BadRequest'}
-        '401': {$ref: '#/components/responses/Unauthorized'}
-        '404': {$ref: '#/components/responses/NotFound'}
-        '409': {$ref: '#/components/responses/Conflict'}
-        '403': {$ref: '#/components/responses/Forbidden'}
-        '413': {$ref: '#/components/responses/PayloadTooLarge'}
-        '415': {$ref: '#/components/responses/UnsupportedMediaType'}
-        '428': {$ref: '#/components/responses/PreconditionRequired'}
-        '500': {$ref: '#/components/responses/InternalError'}
-        '503': {$ref: '#/components/responses/RestorePending'}
+              schema: { $ref: '#/components/schemas/WorkUnit' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '428': { $ref: '#/components/responses/PreconditionRequired' }
+        '500': { $ref: '#/components/responses/InternalError' }
+        '503': { $ref: '#/components/responses/RestorePending' }
   /organizations/{organization_id}/work-units/{work_unit_id}/events:
     parameters:
       - $ref: '#/components/parameters/OrganizationID'
       - name: work_unit_id
         in: path
         required: true
-        schema: {type: string, format: uuid}
+        schema: { type: string, format: uuid }
     get:
-      tags: [work]
+      tags: [ work ]
       summary: Follow a Work Unit's version as server-sent events
       description: >-
-        Sends an event named status whose data and id are both the current version, whenever the version
-        differs from the last one sent, and comment heartbeats in between. Status comes from PostgreSQL,
-        so a reconnect to any replica resumes from Last-Event-ID. Access is checked again on every poll,
-        and the stream ends when access is lost. Connections close after about 15 minutes, and
-        EventSource reconnects by itself. With include=evidence it also sends an event named evidence,
-        with no id, at once and whenever the Work Unit's files or reviews change, since those can change
-        without the version moving. Its data is an opaque value to compare, and says nothing about them.
+        Sends an event named status whose data and id are both the current
+        version, whenever the version differs from the last one sent, and
+        comment heartbeats in between. Status comes from PostgreSQL, so a
+        reconnect to any replica resumes from Last-Event-ID. Access is checked
+        again on every poll, and the stream ends when access is lost.
+        Connections close after about 15 minutes, and EventSource reconnects by
+        itself. With include=evidence it also sends an event named evidence,
+        with no id, at once and whenever the Work Unit's files or reviews
+        change, since those can change without the version moving. Its data is
+        an opaque value to compare, and says nothing about them.
       parameters:
         - name: Last-Event-ID
           in: header
           required: false
-          description: The last version received. Without a usable value, the current version is sent at once.
-          schema: {type: string}
+          description: The last version received. Without a usable value, the current
+            version is sent at once.
+          schema: { type: string }
         - name: include
           in: query
           required: false
           description: Asks for evidence events as well as status events.
-          schema: {type: string, enum: [evidence]}
+          schema: { type: string, enum: [ evidence ] }
       responses:
         '200':
           description: Event stream
           content:
             text/event-stream:
-              schema: {type: string}
-        '400': {$ref: '#/components/responses/BadRequest'}
-        '401': {$ref: '#/components/responses/Unauthorized'}
-        '404': {$ref: '#/components/responses/NotFound'}
-        '500': {$ref: '#/components/responses/InternalError'}
-        '503': {$ref: '#/components/responses/RestorePending'}
+              schema: { type: string }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
+        '503': { $ref: '#/components/responses/RestorePending' }
   /organizations/{organization_id}/work-units/{work_unit_id}/dependencies:
     parameters:
       - $ref: '#/components/parameters/OrganizationID'
       - name: work_unit_id
         in: path
         required: true
-        schema: {type: string, format: uuid}
+        schema: { type: string, format: uuid }
     post:
-      tags: [work]
+      tags: [ work ]
       summary: Add prerequisite, rejecting cycles
       requestBody:
         required: true
@@ -201,54 +211,55 @@ paths:
           application/json:
             schema:
               type: object
-              required: [prerequisite_id]
+              required: [ prerequisite_id ]
               additionalProperties: false
               properties:
-                prerequisite_id: {type: string, format: uuid}
+                prerequisite_id: { type: string, format: uuid }
       responses:
-        '201': {description: Added}
-        '400': {$ref: '#/components/responses/BadRequest'}
-        '401': {$ref: '#/components/responses/Unauthorized'}
-        '404': {$ref: '#/components/responses/NotFound'}
-        '409': {$ref: '#/components/responses/Conflict'}
-        '403': {$ref: '#/components/responses/Forbidden'}
-        '413': {$ref: '#/components/responses/PayloadTooLarge'}
-        '415': {$ref: '#/components/responses/UnsupportedMediaType'}
-        '500': {$ref: '#/components/responses/InternalError'}
-        '503': {$ref: '#/components/responses/RestorePending'}
+        '201': { description: Added }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '500': { $ref: '#/components/responses/InternalError' }
+        '503': { $ref: '#/components/responses/RestorePending' }
   /organizations/{organization_id}/agent-runs:
     parameters:
       - $ref: '#/components/parameters/OrganizationID'
     post:
-      tags: [agents]
+      tags: [ agents ]
       summary: Start bounded agent execution on a Work Unit
-      parameters: [{$ref: '#/components/parameters/IdempotencyKey'}]
+      parameters: [ { $ref: '#/components/parameters/IdempotencyKey' } ]
       requestBody:
         required: true
         content:
           application/json:
-            schema: {$ref: '#/components/schemas/StartAgentRunRequest'}
+            schema: { $ref: '#/components/schemas/StartAgentRunRequest' }
       responses:
         '202':
-          description: Durable run queued. Limits come from the agent version, never the request
+          description: Durable run queued. Limits come from the agent version, never the
+            request
           content:
             application/json:
-              schema: {$ref: '#/components/schemas/AgentRun'}
-        '400': {$ref: '#/components/responses/BadRequest'}
-        '401': {$ref: '#/components/responses/Unauthorized'}
-        '403': {$ref: '#/components/responses/Forbidden'}
-        '404': {$ref: '#/components/responses/NotFound'}
-        '500': {$ref: '#/components/responses/InternalError'}
-        '503': {$ref: '#/components/responses/RestorePending'}
-        '409': {$ref: '#/components/responses/Conflict'}
+              schema: { $ref: '#/components/schemas/AgentRun' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
+        '503': { $ref: '#/components/responses/RestorePending' }
+        '409': { $ref: '#/components/responses/Conflict' }
     get:
-      tags: [agents]
+      tags: [ agents ]
       summary: List runs on a Work Unit the caller can read
       parameters:
         - name: work_unit_id
           in: query
           required: true
-          schema: {type: string, format: uuid}
+          schema: { type: string, format: uuid }
       responses:
         '200':
           description: Runs on this Work Unit
@@ -257,70 +268,70 @@ paths:
               schema:
                 type: object
                 additionalProperties: false
-                required: [items]
+                required: [ items ]
                 properties:
-                  items: {type: array, items: {$ref: '#/components/schemas/AgentRun'}}
-        '400': {$ref: '#/components/responses/BadRequest'}
-        '401': {$ref: '#/components/responses/Unauthorized'}
-        '403': {$ref: '#/components/responses/Forbidden'}
-        '404': {$ref: '#/components/responses/NotFound'}
-        '500': {$ref: '#/components/responses/InternalError'}
-        '503': {$ref: '#/components/responses/RestorePending'}
+                  items: { type: array, items: { $ref: '#/components/schemas/AgentRun' } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
+        '503': { $ref: '#/components/responses/RestorePending' }
   /organizations/{organization_id}/agent-runs/{agent_run_id}:
     parameters:
       - $ref: '#/components/parameters/OrganizationID'
       - name: agent_run_id
         in: path
         required: true
-        schema: {type: string, format: uuid}
+        schema: { type: string, format: uuid }
     get:
-      tags: [agents]
+      tags: [ agents ]
       summary: Read scoped execution progress
       responses:
         '200':
           description: Run record
           content:
             application/json:
-              schema: {$ref: '#/components/schemas/AgentRun'}
-        '400': {$ref: '#/components/responses/BadRequest'}
-        '401': {$ref: '#/components/responses/Unauthorized'}
-        '403': {$ref: '#/components/responses/Forbidden'}
-        '404': {$ref: '#/components/responses/NotFound'}
-        '500': {$ref: '#/components/responses/InternalError'}
-        '503': {$ref: '#/components/responses/RestorePending'}
+              schema: { $ref: '#/components/schemas/AgentRun' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
+        '503': { $ref: '#/components/responses/RestorePending' }
   /organizations/{organization_id}/agent-runs/{agent_run_id}/controls:
     parameters:
       - $ref: '#/components/parameters/OrganizationID'
       - name: agent_run_id
         in: path
         required: true
-        schema: {type: string, format: uuid}
+        schema: { type: string, format: uuid }
     post:
-      tags: [agents]
+      tags: [ agents ]
       summary: Stop, pause or resume a run
       requestBody:
         required: true
         content:
           application/json:
-            schema: {$ref: '#/components/schemas/RunControlRequest'}
+            schema: { $ref: '#/components/schemas/RunControlRequest' }
       responses:
-        '202': {description: 'Recorded. Each step rechecks this before acting'}
-        '400': {$ref: '#/components/responses/BadRequest'}
-        '401': {$ref: '#/components/responses/Unauthorized'}
-        '403': {$ref: '#/components/responses/Forbidden'}
-        '404': {$ref: '#/components/responses/NotFound'}
-        '500': {$ref: '#/components/responses/InternalError'}
-        '503': {$ref: '#/components/responses/RestorePending'}
-        '409': {$ref: '#/components/responses/Conflict'}
+        '202': { description: 'Recorded. Each step rechecks this before acting' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
+        '503': { $ref: '#/components/responses/RestorePending' }
+        '409': { $ref: '#/components/responses/Conflict' }
   /organizations/{organization_id}/agent-runs/{agent_run_id}/steps:
     parameters:
       - $ref: '#/components/parameters/OrganizationID'
       - name: agent_run_id
         in: path
         required: true
-        schema: {type: string, format: uuid}
+        schema: { type: string, format: uuid }
     get:
-      tags: [agents]
+      tags: [ agents ]
       summary: Read a run as codes and counters, with no model text
       responses:
         '200':
@@ -330,41 +341,41 @@ paths:
               schema:
                 type: object
                 additionalProperties: false
-                required: [items]
+                required: [ items ]
                 properties:
-                  items: {type: array, items: {$ref: '#/components/schemas/ExecutionStep'}}
-        '400': {$ref: '#/components/responses/BadRequest'}
-        '401': {$ref: '#/components/responses/Unauthorized'}
-        '403': {$ref: '#/components/responses/Forbidden'}
-        '404': {$ref: '#/components/responses/NotFound'}
-        '500': {$ref: '#/components/responses/InternalError'}
-        '503': {$ref: '#/components/responses/RestorePending'}
+                  items: { type: array, items: { $ref: '#/components/schemas/ExecutionStep' } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
+        '503': { $ref: '#/components/responses/RestorePending' }
   /organizations/{organization_id}/agent-versions:
     parameters:
       - $ref: '#/components/parameters/OrganizationID'
     post:
-      tags: [agents]
+      tags: [ agents ]
       summary: Publish an immutable agent version
       requestBody:
         required: true
         content:
           application/json:
-            schema: {$ref: '#/components/schemas/PublishAgentVersionRequest'}
+            schema: { $ref: '#/components/schemas/PublishAgentVersionRequest' }
       responses:
         '201':
           description: Published
           content:
             application/json:
-              schema: {$ref: '#/components/schemas/AgentVersion'}
-        '400': {$ref: '#/components/responses/BadRequest'}
-        '401': {$ref: '#/components/responses/Unauthorized'}
-        '403': {$ref: '#/components/responses/Forbidden'}
-        '404': {$ref: '#/components/responses/NotFound'}
-        '500': {$ref: '#/components/responses/InternalError'}
-        '503': {$ref: '#/components/responses/RestorePending'}
-        '409': {$ref: '#/components/responses/Conflict'}
+              schema: { $ref: '#/components/schemas/AgentVersion' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
+        '503': { $ref: '#/components/responses/RestorePending' }
+        '409': { $ref: '#/components/responses/Conflict' }
     get:
-      tags: [agents]
+      tags: [ agents ]
       summary: List published agent versions
       responses:
         '200':
@@ -374,42 +385,42 @@ paths:
               schema:
                 type: object
                 additionalProperties: false
-                required: [items]
+                required: [ items ]
                 properties:
-                  items: {type: array, items: {$ref: '#/components/schemas/AgentVersion'}}
-        '400': {$ref: '#/components/responses/BadRequest'}
-        '401': {$ref: '#/components/responses/Unauthorized'}
-        '403': {$ref: '#/components/responses/Forbidden'}
-        '404': {$ref: '#/components/responses/NotFound'}
-        '500': {$ref: '#/components/responses/InternalError'}
-        '503': {$ref: '#/components/responses/RestorePending'}
+                  items: { type: array, items: { $ref: '#/components/schemas/AgentVersion' } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
+        '503': { $ref: '#/components/responses/RestorePending' }
   /organizations/{organization_id}/agent-versions/{agent_version_id}:
     parameters:
       - $ref: '#/components/parameters/OrganizationID'
       - name: agent_version_id
         in: path
         required: true
-        schema: {type: string, format: uuid}
+        schema: { type: string, format: uuid }
     get:
-      tags: [agents]
+      tags: [ agents ]
       summary: Read one published agent version
       responses:
         '200':
           description: Version record
           content:
             application/json:
-              schema: {$ref: '#/components/schemas/AgentVersion'}
-        '400': {$ref: '#/components/responses/BadRequest'}
-        '401': {$ref: '#/components/responses/Unauthorized'}
-        '403': {$ref: '#/components/responses/Forbidden'}
-        '404': {$ref: '#/components/responses/NotFound'}
-        '500': {$ref: '#/components/responses/InternalError'}
-        '503': {$ref: '#/components/responses/RestorePending'}
+              schema: { $ref: '#/components/schemas/AgentVersion' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
+        '503': { $ref: '#/components/responses/RestorePending' }
   /organizations/{organization_id}/approvals:
     parameters:
       - $ref: '#/components/parameters/OrganizationID'
     get:
-      tags: [approvals]
+      tags: [ approvals ]
       summary: Approvals waiting on the caller, soonest first
       responses:
         '200':
@@ -419,46 +430,46 @@ paths:
               schema:
                 type: object
                 additionalProperties: false
-                required: [items]
+                required: [ items ]
                 properties:
                   items:
                     type: array
-                    items: {$ref: '#/components/schemas/PendingApproval'}
-        '400': {$ref: '#/components/responses/BadRequest'}
-        '401': {$ref: '#/components/responses/Unauthorized'}
-        '404': {$ref: '#/components/responses/NotFound'}
-        '500': {$ref: '#/components/responses/InternalError'}
-        '503': {$ref: '#/components/responses/RestorePending'}
+                    items: { $ref: '#/components/schemas/PendingApproval' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
+        '503': { $ref: '#/components/responses/RestorePending' }
   /organizations/{organization_id}/approvals/{approval_id}:
     parameters:
       - $ref: '#/components/parameters/OrganizationID'
       - name: approval_id
         in: path
         required: true
-        schema: {type: string, format: uuid}
+        schema: { type: string, format: uuid }
     get:
-      tags: [approvals]
+      tags: [ approvals ]
       summary: One approval, with the exact action and the hash a decision must quote
       responses:
         '200':
           description: Approval
           content:
             application/json:
-              schema: {$ref: '#/components/schemas/Approval'}
-        '400': {$ref: '#/components/responses/BadRequest'}
-        '401': {$ref: '#/components/responses/Unauthorized'}
-        '404': {$ref: '#/components/responses/NotFound'}
-        '500': {$ref: '#/components/responses/InternalError'}
-        '503': {$ref: '#/components/responses/RestorePending'}
+              schema: { $ref: '#/components/schemas/Approval' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
+        '503': { $ref: '#/components/responses/RestorePending' }
   /organizations/{organization_id}/approvals/{approval_id}/decisions:
     parameters:
       - $ref: '#/components/parameters/OrganizationID'
       - name: approval_id
         in: path
         required: true
-        schema: {type: string, format: uuid}
+        schema: { type: string, format: uuid }
     post:
-      tags: [approvals]
+      tags: [ approvals ]
       summary: Decide exact immutable proposed action
       requestBody:
         required: true
@@ -467,73 +478,75 @@ paths:
             schema:
               type: object
               additionalProperties: false
-              required: [decision, action_hash]
+              required: [ decision, action_hash ]
               properties:
-                decision: {type: string, enum: [approve, deny]}
-                action_hash: {type: string, minLength: 32, maxLength: 128}
+                decision: { type: string, enum: [ approve, deny ] }
+                action_hash: { type: string, minLength: 32, maxLength: 128 }
                 reason:
                   type: string
                   maxLength: 2000
                   description: >-
-                    Required, and not blank, to deny an approval the work is paused on, because that
-                    stops the work for good. Without it the answer is 400 with code REASON_REQUIRED.
+                    Required, and not blank, to deny an approval the work is
+                    paused on, because that stops the work for good. Without it
+                    the answer is 400 with code REASON_REQUIRED.
       responses:
-        '200': {description: Decision recorded}
-        '400': {$ref: '#/components/responses/BadRequest'}
-        '401': {$ref: '#/components/responses/Unauthorized'}
-        '404': {$ref: '#/components/responses/NotFound'}
-        '409': {$ref: '#/components/responses/Conflict'}
-        '403': {$ref: '#/components/responses/Forbidden'}
-        '413': {$ref: '#/components/responses/PayloadTooLarge'}
-        '415': {$ref: '#/components/responses/UnsupportedMediaType'}
-        '500': {$ref: '#/components/responses/InternalError'}
-        '503': {$ref: '#/components/responses/RestorePending'}
+        '200': { description: Decision recorded }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '500': { $ref: '#/components/responses/InternalError' }
+        '503': { $ref: '#/components/responses/RestorePending' }
   /organizations/{organization_id}/work-units/{work_unit_id}/external-actions:
     parameters:
       - $ref: '#/components/parameters/OrganizationID'
       - $ref: '#/components/parameters/WorkUnitID'
     post:
-      tags: [external-actions]
+      tags: [ external-actions ]
       summary: Propose an email, for a named person to approve exactly as written
-      parameters: [{$ref: '#/components/parameters/IdempotencyKey'}]
+      parameters: [ { $ref: '#/components/parameters/IdempotencyKey' } ]
       requestBody:
         required: true
         content:
           application/json:
-            schema: {$ref: '#/components/schemas/ProposeEmailAction'}
+            schema: { $ref: '#/components/schemas/ProposeEmailAction' }
       responses:
         '201':
-          description: Proposed. Nothing has been sent, and nothing is sent without that approval.
+          description: Proposed. Nothing has been sent, and nothing is sent without that
+            approval.
           headers:
-            ETag: {$ref: '#/components/headers/ETag'}
+            ETag: { $ref: '#/components/headers/ETag' }
           content:
             application/json:
-              schema: {$ref: '#/components/schemas/ProposedExternalAction'}
-        '400': {$ref: '#/components/responses/BadRequest'}
-        '401': {$ref: '#/components/responses/Unauthorized'}
-        '403': {$ref: '#/components/responses/Forbidden'}
-        '404': {$ref: '#/components/responses/NotFound'}
-        '409': {$ref: '#/components/responses/Conflict'}
-        '413': {$ref: '#/components/responses/PayloadTooLarge'}
-        '415': {$ref: '#/components/responses/UnsupportedMediaType'}
-        '500': {$ref: '#/components/responses/InternalError'}
-        '503': {$ref: '#/components/responses/RestorePending'}
+              schema: { $ref: '#/components/schemas/ProposedExternalAction' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '500': { $ref: '#/components/responses/InternalError' }
+        '503': { $ref: '#/components/responses/RestorePending' }
   /organizations/{organization_id}/external-actions:
     parameters:
       - $ref: '#/components/parameters/OrganizationID'
     get:
-      tags: [external-actions]
+      tags: [ external-actions ]
       summary: External actions on work the caller can read
       parameters:
         - name: cursor
           in: query
-          schema: {type: string, minLength: 1, maxLength: 512}
+          schema: { type: string, minLength: 1, maxLength: 512 }
         - name: status
           in: query
-          schema: {$ref: '#/components/schemas/ExternalActionStatus'}
+          schema: { $ref: '#/components/schemas/ExternalActionStatus' }
         - name: work_unit_id
           in: query
-          schema: {type: string, format: uuid}
+          schema: { type: string, format: uuid }
       responses:
         '200':
           description: Permission-filtered page
@@ -542,74 +555,77 @@ paths:
               schema:
                 type: object
                 additionalProperties: false
-                required: [items, next_cursor]
+                required: [ items, next_cursor ]
                 properties:
-                  items: {type: array, items: {$ref: '#/components/schemas/ExternalActionSummary'}}
-                  next_cursor: {type: [string, 'null']}
-        '400': {$ref: '#/components/responses/BadRequest'}
-        '401': {$ref: '#/components/responses/Unauthorized'}
-        '404': {$ref: '#/components/responses/NotFound'}
-        '500': {$ref: '#/components/responses/InternalError'}
-        '503': {$ref: '#/components/responses/RestorePending'}
+                  items: { type: array, items: { $ref: '#/components/schemas/ExternalActionSummary' } }
+                  next_cursor: { type: [ string, 'null' ] }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
+        '503': { $ref: '#/components/responses/RestorePending' }
   /organizations/{organization_id}/external-actions/{external_action_id}:
     parameters:
       - $ref: '#/components/parameters/OrganizationID'
       - $ref: '#/components/parameters/ExternalActionID'
     get:
-      tags: [external-actions]
+      tags: [ external-actions ]
       summary: One external action, with its exact payload and every receipt
       responses:
         '200':
           description: The action. `unknown` means nobody can say whether it was sent.
           headers:
-            ETag: {$ref: '#/components/headers/ETag'}
+            ETag: { $ref: '#/components/headers/ETag' }
           content:
             application/json:
-              schema: {$ref: '#/components/schemas/ExternalAction'}
-        '400': {$ref: '#/components/responses/BadRequest'}
-        '401': {$ref: '#/components/responses/Unauthorized'}
-        '404': {$ref: '#/components/responses/NotFound'}
-        '500': {$ref: '#/components/responses/InternalError'}
-        '503': {$ref: '#/components/responses/RestorePending'}
+              schema: { $ref: '#/components/schemas/ExternalAction' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
+        '503': { $ref: '#/components/responses/RestorePending' }
   /organizations/{organization_id}/external-actions/{external_action_id}/revisions:
     parameters:
       - $ref: '#/components/parameters/OrganizationID'
       - $ref: '#/components/parameters/ExternalActionID'
     post:
-      tags: [external-actions]
-      summary: Change what would be sent. This closes the action and its approval, and asks for a new one
+      tags: [ external-actions ]
+      summary: Change what would be sent. This closes the action and its approval, and
+        asks for a new one
       parameters:
         - $ref: '#/components/parameters/IfMatch'
       requestBody:
         required: true
         content:
           application/json:
-            schema: {$ref: '#/components/schemas/ReviseEmailAction'}
+            schema: { $ref: '#/components/schemas/ReviseEmailAction' }
       responses:
         '201':
-          description: A new action, waiting for its own approval. The old one can no longer be sent.
+          description: A new action, waiting for its own approval. The old one can no
+            longer be sent.
           headers:
-            ETag: {$ref: '#/components/headers/ETag'}
+            ETag: { $ref: '#/components/headers/ETag' }
           content:
             application/json:
-              schema: {$ref: '#/components/schemas/ProposedExternalAction'}
-        '400': {$ref: '#/components/responses/BadRequest'}
-        '401': {$ref: '#/components/responses/Unauthorized'}
-        '403': {$ref: '#/components/responses/Forbidden'}
-        '404': {$ref: '#/components/responses/NotFound'}
-        '409': {$ref: '#/components/responses/Conflict'}
-        '413': {$ref: '#/components/responses/PayloadTooLarge'}
-        '415': {$ref: '#/components/responses/UnsupportedMediaType'}
-        '428': {$ref: '#/components/responses/PreconditionRequired'}
-        '500': {$ref: '#/components/responses/InternalError'}
-        '503': {$ref: '#/components/responses/RestorePending'}
+              schema: { $ref: '#/components/schemas/ProposedExternalAction' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '428': { $ref: '#/components/responses/PreconditionRequired' }
+        '500': { $ref: '#/components/responses/InternalError' }
+        '503': { $ref: '#/components/responses/RestorePending' }
   /organizations/{organization_id}/external-actions/{external_action_id}/resolution:
     parameters:
       - $ref: '#/components/parameters/OrganizationID'
       - $ref: '#/components/parameters/ExternalActionID'
     post:
-      tags: [external-actions]
-      summary: Say what happened to an action in the unknown state. It never sends anything
+      tags: [ external-actions ]
+      summary: Say what happened to an action in the unknown state. It never sends
+        anything
       parameters:
         - $ref: '#/components/parameters/IfMatch'
       requestBody:
@@ -619,35 +635,36 @@ paths:
             schema:
               type: object
               additionalProperties: false
-              required: [resolution, reason]
+              required: [ resolution, reason ]
               properties:
-                resolution: {type: string, enum: [confirmed_sent, confirmed_not_sent]}
-                reason: {type: string, minLength: 1, maxLength: 2000}
+                resolution: { type: string, enum: [ confirmed_sent, confirmed_not_sent ] }
+                reason: { type: string, minLength: 1, maxLength: 2000 }
       responses:
         '200':
           description: Recorded, as this person's word
           headers:
-            ETag: {$ref: '#/components/headers/ETag'}
+            ETag: { $ref: '#/components/headers/ETag' }
           content:
             application/json:
-              schema: {$ref: '#/components/schemas/ExternalAction'}
-        '400': {$ref: '#/components/responses/BadRequest'}
-        '401': {$ref: '#/components/responses/Unauthorized'}
-        '403': {$ref: '#/components/responses/Forbidden'}
-        '404': {$ref: '#/components/responses/NotFound'}
-        '409': {$ref: '#/components/responses/Conflict'}
-        '413': {$ref: '#/components/responses/PayloadTooLarge'}
-        '415': {$ref: '#/components/responses/UnsupportedMediaType'}
-        '428': {$ref: '#/components/responses/PreconditionRequired'}
-        '500': {$ref: '#/components/responses/InternalError'}
-        '503': {$ref: '#/components/responses/RestorePending'}
+              schema: { $ref: '#/components/schemas/ExternalAction' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '428': { $ref: '#/components/responses/PreconditionRequired' }
+        '500': { $ref: '#/components/responses/InternalError' }
+        '503': { $ref: '#/components/responses/RestorePending' }
   /organizations/{organization_id}/external-actions/{external_action_id}/retries:
     parameters:
       - $ref: '#/components/parameters/OrganizationID'
       - $ref: '#/components/parameters/ExternalActionID'
     post:
-      tags: [external-actions]
-      summary: Ask again for an action that ended failed, as a new action with a new approval
+      tags: [ external-actions ]
+      summary: Ask again for an action that ended failed, as a new action with a new
+        approval
       requestBody:
         required: true
         content:
@@ -655,31 +672,31 @@ paths:
             schema:
               type: object
               additionalProperties: false
-              required: [approver_membership_id]
+              required: [ approver_membership_id ]
               properties:
-                approver_membership_id: {type: string, format: uuid}
+                approver_membership_id: { type: string, format: uuid }
       responses:
         '201':
           description: A new action, waiting for its own approval
           headers:
-            ETag: {$ref: '#/components/headers/ETag'}
+            ETag: { $ref: '#/components/headers/ETag' }
           content:
             application/json:
-              schema: {$ref: '#/components/schemas/ProposedExternalAction'}
-        '400': {$ref: '#/components/responses/BadRequest'}
-        '401': {$ref: '#/components/responses/Unauthorized'}
-        '403': {$ref: '#/components/responses/Forbidden'}
-        '404': {$ref: '#/components/responses/NotFound'}
-        '409': {$ref: '#/components/responses/Conflict'}
-        '413': {$ref: '#/components/responses/PayloadTooLarge'}
-        '415': {$ref: '#/components/responses/UnsupportedMediaType'}
-        '500': {$ref: '#/components/responses/InternalError'}
-        '503': {$ref: '#/components/responses/RestorePending'}
+              schema: { $ref: '#/components/schemas/ProposedExternalAction' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '500': { $ref: '#/components/responses/InternalError' }
+        '503': { $ref: '#/components/responses/RestorePending' }
   /organizations/{organization_id}/connections:
     parameters:
       - $ref: '#/components/parameters/OrganizationID'
     get:
-      tags: [connections]
+      tags: [ connections ]
       summary: Connections in this organization, without their credentials
       responses:
         '200':
@@ -689,19 +706,20 @@ paths:
               schema:
                 type: object
                 additionalProperties: false
-                required: [items]
+                required: [ items ]
                 properties:
-                  items: {type: array, items: {$ref: '#/components/schemas/Connection'}}
-        '400': {$ref: '#/components/responses/BadRequest'}
-        '401': {$ref: '#/components/responses/Unauthorized'}
-        '403': {$ref: '#/components/responses/Forbidden'}
-        '404': {$ref: '#/components/responses/NotFound'}
-        '500': {$ref: '#/components/responses/InternalError'}
-        '503': {$ref: '#/components/responses/RestorePending'}
+                  items: { type: array, items: { $ref: '#/components/schemas/Connection' } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
+        '503': { $ref: '#/components/responses/RestorePending' }
     post:
-      tags: [connections]
-      summary: Add a connection. A credential is sealed on arrival and can never be read back
-      parameters: [{$ref: '#/components/parameters/IdempotencyKey'}]
+      tags: [ connections ]
+      summary: Add a connection. A credential is sealed on arrival and can never be
+        read back
+      parameters: [ { $ref: '#/components/parameters/IdempotencyKey' } ]
       requestBody:
         required: true
         content:
@@ -709,91 +727,94 @@ paths:
             schema:
               type: object
               additionalProperties: false
-              required: [connector_type, display_name, config]
+              required: [ connector_type, display_name, config ]
               properties:
-                connector_type: {type: string, pattern: '^[a-z][a-z0-9_]{1,63}$'}
-                display_name: {type: string, minLength: 1, maxLength: 120}
+                connector_type: { type: string, pattern: '^[a-z][a-z0-9_]{1,63}$' }
+                display_name: { type: string, minLength: 1, maxLength: 120 }
                 config:
                   type: object
                   additionalProperties: true
-                  description: Checked against that connector's settings. It can never name a host.
-                credential: {type: string, minLength: 1, maxLength: 4096}
+                  description: Checked against that connector's settings. It can never name a
+                    host.
+                credential: { type: string, minLength: 1, maxLength: 4096 }
       responses:
         '201':
           description: Connection, without its credential
           headers:
-            ETag: {$ref: '#/components/headers/ETag'}
+            ETag: { $ref: '#/components/headers/ETag' }
           content:
             application/json:
-              schema: {$ref: '#/components/schemas/Connection'}
-        '400': {$ref: '#/components/responses/BadRequest'}
-        '401': {$ref: '#/components/responses/Unauthorized'}
-        '403': {$ref: '#/components/responses/Forbidden'}
-        '404': {$ref: '#/components/responses/NotFound'}
-        '409': {$ref: '#/components/responses/Conflict'}
-        '413': {$ref: '#/components/responses/PayloadTooLarge'}
-        '415': {$ref: '#/components/responses/UnsupportedMediaType'}
-        '500': {$ref: '#/components/responses/InternalError'}
-        '503': {$ref: '#/components/responses/RestorePending'}
+              schema: { $ref: '#/components/schemas/Connection' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '500': { $ref: '#/components/responses/InternalError' }
+        '503': { $ref: '#/components/responses/RestorePending' }
   /organizations/{organization_id}/connections/{connection_id}:
     parameters:
       - $ref: '#/components/parameters/OrganizationID'
       - $ref: '#/components/parameters/ConnectionID'
     get:
-      tags: [connections]
+      tags: [ connections ]
       summary: One connection, without its credential
       responses:
         '200':
           description: Connection
           headers:
-            ETag: {$ref: '#/components/headers/ETag'}
+            ETag: { $ref: '#/components/headers/ETag' }
           content:
             application/json:
-              schema: {$ref: '#/components/schemas/Connection'}
-        '400': {$ref: '#/components/responses/BadRequest'}
-        '401': {$ref: '#/components/responses/Unauthorized'}
-        '403': {$ref: '#/components/responses/Forbidden'}
-        '404': {$ref: '#/components/responses/NotFound'}
-        '500': {$ref: '#/components/responses/InternalError'}
-        '503': {$ref: '#/components/responses/RestorePending'}
+              schema: { $ref: '#/components/schemas/Connection' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
+        '503': { $ref: '#/components/responses/RestorePending' }
     delete:
-      tags: [connections]
-      summary: Revoke a connection. Nothing not yet attempted goes out through it after this
+      tags: [ connections ]
+      summary: Revoke a connection. Nothing not yet attempted goes out through it
+        after this
       parameters:
         - $ref: '#/components/parameters/IfMatch'
       responses:
-        '204': {description: Revoked}
-        '400': {$ref: '#/components/responses/BadRequest'}
-        '401': {$ref: '#/components/responses/Unauthorized'}
-        '403': {$ref: '#/components/responses/Forbidden'}
-        '404': {$ref: '#/components/responses/NotFound'}
-        '409': {$ref: '#/components/responses/Conflict'}
-        '428': {$ref: '#/components/responses/PreconditionRequired'}
-        '500': {$ref: '#/components/responses/InternalError'}
-        '503': {$ref: '#/components/responses/RestorePending'}
+        '204': { description: Revoked }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '428': { $ref: '#/components/responses/PreconditionRequired' }
+        '500': { $ref: '#/components/responses/InternalError' }
+        '503': { $ref: '#/components/responses/RestorePending' }
   /organizations/{organization_id}/connections/{connection_id}/sync:
     parameters:
       - $ref: '#/components/parameters/OrganizationID'
       - $ref: '#/components/parameters/ConnectionID'
     post:
-      tags: [connections]
+      tags: [ connections ]
       summary: Ask a connection to read its source now
       responses:
-        '202': {description: Asked. The connection's state shows how it went.}
-        '400': {$ref: '#/components/responses/BadRequest'}
-        '401': {$ref: '#/components/responses/Unauthorized'}
-        '403': {$ref: '#/components/responses/Forbidden'}
-        '404': {$ref: '#/components/responses/NotFound'}
-        '409': {$ref: '#/components/responses/Conflict'}
-        '500': {$ref: '#/components/responses/InternalError'}
-        '503': {$ref: '#/components/responses/RestorePending'}
+        '202': { description: Asked. The connection's state shows how it went. }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/InternalError' }
+        '503': { $ref: '#/components/responses/RestorePending' }
   /organizations/{organization_id}/connections/{connection_id}/webhook-endpoints:
     parameters:
       - $ref: '#/components/parameters/OrganizationID'
       - $ref: '#/components/parameters/ConnectionID'
     post:
-      tags: [connections]
-      summary: Make a callback address. Its URL and signing secret are shown here once, and never again
+      tags: [ connections ]
+      summary: Make a callback address. Its URL and signing secret are shown here
+        once, and never again
       responses:
         '201':
           description: The address and its secret. Only hashes and sealed values are kept.
@@ -801,23 +822,22 @@ paths:
             Cache-Control:
               description: This response holds secrets, so nothing may keep it.
               required: true
-              schema: {type: string, const: no-store}
+              schema: { type: string, const: no-store }
           content:
             application/json:
-              schema: {$ref: '#/components/schemas/CreatedWebhookEndpoint'}
-        '400': {$ref: '#/components/responses/BadRequest'}
-        '401': {$ref: '#/components/responses/Unauthorized'}
-        '403': {$ref: '#/components/responses/Forbidden'}
-        '404': {$ref: '#/components/responses/NotFound'}
-        '409': {$ref: '#/components/responses/Conflict'}
-        '500': {$ref: '#/components/responses/InternalError'}
-        '503': {$ref: '#/components/responses/RestorePending'}
+              schema: { $ref: '#/components/schemas/CreatedWebhookEndpoint' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/InternalError' }
+        '503': { $ref: '#/components/responses/RestorePending' }
   /organizations/{organization_id}/knowledge/search:
     parameters:
       - $ref: '#/components/parameters/OrganizationID'
     post:
-      x-ensemus-status: planned
-      tags: [knowledge]
+      tags: [ knowledge ]
       summary: Search authorized knowledge with citations
       requestBody:
         required: true
@@ -826,38 +846,45 @@ paths:
             schema:
               type: object
               additionalProperties: false
-              required: [query]
+              required: [ query ]
               properties:
-                query: {type: string, minLength: 1, maxLength: 4000}
-                limit: {type: integer, minimum: 1, maximum: 50, default: 10}
+                query: { type: string, minLength: 1, maxLength: 4000 }
+                limit: { type: integer, minimum: 1, maximum: 50, default: 10 }
                 allowed_source_ids:
                   type: array
-                  items: {type: string, format: uuid}
+                  items: { type: string, format: uuid }
       responses:
         '200':
-          description: Permission-filtered results
+          description: Full-text results the caller's ACL covers, filtered inside the
+            query. Semantic search needs a model, so it runs in a worker, for
+            answers (ADR-029 D5).
           content:
             application/json:
               schema:
                 type: object
-                required: [items]
+                required: [ items ]
                 properties:
                   items:
                     type: array
                     items:
-                      type: object
-                      required: [source_id, excerpt, source_version]
-                      properties:
-                        source_id: {type: string, format: uuid}
-                        source_version: {type: string}
-                        excerpt: {type: string}
-                        citation_ref: {type: string}
-        '403': {$ref: '#/components/responses/Forbidden'}
+                      $ref: "#/components/schemas/KnowledgePassage"
+                additionalProperties: false
+        '403': { $ref: '#/components/responses/Forbidden' }
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/RestorePending"
   /organizations/{organization_id}/model-profiles:
     parameters:
       - $ref: '#/components/parameters/OrganizationID'
     get:
-      tags: [models]
+      tags: [ models ]
       summary: List authorized provider profiles without secrets
       responses:
         '200':
@@ -867,214 +894,1712 @@ paths:
               schema:
                 type: object
                 additionalProperties: false
-                required: [items]
+                required: [ items ]
                 properties:
-                  items: {type: array, items: {$ref: '#/components/schemas/ModelProfile'}}
-        '400': {$ref: '#/components/responses/BadRequest'}
-        '401': {$ref: '#/components/responses/Unauthorized'}
-        '403': {$ref: '#/components/responses/Forbidden'}
-        '404': {$ref: '#/components/responses/NotFound'}
-        '500': {$ref: '#/components/responses/InternalError'}
-        '503': {$ref: '#/components/responses/RestorePending'}
+                  items: { type: array, items: { $ref: '#/components/schemas/ModelProfile' } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
+        '503': { $ref: '#/components/responses/RestorePending' }
     post:
-      tags: [models]
+      tags: [ models ]
       summary: Register a model profile as a draft
       requestBody:
         required: true
         content:
           application/json:
-            schema: {$ref: '#/components/schemas/CreateModelProfileRequest'}
+            schema: { $ref: '#/components/schemas/CreateModelProfileRequest' }
       responses:
         '201':
           description: Draft profile. It cannot be used until a probe passes
           content:
             application/json:
-              schema: {$ref: '#/components/schemas/ModelProfile'}
-        '400': {$ref: '#/components/responses/BadRequest'}
-        '401': {$ref: '#/components/responses/Unauthorized'}
-        '403': {$ref: '#/components/responses/Forbidden'}
-        '404': {$ref: '#/components/responses/NotFound'}
-        '500': {$ref: '#/components/responses/InternalError'}
-        '503': {$ref: '#/components/responses/RestorePending'}
-        '409': {$ref: '#/components/responses/Conflict'}
+              schema: { $ref: '#/components/schemas/ModelProfile' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
+        '503': { $ref: '#/components/responses/RestorePending' }
+        '409': { $ref: '#/components/responses/Conflict' }
   /organizations/{organization_id}/model-profiles/{model_profile_id}:
     parameters:
       - $ref: '#/components/parameters/OrganizationID'
       - name: model_profile_id
         in: path
         required: true
-        schema: {type: string, format: uuid}
+        schema: { type: string, format: uuid }
     get:
-      tags: [models]
+      tags: [ models ]
       summary: Read one profile without secrets
       responses:
         '200':
           description: Profile metadata
           content:
             application/json:
-              schema: {$ref: '#/components/schemas/ModelProfile'}
-        '400': {$ref: '#/components/responses/BadRequest'}
-        '401': {$ref: '#/components/responses/Unauthorized'}
-        '403': {$ref: '#/components/responses/Forbidden'}
-        '404': {$ref: '#/components/responses/NotFound'}
-        '500': {$ref: '#/components/responses/InternalError'}
-        '503': {$ref: '#/components/responses/RestorePending'}
+              schema: { $ref: '#/components/schemas/ModelProfile' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
+        '503': { $ref: '#/components/responses/RestorePending' }
     patch:
-      tags: [models]
-      summary: Change a profile. A changed endpoint voids its key and returns it to draft
+      tags: [ models ]
+      summary: Change a profile. A changed endpoint voids its key and returns it to
+        draft
       requestBody:
         required: true
         content:
           application/json:
-            schema: {$ref: '#/components/schemas/UpdateModelProfileRequest'}
+            schema: { $ref: '#/components/schemas/UpdateModelProfileRequest' }
       responses:
         '200':
           description: Updated profile
           content:
             application/json:
-              schema: {$ref: '#/components/schemas/ModelProfile'}
-        '400': {$ref: '#/components/responses/BadRequest'}
-        '401': {$ref: '#/components/responses/Unauthorized'}
-        '403': {$ref: '#/components/responses/Forbidden'}
-        '404': {$ref: '#/components/responses/NotFound'}
-        '500': {$ref: '#/components/responses/InternalError'}
-        '503': {$ref: '#/components/responses/RestorePending'}
-        '409': {$ref: '#/components/responses/Conflict'}
+              schema: { $ref: '#/components/schemas/ModelProfile' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
+        '503': { $ref: '#/components/responses/RestorePending' }
+        '409': { $ref: '#/components/responses/Conflict' }
   /organizations/{organization_id}/model-profiles/{model_profile_id}/credential:
     parameters:
       - $ref: '#/components/parameters/OrganizationID'
       - name: model_profile_id
         in: path
         required: true
-        schema: {type: string, format: uuid}
+        schema: { type: string, format: uuid }
     put:
-      tags: [models]
+      tags: [ models ]
       summary: Seal a key for this profile and endpoint. It can never be read back
       requestBody:
         required: true
         content:
           application/json:
-            schema: {$ref: '#/components/schemas/ModelCredentialRequest'}
+            schema: { $ref: '#/components/schemas/ModelCredentialRequest' }
       responses:
         '200':
           description: The profile, back in draft, showing only that a key is on file
           content:
             application/json:
-              schema: {$ref: '#/components/schemas/ModelProfile'}
-        '400': {$ref: '#/components/responses/BadRequest'}
-        '401': {$ref: '#/components/responses/Unauthorized'}
-        '403': {$ref: '#/components/responses/Forbidden'}
-        '404': {$ref: '#/components/responses/NotFound'}
-        '500': {$ref: '#/components/responses/InternalError'}
-        '503': {$ref: '#/components/responses/RestorePending'}
-        '409': {$ref: '#/components/responses/Conflict'}
+              schema: { $ref: '#/components/schemas/ModelProfile' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
+        '503': { $ref: '#/components/responses/RestorePending' }
+        '409': { $ref: '#/components/responses/Conflict' }
   /organizations/{organization_id}/model-profiles/{model_profile_id}/activation:
     parameters:
       - $ref: '#/components/parameters/OrganizationID'
       - name: model_profile_id
         in: path
         required: true
-        schema: {type: string, format: uuid}
+        schema: { type: string, format: uuid }
     post:
-      tags: [models]
+      tags: [ models ]
       summary: Ask for a probe. The profile goes active only if it passes
       requestBody:
         required: true
         content:
           application/json:
-            schema: {$ref: '#/components/schemas/ActivateModelProfileRequest'}
+            schema: { $ref: '#/components/schemas/ActivateModelProfileRequest' }
       responses:
-        '202': {description: 'Probe requested'}
-        '400': {$ref: '#/components/responses/BadRequest'}
-        '401': {$ref: '#/components/responses/Unauthorized'}
-        '403': {$ref: '#/components/responses/Forbidden'}
-        '404': {$ref: '#/components/responses/NotFound'}
-        '500': {$ref: '#/components/responses/InternalError'}
-        '503': {$ref: '#/components/responses/RestorePending'}
-        '409': {$ref: '#/components/responses/Conflict'}
+        '202': { description: 'Probe requested' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
+        '503': { $ref: '#/components/responses/RestorePending' }
+        '409': { $ref: '#/components/responses/Conflict' }
   /organizations/{organization_id}/model-profiles/{model_profile_id}/rate-cards:
     parameters:
       - $ref: '#/components/parameters/OrganizationID'
       - name: model_profile_id
         in: path
         required: true
-        schema: {type: string, format: uuid}
+        schema: { type: string, format: uuid }
     post:
-      tags: [models]
+      tags: [ models ]
       summary: Add a rate card. Immutable, and the newest applies from now on
       requestBody:
         required: true
         content:
           application/json:
-            schema: {$ref: '#/components/schemas/CreateRateCardRequest'}
+            schema: { $ref: '#/components/schemas/CreateRateCardRequest' }
       responses:
-        '201': {description: 'Rate card added'}
-        '400': {$ref: '#/components/responses/BadRequest'}
-        '401': {$ref: '#/components/responses/Unauthorized'}
-        '403': {$ref: '#/components/responses/Forbidden'}
-        '404': {$ref: '#/components/responses/NotFound'}
-        '500': {$ref: '#/components/responses/InternalError'}
-        '503': {$ref: '#/components/responses/RestorePending'}
+        '201': { description: 'Rate card added' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
+        '503': { $ref: '#/components/responses/RestorePending' }
   /organizations/{organization_id}/budgets:
     parameters:
       - $ref: '#/components/parameters/OrganizationID'
     post:
-      tags: [commercial]
+      tags: [ commercial ]
       summary: Set a spending limit. No budget means no run
       requestBody:
         required: true
         content:
           application/json:
-            schema: {$ref: '#/components/schemas/SetBudgetRequest'}
+            schema: { $ref: '#/components/schemas/SetBudgetRequest' }
       responses:
-        '201': {description: 'Budget set'}
-        '400': {$ref: '#/components/responses/BadRequest'}
-        '401': {$ref: '#/components/responses/Unauthorized'}
-        '403': {$ref: '#/components/responses/Forbidden'}
-        '404': {$ref: '#/components/responses/NotFound'}
-        '500': {$ref: '#/components/responses/InternalError'}
-        '503': {$ref: '#/components/responses/RestorePending'}
+        '201': { description: 'Budget set' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
+        '503': { $ref: '#/components/responses/RestorePending' }
   /organizations/{organization_id}/usage:
     parameters:
       - $ref: '#/components/parameters/OrganizationID'
     get:
-      tags: [commercial]
+      tags: [ commercial ]
       summary: Read measured usage for one period
       parameters:
         - name: period
           in: query
           required: true
-          schema: {type: string, pattern: '^[0-9]{4}-(0[1-9]|1[0-2])$'}
+          schema: { type: string, pattern: '^[0-9]{4}-(0[1-9]|1[0-2])$' }
       responses:
         '200':
           description: Usage. BYOM and Sovereign cost figures are labelled estimates
           content:
             application/json:
-              schema: {$ref: '#/components/schemas/UsageSummary'}
-        '400': {$ref: '#/components/responses/BadRequest'}
-        '401': {$ref: '#/components/responses/Unauthorized'}
-        '403': {$ref: '#/components/responses/Forbidden'}
-        '404': {$ref: '#/components/responses/NotFound'}
-        '500': {$ref: '#/components/responses/InternalError'}
-        '503': {$ref: '#/components/responses/RestorePending'}
+              schema: { $ref: '#/components/schemas/UsageSummary' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
+        '503': { $ref: '#/components/responses/RestorePending' }
   /organizations/{organization_id}/entitlements:
     parameters:
       - $ref: '#/components/parameters/OrganizationID'
     get:
-      tags: [commercial]
+      tags: [ commercial ]
       summary: Read current commercial mode, features, and quotas
       responses:
         '200':
           description: Entitlements (no license private keys)
           content:
             application/json:
-              schema: {$ref: '#/components/schemas/Entitlements'}
-        '400': {$ref: '#/components/responses/BadRequest'}
-        '401': {$ref: '#/components/responses/Unauthorized'}
-        '403': {$ref: '#/components/responses/Forbidden'}
-        '404': {$ref: '#/components/responses/NotFound'}
-        '500': {$ref: '#/components/responses/InternalError'}
-        '503': {$ref: '#/components/responses/RestorePending'}
+              schema: { $ref: '#/components/schemas/Entitlements' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
+        '503': { $ref: '#/components/responses/RestorePending' }
+  /organizations/{organization_id}/knowledge/sources:
+    parameters:
+      - $ref: "#/components/parameters/OrganizationID"
+    get:
+      tags:
+        - knowledge
+      summary: Sources the caller can read. A manager also sees that others exist,
+        with no title
+      parameters:
+        - name: cursor
+          in: query
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 512
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+      responses:
+        "200":
+          description: One page
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - items
+                  - next_cursor
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/KnowledgeSource"
+                  next_cursor:
+                    type:
+                      - string
+                      - "null"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/RestorePending"
+    post:
+      tags:
+        - knowledge
+      summary: Add a document. It becomes searchable once a worker has read it
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - metadata
+                - file
+              properties:
+                metadata:
+                  type: object
+                  additionalProperties: false
+                  required:
+                    - title
+                    - classification
+                    - grants
+                  properties:
+                    title:
+                      type: string
+                      minLength: 1
+                      maxLength: 512
+                    classification:
+                      type: string
+                      enum:
+                        - public
+                        - internal
+                        - confidential
+                        - restricted
+                    grants:
+                      type: array
+                      maxItems: 100
+                      items:
+                        $ref: "#/components/schemas/KnowledgeGrant"
+                file:
+                  type: string
+                  format: binary
+      responses:
+        "201":
+          description: Stored, and waiting to be read
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/KnowledgeSource"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/RestorePending"
+  /organizations/{organization_id}/knowledge/sources/{source_id}:
+    parameters:
+      - $ref: "#/components/parameters/OrganizationID"
+      - $ref: "#/components/parameters/SourceID"
+    get:
+      tags:
+        - knowledge
+      summary: One source, under its ACL
+      responses:
+        "200":
+          description: The source
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/KnowledgeSource"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/RestorePending"
+    delete:
+      tags:
+        - knowledge
+      summary: Delete a source. Serving stops in this request, and what was derived
+        goes after
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+                - reason
+              properties:
+                reason:
+                  type: string
+                  minLength: 1
+                  maxLength: 2000
+      parameters:
+        - $ref: "#/components/parameters/IfMatch"
+      responses:
+        "202":
+          description: Closed, with the purge under way
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/KnowledgePurge"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/RestorePending"
+  /organizations/{organization_id}/knowledge/sources/{source_id}/revoke:
+    parameters:
+      - $ref: "#/components/parameters/OrganizationID"
+      - $ref: "#/components/parameters/SourceID"
+    post:
+      tags:
+        - knowledge
+      summary: Revoke a source. It never comes back, and a re-added one is a new source
+      parameters:
+        - $ref: "#/components/parameters/IfMatch"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+                - reason
+              properties:
+                reason:
+                  type: string
+                  minLength: 1
+                  maxLength: 2000
+      responses:
+        "202":
+          description: Closed, with the purge under way
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/KnowledgePurge"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/RestorePending"
+  /organizations/{organization_id}/knowledge/sources/{source_id}/purge:
+    parameters:
+      - $ref: "#/components/parameters/OrganizationID"
+      - $ref: "#/components/parameters/SourceID"
+    get:
+      tags:
+        - knowledge
+      summary: How far the purge has got, with counts, and when it finished
+      responses:
+        "200":
+          description: The purge's record
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/KnowledgePurge"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/RestorePending"
+  /organizations/{organization_id}/knowledge/sources/{source_id}/grants:
+    parameters:
+      - $ref: "#/components/parameters/OrganizationID"
+      - $ref: "#/components/parameters/SourceID"
+    patch:
+      tags:
+        - knowledge
+      summary: Change who can read an uploaded source. It takes effect at once
+      parameters:
+        - $ref: "#/components/parameters/IfMatch"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+                - add
+                - remove_grant_ids
+              properties:
+                add:
+                  type: array
+                  maxItems: 100
+                  items:
+                    $ref: "#/components/schemas/KnowledgeGrant"
+                remove_grant_ids:
+                  type: array
+                  maxItems: 100
+                  items:
+                    type: string
+                    format: uuid
+      responses:
+        "204":
+          description: Changed
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/RestorePending"
+  /organizations/{organization_id}/knowledge/documents/{document_id}/content:
+    parameters:
+      - $ref: "#/components/parameters/OrganizationID"
+      - name: document_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      tags:
+        - knowledge
+      summary: The original bytes, as a citation's way back to its source
+      responses:
+        "200":
+          description: The file, as an attachment
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/RestorePending"
+  /organizations/{organization_id}/knowledge/answers:
+    parameters:
+      - $ref: "#/components/parameters/OrganizationID"
+    get:
+      tags:
+        - knowledge
+      summary: The caller's private answers that remain readable
+      parameters:
+        - name: cursor
+          in: query
+          schema:
+            type: string
+            maxLength: 512
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+      responses:
+        "200":
+          description: One page
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - items
+                  - next_cursor
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/KnowledgeAnswer"
+                  next_cursor:
+                    type:
+                      - string
+                      - "null"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/RestorePending"
+    post:
+      tags:
+        - knowledge
+      summary: Ask a question. A worker answers it under the asker's own access
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+                - question
+              properties:
+                question:
+                  type: string
+                  minLength: 1
+                  maxLength: 4000
+                classification:
+                  type: string
+                  enum:
+                    - public
+                    - internal
+                    - confidential
+                    - restricted
+                  default: restricted
+      responses:
+        "202":
+          description: Asked. Read it back by its ID
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/KnowledgeAnswer"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/RestorePending"
+  /organizations/{organization_id}/knowledge/answers/{answer_id}:
+    parameters:
+      - $ref: "#/components/parameters/OrganizationID"
+      - name: answer_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      tags:
+        - knowledge
+      summary: One answer with its citations, for the person who asked, while they can
+        read every source
+      responses:
+        "200":
+          description: The answer
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/KnowledgeAnswer"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/RestorePending"
+  /organizations/{organization_id}/knowledge/facts:
+    parameters:
+      - $ref: "#/components/parameters/OrganizationID"
+    get:
+      tags:
+        - knowledge
+      summary: Facts the caller can read every source of
+      parameters:
+        - name: subject_ref
+          in: query
+          schema:
+            type: string
+            maxLength: 64
+        - name: trust_state
+          in: query
+          schema:
+            type: string
+            enum:
+              - proposed
+              - verified
+              - disputed
+              - superseded
+              - rejected
+        - name: cursor
+          in: query
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 512
+      responses:
+        "200":
+          description: One page
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - items
+                  - next_cursor
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/KnowledgeFact"
+                  next_cursor:
+                    type:
+                      - string
+                      - "null"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/RestorePending"
+    post:
+      tags:
+        - knowledge
+      summary: Propose a fact, on evidence the proposer can read. It is not trusted
+        until reviewed
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+                - subject_ref
+                - predicate
+                - claim
+                - evidence
+              properties:
+                subject_ref:
+                  type: string
+                  maxLength: 64
+                predicate:
+                  type: string
+                  pattern: ^[a-z][a-z0-9_.]{0,63}$
+                claim: {}
+                evidence:
+                  type: array
+                  minItems: 1
+                  maxItems: 20
+                  items:
+                    type: object
+                    additionalProperties: false
+                    required:
+                      - chunk_id
+                      - quote_start
+                      - quote_end
+                    properties:
+                      chunk_id:
+                        type: string
+                        format: uuid
+                      quote_start:
+                        type: integer
+                        minimum: 0
+                      quote_end:
+                        type: integer
+                        minimum: 1
+                valid_from:
+                  type: string
+                  format: date-time
+                valid_until:
+                  type: string
+                  format: date-time
+      responses:
+        "201":
+          description: Stored as proposed, or as disputed if it conflicts with a record
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/KnowledgeFact"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/RestorePending"
+  /organizations/{organization_id}/knowledge/facts/{fact_id}/review:
+    parameters:
+      - $ref: "#/components/parameters/OrganizationID"
+      - name: fact_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    post:
+      tags:
+        - knowledge
+      summary: A person verifies or rejects a fact. Nothing else can make one verified
+      parameters:
+        - $ref: "#/components/parameters/IfMatch"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+                - decision
+                - reason
+              properties:
+                decision:
+                  type: string
+                  enum:
+                    - verify
+                    - reject
+                reason:
+                  type: string
+                  minLength: 1
+                  maxLength: 2000
+      responses:
+        "200":
+          description: The fact
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/KnowledgeFact"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/RestorePending"
+  /organizations/{organization_id}/knowledge/graph/traverse:
+    parameters:
+      - $ref: "#/components/parameters/OrganizationID"
+    post:
+      tags:
+        - knowledge
+      summary: Walk typed links from one node, never through what the caller cannot see
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+                - from
+              properties:
+                from:
+                  $ref: "#/components/schemas/GraphNode"
+                relations:
+                  type: array
+                  maxItems: 20
+                  items:
+                    type: string
+                    pattern: ^[a-z][a-z0-9_]{0,63}$
+                depth:
+                  type: integer
+                  minimum: 1
+                  maximum: 3
+                limit:
+                  type: integer
+                  minimum: 1
+                  maximum: 200
+      responses:
+        "200":
+          description: What was reached
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - nodes
+                  - edges
+                  - truncated
+                properties:
+                  nodes:
+                    type: array
+                    items:
+                      allOf:
+                        - $ref: "#/components/schemas/GraphNode"
+                        - type: object
+                          required:
+                            - depth
+                            - label
+                          properties:
+                            depth:
+                              type: integer
+                            label:
+                              type: string
+                  edges:
+                    type: array
+                    items:
+                      type: object
+                      required:
+                        - from
+                        - relation
+                        - to
+                        - origin
+                      properties:
+                        from:
+                          $ref: "#/components/schemas/GraphNode"
+                        relation:
+                          type: string
+                        to:
+                          $ref: "#/components/schemas/GraphNode"
+                        origin:
+                          type: string
+                          enum:
+                            - record
+                            - person
+                            - fact
+                  truncated:
+                    type: boolean
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/RestorePending"
+  /organizations/{organization_id}/knowledge/graph/edges:
+    parameters:
+      - $ref: "#/components/parameters/OrganizationID"
+    post:
+      tags:
+        - knowledge
+      summary: Add a typed link the tables do not already hold
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+                - from
+                - relation
+                - to
+              properties:
+                from:
+                  $ref: "#/components/schemas/GraphNode"
+                relation:
+                  type: string
+                  pattern: ^[a-z][a-z0-9_]{0,63}$
+                to:
+                  $ref: "#/components/schemas/GraphNode"
+      responses:
+        "201":
+          description: Linked
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - edge_id
+                properties:
+                  edge_id:
+                    type: string
+                    format: uuid
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/RestorePending"
+  /organizations/{organization_id}/search:
+    parameters:
+      - $ref: "#/components/parameters/OrganizationID"
+    get:
+      tags:
+        - knowledge
+      summary: Company search over what the caller may see. Each kind filters inside
+        its query
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 200
+        - name: kinds
+          in: query
+          schema:
+            type: array
+            maxItems: 6
+            items:
+              type: string
+              enum:
+                - work_unit
+                - client
+                - project
+                - person
+                - team
+                - document
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+      responses:
+        "200":
+          description: Hits
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - items
+                properties:
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      additionalProperties: false
+                      required:
+                        - kind
+                        - id
+                        - title
+                        - excerpt
+                        - path
+                      properties:
+                        kind:
+                          type: string
+                          enum:
+                            - work_unit
+                            - client
+                            - project
+                            - person
+                            - team
+                            - document
+                        id:
+                          type: string
+                          format: uuid
+                        title:
+                          type: string
+                        excerpt:
+                          type:
+                            - string
+                            - "null"
+                        path:
+                          type: string
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/RestorePending"
+  /organizations/{organization_id}/egress-ledger:
+    parameters:
+      - $ref: "#/components/parameters/OrganizationID"
+    get:
+      tags:
+        - governance
+      summary: Which data class went, or was refused, to which provider, when, why and
+        under which policy
+      parameters:
+        - name: cursor
+          in: query
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 512
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+      responses:
+        "200":
+          description: One page, newest first. Codes and IDs, and never company text
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - items
+                  - next_cursor
+                  - coverage
+                properties:
+                  coverage:
+                    type: string
+                    enum:
+                      - knowledge_only
+                      - complete
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/EgressLedgerEntry"
+                  next_cursor:
+                    type:
+                      - string
+                      - "null"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/RestorePending"
+  /organizations/{organization_id}/egress-simulations:
+    parameters:
+      - $ref: "#/components/parameters/OrganizationID"
+    post:
+      tags:
+        - governance
+      summary: What a proposed provider would be sent. Nothing is transmitted, and
+        nothing is stored
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+                - destination
+                - destination_host
+                - billing_owner
+                - retention_basis
+                - region
+                - contract_ref
+                - allowed_classes
+                - purposes
+              properties:
+                destination:
+                  type: string
+                  enum:
+                    - ensemus_cloud_managed_model
+                    - customer_byom_public_api
+                    - customer_private_inference
+                destination_host:
+                  type: string
+                  pattern: ^[a-z0-9.-]{1,253}$
+                billing_owner:
+                  type: string
+                  enum:
+                    - customer
+                    - ensemus
+                retention_basis:
+                  type: string
+                  enum:
+                    - unreviewed
+                    - contract_recorded
+                    - self_hosted
+                region:
+                  type:
+                    - string
+                    - "null"
+                  maxLength: 64
+                contract_ref:
+                  type:
+                    - string
+                    - "null"
+                  maxLength: 128
+                allowed_classes:
+                  type: array
+                  maxItems: 4
+                  items:
+                    type: string
+                    enum:
+                      - public
+                      - internal
+                      - confidential
+                      - restricted
+                purposes:
+                  type: array
+                  minItems: 1
+                  maxItems: 3
+                  items:
+                    type: string
+                    enum:
+                      - embed
+                      - rerank
+                      - answer
+      responses:
+        "200":
+          description: One row per workload per class
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - rows
+                  - coverage
+                properties:
+                  coverage:
+                    type: string
+                    enum:
+                      - knowledge_only
+                      - complete
+                  rows:
+                    type: array
+                    items:
+                      type: object
+                      additionalProperties: false
+                      required:
+                        - workload_key
+                        - kind
+                        - purpose
+                        - classification
+                        - would_transmit
+                        - reason_code
+                        - policy_version
+                      properties:
+                        workload_key:
+                          type: string
+                        kind:
+                          type: string
+                          enum:
+                            - knowledge
+                            - agent
+                        purpose:
+                          type: string
+                          enum:
+                            - embed
+                            - rerank
+                            - answer
+                        classification:
+                          type: string
+                          enum:
+                            - public
+                            - internal
+                            - confidential
+                            - restricted
+                        would_transmit:
+                          type: boolean
+                        reason_code:
+                          type: string
+                        policy_version:
+                          type: string
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/RestorePending"
+  /organizations/{organization_id}/connections/{connection_id}/mcp-tools:
+    parameters:
+      - $ref: "#/components/parameters/OrganizationID"
+      - $ref: "#/components/parameters/ConnectionID"
+    get:
+      tags:
+        - connections
+      summary: What an MCP server says it offers, and what an admin has decided about
+        each tool
+      responses:
+        "200":
+          description: Its tools. Their descriptions are the server's words, and confer
+            nothing
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - items
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/McpTool"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/RestorePending"
+  /organizations/{organization_id}/connections/{connection_id}/mcp-tools/{mcp_tool_id}/review:
+    parameters:
+      - $ref: "#/components/parameters/OrganizationID"
+      - $ref: "#/components/parameters/ConnectionID"
+      - name: mcp_tool_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    post:
+      tags:
+        - connections
+      summary: An admin approves or rejects one tool, setting its effect level
+        themselves
+      parameters:
+        - $ref: "#/components/parameters/IfMatch"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+                - decision
+              properties:
+                decision:
+                  type: string
+                  enum:
+                    - approve
+                    - reject
+                side_effect_level:
+                  type: string
+                  enum:
+                    - read_only
+                    - external_write
+                allowed_classes:
+                  type: array
+                  maxItems: 3
+                  items:
+                    type: string
+                    enum:
+                      - public
+                      - internal
+                      - confidential
+      responses:
+        "200":
+          description: The tool
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/McpTool"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/RestorePending"
+  /organizations/{organization_id}/work-units/{work_unit_id}/artifacts/{artifact_id}/verification:
+    parameters:
+      - $ref: "#/components/parameters/OrganizationID"
+      - name: work_unit_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: artifact_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      tags:
+        - work
+      summary: Whether an artifact's citations hold, and whether a person has accepted
+        it
+      responses:
+        "200":
+          description: Its record
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ArtifactVerification"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/RestorePending"
+    post:
+      tags:
+        - work
+      summary: A person accepts or rejects exactly these bytes against the work's
+        objective
+      description: Acceptance requires objective_sha256 and citations_sha256 from the
+        read view; rejection requires a reason. Stale submitted digests are
+        refused.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+                - artifact_sha256
+                - verdict
+              properties:
+                artifact_sha256:
+                  type: string
+                  pattern: ^[0-9a-f]{64}$
+                objective_sha256:
+                  type: string
+                  pattern: ^[0-9a-f]{64}$
+                citations_sha256:
+                  type: string
+                  pattern: ^[0-9a-f]{64}$
+                verdict:
+                  type: string
+                  enum:
+                    - accepted
+                    - rejected
+                reason:
+                  type: string
+                  minLength: 1
+                  maxLength: 2000
+      responses:
+        "200":
+          description: Its record
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ArtifactVerification"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/RestorePending"
+  /organizations/{organization_id}/client-onboardings:
+    parameters:
+      - $ref: "#/components/parameters/OrganizationID"
+    post:
+      tags:
+        - work
+      summary: A deal was won. Starts the onboarding, once per deal
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+                - deal_ref
+                - client_name
+                - project_name
+                - owner_membership_id
+                - reviewer_membership_id
+                - email_connection_id
+                - contact_email
+              properties:
+                deal_ref:
+                  type: string
+                  minLength: 1
+                  maxLength: 128
+                client_name:
+                  type: string
+                  minLength: 1
+                  maxLength: 200
+                project_name:
+                  type: string
+                  minLength: 1
+                  maxLength: 200
+                owner_membership_id:
+                  type: string
+                  format: uuid
+                reviewer_membership_id:
+                  type: string
+                  format: uuid
+                email_connection_id:
+                  type: string
+                  format: uuid
+                contact_email:
+                  type: string
+                  format: email
+                  maxLength: 254
+      responses:
+        "201":
+          description: Started
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ClientOnboarding"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/RestorePending"
+  /organizations/{organization_id}/client-onboardings/{client_onboarding_id}:
+    parameters:
+      - $ref: "#/components/parameters/OrganizationID"
+      - name: client_onboarding_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      tags:
+        - work
+      summary: How one onboarding stands, with its receipt and measured cost
+      responses:
+        "200":
+          description: The onboarding
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ClientOnboarding"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/RestorePending"
+  /organizations/{organization_id}/knowledge/facts/{fact_id}:
+    parameters:
+      - $ref: "#/components/parameters/OrganizationID"
+      - name: fact_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      tags:
+        - knowledge
+      summary: One fact with all its current readable evidence
+      responses:
+        "200":
+          description: The fact
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/KnowledgeFact"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/RestorePending"
+  /organizations/{organization_id}/knowledge/sources/{source_id}/classification:
+    parameters:
+      - $ref: "#/components/parameters/OrganizationID"
+      - $ref: "#/components/parameters/SourceID"
+    patch:
+      tags:
+        - knowledge
+      summary: Raise source sensitivity without lowering any document sensitivity
+      parameters:
+        - $ref: "#/components/parameters/IfMatch"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+                - classification
+              properties:
+                classification:
+                  type: string
+                  enum:
+                    - public
+                    - internal
+                    - confidential
+                    - restricted
+      responses:
+        "204":
+          description: Sensitivity raised
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/RestorePending"
 components:
   securitySchemes:
     sessionCookie:
@@ -1082,198 +2607,284 @@ components:
       in: cookie
       name: __Secure-better-auth.session_token
       description: >-
-        The browser session. Writes must also carry an Origin header naming this deployment. API
-        tokens are not available yet.
+        The browser session. Writes must also carry an Origin header naming this
+        deployment. API tokens are not available yet.
   headers:
     ETag:
-      description: The version just read or written, as an entity tag. Send it back in If-Match.
+      description: The version just read or written, as an entity tag. Send it back in
+        If-Match.
       required: true
-      schema: {type: string, pattern: '^"[1-9][0-9]*"$'}
+      schema: { type: string, pattern: '^"[1-9][0-9]*"$' }
   parameters:
     OrganizationID:
       name: organization_id
       in: path
       required: true
-      description: Requires authenticated organization membership; UUID alone is never authorization.
-      schema: {type: string, format: uuid}
+      description: Requires authenticated organization membership; UUID alone is never
+        authorization.
+      schema: { type: string, format: uuid }
     IdempotencyKey:
       name: Idempotency-Key
       in: header
       required: true
-      schema: {type: string, minLength: 8, maxLength: 128}
+      schema: { type: string, minLength: 8, maxLength: 128 }
     IfMatch:
       name: If-Match
       in: header
       required: true
-      description: The version last read, as sent in the ETag response header. Weak tags, lists and * are refused.
-      schema: {type: string}
+      description: The version last read, as sent in the ETag response header. Weak
+        tags, lists and * are refused.
+      schema: { type: string }
     WorkUnitID:
       name: work_unit_id
       in: path
       required: true
-      schema: {type: string, format: uuid}
+      schema: { type: string, format: uuid }
     ExternalActionID:
       name: external_action_id
       in: path
       required: true
-      schema: {type: string, format: uuid}
+      schema: { type: string, format: uuid }
     ConnectionID:
       name: connection_id
       in: path
       required: true
-      schema: {type: string, format: uuid}
+      schema: { type: string, format: uuid }
+    SourceID:
+      name: source_id
+      in: path
+      required: true
+      description: A source the caller's ACL does not cover answers as if it did not exist.
+      schema:
+        type: string
+        format: uuid
   schemas:
     CreateWorkUnit:
       type: object
       additionalProperties: false
-      required: [title, objective]
+      required: [ title, objective ]
       properties:
-        title: {type: string, minLength: 1, maxLength: 300}
-        objective: {type: string, minLength: 1, maxLength: 10000}
-        project_id: {type: [string, 'null'], format: uuid}
-        due_at: {type: [string, 'null'], format: date-time}
+        title: { type: string, minLength: 1, maxLength: 300 }
+        objective: { type: string, minLength: 1, maxLength: 10000 }
+        project_id: { type: [ string, 'null' ], format: uuid }
+        due_at: { type: [ string, 'null' ], format: date-time }
         completion_criteria:
           type: object
           additionalProperties: false
           description: Which evidence this work needs before it can be completed.
           properties:
-            artifact_exists: {type: boolean}
-            reviewer_approved: {type: boolean}
+            artifact_exists: { type: boolean }
+            reviewer_approved: { type: boolean }
             external_receipt:
               type: boolean
               description: >-
-                The outside system confirms it happened. Accepted only when this organization has an
-                active connection that can act, because nothing else could ever satisfy it.
+                The outside system confirms it happened. Accepted only when this
+                organization has an active connection that can act, because
+                nothing else could ever satisfy it.
     PendingApproval:
       type: object
       additionalProperties: false
-      required: [id, work_unit_id, work_title, tool_name, expires_at]
+      required: [ id, work_unit_id, work_title, tool_name, expires_at ]
       properties:
-        id: {type: string, format: uuid}
-        work_unit_id: {type: string, format: uuid}
-        work_title: {type: string}
-        tool_name: {type: string}
-        expires_at: {type: string, format: date-time}
+        id: { type: string, format: uuid }
+        work_unit_id: { type: string, format: uuid }
+        work_title: { type: string }
+        tool_name: { type: string }
+        expires_at: { type: string, format: date-time }
     Approval:
       type: object
       additionalProperties: false
-      required: [id, work_unit_id, status, tool_name, action, action_hash, expires_at, decided_at]
+      required:
+        [
+          id,
+          work_unit_id,
+          status,
+          tool_name,
+          action,
+          action_hash,
+          expires_at,
+          decided_at
+        ]
       properties:
-        id: {type: string, format: uuid}
-        work_unit_id: {type: string, format: uuid}
-        status: {type: string, enum: [pending, approved, denied, expired, cancelled]}
-        tool_name: {type: string}
+        id: { type: string, format: uuid }
+        work_unit_id: { type: string, format: uuid }
+        status: { type: string, enum: [ pending, approved, denied, expired, cancelled ] }
+        tool_name: { type: string }
         action:
           type: object
           additionalProperties: true
-          description: The exact action this approval binds. It cannot be changed once created.
-        action_hash: {type: string, description: Quote this when deciding.}
-        expires_at: {type: string, format: date-time}
-        decided_at: {type: [string, 'null'], format: date-time}
+          description: The exact action this approval binds. It cannot be changed once
+            created.
+        action_hash: { type: string, description: Quote this when deciding. }
+        expires_at: { type: string, format: date-time }
+        decided_at: { type: [ string, 'null' ], format: date-time }
     WorkStatus:
       type: string
-      enum: [queued, ready, running, blocked, awaiting_approval, verifying, completed, failed, cancelled]
+      enum:
+        [
+          queued,
+          ready,
+          running,
+          blocked,
+          awaiting_approval,
+          verifying,
+          completed,
+          failed,
+          cancelled
+        ]
     WorkUnit:
       type: object
       additionalProperties: false
-      required: [id, organization_id, title, status, version]
+      required: [ id, organization_id, title, status, version ]
       properties:
-        id: {type: string, format: uuid}
-        organization_id: {type: string, format: uuid}
-        title: {type: string}
-        objective: {type: string}
-        status: {$ref: '#/components/schemas/WorkStatus'}
-        version: {type: integer, minimum: 1}
-        due_at: {type: [string, 'null'], format: date-time}
+        id: { type: string, format: uuid }
+        organization_id: { type: string, format: uuid }
+        title: { type: string }
+        objective: { type: string }
+        status: { $ref: '#/components/schemas/WorkStatus' }
+        version: { type: integer, minimum: 1 }
+        due_at: { type: [ string, 'null' ], format: date-time }
         completion:
-          allOf: [{$ref: '#/components/schemas/WorkCompletion'}]
+          allOf: [ { $ref: '#/components/schemas/WorkCompletion' } ]
           description: On reading one finished Work Unit, what its completion rests on.
     WorkCompletion:
       type: object
       additionalProperties: false
-      required: [basis, confirmed_by_membership_id, confirmed_at]
+      required: [ basis, confirmed_by_membership_id, confirmed_at ]
       properties:
         basis:
           type: string
-          enum: [evidence, owner_confirmed, not_recorded]
+          enum: [ evidence, owner_confirmed, not_recorded ]
           description: >-
-            `evidence` means the Work Unit's criteria were met. `owner_confirmed` means no evidence
-            was requested, and the accountable owner confirmed it themselves. `not_recorded` means
-            it finished before this was recorded.
-        confirmed_by_membership_id: {type: [string, 'null'], format: uuid}
-        confirmed_at: {type: string, format: date-time}
+            `evidence` means the Work Unit's criteria were met.
+            `owner_confirmed` means no evidence was requested, and the
+            accountable owner confirmed it themselves. `not_recorded` means it
+            finished before this was recorded.
+        confirmed_by_membership_id: { type: [ string, 'null' ], format: uuid }
+        confirmed_at: { type: string, format: date-time }
     EmailContent:
       type: object
       additionalProperties: false
-      required: [to, subject, text_body]
+      required: [ to, subject, text_body ]
       description: Plain text, with no attachments. The sender comes from the connection.
       properties:
-        to: {type: array, minItems: 1, maxItems: 50, items: {type: string, format: email}}
-        cc: {type: array, maxItems: 50, items: {type: string, format: email}}
-        bcc: {type: array, maxItems: 50, items: {type: string, format: email}}
-        reply_to: {type: string, format: email}
-        subject: {type: string, minLength: 1, maxLength: 200}
-        text_body: {type: string, minLength: 1, maxLength: 200000}
+        to:
+          {
+            type: array,
+            minItems: 1,
+            maxItems: 50,
+            items: { type: string, format: email }
+          }
+        cc: { type: array, maxItems: 50, items: { type: string, format: email } }
+        bcc: { type: array, maxItems: 50, items: { type: string, format: email } }
+        reply_to: { type: string, format: email }
+        subject: { type: string, minLength: 1, maxLength: 200 }
+        text_body: { type: string, minLength: 1, maxLength: 200000 }
     ProposeEmailAction:
       type: object
       additionalProperties: false
-      required: [connection_id, approver_membership_id, email]
+      required: [ connection_id, approver_membership_id, email ]
       properties:
-        connection_id: {type: string, format: uuid}
-        approver_membership_id: {type: string, format: uuid}
-        email: {$ref: '#/components/schemas/EmailContent'}
+        connection_id: { type: string, format: uuid }
+        approver_membership_id: { type: string, format: uuid }
+        email: { $ref: '#/components/schemas/EmailContent' }
     ReviseEmailAction:
       type: object
       additionalProperties: false
-      required: [approver_membership_id, email]
+      required: [ approver_membership_id, email ]
       properties:
-        approver_membership_id: {type: string, format: uuid}
-        email: {$ref: '#/components/schemas/EmailContent'}
+        approver_membership_id: { type: string, format: uuid }
+        email: { $ref: '#/components/schemas/EmailContent' }
     ProposedExternalAction:
       type: object
       additionalProperties: false
-      required: [id, approval_id, request_hash, status]
+      required: [ id, approval_id, request_hash, status ]
       properties:
-        id: {type: string, format: uuid}
-        approval_id: {type: string, format: uuid}
-        request_hash: {type: string, description: What the approval binds. It covers every field sent.}
-        status: {$ref: '#/components/schemas/ExternalActionStatus'}
+        id: { type: string, format: uuid }
+        approval_id: { type: string, format: uuid }
+        request_hash:
+          {
+            type: string,
+            description: What the approval binds. It covers every field sent.
+          }
+        status: { $ref: '#/components/schemas/ExternalActionStatus' }
     ExternalActionStatus:
       type: string
-      enum: [awaiting_approval, ready, sending, reconciling, sent, failed, unknown, cancelled]
+      enum:
+        [
+          awaiting_approval,
+          ready,
+          sending,
+          reconciling,
+          sent,
+          failed,
+          unknown,
+          cancelled
+        ]
       description: >-
-        `sent` means the provider accepted it, which for email is the mail server taking it and not
-        the message reaching an inbox. `failed` means it was not sent. `unknown` means it could have
-        gone and the provider cannot say, so it waits for a person and is never sent again by itself.
+        `sent` means the provider accepted it, which for email is the mail
+        server taking it and not the message reaching an inbox. `failed` means
+        it was not sent. `unknown` means it could have gone and the provider
+        cannot say, so it waits for a person and is never sent again by itself.
     ExternalActionSummary:
       type: object
       additionalProperties: false
-      required: [id, work_unit_id, work_title, tool_name, status, status_reason, version, created_at, updated_at]
+      required:
+        [
+          id,
+          work_unit_id,
+          work_title,
+          tool_name,
+          status,
+          status_reason,
+          version,
+          created_at,
+          updated_at
+        ]
       properties:
-        id: {type: string, format: uuid}
-        work_unit_id: {type: string, format: uuid}
-        work_title: {type: string}
-        tool_name: {type: string}
-        status: {$ref: '#/components/schemas/ExternalActionStatus'}
-        status_reason: {type: [string, 'null'], description: A code from a fixed list. Never provider text.}
-        version: {type: integer, minimum: 1}
-        created_at: {type: string, format: date-time}
-        updated_at: {type: string, format: date-time}
+        id: { type: string, format: uuid }
+        work_unit_id: { type: string, format: uuid }
+        work_title: { type: string }
+        tool_name: { type: string }
+        status: { $ref: '#/components/schemas/ExternalActionStatus' }
+        status_reason:
+          {
+            type: [ string, 'null' ],
+            description: A code from a fixed list. Never provider text.
+          }
+        version: { type: integer, minimum: 1 }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
     ExternalActionReceipt:
       type: object
       additionalProperties: false
-      required: [outcome, basis, code, provider_status, external_id, actor_name, recorded_at]
+      required:
+        [
+          outcome,
+          basis,
+          code,
+          provider_status,
+          external_id,
+          actor_name,
+          recorded_at
+        ]
       properties:
-        outcome: {type: string, enum: [sent, failed, unknown, cancelled]}
+        outcome: { type: string, enum: [ sent, failed, unknown, cancelled ] }
         basis:
           type: string
-          enum: [provider, reconciliation, person, system]
-          description: Whose word this is. `person` is what someone said they found, not a provider's answer.
-        code: {type: [string, 'null']}
-        provider_status: {type: [integer, 'null']}
-        external_id: {type: [string, 'null'], description: For email, the Message-ID to search for.}
-        actor_name: {type: [string, 'null']}
-        recorded_at: {type: string, format: date-time}
+          enum: [ provider, reconciliation, person, system ]
+          description: Whose word this is. `person` is what someone said they found, not a
+            provider's answer.
+        code: { type: [ string, 'null' ] }
+        provider_status: { type: [ integer, 'null' ] }
+        external_id:
+          {
+            type: [ string, 'null' ],
+            description: For email,
+            the Message-ID to search for.
+          }
+        actor_name: { type: [ string, 'null' ] }
+        recorded_at: { type: string, format: date-time }
     ExternalAction:
       type: object
       additionalProperties: false
@@ -1302,316 +2913,1427 @@ components:
         - can_resolve
         - can_retry
       properties:
-        id: {type: string, format: uuid}
-        work_unit_id: {type: string, format: uuid}
-        work_title: {type: string}
-        tool_name: {type: string}
-        status: {$ref: '#/components/schemas/ExternalActionStatus'}
-        status_reason: {type: [string, 'null']}
-        version: {type: integer, minimum: 1}
-        created_at: {type: string, format: date-time}
-        updated_at: {type: string, format: date-time}
-        connection_name: {type: string}
+        id: { type: string, format: uuid }
+        work_unit_id: { type: string, format: uuid }
+        work_title: { type: string }
+        tool_name: { type: string }
+        status: { $ref: '#/components/schemas/ExternalActionStatus' }
+        status_reason: { type: [ string, 'null' ] }
+        version: { type: integer, minimum: 1 }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        connection_name: { type: string }
         payload:
           type: object
           additionalProperties: true
           description: Exactly what the approval binds. It cannot be changed once created.
-        request_hash: {type: string}
-        approval_id: {type: [string, 'null'], format: uuid}
-        external_id: {type: [string, 'null']}
-        supersedes_id: {type: [string, 'null'], format: uuid}
-        retry_of_id: {type: [string, 'null'], format: uuid}
-        attempt_count: {type: integer, minimum: 0}
-        receipts: {type: array, items: {$ref: '#/components/schemas/ExternalActionReceipt'}}
-        resolution: {type: [string, 'null'], enum: [confirmed_sent, confirmed_not_sent, null]}
-        resolution_reason: {type: [string, 'null']}
-        resolved_by_name: {type: [string, 'null']}
-        can_resolve: {type: boolean}
-        can_retry: {type: boolean}
+        request_hash: { type: string }
+        approval_id: { type: [ string, 'null' ], format: uuid }
+        external_id: { type: [ string, 'null' ] }
+        supersedes_id: { type: [ string, 'null' ], format: uuid }
+        retry_of_id: { type: [ string, 'null' ], format: uuid }
+        attempt_count: { type: integer, minimum: 0 }
+        receipts: { type: array, items: { $ref: '#/components/schemas/ExternalActionReceipt' } }
+        resolution:
+          {
+            type: [ string, 'null' ],
+            enum: [ confirmed_sent, confirmed_not_sent, null ]
+          }
+        resolution_reason: { type: [ string, 'null' ] }
+        resolved_by_name: { type: [ string, 'null' ] }
+        can_resolve: { type: boolean }
+        can_retry: { type: boolean }
     Connection:
       type: object
       additionalProperties: false
-      required: [id, connector_type, display_name, state, has_credential, last_error_code, version, created_at]
+      required:
+        [
+          id,
+          connector_type,
+          display_name,
+          state,
+          has_credential,
+          last_error_code,
+          version,
+          created_at
+        ]
       properties:
-        id: {type: string, format: uuid}
-        connector_type: {type: string}
-        display_name: {type: string}
-        state: {type: string, enum: [active, disabled, revoked]}
-        has_credential: {type: boolean}
-        last_error_code: {type: [string, 'null']}
-        version: {type: integer, minimum: 1}
-        created_at: {type: string, format: date-time}
+        id: { type: string, format: uuid }
+        connector_type: { type: string }
+        display_name: { type: string }
+        state: { type: string, enum: [ active, disabled, revoked ] }
+        has_credential: { type: boolean }
+        last_error_code: { type: [ string, 'null' ] }
+        version: { type: integer, minimum: 1 }
+        created_at: { type: string, format: date-time }
     CreatedWebhookEndpoint:
       type: object
       additionalProperties: false
-      required: [id, url, signing_secret, signature_scheme]
+      required: [ id, url, signing_secret, signature_scheme ]
       properties:
-        id: {type: string, format: uuid}
-        url: {type: string, description: Shown once. It holds the only copy of the token.}
-        signing_secret: {type: string, description: Shown once. Only a sealed copy is kept.}
-        signature_scheme: {type: string, enum: [ensemus_hmac_sha256_v1]}
-    Classification: {type: string, enum: [public, internal, confidential, restricted]}
+        id: { type: string, format: uuid }
+        url: { type: string, description: Shown once. It holds the only copy of the token. }
+        signing_secret: { type: string, description: Shown once. Only a sealed copy is kept. }
+        signature_scheme: { type: string, enum: [ ensemus_hmac_sha256_v1 ] }
+    Classification: { type: string, enum: [ public, internal, confidential, restricted ] }
     StartAgentRunRequest:
       type: object
       additionalProperties: false
-      required: [work_unit_id, agent_version_id]
+      required: [ work_unit_id, agent_version_id ]
       properties:
-        work_unit_id: {type: string, format: uuid}
-        agent_version_id: {type: string, format: uuid}
+        work_unit_id: { type: string, format: uuid }
+        agent_version_id: { type: string, format: uuid }
     RunControlRequest:
       type: object
       additionalProperties: false
-      required: [kind]
+      required: [ kind ]
       properties:
-        kind: {type: string, enum: [stop, pause, resume]}
+        kind: { type: string, enum: [ stop, pause, resume ] }
     AgentRun:
       type: object
       additionalProperties: false
-      required: [id, work_unit_id, agent_version_id, parent_run_id, status, stop_code, effective_classification, model_turns, tool_calls, input_tokens, output_tokens, cost_micros, cost_is_estimate, created_at, ended_at]
+      required:
+        [
+          id,
+          work_unit_id,
+          agent_version_id,
+          parent_run_id,
+          status,
+          stop_code,
+          effective_classification,
+          model_turns,
+          tool_calls,
+          input_tokens,
+          output_tokens,
+          cost_micros,
+          cost_is_estimate,
+          created_at,
+          ended_at
+        ]
       properties:
-        id: {type: string, format: uuid}
-        work_unit_id: {type: string, format: uuid}
-        agent_version_id: {type: string, format: uuid}
-        parent_run_id: {type: [string, 'null'], format: uuid}
-        status: {type: string, enum: [queued, preparing, running, paused, waiting_for_approval, waiting_for_child, verifying, completed, failed, cancelled, budget_exhausted, policy_denied, timed_out, outcome_unverified]}
-        stop_code: {type: [string, 'null'], pattern: '^[A-Z][A-Z0-9_]{1,63}$'}
-        effective_classification: {$ref: '#/components/schemas/Classification'}
-        model_turns: {type: integer, minimum: 0}
-        tool_calls: {type: integer, minimum: 0}
-        input_tokens: {type: integer, minimum: 0}
-        output_tokens: {type: integer, minimum: 0}
-        cost_micros: {type: integer, minimum: 0}
-        cost_is_estimate: {type: boolean}
-        created_at: {type: string, format: date-time}
-        ended_at: {type: [string, 'null'], format: date-time}
+        id: { type: string, format: uuid }
+        work_unit_id: { type: string, format: uuid }
+        agent_version_id: { type: string, format: uuid }
+        parent_run_id: { type: [ string, 'null' ], format: uuid }
+        status:
+          {
+            type: string,
+            enum:
+              [
+                queued,
+                preparing,
+                running,
+                paused,
+                waiting_for_approval,
+                waiting_for_child,
+                verifying,
+                completed,
+                failed,
+                cancelled,
+                budget_exhausted,
+                policy_denied,
+                timed_out,
+                outcome_unverified
+              ]
+          }
+        stop_code: { type: [ string, 'null' ], pattern: '^[A-Z][A-Z0-9_]{1,63}$' }
+        effective_classification: { $ref: '#/components/schemas/Classification' }
+        model_turns: { type: integer, minimum: 0 }
+        tool_calls: { type: integer, minimum: 0 }
+        input_tokens: { type: integer, minimum: 0 }
+        output_tokens: { type: integer, minimum: 0 }
+        cost_micros: { type: integer, minimum: 0 }
+        cost_is_estimate: { type: boolean }
+        created_at: { type: string, format: date-time }
+        ended_at: { type: [ string, 'null' ], format: date-time }
     ExecutionStep:
       type: object
       additionalProperties: false
       description: Codes, counters and times. There is no field a model's words could reach.
-      required: [step_number, kind, state, label_code, outcome, decision_code, started_at, ended_at]
+      required:
+        [
+          step_number,
+          kind,
+          state,
+          label_code,
+          outcome,
+          decision_code,
+          started_at,
+          ended_at
+        ]
       properties:
-        step_number: {type: integer, minimum: 0}
-        kind: {type: string, enum: [prepare, model_turn, tool_call, approval_wait, delegation, verification]}
-        state: {type: string, enum: [in_flight, completed, failed, cancelled]}
-        label_code: {type: string, pattern: '^[A-Z][A-Z0-9_]{1,63}$'}
-        outcome: {type: [string, 'null'], pattern: '^[a-z][a-z_]{1,40}$'}
-        decision_code: {type: [string, 'null'], pattern: '^[A-Z][A-Z0-9_]{1,63}$'}
-        started_at: {type: string, format: date-time}
-        ended_at: {type: [string, 'null'], format: date-time}
+        step_number: { type: integer, minimum: 0 }
+        kind:
+          {
+            type: string,
+            enum: [ prepare, model_turn, tool_call, approval_wait, delegation, verification ]
+          }
+        state: { type: string, enum: [ in_flight, completed, failed, cancelled ] }
+        label_code: { type: string, pattern: '^[A-Z][A-Z0-9_]{1,63}$' }
+        outcome: { type: [ string, 'null' ], pattern: '^[a-z][a-z_]{1,40}$' }
+        decision_code: { type: [ string, 'null' ], pattern: '^[A-Z][A-Z0-9_]{1,63}$' }
+        started_at: { type: string, format: date-time }
+        ended_at: { type: [ string, 'null' ], format: date-time }
     PublishAgentVersionRequest:
       type: object
       additionalProperties: false
-      required: [spec, evaluation_report]
+      required: [ spec, evaluation_report ]
       properties:
-        spec: {type: object, description: 'An agent spec, per schemas/agent-definition.schema.json'}
-        evaluation_report: {type: object, description: A report bound to this spec's SHA-256 and the policy version}
+        spec:
+          {
+            type: object,
+            description: 'An agent spec, per schemas/agent-definition.schema.json'
+          }
+        evaluation_report:
+          {
+            type: object,
+            description: A report bound to this spec's SHA-256 and the policy version
+          }
     AgentVersion:
       type: object
       additionalProperties: false
-      required: [id, definition_id, version_number, spec_sha256, evaluation_report_sha256, policy_version, published_by_membership_id, published_at]
+      required:
+        [
+          id,
+          definition_id,
+          version_number,
+          spec_sha256,
+          evaluation_report_sha256,
+          policy_version,
+          published_by_membership_id,
+          published_at
+        ]
       properties:
-        id: {type: string, format: uuid}
-        definition_id: {type: string, format: uuid}
-        version_number: {type: integer, minimum: 1}
-        spec_sha256: {type: string, pattern: '^[0-9a-f]{64}$'}
-        evaluation_report_sha256: {type: string, pattern: '^[0-9a-f]{64}$'}
-        policy_version: {type: string}
-        published_by_membership_id: {type: string, format: uuid}
-        published_at: {type: string, format: date-time}
+        id: { type: string, format: uuid }
+        definition_id: { type: string, format: uuid }
+        version_number: { type: integer, minimum: 1 }
+        spec_sha256: { type: string, pattern: '^[0-9a-f]{64}$' }
+        evaluation_report_sha256: { type: string, pattern: '^[0-9a-f]{64}$' }
+        policy_version: { type: string }
+        published_by_membership_id: { type: string, format: uuid }
+        published_at: { type: string, format: date-time }
     CreateModelProfileRequest:
       type: object
       additionalProperties: false
-      required: [provider_kind, model_id, alias, endpoint_url, billing_owner, region, capabilities, limits, allowed_classes, allowed_purposes, retention_basis, contract_ref, fallback_profile_ids]
+      required:
+        [
+          provider_kind,
+          model_id,
+          alias,
+          endpoint_url,
+          billing_owner,
+          region,
+          capabilities,
+          limits,
+          allowed_classes,
+          allowed_purposes,
+          retention_basis,
+          contract_ref,
+          fallback_profile_ids
+        ]
       properties:
-        provider_kind: {type: string, enum: [openai_hosted, anthropic_hosted, openai_compatible, local_openai_compatible]}
-        model_id: {type: string, minLength: 1, maxLength: 200}
-        alias: {type: string, minLength: 1, maxLength: 80}
-        endpoint_url: {type: string, format: uri, maxLength: 500}
-        billing_owner: {type: string, enum: [customer, ensemus]}
-        region: {type: [string, 'null'], minLength: 1, maxLength: 64}
-        capabilities: {type: array, minItems: 1, items: {type: string, enum: [text, tools, structured_output, vision, long_context]}}
+        provider_kind:
+          {
+            type: string,
+            enum:
+              [
+                openai_hosted,
+                anthropic_hosted,
+                openai_compatible,
+                local_openai_compatible
+              ]
+          }
+        model_id: { type: string, minLength: 1, maxLength: 200 }
+        alias: { type: string, minLength: 1, maxLength: 80 }
+        endpoint_url: { type: string, format: uri, maxLength: 500 }
+        billing_owner: { type: string, enum: [ customer, ensemus ] }
+        region: { type: [ string, 'null' ], minLength: 1, maxLength: 64 }
+        capabilities:
+          {
+            type: array,
+            minItems: 1,
+            items:
+              {
+                type: string,
+                enum: [ text, tools, structured_output, vision, long_context ]
+              }
+          }
         limits:
           type: object
           additionalProperties: false
-          required: [max_input_tokens, max_output_tokens]
+          required: [ max_input_tokens, max_output_tokens ]
           properties:
-            max_input_tokens: {type: integer, minimum: 128}
-            max_output_tokens: {type: integer, minimum: 1}
-        allowed_classes: {type: array, minItems: 1, items: {$ref: '#/components/schemas/Classification'}}
-        allowed_purposes: {type: array, minItems: 1, items: {type: string, enum: [classify, extract, reason, research, compose]}}
-        retention_basis: {type: string, enum: [unreviewed, contract_recorded, self_hosted]}
-        contract_ref: {type: [string, 'null'], minLength: 1, maxLength: 200}
-        fallback_profile_ids: {type: array, maxItems: 5, items: {type: string, format: uuid}}
+            max_input_tokens: { type: integer, minimum: 128 }
+            max_output_tokens: { type: integer, minimum: 1 }
+        allowed_classes:
+          {
+            type: array,
+            minItems: 1,
+            items: { $ref: '#/components/schemas/Classification' }
+          }
+        allowed_purposes:
+          {
+            type: array,
+            minItems: 1,
+            items: { type: string, enum: [ classify, extract, reason, research, compose ] }
+          }
+        retention_basis: { type: string, enum: [ unreviewed, contract_recorded, self_hosted ] }
+        contract_ref: { type: [ string, 'null' ], minLength: 1, maxLength: 200 }
+        fallback_profile_ids: { type: array, maxItems: 5, items: { type: string, format: uuid } }
     UpdateModelProfileRequest:
       type: object
       additionalProperties: false
-      required: [expected_version]
+      required: [ expected_version ]
       properties:
-        expected_version: {type: integer, minimum: 1}
-        model_id: {type: string, minLength: 1, maxLength: 200}
-        alias: {type: string, minLength: 1, maxLength: 80}
-        endpoint_url: {type: string, format: uri, maxLength: 500}
-        billing_owner: {type: string, enum: [customer, ensemus]}
-        region: {type: [string, 'null'], minLength: 1, maxLength: 64}
-        capabilities: {type: array, minItems: 1, items: {type: string, enum: [text, tools, structured_output, vision, long_context]}}
+        expected_version: { type: integer, minimum: 1 }
+        model_id: { type: string, minLength: 1, maxLength: 200 }
+        alias: { type: string, minLength: 1, maxLength: 80 }
+        endpoint_url: { type: string, format: uri, maxLength: 500 }
+        billing_owner: { type: string, enum: [ customer, ensemus ] }
+        region: { type: [ string, 'null' ], minLength: 1, maxLength: 64 }
+        capabilities:
+          {
+            type: array,
+            minItems: 1,
+            items:
+              {
+                type: string,
+                enum: [ text, tools, structured_output, vision, long_context ]
+              }
+          }
         limits:
           type: object
           additionalProperties: false
-          required: [max_input_tokens, max_output_tokens]
+          required: [ max_input_tokens, max_output_tokens ]
           properties:
-            max_input_tokens: {type: integer, minimum: 128}
-            max_output_tokens: {type: integer, minimum: 1}
-        allowed_classes: {type: array, minItems: 1, items: {$ref: '#/components/schemas/Classification'}}
-        allowed_purposes: {type: array, minItems: 1, items: {type: string, enum: [classify, extract, reason, research, compose]}}
-        retention_basis: {type: string, enum: [unreviewed, contract_recorded, self_hosted]}
-        contract_ref: {type: [string, 'null'], minLength: 1, maxLength: 200}
-        fallback_profile_ids: {type: array, maxItems: 5, items: {type: string, format: uuid}}
+            max_input_tokens: { type: integer, minimum: 128 }
+            max_output_tokens: { type: integer, minimum: 1 }
+        allowed_classes:
+          {
+            type: array,
+            minItems: 1,
+            items: { $ref: '#/components/schemas/Classification' }
+          }
+        allowed_purposes:
+          {
+            type: array,
+            minItems: 1,
+            items: { type: string, enum: [ classify, extract, reason, research, compose ] }
+          }
+        retention_basis: { type: string, enum: [ unreviewed, contract_recorded, self_hosted ] }
+        contract_ref: { type: [ string, 'null' ], minLength: 1, maxLength: 200 }
+        fallback_profile_ids: { type: array, maxItems: 5, items: { type: string, format: uuid } }
     ModelCredentialRequest:
       type: object
       additionalProperties: false
-      required: [expected_version, key]
+      required: [ expected_version, key ]
       properties:
-        expected_version: {type: integer, minimum: 1}
-        key: {type: string, minLength: 1, maxLength: 8192, writeOnly: true, description: Sealed at once. No response ever carries it.}
+        expected_version: { type: integer, minimum: 1 }
+        key:
+          {
+            type: string,
+            minLength: 1,
+            maxLength: 8192,
+            writeOnly: true,
+            description: Sealed at once. No response ever carries it.
+          }
     ActivateModelProfileRequest:
       type: object
       additionalProperties: false
-      required: [expected_version]
+      required: [ expected_version ]
       properties:
-        expected_version: {type: integer, minimum: 1}
+        expected_version: { type: integer, minimum: 1 }
     CreateRateCardRequest:
       type: object
       additionalProperties: false
-      required: [input_micros_per_mtok, output_micros_per_mtok]
+      required: [ input_micros_per_mtok, output_micros_per_mtok ]
       properties:
-        input_micros_per_mtok: {type: integer, minimum: 0}
-        output_micros_per_mtok: {type: integer, minimum: 0}
+        input_micros_per_mtok: { type: integer, minimum: 0 }
+        output_micros_per_mtok: { type: integer, minimum: 0 }
     ModelProfile:
       type: object
       additionalProperties: false
       description: Never a key or a reference to one. Only whether one is on file.
-      required: [id, version, provider_kind, model_id, alias, endpoint_url, has_credential, billing_owner, region, capabilities, limits, allowed_classes, allowed_purposes, retention_basis, contract_ref, fallback_profile_ids, status, qualified_at]
+      required:
+        [
+          id,
+          version,
+          provider_kind,
+          model_id,
+          alias,
+          endpoint_url,
+          has_credential,
+          billing_owner,
+          region,
+          capabilities,
+          limits,
+          allowed_classes,
+          allowed_purposes,
+          retention_basis,
+          contract_ref,
+          fallback_profile_ids,
+          status,
+          qualified_at
+        ]
       properties:
-        id: {type: string, format: uuid}
-        version: {type: integer, minimum: 1}
-        provider_kind: {type: string, enum: [openai_hosted, anthropic_hosted, openai_compatible, local_openai_compatible]}
-        has_credential: {type: boolean}
-        status: {type: string, enum: [draft, probing, probe_failed, active, disabled]}
-        qualified_at: {type: [string, 'null'], format: date-time}
-        model_id: {type: string, minLength: 1, maxLength: 200}
-        alias: {type: string, minLength: 1, maxLength: 80}
-        endpoint_url: {type: string, format: uri, maxLength: 500}
-        billing_owner: {type: string, enum: [customer, ensemus]}
-        region: {type: [string, 'null'], minLength: 1, maxLength: 64}
-        capabilities: {type: array, minItems: 1, items: {type: string, enum: [text, tools, structured_output, vision, long_context]}}
+        id: { type: string, format: uuid }
+        version: { type: integer, minimum: 1 }
+        provider_kind:
+          {
+            type: string,
+            enum:
+              [
+                openai_hosted,
+                anthropic_hosted,
+                openai_compatible,
+                local_openai_compatible
+              ]
+          }
+        has_credential: { type: boolean }
+        status: { type: string, enum: [ draft, probing, probe_failed, active, disabled ] }
+        qualified_at: { type: [ string, 'null' ], format: date-time }
+        model_id: { type: string, minLength: 1, maxLength: 200 }
+        alias: { type: string, minLength: 1, maxLength: 80 }
+        endpoint_url: { type: string, format: uri, maxLength: 500 }
+        billing_owner: { type: string, enum: [ customer, ensemus ] }
+        region: { type: [ string, 'null' ], minLength: 1, maxLength: 64 }
+        capabilities:
+          {
+            type: array,
+            minItems: 1,
+            items:
+              {
+                type: string,
+                enum: [ text, tools, structured_output, vision, long_context ]
+              }
+          }
         limits:
           type: object
           additionalProperties: false
-          required: [max_input_tokens, max_output_tokens]
+          required: [ max_input_tokens, max_output_tokens ]
           properties:
-            max_input_tokens: {type: integer, minimum: 128}
-            max_output_tokens: {type: integer, minimum: 1}
-        allowed_classes: {type: array, minItems: 1, items: {$ref: '#/components/schemas/Classification'}}
-        allowed_purposes: {type: array, minItems: 1, items: {type: string, enum: [classify, extract, reason, research, compose]}}
-        retention_basis: {type: string, enum: [unreviewed, contract_recorded, self_hosted]}
-        contract_ref: {type: [string, 'null'], minLength: 1, maxLength: 200}
-        fallback_profile_ids: {type: array, maxItems: 5, items: {type: string, format: uuid}}
+            max_input_tokens: { type: integer, minimum: 128 }
+            max_output_tokens: { type: integer, minimum: 1 }
+        allowed_classes:
+          {
+            type: array,
+            minItems: 1,
+            items: { $ref: '#/components/schemas/Classification' }
+          }
+        allowed_purposes:
+          {
+            type: array,
+            minItems: 1,
+            items: { type: string, enum: [ classify, extract, reason, research, compose ] }
+          }
+        retention_basis: { type: string, enum: [ unreviewed, contract_recorded, self_hosted ] }
+        contract_ref: { type: [ string, 'null' ], minLength: 1, maxLength: 200 }
+        fallback_profile_ids: { type: array, maxItems: 5, items: { type: string, format: uuid } }
     SetBudgetRequest:
       type: object
       additionalProperties: false
-      required: [scope, agent_version_id, period, limit_micros]
+      required: [ scope, agent_version_id, period, limit_micros ]
       properties:
-        scope: {type: string, enum: [organization, agent_version]}
-        agent_version_id: {type: [string, 'null'], format: uuid}
-        period: {type: string, pattern: '^[0-9]{4}-(0[1-9]|1[0-2])$'}
-        limit_micros: {type: integer, minimum: 0}
+        scope: { type: string, enum: [ organization, agent_version ] }
+        agent_version_id: { type: [ string, 'null' ], format: uuid }
+        period: { type: string, pattern: '^[0-9]{4}-(0[1-9]|1[0-2])$' }
+        limit_micros: { type: integer, minimum: 0 }
     UsageSummary:
       type: object
       additionalProperties: false
-      required: [period, limit_micros, reserved_micros, spent_micros, billable, is_estimate, input_tokens, output_tokens]
+      required:
+        [
+          period,
+          limit_micros,
+          reserved_micros,
+          spent_micros,
+          billable,
+          is_estimate,
+          input_tokens,
+          output_tokens
+        ]
       properties:
-        period: {type: string}
-        limit_micros: {type: [integer, 'null'], minimum: 0}
-        reserved_micros: {type: integer, minimum: 0}
-        spent_micros: {type: integer, minimum: 0}
-        billable: {type: boolean}
-        is_estimate: {type: boolean}
-        input_tokens: {type: integer, minimum: 0}
-        output_tokens: {type: integer, minimum: 0}
+        period: { type: string }
+        limit_micros: { type: [ integer, 'null' ], minimum: 0 }
+        reserved_micros: { type: integer, minimum: 0 }
+        spent_micros: { type: integer, minimum: 0 }
+        billable: { type: boolean }
+        is_estimate: { type: boolean }
+        input_tokens: { type: integer, minimum: 0 }
+        output_tokens: { type: integer, minimum: 0 }
     Entitlements:
       type: object
       additionalProperties: false
-      required: [mode, features, capacity]
+      required: [ mode, features, capacity ]
       properties:
-        mode: {type: string, enum: [cloud, byom, sovereign]}
-        features: {type: array, items: {type: string}}
-        capacity: {type: object, additionalProperties: {type: integer}}
+        mode: { type: string, enum: [ cloud, byom, sovereign ] }
+        features: { type: array, items: { type: string } }
+        capacity: { type: object, additionalProperties: { type: integer } }
     Error:
       type: object
       additionalProperties: false
-      required: [code, message, request_id, retryable]
+      required: [ code, message, request_id, retryable ]
       properties:
-        code: {type: string}
-        message: {type: string}
-        request_id: {type: string}
-        retryable: {type: boolean}
-        details: {type: object, additionalProperties: true}
+        code: { type: string }
+        message: { type: string }
+        request_id: { type: string }
+        retryable: { type: boolean }
+        details: { type: object, additionalProperties: true }
+    KnowledgeGrant:
+      oneOf:
+        - type: object
+          additionalProperties: false
+          required:
+            - kind
+            - membership_id
+          properties:
+            kind:
+              type: string
+              const: membership
+            membership_id:
+              type: string
+              format: uuid
+        - type: object
+          additionalProperties: false
+          required:
+            - kind
+            - team_id
+          properties:
+            kind:
+              type: string
+              const: team
+            team_id:
+              type: string
+              format: uuid
+        - type: object
+          additionalProperties: false
+          required:
+            - kind
+          properties:
+            kind:
+              type: string
+              const: organization
+    KnowledgeSource:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - kind
+        - state
+        - classification
+        - title
+        - can_read
+        - document_state
+        - embedding_state
+        - searchable_at
+        - source_modified_at
+        - version
+        - created_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        kind:
+          type: string
+          enum:
+            - upload
+            - connector
+        state:
+          type: string
+          enum:
+            - active
+            - revoked
+            - deleted
+        classification:
+          type: string
+          enum:
+            - public
+            - internal
+            - confidential
+            - restricted
+        title:
+          type:
+            - string
+            - "null"
+          description: Null when the caller's ACL does not cover it.
+        can_read:
+          type: boolean
+        can_manage:
+          type: boolean
+        document_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        media_type:
+          type:
+            - string
+            - "null"
+        size_bytes:
+          type:
+            - integer
+            - "null"
+          minimum: 0
+        source_version:
+          type:
+            - string
+            - "null"
+        grants:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required:
+              - id
+              - kind
+            properties:
+              id:
+                type: string
+                format: uuid
+              kind:
+                type: string
+                enum:
+                  - membership
+                  - team
+                  - organization
+              membership_id:
+                type: string
+                format: uuid
+              team_id:
+                type: string
+                format: uuid
+        document_state:
+          type:
+            - string
+            - "null"
+          enum:
+            - received
+            - parsing
+            - searchable
+            - rejected
+            - failed
+            - purged
+            - null
+        embedding_state:
+          type:
+            - string
+            - "null"
+          enum:
+            - pending
+            - embedding
+            - embedded
+            - denied
+            - failed
+            - null
+        searchable_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+        source_modified_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+        scan_state:
+          type:
+            - string
+            - "null"
+          enum:
+            - not_scanned
+            - clean
+            - flagged
+            - null
+          description: No scanner ships, and `not_scanned` says so.
+        reject_code:
+          type:
+            - string
+            - "null"
+        source_url:
+          type:
+            - string
+            - "null"
+          format: uri
+        grants_managed_by_provider:
+          type: boolean
+        version:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+    KnowledgePurge:
+      type: object
+      additionalProperties: false
+      required:
+        - source_id
+        - reason
+        - state
+        - counts
+        - requested_at
+        - completed_at
+        - last_error_code
+        - retry_requests
+        - next_retry_at
+        - retry_exhausted
+        - held_artifacts
+      properties:
+        source_id:
+          type: string
+          format: uuid
+        reason:
+          type: string
+          enum:
+            - deleted
+            - revoked
+            - connection_revoked
+            - resource_gone
+            - restore_reapply
+        state:
+          type: string
+          enum:
+            - pending
+            - running
+            - completed
+            - failed
+        counts:
+          type: object
+          additionalProperties: false
+          required:
+            - documents
+            - chunks
+            - embeddings
+            - facts
+            - answers
+            - blobs
+            - transcripts
+            - artifacts
+          properties:
+            documents:
+              type: integer
+            chunks:
+              type: integer
+            embeddings:
+              type: integer
+            facts:
+              type: integer
+            answers:
+              type: integer
+            blobs:
+              type: integer
+            transcripts:
+              type: integer
+            artifacts:
+              type: integer
+        requested_at:
+          type: string
+          format: date-time
+        completed_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+        last_error_code:
+          type:
+            - string
+            - "null"
+        retry_requests:
+          type: integer
+          minimum: 0
+          maximum: 8
+        next_retry_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+        retry_exhausted:
+          type: boolean
+        held_artifacts:
+          type: integer
+          minimum: 0
+    KnowledgePassage:
+      type: object
+      additionalProperties: false
+      required:
+        - chunk_id
+        - document_id
+        - source_id
+        - excerpt
+        - title
+        - classification
+        - source_version
+        - source_url
+        - source_modified_at
+      properties:
+        chunk_id:
+          type: string
+          format: uuid
+        document_id:
+          type: string
+          format: uuid
+        source_id:
+          type: string
+          format: uuid
+        excerpt:
+          type: string
+        title:
+          type: string
+        classification:
+          type: string
+          enum:
+            - public
+            - internal
+            - confidential
+            - restricted
+        source_version:
+          type:
+            - string
+            - "null"
+        source_url:
+          type:
+            - string
+            - "null"
+          format: uri
+        searchable_at:
+          type: string
+          format: date-time
+        source_modified_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+    KnowledgeAnswer:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - state
+        - question
+        - question_classification
+        - version
+        - answer_text
+        - refusal_code
+        - citations
+        - strongest_classification
+        - cost_micros
+        - created_at
+        - finished_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        state:
+          type: string
+          enum:
+            - queued
+            - running
+            - answered
+            - no_evidence
+            - refused
+            - failed
+        question:
+          type: string
+        question_classification:
+          type: string
+          enum:
+            - public
+            - internal
+            - confidential
+            - restricted
+        version:
+          type: integer
+          minimum: 1
+        answer_text:
+          type:
+            - string
+            - "null"
+        refusal_code:
+          type:
+            - string
+            - "null"
+        citations:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required:
+              - ordinal
+              - answer_start
+              - answer_end
+              - chunk_id
+              - document_id
+              - source_id
+              - title
+              - excerpt
+              - source_version
+              - source_url
+              - source_modified_at
+              - freshness
+            properties:
+              ordinal:
+                type: integer
+              answer_start:
+                type: integer
+              answer_end:
+                type: integer
+              chunk_id:
+                type: string
+                format: uuid
+              document_id:
+                type: string
+                format: uuid
+              source_id:
+                type: string
+                format: uuid
+              title:
+                type: string
+              excerpt:
+                type: string
+              source_version:
+                type:
+                  - string
+                  - "null"
+              source_url:
+                type:
+                  - string
+                  - "null"
+                format: uri
+              source_modified_at:
+                type:
+                  - string
+                  - "null"
+                format: date-time
+              freshness:
+                type: string
+                enum:
+                  - current
+                  - superseded
+        strongest_classification:
+          type:
+            - string
+            - "null"
+          enum:
+            - public
+            - internal
+            - confidential
+            - restricted
+            - null
+        cost_micros:
+          type:
+            - integer
+            - "null"
+          description: An estimate, in micro-USD. Null when the model's profile has no
+            rate card.
+        created_at:
+          type: string
+          format: date-time
+        finished_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+    KnowledgeFact:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - subject_ref
+        - predicate
+        - claim
+        - trust_state
+        - origin
+        - classification
+        - conflict_ref
+        - evidence
+        - version
+        - created_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        subject_ref:
+          type: string
+        predicate:
+          type: string
+        claim: {}
+        trust_state:
+          type: string
+          enum:
+            - proposed
+            - verified
+            - disputed
+            - superseded
+            - rejected
+        origin:
+          type: string
+          enum:
+            - model
+            - person
+        classification:
+          type: string
+          enum:
+            - public
+            - internal
+            - confidential
+            - restricted
+        conflict_ref:
+          type:
+            - string
+            - "null"
+        reviewed_by_membership_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        reviewed_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+        evidence:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required:
+              - chunk_id
+              - document_id
+              - source_id
+              - title
+              - excerpt
+              - stale
+            properties:
+              chunk_id:
+                type: string
+                format: uuid
+              document_id:
+                type: string
+                format: uuid
+              source_id:
+                type: string
+                format: uuid
+              title:
+                type: string
+              excerpt:
+                type: string
+              stale:
+                type: boolean
+        version:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+    GraphNode:
+      type: object
+      required:
+        - type
+        - id
+      properties:
+        type:
+          type: string
+          enum:
+            - client
+            - project
+            - membership
+            - team
+            - work_unit
+            - knowledge_source
+        id:
+          type: string
+          format: uuid
+    EgressLedgerEntry:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - occurred_at
+        - source
+        - purpose
+        - data_class
+        - model_profile_ref
+        - provider_kind
+        - destination_host
+        - decision
+        - reason_code
+        - policy_version
+        - request_sha256
+        - run_id
+      properties:
+        id:
+          type: string
+          format: uuid
+        occurred_at:
+          type: string
+          format: date-time
+        source:
+          type: string
+          enum:
+            - knowledge
+            - agent_run
+        purpose:
+          type: string
+        data_class:
+          type: string
+          enum:
+            - public
+            - internal
+            - confidential
+            - restricted
+        model_profile_ref:
+          type:
+            - string
+            - "null"
+          format: uuid
+        provider_kind:
+          type:
+            - string
+            - "null"
+        destination_host:
+          type:
+            - string
+            - "null"
+        decision:
+          type: string
+          enum:
+            - allow
+            - deny
+        reason_code:
+          type: string
+        policy_version:
+          type: string
+        request_sha256:
+          type:
+            - string
+            - "null"
+        run_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+    McpTool:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - connection_id
+        - tool_name
+        - definition
+        - definition_sha256
+        - status
+        - side_effect_level
+        - allowed_classes
+        - reviewed_at
+        - version
+      properties:
+        id:
+          type: string
+          format: uuid
+        connection_id:
+          type: string
+          format: uuid
+        tool_name:
+          type: string
+        definition:
+          description: The server's own words, shown as such.
+        definition_sha256:
+          type: string
+        status:
+          type: string
+          enum:
+            - pending_review
+            - approved
+            - rejected
+            - removed
+        side_effect_level:
+          type:
+            - string
+            - "null"
+          enum:
+            - read_only
+            - external_write
+            - null
+        allowed_classes:
+          type: array
+          items:
+            type: string
+            enum:
+              - public
+              - internal
+              - confidential
+        reviewed_by:
+          type:
+            - string
+            - "null"
+          format: uuid
+        reviewed_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+        version:
+          type: integer
+    ArtifactVerification:
+      type: object
+      additionalProperties: false
+      required:
+        - artifact_id
+        - artifact_sha256
+        - objective_sha256
+        - citations_sha256
+        - grounding
+        - human
+        - citations
+      properties:
+        artifact_id:
+          type: string
+          format: uuid
+        artifact_sha256:
+          type: string
+        objective_sha256:
+          type: string
+        citations_sha256:
+          type: string
+        grounding:
+          type:
+            - object
+            - "null"
+          required:
+            - verdict
+            - reason_code
+            - at
+          properties:
+            verdict:
+              type: string
+              enum:
+                - passed
+                - failed
+            reason_code:
+              type:
+                - string
+                - "null"
+            at:
+              type: string
+              format: date-time
+        human:
+          type:
+            - object
+            - "null"
+          required:
+            - verdict
+            - by
+            - reason
+            - at
+          properties:
+            verdict:
+              type: string
+              enum:
+                - accepted
+                - rejected
+            by:
+              type: string
+              format: uuid
+            reason:
+              type:
+                - string
+                - "null"
+            at:
+              type: string
+              format: date-time
+        citations:
+          type: array
+          items:
+            type: object
+            required:
+              - ordinal
+              - chunk_id
+              - document_id
+              - source_id
+              - title
+              - excerpt
+              - available
+            properties:
+              ordinal:
+                type: integer
+              chunk_id:
+                type: string
+                format: uuid
+              document_id:
+                type: string
+                format: uuid
+              source_id:
+                type: string
+                format: uuid
+              title:
+                type:
+                  - string
+                  - "null"
+              excerpt:
+                type:
+                  - string
+                  - "null"
+              available:
+                type: boolean
+    ClientOnboarding:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - deal_ref
+        - state
+        - state_code
+        - client_id
+        - project_id
+        - work_unit_id
+        - cost_micros
+        - receipt
+        - version
+        - created_at
+        - finished_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        deal_ref:
+          type: string
+        state:
+          type: string
+          enum:
+            - started
+            - waiting_for_brief
+            - waiting_for_acceptance
+            - waiting_for_send
+            - completed
+            - failed
+            - unknown
+        state_code:
+          type:
+            - string
+            - "null"
+        client_id:
+          type: string
+          format: uuid
+        project_id:
+          type: string
+          format: uuid
+        work_unit_id:
+          type: string
+          format: uuid
+        brief_work_unit_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        review_work_unit_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        send_work_unit_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        brief_artifact_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        reviewer_membership_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        cost_micros:
+          type:
+            - integer
+            - "null"
+          description: An estimate, in micro-USD, from the usage ledger.
+        receipt:
+          type:
+            - object
+            - "null"
+          required:
+            - status
+            - external_id
+            - basis
+          properties:
+            status:
+              type: string
+            basis:
+              type: string
+            external_id:
+              type:
+                - string
+                - "null"
+        version:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+        finished_at:
+          type:
+            - string
+            - "null"
+          format: date-time
   responses:
     BadRequest:
-      description: Malformed path, query, header or body. details.fields names the fields, never their values.
+      description: Malformed path, query, header or body. details.fields names the
+        fields, never their values.
       content:
         application/json:
-          schema: {$ref: '#/components/schemas/Error'}
+          schema: { $ref: '#/components/schemas/Error' }
     Unauthorized:
       description: No valid session
       content:
         application/json:
-          schema: {$ref: '#/components/schemas/Error'}
+          schema: { $ref: '#/components/schemas/Error' }
     Forbidden:
       description: Authorization or policy rejection
       content:
         application/json:
-          schema: {$ref: '#/components/schemas/Error'}
+          schema: { $ref: '#/components/schemas/Error' }
     Conflict:
-      description: Concurrent update, dependency conflict, or an Idempotency-Key reused with a different request
+      description: Concurrent update, dependency conflict, or an Idempotency-Key
+        reused with a different request
       content:
         application/json:
-          schema: {$ref: '#/components/schemas/Error'}
+          schema: { $ref: '#/components/schemas/Error' }
     Validation:
       description: Input or model/tool compatibility validation failed
       content:
         application/json:
-          schema: {$ref: '#/components/schemas/Error'}
+          schema: { $ref: '#/components/schemas/Error' }
     NotFound:
       description: Missing or inaccessible resource; avoid existence leaks
       content:
         application/json:
-          schema: {$ref: '#/components/schemas/Error'}
+          schema: { $ref: '#/components/schemas/Error' }
     PayloadTooLarge:
       description: JSON body over the 256 KB limit
       content:
         application/json:
-          schema: {$ref: '#/components/schemas/Error'}
+          schema: { $ref: '#/components/schemas/Error' }
     UnsupportedMediaType:
       description: Body is not application/json
       content:
         application/json:
-          schema: {$ref: '#/components/schemas/Error'}
+          schema: { $ref: '#/components/schemas/Error' }
     PreconditionRequired:
       description: If-Match header missing
       content:
         application/json:
-          schema: {$ref: '#/components/schemas/Error'}
+          schema: { $ref: '#/components/schemas/Error' }
     InternalError:
       description: Something failed on the server. The answer holds no detail about what.
       content:
         application/json:
-          schema: {$ref: '#/components/schemas/Error'}
+          schema: { $ref: '#/components/schemas/Error' }
     RestorePending:
       description: >-
-        This organization's database was restored from a backup and is behind the tombstone ledger,
-        so nothing is served until an operator has re-applied the ledger. The code is RESTORE_PENDING,
-        the request did nothing, and it can be repeated. Only members of the organization see this.
+        This organization's database was restored from a backup and is behind
+        the tombstone ledger, so nothing is served until an operator has
+        re-applied the ledger. The code is RESTORE_PENDING, the request did
+        nothing, and it can be repeated. Only members of the organization see
+        this.
       content:
         application/json:
-          schema: {$ref: '#/components/schemas/Error'}
+          schema: { $ref: '#/components/schemas/Error' }

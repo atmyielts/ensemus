@@ -5,6 +5,8 @@
 import {
   appendAudit,
   artifacts,
+  artifactAclCatalog,
+  artifactLineage,
   blobLifecycle,
   organizations,
   tombstones,
@@ -24,10 +26,12 @@ import {
   quarantineKeyFor,
   type LedgerEntry,
 } from '@ensemus/domain/tombstone-ledger';
+import type { DerivedArtifactLifecycle } from './knowledge/artifact-provenance';
 import { and, eq, inArray } from 'drizzle-orm';
 import { objectKey, type ObjectStore } from './artifacts';
 import { AppError } from './errors';
 import { closeOutdatedReviews, loadChangeable } from './work';
+import { reapplyKnowledgeSourceEntry } from './knowledge/purge';
 
 export interface LedgerReader {
   listPages(prefix: string): AsyncIterable<string[]>;
@@ -74,6 +78,23 @@ async function countMissing(store: Pick<LedgerReader, 'listPages'>, tenant: Gate
         ),
     );
     const found = new Set(known.map((row) => `${row.type}/${row.id}`));
+    const artifactsInPage = named
+      .filter((entry) => entry.targetType === 'artifact')
+      .map((entry) => entry.targetId);
+    if (artifactsInPage.length) {
+      const unresolved = await tenant.bound((tx) =>
+        tx
+          .select({ id: artifactLineage.artifactId })
+          .from(artifactLineage)
+          .where(
+            and(
+              inArray(artifactLineage.artifactId, artifactsInPage),
+              eq(artifactLineage.restoreReapplyPending, true),
+            ),
+          ),
+      );
+      for (const row of unresolved) found.delete(`artifact/${row.id}`);
+    }
     missing += named.filter((entry) => !found.has(`${entry.targetType}/${entry.targetId}`)).length;
   }
   return missing;
@@ -204,6 +225,8 @@ export type ReapplyResult = {
   entries: number;
   tombstonesAdded: number;
   artifactsRemoved: number;
+  /** Source tombstones restored; content cleanup continues through its durable purge workflow. */
+  knowledgeSourcesClosed?: number;
   bytesRemoved: number;
   /** Entries for an organization this backup predates. There is nothing to protect but the bytes. */
   organizationsMissing: number;
@@ -219,6 +242,9 @@ export type ReapplyResult = {
 };
 
 export type ReapplyOptions = {
+  /** Required to restore a generated-file deletion. It must prove old writers quiescent, honor
+   * holds, erase metadata through the narrow 0208 function and verify actual byte removal. */
+  derivedArtifacts?: DerivedArtifactLifecycle;
   /** Entries an operator has confirmed, by `ledgerRef`, for which a whole file may be destroyed. */
   confirmed?: ReadonlySet<string>;
   /** Called with each entry that is waiting for that decision, so the operator can be told which. */
@@ -255,6 +281,111 @@ async function reapplyEntry(
   options: ReapplyOptions,
 ) {
   const { organizationId, targetType, targetId } = entry;
+  const generated = await withTenantTx(database, context, async (tx) => {
+    const [header] = await tx
+      .select()
+      .from(artifactLineage)
+      .where(eq(artifactLineage.artifactId, targetId));
+    const [catalog] = await tx
+      .select()
+      .from(artifactAclCatalog)
+      .where(eq(artifactAclCatalog.artifactId, targetId));
+    return { header, catalog };
+  });
+  if (generated.header || (generated.catalog && generated.catalog.provenanceState !== 'ordinary')) {
+    const header = generated.header;
+    // A missing header is unknown provenance, never an ordinary upload or permission to guess.
+    if (!header || header.objectKey !== objectKey(organizationId, targetId))
+      throw new AppError('INVALID_STATE');
+    const present = await store.exists(header.objectKey);
+    if (generated.catalog?.alive && present && !options.confirmed?.has(ledgerRef(entry))) {
+      result.unconfirmed++;
+      options.onUnconfirmed?.(entry);
+      return;
+    }
+    const blocked = await withTenantTx(database, context, async (tx) => {
+      const [current] = await tx
+        .select()
+        .from(artifactLineage)
+        .where(eq(artifactLineage.artifactId, targetId))
+        .for('update');
+      if (
+        !current ||
+        current.generation !== header.generation ||
+        current.writeId !== header.writeId
+      )
+        throw new AppError('INVALID_STATE');
+      const added = await tx
+        .insert(tombstones)
+        .values({
+          organizationId,
+          targetType,
+          targetId,
+          reasonCode: 'USER_DELETED',
+          createdAt: entry.deletedAt,
+        })
+        .onConflictDoNothing()
+        .returning({ id: tombstones.targetId });
+      // A normal tombstone may still have asynchronous cleanup. Only this newly restored ledger
+      // entry acquires the stronger tenant-serving barrier, atomically with restoring its tombstone.
+      await tx
+        .update(artifactLineage)
+        .set({
+          state: 'blocked',
+          restoreReapplyPending: current.restoreReapplyPending || added.length > 0,
+        })
+        .where(eq(artifactLineage.artifactId, targetId));
+      return { header: current, added: added.length > 0 };
+    });
+    if (blocked.added) result.tombstonesAdded++;
+    if (!options.derivedArtifacts) throw new AppError('INVALID_STATE');
+    const erased = await options.derivedArtifacts.erase(context, {
+      artifactId: targetId,
+      workUnitId: header.workUnitId,
+      objectKey: header.objectKey,
+      artifactSha256: header.artifactSha256,
+      writeId: header.writeId,
+      generation: header.generation,
+      writeState: header.writeState as 'active' | 'settled' | 'fenced' | 'unknown',
+    });
+    if (erased.state !== 'purged' || !erased.quiescent || (await store.exists(header.objectKey)))
+      throw new AppError('INVALID_STATE');
+    await withTenantTx(database, context, async (tx) => {
+      const [current] = await tx
+        .select()
+        .from(artifactLineage)
+        .where(eq(artifactLineage.artifactId, targetId))
+        .for('update');
+      const [catalog] = await tx
+        .select()
+        .from(artifactAclCatalog)
+        .where(eq(artifactAclCatalog.artifactId, targetId));
+      const [blob] = await tx
+        .select()
+        .from(blobLifecycle)
+        .where(eq(blobLifecycle.artifactId, targetId));
+      if (
+        !current ||
+        current.generation !== header.generation ||
+        current.writeId !== header.writeId ||
+        catalog?.alive ||
+        blob?.state !== 'purged' ||
+        !['settled', 'fenced'].includes(current.writeState)
+      )
+        throw new AppError('INVALID_STATE');
+      await tx
+        .update(artifactLineage)
+        .set({
+          physicalPurgedAt: current.physicalPurgedAt ?? new Date(),
+          held: false,
+          restoreReapplyPending: false,
+        })
+        .where(eq(artifactLineage.artifactId, targetId));
+    });
+    if (generated.catalog?.alive) result.artifactsRemoved++;
+    if (present) result.bytesRemoved++;
+    return;
+  }
   if (
     !options.confirmed?.has(ledgerRef(entry)) &&
     (await isWholeFile(database, store, context, targetId))
@@ -380,6 +511,20 @@ export async function reapplyTombstoneLedger(
         if (!entry) {
           result.invalid += 1;
           options.onInvalid?.(parseLedgerKey(key));
+          continue;
+        }
+        if (entry.targetType === 'knowledge_source') {
+          const before = result.tombstonesAdded;
+          await reapplyKnowledgeSourceEntry(
+            database,
+            store,
+            contextFor(entry.organizationId),
+            entry,
+            result,
+            options,
+          );
+          result.knowledgeSourcesClosed =
+            (result.knowledgeSourcesClosed ?? 0) + result.tombstonesAdded - before;
           continue;
         }
         await reapplyEntry(

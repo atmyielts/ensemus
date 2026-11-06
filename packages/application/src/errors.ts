@@ -1,6 +1,7 @@
 // Typed, safe errors. Messages are fixed text meant for people, and never echo input or data.
 
 export type ErrorCode =
+  | 'IDEMPOTENCY_KEY_REUSED'
   | 'NOT_FOUND'
   | 'FORBIDDEN'
   | 'VERSION_CONFLICT'
@@ -49,9 +50,20 @@ export type ErrorCode =
   | 'KILL_SWITCH_NOT_YOURS'
   | 'TOOL_DENIED'
   | 'NO_ELIGIBLE_APPROVER'
-  | 'DELEGATION_DENIED';
+  | 'DELEGATION_DENIED'
+  | 'KNOWLEDGE_SOURCE_CLOSED'
+  | 'KNOWLEDGE_FORMAT_UNSUPPORTED'
+  | 'KNOWLEDGE_GRANT_TOO_WIDE'
+  | 'KNOWLEDGE_GRANT_ON_CONNECTOR_SOURCE'
+  | 'KNOWLEDGE_NO_MODEL'
+  | 'KNOWLEDGE_FACT_NEEDS_EVIDENCE'
+  | 'KNOWLEDGE_FACT_NEEDS_PERSON'
+  | 'KNOWLEDGE_ARTIFACT_NOT_GROUNDED'
+  | 'MCP_TOOL_NOT_APPROVED'
+  | 'CLIENT_ONBOARDING_EXISTS';
 
 const MESSAGES: Record<ErrorCode, string> = {
+  IDEMPOTENCY_KEY_REUSED: 'This request key was already used with different details.',
   NOT_FOUND: 'Not found or not permitted.',
   FORBIDDEN: 'You do not have permission to do that.',
   VERSION_CONFLICT: 'Someone else changed this first. Reload to see the latest version.',
@@ -107,6 +119,20 @@ const MESSAGES: Record<ErrorCode, string> = {
   TOOL_DENIED: 'This agent is not allowed to do that.',
   NO_ELIGIBLE_APPROVER: 'Nobody else can approve this, so it was not sent.',
   DELEGATION_DENIED: 'An agent cannot give another agent more than it has itself.',
+  KNOWLEDGE_SOURCE_CLOSED: 'This source has been removed, and cannot be used again.',
+  KNOWLEDGE_FORMAT_UNSUPPORTED: 'That kind of file cannot be added to company knowledge yet.',
+  KNOWLEDGE_GRANT_TOO_WIDE: 'A source this sensitive cannot be shared that widely.',
+  KNOWLEDGE_GRANT_ON_CONNECTOR_SOURCE:
+    'Who can see this comes from where it is stored. Change it there.',
+  KNOWLEDGE_NO_MODEL: 'No approved model can answer this. Your documents were not sent anywhere.',
+  KNOWLEDGE_FACT_NEEDS_EVIDENCE:
+    'A fact has to rest on a passage from a source that is still open.',
+  KNOWLEDGE_FACT_NEEDS_PERSON:
+    'Only a person who did not propose this fact can verify it, as themselves.',
+  KNOWLEDGE_ARTIFACT_NOT_GROUNDED:
+    'This cannot be accepted yet, because its citations have not all been confirmed.',
+  MCP_TOOL_NOT_APPROVED: 'An administrator has not approved this tool.',
+  CLIENT_ONBOARDING_EXISTS: 'This deal already has an onboarding.',
 };
 
 export class AppError extends Error {
@@ -129,6 +155,7 @@ export class AppError extends Error {
 export const foreignReference = () => new AppError('INVALID_INPUT', 'FOREIGN_REFERENCE');
 
 export const HTTP_STATUS: Record<ErrorCode, number> = {
+  IDEMPOTENCY_KEY_REUSED: 409,
   NOT_FOUND: 404,
   FORBIDDEN: 403,
   VERSION_CONFLICT: 409,
@@ -178,6 +205,16 @@ export const HTTP_STATUS: Record<ErrorCode, number> = {
   TOOL_DENIED: 403,
   NO_ELIGIBLE_APPROVER: 409,
   DELEGATION_DENIED: 403,
+  KNOWLEDGE_SOURCE_CLOSED: 409,
+  KNOWLEDGE_FORMAT_UNSUPPORTED: 415,
+  KNOWLEDGE_GRANT_TOO_WIDE: 403,
+  KNOWLEDGE_GRANT_ON_CONNECTOR_SOURCE: 409,
+  KNOWLEDGE_NO_MODEL: 409,
+  KNOWLEDGE_FACT_NEEDS_EVIDENCE: 409,
+  KNOWLEDGE_FACT_NEEDS_PERSON: 403,
+  KNOWLEDGE_ARTIFACT_NOT_GROUNDED: 409,
+  MCP_TOOL_NOT_APPROVED: 409,
+  CLIENT_ONBOARDING_EXISTS: 409,
 };
 
 /** Reads the Postgres error code through the wrapper Drizzle adds. */

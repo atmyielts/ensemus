@@ -36,6 +36,7 @@ import {
   setMemberRole,
   setOwner,
   setTeamParent,
+  setClientReaders,
   transitionWorkUnit,
   unassign,
   updateWorkUnit,
@@ -517,7 +518,23 @@ export async function createClientAction(form: FormData) {
   await run({ context, database }, `/o/${org}/clients`, async () => {
     await createClient(database, context, {
       displayName: text(form, 'displayName'),
+      classification: text(form, 'classification') || 'internal',
       ...requestKeyOf(form),
+    });
+  });
+}
+
+export async function setClientReadersAction(form: FormData) {
+  const org = orgOf(form);
+  const clientId = idOf(form, 'clientId');
+  const { context, database } = await requireTenant(org);
+  await run({ context, database }, `/o/${org}/clients/${clientId}/access`, async () => {
+    await setClientReaders(database, context, {
+      clientId,
+      expectedVersion: Number(text(form, 'expectedVersion')),
+      readerMembershipIds: form
+        .getAll('readerMembershipId')
+        .filter((value): value is string => typeof value === 'string'),
     });
   });
 }

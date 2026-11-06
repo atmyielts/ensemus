@@ -18,7 +18,16 @@
     "./connector-sync-activities": "./src/connector-sync-activities.ts",
     "./agent-schemas": "./src/agent-schemas.ts",
     "./agent-activities": "./src/agent-activities.ts",
-    "./model-probe-activities": "./src/model-probe-activities.ts"
+    "./model-probe-activities": "./src/model-probe-activities.ts",
+    "./knowledge-schemas": "./src/knowledge-schemas.ts",
+    "./knowledge-deps": "./src/knowledge-deps.ts",
+    "./knowledge-ingest-activities": "./src/knowledge-ingest-activities.ts",
+    "./knowledge-connector-activities": "./src/knowledge-connector-activities.ts",
+    "./knowledge-embed-activities": "./src/knowledge-embed-activities.ts",
+    "./knowledge-answer-activities": "./src/knowledge-answer-activities.ts",
+    "./knowledge-purge-activities": "./src/knowledge-purge-activities.ts",
+    "./client-onboarding-activities": "./src/client-onboarding-activities.ts",
+    "./mcp-activities": "./src/mcp-activities.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"
@@ -39,6 +48,7 @@
     "@temporalio/proto": "1.25.0",
     "@temporalio/workflow": "1.25.0",
     "drizzle-orm": "0.45.4",
-    "zod": "4.6.7"
+    "zod": "4.6.7",
+    "@ensemus/knowledge": "workspace:*"
   }
 }

@@ -1516,24 +1516,23 @@ export interface paths {
                 };
             };
             responses: {
-                /** @description Permission-filtered results */
+                /** @description Full-text results the caller's ACL covers, filtered inside the query. Semantic search needs a model, so it runs in a worker, for answers (ADR-029 D5). */
                 200: {
                     headers: {
                         [name: string]: unknown;
                     };
                     content: {
                         "application/json": {
-                            items: {
-                                /** Format: uuid */
-                                source_id: string;
-                                source_version: string;
-                                excerpt: string;
-                                citation_ref?: string;
-                            }[];
+                            items: components["schemas"]["KnowledgePassage"][];
                         };
                     };
                 };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
                 403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
             };
         };
         delete?: never;
@@ -2019,6 +2018,1511 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/organizations/{organization_id}/knowledge/sources": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+            };
+            cookie?: never;
+        };
+        /** Sources the caller can read. A manager also sees that others exist, with no title */
+        get: {
+            parameters: {
+                query?: {
+                    cursor?: string;
+                    limit?: number;
+                };
+                header?: never;
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description One page */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            items: components["schemas"]["KnowledgeSource"][];
+                            next_cursor: string | null;
+                        };
+                    };
+                };
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        put?: never;
+        /** Add a document. It becomes searchable once a worker has read it */
+        post: {
+            parameters: {
+                query?: never;
+                header: {
+                    "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                };
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "multipart/form-data": {
+                        metadata: {
+                            title: string;
+                            /** @enum {string} */
+                            classification: "public" | "internal" | "confidential" | "restricted";
+                            grants: components["schemas"]["KnowledgeGrant"][];
+                        };
+                        /** Format: binary */
+                        file: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description Stored, and waiting to be read */
+                201: {
+                    headers: {
+                        ETag: components["headers"]["ETag"];
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["KnowledgeSource"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                409: components["responses"]["Conflict"];
+                413: components["responses"]["PayloadTooLarge"];
+                415: components["responses"]["UnsupportedMediaType"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/organizations/{organization_id}/knowledge/sources/{source_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+                /** @description A source the caller's ACL does not cover answers as if it did not exist. */
+                source_id: components["parameters"]["SourceID"];
+            };
+            cookie?: never;
+        };
+        /** One source, under its ACL */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                    /** @description A source the caller's ACL does not cover answers as if it did not exist. */
+                    source_id: components["parameters"]["SourceID"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The source */
+                200: {
+                    headers: {
+                        ETag: components["headers"]["ETag"];
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["KnowledgeSource"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        put?: never;
+        post?: never;
+        /** Delete a source. Serving stops in this request, and what was derived goes after */
+        delete: {
+            parameters: {
+                query?: never;
+                header: {
+                    /** @description The version last read, as sent in the ETag response header. Weak tags, lists and * are refused. */
+                    "If-Match": components["parameters"]["IfMatch"];
+                };
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                    /** @description A source the caller's ACL does not cover answers as if it did not exist. */
+                    source_id: components["parameters"]["SourceID"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        reason: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description Closed, with the purge under way */
+                202: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["KnowledgePurge"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                409: components["responses"]["Conflict"];
+                428: components["responses"]["PreconditionRequired"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/organizations/{organization_id}/knowledge/sources/{source_id}/revoke": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+                /** @description A source the caller's ACL does not cover answers as if it did not exist. */
+                source_id: components["parameters"]["SourceID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Revoke a source. It never comes back, and a re-added one is a new source */
+        post: {
+            parameters: {
+                query?: never;
+                header: {
+                    /** @description The version last read, as sent in the ETag response header. Weak tags, lists and * are refused. */
+                    "If-Match": components["parameters"]["IfMatch"];
+                };
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                    /** @description A source the caller's ACL does not cover answers as if it did not exist. */
+                    source_id: components["parameters"]["SourceID"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        reason: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description Closed, with the purge under way */
+                202: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["KnowledgePurge"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                409: components["responses"]["Conflict"];
+                428: components["responses"]["PreconditionRequired"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/organizations/{organization_id}/knowledge/sources/{source_id}/purge": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+                /** @description A source the caller's ACL does not cover answers as if it did not exist. */
+                source_id: components["parameters"]["SourceID"];
+            };
+            cookie?: never;
+        };
+        /** How far the purge has got, with counts, and when it finished */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                    /** @description A source the caller's ACL does not cover answers as if it did not exist. */
+                    source_id: components["parameters"]["SourceID"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The purge's record */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["KnowledgePurge"];
+                    };
+                };
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/organizations/{organization_id}/knowledge/sources/{source_id}/grants": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+                /** @description A source the caller's ACL does not cover answers as if it did not exist. */
+                source_id: components["parameters"]["SourceID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Change who can read an uploaded source. It takes effect at once */
+        patch: {
+            parameters: {
+                query?: never;
+                header: {
+                    /** @description The version last read, as sent in the ETag response header. Weak tags, lists and * are refused. */
+                    "If-Match": components["parameters"]["IfMatch"];
+                };
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                    /** @description A source the caller's ACL does not cover answers as if it did not exist. */
+                    source_id: components["parameters"]["SourceID"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        add: components["schemas"]["KnowledgeGrant"][];
+                        remove_grant_ids: string[];
+                    };
+                };
+            };
+            responses: {
+                /** @description Changed */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                409: components["responses"]["Conflict"];
+                428: components["responses"]["PreconditionRequired"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        trace?: never;
+    };
+    "/organizations/{organization_id}/knowledge/documents/{document_id}/content": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+                document_id: string;
+            };
+            cookie?: never;
+        };
+        /** The original bytes, as a citation's way back to its source */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                    document_id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The file, as an attachment */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/octet-stream": string;
+                    };
+                };
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/organizations/{organization_id}/knowledge/answers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+            };
+            cookie?: never;
+        };
+        /** The caller's private answers that remain readable */
+        get: {
+            parameters: {
+                query?: {
+                    cursor?: string;
+                    limit?: number;
+                };
+                header?: never;
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description One page */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            items: components["schemas"]["KnowledgeAnswer"][];
+                            next_cursor: string | null;
+                        };
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        put?: never;
+        /** Ask a question. A worker answers it under the asker's own access */
+        post: {
+            parameters: {
+                query?: never;
+                header: {
+                    "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                };
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        question: string;
+                        /**
+                         * @default restricted
+                         * @enum {string}
+                         */
+                        classification?: "public" | "internal" | "confidential" | "restricted";
+                    };
+                };
+            };
+            responses: {
+                /** @description Asked. Read it back by its ID */
+                202: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["KnowledgeAnswer"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                409: components["responses"]["Conflict"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/organizations/{organization_id}/knowledge/answers/{answer_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+                answer_id: string;
+            };
+            cookie?: never;
+        };
+        /** One answer with its citations, for the person who asked, while they can read every source */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                    answer_id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The answer */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["KnowledgeAnswer"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/organizations/{organization_id}/knowledge/facts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+            };
+            cookie?: never;
+        };
+        /** Facts the caller can read every source of */
+        get: {
+            parameters: {
+                query?: {
+                    subject_ref?: string;
+                    trust_state?: "proposed" | "verified" | "disputed" | "superseded" | "rejected";
+                    cursor?: string;
+                };
+                header?: never;
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description One page */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            items: components["schemas"]["KnowledgeFact"][];
+                            next_cursor: string | null;
+                        };
+                    };
+                };
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        put?: never;
+        /** Propose a fact, on evidence the proposer can read. It is not trusted until reviewed */
+        post: {
+            parameters: {
+                query?: never;
+                header: {
+                    "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                };
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        subject_ref: string;
+                        predicate: string;
+                        claim: unknown;
+                        evidence: {
+                            /** Format: uuid */
+                            chunk_id: string;
+                            quote_start: number;
+                            quote_end: number;
+                        }[];
+                        /** Format: date-time */
+                        valid_from?: string;
+                        /** Format: date-time */
+                        valid_until?: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description Stored as proposed, or as disputed if it conflicts with a record */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["KnowledgeFact"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                409: components["responses"]["Conflict"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/organizations/{organization_id}/knowledge/facts/{fact_id}/review": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+                fact_id: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** A person verifies or rejects a fact. Nothing else can make one verified */
+        post: {
+            parameters: {
+                query?: never;
+                header: {
+                    /** @description The version last read, as sent in the ETag response header. Weak tags, lists and * are refused. */
+                    "If-Match": components["parameters"]["IfMatch"];
+                };
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                    fact_id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        /** @enum {string} */
+                        decision: "verify" | "reject";
+                        reason: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description The fact */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["KnowledgeFact"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                409: components["responses"]["Conflict"];
+                428: components["responses"]["PreconditionRequired"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/organizations/{organization_id}/knowledge/graph/traverse": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Walk typed links from one node, never through what the caller cannot see */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        from: components["schemas"]["GraphNode"];
+                        relations?: string[];
+                        depth?: number;
+                        limit?: number;
+                    };
+                };
+            };
+            responses: {
+                /** @description What was reached */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            nodes: (components["schemas"]["GraphNode"] & {
+                                depth: number;
+                                label: string;
+                            })[];
+                            edges: {
+                                from: components["schemas"]["GraphNode"];
+                                relation: string;
+                                to: components["schemas"]["GraphNode"];
+                                /** @enum {string} */
+                                origin: "record" | "person" | "fact";
+                            }[];
+                            truncated: boolean;
+                        };
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/organizations/{organization_id}/knowledge/graph/edges": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Add a typed link the tables do not already hold */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        from: components["schemas"]["GraphNode"];
+                        relation: string;
+                        to: components["schemas"]["GraphNode"];
+                    };
+                };
+            };
+            responses: {
+                /** @description Linked */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** Format: uuid */
+                            edge_id: string;
+                        };
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                409: components["responses"]["Conflict"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/organizations/{organization_id}/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+            };
+            cookie?: never;
+        };
+        /** Company search over what the caller may see. Each kind filters inside its query */
+        get: {
+            parameters: {
+                query: {
+                    q: string;
+                    kinds?: ("work_unit" | "client" | "project" | "person" | "team" | "document")[];
+                    limit?: number;
+                };
+                header?: never;
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Hits */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            items: {
+                                /** @enum {string} */
+                                kind: "work_unit" | "client" | "project" | "person" | "team" | "document";
+                                /** Format: uuid */
+                                id: string;
+                                title: string;
+                                excerpt: string | null;
+                                path: string;
+                            }[];
+                        };
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/organizations/{organization_id}/egress-ledger": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+            };
+            cookie?: never;
+        };
+        /** Which data class went, or was refused, to which provider, when, why and under which policy */
+        get: {
+            parameters: {
+                query?: {
+                    cursor?: string;
+                    limit?: number;
+                };
+                header?: never;
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description One page, newest first. Codes and IDs, and never company text */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            coverage: "knowledge_only" | "complete";
+                            items: components["schemas"]["EgressLedgerEntry"][];
+                            next_cursor: string | null;
+                        };
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/organizations/{organization_id}/egress-simulations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** What a proposed provider would be sent. Nothing is transmitted, and nothing is stored */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        /** @enum {string} */
+                        destination: "ensemus_cloud_managed_model" | "customer_byom_public_api" | "customer_private_inference";
+                        destination_host: string;
+                        /** @enum {string} */
+                        billing_owner: "customer" | "ensemus";
+                        /** @enum {string} */
+                        retention_basis: "unreviewed" | "contract_recorded" | "self_hosted";
+                        region: string | null;
+                        contract_ref: string | null;
+                        allowed_classes: ("public" | "internal" | "confidential" | "restricted")[];
+                        purposes: ("embed" | "rerank" | "answer")[];
+                    };
+                };
+            };
+            responses: {
+                /** @description One row per workload per class */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            coverage: "knowledge_only" | "complete";
+                            rows: {
+                                workload_key: string;
+                                /** @enum {string} */
+                                kind: "knowledge" | "agent";
+                                /** @enum {string} */
+                                purpose: "embed" | "rerank" | "answer";
+                                /** @enum {string} */
+                                classification: "public" | "internal" | "confidential" | "restricted";
+                                would_transmit: boolean;
+                                reason_code: string;
+                                policy_version: string;
+                            }[];
+                        };
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/organizations/{organization_id}/connections/{connection_id}/mcp-tools": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+                connection_id: components["parameters"]["ConnectionID"];
+            };
+            cookie?: never;
+        };
+        /** What an MCP server says it offers, and what an admin has decided about each tool */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                    connection_id: components["parameters"]["ConnectionID"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Its tools. Their descriptions are the server's words, and confer nothing */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            items: components["schemas"]["McpTool"][];
+                        };
+                    };
+                };
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/organizations/{organization_id}/connections/{connection_id}/mcp-tools/{mcp_tool_id}/review": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+                connection_id: components["parameters"]["ConnectionID"];
+                mcp_tool_id: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** An admin approves or rejects one tool, setting its effect level themselves */
+        post: {
+            parameters: {
+                query?: never;
+                header: {
+                    /** @description The version last read, as sent in the ETag response header. Weak tags, lists and * are refused. */
+                    "If-Match": components["parameters"]["IfMatch"];
+                };
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                    connection_id: components["parameters"]["ConnectionID"];
+                    mcp_tool_id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        /** @enum {string} */
+                        decision: "approve" | "reject";
+                        /** @enum {string} */
+                        side_effect_level?: "read_only" | "external_write";
+                        allowed_classes?: ("public" | "internal" | "confidential")[];
+                    };
+                };
+            };
+            responses: {
+                /** @description The tool */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["McpTool"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                409: components["responses"]["Conflict"];
+                428: components["responses"]["PreconditionRequired"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/organizations/{organization_id}/work-units/{work_unit_id}/artifacts/{artifact_id}/verification": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+                work_unit_id: string;
+                artifact_id: string;
+            };
+            cookie?: never;
+        };
+        /** Whether an artifact's citations hold, and whether a person has accepted it */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                    work_unit_id: string;
+                    artifact_id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Its record */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ArtifactVerification"];
+                    };
+                };
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        put?: never;
+        /**
+         * A person accepts or rejects exactly these bytes against the work's objective
+         * @description Acceptance requires objective_sha256 and citations_sha256 from the read view; rejection requires a reason. Stale submitted digests are refused.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                    work_unit_id: string;
+                    artifact_id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        artifact_sha256: string;
+                        objective_sha256?: string;
+                        citations_sha256?: string;
+                        /** @enum {string} */
+                        verdict: "accepted" | "rejected";
+                        reason?: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description Its record */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ArtifactVerification"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                409: components["responses"]["Conflict"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/organizations/{organization_id}/client-onboardings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** A deal was won. Starts the onboarding, once per deal */
+        post: {
+            parameters: {
+                query?: never;
+                header: {
+                    "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                };
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        deal_ref: string;
+                        client_name: string;
+                        project_name: string;
+                        /** Format: uuid */
+                        owner_membership_id: string;
+                        /** Format: uuid */
+                        reviewer_membership_id: string;
+                        /** Format: uuid */
+                        email_connection_id: string;
+                        /** Format: email */
+                        contact_email: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description Started */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ClientOnboarding"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                409: components["responses"]["Conflict"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/organizations/{organization_id}/client-onboardings/{client_onboarding_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+                client_onboarding_id: string;
+            };
+            cookie?: never;
+        };
+        /** How one onboarding stands, with its receipt and measured cost */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                    client_onboarding_id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The onboarding */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ClientOnboarding"];
+                    };
+                };
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/organizations/{organization_id}/knowledge/facts/{fact_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+                fact_id: string;
+            };
+            cookie?: never;
+        };
+        /** One fact with all its current readable evidence */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                    fact_id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The fact */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["KnowledgeFact"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/organizations/{organization_id}/knowledge/sources/{source_id}/classification": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+                /** @description A source the caller's ACL does not cover answers as if it did not exist. */
+                source_id: components["parameters"]["SourceID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Raise source sensitivity without lowering any document sensitivity */
+        patch: {
+            parameters: {
+                query?: never;
+                header: {
+                    /** @description The version last read, as sent in the ETag response header. Weak tags, lists and * are refused. */
+                    "If-Match": components["parameters"]["IfMatch"];
+                };
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                    /** @description A source the caller's ACL does not cover answers as if it did not exist. */
+                    source_id: components["parameters"]["SourceID"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        /** @enum {string} */
+                        classification: "public" | "internal" | "confidential" | "restricted";
+                    };
+                };
+            };
+            responses: {
+                /** @description Sensitivity raised */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                409: components["responses"]["Conflict"];
+                428: components["responses"]["PreconditionRequired"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -2413,6 +3917,307 @@ export interface components {
                 [key: string]: unknown;
             };
         };
+        KnowledgeGrant: {
+            /** @constant */
+            kind: "membership";
+            /** Format: uuid */
+            membership_id: string;
+        } | {
+            /** @constant */
+            kind: "team";
+            /** Format: uuid */
+            team_id: string;
+        } | {
+            /** @constant */
+            kind: "organization";
+        };
+        KnowledgeSource: {
+            /** Format: uuid */
+            id: string;
+            /** @enum {string} */
+            kind: "upload" | "connector";
+            /** @enum {string} */
+            state: "active" | "revoked" | "deleted";
+            /** @enum {string} */
+            classification: "public" | "internal" | "confidential" | "restricted";
+            /** @description Null when the caller's ACL does not cover it. */
+            title: string | null;
+            can_read: boolean;
+            can_manage?: boolean;
+            /** Format: uuid */
+            document_id?: string | null;
+            media_type?: string | null;
+            size_bytes?: number | null;
+            source_version?: string | null;
+            grants?: {
+                /** Format: uuid */
+                id: string;
+                /** @enum {string} */
+                kind: "membership" | "team" | "organization";
+                /** Format: uuid */
+                membership_id?: string;
+                /** Format: uuid */
+                team_id?: string;
+            }[];
+            /** @enum {string|null} */
+            document_state: "received" | "parsing" | "searchable" | "rejected" | "failed" | "purged" | null;
+            /** @enum {string|null} */
+            embedding_state: "pending" | "embedding" | "embedded" | "denied" | "failed" | null;
+            /** Format: date-time */
+            searchable_at: string | null;
+            /** Format: date-time */
+            source_modified_at: string | null;
+            /**
+             * @description No scanner ships, and `not_scanned` says so.
+             * @enum {string|null}
+             */
+            scan_state?: "not_scanned" | "clean" | "flagged" | null;
+            reject_code?: string | null;
+            /** Format: uri */
+            source_url?: string | null;
+            grants_managed_by_provider?: boolean;
+            version: number;
+            /** Format: date-time */
+            created_at: string;
+        };
+        KnowledgePurge: {
+            /** Format: uuid */
+            source_id: string;
+            /** @enum {string} */
+            reason: "deleted" | "revoked" | "connection_revoked" | "resource_gone" | "restore_reapply";
+            /** @enum {string} */
+            state: "pending" | "running" | "completed" | "failed";
+            counts: {
+                documents: number;
+                chunks: number;
+                embeddings: number;
+                facts: number;
+                answers: number;
+                blobs: number;
+                transcripts: number;
+                artifacts: number;
+            };
+            /** Format: date-time */
+            requested_at: string;
+            /** Format: date-time */
+            completed_at: string | null;
+            last_error_code: string | null;
+            retry_requests: number;
+            /** Format: date-time */
+            next_retry_at: string | null;
+            retry_exhausted: boolean;
+            held_artifacts: number;
+        };
+        KnowledgePassage: {
+            /** Format: uuid */
+            chunk_id: string;
+            /** Format: uuid */
+            document_id: string;
+            /** Format: uuid */
+            source_id: string;
+            excerpt: string;
+            title: string;
+            /** @enum {string} */
+            classification: "public" | "internal" | "confidential" | "restricted";
+            source_version: string | null;
+            /** Format: uri */
+            source_url: string | null;
+            /** Format: date-time */
+            searchable_at?: string;
+            /** Format: date-time */
+            source_modified_at: string | null;
+        };
+        KnowledgeAnswer: {
+            /** Format: uuid */
+            id: string;
+            /** @enum {string} */
+            state: "queued" | "running" | "answered" | "no_evidence" | "refused" | "failed";
+            question: string;
+            /** @enum {string} */
+            question_classification: "public" | "internal" | "confidential" | "restricted";
+            version: number;
+            answer_text: string | null;
+            refusal_code: string | null;
+            citations: {
+                ordinal: number;
+                answer_start: number;
+                answer_end: number;
+                /** Format: uuid */
+                chunk_id: string;
+                /** Format: uuid */
+                document_id: string;
+                /** Format: uuid */
+                source_id: string;
+                title: string;
+                excerpt: string;
+                source_version: string | null;
+                /** Format: uri */
+                source_url: string | null;
+                /** Format: date-time */
+                source_modified_at: string | null;
+                /** @enum {string} */
+                freshness: "current" | "superseded";
+            }[];
+            /** @enum {string|null} */
+            strongest_classification: "public" | "internal" | "confidential" | "restricted" | null;
+            /** @description An estimate, in micro-USD. Null when the model's profile has no rate card. */
+            cost_micros: number | null;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            finished_at: string | null;
+        };
+        KnowledgeFact: {
+            /** Format: uuid */
+            id: string;
+            subject_ref: string;
+            predicate: string;
+            claim: unknown;
+            /** @enum {string} */
+            trust_state: "proposed" | "verified" | "disputed" | "superseded" | "rejected";
+            /** @enum {string} */
+            origin: "model" | "person";
+            /** @enum {string} */
+            classification: "public" | "internal" | "confidential" | "restricted";
+            conflict_ref: string | null;
+            /** Format: uuid */
+            reviewed_by_membership_id?: string | null;
+            /** Format: date-time */
+            reviewed_at?: string | null;
+            evidence: {
+                /** Format: uuid */
+                chunk_id: string;
+                /** Format: uuid */
+                document_id: string;
+                /** Format: uuid */
+                source_id: string;
+                title: string;
+                excerpt: string;
+                stale: boolean;
+            }[];
+            version: number;
+            /** Format: date-time */
+            created_at: string;
+        };
+        GraphNode: {
+            /** @enum {string} */
+            type: "client" | "project" | "membership" | "team" | "work_unit" | "knowledge_source";
+            /** Format: uuid */
+            id: string;
+        };
+        EgressLedgerEntry: {
+            /** Format: uuid */
+            id: string;
+            /** Format: date-time */
+            occurred_at: string;
+            /** @enum {string} */
+            source: "knowledge" | "agent_run";
+            purpose: string;
+            /** @enum {string} */
+            data_class: "public" | "internal" | "confidential" | "restricted";
+            /** Format: uuid */
+            model_profile_ref: string | null;
+            provider_kind: string | null;
+            destination_host: string | null;
+            /** @enum {string} */
+            decision: "allow" | "deny";
+            reason_code: string;
+            policy_version: string;
+            request_sha256: string | null;
+            /** Format: uuid */
+            run_id: string | null;
+        };
+        McpTool: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            connection_id: string;
+            tool_name: string;
+            /** @description The server's own words, shown as such. */
+            definition: unknown;
+            definition_sha256: string;
+            /** @enum {string} */
+            status: "pending_review" | "approved" | "rejected" | "removed";
+            /** @enum {string|null} */
+            side_effect_level: "read_only" | "external_write" | null;
+            allowed_classes: ("public" | "internal" | "confidential")[];
+            /** Format: uuid */
+            reviewed_by?: string | null;
+            /** Format: date-time */
+            reviewed_at: string | null;
+            version: number;
+        };
+        ArtifactVerification: {
+            /** Format: uuid */
+            artifact_id: string;
+            artifact_sha256: string;
+            objective_sha256: string;
+            citations_sha256: string;
+            grounding: {
+                /** @enum {string} */
+                verdict: "passed" | "failed";
+                reason_code: string | null;
+                /** Format: date-time */
+                at: string;
+            } | null;
+            human: {
+                /** @enum {string} */
+                verdict: "accepted" | "rejected";
+                /** Format: uuid */
+                by: string;
+                reason: string | null;
+                /** Format: date-time */
+                at: string;
+            } | null;
+            citations: {
+                ordinal: number;
+                /** Format: uuid */
+                chunk_id: string;
+                /** Format: uuid */
+                document_id: string;
+                /** Format: uuid */
+                source_id: string;
+                title: string | null;
+                excerpt: string | null;
+                available: boolean;
+            }[];
+        };
+        ClientOnboarding: {
+            /** Format: uuid */
+            id: string;
+            deal_ref: string;
+            /** @enum {string} */
+            state: "started" | "waiting_for_brief" | "waiting_for_acceptance" | "waiting_for_send" | "completed" | "failed" | "unknown";
+            state_code: string | null;
+            /** Format: uuid */
+            client_id: string;
+            /** Format: uuid */
+            project_id: string;
+            /** Format: uuid */
+            work_unit_id: string;
+            /** Format: uuid */
+            brief_work_unit_id?: string | null;
+            /** Format: uuid */
+            review_work_unit_id?: string | null;
+            /** Format: uuid */
+            send_work_unit_id?: string | null;
+            /** Format: uuid */
+            brief_artifact_id?: string | null;
+            /** Format: uuid */
+            reviewer_membership_id?: string | null;
+            /** @description An estimate, in micro-USD, from the usage ledger. */
+            cost_micros: number | null;
+            receipt: {
+                status: string;
+                basis: string;
+                external_id: string | null;
+            } | null;
+            version: number;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            finished_at: string | null;
+        };
     };
     responses: {
         /** @description Malformed path, query, header or body. details.fields names the fields, never their values. */
@@ -2524,6 +4329,8 @@ export interface components {
         WorkUnitID: string;
         ExternalActionID: string;
         ConnectionID: string;
+        /** @description A source the caller's ACL does not cover answers as if it did not exist. */
+        SourceID: string;
     };
     requestBodies: never;
     headers: {

@@ -25,6 +25,7 @@ await build({
     'src/egress-gateway.ts',
     'src/agent-main.ts',
     'src/halt-global.ts',
+    'src/knowledge-worker.ts',
   ].map((e) => path.join(root, e)),
   outdir: dist,
   bundle: true,

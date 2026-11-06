@@ -158,3 +158,9 @@ export { webhookDeliveryWorkflow } from './webhook-workflow';
 // M4 (ADR-028). The same rule: their own files, their own histories.
 export { agentRunWorkflow } from './agent-run';
 export { modelProbeWorkflow } from './model-probe';
+// M5 (ADR-029). The same.
+export { clientOnboardingWorkflow } from './client-onboarding-workflow';
+export { knowledgeAnswerWorkflow } from './knowledge-answer-workflow';
+export { knowledgeIngestWorkflow } from './knowledge-ingest-workflow';
+export { knowledgePurgeWorkflow } from './knowledge-purge-workflow';
+export { knowledgeSweepWorkflow } from './knowledge-sweep-workflow';

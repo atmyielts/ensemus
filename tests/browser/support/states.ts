@@ -51,6 +51,66 @@ const approval = (key: keyof World['approvals'], who: PageState['who'] = bob) =>
 
 export const STATES: PageState[] = [
   {
+    name: 'knowledge-sources',
+    who: alice,
+    path: (world) => `${org(world)}/knowledge`,
+    shows: heading('Company knowledge'),
+  },
+  {
+    name: 'knowledge-new-source',
+    who: alice,
+    path: (world) => `${org(world)}/knowledge/new`,
+    shows: heading('Add a source'),
+  },
+  {
+    name: 'knowledge-passage-search',
+    who: alice,
+    path: (world) => `${org(world)}/knowledge/search`,
+    shows: heading('Find a source passage'),
+  },
+  {
+    name: 'knowledge-question',
+    who: alice,
+    path: (world) => `${org(world)}/knowledge/ask`,
+    shows: heading('Ask company knowledge'),
+  },
+  {
+    name: 'knowledge-my-answers',
+    who: alice,
+    path: (world) => `${org(world)}/knowledge/answers`,
+    shows: heading('My answers'),
+  },
+  {
+    name: 'knowledge-facts',
+    who: alice,
+    path: (world) => `${org(world)}/knowledge/facts`,
+    shows: heading('Company facts'),
+  },
+  {
+    name: 'knowledge-related-records',
+    who: alice,
+    path: (world) => `${org(world)}/knowledge/graph`,
+    shows: heading('Related records'),
+  },
+  {
+    name: 'company-search',
+    who: alice,
+    path: (world) => `${org(world)}/search`,
+    shows: heading('Search the company'),
+  },
+  {
+    name: 'model-data-sharing',
+    who: alice,
+    path: (world) => `${org(world)}/settings/egress`,
+    shows: heading('Model data sharing'),
+  },
+  {
+    name: 'client-onboarding-start',
+    who: alice,
+    path: (world) => `${org(world)}/onboarding`,
+    shows: heading('Start client onboarding'),
+  },
+  {
     name: 'sign-in',
     who: () => null,
     path: () => '/sign-in',

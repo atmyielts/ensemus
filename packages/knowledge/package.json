@@ -1,0 +1,23 @@
+{
+  "name": "@ensemus/knowledge",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./ports": "./src/ports.ts",
+    "./parsing": "./src/parsing.ts",
+    "./chunking": "./src/chunking.ts",
+    "./fusion": "./src/fusion.ts",
+    "./evidence": "./src/evidence.ts",
+    "./citations": "./src/citations.ts",
+    "./prompt": "./src/prompt.ts",
+    "./egress-simulation": "./src/egress-simulation.ts",
+    "./testing": "./src/testing/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@ensemus/domain": "workspace:*"
+  }
+}

@@ -8,7 +8,8 @@
     "./external-actions": "./src/external-actions.ts",
     "./ai": "./src/ai.ts",
     "./ai-tools": "./src/ai-tools.ts",
-    "./openapi": "./generated/openapi.d.ts"
+    "./openapi": "./generated/openapi.d.ts",
+    "./knowledge": "./src/knowledge.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

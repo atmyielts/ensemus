@@ -105,11 +105,19 @@ export const clients = workSchema.table(
     id: uuid().notNull().defaultRandom(),
     displayName: text().notNull(),
     classification: text().notNull().default('internal'),
+    ownerMembershipId: uuid().default(sql`app.current_membership_id()`),
+    accessVersion: integer().notNull().default(1),
     createdAt: createdAt(),
   },
   (t) => [
     primaryKey({ columns: [t.organizationId, t.id] }),
     classificationCheck('clients_classification_check', t.classification),
+    foreignKey({
+      name: 'clients_owner_tenant_fk',
+      columns: [t.organizationId, t.ownerMembershipId],
+      foreignColumns: [memberships.organizationId, memberships.id],
+    }),
+    check('clients_access_version_positive', sql`${t.accessVersion}>0`),
   ],
 );
 
@@ -258,6 +266,8 @@ export const artifacts = workSchema.table(
     mimeType: text().notNull(),
     sizeBytes: bigint({ mode: 'number' }).notNull(),
     classification: text().notNull().default('internal'),
+    /** 0208: non-user outputs are private until their complete input inventory is durably bound. */
+    provenanceState: text().notNull().default('ordinary'),
     createdByMembershipId: uuid(),
     createdAt: createdAt(),
   },

@@ -20,7 +20,22 @@
     "./ai-run-control": "./src/ai/run-control.ts",
     "./ai-delegation": "./src/ai/delegation.ts",
     "./ai-context-source": "./src/ai/context-source.ts",
-    "./ai-egress-log": "./src/ai/egress-log.ts"
+    "./ai-egress-log": "./src/ai/egress-log.ts",
+    "./knowledge/ports": "./src/knowledge/ports.ts",
+    "./knowledge/sources": "./src/knowledge/sources.ts",
+    "./knowledge/ingest": "./src/knowledge/ingest.ts",
+    "./knowledge/embeddings": "./src/knowledge/embeddings.ts",
+    "./knowledge/egress": "./src/knowledge/egress.ts",
+    "./knowledge/retrieval": "./src/knowledge/retrieval.ts",
+    "./knowledge/company-search": "./src/knowledge/company-search.ts",
+    "./knowledge/compiler": "./src/knowledge/compiler.ts",
+    "./knowledge/answers": "./src/knowledge/answers.ts",
+    "./knowledge/facts": "./src/knowledge/facts.ts",
+    "./knowledge/graph": "./src/knowledge/graph.ts",
+    "./knowledge/purge": "./src/knowledge/purge.ts",
+    "./knowledge/mcp": "./src/knowledge/mcp.ts",
+    "./knowledge/verification": "./src/knowledge/verification.ts",
+    "./knowledge/onboarding": "./src/knowledge/onboarding.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"
@@ -31,6 +46,7 @@
     "@ensemus/domain": "workspace:*",
     "@ensemus/policy": "workspace:*",
     "drizzle-orm": "0.45.4",
-    "zod": "4.6.7"
+    "zod": "4.6.7",
+    "@ensemus/knowledge": "workspace:*"
   }
 }

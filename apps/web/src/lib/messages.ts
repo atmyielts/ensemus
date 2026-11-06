@@ -32,6 +32,10 @@ const MESSAGE_FOR = new Map<string, string>([
   ['TOOL_DENIED', 'This agent is not allowed to do that.'],
   ['NO_ELIGIBLE_APPROVER', 'Nobody else can approve this, so it was not sent.'],
   ['DELEGATION_DENIED', 'An agent cannot give another agent more than it has itself.'],
+  [
+    'IDEMPOTENCY_KEY_REUSED',
+    'This request was already submitted with different details. Reload before starting another.',
+  ],
   ['NOT_FOUND', 'Not found, or you do not have access.'],
   ['FORBIDDEN', 'You do not have permission to do that.'],
   ['VERSION_CONFLICT', 'Someone else changed this first. Check the latest version and try again.'],
@@ -71,6 +75,31 @@ const MESSAGE_FOR = new Map<string, string>([
   ['CONNECTION_NOT_ACTIVE', 'This connection is not active.'],
   ['CONNECTOR_NOT_AVAILABLE', 'This connector is not available on this deployment.'],
   ['RESTRICTED_NOT_ALLOWED', 'Restricted work cannot be sent outside this deployment.'],
+  ['KNOWLEDGE_SOURCE_CLOSED', 'This source has been removed, and cannot be used again.'],
+  ['KNOWLEDGE_FORMAT_UNSUPPORTED', 'That kind of file cannot be added to company knowledge yet.'],
+  ['KNOWLEDGE_GRANT_TOO_WIDE', 'A source this sensitive cannot be shared that widely.'],
+  [
+    'KNOWLEDGE_GRANT_ON_CONNECTOR_SOURCE',
+    'Who can see this comes from where it is stored. Change it there.',
+  ],
+  [
+    'KNOWLEDGE_NO_MODEL',
+    'No approved model can answer this. Your documents were not sent anywhere.',
+  ],
+  [
+    'KNOWLEDGE_FACT_NEEDS_EVIDENCE',
+    'A fact has to rest on a passage from a source that is still open.',
+  ],
+  [
+    'KNOWLEDGE_FACT_NEEDS_PERSON',
+    'Only a person who did not propose this fact can verify it, as themselves.',
+  ],
+  [
+    'KNOWLEDGE_ARTIFACT_NOT_GROUNDED',
+    'This cannot be accepted yet, because its citations have not all been confirmed.',
+  ],
+  ['MCP_TOOL_NOT_APPROVED', 'An administrator has not approved this tool.'],
+  ['CLIENT_ONBOARDING_EXISTS', 'This deal already has an onboarding.'],
   ['UNEXPECTED', 'Something went wrong on our side. Please try again.'],
 ]);
 

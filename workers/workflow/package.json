@@ -29,6 +29,7 @@
     "@ensemus/storage": "workspace:*",
     "@ensemus/telemetry": "workspace:*",
     "@ensemus/workflows": "workspace:*",
-    "esbuild": "0.28.2"
+    "esbuild": "0.28.2",
+    "@ensemus/knowledge": "workspace:*"
   }
 }

@@ -9,7 +9,13 @@
     "./runtime": "./src/runtime/index.ts",
     "./email": "./src/email/index.ts",
     "./inbound": "./src/inbound/index.ts",
-    "./testing": "./src/testing/index.ts"
+    "./testing": "./src/testing/index.ts",
+    "./knowledge": "./src/knowledge.ts",
+    "./knowledge-manifests": "./src/knowledge-manifests.ts",
+    "./provider-http": "./src/runtime/provider-http.ts",
+    "./google": "./src/google/index.ts",
+    "./microsoft": "./src/microsoft/index.ts",
+    "./mcp": "./src/mcp/index.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"

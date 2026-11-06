@@ -22,7 +22,13 @@ export type Capability =
   | 'agent.stop'
   | 'ai.halt'
   | 'budget.manage'
-  | 'usage.view';
+  | 'usage.view'
+  // M5 (ADR-029 D2). None of these reads a document: only a source's ACL gives that.
+  | 'knowledge.add'
+  | 'knowledge.manage'
+  | 'knowledge.review_fact'
+  | 'egress.view'
+  | 'client_onboarding.start';
 
 const GRANTS: Record<Role, ReadonlySet<Capability>> = {
   owner: new Set([
@@ -44,6 +50,11 @@ const GRANTS: Record<Role, ReadonlySet<Capability>> = {
     'ai.halt',
     'budget.manage',
     'usage.view',
+    'knowledge.add',
+    'knowledge.manage',
+    'knowledge.review_fact',
+    'egress.view',
+    'client_onboarding.start',
   ]),
   admin: new Set([
     'member.invite',
@@ -62,8 +73,19 @@ const GRANTS: Record<Role, ReadonlySet<Capability>> = {
     'ai.halt',
     'budget.manage',
     'usage.view',
+    'knowledge.add',
+    'knowledge.manage',
+    'knowledge.review_fact',
+    'egress.view',
+    'client_onboarding.start',
   ]),
-  member: new Set(['client.manage', 'project.manage', 'work.create']),
+  member: new Set([
+    'client.manage',
+    'project.manage',
+    'work.create',
+    'knowledge.add',
+    'client_onboarding.start',
+  ]),
 };
 
 export function isRole(value: string): value is Role {

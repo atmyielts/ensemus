@@ -31,13 +31,71 @@ const authDatabase = {
   message: 'Only @ensemus/auth may use the auth database role.',
 };
 const connectorCode = {
-  regex: '^@ensemus/connectors(/(?!manifest$).*)?$',
+  regex: '^@ensemus/connectors(/(?!(manifest|knowledge-manifests)$).*)?$',
   message:
     'Connectors run in the connector worker. The web tier may read manifests only (ADR-027).',
 };
 const testDoubles = {
-  group: ['@ensemus/connectors/testing', '@ensemus/intelligence/testing'],
+  group: [
+    '@ensemus/connectors/testing',
+    '@ensemus/intelligence/testing',
+    '@ensemus/knowledge/testing',
+  ],
   message: 'Test doubles never reach a shipped image.',
+};
+const knowledgeWorkerCode = {
+  group: [
+    '@ensemus/application/knowledge/ingest',
+    '@ensemus/application/knowledge/embeddings',
+    '@ensemus/knowledge/parsing',
+    '@ensemus/knowledge/chunking',
+    '@ensemus/knowledge/prompt',
+    '@ensemus/knowledge/egress-simulation',
+  ],
+  message:
+    'Parsing and model calls run in workers. The web tier reads and enqueues (ADR-029 D4, D5).',
+};
+const knowledgeReach = {
+  group: [
+    '@ensemus/application',
+    '@ensemus/application/*',
+    '@ensemus/connectors',
+    '@ensemus/connectors/*',
+    '@ensemus/database',
+    '@ensemus/database/*',
+    '@ensemus/secrets',
+    '@ensemus/secrets/*',
+    '@ensemus/storage',
+    '@ensemus/workflows',
+    '@ensemus/workflows/*',
+    '@temporalio/*',
+    'drizzle-orm',
+    'drizzle-orm/*',
+    'pg',
+    'pg/*',
+  ],
+  message: '@ensemus/knowledge is pure rules and ports. Whatever it needs is passed in (ADR-029).',
+};
+const knowledgeNetwork = {
+  group: [
+    'net',
+    'node:net',
+    'tls',
+    'node:tls',
+    'http',
+    'node:http',
+    'https',
+    'node:https',
+    'http2',
+    'node:http2',
+    'dgram',
+    'node:dgram',
+    'dns',
+    'node:dns',
+    'child_process',
+    'node:child_process',
+  ],
+  message: 'Nothing in @ensemus/knowledge can reach a network or a process (ADR-029).',
 };
 const connectorReach = {
   group: [
@@ -219,6 +277,7 @@ export default tseslint.config(
       agentDatabase,
       agentCodeFromWeb,
       testDoubles,
+      knowledgeWorkerCode,
     ],
   ),
   restrict(
@@ -281,6 +340,16 @@ export default tseslint.config(
           name: 'fetch',
           message: 'A connector goes out only through ConnectorNetwork (ADR-027 D5).',
         },
+      ],
+    },
+  },
+  restrict(['packages/knowledge/**/*.ts'], [knowledgeReach, knowledgeNetwork]),
+  {
+    files: ['packages/knowledge/**/*.ts'],
+    rules: {
+      'no-restricted-globals': [
+        'error',
+        { name: 'fetch', message: 'Nothing in @ensemus/knowledge can reach a network (ADR-029).' },
       ],
     },
   },

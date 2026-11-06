@@ -15,7 +15,9 @@
     "./ai": "./src/ai.ts",
     "./ai-binding": "./src/ai-binding.ts",
     "./ai-events": "./src/ai-events.ts",
-    "./ai-tools": "./src/ai-tools.ts"
+    "./ai-tools": "./src/ai-tools.ts",
+    "./knowledge": "./src/knowledge.ts",
+    "./knowledge-events": "./src/knowledge-events.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"

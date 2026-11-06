@@ -11,7 +11,7 @@ export type TenantContext = Readonly<{
   userId: string;
   membershipId: string;
   role: string;
-  actorType: 'user' | 'service' | 'agent';
+  actorType: 'user' | 'service' | 'agent' | 'delegated';
   /** Which run this is acting for. Set only on an agent's context. */
   agentRunId?: string;
   [brand]: true;
@@ -29,6 +29,8 @@ export function actorOf(context: TenantContext): {
   actorId?: string;
 } {
   if (context.actorType === 'service') return { actorType: 'service' };
+  if (context.actorType === 'delegated')
+    return { actorType: 'agent', actorId: context.membershipId };
   if (context.actorType === 'agent') {
     return { actorType: 'agent', ...(context.agentRunId ? { actorId: context.agentRunId } : {}) };
   }
@@ -113,7 +115,13 @@ export async function withTenantTx<T>(
 ): Promise<T> {
   if (context[brand] !== true) throw new TenantAccessDenied();
   return database.transaction(
-    { 'app.organization_id': context.organizationId, 'app.user_id': context.userId },
+    {
+      'app.organization_id': context.organizationId,
+      'app.user_id': context.userId,
+      'app.membership_id': context.membershipId,
+      'app.actor_type': context.actorType,
+      'app.agent_run_id': context.actorType === 'agent' ? (context.agentRunId ?? '') : '',
+    },
     fn,
   );
 }
@@ -159,7 +167,9 @@ export function withWebhookEndpointTx<T>(
       .where(and(eq(webhookEndpoints.tokenHash, tokenHash), eq(webhookEndpoints.state, 'active')));
     if (!endpoint) return null;
     await tx.execute(
-      sql`select set_config('app.organization_id', ${endpoint.organizationId}, true)`,
+      sql`select set_config('app.organization_id', ${endpoint.organizationId}, true),
+        set_config('app.user_id', '', true), set_config('app.membership_id', '', true),
+        set_config('app.actor_type', 'service', true), set_config('app.agent_run_id', '', true)`,
     );
     return fn(tx, { endpoint, context: createServiceContext(endpoint.organizationId) });
   });
@@ -261,4 +271,40 @@ export function withRunLookupTx<T>(
 /** Confirms the database answers. Reads no tenant data. */
 export async function pingDatabase(database: AppDatabase): Promise<void> {
   await database.run((tx) => tx.execute(sql`select 1`));
+}
+
+/** Worker acting for a named person, with that person's fresh membership and source ACL. */
+export async function createDelegatedContext(
+  database: AppDatabase,
+  organizationId: string,
+  membershipId: string,
+): Promise<TenantContext> {
+  assertUuid(membershipId);
+  const service = createServiceContext(organizationId);
+  const [membership] = await withTenantTx(database, service, (tx) =>
+    tx
+      .select({
+        id: memberships.id,
+        role: memberships.role,
+        userId: memberships.userId,
+        organizationId: memberships.organizationId,
+      })
+      .from(memberships)
+      .where(
+        and(
+          eq(memberships.organizationId, service.organizationId),
+          eq(memberships.id, membershipId),
+          eq(memberships.status, 'active'),
+        ),
+      ),
+  );
+  if (!membership) throw new TenantAccessDenied();
+  return {
+    organizationId: membership.organizationId,
+    userId: membership.userId,
+    membershipId: membership.id,
+    role: membership.role,
+    actorType: 'delegated',
+    [brand]: true,
+  };
 }

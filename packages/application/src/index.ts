@@ -1,6 +1,7 @@
 export * from './approvals';
 export * from './artifacts';
 export * from './connections';
+export * from './client-access';
 export * from './errors';
 export * from './events';
 export * from './external-actions';

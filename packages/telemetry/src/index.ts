@@ -45,6 +45,16 @@ const SAFE_FIELDS = new Set([
   'inputTokens',
   'outputTokens',
   'costMicros',
+  // IDs and counts from company knowledge (ADR-029). Never a title, a query or a passage.
+  'sourceId',
+  'documentId',
+  'answerId',
+  'factId',
+  'spaceId',
+  'purgeJobId',
+  'chunks',
+  'embeddings',
+  'closed',
 ]);
 
 // Safe values are short and machine-shaped. Free text is refused even under a safe field name.
