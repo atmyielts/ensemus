@@ -49,6 +49,17 @@ import { emit } from '../events';
 import { canonicalId } from '../ids';
 import { idFromRequest } from '../request-id';
 import { closeOutdatedReviews, loadChangeable } from '../work';
+import {
+  createArtifactProvenance,
+  recordFulfilledGeneratedPutFailure,
+  type GeneratedArtifactWrite,
+} from '../knowledge/artifact-provenance';
+import {
+  assertRunInputsOpen,
+  assertRunInputsReadable,
+  createRunInputInventory,
+} from './input-ledger';
+import { claimGeneratedPut, settleGeneratedPut } from '../knowledge/generated-writer';
 
 export type StoredProposal = {
   id: string;
@@ -499,10 +510,15 @@ export interface ToolStepStore {
   noteDraftUpload(
     tx: Tx,
     context: AgentContext,
-    input: { draftId: string; workUnitId: string },
-  ): Promise<void>;
+    input: { draftId: string; workUnitId: string; runId: string; text: string },
+  ): Promise<GeneratedArtifactWrite>;
   /** Outside any transaction: this is a network call. */
-  putDraft(context: AgentContext, input: { draftId: string; text: string }): Promise<void>;
+  putDraft(
+    context: AgentContext,
+    input: { draftId: string; text: string; write: GeneratedArtifactWrite },
+  ): Promise<void>;
+  /** Only after fulfilled put and failed publication; unknown puts never settle through this path. */
+  abandonDraftUpload(context: AgentContext, write: GeneratedArtifactWrite): Promise<void>;
   /** Answers the class written, which is never below `classification` or the work's own. */
   insertDraft(
     tx: Tx,
@@ -516,6 +532,7 @@ export interface ToolStepStore {
       text: string;
       classification: AiClassification;
       evidence: readonly DraftEvidence[];
+      write: GeneratedArtifactWrite;
     },
   ): Promise<{ classification: AiClassification }>;
 }
@@ -536,10 +553,13 @@ export function createToolStepStore(deps: {
   objects: Pick<ObjectStore, 'put'>;
 }): ToolStepStore {
   const { database, objects } = deps;
+  const provenance = createArtifactProvenance({ inventory: createRunInputInventory() });
   return {
     withTx: (context, fn) => withTenantTx(database, context, fn),
 
-    async readRun(tx, _context, runId, options) {
+    async readRun(tx, context, runId, options) {
+      assertOwnRun(context, runId);
+      await assertRunInputsOpen(tx, context);
       const query = tx.select().from(agentRuns).where(eq(agentRuns.id, runId));
       const [run] = await (options.lock ? query.for('update') : query);
       if (!run) return null;
@@ -699,6 +719,16 @@ export function createToolStepStore(deps: {
       idFromRequest('agent_draft', context.membershipId, input.runId, [input.stepNumber]),
 
     async noteDraftUpload(tx, context, input) {
+      assertOwnRun(context, input.runId);
+      const body = Buffer.from(input.text, 'utf8');
+      const started = await provenance.beginInTx(tx, context, {
+        execution: { kind: 'agent_run', id: input.runId },
+        artifactId: input.draftId,
+        workUnitId: input.workUnitId,
+        artifactSha256: sha256(input.text),
+        sizeBytes: body.length,
+      });
+      if (started.alreadyPublished) throw new AppError('INVALID_STATE');
       const work = await loadChangeable(tx, context, input.workUnitId);
       if (!canChangeContent(work.status as WorkState)) throw new AppError('INVALID_STATE');
       await tx
@@ -711,23 +741,39 @@ export function createToolStepStore(deps: {
           purgeAfter: new Date(Date.now() + DRAFT_UPLOAD_GRACE_MS),
         })
         .onConflictDoNothing();
+      return started.write;
     },
 
     async putDraft(context, input) {
+      if (
+        input.write.artifactId !== input.draftId ||
+        input.write.artifactSha256 !== sha256(input.text)
+      )
+        throw new AppError('INVALID_STATE');
+      await withTenantTx(database, context, (tx) => assertRunInputsReadable(tx, context));
+      await claimGeneratedPut(database, context, input.write);
       await objects.put(
         objectKey(context.organizationId, input.draftId),
         Buffer.from(input.text, 'utf8'),
         DRAFT_MIME_TYPE,
       );
+      await settleGeneratedPut(database, context, input.write);
     },
 
+    abandonDraftUpload: (context, write) =>
+      recordFulfilledGeneratedPutFailure(database, context, write),
+
     async insertDraft(tx, context, input) {
+      assertOwnRun(context, input.runId);
+      if (
+        input.write.artifactId !== input.draftId ||
+        input.write.artifactSha256 !== sha256(input.text)
+      )
+        throw new AppError('INVALID_STATE');
+      await provenance.publishInTx(tx, context, input.write);
       const work = await loadChangeable(tx, context, input.workUnitId);
       if (!canChangeContent(work.status as WorkState)) throw new AppError('INVALID_STATE');
-      const classification = strongestClassification(
-        input.classification,
-        work.classification as AiClassification,
-      );
+      const classification = input.write.classification;
       const body = Buffer.from(input.text, 'utf8');
       await tx.insert(artifacts).values({
         organizationId: context.organizationId,
@@ -740,6 +786,7 @@ export function createToolStepStore(deps: {
         classification,
         // Nobody added this. `evidenceFor` counts only files a person added, so a draft proves nothing.
         createdByMembershipId: null,
+        provenanceState: 'bound',
       });
       await tx.insert(workArtifacts).values({
         organizationId: context.organizationId,

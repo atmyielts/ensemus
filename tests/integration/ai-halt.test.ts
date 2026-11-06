@@ -44,6 +44,7 @@ import {
 } from '../../workers/workflow/src/kill-switch';
 import {
   openAgentTestDatabase,
+  prepareRunInputContext,
   seedActiveProfile,
   seedAgentVersion,
   seedAiTenant,
@@ -151,7 +152,8 @@ describe('the kill switch, as the real roles', () => {
       status: 'ready',
     });
     const stepId = randomUUID();
-    await withRunLookupTx(agent.db, tenant.organizationId, async (tx) => {
+    const context = await prepareRunInputContext(agent.db, tenant.organizationId, runId);
+    await withTenantTx(agent.db, context, async (tx) => {
       await tx.insert(executionSteps).values({
         organizationId: tenant.organizationId,
         id: stepId,

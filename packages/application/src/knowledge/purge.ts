@@ -234,7 +234,7 @@ async function runIdsFor(
   after: string | null = null,
 ) {
   const rows = await tx.execute<{ id: string }>(
-    sql`select distinct p.run_id as id from knowledge.evidence_packages p join knowledge.evidence_items i on i.organization_id=p.organization_id and i.package_id=p.id where i.organization_id=${context.organizationId}::uuid and i.source_id=${sourceId}::uuid and p.run_id is not null ${after ? sql`and p.run_id>${after}::uuid` : sql``} order by p.run_id limit ${PAGE}`,
+    sql`select distinct r.id from ai.source_input_runs(${sourceId}::uuid) r(id) where ${context.organizationId}::uuid=app.current_organization_id() ${after ? sql`and r.id>${after}::uuid` : sql``} order by r.id limit ${PAGE}`,
   );
   return rows.rows.map((row) => row.id);
 }

@@ -42,6 +42,7 @@ import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
   openAgentTestDatabase,
+  prepareRunInputContext,
   seedActiveProfile,
   seedAgentVersion,
   seedAiTenant,
@@ -92,6 +93,7 @@ describe('usage and budgets, as the real roles', () => {
       initiatorMembershipId: tenant.owner.membershipId,
       agentRunId: runId,
     });
+    await prepareRunInputContext(agent.db, tenant.organizationId, runId);
     return { runId, workUnitId: work.id, version, context };
   };
 
@@ -102,7 +104,7 @@ describe('usage and budgets, as the real roles', () => {
     over: Partial<typeof executionSteps.$inferInsert> = {},
   ) => {
     const stepId = randomUUID();
-    await withRunLookupTx(agent.db, tenant.organizationId, (tx) =>
+    await withTenantTx(agent.db, run.context, (tx) =>
       tx.insert(executionSteps).values({
         organizationId: tenant.organizationId,
         id: stepId,

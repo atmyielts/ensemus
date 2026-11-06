@@ -162,10 +162,18 @@ export function toolFixture(input: {
       state.audits.push(row);
     },
     draftIdFor: () => '00000000-0000-4000-8000-00000000000d',
-    noteDraftUpload: async () => {},
+    noteDraftUpload: async (_tx, _context, input) => ({
+      artifactId: input.draftId,
+      workUnitId: input.workUnitId,
+      writeId: 'test-writer',
+      generation: 1,
+      artifactSha256: 'test-hash',
+      classification: state.facts.classification,
+    }),
     async putDraft() {
       calls.objectUploads += 1;
     },
+    abandonDraftUpload: async () => {},
     async insertDraft(_tx, _context, draft) {
       calls.draftRows += 1;
       state.drafts.push({ classification: draft.classification, evidence: draft.evidence });

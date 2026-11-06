@@ -44,6 +44,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { holdsCanary, tenantCanary } from '../helpers/ai/canaries';
 import {
   openAgentTestDatabase,
+  prepareRunInputContext,
   seedActiveProfile,
   seedAgentVersion,
   seedAiTenant,
@@ -516,7 +517,8 @@ describe('starting, steering and reading a run, as the real roles', () => {
       const view = await start(tenant, workUnitId, version);
       await moveRun(tenant, view.id, 'preparing', 'running');
       const stepId = randomUUID();
-      await withRunLookupTx(agent.db, tenant.organizationId, async (tx) => {
+      const context = await prepareRunInputContext(agent.db, tenant.organizationId, view.id);
+      await withTenantTx(agent.db, context, async (tx) => {
         await tx.insert(executionSteps).values({
           organizationId: tenant.organizationId,
           id: stepId,
@@ -625,7 +627,8 @@ describe('starting, steering and reading a run, as the real roles', () => {
 
     it('shows steps oldest first, and a run’s latest control', async () => {
       const { workUnitId, runId } = await runWithPayload(a, versionA);
-      await withRunLookupTx(agent.db, a.organizationId, (tx) =>
+      const context = await prepareRunInputContext(agent.db, a.organizationId, runId);
+      await withTenantTx(agent.db, context, (tx) =>
         tx.insert(executionSteps).values({
           organizationId: a.organizationId,
           runId,

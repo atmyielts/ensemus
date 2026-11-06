@@ -325,39 +325,52 @@ async function artifactDraftCreate(
     runId: step.runId,
     stepNumber: step.stepNumber,
   });
-  await inGate(turn, (tx) =>
-    deps.store.noteDraftUpload(tx, context, { draftId, workUnitId: step.workUnitId }),
-  );
-  await deps.store.putDraft(context, { draftId, text: args.text });
-  return inGate(turn, async (tx, facts) => {
-    const written = await deps.store.insertDraft(tx, context, {
+  const write = await inGate(turn, (tx) =>
+    deps.store.noteDraftUpload(tx, context, {
       draftId,
-      runId: step.runId,
-      stepId: turn.stepId,
       workUnitId: step.workUnitId,
-      name: args.name,
-      text: args.text,
-      classification: strongest(facts.classification, classification),
-      evidence: evidence.map(({ sourceType, sourceId, sourceSha256 }) => ({
-        sourceType,
-        sourceId,
-        sourceSha256,
-      })),
-    });
-    const raised = await deps.store.raiseRunClass(tx, {
       runId: step.runId,
-      atLeast: written.classification,
+      text: args.text,
+    }),
+  );
+  await deps.store.putDraft(context, { draftId, text: args.text, write });
+  try {
+    return await inGate(turn, async (tx, facts) => {
+      const written = await deps.store.insertDraft(tx, context, {
+        draftId,
+        runId: step.runId,
+        stepId: turn.stepId,
+        workUnitId: step.workUnitId,
+        name: args.name,
+        text: args.text,
+        classification: strongest(facts.classification, classification),
+        evidence: evidence.map(({ sourceType, sourceId, sourceSha256 }) => ({
+          sourceType,
+          sourceId,
+          sourceSha256,
+        })),
+        write,
+      });
+      const raised = await deps.store.raiseRunClass(tx, {
+        runId: step.runId,
+        atLeast: written.classification,
+      });
+      await finishDone(turn, tx, {
+        classification: raised,
+        content: JSON.stringify({
+          status: 'draft_created',
+          artifact_id: draftId,
+          classification: written.classification,
+        }),
+      });
+      return result('done');
     });
-    await finishDone(turn, tx, {
-      classification: raised,
-      content: JSON.stringify({
-        status: 'draft_created',
-        artifact_id: draftId,
-        classification: written.classification,
-      }),
-    });
-    return result('done');
-  });
+  } catch (error) {
+    // This invocation's put fulfilled. Publication might have committed with its acknowledgement lost;
+    // the exact-token helper preserves bound files and otherwise records a settled blocked writer.
+    await deps.store.abandonDraftUpload(context, write).catch(() => undefined);
+    throw error;
+  }
 }
 
 /**

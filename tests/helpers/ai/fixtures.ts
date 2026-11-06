@@ -16,12 +16,43 @@ import {
   type AppDatabase,
   type TenantContext,
 } from '@ensemus/database';
-import { openAgentDatabase, withRunLookupTx } from '@ensemus/database/agent';
+import { createAgentContext, openAgentDatabase, withRunLookupTx } from '@ensemus/database/agent';
+import { createContextSource } from '@ensemus/application/ai-context-source';
 import { eq } from 'drizzle-orm';
 import pg from 'pg';
 import { urls } from '../stack';
 
 export const openAgentTestDatabase = (max = 2) => openAgentDatabase(urls.agent(), { max });
+
+/** Actual v1 read admission for synthetic model/tool seeds; never a fake completeness flag/GUC. */
+export async function prepareRunInputContext(
+  database: AppDatabase,
+  organizationId: string,
+  runId: string,
+) {
+  const [run] = await withRunLookupTx(database, organizationId, (tx) =>
+    tx
+      .select({
+        workUnitId: agentRuns.workUnitId,
+        initiatorMembershipId: agentRuns.initiatorMembershipId,
+      })
+      .from(agentRuns)
+      .where(eq(agentRuns.id, runId)),
+  );
+  if (!run) throw new Error('TEST_RUN_MISSING');
+  const context = await createAgentContext(database, {
+    organizationId,
+    initiatorMembershipId: run.initiatorMembershipId,
+    agentRunId: runId,
+  });
+  await createContextSource({
+    database,
+    readObject: async () => {
+      throw new Error('TEST_UNEXPECTED_OBJECT_READ');
+    },
+  }).loadWork(context, run.workUnitId);
+  return context;
+}
 
 /** A person with an account, through the auth role, as sign-up would do it. */
 export async function makeTestUser(label: string): Promise<string> {

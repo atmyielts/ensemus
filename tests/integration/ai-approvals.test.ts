@@ -42,6 +42,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
   makeTestUser,
   openAgentTestDatabase,
+  prepareRunInputContext,
   seedAgentVersion,
   seedAiTenant,
   seedQueuedRun,
@@ -134,7 +135,8 @@ describe('binding an agent action to a person, as the real roles', () => {
     });
     const stepId = randomUUID();
     const proposalId = randomUUID();
-    await withRunLookupTx(agent.db, tenant.organizationId, async (tx) => {
+    const context = await prepareRunInputContext(agent.db, tenant.organizationId, runId);
+    await withTenantTx(agent.db, context, async (tx) => {
       await tx.update(agentRuns).set({ status: 'preparing' }).where(eq(agentRuns.id, runId));
       await tx.update(agentRuns).set({ status: 'running' }).where(eq(agentRuns.id, runId));
       await tx.insert(executionSteps).values({
@@ -156,11 +158,6 @@ describe('binding an agent action to a person, as the real roles', () => {
         payloadHash: sha256Of(proposalId),
         idempotencyKey: `tool:${runId}:0`,
       });
-    });
-    const context = await createAgentContext(agent.db, {
-      organizationId: tenant.organizationId,
-      initiatorMembershipId: initiator.membershipId,
-      agentRunId: runId,
     });
     return { workUnitId: work.id, runId, proposalId, stepId, version, context };
   };
@@ -599,7 +596,7 @@ describe('binding an agent action to a person, as the real roles', () => {
 
     it('never needs a prompt: the web role cannot read one, and this still works', async () => {
       const seeded = await seedProposal(a, a.member, { owner: a.owner });
-      await withRunLookupTx(agent.db, a.organizationId, (tx) =>
+      await withTenantTx(agent.db, seeded.context, (tx) =>
         tx.insert(stepPayloads).values({
           organizationId: a.organizationId,
           stepId: seeded.stepId,

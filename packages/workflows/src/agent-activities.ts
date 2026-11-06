@@ -3,6 +3,7 @@
 // worker. Nothing here holds a transaction open across a model call.
 import { createChildRun, settleChildRun } from '@ensemus/application/ai-delegation';
 import { createHaltCheck } from '@ensemus/application/ai-halt';
+import { isRunInputFence } from '@ensemus/application/ai-input-ledger';
 import type { HaltCheck, UsageLedger } from '@ensemus/application/ai-ports';
 import {
   addToCountersInTx,
@@ -384,26 +385,39 @@ export function createAgentActivities(deps: AgentActivityDeps): AgentActivities 
 
         // The answer is stored before the step says finished, so a finished step always has one.
         let final = outcome.outcome;
-        if (final === 'final_output' && outcome.text) {
-          await storeStepPayload(database, context, {
-            stepId: start.stepId,
-            kind: 'completion',
-            classification,
-            content: outcome.text,
-          });
-        } else if (final === 'tool_proposed' && outcome.toolCall) {
-          await storeProposal(database, context, {
-            runId: agentRunId,
-            stepNumber: input.stepNumber,
-            toolId: outcome.toolCall.toolId,
-            args: outcome.toolCall.args,
-          });
-        } else if (final === 'final_output' || final === 'tool_proposed') {
-          final = 'invalid_output';
+        let inputFenced = false;
+        try {
+          if (final === 'final_output' && outcome.text) {
+            await storeStepPayload(database, context, {
+              stepId: start.stepId,
+              kind: 'completion',
+              classification,
+              content: outcome.text,
+            });
+          } else if (final === 'tool_proposed' && outcome.toolCall) {
+            await storeProposal(database, context, {
+              runId: agentRunId,
+              stepNumber: input.stepNumber,
+              toolId: outcome.toolCall.toolId,
+              args: outcome.toolCall.args,
+            });
+          } else if (final === 'final_output' || final === 'tool_proposed') {
+            final = 'invalid_output';
+          }
+        } catch (error) {
+          if (!isRunInputFence(error)) throw error;
+          // Usage was settled by the gateway. Preserve its counters while discarding late content;
+          // a durable content fence cannot be undone by a response that was already in flight.
+          inputFenced = true;
+          final = 'stopped';
         }
 
         const haltedNow = watched?.aborted === true && final === 'stopped';
-        const stopCode: StopCode | null = haltedNow ? 'HALTED' : outcome.stopCode;
+        const stopCode: StopCode | null = inputFenced
+          ? 'POLICY_DENIED'
+          : haltedNow
+            ? 'HALTED'
+            : outcome.stopCode;
         const counters = await completeTurn(database, context, {
           agentRunId,
           stepId: start.stepId,

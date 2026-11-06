@@ -19,6 +19,7 @@ import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
   openAgentTestDatabase,
+  prepareRunInputContext,
   seedActiveProfile,
   seedAgentVersion,
   seedAiTenant,
@@ -59,7 +60,8 @@ describe('governed AI schema, as the real roles', () => {
   const seedPayload = async (tenant: AiTenant) => {
     const runId = await queuedRun(tenant);
     const stepId = randomUUID();
-    await withRunLookupTx(agent.db, tenant.organizationId, async (tx) => {
+    const context = await prepareRunInputContext(agent.db, tenant.organizationId, runId);
+    await withTenantTx(agent.db, context, async (tx) => {
       await tx.insert(executionSteps).values({
         organizationId: tenant.organizationId,
         id: stepId,

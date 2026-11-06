@@ -169,6 +169,7 @@ describe('tool gateway, as the real roles', () => {
       initiatorMembershipId: context.membershipId,
       agentRunId: runId,
     });
+    await source().loadWork(agentContext, input.workUnitId);
     return {
       runId,
       agentContext,
@@ -621,7 +622,7 @@ describe('tool gateway, as the real roles', () => {
     it('finds a proposal from the turn’s own number or the tool step after it', async () => {
       const unit = await work(a.owner);
       const run = await startRun(a.owner, { workUnitId: unit });
-      await withRunLookupTx(agent.db, a.organizationId, (tx) =>
+      await withTenantTx(agent.db, run.agentContext, (tx) =>
         tx.insert(executionSteps).values({
           organizationId: a.organizationId,
           runId: run.runId,
