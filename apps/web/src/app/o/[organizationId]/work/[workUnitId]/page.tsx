@@ -2,11 +2,13 @@ import { randomUUID } from 'node:crypto';
 import {
   getWorkDetail,
   getWorkTitle,
+  listActionConnections,
   listDirectory,
+  listExternalActions,
   listProjects,
   listWorkUnits,
 } from '@ensemus/application';
-import { canReadWork, type Classification } from '@ensemus/domain/policy';
+import { can, canReadWork, type Classification } from '@ensemus/domain/policy';
 import {
   allowedTransitions,
   canChangeContent,
@@ -26,6 +28,8 @@ import { EditWorkForm } from '@/components/edit-work-form';
 import { FileField } from '@/components/file-field';
 import { DraftScope, KeptTextarea } from '@/components/kept-field';
 import { LiveStatus } from '@/components/live-status';
+import { NewEmailForm } from '@/components/new-email-form';
+import { ReceiptStatusBadge } from '@/components/receipt-status';
 import { SubmitButton } from '@/components/submit-button';
 import {
   ClassificationBadge,
@@ -40,6 +44,7 @@ import {
   toDateInput,
 } from '@/components/ui';
 import { planNote, reopenDraftName } from '@/lib/work-view';
+import { getRuntime } from '@/server/runtime';
 import { orNotFound, requireTenant } from '@/server/tenant';
 import {
   addDependencyAction,
@@ -137,11 +142,15 @@ export default async function WorkDetailPage({
   const status = work.status as WorkState;
   const finished = isTerminal(status);
   const canAddDependency = canChange && (status === 'queued' || status === 'blocked');
-  const [members, projects, candidates] = await Promise.all([
+  const [members, projects, candidates, externalActions, actionConnections] = await Promise.all([
     listDirectory(database, context),
     work.projectId ? listProjects(database, context) : [],
     canAddDependency ? listWorkUnits(database, context) : null,
+    listExternalActions(database, context, { workUnitId: work.id }),
+    listActionConnections(database, context),
   ]);
+  const connectorsEnabled = getRuntime().config.connectorsEnabled;
+  const senders = actionConnections.filter((connection) => connection.fromAddress);
 
   const base = `/o/${organizationId}`;
   const today = new Date();
@@ -532,6 +541,13 @@ export default async function WorkDetailPage({
                 The checklist the plan added does not count: someone has to attach the result.
               </p>
             )}
+          {unmet.some((u) => u.kind === 'external_receipt') && (
+            <p className="muted gap-above">
+              {actionConnections.length === 0
+                ? 'This asks for a receipt from an outside system, and this organization has no active connection that can give one. It stays unmet until an organization owner or admin connects one again.'
+                : 'This counts an email below once your mail server has accepted it, or once someone who answers for this work has looked and said it went. That second case rests on their word, and the email shows it.'}
+            </p>
+          )}
           <h3 className="gap-above-large">Reviews</h3>
           {reviews.length === 0 ? (
             <p className="muted">
@@ -607,6 +623,70 @@ export default async function WorkDetailPage({
                     ' This work stays paused until they do. If they deny it or the time runs out, it stops for good.'}
                 </small>
               </form>
+            ))}
+        </section>
+
+        <section className="card" aria-labelledby="external-heading">
+          <h2 id="external-heading">Emails from this work</h2>
+          {externalActions.items.length === 0 ? (
+            <p className="muted">Nothing has been proposed from this work.</p>
+          ) : (
+            <ul className="list">
+              {externalActions.items.map((action) => (
+                <li key={action.id}>
+                  <Link href={`${base}/external-actions/${action.id}`}>
+                    {action.subject ?? 'An action outside Ensemus'}
+                  </Link>
+                  <ReceiptStatusBadge status={action.status} statusReason={action.statusReason} />
+                </li>
+              ))}
+            </ul>
+          )}
+          {externalActions.next && (
+            <p className="muted gap-above">Showing only the 50 most recent.</p>
+          )}
+          {canChange &&
+            !finished &&
+            (!connectorsEnabled ? (
+              <p className="muted gap-above">Sending email is not turned on for this deployment.</p>
+            ) : work.classification === 'restricted' ? (
+              <p className="muted gap-above">
+                Restricted work cannot be sent outside this deployment.
+              </p>
+            ) : senders.length === 0 ? (
+              <p className="muted gap-above">
+                This organization has no connection that can send email.{' '}
+                {can(context.role, 'connection.manage') ? (
+                  <Link href={`${base}/connections`}>Add one under Connections.</Link>
+                ) : (
+                  'An organization owner or admin can add one.'
+                )}
+              </p>
+            ) : approvers.length === 0 ? (
+              <p className="muted gap-above">
+                An email needs someone else to approve it, and nobody else who can see this work is
+                able to.
+              </p>
+            ) : (
+              <details className="gap-above">
+                <summary>Propose an email</summary>
+                <NewEmailForm
+                  organizationId={organizationId}
+                  target={{ kind: 'propose', workUnitId: work.id }}
+                  requestKey={randomUUID()}
+                  connections={senders.map((connection) => ({
+                    id: connection.id,
+                    label: `${connection.displayName} (sends as ${connection.fromAddress})`,
+                  }))}
+                  approvers={approvers.map((member) => ({
+                    id: member.membershipId,
+                    label: personLabel(member),
+                  }))}
+                  {...(senders.length === 1 && senders[0]
+                    ? { defaults: { connectionId: senders[0].id } }
+                    : {})}
+                />
+              </details>
             ))}
         </section>
 

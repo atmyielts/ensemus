@@ -19,6 +19,9 @@
   --warn-soft: #fbf0d9;
   --danger: #b3261e;
   --danger-soft: #fbe9e7;
+  /* Only for "we don't know whether this was sent": it must not borrow good, warn or danger. */
+  --unknown: #55308c;
+  --unknown-soft: #efe9fa;
   --radius: 8px;
   --radius-small: 6px;
   --shadow: 0 1px 2px rgb(0 0 0 / 5%);
@@ -43,6 +46,8 @@
     --warn-soft: #3a2f17;
     --danger: #f2a49d;
     --danger-soft: #3d2120;
+    --unknown: #cdb8f5;
+    --unknown-soft: #2e2542;
     --shadow: none;
   }
 }
@@ -545,6 +550,23 @@ dl.facts dt {
 .badge.bad {
   background: var(--danger-soft);
   color: var(--danger);
+}
+/* The longest badge there is, so it may wrap on a phone instead of pushing the page sideways. */
+.badge.unknown {
+  background: var(--unknown-soft);
+  color: var(--unknown);
+  white-space: normal;
+}
+.notice.unknown {
+  background: var(--unknown-soft);
+  color: var(--unknown);
+  border-left: 3px solid var(--unknown);
+}
+.notice.unknown code {
+  overflow-wrap: anywhere;
+}
+dl.exact-email dd {
+  overflow-wrap: anywhere;
 }
 .count {
   min-width: 1.25rem;
