@@ -74,9 +74,37 @@ export function webhookInboxEventId(endpointId: string, providerEventId: string)
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-5${hex.slice(13, 16)}-a${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
 }
 
+export const PAYMENT_EVENT_KINDS = [
+  'payment_succeeded',
+  'payment_failed',
+  'payment_refunded',
+  'payment_disputed',
+  'customer_updated',
+] as const;
+export type PaymentEventKind = (typeof PAYMENT_EVENT_KINDS)[number];
+
 /**
- * What a verified delivery may ask for. Both are requests, not effects: `action_proposed` becomes an
- * intent that still needs a person's approval, and `sync_requested` only reads.
+ * What a processor's verified webhook says, in IDs, enums and amounts (ADR-032 D4). The customer reference
+ * goes only as a hash, and the tenant is found from that against our own row, never from this.
+ */
+export type PaymentEventFact = {
+  processor: string;
+  providerEventId: string;
+  kind: PaymentEventKind;
+  customerRefHash: string;
+  processorPaymentRef: string | null;
+  /** Our payment ID, when the processor echoes back what we sent. A row confirms it. Never trusted alone. */
+  paymentId: string | null;
+  /** Micros as a string of digits. */
+  amountMicros: string | null;
+  currency: string | null;
+  occurredAtSeconds: number;
+};
+
+/**
+ * What a verified delivery may ask for. None are effects by themselves: `action_proposed` becomes an
+ * intent that still needs a person's approval, `sync_requested` only reads, and `payment_event` is routed
+ * to its tenant later and checked against what that tenant's rows say.
  */
 export type WebhookEffect =
   | {
@@ -87,7 +115,8 @@ export type WebhookEffect =
       toolVersion: string;
       payload: unknown;
     }
-  | { kind: 'sync_requested' };
+  | { kind: 'sync_requested' }
+  | { kind: 'payment_event'; event: PaymentEventFact };
 
 /** The digest of one exact request. A repeat of the same bytes is stored once. */
 export function webhookRequestDigest(

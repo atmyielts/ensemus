@@ -8,6 +8,7 @@ import {
   addDependency,
   addTeamMember,
   AppError,
+  refusalFromDatabase,
   assignContributor,
   auditRefusal,
   canonicalId,
@@ -99,6 +100,8 @@ async function run(
       target = '/restoring';
     } else if (error instanceof AppError) {
       target = `${back}${back.includes('?') ? '&' : '?'}error=${error.code}`;
+    } else if (refusalFromDatabase(error)) {
+      target = `${back}${back.includes('?') ? '&' : '?'}error=${refusalFromDatabase(error)?.code}`;
     } else {
       getRuntime().log.error('action.failed', { errorCode: errorCode(error) });
       target = `${back}${back.includes('?') ? '&' : '?'}error=UNEXPECTED`;
@@ -116,6 +119,8 @@ function assertConfirmed(form: FormData) {
 async function codeOf(tenant: Tenant, error: unknown): Promise<string> {
   await recordRefusal(tenant, error);
   if (error instanceof AppError) return error.code;
+  const refused = refusalFromDatabase(error);
+  if (refused) return refused.code;
   getRuntime().log.error('action.failed', { errorCode: errorCode(error) });
   return 'UNEXPECTED';
 }

@@ -1,9 +1,16 @@
 import { and, eq, sql } from 'drizzle-orm';
 import { openDatabase, type EnsemusDrizzle } from './connection';
-import { memberships } from './schema';
+import { memberships, organizations } from './schema';
 import { webhookEndpoints } from './schema-integrations';
+import { billingAccounts } from './schema-saas';
 
 const brand: unique symbol = Symbol('TenantContext');
+
+/**
+ * How far this person's tenant is being served (ADR-032 D5). Anything but `full` makes withTenantTx a
+ * read-only transaction, so a write is refused by PostgreSQL itself even where a check was forgotten.
+ */
+export type TenantServing = 'full' | 'read_only' | 'suspended' | 'offboarding';
 
 /** Proof that a user's active membership was checked. Only this module can create one. */
 export type TenantContext = Readonly<{
@@ -12,6 +19,8 @@ export type TenantContext = Readonly<{
   membershipId: string;
   role: string;
   actorType: 'user' | 'service';
+  /** Missing means `full`, which is what a worker acting for a tenant always is. */
+  serving?: TenantServing;
   [brand]: true;
 }>;
 
@@ -94,8 +103,57 @@ export async function withTenantTx<T>(
   if (context[brand] !== true) throw new TenantAccessDenied();
   return database.transaction(
     { 'app.organization_id': context.organizationId, 'app.user_id': context.userId },
+    async (tx) => {
+      if (context.serving && context.serving !== 'full') {
+        await tx.execute(sql`set transaction read only`);
+      }
+      return fn(tx);
+    },
+  );
+}
+
+/**
+ * The same, for what a person may still do in a tenant that is not being served in full: pay, read their
+ * bill, export, ask for support, and leave (ADR-032 D5). Only `@ensemus/application/saas/*` calls this,
+ * through `@ensemus/database/account`, and lint keeps it there.
+ */
+export async function withAccountTx<T>(
+  database: AppDatabase,
+  context: TenantContext,
+  fn: (tx: Tx) => Promise<T>,
+): Promise<T> {
+  if (context[brand] !== true) throw new TenantAccessDenied();
+  return database.transaction(
+    { 'app.organization_id': context.organizationId, 'app.user_id': context.userId },
     fn,
   );
+}
+
+/**
+ * A processor's event names a customer, and this binds only the hash of that reference, which reveals
+ * that one billing account, and from its row binds the tenant, so nothing about the tenant comes from the
+ * event (ADR-032 D4). Answers null, without calling `fn`, when nobody has that reference. Worker-only:
+ * `@ensemus/database/payment-routing`, and lint blocks the web tier.
+ */
+export function withPaymentCustomerTx<T>(
+  database: AppDatabase,
+  customerRefHash: string,
+  fn: (
+    tx: Tx,
+    scope: { account: typeof billingAccounts.$inferSelect; context: TenantContext },
+  ) => Promise<T>,
+): Promise<T | null> {
+  return database.transaction({ 'app.payment_customer_hash': customerRefHash }, async (tx) => {
+    const [account] = await tx
+      .select()
+      .from(billingAccounts)
+      .where(eq(billingAccounts.customerRefHash, customerRefHash));
+    if (!account) return null;
+    await tx.execute(
+      sql`select set_config('app.organization_id', ${account.organizationId}, true)`,
+    );
+    return fn(tx, { account, context: createServiceContext(account.organizationId) });
+  });
 }
 
 /** Binds a brand-new tenant, so row-level policies apply to its first inserts like any other. */
@@ -163,8 +221,10 @@ export async function resolveTenantContext(
         id: memberships.id,
         role: memberships.role,
         organizationId: memberships.organizationId,
+        lifecycle: organizations.lifecycle,
       })
       .from(memberships)
+      .innerJoin(organizations, eq(organizations.id, memberships.organizationId))
       .where(
         and(
           eq(memberships.organizationId, organizationId),
@@ -173,13 +233,15 @@ export async function resolveTenantContext(
         ),
       ),
   );
-  if (!membership) throw new TenantAccessDenied();
+  // A tenant that has gone is the same as one that never existed.
+  if (!membership || membership.lifecycle === 'deleted') throw new TenantAccessDenied();
   return {
     organizationId: membership.organizationId,
     userId,
     membershipId: membership.id,
     role: membership.role,
     actorType: 'user',
+    serving: membership.lifecycle === 'active' ? 'full' : (membership.lifecycle as TenantServing),
     [brand]: true,
   };
 }

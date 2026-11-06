@@ -15,7 +15,15 @@
     "./connector-deps": "./src/connector-deps.ts",
     "./external-action-activities": "./src/external-action-activities.ts",
     "./webhook-activities": "./src/webhook-activities.ts",
-    "./connector-sync-activities": "./src/connector-sync-activities.ts"
+    "./connector-sync-activities": "./src/connector-sync-activities.ts",
+    "./saas-schemas": "./src/saas-schemas.ts",
+    "./saas-deps": "./src/saas-deps.ts",
+    "./billing-activities": "./src/billing-activities.ts",
+    "./credit-activities": "./src/credit-activities.ts",
+    "./tax-activities": "./src/tax-activities.ts",
+    "./payment-activities": "./src/payment-activities.ts",
+    "./retention-activities": "./src/retention-activities.ts",
+    "./offboarding-activities": "./src/offboarding-activities.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"
@@ -25,6 +33,7 @@
     "@ensemus/connectors": "workspace:*",
     "@ensemus/database": "workspace:*",
     "@ensemus/domain": "workspace:*",
+    "@ensemus/saas": "workspace:*",
     "@ensemus/telemetry": "workspace:*",
     "drizzle-orm": "0.45.4",
     "@temporalio/client": "1.25.0",

@@ -26,6 +26,7 @@ export {
   withWebhookEndpointTx,
   type AppDatabase,
   type TenantContext,
+  type TenantServing,
   type Tx,
   type WebhookEndpointRow,
 } from './tenant';
@@ -41,3 +42,4 @@ export {
 } from './schema';
 export * from './schema-work';
 export * from './schema-integrations';
+export * from './schema-saas';

@@ -9,6 +9,7 @@
     "./runtime": "./src/runtime/index.ts",
     "./email": "./src/email/index.ts",
     "./inbound": "./src/inbound/index.ts",
+    "./payment": "./src/payment/index.ts",
     "./testing": "./src/testing/index.ts"
   },
   "scripts": {
@@ -17,6 +18,7 @@
   "dependencies": {
     "@ensemus/contracts": "workspace:*",
     "@ensemus/domain": "workspace:*",
+    "@ensemus/saas": "workspace:*",
     "zod": "4.6.7"
   }
 }

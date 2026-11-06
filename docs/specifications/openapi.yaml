@@ -757,6 +757,627 @@ paths:
                   mode: {type: string, enum: [cloud, byom, sovereign]}
                   features: {type: array, items: {type: string}}
                   capacity: {type: object, additionalProperties: true}
+  /organizations/{organization_id}/billing:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+    get:
+      x-ensemus-status: planned
+      tags: [commercial]
+      summary: This organization's billing overview, in any standing
+      responses:
+        '200':
+          description: Standing, billing account and subscription. Holds no credential and no processor text.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/BillingOverview'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+  /organizations/{organization_id}/billing/account:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+    put:
+      x-ensemus-status: planned
+      tags: [commercial]
+      summary: Save who pays. Creating sends no If-Match, and changing one needs the version that was seen
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/SaveBillingAccount'}
+      responses:
+        '200':
+          description: Saved
+          headers:
+            ETag: {$ref: '#/components/headers/ETag'}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/SavedVersion'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '413': {$ref: '#/components/responses/PayloadTooLarge'}
+        '415': {$ref: '#/components/responses/UnsupportedMediaType'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+  /organizations/{organization_id}/billing/plans:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+    get:
+      x-ensemus-status: planned
+      tags: [commercial]
+      summary: Approved plans for this organization's mode. Empty until the owner approves one.
+      responses:
+        '200':
+          description: Approved plan versions
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [items]
+                properties:
+                  items: {type: array, items: {$ref: '#/components/schemas/PlanVersion'}}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+  /organizations/{organization_id}/billing/subscription:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+    post:
+      x-ensemus-status: planned
+      tags: [commercial]
+      summary: Start a subscription on an approved plan
+      parameters: [{$ref: '#/components/parameters/IdempotencyKey'}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/PlanChoice'}
+      responses:
+        '201':
+          description: Started
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [subscription_id]
+                properties:
+                  subscription_id: {type: string, format: uuid}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '413': {$ref: '#/components/responses/PayloadTooLarge'}
+        '415': {$ref: '#/components/responses/UnsupportedMediaType'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+    patch:
+      x-ensemus-status: planned
+      tags: [commercial]
+      summary: Change plan. Never removes data, and anything over the new limits goes read-only.
+      parameters: [{$ref: '#/components/parameters/IfMatch'}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/PlanChoice'}
+      responses:
+        '200':
+          description: Changed, now or at the period's end
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [effective, excess]
+                properties:
+                  effective: {type: string, enum: [now, period_end]}
+                  excess: {type: object, additionalProperties: {type: integer, minimum: 0}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '413': {$ref: '#/components/responses/PayloadTooLarge'}
+        '415': {$ref: '#/components/responses/UnsupportedMediaType'}
+        '428': {$ref: '#/components/responses/PreconditionRequired'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+  /organizations/{organization_id}/billing/invoices:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+    get:
+      x-ensemus-status: planned
+      tags: [commercial]
+      summary: This organization's invoices
+      parameters:
+        - name: cursor
+          in: query
+          schema: {type: string, minLength: 1, maxLength: 512}
+      responses:
+        '200':
+          description: One page
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [items, next_cursor]
+                properties:
+                  items: {type: array, items: {$ref: '#/components/schemas/InvoiceSummary'}}
+                  next_cursor: {type: [string, 'null']}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+  /organizations/{organization_id}/billing/invoices/{invoice_id}:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+      - $ref: '#/components/parameters/InvoiceID'
+    get:
+      x-ensemus-status: planned
+      tags: [commercial]
+      summary: One invoice and its lines
+      responses:
+        '200':
+          description: The invoice
+          headers:
+            ETag: {$ref: '#/components/headers/ETag'}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/InvoiceDetail'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+  /organizations/{organization_id}/billing/invoices/{invoice_id}/payments:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+      - $ref: '#/components/parameters/InvoiceID'
+    post:
+      x-ensemus-status: planned
+      tags: [commercial]
+      summary: Ask to charge this invoice. A live payment is returned and no second one is made.
+      parameters: [{$ref: '#/components/parameters/IdempotencyKey'}]
+      responses:
+        '202':
+          description: Asked. Charging happens in a worker, and this says nothing about whether it worked.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [payment_id, status]
+                properties:
+                  payment_id: {type: string, format: uuid}
+                  status: {$ref: '#/components/schemas/PaymentStatus'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+  /organizations/{organization_id}/billing/credits:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+    get:
+      x-ensemus-status: planned
+      tags: [commercial]
+      summary: Remaining AI credits and what used them. Null for BYOM, whose provider bills it directly.
+      responses:
+        '200':
+          description: The balance
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/CreditSummary'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+  /organizations/{organization_id}/billing/top-ups:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+    get:
+      x-ensemus-status: planned
+      tags: [commercial]
+      summary: What can be bought now, each with the exact quote a request has to echo
+      responses:
+        '200':
+          description: Offers on the current card
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [offers]
+                properties:
+                  offers: {type: array, items: {$ref: '#/components/schemas/TopUpOffer'}}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+    post:
+      x-ensemus-status: planned
+      tags: [commercial]
+      summary: Buy exactly the quote that was shown. A changed price buys nothing.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/RequestTopUp'}
+      responses:
+        '201':
+          description: Requested. Credits arrive only after payment succeeds.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [top_up_id, invoice_id]
+                properties:
+                  top_up_id: {type: string, format: uuid}
+                  invoice_id: {type: string, format: uuid}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '413': {$ref: '#/components/responses/PayloadTooLarge'}
+        '415': {$ref: '#/components/responses/UnsupportedMediaType'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+  /organizations/{organization_id}/retention-rules:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+    get:
+      x-ensemus-status: planned
+      tags: [commercial]
+      summary: Current retention rules. A category with none is never swept.
+      responses:
+        '200':
+          description: Current rules
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [items]
+                properties:
+                  items: {type: array, items: {$ref: '#/components/schemas/RetentionRule'}}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+    post:
+      x-ensemus-status: planned
+      tags: [commercial]
+      summary: Set one rule, with the sign-off it rests on. It supersedes what was there.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/SetRetentionRule'}
+      responses:
+        '201':
+          description: Set
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/RetentionRule'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '413': {$ref: '#/components/responses/PayloadTooLarge'}
+        '415': {$ref: '#/components/responses/UnsupportedMediaType'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+  /organizations/{organization_id}/legal-holds:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+    get:
+      x-ensemus-status: planned
+      tags: [commercial]
+      summary: Legal holds. Someone who may not manage them gets not found.
+      responses:
+        '200':
+          description: Every hold, active and released
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [items]
+                properties:
+                  items: {type: array, items: {$ref: '#/components/schemas/LegalHold'}}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+    post:
+      x-ensemus-status: planned
+      tags: [commercial]
+      summary: Place a hold. Anything in its scope survives every deletion request until it is released.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/PlaceLegalHold'}
+      responses:
+        '201':
+          description: Placed
+          headers:
+            ETag: {$ref: '#/components/headers/ETag'}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/LegalHold'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '413': {$ref: '#/components/responses/PayloadTooLarge'}
+        '415': {$ref: '#/components/responses/UnsupportedMediaType'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+  /organizations/{organization_id}/legal-holds/{legal_hold_id}/release:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+      - $ref: '#/components/parameters/LegalHoldID'
+    post:
+      x-ensemus-status: planned
+      tags: [commercial]
+      summary: Release a hold, with a reason. It stays released.
+      parameters: [{$ref: '#/components/parameters/IfMatch'}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ReasonCode'}
+      responses:
+        '204': {description: Released}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '413': {$ref: '#/components/responses/PayloadTooLarge'}
+        '415': {$ref: '#/components/responses/UnsupportedMediaType'}
+        '428': {$ref: '#/components/responses/PreconditionRequired'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+  /organizations/{organization_id}/offboarding:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+    get:
+      x-ensemus-status: planned
+      tags: [commercial]
+      summary: Where this organization's offboarding stands, and its report when there is one
+      responses:
+        '200':
+          description: The offboarding, or null
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [offboarding]
+                properties:
+                  offboarding:
+                    oneOf:
+                      - {$ref: '#/components/schemas/Offboarding'}
+                      - {type: 'null'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+    post:
+      x-ensemus-status: planned
+      tags: [commercial]
+      summary: Ask to leave, by typing this organization's exact name. Nothing is erased by this.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/RequestOffboarding'}
+      responses:
+        '202':
+          description: Started
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [offboarding_id]
+                properties:
+                  offboarding_id: {type: string, format: uuid}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '413': {$ref: '#/components/responses/PayloadTooLarge'}
+        '415': {$ref: '#/components/responses/UnsupportedMediaType'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+  /organizations/{organization_id}/offboarding/cancellation:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+    post:
+      x-ensemus-status: planned
+      tags: [commercial]
+      summary: Stay after all. Only before erasure starts.
+      parameters: [{$ref: '#/components/parameters/IfMatch'}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ReasonCode'}
+      responses:
+        '204': {description: Cancelled, and service is back}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '413': {$ref: '#/components/responses/PayloadTooLarge'}
+        '415': {$ref: '#/components/responses/UnsupportedMediaType'}
+        '428': {$ref: '#/components/responses/PreconditionRequired'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+  /organizations/{organization_id}/support/tickets:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+    get:
+      x-ensemus-status: planned
+      tags: [commercial]
+      summary: Support tickets this person can see
+      responses:
+        '200':
+          description: Tickets
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [items]
+                properties:
+                  items: {type: array, items: {$ref: '#/components/schemas/TicketSummary'}}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+    post:
+      x-ensemus-status: planned
+      tags: [commercial]
+      summary: Ask for help. Support reads what is written here, and nothing else of this organization's.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/OpenTicket'}
+      responses:
+        '201':
+          description: Opened
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [ticket_id]
+                properties:
+                  ticket_id: {type: string, format: uuid}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '413': {$ref: '#/components/responses/PayloadTooLarge'}
+        '415': {$ref: '#/components/responses/UnsupportedMediaType'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+  /organizations/{organization_id}/support/tickets/{ticket_id}:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+      - $ref: '#/components/parameters/TicketID'
+    get:
+      x-ensemus-status: planned
+      tags: [commercial]
+      summary: One ticket and its messages
+      responses:
+        '200':
+          description: The ticket
+          headers:
+            ETag: {$ref: '#/components/headers/ETag'}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/TicketDetail'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+  /organizations/{organization_id}/support/tickets/{ticket_id}/messages:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+      - $ref: '#/components/parameters/TicketID'
+    post:
+      x-ensemus-status: planned
+      tags: [commercial]
+      summary: Reply to a ticket
+      parameters: [{$ref: '#/components/parameters/IfMatch'}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ReplyTicket'}
+      responses:
+        '200':
+          description: Added
+          headers:
+            ETag: {$ref: '#/components/headers/ETag'}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/SavedVersion'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '413': {$ref: '#/components/responses/PayloadTooLarge'}
+        '415': {$ref: '#/components/responses/UnsupportedMediaType'}
+        '428': {$ref: '#/components/responses/PreconditionRequired'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+  /organizations/{organization_id}/support/break-glass:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+    get:
+      x-ensemus-status: planned
+      tags: [commercial]
+      summary: Requests for support access to content. The default is none.
+      responses:
+        '200':
+          description: Requests
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [items]
+                properties:
+                  items: {type: array, items: {$ref: '#/components/schemas/BreakGlassRequest'}}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
+  /organizations/{organization_id}/support/break-glass/{break_glass_id}/decision:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+      - $ref: '#/components/parameters/BreakGlassID'
+    post:
+      x-ensemus-status: planned
+      tags: [commercial]
+      summary: Agree to or refuse a request. Agreeing still grants no read path in this release.
+      parameters: [{$ref: '#/components/parameters/IfMatch'}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/DecideBreakGlass'}
+      responses:
+        '200':
+          description: Decided
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/BreakGlassRequest'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '413': {$ref: '#/components/responses/PayloadTooLarge'}
+        '415': {$ref: '#/components/responses/UnsupportedMediaType'}
+        '428': {$ref: '#/components/responses/PreconditionRequired'}
+        '500': {$ref: '#/components/responses/InternalError'}
+        '503': {$ref: '#/components/responses/RestorePending'}
 components:
   securitySchemes:
     sessionCookie:
@@ -801,6 +1422,26 @@ components:
       schema: {type: string, format: uuid}
     ConnectionID:
       name: connection_id
+      in: path
+      required: true
+      schema: {type: string, format: uuid}
+    InvoiceID:
+      name: invoice_id
+      in: path
+      required: true
+      schema: {type: string, format: uuid}
+    LegalHoldID:
+      name: legal_hold_id
+      in: path
+      required: true
+      schema: {type: string, format: uuid}
+    TicketID:
+      name: ticket_id
+      in: path
+      required: true
+      schema: {type: string, format: uuid}
+    BreakGlassID:
+      name: break_glass_id
       in: path
       required: true
       schema: {type: string, format: uuid}
@@ -1056,6 +1697,337 @@ components:
         request_id: {type: string}
         retryable: {type: boolean}
         details: {type: object, additionalProperties: true}
+    MicrosAmount:
+      type: string
+      pattern: '^-?(0|[1-9][0-9]{0,18})$'
+      description: Whole millionths of a currency's main unit or of a credit, as digits, because JSON numbers cannot hold every value.
+    SavedVersion:
+      type: object
+      additionalProperties: false
+      required: [version]
+      properties:
+        version: {type: integer, minimum: 1}
+    ReasonCode:
+      type: object
+      additionalProperties: false
+      required: [reason_code]
+      properties:
+        reason_code: {type: string, pattern: '^[A-Z][A-Z0-9_]{0,63}$'}
+    BillingAccount:
+      type: object
+      additionalProperties: false
+      required: [billing_name, billing_email, country_code, region_code, postal_code, tax_id, version]
+      properties:
+        billing_name: {type: string}
+        billing_email: {type: string}
+        country_code: {type: string, pattern: '^[A-Z]{2}$'}
+        region_code: {type: string}
+        postal_code: {type: [string, 'null']}
+        tax_id: {type: [string, 'null']}
+        version: {type: integer, minimum: 1}
+    SaveBillingAccount:
+      type: object
+      additionalProperties: false
+      required: [billing_name, billing_email, country_code, region_code, postal_code, tax_id]
+      properties:
+        billing_name: {type: string, minLength: 1, maxLength: 200}
+        billing_email: {type: string, format: email, maxLength: 254}
+        country_code: {type: string, pattern: '^[A-Z]{2}$'}
+        region_code: {type: string, pattern: '^[A-Z0-9-]{0,16}$'}
+        postal_code: {type: [string, 'null'], minLength: 1, maxLength: 32}
+        tax_id: {type: [string, 'null'], minLength: 1, maxLength: 64}
+    BillingOverview:
+      type: object
+      additionalProperties: false
+      required: [lifecycle, billing_enabled, account, subscription]
+      properties:
+        lifecycle: {type: string, enum: [active, read_only, suspended, offboarding]}
+        billing_enabled: {type: boolean}
+        account:
+          oneOf:
+            - {$ref: '#/components/schemas/BillingAccount'}
+            - {type: 'null'}
+        subscription:
+          oneOf:
+            - {$ref: '#/components/schemas/Subscription'}
+            - {type: 'null'}
+    Subscription:
+      type: object
+      additionalProperties: false
+      required: [id, plan_version_id, status, current_period_start, current_period_end, cancel_at_period_end, version]
+      properties:
+        id: {type: string, format: uuid}
+        plan_version_id: {type: string, format: uuid}
+        status: {type: string, enum: [active, past_due, canceled]}
+        current_period_start: {type: string, format: date-time}
+        current_period_end: {type: string, format: date-time}
+        cancel_at_period_end: {type: boolean}
+        version: {type: integer, minimum: 1}
+    PlanVersion:
+      type: object
+      additionalProperties: false
+      required: [plan_version_id, plan_code, display_name, currency, billing_interval, payment_terms_days, platform_fee_micros, included_microcredits, overage_policy, features, max_active_members]
+      properties:
+        plan_version_id: {type: string, format: uuid}
+        plan_code: {type: string}
+        display_name: {type: string}
+        currency: {type: string, pattern: '^[A-Z]{3}$'}
+        billing_interval: {type: string, enum: [month, year]}
+        payment_terms_days: {type: integer, minimum: 0}
+        platform_fee_micros: {$ref: '#/components/schemas/MicrosAmount'}
+        included_microcredits:
+          oneOf:
+            - {$ref: '#/components/schemas/MicrosAmount'}
+            - {type: 'null'}
+        overage_policy: {type: [string, 'null'], enum: [pause, explicit_top_up, null]}
+        features: {type: array, items: {type: string}}
+        max_active_members: {type: [integer, 'null'], minimum: 1}
+    PlanChoice:
+      type: object
+      additionalProperties: false
+      required: [plan_version_id]
+      properties:
+        plan_version_id: {type: string, format: uuid}
+    InvoiceStatus:
+      type: string
+      enum: [draft, open, paid, void, uncollectible]
+    PaymentStatus:
+      type: string
+      enum: [ready, sending, reconciling, succeeded, failed, unknown, cancelled]
+    InvoiceSummary:
+      type: object
+      additionalProperties: false
+      required: [id, invoice_number, kind, status, currency, total_micros, issued_at, due_at, paid_at]
+      properties:
+        id: {type: string, format: uuid}
+        invoice_number: {type: [integer, 'null'], minimum: 1}
+        kind: {type: string, enum: [subscription, top_up]}
+        status: {$ref: '#/components/schemas/InvoiceStatus'}
+        currency: {type: string, pattern: '^[A-Z]{3}$'}
+        total_micros: {$ref: '#/components/schemas/MicrosAmount'}
+        issued_at: {type: [string, 'null'], format: date-time}
+        due_at: {type: [string, 'null'], format: date-time}
+        paid_at: {type: [string, 'null'], format: date-time}
+    InvoiceDetail:
+      type: object
+      additionalProperties: false
+      required: [id, invoice_number, kind, status, currency, subtotal_micros, tax_micros, total_micros, minor_unit_exponent, issued_at, due_at, paid_at, lines, version]
+      properties:
+        id: {type: string, format: uuid}
+        invoice_number: {type: [integer, 'null'], minimum: 1}
+        kind: {type: string, enum: [subscription, top_up]}
+        status: {$ref: '#/components/schemas/InvoiceStatus'}
+        currency: {type: string, pattern: '^[A-Z]{3}$'}
+        subtotal_micros: {$ref: '#/components/schemas/MicrosAmount'}
+        tax_micros: {$ref: '#/components/schemas/MicrosAmount'}
+        total_micros: {$ref: '#/components/schemas/MicrosAmount'}
+        minor_unit_exponent: {type: [integer, 'null'], minimum: 0, maximum: 4}
+        issued_at: {type: [string, 'null'], format: date-time}
+        due_at: {type: [string, 'null'], format: date-time}
+        paid_at: {type: [string, 'null'], format: date-time}
+        version: {type: integer, minimum: 1}
+        lines:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [line_no, kind, meter, quantity, unit, unit_price_micros, amount_micros]
+            properties:
+              line_no: {type: integer, minimum: 1}
+              kind: {type: string, enum: [platform_fee, usage, top_up, tax, rounding]}
+              meter: {type: [string, 'null']}
+              quantity:
+                oneOf:
+                  - {$ref: '#/components/schemas/MicrosAmount'}
+                  - {type: 'null'}
+              unit: {type: [string, 'null']}
+              unit_price_micros:
+                oneOf:
+                  - {$ref: '#/components/schemas/MicrosAmount'}
+                  - {type: 'null'}
+              amount_micros: {$ref: '#/components/schemas/MicrosAmount'}
+    CreditSummary:
+      type: object
+      additionalProperties: false
+      required: [balance_microcredits, included_microcredits, overage_policy, recent]
+      properties:
+        balance_microcredits:
+          oneOf:
+            - {$ref: '#/components/schemas/MicrosAmount'}
+            - {type: 'null'}
+        included_microcredits:
+          oneOf:
+            - {$ref: '#/components/schemas/MicrosAmount'}
+            - {type: 'null'}
+        overage_policy: {type: [string, 'null'], enum: [pause, explicit_top_up, null]}
+        recent:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [kind, amount_microcredits, occurred_at]
+            properties:
+              kind: {type: string, enum: [allocation, top_up, consumption, expiry, correction]}
+              amount_microcredits: {$ref: '#/components/schemas/MicrosAmount'}
+              occurred_at: {type: string, format: date-time}
+    TopUpOffer:
+      type: object
+      additionalProperties: false
+      required: [offer_id, microcredits, price_micros, currency, quote_hash]
+      properties:
+        offer_id: {type: string, format: uuid}
+        microcredits: {$ref: '#/components/schemas/MicrosAmount'}
+        price_micros: {$ref: '#/components/schemas/MicrosAmount'}
+        currency: {type: string, pattern: '^[A-Z]{3}$'}
+        quote_hash: {type: string, pattern: '^[0-9a-f]{64}$'}
+    RequestTopUp:
+      type: object
+      additionalProperties: false
+      required: [offer_id, quote_hash, request_key]
+      properties:
+        offer_id: {type: string, format: uuid}
+        quote_hash: {type: string, pattern: '^[0-9a-f]{64}$'}
+        request_key: {type: string, minLength: 16, maxLength: 128}
+    RetentionRule:
+      type: object
+      additionalProperties: false
+      required: [id, data_category, classification, retain_days, basis_ref, created_at]
+      properties:
+        id: {type: string, format: uuid}
+        data_category: {type: string}
+        classification: {type: string, enum: ['*', public, internal, confidential, restricted]}
+        retain_days: {type: [integer, 'null'], minimum: 1}
+        basis_ref: {type: string}
+        created_at: {type: string, format: date-time}
+    SetRetentionRule:
+      type: object
+      additionalProperties: false
+      required: [data_category, classification, retain_days, basis_ref]
+      properties:
+        data_category:
+          type: string
+          enum: [transaction_records, work_unit_history, raw_files, search_indexes, derived_embeddings, model_outputs, operational_traces, audit_logs, temporary_debug_captures]
+        classification: {type: string, enum: ['*', public, internal, confidential, restricted]}
+        retain_days: {type: [integer, 'null'], minimum: 1, maximum: 36500}
+        basis_ref: {type: string, minLength: 1, maxLength: 200}
+    HoldScope:
+      type: object
+      additionalProperties: false
+      required: [type, id]
+      properties:
+        type: {type: string, enum: [organization, client, project, work_unit, artifact]}
+        id: {type: [string, 'null'], format: uuid}
+    LegalHold:
+      type: object
+      additionalProperties: false
+      required: [id, matter_ref, status, scopes, placed_at, released_at, release_reason_code, version]
+      properties:
+        id: {type: string, format: uuid}
+        matter_ref: {type: string}
+        status: {type: string, enum: [active, released]}
+        scopes: {type: array, items: {$ref: '#/components/schemas/HoldScope'}}
+        placed_at: {type: string, format: date-time}
+        released_at: {type: [string, 'null'], format: date-time}
+        release_reason_code: {type: [string, 'null']}
+        version: {type: integer, minimum: 1}
+    PlaceLegalHold:
+      type: object
+      additionalProperties: false
+      required: [matter_ref, scopes]
+      properties:
+        matter_ref: {type: string, minLength: 1, maxLength: 120}
+        scopes: {type: array, minItems: 1, maxItems: 100, items: {$ref: '#/components/schemas/HoldScope'}}
+    RequestOffboarding:
+      type: object
+      additionalProperties: false
+      required: [confirm_name]
+      properties:
+        confirm_name: {type: string, minLength: 1, maxLength: 120}
+    Offboarding:
+      type: object
+      additionalProperties: false
+      required: [id, state, export_offered_at, export_ref, transition_ends_at, active_holds, unsettled_actions, report, version]
+      properties:
+        id: {type: string, format: uuid}
+        state: {type: string, enum: [requested, export_offered, in_transition, winding_down, ready_for_erasure, erasing, verified, reported, cancelled]}
+        export_offered_at: {type: [string, 'null'], format: date-time}
+        export_ref: {type: [string, 'null']}
+        transition_ends_at: {type: [string, 'null'], format: date-time}
+        active_holds: {type: integer, minimum: 0}
+        unsettled_actions: {type: integer, minimum: 0}
+        report: {type: [object, 'null'], description: Counts and codes with no content.}
+        version: {type: integer, minimum: 1}
+    TicketSummary:
+      type: object
+      additionalProperties: false
+      required: [id, subject, category, status, created_at, updated_at, version]
+      properties:
+        id: {type: string, format: uuid}
+        subject: {type: string}
+        category: {type: string, enum: [account, billing, incident, security, other]}
+        status: {type: string, enum: [open, waiting_on_customer, waiting_on_support, resolved, closed]}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+        version: {type: integer, minimum: 1}
+    TicketDetail:
+      type: object
+      additionalProperties: false
+      required: [id, subject, category, status, created_at, updated_at, version, messages]
+      properties:
+        id: {type: string, format: uuid}
+        subject: {type: string}
+        category: {type: string, enum: [account, billing, incident, security, other]}
+        status: {type: string, enum: [open, waiting_on_customer, waiting_on_support, resolved, closed]}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+        version: {type: integer, minimum: 1}
+        messages:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [id, author_kind, body, created_at]
+            properties:
+              id: {type: string, format: uuid}
+              author_kind: {type: string, enum: [customer, support]}
+              body: {type: string}
+              created_at: {type: string, format: date-time}
+    OpenTicket:
+      type: object
+      additionalProperties: false
+      required: [subject, category, body]
+      properties:
+        subject: {type: string, minLength: 1, maxLength: 200}
+        category: {type: string, enum: [account, billing, incident, security, other]}
+        body: {type: string, minLength: 1, maxLength: 20000}
+    ReplyTicket:
+      type: object
+      additionalProperties: false
+      required: [body]
+      properties:
+        body: {type: string, minLength: 1, maxLength: 20000}
+    BreakGlassRequest:
+      type: object
+      additionalProperties: false
+      required: [id, ticket_id, reason_code, scope_type, scope_id, requested_minutes, state, operator_authorized, customer_authorized, expires_at, version]
+      properties:
+        id: {type: string, format: uuid}
+        ticket_id: {type: string, format: uuid}
+        reason_code: {type: string}
+        scope_type: {type: string, enum: [work_unit, artifact, client, project]}
+        scope_id: {type: string, format: uuid}
+        requested_minutes: {type: integer, minimum: 1}
+        state: {type: string, enum: [requested, authorized, denied, revoked, expired]}
+        operator_authorized: {type: boolean}
+        customer_authorized: {type: boolean}
+        expires_at: {type: [string, 'null'], format: date-time}
+        version: {type: integer, minimum: 1}
+    DecideBreakGlass:
+      type: object
+      additionalProperties: false
+      required: [decision]
+      properties:
+        decision: {type: string, enum: [authorize, deny]}
   responses:
     BadRequest:
       description: Malformed path, query, header or body. details.fields names the fields, never their values.

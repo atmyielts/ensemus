@@ -36,6 +36,53 @@ const webSchema = z.object({
   ENSEMUS_CONNECTORS_ENABLED: z.enum(['true', 'false']).default('false'),
 });
 
+const uuidValue = z.uuid();
+const whole = z.coerce.number().int().positive();
+
+const saasSchema = z
+  .object({
+    ENSEMUS_MODE: z.enum(commercialModes).optional(),
+    // Off unless named. Sovereign can never turn it on: nothing there phones home or bills (ADR-032 D1).
+    ENSEMUS_BILLING_ENABLED: z.enum(['true', 'false']).default('false'),
+    ENSEMUS_BILLING_ORGANIZATION_ID: uuidValue.optional(),
+    ENSEMUS_BILLING_CONNECTION_ID: uuidValue.optional(),
+    ENSEMUS_PAYMENT_PROCESSOR: z
+      .string()
+      .regex(/^[a-z][a-z0-9_]{1,63}$/)
+      .optional(),
+    // Off unless named, and then a limit is required, since there is no default length (ADR-032 D8).
+    ENSEMUS_BREAK_GLASS_ENABLED: z.enum(['true', 'false']).default('false'),
+    ENSEMUS_BREAK_GLASS_MAX_MINUTES: whole.optional(),
+  })
+  .refine((c) => !(c.ENSEMUS_BILLING_ENABLED === 'true' && c.ENSEMUS_MODE === 'sovereign'), {
+    path: ['ENSEMUS_BILLING_ENABLED'],
+  })
+  .refine(
+    (c) =>
+      c.ENSEMUS_BREAK_GLASS_ENABLED !== 'true' || c.ENSEMUS_BREAK_GLASS_MAX_MINUTES !== undefined,
+    { path: ['ENSEMUS_BREAK_GLASS_MAX_MINUTES'] },
+  );
+
+/** The hosted service's settings, for the web tier and the workers alike (ADR-032). */
+export function loadSaasConfig(env: NodeJS.ProcessEnv = process.env) {
+  const parsed = saasSchema.safeParse(env);
+  if (!parsed.success) {
+    const fields = parsed.error.issues.map((i) => i.path.join('.')).join(', ');
+    throw new ConfigError(`Invalid hosted service configuration: ${fields}`);
+  }
+  const c = parsed.data;
+  return {
+    billingEnabled: c.ENSEMUS_BILLING_ENABLED === 'true',
+    billingOrganizationId: c.ENSEMUS_BILLING_ORGANIZATION_ID ?? null,
+    billingConnectionId: c.ENSEMUS_BILLING_CONNECTION_ID ?? null,
+    paymentProcessor: c.ENSEMUS_PAYMENT_PROCESSOR ?? null,
+    breakGlass:
+      c.ENSEMUS_BREAK_GLASS_ENABLED === 'true' && c.ENSEMUS_BREAK_GLASS_MAX_MINUTES !== undefined
+        ? { enabled: true as const, maxMinutes: c.ENSEMUS_BREAK_GLASS_MAX_MINUTES }
+        : { enabled: false as const },
+  };
+}
+
 export function loadWebConfig(env: NodeJS.ProcessEnv = process.env) {
   const parsed = webSchema.safeParse(env);
   if (!parsed.success) {

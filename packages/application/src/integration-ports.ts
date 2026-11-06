@@ -76,6 +76,16 @@ export interface WebhookEffectHandlers {
     effect: Extract<WebhookEffect, { kind: 'action_proposed' }>,
   ): Promise<void>;
   requestSync(tx: Tx, context: TenantContext, connectionId: string): Promise<void>;
+  /**
+   * M8 (ADR-032 D4). Holds a processor's verified event in this organization's table, which is the
+   * deployment's own, with an outbox event to route it. `applyVerifiedDelivery` must call this for
+   * `payment_event`, and on no account fall through to `requestSync`.
+   */
+  recordPaymentEvent(
+    tx: Tx,
+    context: TenantContext,
+    effect: Extract<WebhookEffect, { kind: 'payment_event' }>,
+  ): Promise<void>;
 }
 
 /** The state of one stream, as a sync pass sees it. */

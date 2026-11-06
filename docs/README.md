@@ -63,6 +63,7 @@
 - [ADR-025: decisions made while building M1](00-foundation/adr/ADR-025-m1-implementation-decisions.md)
 - [ADR-026: tombstones survive a database restore](00-foundation/adr/ADR-026-tombstones-survive-restore.md)
 - [ADR-027: verified external actions](00-foundation/adr/ADR-027-verified-external-actions.md)
+- [ADR-032: SaaS operations and billing](00-foundation/adr/ADR-032-saas-operations-and-billing.md)
 - [Document governance and implementation discipline](00-foundation/04-doc-governance.md)
 
 ### Product and commercial UX

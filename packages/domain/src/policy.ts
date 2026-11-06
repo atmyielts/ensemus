@@ -13,7 +13,15 @@ export type Capability =
   | 'work.create'
   | 'work.recover_owner'
   | 'member.view_email'
-  | 'connection.manage';
+  | 'connection.manage'
+  // M8 (ADR-032). Money, retention and leaving are the organization's own decisions.
+  | 'billing.view'
+  | 'billing.manage'
+  | 'retention.manage'
+  | 'legal_hold.manage'
+  | 'offboarding.manage'
+  | 'break_glass.authorize'
+  | 'support.use';
 
 const GRANTS: Record<Role, ReadonlySet<Capability>> = {
   owner: new Set([
@@ -27,6 +35,13 @@ const GRANTS: Record<Role, ReadonlySet<Capability>> = {
     'work.recover_owner',
     'member.view_email',
     'connection.manage',
+    'billing.view',
+    'billing.manage',
+    'retention.manage',
+    'legal_hold.manage',
+    'offboarding.manage',
+    'break_glass.authorize',
+    'support.use',
   ]),
   admin: new Set([
     'member.invite',
@@ -37,8 +52,12 @@ const GRANTS: Record<Role, ReadonlySet<Capability>> = {
     'work.create',
     'member.view_email',
     'connection.manage',
+    'billing.view',
+    'billing.manage',
+    'retention.manage',
+    'support.use',
   ]),
-  member: new Set(['client.manage', 'project.manage', 'work.create']),
+  member: new Set(['client.manage', 'project.manage', 'work.create', 'support.use']),
 };
 
 export function isRole(value: string): value is Role {

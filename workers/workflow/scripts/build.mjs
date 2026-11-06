@@ -23,6 +23,7 @@ await build({
     'src/reapply-ledger.ts',
     'src/connector-worker.ts',
     'src/egress-gateway.ts',
+    'src/ops.ts',
   ].map((e) => path.join(root, e)),
   outdir: dist,
   bundle: true,

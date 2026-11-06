@@ -1,5 +1,6 @@
 import 'server-only';
 import { AppError, auditTenantRefusal } from '@ensemus/application';
+import { assertServing, type AccountSurface } from '@ensemus/application/saas/standing';
 import { resolveTenantContext, TenantAccessDenied } from '@ensemus/database';
 import { errorCode } from '@ensemus/telemetry';
 import { notFound, redirect } from 'next/navigation';
@@ -11,13 +12,14 @@ import { getRestoreGate, getRuntime } from './runtime';
  * Who this request is, in this tenant. React's `cache` lasts for one request only, so a revoked
  * membership takes effect on the very next request. A tenant someone may not see looks missing.
  */
-export const requireTenant = cache(async (organizationId: string) => {
+const resolveFor = async (organizationId: string, surface: AccountSurface) => {
   const actor = await requireActor();
   const { app } = getRuntime();
   try {
     const context = await resolveTenantContext(app, actor.userId, organizationId);
     // After the membership check, so nobody outside the tenant can learn it is being restored.
     await getRestoreGate().assertServing(context);
+    assertServing(context, surface);
     return { actor, context, database: app };
   } catch (error) {
     if (error instanceof TenantAccessDenied) {
@@ -25,9 +27,20 @@ export const requireTenant = cache(async (organizationId: string) => {
       notFound();
     }
     if (error instanceof AppError && error.code === 'RESTORE_PENDING') redirect('/restoring');
+    // Someone suspended still has a way to see why, pay, export and ask for help (ADR-032 D5).
+    if (error instanceof AppError && error.code === 'TENANT_SUSPENDED') {
+      redirect(`/o/${organizationId}/account`);
+    }
     throw error;
   }
-});
+};
+
+export const requireTenant = cache((organizationId: string) => resolveFor(organizationId, 'core'));
+
+/** For billing, support, export and leaving, and the layout around them, which work in any standing. */
+export const requireAccountTenant = cache((organizationId: string) =>
+  resolveFor(organizationId, 'account'),
+);
 
 /**
  * Someone named a tenant they are not in, through a page or a form. They get the same 404 whether or
