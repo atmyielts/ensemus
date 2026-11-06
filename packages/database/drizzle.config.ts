@@ -8,6 +8,7 @@ export default defineConfig({
     './src/schema-work.ts',
     './src/schema-integrations.ts',
     './src/schema-ai.ts',
+    './src/schema-ai-inputs.ts',
     './src/schema-knowledge.ts',
     './src/schema-artifact-provenance.ts',
     './src/schema-client-access.ts',

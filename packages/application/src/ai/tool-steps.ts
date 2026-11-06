@@ -20,6 +20,7 @@ import {
   memberships,
   organizations,
   runControls,
+  runInputCheckpoints,
   stepPayloads,
   toolProposals,
   usageLedger,
@@ -41,7 +42,7 @@ import {
 } from '@ensemus/domain/ai';
 import { toolManifest } from '@ensemus/domain/ai-tools';
 import { canChangeContent, type WorkState } from '@ensemus/domain/work-unit';
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { type ObjectStore, objectKey } from '../artifacts';
 import { AppError } from '../errors';
@@ -55,7 +56,7 @@ import {
   type GeneratedArtifactWrite,
 } from '../knowledge/artifact-provenance';
 import {
-  assertRunInputsOpen,
+  lockRunInputsForContent,
   assertRunInputsReadable,
   createRunInputInventory,
 } from './input-ledger';
@@ -260,6 +261,7 @@ function argsFrom(payload: { content: string } | undefined, payloadHash: string)
 async function loadProposalInTx(
   tx: Tx,
   input: { runId: string; stepNumber: number },
+  includeArguments = true,
 ): Promise<StoredProposal | null> {
   const rows = await tx
     .select({
@@ -281,10 +283,12 @@ async function loadProposalInTx(
     rows.find((row) => row.kind === 'model_turn');
   if (!found) return null;
   const { proposal } = found;
-  const [payload] = await tx
-    .select({ content: stepPayloads.content })
-    .from(stepPayloads)
-    .where(and(eq(stepPayloads.stepId, proposal.stepId), eq(stepPayloads.kind, 'tool_args')));
+  const [payload] = includeArguments
+    ? await tx
+        .select({ content: stepPayloads.content })
+        .from(stepPayloads)
+        .where(and(eq(stepPayloads.stepId, proposal.stepId), eq(stepPayloads.kind, 'tool_args')))
+    : [];
   return {
     id: proposal.id,
     runId: proposal.runId,
@@ -307,7 +311,10 @@ export async function loadProposal(
   input: { runId: string; stepNumber: number },
 ): Promise<StoredProposal | null> {
   assertOwnRun(context, input.runId);
-  return withTenantTx(database, context, (tx) => loadProposalInTx(tx, input));
+  return withTenantTx(database, context, async (tx) => {
+    await lockRunInputsForContent(tx, context);
+    return loadProposalInTx(tx, input);
+  });
 }
 
 export const PROPOSAL_STATUSES = [
@@ -423,6 +430,8 @@ export type ToolRunFacts = {
   initiatorRole: string | null;
   stopRequested: boolean;
   workStopped: boolean;
+  /** Metadata-only admission and fresh all-input access. False never permits loading arguments. */
+  inputsOpen: boolean;
   classification: AiClassification;
   maxDelegationDepth: number;
   allow: readonly string[] | null;
@@ -457,6 +466,11 @@ export interface ToolStepStore {
     context: AgentContext,
     input: { runId: string; stepNumber: number },
   ): Promise<StoredProposal | null>;
+  /** IDs/status only for closed-run reconciliation. Must never SELECT private argument payloads. */
+  loadProposalMetadata(
+    context: AgentContext,
+    input: { runId: string; stepNumber: number },
+  ): Promise<Omit<StoredProposal, 'args'> | null>;
   /** The tool step's row, made if needed. Null when this number belongs to some other kind of step. */
   openStep(
     tx: Tx,
@@ -559,10 +573,15 @@ export function createToolStepStore(deps: {
 
     async readRun(tx, context, runId, options) {
       assertOwnRun(context, runId);
-      await assertRunInputsOpen(tx, context);
       const query = tx.select().from(agentRuns).where(eq(agentRuns.id, runId));
       const [run] = await (options.lock ? query.for('update') : query);
       if (!run) return null;
+      if (options.lock)
+        await tx
+          .select({ id: runInputCheckpoints.runId })
+          .from(runInputCheckpoints)
+          .where(eq(runInputCheckpoints.runId, runId))
+          .for('share');
       const [version] = await tx
         .select({ spec: agentVersions.spec })
         .from(agentVersions)
@@ -584,6 +603,10 @@ export function createToolStepStore(deps: {
         .limit(1);
       const spec = specTools.safeParse(version?.spec);
       const scopes = scopeTools.safeParse(run.delegatedScopes);
+      const inputState = await tx.execute<{ allowed: boolean }>(
+        sql`select ai.run_input_admitted(${runId}::uuid)
+          and ai.run_inputs_readable(${runId}::uuid,${context.membershipId}::uuid) as allowed`,
+      );
       return {
         status: run.status as AgentRunStatus,
         workUnitId: run.workUnitId,
@@ -592,6 +615,7 @@ export function createToolStepStore(deps: {
         initiatorRole: initiator?.role ?? null,
         stopRequested: Boolean(stop),
         workStopped: !work || STOPPED_WORK.includes(work.status),
+        inputsOpen: inputState.rows[0]?.allowed === true,
         classification: run.effectiveClassification as AiClassification,
         maxDelegationDepth: run.maxDelegationDepth,
         allow: spec.success ? spec.data.tools.allow : null,
@@ -601,6 +625,26 @@ export function createToolStepStore(deps: {
     },
 
     loadProposal: (context, input) => loadProposal(database, context, input),
+
+    loadProposalMetadata(context, input) {
+      assertOwnRun(context, input.runId);
+      return withTenantTx(database, context, async (tx) => {
+        const [run] = await tx
+          .select({ id: agentRuns.id })
+          .from(agentRuns)
+          .where(
+            and(
+              eq(agentRuns.id, input.runId),
+              eq(agentRuns.initiatorMembershipId, context.membershipId),
+            ),
+          );
+        if (!run) return null;
+        const proposal = await loadProposalInTx(tx, input, false);
+        if (!proposal) return null;
+        const { args: _omitted, ...metadata } = proposal;
+        return metadata;
+      });
+    },
 
     async openStep(tx, context, input) {
       const step = await ensureStep(tx, context, {

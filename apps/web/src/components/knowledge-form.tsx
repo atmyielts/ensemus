@@ -147,12 +147,14 @@ export function KnowledgeForm({
           ) : (
             <div className="table-wrap">
               <table>
-                <caption>Proposed transmission decisions. This simulation sends nothing.</caption>
+                <caption>
+                  Data-sharing policy for this proposal. This comparison sends nothing.
+                </caption>
                 <thead>
                   <tr>
                     <th scope="col">Workload</th>
                     <th scope="col">Sensitivity</th>
-                    <th scope="col">Would transmit?</th>
+                    <th scope="col">Policy permits sharing?</th>
                     <th scope="col">Reason</th>
                   </tr>
                 </thead>
@@ -165,7 +167,9 @@ export function KnowledgeForm({
                       <td>
                         <ClassificationBadge value={row.classification} />
                       </td>
-                      <td>{row.wouldTransmit ? 'Yes, under this proposal' : 'No'}</td>
+                      <td>
+                        {row.wouldTransmit ? 'Compatible with this proposal' : 'Not permitted'}
+                      </td>
                       <td>{row.reasonCode}</td>
                     </tr>
                   ))}

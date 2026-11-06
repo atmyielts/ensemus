@@ -217,6 +217,8 @@ export const MODEL_PURPOSES = [
   'answer',
 ] as const;
 export type ModelPurpose = (typeof MODEL_PURPOSES)[number];
+/** Current agent turns reason over work; auxiliary calls name their own purpose. */
+export const AGENT_TURN_PURPOSE = 'reason' as const;
 
 export const RETENTION_BASES = ['unreviewed', 'contract_recorded', 'self_hosted'] as const;
 export type RetentionBasis = (typeof RETENTION_BASES)[number];

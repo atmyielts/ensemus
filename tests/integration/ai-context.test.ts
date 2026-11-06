@@ -98,7 +98,14 @@ describe('context and prompt assembly, as the real roles', () => {
     const client = new pg.Client({ connectionString: urls.superuser() });
     await client.connect();
     try {
-      return await use(client);
+      await client.query('begin');
+      await client.query("select set_config('app.organization_id',$1,true)", [a.organizationId]);
+      const result = await use(client);
+      await client.query('commit');
+      return result;
+    } catch (error) {
+      await client.query('rollback');
+      throw error;
     } finally {
       await client.end();
     }
@@ -240,7 +247,7 @@ describe('context and prompt assembly, as the real roles', () => {
   });
 
   describe('files between turns', () => {
-    it('excludes a file deleted after an earlier turn saw it', async () => {
+    it('closes reuse of the whole prior context when an observed file is deleted', async () => {
       const words = tenantCanary();
       const work = await makeWork(a);
       const artifactId = await attach(a, work, words);
@@ -249,10 +256,9 @@ describe('context and prompt assembly, as the real roles', () => {
       expect(first.sources.map((part) => part.id)).toContain(artifactId);
 
       await deleteArtifact(app.db, store, a.owner, { workUnitId: work, artifactId });
-      const second = await compiler().compile(await context(), ref);
-      expect(allText(second.messages)).not.toContain(words);
-      expect(second.sources.map((part) => part.id)).not.toContain(artifactId);
-      expect(second.requestHash).not.toBe(first.requestHash);
+      await expect(compiler().compile(await context(), ref)).rejects.toMatchObject({
+        code: 'NOT_FOUND',
+      });
     });
 
     it('excludes a file with a tombstone, even while its row and bytes remain', async () => {
@@ -274,7 +280,7 @@ describe('context and prompt assembly, as the real roles', () => {
           artifactId,
           maxBytes: 1000,
         }),
-      ).resolves.toEqual({ refused: 'DELETED' });
+      ).resolves.toEqual({ refused: 'NOT_PERMITTED' });
     });
 
     it('refuses bytes that have gone from the store or no longer match', async () => {
@@ -361,6 +367,7 @@ describe('context and prompt assembly, as the real roles', () => {
       await expect(source().loadTranscript(await one.context(), two.runId)).rejects.toMatchObject({
         code: 'NOT_FOUND',
       });
+      await source().loadWork(await one.context(), one.ref.workUnitId);
       expect(await source().loadTranscript(await one.context(), one.runId)).toEqual([]);
     });
 
@@ -373,9 +380,11 @@ describe('context and prompt assembly, as the real roles', () => {
         initiatorMembershipId: a.member.membershipId,
         agentRunId: theirs.runId,
       });
-      expect(await source().loadTranscript(forged, theirs.runId)).toEqual([]);
+      await expect(source().loadTranscript(forged, theirs.runId)).rejects.toMatchObject({
+        code: 'POLICY_DENIED',
+      });
       await expect(source().loadRunBrief(forged, theirs.ref)).rejects.toMatchObject({
-        code: 'NOT_FOUND',
+        code: 'POLICY_DENIED',
       });
     });
 
@@ -388,7 +397,9 @@ describe('context and prompt assembly, as the real roles', () => {
         initiatorMembershipId: a.owner.membershipId,
         agentRunId: theirs.runId,
       });
-      expect(await source().loadTranscript(forged, theirs.runId)).toEqual([]);
+      await expect(source().loadTranscript(forged, theirs.runId)).rejects.toMatchObject({
+        code: 'POLICY_DENIED',
+      });
     });
 
     it('cannot run at all on the web role', async () => {

@@ -135,6 +135,7 @@ function freshState(): DbState {
       initiatorRole: 'member',
       stopRequested: false,
       workStopped: false,
+      inputsOpen: true,
       classification: 'internal',
       maxDelegationDepth: 1,
       allow: [
@@ -190,6 +191,11 @@ function fakeStore(db: {
     },
     readRun: async () => withClone(db.state).facts,
     loadProposal: async () => (db.state.proposal ? { ...db.state.proposal } : null),
+    loadProposalMetadata: async () => {
+      if (!db.state.proposal) return null;
+      const { args: _omitted, ...metadata } = db.state.proposal;
+      return metadata;
+    },
     openStep: async () => (db.state.stepKind === 'tool_call' ? { stepId: 'step-row' } : null),
     lockProposal: async () =>
       db.state.proposal
@@ -957,6 +963,36 @@ describe('tool gateway', () => {
   });
 
   describe('stopping', () => {
+    it('stops a closed input history before loading proposal arguments or writing a transcript', async () => {
+      db.state.facts.inputsOpen = false;
+      propose('email.send', { connection_id: CONNECTION, email });
+      const store = fakeStore(db),
+        load = vi.fn(store.loadProposal);
+      const closed = createToolGateway({
+        source: fakeSource(world),
+        store: { ...store, loadProposal: load },
+        externalActions: { propose: vi.fn(), readState: vi.fn() },
+        approvals: { request: vi.fn(), recheck: vi.fn() },
+        halt: { assertRunning: async () => undefined },
+      });
+      await expect(closed.handle(context, step)).resolves.toMatchObject({ outcome: 'stopped' });
+      expect(load).not.toHaveBeenCalled();
+      expectNoEffect();
+      expect(db.state.outputs).toEqual([]);
+      expect(db.state.audit).toMatchObject([{ action: 'ai.tool_stopped' }]);
+    });
+
+    it('does not write refusal text when a fence arrives during a tool read', async () => {
+      world.onRead = () => {
+        db.state.facts.inputsOpen = false;
+      };
+      gateway = gatewayWithWorld();
+      propose('artifact.read_text', { artifact_id: ARTIFACT });
+      await expect(gateway.handle(context, step)).resolves.toMatchObject({ outcome: 'stopped' });
+      expectNoEffect();
+      expect(db.state.outputs).toEqual([]);
+    });
+
     it('stops for a kill switch, before any effect', async () => {
       halted = true;
       propose('artifact.draft.create', { name: 'n', text: 't', evidence: [] });
@@ -1469,9 +1505,12 @@ describe('tool gateway', () => {
       proposeEmail();
       await gateway.handle(context, step);
       db.state.facts.status = 'cancelled';
+      db.state.facts.inputsOpen = false;
+      const originalOutputs = structuredClone(db.state.outputs);
       externalStates = [{ status: 'cancelled', approvalId: 'approval-1' }];
       await expect(gateway.handle(context, step)).resolves.toMatchObject({ outcome: 'denied' });
       expect(requests).toHaveLength(1);
+      expect(db.state.outputs).toEqual(originalOutputs);
     });
 
     it('refuses to propose once the run has ended', async () => {

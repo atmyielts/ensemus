@@ -28,7 +28,7 @@ export default async function EgressPage({
       </>
     );
   const { cursor } = await searchParams,
-    ports = getKnowledgeReadPorts();
+    ports = await getKnowledgeReadPorts(database, context);
   let error: string | undefined;
   const page = await listEgressLedger(database, context, ports, {
     ...(cursor ? { after: cursor } : {}),
@@ -124,7 +124,7 @@ export default async function EgressPage({
           action={simulateKnowledgeEgressAction}
           hidden={{ organizationId }}
           submit="Compare proposal"
-          description="This changes no configuration, contacts no provider and sends no company text. The result applies to the proposal and the workloads visible to the policy reader."
+          description="Compare data-sharing policy for this proposal. This sends no company text and changes no settings. A compatible result still needs an approved model, budget and permitted connection before a real call can run."
           fields={[
             {
               name: 'destination',
@@ -167,6 +167,23 @@ export default async function EgressPage({
             },
             { name: 'region', label: 'Region', maxLength: 64 },
             { name: 'contractRef', label: 'Contract reference', maxLength: 128 },
+            {
+              name: 'purpose',
+              kind: 'select',
+              label: 'Approved use to compare',
+              required: true,
+              value: 'reason',
+              options: [
+                { value: 'classify', label: 'Classify information' },
+                { value: 'extract', label: 'Extract information' },
+                { value: 'reason', label: 'Reason over work' },
+                { value: 'research', label: 'Research' },
+                { value: 'compose', label: 'Write content' },
+                { value: 'embed', label: 'Prepare semantic search' },
+                { value: 'rerank', label: 'Rank search results' },
+                { value: 'answer', label: 'Answer a question' },
+              ],
+            },
             {
               name: 'allowedClass',
               kind: 'select',

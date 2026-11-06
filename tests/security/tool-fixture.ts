@@ -95,6 +95,7 @@ export function toolFixture(input: {
       initiatorRole: 'member',
       stopRequested: false,
       workStopped: false,
+      inputsOpen: true,
       classification: 'internal',
       maxDelegationDepth: 1,
       allow: [
@@ -131,6 +132,10 @@ export function toolFixture(input: {
     },
     readRun: async () => structuredClone(state.facts),
     loadProposal: async () => structuredClone(state.proposal),
+    loadProposalMetadata: async () => {
+      const { args: _omitted, ...metadata } = structuredClone(state.proposal);
+      return metadata;
+    },
     openStep: async () => ({ stepId: 'synthetic-tool-step' }),
     lockProposal: async () => ({
       status: state.proposal.status,

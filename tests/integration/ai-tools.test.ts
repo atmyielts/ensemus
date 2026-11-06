@@ -459,12 +459,19 @@ describe('tool gateway, as the real roles', () => {
       const tenant = await seedAiTenant(app.db);
       const unit = await work(tenant.member);
       const run = await startRun(tenant.member, { workUnitId: unit, allow: ['work.read'] });
+      await storeProposal(agent.db, run.agentContext, {
+        runId: run.runId,
+        stepNumber: 1,
+        toolId: 'work.read',
+        args: { work_unit_id: unit },
+      });
       await su.query(`update org.memberships set status = 'disabled' where id = $1`, [
         tenant.member.membershipId,
       ]);
-      await expect(
-        ask(realGateway(), run, 'work.read', { work_unit_id: unit }),
-      ).resolves.toMatchObject({ outcome: 'stopped', decisionCode: 'INITIATOR_INACTIVE' });
+      await expect(realGateway().handle(run.agentContext, run.ref(1))).resolves.toMatchObject({
+        outcome: 'stopped',
+        decisionCode: 'INITIATOR_INACTIVE',
+      });
       expect(
         (await payloadsOf(tenant.organizationId, run.runId)).filter(
           (payload) => payload.kind === 'tool_output',
@@ -703,10 +710,16 @@ describe('tool gateway, as the real roles', () => {
     it('stops a tool on a run that ended', async () => {
       const unit = await work(a.owner);
       const run = await startRun(a.owner, { workUnitId: unit });
+      await storeProposal(agent.db, run.agentContext, {
+        runId: run.runId,
+        stepNumber: 1,
+        toolId: 'work.read',
+        args: { work_unit_id: unit },
+      });
       await moveRun(a.organizationId, run.runId, 'cancelled');
-      await expect(
-        ask(realGateway(), run, 'work.read', { work_unit_id: unit }),
-      ).resolves.toMatchObject({ outcome: 'stopped' });
+      await expect(realGateway().handle(run.agentContext, run.ref(1))).resolves.toMatchObject({
+        outcome: 'stopped',
+      });
     });
 
     it('stops a tool whose run was cancelled while its file was being read', async () => {

@@ -19,6 +19,12 @@ import { and, eq, sql } from 'drizzle-orm';
 import { AppError } from '../errors';
 import { idSchema } from '../ids';
 import { requireSearchPerson } from './retrieval';
+export {
+  createKnowledgeReadPorts,
+  createRunEgressDecisions,
+  createAgentWorkloads,
+  createEgressSimulationPolicy,
+} from './read-ports';
 
 export type EgressLedgerPage = { items: readonly EgressLedgerRow[]; next: string | null };
 

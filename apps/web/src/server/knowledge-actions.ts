@@ -375,9 +375,9 @@ export async function simulateKnowledgeEgressAction(_state: KnowledgeFormState, 
       region: text(form, 'region') || null,
       contract_ref: text(form, 'contractRef') || null,
       allowed_classes: [text(form, 'allowedClass')],
-      purposes: ['embed', 'rerank', 'answer'],
+      purposes: [text(form, 'purpose')],
     });
-    const ports = getKnowledgeReadPorts(),
+    const ports = await getKnowledgeReadPorts(tenant.database, tenant.context),
       rows = await simulateProvider(tenant.database, tenant.context, ports, {
         proposal: {
           destination: b.destination,

@@ -16,7 +16,7 @@ import {
   createRunTranscriptPurge,
   checkRunInputDispatch,
 } from '@ensemus/application/ai-input-ledger';
-import { createToolStepStore } from '@ensemus/application/ai-tool-steps';
+import { createToolStepStore, storeProposal } from '@ensemus/application/ai-tool-steps';
 import { storeStepPayload } from '@ensemus/application/ai-runs';
 import { recordArtifactCitations } from '@ensemus/application/knowledge/verification';
 import { compileEvidence } from '@ensemus/application/knowledge/compiler';
@@ -171,6 +171,34 @@ describe('durable agent input protocol and content fence as actual roles', () =>
       createRunTranscriptPurge().fenceUsing!(tx, value.service, { runIds: [value.runId] }),
     );
   }
+
+  it('reads closed proposal metadata on the app role without private payload privileges', async () => {
+    const value = await fixture();
+    await storeProposal(agent.db, value.context, {
+      runId: value.runId,
+      stepNumber: 1,
+      toolId: 'artifact.draft.create',
+      args: { name: 'synthetic.txt', text: 'SYNTHETIC_PRIVATE_ARGUMENT', evidence: [] },
+    });
+    await fence(value);
+    const metadataOnly = createToolStepStore({ database: app.db, objects: value.store });
+    const metadata = await metadataOnly.loadProposalMetadata(value.context, {
+      runId: value.runId,
+      stepNumber: 1,
+    });
+    expect(metadata).toMatchObject({
+      runId: value.runId,
+      toolId: 'artifact.draft.create',
+      status: 'proposed',
+    });
+    expect(metadata).not.toHaveProperty('args');
+    await expect(
+      value.tools.loadProposal(value.context, { runId: value.runId, stepNumber: 1 }),
+    ).rejects.toMatchObject({ code: 'POLICY_DENIED' });
+    await expect(
+      metadataOnly.loadProposal(value.context, { runId: value.runId, stepNumber: 1 }),
+    ).rejects.toThrow();
+  });
 
   it('records exact target and OTHER Work hashes durably, then fresh revocation closes transcript and output inventory', async () => {
     const value = await fixture(),
@@ -553,31 +581,25 @@ describe('durable agent input protocol and content fence as actual roles', () =>
       projectId = randomUUID(),
       word = `factparent${randomUUID().replaceAll('-', '')}`;
     await withTenantTx(app.db, value.service, async (tx) => {
-      await tx
-        .insert(clients)
-        .values({
-          organizationId: value.organizationId,
-          id: clientId,
-          displayName: 'Private actual fact parent',
-          classification: 'restricted',
-          ownerMembershipId: value.member.membershipId,
-        });
-      await tx
-        .insert(clientReaders)
-        .values({
-          organizationId: value.organizationId,
-          clientId,
-          membershipId: value.owner.membershipId,
-          grantedByMembershipId: value.member.membershipId,
-        });
-      await tx
-        .insert(projects)
-        .values({
-          organizationId: value.organizationId,
-          id: projectId,
-          clientId,
-          name: 'Actual private fact project',
-        });
+      await tx.insert(clients).values({
+        organizationId: value.organizationId,
+        id: clientId,
+        displayName: 'Private actual fact parent',
+        classification: 'restricted',
+        ownerMembershipId: value.member.membershipId,
+      });
+      await tx.insert(clientReaders).values({
+        organizationId: value.organizationId,
+        clientId,
+        membershipId: value.owner.membershipId,
+        grantedByMembershipId: value.member.membershipId,
+      });
+      await tx.insert(projects).values({
+        organizationId: value.organizationId,
+        id: projectId,
+        clientId,
+        name: 'Actual private fact project',
+      });
       await tx.execute(
         sql`update work.work_units set project_id=${projectId}::uuid,version=version+1 where id=${value.work.id}::uuid`,
       );

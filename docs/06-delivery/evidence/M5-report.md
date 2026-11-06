@@ -40,6 +40,9 @@ semantics. The added browser journeys are authored, not rendered/accepted.
 | Repaired 12-file real-role batch | **241 passed**, 40.04 seconds: schema, client visibility, generated provenance, verification, facts, onboarding, Google/Microsoft sync, restore, company search, graph and cursor integration |
 | Latest focused units | **22 passed** in three files: connector cursor limits, navigation, actual scanner composition |
 | Constraint metadata audit | 210 actual constraints inspected; zero naming differences against 0213 snapshot for the selected knowledge/client/onboarding/MCP tables |
+| Runtime protocol migration | 0214 applied to the existing disposable database and snapshotted; 32 journal entries now registered |
+| Joined runtime/ledger batch | **119 passed** in five files, 31.10 seconds: actual protocol, compiler context, tools, generated provenance and sharing ledger |
+| Joined focused units | **129 passed** in four files, including closed-input tool paths, deterministic checklist inventory and actual hypothetical policy binding |
 
 Source-management follow-up separately passed 80 focused units, scoped lint/format and serial
 database/application/tests/web/browser types before composition. Migration 0212 is now applied in
@@ -47,6 +50,24 @@ the disposable database; its built browser journeys remain unrun. [Source detail
 distinguish the earlier source checks. All current repaired source passed scoped formatting/lint and
 serial domain/database/application/connectors/tests types. The composed runtime join still needs
 its own checks.
+
+The actual input-runtime and compiler capture checkpoints are now composed. The first four-file
+runtime database run passed 103/113 cases; new protocol and generated-provenance suites passed, while
+older context/tool assumptions exposed the closed-run handling gap. A metadata-only stop/reconciliation
+path now preserves M3's actual outcome after cancellation without loading private arguments or adding
+a transcript. Gated SQL effects hold the checkpoint against concurrent fencing. Argument reads require
+fresh all-input authority. The app role successfully reads only proposal metadata after fencing, while
+its private argument read remains denied. A later five-file run exposed two obsolete fixture assumptions
+and one incorrect raw schema reference; after correction, all 119 cases passed. Current scoped lint/format
+and sequential domain/database/application/agent-runtime/knowledge/tests/web types passed; broader
+regressions are the next gate.
+
+The data-sharing page now reads real run decisions with the same millisecond/UUID cursor as knowledge
+calls. It lists actual published/live agent versions and uses the shared pure egress policy with the
+tenant's active tightening. No credential or provider port is present. Historical provider kind stays
+unknown where it was never recorded. The proposal form names its approved use and explains that policy
+compatibility still needs actual model, budget and connection approval. This is implemented source and
+real-role DAL evidence; the new page has not yet been rendered in a built stack.
 
 ## Failures found in integration
 
@@ -89,9 +110,11 @@ and snapshotted. Complete the broader regression and upgrade gates. Bind the exh
 and tool-read inventory before generated writes, cited verification and human acceptance. Preserve
 fresh named-viewer access and all inherited inputs through serving, revocation and physical erasure.
 
-Real knowledge model/embedding/rerank ports, canonical purpose policy, transcript writer fencing,
-object-writer recovery, provider/OAuth/MCP guarded transports, onboarding run/cost/evidence binding
-and complete egress read ports still need composition. The current unavailable ports fail closed.
+Real knowledge model/embedding/rerank ports, capability-specific qualification, approved standalone
+model jobs, object-writer recovery, provider/OAuth/MCP guarded transports and actual onboarding
+run/cost/evidence binding still need composition. Canonical purposes, transcript writer fencing and
+actual egress readers are composed; full runtime/stack/mode acceptance remains open. Remaining
+unavailable ports fail closed.
 No model or provider result, full built browser journey, replay corpus, measured recall, hosted pilot,
 or complete Cloud/BYOM/Sovereign acceptance is claimed. Independent security and accessibility gates
 remain separate. Only generated fixtures and throwaway credentials have been used.

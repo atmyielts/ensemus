@@ -10,7 +10,11 @@ import type {
   RunContextSource,
   TranscriptPart,
 } from '@ensemus/application/ai-context-source';
-import { strongestClassification, type AiClassification } from '@ensemus/domain/ai';
+import {
+  AGENT_TURN_PURPOSE,
+  strongestClassification,
+  type AiClassification,
+} from '@ensemus/domain/ai';
 import { canonicalJson } from '@ensemus/domain/approval';
 import type { CompiledTurn, ContextMessage } from '@ensemus/intelligence';
 import {
@@ -67,7 +71,7 @@ export function contextTrace(compiled: CompiledContext) {
 }
 
 /** Each purpose a profile can allow. M4's agents all reason over work, so routing needs nothing else. */
-const PURPOSE = 'reason';
+const PURPOSE = AGENT_TURN_PURPOSE;
 
 /**
  * Only a rough size, to hold a manifest's `max_input_tokens` as a limit on text before any model is

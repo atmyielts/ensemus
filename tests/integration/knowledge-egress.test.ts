@@ -1,8 +1,20 @@
 import { randomUUID } from 'node:crypto';
 import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { AppError } from '@ensemus/application';
-import { listEgressLedger, simulateProvider } from '@ensemus/application/knowledge/egress';
+import { AppError, createWorkUnit } from '@ensemus/application';
+import {
+  listEgressLedger,
+  simulateProvider,
+  createKnowledgeReadPorts,
+} from '@ensemus/application/knowledge/egress';
+import { createEgressLog } from '@ensemus/application/ai-egress-log';
+import {
+  openAgentTestDatabase,
+  prepareRunInputContext,
+  seedAgentVersion,
+  seedAiTenant,
+  seedQueuedRun,
+} from '../helpers/ai/fixtures';
 import { recordModelCall } from '@ensemus/application/knowledge/embeddings';
 import type { EgressLedgerRow, RunEgressDecisions } from '@ensemus/application/knowledge/ports';
 import {
@@ -92,6 +104,80 @@ describe('egress ledger and no-transmission simulator', () => {
     expect(own.items.some((row) => row.requestSha256 === sha256(word))).toBe(true);
     expect(JSON.stringify(own)).not.toContain(word);
     expect(other.items).toEqual([]);
+  });
+  it('reads real agent decisions with stable pagination and actual live-version workloads, scoped to their tenant', async () => {
+    const tenant = await seedAiTenant(database.db);
+    const version = await seedAgentVersion(database.db, tenant.owner);
+    await seedAgentVersion(database.db, tenant.owner); // An unpublished, unused version is not a live workload.
+    const work = await createWorkUnit(database.db, tenant.owner, {
+      title: 'Synthetic ledger work',
+    });
+    const runId = await seedQueuedRun(database.db, tenant.owner, { workUnitId: work.id, version });
+    const agent = openAgentTestDatabase();
+    try {
+      const context = await prepareRunInputContext(agent.db, tenant.organizationId, runId);
+      const hash = sha256(knowledgeCanary());
+      for (let index = 0; index < 3; index++)
+        await createEgressLog(agent.db).record(context, {
+          runId,
+          stepId: null,
+          profileId: null,
+          dataClass: 'internal',
+          purpose: 'reason',
+          destinationHost: null,
+          decision: 'deny',
+          reasonCode: 'NO_CANDIDATE',
+          policyVersion: 'synthetic',
+          requestHash: hash,
+          expiresAt: null,
+        });
+      const ports = await createKnowledgeReadPorts(database.db, tenant.owner);
+      expect(ports.coverage).toBe('complete');
+      const seen: string[] = [];
+      let after: string | undefined;
+      for (let index = 0; index < 3; index++) {
+        const page = await listEgressLedger(database.db, tenant.owner, ports, {
+          limit: 1,
+          ...(after ? { after } : {}),
+        });
+        expect(page.items).toMatchObject([
+          {
+            source: 'agent_run',
+            runId,
+            purpose: 'reason',
+            requestSha256: hash,
+            providerKind: null,
+          },
+        ]);
+        seen.push(page.items[0]!.id);
+        after = page.next ?? undefined;
+      }
+      expect(new Set(seen).size).toBe(3);
+      expect(after).toBeUndefined();
+      const workloads = await withTenantTx(database.db, tenant.owner, (tx) =>
+        ports.agentWorkloads.list(tx),
+      );
+      expect(workloads).toMatchObject([
+        {
+          kind: 'agent',
+          purpose: 'reason',
+          classes: ['public', 'internal', 'confidential', 'restricted'],
+        },
+      ]);
+      expect(workloads).toHaveLength(1);
+      const foreignPorts = await createKnowledgeReadPorts(database.db, foreign);
+      const foreignPage = await listEgressLedger(database.db, foreign, foreignPorts, {
+        limit: 100,
+      });
+      expect(foreignPage.items.some((row) => row.runId === runId || seen.includes(row.id))).toBe(
+        false,
+      );
+      expect(
+        await withTenantTx(database.db, foreign, (tx) => foreignPorts.agentWorkloads.list(tx)),
+      ).toEqual([]);
+    } finally {
+      await agent.close();
+    }
   });
   it('paginates same-millisecond records from both sources without dropping microsecond rows', async () => {
     const ids: string[] = Array.from({ length: 7 }, () => randomUUID())

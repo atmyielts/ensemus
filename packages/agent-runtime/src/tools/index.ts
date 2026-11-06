@@ -145,6 +145,7 @@ function principalStop(facts: ToolRunFacts, context: AgentContext): Stop | null 
     return new Stop('INITIATOR_INACTIVE');
   }
   if (facts.status !== 'running' || facts.stopRequested || facts.workStopped) return new Stop(null);
+  if (!facts.inputsOpen) return new Stop('RESOURCE_NOT_PERMITTED');
   return null;
 }
 
@@ -536,44 +537,52 @@ async function recordEnd(
   },
 ): Promise<ToolHandleResult> {
   const { deps, context, step, proposal, stepId } = turn;
-  const denied = ending.outcome === 'denied';
   const recorded = await deps.store.withTx(context, async (tx) => {
+    const facts = await deps.store.readRun(tx, context, step.runId, { lock: false });
+    const closed = facts ? principalStop(facts, context) : new Stop('POLICY_UNREADABLE');
+    const outcome = closed ? 'stopped' : ending.outcome;
+    const decisionCode = closed ? closed.code : ending.code;
+    const denied = outcome === 'denied';
     const locked = await deps.store.lockProposal(tx, proposal.id);
     if (locked?.status !== 'proposed') return null;
     await deps.store.moveProposal(tx, {
       proposalId: proposal.id,
       status: denied ? 'denied' : 'cancelled',
-      decisionCode: ending.code,
+      decisionCode,
     });
     await deps.store.updateStep(tx, {
       stepId,
       state: denied ? 'failed' : 'cancelled',
-      outcome: ending.outcome,
-      decisionCode: ending.code,
+      outcome,
+      decisionCode,
     });
     if (denied) {
       // The next turn has to be able to read why. Our own words, and no echo of what was asked for.
-      const facts = await deps.store.readRun(tx, context, step.runId, { lock: false });
       await deps.store.writeOutput(tx, context, {
         stepId,
         classification: facts?.classification ?? 'restricted',
-        content: JSON.stringify({ status: 'denied', code: ending.code }),
+        content: JSON.stringify({ status: 'denied', code: decisionCode }),
       });
     }
-    const reason = ending.auditAs ?? ending.code;
+    const reason = ending.auditAs ?? decisionCode;
     await deps.store.audit(tx, context, {
       action: denied ? 'ai.tool_denied' : 'ai.tool_stopped',
       targetRef: proposalRef(proposal),
       decision: 'deny',
       ...(reason ? { safeReason: reason } : {}),
     });
-    return result(ending.outcome, ending.code);
+    return result(outcome, decisionCode);
   });
   return recorded ?? resume(turn);
 }
 
 /** Another attempt at this step moved it on while this one was working, so this one takes its answer. */
 async function resume(turn: Turn): Promise<ToolHandleResult> {
+  const facts = await turn.deps.store.withTx(turn.context, (tx) =>
+    turn.deps.store.readRun(tx, turn.context, turn.step.runId, { lock: false }),
+  );
+  const closed = facts ? principalStop(facts, turn.context) : new Stop('POLICY_UNREADABLE');
+  if (closed) return result('stopped', closed.code);
   const current = await turn.deps.store.loadProposal(turn.context, {
     runId: turn.step.runId,
     stepNumber: turn.step.stepNumber,
@@ -644,7 +653,7 @@ function fromExternalStatus(status: string | null): {
  * that, with its own at-most-one rule. An `unknown` stays unknown for good here, and a person resolves it
  * through M3's own flow.
  */
-function reconcile(turn: Turn): Promise<ToolHandleResult> {
+function reconcile(turn: Turn, options?: { metadataOnly: true }): Promise<ToolHandleResult> {
   const { deps, context, step, proposal, stepId } = turn;
   return deps.store.withTx(context, async (tx) => {
     const locked = await deps.store.lockProposal(tx, proposal.id);
@@ -674,21 +683,25 @@ function reconcile(turn: Turn): Promise<ToolHandleResult> {
     if (next.outcome === 'needs_approval') return result('needs_approval', next.code);
 
     // `completed` rather than `failed` for an unknown one: a page must not say it failed.
-    await deps.store.updateStep(tx, {
-      stepId,
-      state:
-        next.proposal === 'done' || next.proposal === 'unknown_external_state'
-          ? 'completed'
-          : 'failed',
-      outcome: next.outcome,
-      decisionCode: next.code,
-    });
-    const facts = await deps.store.readRun(tx, context, step.runId, { lock: false });
-    await deps.store.writeOutput(tx, context, {
-      stepId,
-      classification: facts?.classification ?? 'restricted',
-      content: JSON.stringify({ status: next.proposal, code: next.code }),
-    });
+    if (!options?.metadataOnly)
+      await deps.store.updateStep(tx, {
+        stepId,
+        state:
+          next.proposal === 'done' || next.proposal === 'unknown_external_state'
+            ? 'completed'
+            : 'failed',
+        outcome: next.outcome,
+        decisionCode: next.code,
+      });
+    const facts = options?.metadataOnly
+      ? null
+      : await deps.store.readRun(tx, context, step.runId, { lock: false });
+    if (facts && !principalStop(facts, context))
+      await deps.store.writeOutput(tx, context, {
+        stepId,
+        classification: facts?.classification ?? 'restricted',
+        content: JSON.stringify({ status: next.proposal, code: next.code }),
+      });
     await deps.store.audit(tx, context, {
       action: next.outcome === 'done' ? 'ai.tool_done' : 'ai.tool_stopped',
       targetRef: proposalRef(proposal),
@@ -733,6 +746,37 @@ export function createToolGateway(deps: Deps): ToolGateway {
         !sameId(facts.agentVersionId, step.agentVersionId)
       ) {
         return refuseUnrecorded(deps, context, step);
+      }
+      const closed = principalStop(facts, context);
+      if (closed) {
+        const metadata = await store.loadProposalMetadata(context, {
+          runId: step.runId,
+          stepNumber: step.stepNumber,
+        });
+        if (metadata) {
+          const settled = storedResult(metadata);
+          if (settled) return settled;
+          if (metadata.externalActionId)
+            return reconcile(
+              {
+                deps,
+                context,
+                step,
+                proposal: { ...metadata, args: undefined },
+                stepId: metadata.stepId,
+              },
+              { metadataOnly: true },
+            );
+        }
+        await store.withTx(context, (tx) =>
+          store.audit(tx, context, {
+            action: 'ai.tool_stopped',
+            targetRef: `agent_run:${step.runId}`,
+            decision: 'deny',
+            safeReason: closed.code ?? 'RUN_STOPPED',
+          }),
+        );
+        return result('stopped', closed.code);
       }
       const proposal = await store.loadProposal(context, {
         runId: step.runId,

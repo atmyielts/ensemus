@@ -538,7 +538,7 @@ export const companySearchGET = apiRoute(
 );
 export const egressGET = apiRoute(organizationParams, async ({ request, database, context }) => {
   const q = readQuery(request, pageQuery),
-    ports = getKnowledgeReadPorts();
+    ports = await getKnowledgeReadPorts(database, context);
   const page = await listEgressLedger(database, context, ports, {
     ...(q.cursor ? { after: q.cursor } : {}),
     ...(q.limit ? { limit: q.limit } : {}),
@@ -567,7 +567,7 @@ export const simulationPOST = apiRoute(
   organizationParams,
   async ({ request, database, context }) => {
     const b = await readJson(request, contracts.egressProposalSchema),
-      ports = getKnowledgeReadPorts();
+      ports = await getKnowledgeReadPorts(database, context);
     const rows = await simulateProvider(database, context, ports, {
       proposal: {
         destination: b.destination,
