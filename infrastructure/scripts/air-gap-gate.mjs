@@ -3,6 +3,8 @@
 //   node infrastructure/scripts/air-gap-gate.mjs            full gate
 //   node infrastructure/scripts/air-gap-gate.mjs --control  proves a real attempt is detected
 //   node infrastructure/scripts/air-gap-gate.mjs --outages  only the outage round, without the suite
+//   node infrastructure/scripts/air-gap-gate.mjs --connectors  the connectors profile, with the test
+//     relay inside the counted subnet: mail goes out to it, and still no packet may leave (ADR-027 D5)
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { request as httpsRequest } from 'node:https';
 import { dirname, resolve } from 'node:path';
@@ -10,6 +12,13 @@ import { fileURLToPath } from 'node:url';
 
 // The gate's firewall rule covers the default addresses, so a site's own prefix must not move the stack.
 delete process.env.ENSEMUS_NETWORK_PREFIX;
+
+const connectorsRound = process.argv.includes('--connectors');
+if (connectorsRound) {
+  // Every compose call below inherits these. The other rounds run with no profile, as they always did.
+  process.env.COMPOSE_PROFILES = 'connectors';
+  process.env.ENSEMUS_CONNECTORS_ENABLED = 'true';
+}
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const SUBNET = '172.30.0.0/16';
@@ -187,6 +196,39 @@ try {
       failed = true;
     } else {
       console.log('OK: the gate can see outbound attempts.');
+    }
+  } else if (connectorsRound) {
+    console.log('Sending mail through the test relay with outbound traffic blocked...');
+    const tests = spawnSync(
+      'pnpm',
+      ['exec', 'vitest', 'run', '--project', 'stack', 'tests/stack/slice-2.test.ts'],
+      {
+        cwd: root,
+        stdio: 'inherit',
+        shell: process.platform === 'win32',
+        env: { ...process.env, ENSEMUS_COMPOSE_AIRGAP: '1' },
+      },
+    );
+    if (tests.status !== 0) {
+      console.error('FAILED: the connectors tests did not pass while offline.');
+      failed = true;
+    }
+    // Zero packets would prove nothing about a path that was never used.
+    const controlPort = process.env.ENSEMUS_TEST_SMTP_CONTROL_PORT ?? '58025';
+    const stats = await fetch(`http://127.0.0.1:${controlPort}/stats`).then((r) => r.json());
+    console.log(`Messages the test relay took: ${stats.received}`);
+    if (!(stats.received > 0)) {
+      console.error('FAILED: no mail reached the test relay, so this round proved nothing.');
+      failed = true;
+    }
+    const seen = attempts() - before;
+    console.log(`Outbound attempts during the run: ${seen}`);
+    await capture.report();
+    if (seen > 0) {
+      console.error('FAILED: something other than the relay was reached.');
+      failed = true;
+    } else if (!failed) {
+      console.log('OK: mail reached the relay, and nothing else was contacted.');
     }
   } else {
     if (!outagesOnly) {

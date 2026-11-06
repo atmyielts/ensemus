@@ -8,6 +8,10 @@
 # ENSEMUS_NETWORK_PREFIX if 172.30.0.0/16 is already used at your site. Automatic addresses come from
 # the top half of each subnet, so they can never take a pinned one while its service is stopped.
 # tests/stack/platform.test.ts fails if a pin is missing or wrong.
+#
+# Sending email adds a way out, and only for installs that ask for it (ADR-027 D5). One service has
+# credentials and no route out, one has a route out and no credentials, and neither exists without
+# the `connectors` profile. With no profile nothing here can make an outbound attempt.
 name: ensemus
 
 x-secret-file: &restart
@@ -48,6 +52,7 @@ services:
       ENSEMUS_MODE: ${ENSEMUS_MODE:-sovereign}
       ENSEMUS_PUBLIC_URL: ${ENSEMUS_PUBLIC_URL:-https://localhost:8443}
       ENSEMUS_ALLOW_SIGNUP: ${ENSEMUS_ALLOW_SIGNUP:-false}
+      ENSEMUS_CONNECTORS_ENABLED: ${ENSEMUS_CONNECTORS_ENABLED:-false}
       DATABASE_URL_APP_FILE: /run/secrets/db_app_url
       OBJECT_STORAGE_ENDPOINT: http://objects:8333
       OBJECT_STORAGE_BUCKET: ensemus
@@ -144,6 +149,66 @@ services:
     deploy:
       resources: { limits: { memory: 512M } }
 
+  # Holds connector credentials and reads what strangers send, so it gets no route anywhere: it is on
+  # the internal `connectors` network alone, whatever is in a connector, a dependency or a webhook body.
+  connector-worker:
+    <<: *restart
+    profiles: ['connectors']
+    build:
+      context: ../..
+      dockerfile: infrastructure/containers/Dockerfile.worker
+    image: ensemus/worker:local
+    command: ['node', 'dist/connector-worker.js']
+    read_only: true
+    tmpfs: ['/tmp']
+    networks: [connectors]
+    extra_hosts:
+      - postgres:${ENSEMUS_NETWORK_PREFIX:-172.30}.5.10
+      - temporal:${ENSEMUS_NETWORK_PREFIX:-172.30}.5.11
+      - egress-gateway:${ENSEMUS_NETWORK_PREFIX:-172.30}.5.12
+    environment:
+      TEMPORAL_ADDRESS: temporal:7233
+      TEMPORAL_NAMESPACE: default
+      TEMPORAL_CODEC_KEY_FILE: /run/secrets/temporal_codec_key
+      DATABASE_URL_APP_FILE: /run/secrets/db_app_url
+      DATABASE_URL_SECRETS_FILE: /run/secrets/db_secrets_url
+      SECRET_SEALING_PRIVATE_KEY_FILE: /run/secrets/sealing_private_key.pem
+      ENSEMUS_EGRESS_GATEWAY: egress-gateway:2525
+      # `none` is for a relay on a trusted site network, and only if an operator says so.
+      ENSEMUS_SMTP_TLS: ${ENSEMUS_SMTP_TLS:-required}
+      ENSEMUS_SMTP_MESSAGE_ID_DOMAIN: ${ENSEMUS_SMTP_MESSAGE_ID_DOMAIN:-ensemus.invalid}
+    secrets:
+      - db_app_url
+      - db_secrets_url
+      - sealing_private_key.pem
+      - temporal_codec_key
+    depends_on:
+      temporal-namespace: { condition: service_completed_successfully }
+      migrate: { condition: service_completed_successfully }
+      egress-gateway: { condition: service_healthy }
+    deploy:
+      resources: { limits: { memory: 1G } }
+
+  # Forwards bytes to the one target an operator set, and refuses to start without one. It holds no
+  # secret and reaches no database. TLS runs through it, so it sees only ciphertext.
+  egress-gateway:
+    <<: *restart
+    profiles: ['connectors']
+    build:
+      context: ../..
+      dockerfile: infrastructure/containers/Dockerfile.worker
+    image: ensemus/worker:local
+    command: ['node', 'dist/egress-gateway.js']
+    read_only: true
+    tmpfs: ['/tmp']
+    networks:
+      connectors: { ipv4_address: '${ENSEMUS_NETWORK_PREFIX:-172.30}.5.12' }
+      outbound: {}
+    environment:
+      ENSEMUS_EGRESS_TARGET: ${ENSEMUS_EGRESS_TARGET:-}
+    deploy:
+      resources: { limits: { memory: 128M } }
+
   migrate:
     build:
       context: ../..
@@ -182,6 +247,7 @@ services:
     networks:
       data: { ipv4_address: '${ENSEMUS_NETWORK_PREFIX:-172.30}.2.10' }
       temporal-db: { ipv4_address: '${ENSEMUS_NETWORK_PREFIX:-172.30}.4.10' }
+      connectors: { ipv4_address: '${ENSEMUS_NETWORK_PREFIX:-172.30}.5.10' }
     secrets:
       - db_superuser_password
       - db_migrator_password
@@ -214,6 +280,7 @@ services:
     networks:
       temporal: { ipv4_address: '${ENSEMUS_NETWORK_PREFIX:-172.30}.3.10' }
       temporal-db: {}
+      connectors: { ipv4_address: '${ENSEMUS_NETWORK_PREFIX:-172.30}.5.11' }
     extra_hosts:
       - postgres:${ENSEMUS_NETWORK_PREFIX:-172.30}.4.10
     entrypoint: ['/bin/sh', '/provision/temporal-start.sh']
@@ -325,6 +392,23 @@ networks:
         - {
             subnet: '${ENSEMUS_NETWORK_PREFIX:-172.30}.4.0/24',
             ip_range: '${ENSEMUS_NETWORK_PREFIX:-172.30}.4.128/25',
+          }
+  # No gateway, so nothing on it has a route out. Only the connector worker needs it, and `web` stays off.
+  connectors:
+    internal: true
+    ipam:
+      config:
+        - {
+            subnet: '${ENSEMUS_NETWORK_PREFIX:-172.30}.5.0/24',
+            ip_range: '${ENSEMUS_NETWORK_PREFIX:-172.30}.5.128/25',
+          }
+  # The way out, and only the gateway is on it. A sovereign site's firewall limits it to the relay.
+  outbound:
+    ipam:
+      config:
+        - {
+            subnet: '${ENSEMUS_NETWORK_PREFIX:-172.30}.6.0/24',
+            ip_range: '${ENSEMUS_NETWORK_PREFIX:-172.30}.6.128/25',
           }
 
 volumes:
