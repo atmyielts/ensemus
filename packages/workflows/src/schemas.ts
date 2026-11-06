@@ -88,5 +88,20 @@ export type ConnectorSyncOutcome = {
   resources: number;
 };
 
+// --- M6 (ADR-030). The same rule again: an archive's records, keys and names never come through here.
+
+export const organizationExportInputSchema = z.strictObject({
+  organizationId: z.uuid(),
+  exportId: z.uuid(),
+});
+export type OrganizationExportInput = z.infer<typeof organizationExportInputSchema>;
+export const organizationExportWorkflowIdFor = (input: OrganizationExportInput) =>
+  `organization-export-${input.organizationId}-${input.exportId}`;
+export type OrganizationExportResult = {
+  exportId: string;
+  outcome: 'ready' | 'failed';
+  parts: number;
+};
+
 /** Parses the IDs back out of a workflow ID. The dispatcher builds these, so the format is ours. */
 export const UUID_PATTERN = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';

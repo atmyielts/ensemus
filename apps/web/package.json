@@ -17,6 +17,7 @@
     "@ensemus/database": "workspace:*",
     "@ensemus/domain": "workspace:*",
     "@ensemus/secrets": "workspace:*",
+    "@ensemus/sovereign": "workspace:*",
     "@ensemus/storage": "workspace:*",
     "@ensemus/telemetry": "workspace:*",
     "better-auth": "1.7.17",

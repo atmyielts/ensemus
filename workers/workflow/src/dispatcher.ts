@@ -21,6 +21,10 @@ import {
   EXTERNAL_ACTION_READY,
   WEBHOOK_RECEIVED,
 } from '@ensemus/domain/integration-events';
+import {
+  AGGREGATE_ORGANIZATION_EXPORT,
+  ORGANIZATION_EXPORT_REQUESTED,
+} from '@ensemus/domain/sovereign-events';
 import { TOMBSTONE_RECORDED } from '@ensemus/domain/tombstone-ledger';
 import { S3ObjectStore } from '@ensemus/storage';
 import { createLogger, errorCode } from '@ensemus/telemetry';
@@ -31,6 +35,8 @@ import {
   connectorSyncWorkflowIdFor,
   externalActionInputSchema,
   externalActionWorkflowIdFor,
+  organizationExportInputSchema,
+  organizationExportWorkflowIdFor,
   reminderScheduleIdFor,
   webhookDeliveryInputSchema,
   webhookWorkflowIdFor,
@@ -201,6 +207,18 @@ async function main() {
             deliveryId: event.aggregateId,
           }),
           workflowIdFor: webhookWorkflowIdFor,
+        });
+        return;
+
+      // One archive, one run, however many times the event is delivered (ADR-030 D7).
+      case ORGANIZATION_EXPORT_REQUESTED:
+        if (event.aggregateType !== AGGREGATE_ORGANIZATION_EXPORT) return;
+        await startOnce('organizationExportWorkflow', {
+          input: organizationExportInputSchema.parse({
+            organizationId: event.organizationId,
+            exportId: event.aggregateId,
+          }),
+          workflowIdFor: organizationExportWorkflowIdFor,
         });
         return;
 

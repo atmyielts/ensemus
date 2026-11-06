@@ -30,7 +30,14 @@ export type ErrorCode =
   | 'EXTERNAL_ACTION_NOT_RETRYABLE'
   | 'CONNECTION_NOT_ACTIVE'
   | 'CONNECTOR_NOT_AVAILABLE'
-  | 'RESTRICTED_NOT_ALLOWED';
+  | 'RESTRICTED_NOT_ALLOWED'
+  | 'LICENSE_NOT_VALID'
+  | 'EXPORT_ALREADY_RUNNING'
+  | 'EXPORT_NOT_READY'
+  | 'EXPORT_SUPERSEDED'
+  | 'IMPORT_TARGET_NOT_EMPTY'
+  | 'IMPORT_ALREADY_USED'
+  | 'IMPORTED_PERSON_ALREADY_LINKED';
 
 const MESSAGES: Record<ErrorCode, string> = {
   NOT_FOUND: 'Not found or not permitted.',
@@ -66,6 +73,15 @@ const MESSAGES: Record<ErrorCode, string> = {
   CONNECTION_NOT_ACTIVE: 'This connection is not active.',
   CONNECTOR_NOT_AVAILABLE: 'This connector is not available on this deployment.',
   RESTRICTED_NOT_ALLOWED: 'Restricted work cannot be sent outside this deployment.',
+  LICENSE_NOT_VALID:
+    'That file could not be verified, so nothing was changed. Everything already installed stays as it was.',
+  EXPORT_ALREADY_RUNNING: 'An export of this organization is already running.',
+  EXPORT_NOT_READY: 'This export is not ready to download.',
+  EXPORT_SUPERSEDED:
+    'Something was deleted after this export was made, so it can no longer be downloaded. Make a new one.',
+  IMPORT_TARGET_NOT_EMPTY: 'An archive can only be imported into a new, empty organization.',
+  IMPORT_ALREADY_USED: 'This organization has already taken an archive.',
+  IMPORTED_PERSON_ALREADY_LINKED: 'This person has already been linked to a member.',
 };
 
 export class AppError extends Error {
@@ -118,6 +134,13 @@ export const HTTP_STATUS: Record<ErrorCode, number> = {
   CONNECTION_NOT_ACTIVE: 409,
   CONNECTOR_NOT_AVAILABLE: 409,
   RESTRICTED_NOT_ALLOWED: 403,
+  LICENSE_NOT_VALID: 400,
+  EXPORT_ALREADY_RUNNING: 409,
+  EXPORT_NOT_READY: 409,
+  EXPORT_SUPERSEDED: 410,
+  IMPORT_TARGET_NOT_EMPTY: 409,
+  IMPORT_ALREADY_USED: 409,
+  IMPORTED_PERSON_ALREADY_LINKED: 409,
 };
 
 /** Reads the Postgres error code through the wrapper Drizzle adds. */

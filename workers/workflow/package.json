@@ -20,6 +20,7 @@
     "@ensemus/database": "workspace:*",
     "@ensemus/domain": "workspace:*",
     "@ensemus/secrets": "workspace:*",
+    "@ensemus/sovereign": "workspace:*",
     "@ensemus/storage": "workspace:*",
     "@ensemus/telemetry": "workspace:*",
     "@ensemus/workflows": "workspace:*",

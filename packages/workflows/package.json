@@ -15,7 +15,8 @@
     "./connector-deps": "./src/connector-deps.ts",
     "./external-action-activities": "./src/external-action-activities.ts",
     "./webhook-activities": "./src/webhook-activities.ts",
-    "./connector-sync-activities": "./src/connector-sync-activities.ts"
+    "./connector-sync-activities": "./src/connector-sync-activities.ts",
+    "./portability-activities": "./src/portability-activities.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"

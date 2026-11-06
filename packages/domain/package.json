@@ -11,7 +11,10 @@
     "./external-action": "./src/external-action.ts",
     "./integration-events": "./src/integration-events.ts",
     "./webhook": "./src/webhook.ts",
-    "./connector": "./src/connector.ts"
+    "./connector": "./src/connector.ts",
+    "./license": "./src/license.ts",
+    "./portability": "./src/portability.ts",
+    "./sovereign-events": "./src/sovereign-events.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"

@@ -43,6 +43,19 @@ const MESSAGE_FOR = new Map<string, string>([
   ['CONNECTION_NOT_ACTIVE', 'This connection is not active.'],
   ['CONNECTOR_NOT_AVAILABLE', 'This connector is not available on this deployment.'],
   ['RESTRICTED_NOT_ALLOWED', 'Restricted work cannot be sent outside this deployment.'],
+  [
+    'LICENSE_NOT_VALID',
+    'That file could not be verified, so nothing was changed. Everything already installed stays as it was.',
+  ],
+  ['EXPORT_ALREADY_RUNNING', 'An export of this organization is already running.'],
+  ['EXPORT_NOT_READY', 'This export is not ready to download.'],
+  [
+    'EXPORT_SUPERSEDED',
+    'Something was deleted after this export was made, so it can no longer be downloaded. Make a new one.',
+  ],
+  ['IMPORT_TARGET_NOT_EMPTY', 'An archive can only be imported into a new, empty organization.'],
+  ['IMPORT_ALREADY_USED', 'This organization has already taken an archive.'],
+  ['IMPORTED_PERSON_ALREADY_LINKED', 'This person has already been linked to a member.'],
   ['UNEXPECTED', 'Something went wrong on our side. Please try again.'],
 ]);
 

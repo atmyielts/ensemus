@@ -109,6 +109,18 @@ describe('the spec and the routes', () => {
       'knowledge/search',
       'model-profiles',
       'entitlements',
+      // M6 until each route lands. The slices that build them remove these as they land (ADR-030).
+      'license',
+      'license/documents',
+      'advisories',
+      'exports',
+      'exports',
+      'exports/{export_id}',
+      'exports/{export_id}/archive',
+      'imports',
+      'imports/{import_id}',
+      'imported-people',
+      'imported-people/{source_membership_id}/link',
     ]);
   });
 });

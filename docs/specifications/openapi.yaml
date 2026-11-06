@@ -757,6 +757,235 @@ paths:
                   mode: {type: string, enum: [cloud, byom, sovereign]}
                   features: {type: array, items: {type: string}}
                   capacity: {type: object, additionalProperties: true}
+  /organizations/{organization_id}/license:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+    get:
+      x-ensemus-status: planned
+      tags: [commercial]
+      summary: What this organization's license and maintenance say
+      description: >-
+        Read by owners and admins. Every value comes from a signed document verified as it is read. What this
+        answers is shown to people and is never used to refuse a request (ADR-030 D2).
+      responses:
+        '200':
+          description: License status
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/LicenseStatus'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /organizations/{organization_id}/license/documents:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+    post:
+      x-ensemus-status: planned
+      tags: [commercial]
+      summary: Install a signed license, maintenance statement, advisory or support policy
+      description: >-
+        Owners only. A file that does not verify changes nothing. Installing the same file twice is safe, and
+        answers 200 the second time.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/InstallSignedDocument'}
+      responses:
+        '200':
+          description: This exact file was already installed
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/InstalledDocument'}
+        '201':
+          description: Installed
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/InstalledDocument'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /organizations/{organization_id}/advisories:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+    get:
+      x-ensemus-status: planned
+      tags: [commercial]
+      summary: Signed security advisories installed here, newest first
+      responses:
+        '200':
+          description: Advisories
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [items]
+                properties:
+                  items: {type: array, items: {$ref: '#/components/schemas/Advisory'}}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /organizations/{organization_id}/exports:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+    get:
+      x-ensemus-status: planned
+      tags: [commercial]
+      summary: Archives of this organization, newest first
+      responses:
+        '200':
+          description: Exports
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [items]
+                properties:
+                  items: {type: array, items: {$ref: '#/components/schemas/OrganizationExport'}}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+    post:
+      x-ensemus-status: planned
+      tags: [commercial]
+      summary: Ask for an archive, sealed to a public key you hold the private half of
+      description: >-
+        Owners only. Restricted work is left out, and the archive says how much (ADR-030 D10). Runs in the
+        worker, and this answers before it starts.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/RequestExport'}
+      responses:
+        '202':
+          description: Requested
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/OrganizationExport'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+  /organizations/{organization_id}/exports/{export_id}:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+      - $ref: '#/components/parameters/ExportID'
+    get:
+      x-ensemus-status: planned
+      tags: [commercial]
+      summary: One archive's status
+      responses:
+        '200':
+          description: The export
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/OrganizationExport'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /organizations/{organization_id}/exports/{export_id}/archive:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+      - $ref: '#/components/parameters/ExportID'
+    get:
+      x-ensemus-status: planned
+      tags: [commercial]
+      summary: Download the archive, a tar of sealed parts
+      responses:
+        '200':
+          description: The archive
+          content:
+            application/x-tar:
+              schema: {type: string, format: binary}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '410':
+          description: Something was deleted after this archive was made. Make a new one.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+  /organizations/{organization_id}/imports:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+    post:
+      x-ensemus-status: planned
+      tags: [commercial]
+      summary: Say this new, empty organization is to take an archive
+      description: >-
+        Owners only. No bytes come through here. An operator runs the import, so that the private key opening
+        the archive stays in one process on their machine (ADR-030 D8).
+      responses:
+        '201':
+          description: Requested
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/OrganizationImport'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+  /organizations/{organization_id}/imports/{import_id}:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+      - $ref: '#/components/parameters/ImportID'
+    get:
+      x-ensemus-status: planned
+      tags: [commercial]
+      summary: How an import went, with counts and warnings
+      responses:
+        '200':
+          description: The import
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/OrganizationImport'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /organizations/{organization_id}/imported-people:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+    get:
+      x-ensemus-status: planned
+      tags: [commercial]
+      summary: People from the archive, and which of them have been linked to a member here
+      responses:
+        '200':
+          description: People
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [items]
+                properties:
+                  items: {type: array, items: {$ref: '#/components/schemas/ImportedPerson'}}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /organizations/{organization_id}/imported-people/{source_membership_id}/link:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+      - name: source_membership_id
+        in: path
+        required: true
+        schema: {type: string, format: uuid}
+    post:
+      x-ensemus-status: planned
+      tags: [commercial]
+      summary: Say this member here is that person from the archive
+      description: Owners only. Moves what they owned to them, and grants no role.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/LinkImportedPerson'}
+      responses:
+        '200':
+          description: Linked
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ImportedPerson'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
 components:
   securitySchemes:
     sessionCookie:
@@ -801,6 +1030,16 @@ components:
       schema: {type: string, format: uuid}
     ConnectionID:
       name: connection_id
+      in: path
+      required: true
+      schema: {type: string, format: uuid}
+    ExportID:
+      name: export_id
+      in: path
+      required: true
+      schema: {type: string, format: uuid}
+    ImportID:
+      name: import_id
       in: path
       required: true
       schema: {type: string, format: uuid}
@@ -1056,6 +1295,217 @@ components:
         request_id: {type: string}
         retryable: {type: boolean}
         details: {type: object, additionalProperties: true}
+    InstallSignedDocument:
+      type: object
+      additionalProperties: false
+      required: [envelope]
+      properties:
+        envelope: {type: string, minLength: 1, maxLength: 1048576}
+    InstalledDocument:
+      type: object
+      additionalProperties: false
+      required: [type, id, created, test_key]
+      properties:
+        type: {type: string, enum: [license, maintenance, advisory, support_policy]}
+        id: {type: string, format: uuid}
+        created: {type: boolean}
+        test_key: {type: boolean}
+    LicenseStatus:
+      type: object
+      additionalProperties: false
+      required: [standing, license, maintenance, running_release, seats_in_use, notices]
+      properties:
+        standing: {type: string, enum: [licensed, unlicensed, unverifiable]}
+        license:
+          oneOf:
+            - type: 'null'
+            - type: object
+              additionalProperties: false
+              required: [license_id, licensee_name, contract_reference, term, licensed_version, footprint_seats, issued_at, test_key, retired_key]
+              properties:
+                license_id: {type: string, format: uuid}
+                licensee_name: {type: string}
+                contract_reference: {type: string}
+                term:
+                  type: object
+                  additionalProperties: false
+                  required: [kind]
+                  properties:
+                    kind: {type: string, enum: [perpetual, pilot]}
+                    review_on: {type: string, format: date}
+                licensed_version: {type: string}
+                footprint_seats: {type: [integer, 'null']}
+                issued_at: {type: string, format: date-time}
+                test_key: {type: boolean}
+                retired_key: {type: boolean}
+        maintenance:
+          type: object
+          additionalProperties: false
+          required: [status, last_covered_on]
+          properties:
+            status: {type: string, enum: [no_agreement, not_started, active, lapsed]}
+            last_covered_on: {type: [string, 'null'], format: date}
+        running_release:
+          oneOf:
+            - type: 'null'
+            - type: object
+              additionalProperties: false
+              required: [version, covered]
+              properties:
+                version: {type: string}
+                covered: {type: [boolean, 'null']}
+        seats_in_use: {type: integer, minimum: 0}
+        notices:
+          type: array
+          items:
+            type: string
+            enum:
+              - no_license
+              - license_unverifiable
+              - no_maintenance
+              - maintenance_lapsed
+              - maintenance_not_started
+              - pilot_review_due
+              - signed_with_test_key
+              - signed_with_retired_key
+              - clock_before_issue
+              - running_release_outside_rights
+              - seats_above_footprint
+    Advisory:
+      type: object
+      additionalProperties: false
+      required: [advisory_id, severity, title, summary, affected_versions, fixed_in_versions, issued_at, affects_this_release, test_key]
+      properties:
+        advisory_id: {type: string}
+        severity: {type: string, enum: [low, moderate, high, critical]}
+        title: {type: string}
+        summary: {type: string}
+        affected_versions: {type: array, items: {type: string}}
+        fixed_in_versions: {type: array, items: {type: string}}
+        issued_at: {type: string, format: date-time}
+        affects_this_release: {type: [boolean, 'null']}
+        test_key: {type: boolean}
+    RequestExport:
+      type: object
+      additionalProperties: false
+      required: [recipient_public_key]
+      properties:
+        recipient_public_key: {type: string, minLength: 1, maxLength: 512}
+    OrganizationExport:
+      type: object
+      additionalProperties: false
+      required: [id, status, scope, recipient_key_id, requested_at, finished_at, expires_at, part_count, record_count, archive_bytes, excluded, failure_code, downloadable]
+      properties:
+        id: {type: string, format: uuid}
+        status: {type: string, enum: [requested, running, ready, failed, expired]}
+        scope: {type: string, enum: [standard]}
+        recipient_key_id: {type: string, pattern: '^[0-9a-f]{32}    BadRequest:
+      description: Malformed path, query, header or body. details.fields names the fields, never their values.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+    Unauthorized:
+      description: No valid session
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+    Forbidden:
+      description: Authorization or policy rejection
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+    Conflict:
+      description: Concurrent update, dependency conflict, or an Idempotency-Key reused with a different request
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+    Validation:
+      description: Input or model/tool compatibility validation failed
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+    NotFound:
+      description: Missing or inaccessible resource; avoid existence leaks
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+    PayloadTooLarge:
+      description: JSON body over the 256 KB limit
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+    UnsupportedMediaType:
+      description: Body is not application/json
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+    PreconditionRequired:
+      description: If-Match header missing
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+    InternalError:
+      description: Something failed on the server. The answer holds no detail about what.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+    RestorePending:
+      description: >-
+        This organization's database was restored from a backup and is behind the tombstone ledger,
+        so nothing is served until an operator has re-applied the ledger. The code is RESTORE_PENDING,
+        the request did nothing, and it can be repeated. Only members of the organization see this.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+}
+        requested_at: {type: string, format: date-time}
+        finished_at: {type: [string, 'null'], format: date-time}
+        expires_at: {type: [string, 'null'], format: date-time}
+        part_count: {type: integer, minimum: 0}
+        record_count: {type: integer, minimum: 0}
+        archive_bytes: {type: integer, minimum: 0}
+        excluded:
+          type: object
+          additionalProperties: false
+          required: [restricted_work, restricted_artifacts, restricted_clients]
+          properties:
+            restricted_work: {type: integer, minimum: 0}
+            restricted_artifacts: {type: integer, minimum: 0}
+            restricted_clients: {type: integer, minimum: 0}
+        failure_code: {type: [string, 'null']}
+        downloadable: {type: boolean}
+    OrganizationImport:
+      type: object
+      additionalProperties: false
+      required: [id, status, requested_at, finished_at, source_organization_id, exported_at, source_release, applied_counts, warning_counts, failure_code]
+      properties:
+        id: {type: string, format: uuid}
+        status: {type: string, enum: [requested, running, completed, completed_with_warnings, failed]}
+        requested_at: {type: string, format: date-time}
+        finished_at: {type: [string, 'null'], format: date-time}
+        source_organization_id: {type: [string, 'null'], format: uuid}
+        exported_at: {type: [string, 'null'], format: date-time}
+        source_release: {type: [string, 'null']}
+        applied_counts: {type: object, additionalProperties: {type: integer}}
+        warning_counts: {type: object, additionalProperties: {type: integer}}
+        failure_code: {type: [string, 'null']}
+    ImportedPerson:
+      type: object
+      additionalProperties: false
+      required: [source_membership_id, display_name, email, source_role, target_membership_id, linked_at]
+      properties:
+        source_membership_id: {type: string, format: uuid}
+        display_name: {type: string}
+        email: {type: string}
+        source_role: {type: string, enum: [owner, admin, member]}
+        target_membership_id: {type: [string, 'null'], format: uuid}
+        linked_at: {type: [string, 'null'], format: date-time}
+    LinkImportedPerson:
+      type: object
+      additionalProperties: false
+      required: [membership_id]
+      properties:
+        membership_id: {type: string, format: uuid}
   responses:
     BadRequest:
       description: Malformed path, query, header or body. details.fields names the fields, never their values.

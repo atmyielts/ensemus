@@ -3,6 +3,7 @@ import { writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readSecret } from '@ensemus/config';
+import { loadSovereignConfig } from '@ensemus/config/sovereign';
 import { openAppDatabase } from '@ensemus/database';
 import { S3ObjectStore } from '@ensemus/storage';
 import { createLogger, errorCode } from '@ensemus/telemetry';
@@ -10,10 +11,12 @@ import { createActivities, type WorkflowProbe } from '@ensemus/workflows/activit
 import { AesGcmPayloadCodec } from '@ensemus/workflows/codec';
 import { PLATFORM_TASK_QUEUE, TEMPORAL_CHANNEL_ARGS } from '@ensemus/workflows/constants';
 import { createExternalActionPlatformActivities } from '@ensemus/workflows/external-action-activities';
+import { createPortabilityActivities } from '@ensemus/workflows/portability-activities';
 import { createTemporalLogger } from '@ensemus/workflows/safe-logger';
 import { workflowIdFor } from '@ensemus/workflows/schemas';
 import { Client, Connection, WorkflowNotFoundError } from '@temporalio/client';
 import { NativeConnection, Runtime, Worker } from '@temporalio/worker';
+import { PORTABILITY_SECTIONS } from './portability-sections';
 
 const log = createLogger('worker');
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -58,6 +61,7 @@ async function main() {
       return 'open';
     }
   };
+  const sovereign = loadSovereignConfig();
   const worker = await Worker.create({
     connection,
     namespace: process.env.TEMPORAL_NAMESPACE ?? 'default',
@@ -67,6 +71,16 @@ async function main() {
       ...createActivities({ database: db, store, probeWorkflow }),
       // Only what reads PostgreSQL. Anything holding a credential is on the connector queue.
       ...createExternalActionPlatformActivities({ database: db }),
+      // Seals to a customer's public key and holds no private key (ADR-030 D6).
+      ...createPortabilityActivities({
+        database: db,
+        store,
+        exportDeps: {
+          sections: PORTABILITY_SECTIONS,
+          sourceRelease: sovereign.release,
+          retentionHours: sovereign.exportRetentionHours,
+        },
+      }),
     },
     dataConverter: {
       payloadCodecs: [new AesGcmPayloadCodec(readSecret('TEMPORAL_CODEC_KEY'))],

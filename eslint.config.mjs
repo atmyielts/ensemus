@@ -36,8 +36,45 @@ const connectorCode = {
     'Connectors run in the connector worker. The web tier may read manifests only (ADR-027).',
 };
 const testDoubles = {
-  group: ['@ensemus/connectors/testing'],
+  group: ['@ensemus/connectors/testing', '@ensemus/sovereign/testing'],
   message: 'Test doubles never reach a shipped image.',
+};
+const vendorIssuer = {
+  group: ['@ensemus/sovereign/issuer', '@ensemus/sovereign/testing'],
+  message: 'The issuing tool and its test keys are the vendor side and never ship (ADR-030 D3).',
+};
+const webOffSovereignTools = {
+  group: [
+    '@ensemus/sovereign/bundle',
+    '@ensemus/sovereign/backup',
+    '@ensemus/sovereign/diagnostics',
+    '@ensemus/sovereign/sealed',
+    '@ensemus/sovereign/tar',
+  ],
+  message: 'Operator tools run in operator commands. The web tier checks signatures only (ADR-030).',
+};
+const sovereignReach = {
+  group: [
+    '@ensemus/application',
+    '@ensemus/application/*',
+    '@ensemus/connectors',
+    '@ensemus/connectors/*',
+    '@ensemus/database',
+    '@ensemus/database/*',
+    '@ensemus/secrets',
+    '@ensemus/secrets/*',
+    '@ensemus/storage',
+    '@ensemus/storage/*',
+    '@ensemus/workflows',
+    '@ensemus/workflows/*',
+    '@temporalio/*',
+    'drizzle-orm',
+    'drizzle-orm/*',
+    'pg',
+    'pg/*',
+  ],
+  message:
+    'This package has to run alone on an isolated machine, so it reaches only the domain (ADR-030 D4).',
 };
 const connectorReach = {
   group: [
@@ -122,17 +159,17 @@ export default tseslint.config(
   },
   restrict(
     ['**/*.{ts,tsx}'],
-    [rawDatabase, authDatabase],
+    [rawDatabase, authDatabase, vendorIssuer],
     ['packages/database/**', 'packages/auth/**', 'tests/**', 'apps/web/**'],
   ),
   restrict(['packages/auth/**/*.ts'], [rawDatabase, temporal, broker]),
   restrict(
     ['apps/web/**/*.{ts,tsx}'],
-    [rawDatabase, authDatabase, temporal, broker, connectorCode],
+    [rawDatabase, authDatabase, temporal, broker, connectorCode, vendorIssuer, webOffSovereignTools],
   ),
   restrict(
     ['workers/**/*.ts', 'packages/workflows/**/*.ts'],
-    [rawDatabase, authDatabase, testDoubles],
+    [rawDatabase, authDatabase, testDoubles, vendorIssuer],
   ),
   // packages/connectors, in two parts. A rule set on the same files replaces the one before it, so
   // the first has to name everything: its testing folder may use a socket, and network.ts must.
@@ -153,6 +190,21 @@ export default tseslint.config(
         {
           name: 'fetch',
           message: 'A connector goes out only through ConnectorNetwork (ADR-027 D5).',
+        },
+      ],
+    },
+  },
+  // packages/sovereign has no network, so nothing in it can phone home (SEC-05, ADR-030 D4). The rule set
+  // replaces the general one for these files, so it has to name that one's rules too.
+  restrict(['packages/sovereign/**/*.ts'], [sovereignReach, rawNetwork, rawDatabase, authDatabase]),
+  {
+    files: ['packages/sovereign/**/*.ts'],
+    rules: {
+      'no-restricted-globals': [
+        'error',
+        {
+          name: 'fetch',
+          message: 'Nothing in the Sovereign tools may reach a network (ADR-030 D4).',
         },
       ],
     },

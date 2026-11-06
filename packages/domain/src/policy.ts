@@ -13,7 +13,11 @@ export type Capability =
   | 'work.create'
   | 'work.recover_owner'
   | 'member.view_email'
-  | 'connection.manage';
+  | 'connection.manage'
+  | 'organization.export'
+  | 'organization.import'
+  | 'license.manage'
+  | 'license.view';
 
 const GRANTS: Record<Role, ReadonlySet<Capability>> = {
   owner: new Set([
@@ -27,6 +31,11 @@ const GRANTS: Record<Role, ReadonlySet<Capability>> = {
     'work.recover_owner',
     'member.view_email',
     'connection.manage',
+    // An archive holds nearly all of a tenant, and a license is the customer's, so these are the owner's.
+    'organization.export',
+    'organization.import',
+    'license.manage',
+    'license.view',
   ]),
   admin: new Set([
     'member.invite',
@@ -37,6 +46,7 @@ const GRANTS: Record<Role, ReadonlySet<Capability>> = {
     'work.create',
     'member.view_email',
     'connection.manage',
+    'license.view',
   ]),
   member: new Set(['client.manage', 'project.manage', 'work.create']),
 };
