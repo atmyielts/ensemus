@@ -35,7 +35,8 @@ export type KnowledgeAnswerInput = z.infer<typeof knowledgeAnswerInputSchema>;
 export const knowledgeAnswerWorkflowIdFor = (input: KnowledgeAnswerInput) =>
   `knowledge-answer-${input.organizationId}-${input.answerId}`;
 export type KnowledgeAnswerResult = {
-  outcome: 'answered' | 'no_evidence' | 'refused' | 'failed' | 'already_done' | 'model_worker_absent';
+  outcome:
+    'answered' | 'no_evidence' | 'refused' | 'failed' | 'already_done' | 'model_worker_absent';
 };
 
 /** One tenant's sweep, from a Temporal Schedule (ADR-029 D1). */

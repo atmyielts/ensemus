@@ -50,7 +50,10 @@ const MESSAGE_FOR = new Map<string, string>([
     'KNOWLEDGE_GRANT_ON_CONNECTOR_SOURCE',
     'Who can see this comes from where it is stored. Change it there.',
   ],
-  ['KNOWLEDGE_NO_MODEL', 'No approved model can answer this. Your documents were not sent anywhere.'],
+  [
+    'KNOWLEDGE_NO_MODEL',
+    'No approved model can answer this. Your documents were not sent anywhere.',
+  ],
   [
     'KNOWLEDGE_FACT_NEEDS_EVIDENCE',
     'A fact has to rest on a passage from a source that is still open.',

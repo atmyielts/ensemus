@@ -2,7 +2,10 @@
 import type { KnowledgeModelDeps } from './knowledge-deps';
 import type { KnowledgeIngestInput } from './knowledge-schemas';
 
-export type EmbedStepResult = { state: 'embedded' | 'denied' | 'failed' | 'skipped'; count: number };
+export type EmbedStepResult = {
+  state: 'embedded' | 'denied' | 'failed' | 'skipped';
+  count: number;
+};
 
 export function createKnowledgeEmbedActivities(_deps: KnowledgeModelDeps) {
   return {

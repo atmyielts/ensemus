@@ -23,7 +23,8 @@
     "./knowledge-embed-activities": "./src/knowledge-embed-activities.ts",
     "./knowledge-answer-activities": "./src/knowledge-answer-activities.ts",
     "./knowledge-purge-activities": "./src/knowledge-purge-activities.ts",
-    "./client-onboarding-activities": "./src/client-onboarding-activities.ts"
+    "./client-onboarding-activities": "./src/client-onboarding-activities.ts",
+    "./mcp-activities": "./src/mcp-activities.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"

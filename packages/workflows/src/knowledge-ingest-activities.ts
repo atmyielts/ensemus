@@ -22,6 +22,10 @@ export function createKnowledgeIngestActivities(_deps: KnowledgeWorkerDeps) {
     async closeOrphanedSources(_input: TenantInput): Promise<{ closed: number }> {
       throw new Error('NOT_IMPLEMENTED');
     },
+    /** Active `mcp_server` connections, whose tools the sweep refreshes through `refreshMcpTools`. */
+    async listMcpConnections(_input: TenantInput): Promise<readonly { connectionId: string }[]> {
+      throw new Error('NOT_IMPLEMENTED');
+    },
   };
 }
 export type KnowledgeIngestActivities = ReturnType<typeof createKnowledgeIngestActivities>;

@@ -43,13 +43,13 @@ const knowledgeWorkerCode = {
   group: [
     '@ensemus/application/knowledge/ingest',
     '@ensemus/application/knowledge/embeddings',
-    '@ensemus/knowledge/ports',
     '@ensemus/knowledge/parsing',
     '@ensemus/knowledge/chunking',
     '@ensemus/knowledge/prompt',
     '@ensemus/knowledge/egress-simulation',
   ],
-  message: 'Parsing and model calls run in workers. The web tier reads and enqueues (ADR-029 D4, D5).',
+  message:
+    'Parsing and model calls run in workers. The web tier reads and enqueues (ADR-029 D4, D5).',
 };
 const knowledgeReach = {
   group: [

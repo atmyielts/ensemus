@@ -225,7 +225,7 @@ describe('role boundaries', () => {
       `select n.nspname || '.' || c.relname as t
          from pg_class c join pg_namespace n on n.oid = c.relnamespace
         where c.relkind in ('r','p')
-          and n.nspname in ('org','platform','governance','secrets','identity','work','integrations')
+          and n.nspname in ('org','platform','governance','secrets','identity','work','integrations','knowledge')
           and not (c.relrowsecurity and c.relforcerowsecurity)`,
     );
     expect(rows).toEqual([]);

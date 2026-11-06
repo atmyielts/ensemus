@@ -7,7 +7,13 @@ export const PARSER_VERSION = 'v1';
 
 export type ParsedDocument =
   | { ok: true; text: string; parserVersion: string }
-  | { ok: false; code: Extract<KnowledgeCode, 'UNSUPPORTED_FORMAT' | 'EMPTY_DOCUMENT' | 'UNREADABLE_ENCODING' | 'TOO_LARGE'> };
+  | {
+      ok: false;
+      code: Extract<
+        KnowledgeCode,
+        'UNSUPPORTED_FORMAT' | 'EMPTY_DOCUMENT' | 'UNREADABLE_ENCODING' | 'TOO_LARGE'
+      >;
+    };
 
 /**
  * Decodes and extracts text from one of `INGESTIBLE_MEDIA_TYPES`. HTML keeps its visible text only, with

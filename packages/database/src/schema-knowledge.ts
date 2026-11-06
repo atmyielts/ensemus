@@ -223,7 +223,10 @@ export const knowledgeDocuments = knowledgeSchema.table(
       sql`${t.classification} in ('public','internal','confidential','restricted')`,
     ),
     check('knowledge_documents_sha_check', sql`${t.contentSha256} ~ '^[0-9a-f]{64}$'`),
-    check('knowledge_documents_url_check', sql`${t.sourceUrl} is null or ${t.sourceUrl} ~ '^https://'`),
+    check(
+      'knowledge_documents_url_check',
+      sql`${t.sourceUrl} is null or ${t.sourceUrl} ~ '^https://'`,
+    ),
     check('knowledge_documents_title_size', sql`length(${t.title}) between 1 and 512`),
     check('knowledge_documents_size_check', sql`${t.sizeBytes} between 0 and 26214400`),
     check('knowledge_documents_version_check', sql`${t.version} > 0 and ${t.versionNo} > 0`),
@@ -353,7 +356,11 @@ export const knowledgeEmbeddings = knowledgeSchema.table(
     primaryKey({ columns: [t.organizationId, t.chunkId, t.spaceId] }),
     foreignKey({
       columns: [t.organizationId, t.chunkId, t.sourceId],
-      foreignColumns: [knowledgeChunks.organizationId, knowledgeChunks.id, knowledgeChunks.sourceId],
+      foreignColumns: [
+        knowledgeChunks.organizationId,
+        knowledgeChunks.id,
+        knowledgeChunks.sourceId,
+      ],
     }).onDelete('cascade'),
     foreignKey({
       columns: [t.organizationId, t.spaceId, t.dimension],
@@ -457,7 +464,11 @@ export const knowledgeFactEvidence = knowledgeSchema.table(
     }).onDelete('cascade'),
     foreignKey({
       columns: [t.organizationId, t.chunkId, t.sourceId],
-      foreignColumns: [knowledgeChunks.organizationId, knowledgeChunks.id, knowledgeChunks.sourceId],
+      foreignColumns: [
+        knowledgeChunks.organizationId,
+        knowledgeChunks.id,
+        knowledgeChunks.sourceId,
+      ],
     }),
     index('knowledge_fact_evidence_source_idx').on(t.organizationId, t.sourceId),
     index('knowledge_fact_evidence_chunk_idx').on(t.organizationId, t.chunkId),
@@ -694,7 +705,11 @@ export const knowledgeAnswerCitations = knowledgeSchema.table(
     }).onDelete('cascade'),
     foreignKey({
       columns: [t.organizationId, t.chunkId, t.sourceId],
-      foreignColumns: [knowledgeChunks.organizationId, knowledgeChunks.id, knowledgeChunks.sourceId],
+      foreignColumns: [
+        knowledgeChunks.organizationId,
+        knowledgeChunks.id,
+        knowledgeChunks.sourceId,
+      ],
     }),
     check(
       'knowledge_answer_citations_span',

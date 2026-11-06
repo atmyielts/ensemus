@@ -103,7 +103,10 @@ export type LinkNodesBody = z.infer<typeof linkNodesSchema>;
 
 export const traverseGraphSchema = z.strictObject({
   from: graphNode,
-  relations: z.array(z.string().regex(/^[a-z][a-z0-9_]{0,63}$/)).max(20).optional(),
+  relations: z
+    .array(z.string().regex(/^[a-z][a-z0-9_]{0,63}$/))
+    .max(20)
+    .optional(),
   depth: z.int().min(1).max(3).optional(),
   limit: z.int().min(1).max(200).optional(),
 });
@@ -115,7 +118,10 @@ export const egressProposalSchema = z.strictObject({
   region: z.string().max(64).nullable(),
   contract_ref: z.string().max(128).nullable(),
   allowed_classes: z.array(classificationSchema).max(4),
-  purposes: z.array(z.enum(['embed', 'rerank', 'answer'])).min(1).max(3),
+  purposes: z
+    .array(z.enum(['embed', 'rerank', 'answer']))
+    .min(1)
+    .max(3),
 });
 export type EgressProposalBody = z.infer<typeof egressProposalSchema>;
 
@@ -149,13 +155,15 @@ export type StartClientOnboardingBody = z.infer<typeof startClientOnboardingSche
 
 /** Settings for Google Workspace and Microsoft 365. Neither can name a host. */
 export const driveConnectorConfigSchema = z.strictObject({
-  drive_ids: z.array(z.string().regex(/^[A-Za-z0-9_!.-]{1,256}$/)).max(50),
+  // These go in a path. All dots would be a way out of it, even percent-encoded around them.
+  drive_ids: z.array(z.string().regex(/^(?!\.+$)[A-Za-z0-9_!.-]{1,256}$/)).max(50),
 });
 export type DriveConnectorConfig = z.infer<typeof driveConnectorConfigSchema>;
 
 /** An MCP connection. The server is the operator's one target, and this is only a path on it. */
 export const mcpConnectorConfigSchema = z.strictObject({
-  endpoint_path: z.string().regex(/^\/[A-Za-z0-9/_.-]{0,255}$/),
+  // Not `//`, which a URL parser reads as a host, and no `..`, which climbs out of the path.
+  endpoint_path: z.string().regex(/^\/(?!\/)(?!.*\.\.)[A-Za-z0-9/_.-]{0,255}$/),
 });
 export type McpConnectorConfig = z.infer<typeof mcpConnectorConfigSchema>;
 
@@ -167,7 +175,7 @@ export const oauthCredentialSchema = z.strictObject({
   /** Microsoft's directory, or absent for Google. Goes in a path, so it is held to this shape. */
   tenant: z
     .string()
-    .regex(/^[A-Za-z0-9.-]{1,128}$/)
+    .regex(/^(?!\.+$)[A-Za-z0-9.-]{1,128}$/)
     .optional(),
 });
 export type OauthCredential = z.infer<typeof oauthCredentialSchema>;
