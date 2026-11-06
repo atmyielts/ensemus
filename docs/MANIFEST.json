@@ -92,13 +92,13 @@
     },
     {
       "path": "02-architecture/03-data-model.md",
-      "size_bytes": 8165,
-      "sha256": "6aca110eddb607b54ebefa53ae631a8252dd8d674168043c5f3997be3a5f9456"
+      "size_bytes": 10520,
+      "sha256": "f7231cec1178a9bdc2df95801aabb271de4bb41ef7fdbf7183e263d61861ce33"
     },
     {
       "path": "02-architecture/04-work-kernel.md",
-      "size_bytes": 8078,
-      "sha256": "ee944b0c5393c2c566af2b20eb0bb12e516dd87a296e65708d9ffa58ad0c6cdd"
+      "size_bytes": 9404,
+      "sha256": "3f6c1292f5f973aafec20557a6ef7172d337a2f96efa8959ba9b37d2bc04e83e"
     },
     {
       "path": "02-architecture/05-events-and-consistency.md",
@@ -227,8 +227,8 @@
     },
     {
       "path": "05-operations/02-deployment-and-recovery.md",
-      "size_bytes": 4357,
-      "sha256": "045feb1b10e537755c3465b85dea5fef032391eb9bda1b4d1bd0f00dd83b3ad5"
+      "size_bytes": 4932,
+      "sha256": "8501ed06b2dad28b3eb7c167062f589ae9f470d68b28673091dc008062729694"
     },
     {
       "path": "05-operations/03-testing-quality.md",
@@ -242,8 +242,8 @@
     },
     {
       "path": "05-operations/05-container-deployment-runbook.md",
-      "size_bytes": 17052,
-      "sha256": "577de9708536445a8f5c2943f23f0dfa466d7b3ac0a9401892e999a7b570c065"
+      "size_bytes": 25500,
+      "sha256": "282746276d7930e77e5559eeaefe7d962c66b651ced0f818783a016404fa6cd3"
     },
     {
       "path": "05-operations/06-performance-and-load-plan.md",
@@ -277,8 +277,8 @@
     },
     {
       "path": "06-delivery/06-end-to-end-delivery-plan.md",
-      "size_bytes": 19358,
-      "sha256": "be135c3746d154322950dd937bb2bfc4058af9811fe3597f670f1c0dbccf8f31"
+      "size_bytes": 19867,
+      "sha256": "208efff7ce53b319442e3279c93d505fcc72845a0dd2f79e115a311a42db8e42"
     },
     {
       "path": "06-delivery/evidence/M1-report.md",
@@ -289,6 +289,11 @@
       "path": "06-delivery/evidence/M2-measurements.json",
       "size_bytes": 3496,
       "sha256": "b055dfb10feb5f85e4295a7998614131dbd84c4428b71e0ff51118f8054b43ef"
+    },
+    {
+      "path": "06-delivery/evidence/M3-report.md",
+      "size_bytes": 5942,
+      "sha256": "d18461e497593ddf15228b835718ce3050666ab0fdeae977bc97161e3e201f5c"
     },
     {
       "path": "06-delivery/m3-slices.md",
@@ -482,8 +487,8 @@
     },
     {
       "path": "specifications/threat-register.csv",
-      "size_bytes": 3766,
-      "sha256": "cf71f8a285b6bf528b73f3118d437f905f7581e291c312f106ecbbb27b20495b"
+      "size_bytes": 5680,
+      "sha256": "93dece474db42e70f0b55554663e1f6d0d3c87e7eb86f401c4568695159171a9"
     },
     {
       "path": "specifications/tools/check-backlog.mjs",
@@ -497,8 +502,8 @@
     },
     {
       "path": "specifications/traceability.csv",
-      "size_bytes": 3160,
-      "sha256": "3be0d7764245422edbf67c39835390548260d171d6d3cec3d1b960b590000a08"
+      "size_bytes": 3335,
+      "sha256": "77df1f2872831f4873dfab560ad7130f5be40ef765db24469faa7554a626ea49"
     },
     {
       "path": "specifications/typescript/agent-manifest.reference.ts",

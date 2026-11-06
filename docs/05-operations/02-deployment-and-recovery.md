@@ -28,6 +28,8 @@ PostgreSQL PITR or logical backups with tested restore, object version manifests
 4. Validate tenant isolation, permissions, task queue health, document revocations and license entitlements.
 5. Rebuild derived search/index/cache projections with fresh ACLs; publish verified recovery result.
 
+**External actions after a restore (ADR-027 D2).** Keep the connector worker stopped until someone has reviewed the intents that were not settled at the backup's time. A restore to before a send loses the attempt row, and the intent goes back to `ready`. If Temporal still has the finished run, `REJECT_DUPLICATE` stops it. If Temporal was restored too, the mail can be sent again. **The code does not enforce this: it is a step for a person to take, and it is a gap until `OPS-02` in M6.** The [runbook's restore steps](05-container-deployment-runbook.md#restore) say how.
+
 ## Cloud / BYOM / Sovereign
 
 Cloud/BYOM roll out progressively with canary and fast rollback; an inference provider outage must not break ordinary work. Sovereign uses operator-controlled upgrade bundles verified offline; no vendor cloud check or hidden automatic patch. Maintenance lapse does not disable licensed runtime. Release and hardware compatibility matrices must be included.
