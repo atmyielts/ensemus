@@ -231,33 +231,32 @@ describe('web tier isolation (ADR-024 D3, D5)', () => {
         network,
         address: settings?.ipv4_address,
       }));
-    // What others connect to, and what connects to them. Only the proxy connects to web.
-    const peers = ['web', 'postgres', 'valkey', 'objects', 'temporal'];
-    const clients = [
-      'proxy',
-      'web',
-      'worker',
-      'dispatcher',
-      'migrate',
-      'temporal-schema',
-      'temporal',
-      'temporal-namespace',
-    ];
-    // A new service must be classified here, rather than quietly left unpinned.
-    expect(Object.keys(config.services).sort()).toEqual(
-      [...new Set([...clients, ...peers])].sort(),
-    );
-    for (const client of clients) {
+    // Who connects to whom. A new service must be added here, rather than quietly left unpinned.
+    const dataPeers = ['postgres', 'valkey', 'objects'];
+    const connections: Record<string, string[]> = {
+      proxy: ['web'],
+      web: dataPeers,
+      worker: [...dataPeers, 'temporal'],
+      dispatcher: [...dataPeers, 'temporal'],
+      migrate: dataPeers,
+      'temporal-schema': ['postgres'],
+      temporal: ['postgres'],
+      'temporal-namespace': ['temporal'],
+      postgres: [],
+      valkey: [],
+      objects: [],
+    };
+    expect(Object.keys(config.services).sort()).toEqual(Object.keys(connections).sort());
+    for (const [client, peers] of Object.entries(connections)) {
       const networks = addressesOf(client).map(({ network }) => network);
       const expected: Record<string, string> = {};
       for (const peer of peers) {
-        if (peer === client || (peer === 'web' && client !== 'proxy')) continue;
         const shared = addressesOf(peer).find(({ network }) => networks.includes(network));
-        if (!shared) continue;
-        expect(shared.address, `${peer} on ${shared.network}`).toMatch(/^\d+\.\d+\.\d+\.\d+$/);
-        expected[peer] = shared.address ?? '';
+        expect(shared, `${client} shares a network with ${peer}`).toBeDefined();
+        expect(shared?.address, `${peer} on ${shared?.network}`).toMatch(/^\d+\.\d+\.\d+\.\d+$/);
+        expected[peer] = shared?.address ?? '';
       }
-      // Exact, so this also refuses a pin to something the service has no network path to.
+      // Exact, so this also refuses a pin the service has no use for.
       expect(pinsOf(client), client).toEqual(expected);
     }
     expect(pinsOf('web')).not.toHaveProperty('temporal');
