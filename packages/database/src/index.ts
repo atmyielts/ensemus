@@ -1,4 +1,11 @@
-export { appendAudit, type AuditEntry } from './audit';
+export {
+  appendAudit,
+  appendRefusal,
+  MAX_REFUSALS_PER_HOUR,
+  type AuditEntry,
+  type RefusalEntry,
+  type RefusalSurface,
+} from './audit';
 export {
   createOrganization,
   getOrganization,

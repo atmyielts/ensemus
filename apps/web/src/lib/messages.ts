@@ -13,7 +13,10 @@ const MESSAGE_FOR = new Map<string, string>([
   ['RUN_ALREADY_REQUESTED', 'Someone already asked this plan to run. That request still stands.'],
   ['REASON_REQUIRED', 'Please give a reason.'],
   ['DEPENDENCY_CYCLE', 'That dependency would create a loop.'],
-  ['TEAM_CYCLE', 'That parent team would create a loop.'],
+  [
+    'TEAM_CYCLE',
+    'A team cannot sit inside itself or inside one of its own teams. Choose a different parent.',
+  ],
   ['INVALID_STATE', 'That cannot be done while the work is in this status.'],
   ['INVALID_INPUT', 'Please check the details and try again.'],
   ['APPROVAL_NOT_PENDING', 'This approval has already been decided or closed.'],

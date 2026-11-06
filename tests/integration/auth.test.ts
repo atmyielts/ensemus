@@ -4,6 +4,7 @@ import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createAuth } from '@ensemus/auth';
 import { createOrganization, listMyOrganizations, openAppDatabase } from '@ensemus/database';
+import { issueSetupToken } from '@ensemus/database/setup-token';
 import { compose, urls } from '../helpers/stack';
 
 const PASSWORD = 'correct horse battery staple';
@@ -133,6 +134,120 @@ describe('authentication', () => {
     });
     const mine = await listMyOrganizations(app.db, user.id);
     expect(mine).toEqual([{ id: org.organizationId, name: 'Acme', role: 'owner' }]);
+  });
+});
+
+describe('setup codes, where sign-up is off (ID-01)', () => {
+  const secret = 'test-only-secret-'.padEnd(40, 'z');
+  let closed: ReturnType<typeof createAuth>;
+  let auth: pg.Client;
+  let appRole: pg.Client;
+  let su: pg.Client;
+
+  const redeem = (token: string, address: string, password = PASSWORD) =>
+    closed.redeemSetupToken(
+      { token, name: 'First Owner', email: address, password },
+      new Headers(),
+    );
+  const accounts = async (address: string) => {
+    const { rows } = await su.query(
+      'select count(*)::int as n from identity.users where email = $1',
+      [address],
+    );
+    return rows[0].n as number;
+  };
+
+  beforeAll(async () => {
+    closed = createAuth({ databaseUrl: urls.auth(), secret, baseURL, allowSignup: false });
+    auth = new pg.Client({ connectionString: urls.auth() });
+    await auth.connect();
+    appRole = new pg.Client({ connectionString: urls.app() });
+    await appRole.connect();
+    su = new pg.Client({ connectionString: urls.superuser() });
+    await su.connect();
+  });
+
+  afterAll(async () => {
+    await closed?.close();
+    await auth?.end();
+    await appRole?.end();
+    await su?.end();
+  });
+
+  it('makes one working account, and leaves sign-up closed for everyone else', async () => {
+    const { token } = await issueSetupToken(urls.migrator());
+    const address = email();
+    expect(await redeem(token, address)).toBe('created');
+    const signedIn = await closed.auth.api.signInEmail({
+      body: { email: address, password: PASSWORD },
+    });
+    expect(signedIn.token).toBeTruthy();
+    await expect(
+      closed.auth.api.signUpEmail({ body: { name: 'x', email: email(), password: PASSWORD } }),
+    ).rejects.toThrow();
+    const open = await closed.auth.handler(
+      new Request(`${baseURL}/api/auth/sign-up/email`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', origin: baseURL },
+        body: JSON.stringify({ name: 'x', email: email(), password: PASSWORD }),
+      }),
+    );
+    expect(open.ok).toBe(false);
+  });
+
+  it('works once', async () => {
+    const { token } = await issueSetupToken(urls.migrator());
+    expect(await redeem(token, email())).toBe('created');
+    const second = email();
+    expect(await redeem(token, second)).toBe('invalid_token');
+    expect(await accounts(second)).toBe(0);
+  });
+
+  it('lets only one of two people sending it at once through', async () => {
+    const { token } = await issueSetupToken(urls.migrator());
+    const outcomes = await Promise.all([redeem(token, email()), redeem(token, email())]);
+    expect(outcomes.sort()).toEqual(['created', 'invalid_token']);
+  });
+
+  it('refuses a code that ran out, and one that was never issued', async () => {
+    const issued = await issueSetupToken(urls.migrator(), new Date(Date.now() - 25 * 3_600_000));
+    const address = email();
+    expect(await redeem(issued.token, address)).toBe('invalid_token');
+    expect(await redeem('not-a-code-anyone-issued', address)).toBe('invalid_token');
+    expect(await accounts(address)).toBe(0);
+  });
+
+  it('keeps the code usable when the account could not be made', async () => {
+    const { token } = await issueSetupToken(urls.migrator());
+    const taken = email();
+    expect(await redeem(token, taken, 'short')).toBe('invalid_details');
+    expect(await accounts(taken)).toBe(0);
+    expect(await redeem(token, taken)).toBe('created');
+
+    const again = await issueSetupToken(urls.migrator());
+    expect(await redeem(again.token, taken)).toBe('invalid_details');
+    expect(await accounts(taken)).toBe(1);
+    expect(await redeem(again.token, email())).toBe('created');
+  });
+
+  it('stores only a hash, valid for a day, out of the application role’s reach', async () => {
+    const before = Date.now();
+    const { token, expiresAt } = await issueSetupToken(urls.migrator());
+    expect(token).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(expiresAt.getTime() - before).toBeLessThanOrEqual(24 * 3_600_000 + 5_000);
+    const { rows } = await su.query('select * from identity.setup_tokens');
+    expect(JSON.stringify(rows)).not.toContain(token);
+
+    await expect(appRole.query('select * from identity.setup_tokens')).rejects.toThrow(
+      /permission denied/,
+    );
+    await expect(
+      auth.query(`insert into identity.setup_tokens (token_hash, expires_at)
+                  values ('forged', now() + interval '1 day')`),
+    ).rejects.toThrow(/permission denied/);
+    await expect(
+      auth.query(`update identity.setup_tokens set expires_at = now() + interval '1 year'`),
+    ).rejects.toThrow(/permission denied/);
   });
 });
 

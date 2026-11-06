@@ -1,6 +1,7 @@
 import 'server-only';
-import { AppError } from '@ensemus/application';
+import { AppError, auditTenantRefusal } from '@ensemus/application';
 import { resolveTenantContext, TenantAccessDenied } from '@ensemus/database';
+import { errorCode } from '@ensemus/telemetry';
 import { notFound } from 'next/navigation';
 import { cache } from 'react';
 import { requireActor } from './actor';
@@ -17,10 +18,24 @@ export const requireTenant = cache(async (organizationId: string) => {
     const context = await resolveTenantContext(app, actor.userId, organizationId);
     return { actor, context, database: app };
   } catch (error) {
-    if (error instanceof TenantAccessDenied) notFound();
+    if (error instanceof TenantAccessDenied) {
+      await recordTenantRefusal(actor.userId, organizationId);
+      notFound();
+    }
     throw error;
   }
 });
+
+/**
+ * Someone named a tenant they are not in, through a page or a form. They get the same 404 whether or
+ * not it exists, and whether or not this record could be written, which never stops the refusal.
+ */
+async function recordTenantRefusal(userId: string, organizationId: string) {
+  const { app, log } = getRuntime();
+  await auditTenantRefusal(app, { userId, organizationId, surface: 'web' }).catch(
+    (error: unknown) => log.error('audit.refusal_failed', { errorCode: errorCode(error) }),
+  );
+}
 
 /** Runs a page's read, turning "not found or not permitted" into a plain 404. */
 export async function orNotFound<T>(read: Promise<T>): Promise<T> {

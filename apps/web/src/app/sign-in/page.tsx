@@ -36,9 +36,13 @@ export default async function SignInPage({
           <SubmitButton working="Signing in">Sign in</SubmitButton>
         </div>
       </form>
-      {allowSignup && (
+      {allowSignup ? (
         <p style={{ marginTop: '1rem' }}>
           New here? <Link href={withReturnPath('/sign-up', next)}>Create an account</Link>
+        </p>
+      ) : (
+        <p style={{ marginTop: '1rem' }}>
+          Given a setup code? <Link href={withReturnPath('/setup', next)}>Use it here</Link>
         </p>
       )}
     </main>

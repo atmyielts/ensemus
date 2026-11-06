@@ -55,6 +55,32 @@ export async function signUpAction(form: FormData) {
   redirect(failed ? withReturnPath('/sign-up?error=invalid', next) : (next ?? '/'));
 }
 
+/**
+ * Makes one account from a setup code the operator issued, whether or not sign-up is open (ID-01). The
+ * code goes in the form and never in a URL, where it would stay in history and in proxy logs.
+ */
+export async function completeSetupAction(form: FormData) {
+  const { redeemSetupToken } = getRuntime();
+  const next = safeReturnPath(field(form, 'next'));
+  const outcome = await redeemSetupToken(
+    {
+      token: field(form, 'code').trim(),
+      name: field(form, 'name'),
+      email: field(form, 'email'),
+      password: field(form, 'password'),
+    },
+    await headers(),
+  );
+  redirect(
+    outcome === 'created'
+      ? (next ?? '/')
+      : withReturnPath(
+          outcome === 'invalid_token' ? '/setup?error=code' : '/setup?error=details',
+          next,
+        ),
+  );
+}
+
 /** The invitation page signs out here to switch account, and keeps its place by sending `next`. */
 export async function signOutAction(form?: FormData) {
   await getRuntime().auth.api.signOut({ headers: await headers() });

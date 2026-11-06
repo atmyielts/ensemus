@@ -21,6 +21,11 @@ const STATUS: Record<string, { label: string; tone: string }> = {
   expired: { label: 'Expired', tone: '' },
 };
 
+/** How to name someone in a list of choices. Their address appears only if this viewer may see it. */
+export function personLabel(person: { name: string; email: string | null }) {
+  return person.email ? `${person.name} (${person.email})` : person.name;
+}
+
 export function StatusBadge({ status }: { status: string }) {
   const known = STATUS[status] ?? { label: status, tone: '' };
   return <span className={`badge ${known.tone}`}>{known.label}</span>;

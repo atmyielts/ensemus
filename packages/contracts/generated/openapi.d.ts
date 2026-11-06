@@ -19,7 +19,7 @@ export interface paths {
             parameters: {
                 query?: {
                     cursor?: string;
-                    status?: string;
+                    status?: components["schemas"]["WorkStatus"];
                 };
                 header?: never;
                 path: {
@@ -38,7 +38,7 @@ export interface paths {
                     content: {
                         "application/json": {
                             items: components["schemas"]["WorkUnit"][];
-                            next_cursor?: string | null;
+                            next_cursor: string | null;
                         };
                     };
                 };
@@ -46,6 +46,7 @@ export interface paths {
                 401: components["responses"]["Unauthorized"];
                 403: components["responses"]["Forbidden"];
                 404: components["responses"]["NotFound"];
+                500: components["responses"]["InternalError"];
             };
         };
         put?: never;
@@ -71,6 +72,7 @@ export interface paths {
                 /** @description Created */
                 201: {
                     headers: {
+                        ETag: components["headers"]["ETag"];
                         [name: string]: unknown;
                     };
                     content: {
@@ -84,6 +86,7 @@ export interface paths {
                 409: components["responses"]["Conflict"];
                 413: components["responses"]["PayloadTooLarge"];
                 415: components["responses"]["UnsupportedMediaType"];
+                500: components["responses"]["InternalError"];
             };
         };
         delete?: never;
@@ -120,6 +123,7 @@ export interface paths {
                 /** @description Work Unit */
                 200: {
                     headers: {
+                        ETag: components["headers"]["ETag"];
                         [name: string]: unknown;
                     };
                     content: {
@@ -129,6 +133,7 @@ export interface paths {
                 400: components["responses"]["BadRequest"];
                 401: components["responses"]["Unauthorized"];
                 404: components["responses"]["NotFound"];
+                500: components["responses"]["InternalError"];
             };
         };
         put?: never;
@@ -165,6 +170,7 @@ export interface paths {
                 /** @description Updated Work Unit */
                 200: {
                     headers: {
+                        ETag: components["headers"]["ETag"];
                         [name: string]: unknown;
                     };
                     content: {
@@ -179,6 +185,7 @@ export interface paths {
                 413: components["responses"]["PayloadTooLarge"];
                 415: components["responses"]["UnsupportedMediaType"];
                 428: components["responses"]["PreconditionRequired"];
+                500: components["responses"]["InternalError"];
             };
         };
         trace?: never;
@@ -226,6 +233,7 @@ export interface paths {
                 400: components["responses"]["BadRequest"];
                 401: components["responses"]["Unauthorized"];
                 404: components["responses"]["NotFound"];
+                500: components["responses"]["InternalError"];
             };
         };
         put?: never;
@@ -284,6 +292,7 @@ export interface paths {
                 409: components["responses"]["Conflict"];
                 413: components["responses"]["PayloadTooLarge"];
                 415: components["responses"]["UnsupportedMediaType"];
+                500: components["responses"]["InternalError"];
             };
         };
         delete?: never;
@@ -427,8 +436,10 @@ export interface paths {
                         };
                     };
                 };
+                400: components["responses"]["BadRequest"];
                 401: components["responses"]["Unauthorized"];
                 404: components["responses"]["NotFound"];
+                500: components["responses"]["InternalError"];
             };
         };
         put?: never;
@@ -473,8 +484,10 @@ export interface paths {
                         "application/json": components["schemas"]["Approval"];
                     };
                 };
+                400: components["responses"]["BadRequest"];
                 401: components["responses"]["Unauthorized"];
                 404: components["responses"]["NotFound"];
+                500: components["responses"]["InternalError"];
             };
         };
         put?: never;
@@ -535,6 +548,7 @@ export interface paths {
                 409: components["responses"]["Conflict"];
                 413: components["responses"]["PayloadTooLarge"];
                 415: components["responses"]["UnsupportedMediaType"];
+                500: components["responses"]["InternalError"];
             };
         };
         delete?: never;
@@ -742,6 +756,8 @@ export interface components {
             /** Format: date-time */
             decided_at: string | null;
         };
+        /** @enum {string} */
+        WorkStatus: "queued" | "ready" | "running" | "blocked" | "awaiting_approval" | "verifying" | "completed" | "failed" | "cancelled";
         WorkUnit: {
             /** Format: uuid */
             id: string;
@@ -749,8 +765,7 @@ export interface components {
             organization_id: string;
             title: string;
             objective?: string;
-            /** @enum {string} */
-            status: "queued" | "ready" | "running" | "blocked" | "awaiting_approval" | "verifying" | "completed" | "failed" | "cancelled";
+            status: components["schemas"]["WorkStatus"];
             version: number;
             /** Format: date-time */
             due_at?: string | null;
@@ -879,6 +894,15 @@ export interface components {
                 "application/json": components["schemas"]["Error"];
             };
         };
+        /** @description Something failed on the server. The answer holds no detail about what. */
+        InternalError: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["Error"];
+            };
+        };
     };
     parameters: {
         /** @description Requires authenticated organization membership; UUID alone is never authorization. */
@@ -886,7 +910,10 @@ export interface components {
         IdempotencyKey: string;
     };
     requestBodies: never;
-    headers: never;
+    headers: {
+        /** @description The version just read or written, as an entity tag. Send it back in If-Match. */
+        ETag: string;
+    };
     pathItems: never;
 }
 export type $defs = Record<string, never>;

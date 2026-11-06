@@ -13,6 +13,7 @@ import {
   text,
   timestamp,
   unique,
+  uniqueIndex,
   uuid,
 } from 'drizzle-orm/pg-core';
 
@@ -37,6 +38,18 @@ export const users = identitySchema.table('users', {
   image: text(),
   createdAt: createdAt(),
   updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+});
+
+/**
+ * One-time codes an operator issues, so a first owner can get an account where sign-up is off. Only
+ * the hash is kept, so a database dump holds nothing anyone could use.
+ */
+export const setupTokens = identitySchema.table('setup_tokens', {
+  id: uuidPk(),
+  tokenHash: text().notNull().unique(),
+  expiresAt: timestamp({ withTimezone: true }).notNull(),
+  usedAt: timestamp({ withTimezone: true }),
+  createdAt: createdAt(),
 });
 
 export const sessions = identitySchema.table(
@@ -226,11 +239,16 @@ export const auditEvents = governanceSchema.table(
     decision: text().notNull(),
     safeReason: text(),
     correlationId: uuid(),
+    /** Only on refusals: repeats of the same one in the same hour become no new row. */
+    dedupeKey: text(),
     occurredAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
     primaryKey({ columns: [t.organizationId, t.id] }),
     index('audit_events_time_idx').on(t.organizationId, t.occurredAt),
+    uniqueIndex('audit_events_dedupe_idx')
+      .on(t.organizationId, t.dedupeKey)
+      .where(sql`${t.dedupeKey} is not null`),
   ],
 );
 

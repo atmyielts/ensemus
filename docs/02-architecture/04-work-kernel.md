@@ -55,6 +55,8 @@ Runs started before `run_id` existed (migration 0004) are not adopted. `patched(
 
 Assignments identify a principal (human membership, agent service identity, or team queue), responsibility type, and effective dates. A human is accountable for approval-sensitive Work Units. An agent run uses a snapshot of permissions; revoked permissions must terminate or block future tool actions mid-run. The platform rechecks before every irreversible side effect.
 
+As built (M2): an assignment holds a membership and a responsibility, and `actor_type` says who holds it, `human` or `agent`. Only `human` is written until agents arrive in M4, when the agent's service identity gets a column of its own, since every assignment today needs a membership. Effective dates and team queues are not built. What someone assigned may do is in `docs/04-security/04-authorization-and-approvals.md` section 6: they move the work along, and the accountable owner or an admin decides who answers for it, who else is on it, and whether it stops.
+
 ## 6. Durable workflow ownership
 
 Temporal holds the live process machine and waits for signals (`approval_received`, `dependency_resolved`, `external_update`, `cancelled`). PostgreSQL stores the authoritative Work Unit business state. An activity writes a domain transaction and outbox event; workflow projections asynchronously reconcile actual process progress. Keep all nondeterministic operations (LLM, external tools, DB writes) in activities, not deterministic workflow code.

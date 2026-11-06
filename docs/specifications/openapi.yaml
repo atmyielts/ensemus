@@ -4,9 +4,11 @@ info:
   version: 2.0.0
   description: >-
     Next.js Route Handler reference interface for tenant-aware work, agent, approval, search and provider
-    policies. The work-unit and approval-decision routes are implemented, and accept a browser session
-    cookie, with writes also checked against the Origin header. Bearer tokens are not accepted yet. All
-    other routes are an architectural specification, not an implemented service.
+    policies. The work-unit routes, and the approval list, read and decision routes, are implemented, and
+    accept a browser session cookie, with writes also checked against the Origin header. Bearer tokens are
+    not accepted yet. An operation marked x-ensemus-status planned is an architectural specification and
+    does not exist yet. Real responses from every other operation are validated against this file by
+    tests/stack/api.test.ts, and tests/unit/openapi-contract.test.ts keeps the two lists honest.
 servers:
   - url: https://ensemus.example.invalid/api/v1
     description: Illustrative placeholder; not a live endpoint.
@@ -29,10 +31,10 @@ paths:
       parameters:
         - name: cursor
           in: query
-          schema: {type: string}
+          schema: {type: string, minLength: 1, maxLength: 512}
         - name: status
           in: query
-          schema: {type: string}
+          schema: {$ref: '#/components/schemas/WorkStatus'}
       responses:
         '200':
           description: Permission-filtered page
@@ -40,7 +42,8 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [items]
+                additionalProperties: false
+                required: [items, next_cursor]
                 properties:
                   items: {type: array, items: {$ref: '#/components/schemas/WorkUnit'}}
                   next_cursor: {type: [string, 'null']}
@@ -48,6 +51,7 @@ paths:
         '401': {$ref: '#/components/responses/Unauthorized'}
         '403': {$ref: '#/components/responses/Forbidden'}
         '404': {$ref: '#/components/responses/NotFound'}
+        '500': {$ref: '#/components/responses/InternalError'}
     post:
       tags: [work]
       summary: Create a Work Unit
@@ -60,6 +64,8 @@ paths:
       responses:
         '201':
           description: Created
+          headers:
+            ETag: {$ref: '#/components/headers/ETag'}
           content:
             application/json:
               schema: {$ref: '#/components/schemas/WorkUnit'}
@@ -70,6 +76,7 @@ paths:
         '409': {$ref: '#/components/responses/Conflict'}
         '413': {$ref: '#/components/responses/PayloadTooLarge'}
         '415': {$ref: '#/components/responses/UnsupportedMediaType'}
+        '500': {$ref: '#/components/responses/InternalError'}
   /organizations/{organization_id}/work-units/{work_unit_id}:
     parameters:
       - $ref: '#/components/parameters/OrganizationID'
@@ -83,12 +90,15 @@ paths:
       responses:
         '200':
           description: Work Unit
+          headers:
+            ETag: {$ref: '#/components/headers/ETag'}
           content:
             application/json:
               schema: {$ref: '#/components/schemas/WorkUnit'}
         '400': {$ref: '#/components/responses/BadRequest'}
         '401': {$ref: '#/components/responses/Unauthorized'}
         '404': {$ref: '#/components/responses/NotFound'}
+        '500': {$ref: '#/components/responses/InternalError'}
     patch:
       tags: [work]
       summary: Patch with optimistic version check
@@ -107,12 +117,14 @@ paths:
               additionalProperties: false
               minProperties: 1
               properties:
-                title: {type: string}
-                objective: {type: string}
+                title: {type: string, minLength: 1, maxLength: 300}
+                objective: {type: string, maxLength: 10000}
                 due_at: {type: [string, 'null'], format: date-time}
       responses:
         '200':
           description: Updated Work Unit
+          headers:
+            ETag: {$ref: '#/components/headers/ETag'}
           content:
             application/json:
               schema: {$ref: '#/components/schemas/WorkUnit'}
@@ -124,6 +136,7 @@ paths:
         '413': {$ref: '#/components/responses/PayloadTooLarge'}
         '415': {$ref: '#/components/responses/UnsupportedMediaType'}
         '428': {$ref: '#/components/responses/PreconditionRequired'}
+        '500': {$ref: '#/components/responses/InternalError'}
   /organizations/{organization_id}/work-units/{work_unit_id}/events:
     parameters:
       - $ref: '#/components/parameters/OrganizationID'
@@ -155,6 +168,7 @@ paths:
         '400': {$ref: '#/components/responses/BadRequest'}
         '401': {$ref: '#/components/responses/Unauthorized'}
         '404': {$ref: '#/components/responses/NotFound'}
+        '500': {$ref: '#/components/responses/InternalError'}
   /organizations/{organization_id}/work-units/{work_unit_id}/dependencies:
     parameters:
       - $ref: '#/components/parameters/OrganizationID'
@@ -184,10 +198,12 @@ paths:
         '403': {$ref: '#/components/responses/Forbidden'}
         '413': {$ref: '#/components/responses/PayloadTooLarge'}
         '415': {$ref: '#/components/responses/UnsupportedMediaType'}
+        '500': {$ref: '#/components/responses/InternalError'}
   /organizations/{organization_id}/agent-runs:
     parameters:
       - $ref: '#/components/parameters/OrganizationID'
     post:
+      x-ensemus-status: planned
       tags: [agents]
       summary: Start bounded agent execution on a Work Unit
       parameters: [{$ref: '#/components/parameters/IdempotencyKey'}]
@@ -219,6 +235,7 @@ paths:
         required: true
         schema: {type: string, format: uuid}
     get:
+      x-ensemus-status: planned
       tags: [agents]
       summary: Read scoped execution progress
       responses:
@@ -241,13 +258,16 @@ paths:
             application/json:
               schema:
                 type: object
+                additionalProperties: false
                 required: [items]
                 properties:
                   items:
                     type: array
                     items: {$ref: '#/components/schemas/PendingApproval'}
+        '400': {$ref: '#/components/responses/BadRequest'}
         '401': {$ref: '#/components/responses/Unauthorized'}
         '404': {$ref: '#/components/responses/NotFound'}
+        '500': {$ref: '#/components/responses/InternalError'}
   /organizations/{organization_id}/approvals/{approval_id}:
     parameters:
       - $ref: '#/components/parameters/OrganizationID'
@@ -264,8 +284,10 @@ paths:
           content:
             application/json:
               schema: {$ref: '#/components/schemas/Approval'}
+        '400': {$ref: '#/components/responses/BadRequest'}
         '401': {$ref: '#/components/responses/Unauthorized'}
         '404': {$ref: '#/components/responses/NotFound'}
+        '500': {$ref: '#/components/responses/InternalError'}
   /organizations/{organization_id}/approvals/{approval_id}/decisions:
     parameters:
       - $ref: '#/components/parameters/OrganizationID'
@@ -286,7 +308,7 @@ paths:
               required: [decision, action_hash]
               properties:
                 decision: {type: string, enum: [approve, deny]}
-                action_hash: {type: string, minLength: 32}
+                action_hash: {type: string, minLength: 32, maxLength: 128}
                 reason: {type: string, maxLength: 2000}
       responses:
         '200': {description: Decision recorded}
@@ -297,10 +319,12 @@ paths:
         '403': {$ref: '#/components/responses/Forbidden'}
         '413': {$ref: '#/components/responses/PayloadTooLarge'}
         '415': {$ref: '#/components/responses/UnsupportedMediaType'}
+        '500': {$ref: '#/components/responses/InternalError'}
   /organizations/{organization_id}/knowledge/search:
     parameters:
       - $ref: '#/components/parameters/OrganizationID'
     post:
+      x-ensemus-status: planned
       tags: [knowledge]
       summary: Search authorized knowledge with citations
       requestBody:
@@ -341,6 +365,7 @@ paths:
     parameters:
       - $ref: '#/components/parameters/OrganizationID'
     get:
+      x-ensemus-status: planned
       tags: [models]
       summary: List authorized provider profiles without secrets
       responses:
@@ -356,6 +381,7 @@ paths:
     parameters:
       - $ref: '#/components/parameters/OrganizationID'
     get:
+      x-ensemus-status: planned
       tags: [commercial]
       summary: Read current commercial mode, features, and quotas
       responses:
@@ -379,6 +405,11 @@ components:
       description: >-
         The browser session. Writes must also carry an Origin header naming this deployment. API
         tokens are not available yet.
+  headers:
+    ETag:
+      description: The version just read or written, as an entity tag. Send it back in If-Match.
+      required: true
+      schema: {type: string, pattern: '^"[1-9][0-9]*"$'}
   parameters:
     OrganizationID:
       name: organization_id
@@ -398,7 +429,7 @@ components:
       required: [title, objective]
       properties:
         title: {type: string, minLength: 1, maxLength: 300}
-        objective: {type: string, minLength: 1}
+        objective: {type: string, minLength: 1, maxLength: 10000}
         project_id: {type: [string, 'null'], format: uuid}
         due_at: {type: [string, 'null'], format: date-time}
         completion_criteria:
@@ -410,6 +441,7 @@ components:
             reviewer_approved: {type: boolean}
     PendingApproval:
       type: object
+      additionalProperties: false
       required: [id, work_unit_id, work_title, tool_name, expires_at]
       properties:
         id: {type: string, format: uuid}
@@ -419,6 +451,7 @@ components:
         expires_at: {type: string, format: date-time}
     Approval:
       type: object
+      additionalProperties: false
       required: [id, work_unit_id, status, tool_name, action, action_hash, expires_at, decided_at]
       properties:
         id: {type: string, format: uuid}
@@ -432,17 +465,19 @@ components:
         action_hash: {type: string, description: Quote this when deciding.}
         expires_at: {type: string, format: date-time}
         decided_at: {type: [string, 'null'], format: date-time}
+    WorkStatus:
+      type: string
+      enum: [queued, ready, running, blocked, awaiting_approval, verifying, completed, failed, cancelled]
     WorkUnit:
       type: object
+      additionalProperties: false
       required: [id, organization_id, title, status, version]
       properties:
         id: {type: string, format: uuid}
         organization_id: {type: string, format: uuid}
         title: {type: string}
         objective: {type: string}
-        status:
-          type: string
-          enum: [queued, ready, running, blocked, awaiting_approval, verifying, completed, failed, cancelled]
+        status: {$ref: '#/components/schemas/WorkStatus'}
         version: {type: integer, minimum: 1}
         due_at: {type: [string, 'null'], format: date-time}
         completion:
@@ -450,6 +485,7 @@ components:
           description: On reading one finished Work Unit, what its completion rests on.
     WorkCompletion:
       type: object
+      additionalProperties: false
       required: [basis, confirmed_by_membership_id, confirmed_at]
       properties:
         basis:
@@ -482,6 +518,7 @@ components:
         region: {type: [string, 'null']}
     Error:
       type: object
+      additionalProperties: false
       required: [code, message, request_id, retryable]
       properties:
         code: {type: string}
@@ -532,6 +569,11 @@ components:
           schema: {$ref: '#/components/schemas/Error'}
     PreconditionRequired:
       description: If-Match header missing
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+    InternalError:
+      description: Something failed on the server. The answer holds no detail about what.
       content:
         application/json:
           schema: {$ref: '#/components/schemas/Error'}

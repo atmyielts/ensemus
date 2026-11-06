@@ -47,32 +47,58 @@ export async function createTeam(
   requireCapability(context, 'team.manage');
   const input = parse(z.strictObject({ name, parentId: z.uuid().nullable().optional() }), raw);
   return withTenantTx(database, context, async (tx) => {
-    const [row] = await tx
-      .insert(teams)
-      .values({
-        organizationId: context.organizationId,
-        name: input.name,
-        parentId: input.parentId ?? null,
-      })
-      .returning();
-    return row;
+    try {
+      const [row] = await tx
+        .insert(teams)
+        .values({
+          organizationId: context.organizationId,
+          name: input.name,
+          parentId: input.parentId ?? null,
+        })
+        .returning();
+      return row;
+    } catch (error) {
+      throw teamWriteError(error);
+    }
   });
 }
 
+/** What a refused change to a team's place means. A parent elsewhere fails its tenant-safe key. */
+function teamWriteError(error: unknown) {
+  const code = pgCode(error);
+  if (code === 'EN002' || code === '23514') return new AppError('TEAM_CYCLE');
+  if (code === '23503') return new AppError('INVALID_INPUT');
+  return error;
+}
+
+/** Moves a team under another one, or to the top with no parent. A loop is refused by the database. */
 export async function setTeamParent(
   database: AppDatabase,
   context: TenantContext,
-  input: { teamId: string; parentId: string | null },
+  raw: { teamId: string; parentId: string | null },
 ) {
   requireCapability(context, 'team.manage');
+  const input = parse(z.strictObject({ teamId: identifier, parentId: identifier.nullable() }), raw);
   return withTenantTx(database, context, async (tx) => {
+    let moved: Array<{ id: string }>;
     try {
-      await tx.update(teams).set({ parentId: input.parentId }).where(eq(teams.id, input.teamId));
+      moved = await tx
+        .update(teams)
+        .set({ parentId: input.parentId })
+        .where(eq(teams.id, input.teamId))
+        .returning({ id: teams.id });
     } catch (error) {
-      const code = pgCode(error);
-      if (code === 'EN002' || code === '23514') throw new AppError('TEAM_CYCLE');
-      throw error;
+      throw teamWriteError(error);
     }
+    if (moved.length === 0) throw new AppError('NOT_FOUND');
+    await appendAudit(tx, {
+      organizationId: context.organizationId,
+      actorType: 'user',
+      actorId: context.membershipId,
+      action: 'team.moved',
+      targetRef: `team:${input.teamId}`,
+      decision: 'allow',
+    });
   });
 }
 
@@ -138,6 +164,32 @@ export async function listTeams(database: AppDatabase, context: TenantContext) {
 }
 
 // --- Members
+
+/**
+ * The directory, filtered by who is asking. Everyone sees names, roles and whether someone is active,
+ * because they need them to pick a reviewer or see who is responsible. Email addresses are contact
+ * details, so only people who manage members see them, and anyone sees their own.
+ */
+export async function listDirectory(database: AppDatabase, context: TenantContext) {
+  const seesEmail = can(context.role, 'member.view_email');
+  const rows = await withTenantTx(database, context, (tx) =>
+    tx
+      .select({
+        membershipId: memberships.id,
+        role: memberships.role,
+        status: memberships.status,
+        name: users.name,
+        email: users.email,
+      })
+      .from(memberships)
+      .innerJoin(users, eq(users.id, memberships.userId))
+      .orderBy(asc(users.name)),
+  );
+  return rows.map(({ email, ...person }) => ({
+    ...person,
+    email: seesEmail || person.membershipId === context.membershipId ? email : null,
+  }));
+}
 
 /**
  * Changes that can remove an owner run one at a time per organization. Locking only the target row

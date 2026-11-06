@@ -18,6 +18,7 @@ await build({
     'src/migrate.ts',
     'src/healthcheck.ts',
     'src/redrive.ts',
+    'src/setup-token.ts',
   ].map((e) => path.join(root, e)),
   outdir: dist,
   bundle: true,

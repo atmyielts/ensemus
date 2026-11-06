@@ -16,7 +16,9 @@ services:
       temporal-namespace: { condition: service_completed_successfully }
   web:
     environment:
-      ENSEMUS_ALLOW_SIGNUP: 'true'
+      # Most tests sign up through the form. tests/stack/first-owner.test.ts turns it off, as on a
+      # default install.
+      ENSEMUS_ALLOW_SIGNUP: ${ENSEMUS_ALLOW_SIGNUP:-true}
   oidc-mock:
     profiles: ['test-oidc']
     image: ghcr.io/navikt/mock-oauth2-server:2.3.0

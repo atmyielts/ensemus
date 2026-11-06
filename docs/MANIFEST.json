@@ -82,13 +82,13 @@
     },
     {
       "path": "02-architecture/03-data-model.md",
-      "size_bytes": 7845,
-      "sha256": "dd350135d8249029dd08e1e3dd9537518d4fd3a9bab14ab0379f8b6ad84e05a0"
+      "size_bytes": 8165,
+      "sha256": "6aca110eddb607b54ebefa53ae631a8252dd8d674168043c5f3997be3a5f9456"
     },
     {
       "path": "02-architecture/04-work-kernel.md",
-      "size_bytes": 7126,
-      "sha256": "7575bfe6c2af9eed5908ace1e08c8cfd9267201bf15f5becaaeb0a405bbc810a"
+      "size_bytes": 7692,
+      "sha256": "bb9b2c83f7ec2b7cea6e05b7f9024435a9c87a10f76162d940b0ddcf269f5b98"
     },
     {
       "path": "02-architecture/05-events-and-consistency.md",
@@ -192,8 +192,8 @@
     },
     {
       "path": "04-security/04-authorization-and-approvals.md",
-      "size_bytes": 4251,
-      "sha256": "3a63d4ed522bcd6b678876d58d1dbca0016747fbe52878c24e5a9dafa2be7303"
+      "size_bytes": 6252,
+      "sha256": "b0563c8c58fa04dd3551de56f7d7bf1049df18f991123c07418337dc8dae83c3"
     },
     {
       "path": "04-security/05-data-lifecycle.md",
@@ -232,8 +232,8 @@
     },
     {
       "path": "05-operations/05-container-deployment-runbook.md",
-      "size_bytes": 5546,
-      "sha256": "035812fb058ab00ddbc84db89523a15e392e1a8c4a31aea152de50ac05358597"
+      "size_bytes": 7994,
+      "sha256": "0844e585795029fc9f8c1607ae77a20c0ed2cad930fa6999ce23e179da0281eb"
     },
     {
       "path": "05-operations/06-performance-and-load-plan.md",
@@ -437,8 +437,8 @@
     },
     {
       "path": "specifications/openapi.yaml",
-      "size_bytes": 20448,
-      "sha256": "155f2d9ed2623828576a7e281fb2d11718bfb12720f79d7ef567d9c43772fa05"
+      "size_bytes": 22592,
+      "sha256": "2a01f7bd06f57fa4371e6fadeac01fceaa2f7f53ae13007b91ec8ccf8fdb06fa"
     },
     {
       "path": "specifications/qa-scenarios.csv",

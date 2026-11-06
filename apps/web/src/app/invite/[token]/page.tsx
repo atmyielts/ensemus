@@ -53,7 +53,8 @@ export default async function InvitationPage({
         </div>
         {!config.allowSignup && (
           <p className="muted" style={{ marginTop: '1rem' }}>
-            No account yet? Ask the person who invited you how to get one.
+            No account yet? Ask the person who invited you how to get one. If they give you a setup
+            code, <Link href={withReturnPath('/setup', here)}>use it here</Link>.
           </p>
         )}
       </main>

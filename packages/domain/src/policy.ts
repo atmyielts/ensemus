@@ -10,7 +10,8 @@ export type Capability =
   | 'team.manage'
   | 'client.manage'
   | 'project.manage'
-  | 'work.create';
+  | 'work.create'
+  | 'member.view_email';
 
 const GRANTS: Record<Role, ReadonlySet<Capability>> = {
   owner: new Set([
@@ -21,6 +22,7 @@ const GRANTS: Record<Role, ReadonlySet<Capability>> = {
     'client.manage',
     'project.manage',
     'work.create',
+    'member.view_email',
   ]),
   admin: new Set([
     'member.invite',
@@ -29,6 +31,7 @@ const GRANTS: Record<Role, ReadonlySet<Capability>> = {
     'client.manage',
     'project.manage',
     'work.create',
+    'member.view_email',
   ]),
   member: new Set(['client.manage', 'project.manage', 'work.create']),
 };
@@ -79,4 +82,19 @@ export function canReadWork(work: WorkAccessFacts, viewer: Viewer): boolean {
 export function canChangeWork(work: WorkAccessFacts, viewer: Viewer): boolean {
   if (!canReadWork(work, viewer)) return false;
   return isInvolved(work, viewer) || viewer.role === 'owner' || viewer.role === 'admin';
+}
+
+/**
+ * Who answers for a Work Unit: its accountable owner, and organization owners and admins who can see
+ * it. Someone only assigned can work on it and move it along. Changing who is responsible, who else is
+ * on it, or stopping it for good is not theirs to do (WORK-03). Restricted work stays out of reach of
+ * an organization admin who is not on it, because this starts from being able to read it.
+ */
+export function canManageWork(work: WorkAccessFacts, viewer: Viewer): boolean {
+  if (!canReadWork(work, viewer)) return false;
+  return (
+    work.ownerMembershipId === viewer.membershipId ||
+    viewer.role === 'owner' ||
+    viewer.role === 'admin'
+  );
 }

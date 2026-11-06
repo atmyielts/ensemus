@@ -1,5 +1,4 @@
-import { getApproval } from '@ensemus/application';
-import { listMembers } from '@ensemus/database';
+import { getApproval, listDirectory } from '@ensemus/application';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { ConfirmForm } from '@/components/confirm-form';
@@ -52,7 +51,7 @@ export default async function ApprovalPage({
   if (!UUID.test(approvalId)) notFound();
   const { approval, work, approverName, isMine, files, missingFileCount, decisions } =
     await orNotFound(getApproval(database, context, approvalId));
-  const members = await listMembers(database, context);
+  const members = await listDirectory(database, context);
   const base = `/o/${organizationId}`;
 
   // A pending approval past its time can no longer be decided, so it is not shown as open.

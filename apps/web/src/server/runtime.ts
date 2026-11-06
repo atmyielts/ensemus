@@ -20,7 +20,7 @@ function loadOidc(): OidcProvider | undefined {
 function build() {
   const config = loadWebConfig();
   const oidc = loadOidc();
-  const { auth } = createAuth({
+  const { auth, redeemSetupToken } = createAuth({
     databaseUrl: readSecret('DATABASE_URL_AUTH'),
     secret: readSecret('AUTH_SECRET'),
     baseURL: config.publicUrl,
@@ -31,6 +31,7 @@ function build() {
   return {
     config,
     auth,
+    redeemSetupToken,
     app: openAppDatabase(readSecret('DATABASE_URL_APP')).db,
     log: createLogger('web'),
   };

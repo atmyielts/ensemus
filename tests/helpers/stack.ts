@@ -28,12 +28,18 @@ export const urls = {
 };
 
 export function compose(...args: string[]): string {
+  return composeWith({}, ...args);
+}
+
+/** The same, with settings the compose files read from the environment. */
+export function composeWith(env: Record<string, string>, ...args: string[]): string {
   const all = process.env.ENSEMUS_COMPOSE_AIRGAP
     ? [...composeFiles, 'infrastructure/compose/compose.airgap.yaml']
     : composeFiles;
   const files = all.flatMap((f) => ['-f', f]);
   return execFileSync('docker', ['compose', ...files, ...args], {
     cwd: repoRoot,
+    env: { ...process.env, ...env },
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'pipe'],
     // A database dump is scanned whole, and the default limit of 1 MB would stop short of the end.

@@ -1,5 +1,10 @@
-import { getWorkDetail, getWorkTitle, listProjects, listWorkUnits } from '@ensemus/application';
-import { listMembers } from '@ensemus/database';
+import {
+  getWorkDetail,
+  getWorkTitle,
+  listDirectory,
+  listProjects,
+  listWorkUnits,
+} from '@ensemus/application';
 import { canReadWork, type Classification } from '@ensemus/domain/policy';
 import {
   allowedTransitions,
@@ -27,6 +32,7 @@ import {
   formatDate,
   formatDateTime,
   PageHead,
+  personLabel,
   StatusBadge,
   toDateInput,
 } from '@/components/ui';
@@ -95,8 +101,7 @@ const ROLE_ON_WORK: Record<string, string> = { contributor: 'Contributor', revie
 const WHO_CAN_SEE: Record<string, string> = {
   public: 'Everyone in this organization can see this.',
   internal: 'Everyone in this organization can see this.',
-  confidential:
-    'The people listed here can see this and change it, and so can organization owners and admins.',
+  confidential: 'Only the people listed here can see this, and organization owners and admins.',
   restricted: 'Only the people listed here can see this. Owners and admins cannot.',
 };
 
@@ -112,14 +117,24 @@ export default async function WorkDetailPage({
   const { context, database } = await requireTenant(organizationId);
   if (!UUID.test(workUnitId)) notFound();
   const detail = await orNotFound(getWorkDetail(database, context, workUnitId));
-  const { work, ownerName, prerequisites, dependents, people, files, reviews, history, canChange } =
-    detail;
+  const {
+    work,
+    ownerName,
+    prerequisites,
+    dependents,
+    people,
+    files,
+    reviews,
+    history,
+    canChange,
+    canManage,
+  } = detail;
 
   const status = work.status as WorkState;
   const finished = isTerminal(status);
   const canAddDependency = canChange && (status === 'queued' || status === 'blocked');
   const [members, projects, candidates] = await Promise.all([
-    listMembers(database, context),
+    listDirectory(database, context),
     work.projectId ? listProjects(database, context) : [],
     canAddDependency ? listWorkUnits(database, context) : null,
   ]);
@@ -193,7 +208,7 @@ export default async function WorkDetailPage({
       !(to === 'completed' && noEvidenceAsked && !isOwner) &&
       !(to === 'ready' && isHeldUp),
   );
-  const canStop = transitions.includes('cancelled');
+  const canStop = canManage && transitions.includes('cancelled');
   const needsReason = status === 'completed' || status === 'failed';
   const primary = canRunPlan ? undefined : PRIMARY_ORDER.find((to) => buttons.includes(to));
   const labelFor = (to: WorkState) => {
@@ -261,7 +276,7 @@ export default async function WorkDetailPage({
             <dt>Accountable owner</dt>
             <dd>{ownerName ?? 'Unknown'}</dd>
           </dl>
-          {canChange && newOwners.length > 0 && (
+          {canManage && newOwners.length > 0 && (
             <form className="row" action={setOwnerAction} style={{ marginTop: '0.75rem' }}>
               {versioned}
               <label className="check">
@@ -272,7 +287,7 @@ export default async function WorkDetailPage({
                   </option>
                   {newOwners.map((member) => (
                     <option key={member.membershipId} value={member.membershipId}>
-                      {member.name} ({member.email})
+                      {personLabel(member)}
                     </option>
                   ))}
                 </select>
@@ -291,13 +306,17 @@ export default async function WorkDetailPage({
                     {person.name}{' '}
                     <small>{ROLE_ON_WORK[person.responsibility] ?? person.responsibility}</small>
                   </span>
-                  {canChange && (
+                  {(canManage || person.membershipId === context.membershipId) && (
                     <form action={unassignAction}>
                       {ids}
                       <input type="hidden" name="membershipId" value={person.membershipId} />
                       <SubmitButton
                         className="quiet"
-                        label={`Remove ${person.name} from this work`}
+                        label={
+                          person.membershipId === context.membershipId
+                            ? 'Take yourself off this work'
+                            : `Remove ${person.name} from this work`
+                        }
                       >
                         Remove
                       </SubmitButton>
@@ -310,7 +329,14 @@ export default async function WorkDetailPage({
           <p className="muted" style={{ marginTop: '0.75rem' }}>
             {WHO_CAN_SEE[work.classification]}
           </p>
-          {canChange && !finished && newContributors.length > 0 && (
+          {canChange && !canManage && (
+            <p className="muted" style={{ marginTop: '0.75rem' }}>
+              You are on this work, so you can work on it and move it along. Changing the owner,
+              adding or removing other people and stopping it are for{' '}
+              {ownerName ?? 'the accountable owner'} or an organization admin.
+            </p>
+          )}
+          {canManage && !finished && newContributors.length > 0 && (
             <form className="row" action={assignAction} style={{ marginTop: '0.75rem' }}>
               {ids}
               <label className="check">
@@ -321,7 +347,7 @@ export default async function WorkDetailPage({
                   </option>
                   {newContributors.map((member) => (
                     <option key={member.membershipId} value={member.membershipId}>
-                      {member.name} ({member.email})
+                      {personLabel(member)}
                     </option>
                   ))}
                 </select>
@@ -644,7 +670,7 @@ export default async function WorkDetailPage({
                       </option>
                       {approvers.map((member) => (
                         <option key={member.membershipId} value={member.membershipId}>
-                          {member.name} ({member.email})
+                          {personLabel(member)}
                         </option>
                       ))}
                     </select>
@@ -653,7 +679,9 @@ export default async function WorkDetailPage({
                 {needsReview && approvers.length === 0 ? (
                   <p className="notice warn" style={{ margin: 0 }}>
                     This plan needs a review, and nobody else who can see this work can give one.
-                    Add someone to this work first.
+                    {canManage
+                      ? ' Add someone to this work first.'
+                      : ` Ask ${ownerName ?? 'the accountable owner'} to add someone first.`}
                   </p>
                 ) : (
                   <div>
@@ -815,7 +843,7 @@ export default async function WorkDetailPage({
                     </option>
                     {approvers.map((member) => (
                       <option key={member.membershipId} value={member.membershipId}>
-                        {member.name} ({member.email})
+                        {personLabel(member)}
                       </option>
                     ))}
                   </select>

@@ -10,6 +10,7 @@ import {
   users,
 } from './schema';
 import {
+  TenantAccessDenied,
   withNewTenantTx,
   withTenantTx,
   withUserTx,
@@ -101,6 +102,7 @@ export function listMyOrganizations(database: AppDatabase, userId: string) {
   );
 }
 
+/** Who is in this tenant, without contact details. People see those through the directory. */
 export function listMembers(database: AppDatabase, context: TenantContext) {
   return withTenantTx(database, context, (tx) =>
     tx
@@ -110,7 +112,6 @@ export function listMembers(database: AppDatabase, context: TenantContext) {
         role: memberships.role,
         status: memberships.status,
         name: users.name,
-        email: users.email,
       })
       .from(memberships)
       .innerJoin(users, eq(users.id, memberships.userId))
@@ -132,6 +133,8 @@ export function getOrganization(database: AppDatabase, context: TenantContext) {
   });
 }
 
-export function listAuditEvents(database: AppDatabase, context: TenantContext) {
+/** The audit log says who did what and who tried what, so it is for this tenant's owners and admins. */
+export async function listAuditEvents(database: AppDatabase, context: TenantContext) {
+  if (context.role !== 'owner' && context.role !== 'admin') throw new TenantAccessDenied();
   return withTenantTx(database, context, (tx) => tx.select().from(auditEvents));
 }

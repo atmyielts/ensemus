@@ -36,7 +36,7 @@ const MESSAGES: Record<ErrorCode, string> = {
   RUN_ALREADY_REQUESTED: 'Someone already asked this plan to run. That request still stands.',
   REASON_REQUIRED: 'A reason is required.',
   DEPENDENCY_CYCLE: 'That dependency would create a loop.',
-  TEAM_CYCLE: 'That parent team would create a loop.',
+  TEAM_CYCLE: 'A team cannot sit inside itself or inside one of its own teams.',
   INVALID_STATE: 'That cannot be done in the current state.',
   INVALID_INPUT: 'Please check the details and try again.',
   APPROVAL_NOT_PENDING: 'This approval has already been decided.',

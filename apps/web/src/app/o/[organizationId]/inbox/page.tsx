@@ -1,4 +1,4 @@
-import { listMyNotifications } from '@ensemus/application';
+import { countUnread, INBOX_SIZE, listMyNotifications } from '@ensemus/application';
 import Link from 'next/link';
 import { SubmitButton } from '@/components/submit-button';
 import { Empty, ErrorNotice, formatDateTime, PageHead } from '@/components/ui';
@@ -40,14 +40,25 @@ export default async function InboxPage({
   const { error } = await searchParams;
   const { context, database } = await requireTenant(organizationId);
   const base = `/o/${organizationId}`;
-  const notifications = await listMyNotifications(database, context);
-  // The sort is stable, so each group stays newest first.
-  const ordered = [...notifications].sort((a, b) => Number(!!a.readAt) - Number(!!b.readAt));
+  // In the order they come back in: reminders, then anything else unread, then what has been read.
+  const [ordered, unread] = await Promise.all([
+    listMyNotifications(database, context),
+    countUnread(database, context),
+  ]);
 
   return (
     <>
-      <PageHead title="Inbox" description="What needs you, with anything new at the top." />
+      <PageHead
+        title="Inbox"
+        description="What needs you. Reminders come first, then anything else you have not opened. Reminders appear here, and nothing is sent by email yet."
+      />
       <ErrorNotice code={error} />
+      {unread > INBOX_SIZE && (
+        <p className="notice" role="status">
+          You have {unread} unopened items, and this shows {INBOX_SIZE} of them. Each one you open
+          brings the next one up.
+        </p>
+      )}
       {ordered.length === 0 ? (
         <Empty action={<Link href={`${base}/work`}>Go to your work</Link>}>
           Nothing here. When an approval needs your decision, it appears here.
@@ -70,7 +81,9 @@ export default async function InboxPage({
                   </SubmitButton>
                 </form>
                 <span className="row">
-                  <small>{formatDateTime(notification.createdAt)}</small>
+                  <small>
+                    {formatDateTime(notification.lastRemindedAt ?? notification.createdAt)}
+                  </small>
                   {notification.remindersSent > 0 && !notification.readAt && (
                     <span className="badge attention">Reminder</span>
                   )}

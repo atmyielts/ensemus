@@ -9,7 +9,8 @@
     "./secrets": "./src/secrets.ts",
     "./migrate": "./src/migrate.ts",
     "./service": "./src/service.ts",
-    "./dispatcher": "./src/dispatcher.ts"
+    "./dispatcher": "./src/dispatcher.ts",
+    "./setup-token": "./src/setup-token.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

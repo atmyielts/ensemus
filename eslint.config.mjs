@@ -22,6 +22,7 @@ const broker = {
     '@ensemus/database/secrets',
     '@ensemus/database/service',
     '@ensemus/database/dispatcher',
+    '@ensemus/database/setup-token',
   ],
   message: 'Worker-only: the web tier cannot unseal secrets or act as a service (ADR-024 D5).',
 };

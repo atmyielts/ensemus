@@ -1,6 +1,12 @@
 import 'server-only';
 import { randomUUID } from 'node:crypto';
-import { AppError, HTTP_STATUS } from '@ensemus/application';
+import {
+  AppError,
+  auditRefusal,
+  auditTenantRefusal,
+  HTTP_STATUS,
+  isAuditedRefusal,
+} from '@ensemus/application';
 import type { components } from '@ensemus/contracts/openapi';
 import {
   resolveTenantContext,
@@ -129,6 +135,26 @@ export type ApiScope<P> = {
 
 const READ_METHODS = new Set(['GET', 'HEAD']);
 
+/** Writes the audit record of a refusal. Failing to write it never changes what the caller hears. */
+async function recordRefusal(
+  error: unknown,
+  who: { database: AppDatabase; userId?: string; organizationId?: string; context?: TenantContext },
+) {
+  try {
+    if (error instanceof TenantAccessDenied && who.userId && who.organizationId) {
+      await auditTenantRefusal(who.database, {
+        userId: who.userId,
+        organizationId: who.organizationId,
+        surface: 'api',
+      });
+    } else if (isAuditedRefusal(error) && who.context) {
+      await auditRefusal(who.database, who.context, { code: error.code, surface: 'api' });
+    }
+  } catch (failure) {
+    apiLog.error('audit.refusal_failed', { errorCode: errorCode(failure) });
+  }
+}
+
 /** Wraps a Route Handler. Anything it throws becomes a safe error in the documented shape. */
 export function apiRoute<S extends z.ZodType<{ organizationId: string }>>(
   paramsSchema: S,
@@ -137,6 +163,7 @@ export function apiRoute<S extends z.ZodType<{ organizationId: string }>>(
   return async (request: Request, route: { params: Promise<Record<string, string>> }) => {
     const requestId = randomUUID();
     let response: Response;
+    let who: Parameters<typeof recordRefusal>[1] | undefined;
     try {
       const { app, auth, config } = getRuntime();
       const session = await auth.api.getSession({ headers: request.headers });
@@ -145,7 +172,9 @@ export function apiRoute<S extends z.ZodType<{ organizationId: string }>>(
 
       const params = paramsSchema.safeParse(await route.params);
       if (!params.success) throw invalidInput(params.error.issues);
+      who = { database: app, userId: session.user.id, organizationId: params.data.organizationId };
       const context = await resolveTenantContext(app, session.user.id, params.data.organizationId);
+      who = { ...who, context };
       response = await handler({
         request,
         requestId,
@@ -155,6 +184,7 @@ export function apiRoute<S extends z.ZodType<{ organizationId: string }>>(
         params: params.data,
       });
     } catch (error) {
+      if (who) await recordRefusal(error, who);
       response = toErrorResponse(error, requestId);
     }
     response.headers.set('X-Request-Id', requestId);

@@ -10,7 +10,7 @@ import {
   type ApprovalFacts,
   type ProposedAction,
 } from './approval';
-import { can, canChangeWork, canReadWork, type WorkAccessFacts } from './policy';
+import { can, canChangeWork, canManageWork, canReadWork, type WorkAccessFacts } from './policy';
 import {
   allowedTransitions,
   canChangeContent,
@@ -297,6 +297,27 @@ describe('permissions', () => {
     expect(canReadWork(work, orgOwner)).toBe(false);
     expect(canChangeWork(work, orgOwner)).toBe(false);
     expect(canReadWork(work, onIt)).toBe(true);
+  });
+
+  it('leaves changing who answers for work to its owner and to administrators who can see it', () => {
+    const assigned = { ...base, isAssigned: true };
+    expect(canChangeWork(assigned, member)).toBe(true);
+    expect(canManageWork(assigned, member)).toBe(false);
+    expect(canManageWork(base, onIt)).toBe(true);
+    expect(canManageWork(base, member)).toBe(false);
+    expect(canManageWork(base, orgOwner)).toBe(true);
+    expect(canManageWork(base, { membershipId: 'admin', role: 'admin' })).toBe(true);
+    const restricted = { ...base, classification: 'restricted' as const };
+    expect(canManageWork(restricted, orgOwner)).toBe(false);
+    expect(canManageWork({ ...restricted, isAssigned: true }, orgOwner)).toBe(true);
+    expect(canManageWork({ ...restricted, isAssigned: true }, member)).toBe(false);
+    expect(canManageWork(restricted, onIt)).toBe(true);
+  });
+
+  it('shows email addresses only to people who manage members', () => {
+    expect(can('owner', 'member.view_email')).toBe(true);
+    expect(can('admin', 'member.view_email')).toBe(true);
+    expect(can('member', 'member.view_email')).toBe(false);
   });
 
   it('denies a role it does not know, even on public work', () => {

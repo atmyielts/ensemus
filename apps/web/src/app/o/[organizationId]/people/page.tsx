@@ -1,5 +1,4 @@
-import { listInvitations, listTeams } from '@ensemus/application';
-import { listMembers } from '@ensemus/database';
+import { listDirectory, listInvitations, listTeams } from '@ensemus/application';
 import { can } from '@ensemus/domain/policy';
 import { ConfirmForm } from '@/components/confirm-form';
 import { InviteForm } from '@/components/invite-form';
@@ -14,6 +13,7 @@ import {
   removeTeamMemberAction,
   revokeInvitationAction,
   setRoleAction,
+  setTeamParentAction,
 } from '@/server/work-actions';
 
 export const metadata = { title: 'People and teams | Ensemus' };
@@ -22,6 +22,21 @@ const ROLE_LABEL: Record<string, string> = { owner: 'Owner', admin: 'Admin', mem
 
 type Team = Awaited<ReturnType<typeof listTeams>>[number];
 type Candidate = { membershipId: string; name: string };
+
+/** The team, and every team under it: none of them can become its parent without making a loop. */
+function withDescendants(teams: Team[], id: string): Set<string> {
+  const found = new Set([id]);
+  for (let grew = true; grew;) {
+    grew = false;
+    for (const team of teams) {
+      if (team.parentId && found.has(team.parentId) && !found.has(team.id)) {
+        found.add(team.id);
+        grew = true;
+      }
+    }
+  }
+  return found;
+}
 
 function TeamTree({
   teams,
@@ -43,6 +58,8 @@ function TeamTree({
       {level.map((team) => {
         const onTeam = new Set(team.members.map((member) => member.membershipId));
         const available = candidates.filter((member) => !onTeam.has(member.membershipId));
+        const below = withDescendants(teams, team.id);
+        const parents = teams.filter((other) => !below.has(other.id));
         const fields = (
           <>
             <input type="hidden" name="organizationId" value={organizationId} />
@@ -101,6 +118,25 @@ function TeamTree({
                 </SubmitButton>
               </form>
             )}
+            {canManage && (parents.length > 0 || team.parentId) && (
+              <form className="row" action={setTeamParentAction} style={{ marginTop: '0.5rem' }}>
+                {fields}
+                <label className="check">
+                  Move {team.name} under
+                  <select name="parentId" defaultValue={team.parentId ?? ''}>
+                    <option value="">No parent team</option>
+                    {parents.map((other) => (
+                      <option key={other.id} value={other.id}>
+                        {other.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <SubmitButton className="quiet" label={`Move ${team.name}`}>
+                  Move
+                </SubmitButton>
+              </form>
+            )}
             <TeamTree
               teams={teams}
               parentId={team.id}
@@ -141,8 +177,9 @@ export default async function PeoplePage({
   const canManage = can(context.role, 'member.manage');
   const canInvite = can(context.role, 'member.invite');
   const canManageTeams = can(context.role, 'team.manage');
+  const seesEmail = can(context.role, 'member.view_email');
   const [members, teams, invitations] = await Promise.all([
-    listMembers(database, context),
+    listDirectory(database, context),
     listTeams(database, context),
     canInvite ? listInvitations(database, context) : [],
   ]);
@@ -166,12 +203,15 @@ export default async function PeoplePage({
       <div className="stack">
         <section className="card" aria-labelledby="members-heading">
           <h2 id="members-heading">Members</h2>
+          {!seesEmail && (
+            <p className="muted">Email addresses are only shown to owners and admins.</p>
+          )}
           <div className="table-wrap">
             <table>
               <thead>
                 <tr>
                   <th scope="col">Name</th>
-                  <th scope="col">Email</th>
+                  {seesEmail && <th scope="col">Email</th>}
                   <th scope="col">Access</th>
                   <th scope="col">Status</th>
                   {canManage && <th scope="col">Change</th>}
@@ -184,7 +224,7 @@ export default async function PeoplePage({
                       {member.name}
                       {member.membershipId === context.membershipId && <small> (you)</small>}
                     </td>
-                    <td>{member.email}</td>
+                    {seesEmail && <td>{member.email}</td>}
                     <td>{ROLE_LABEL[member.role] ?? member.role}</td>
                     <td>
                       <span className={`badge ${member.status === 'active' ? 'done' : ''}`}>

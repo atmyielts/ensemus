@@ -139,11 +139,12 @@ export async function dispatchDueEvents(
       eq(outboxEvents.organizationId, event.organizationId),
       eq(outboxEvents.eventId, event.id),
     );
-    // Stopping or an outage hands the rest back right away, instead of leaving them leased.
+    // Stopping or an outage hands the rest back right away, instead of leaving them leased. Due means
+    // due by the database's clock, so "now" is its clock too: this one can run a little ahead.
     if (holding || options.shouldStop?.()) {
       await db
         .update(outboxEvents)
-        .set({ nextAttemptAt: new Date(Date.now() + (holding ? TRANSIENT_RETRY_MS : 0)) })
+        .set({ nextAttemptAt: holding ? new Date(Date.now() + TRANSIENT_RETRY_MS) : sql`now()` })
         .where(where);
       if (holding) result.deferred += 1;
       continue;

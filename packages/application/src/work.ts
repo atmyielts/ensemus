@@ -25,7 +25,13 @@ import {
   WORK_REVIEW_TOOL,
   workReviewAction,
 } from '@ensemus/domain/approval';
-import { canChangeWork, canReadWork, can, type Classification } from '@ensemus/domain/policy';
+import {
+  can,
+  canChangeWork,
+  canManageWork,
+  canReadWork,
+  type Classification,
+} from '@ensemus/domain/policy';
 import {
   canChangeContent,
   completionBasis,
@@ -151,6 +157,24 @@ export async function loadChangeable(tx: Tx, context: TenantContext, id: string)
   return row;
 }
 
+/**
+ * For a change only someone who answers for the work may make: its accountable owner, or an
+ * organization owner or admin who can see it. Being assigned is not enough (WORK-03).
+ */
+async function assertCanManage(tx: Tx, context: TenantContext, work: WorkRow) {
+  if (context.actorType === 'service') return;
+  const isAssigned = await assignedTo(tx, context, work.id);
+  if (!canManageWork(accessFacts(work, isAssigned), viewer(context))) {
+    throw new AppError('FORBIDDEN');
+  }
+}
+
+async function loadManageable(tx: Tx, context: TenantContext, id: string) {
+  const row = await loadChangeable(tx, context, id);
+  await assertCanManage(tx, context, row);
+  return row;
+}
+
 async function assertActiveMember(tx: Tx, membershipId: string) {
   const [member] = await tx
     .select({ status: memberships.status })
@@ -194,6 +218,7 @@ export async function createWorkUnit(
       workUnitId: id,
       membershipId: context.membershipId,
       responsibility: 'contributor',
+      actorType: 'human',
     });
     await emit(tx, context, {
       eventType: 'work.created',
@@ -785,6 +810,8 @@ export function transitionWorkUnit(
     if (isApprovalOnlyTransition(current.status as WorkState, input.to)) {
       throw new AppError('INVALID_TRANSITION');
     }
+    // Stopping is for good, so it belongs to whoever answers for the work, not everyone on it.
+    if (input.to === 'cancelled') await assertCanManage(tx, context, current);
     return applyTransition(tx, context, current, input.to, {
       ...(input.reason !== undefined ? { reason: input.reason } : {}),
     });
@@ -969,7 +996,7 @@ export function setOwner(
   input: { id: string; expectedVersion: number; ownerMembershipId: string },
 ) {
   return withTenantTx(database, context, async (tx) => {
-    const current = await loadChangeable(tx, context, input.id);
+    const current = await loadManageable(tx, context, input.id);
     if (current.version !== input.expectedVersion) throw new AppError('VERSION_CONFLICT');
     await assertActiveMember(tx, input.ownerMembershipId);
     const nextVersion = current.version + 1;
@@ -1005,7 +1032,7 @@ export function assignContributor(
   input: { id: string; membershipId: string; responsibility?: 'contributor' | 'reviewer' },
 ) {
   return withTenantTx(database, context, async (tx) => {
-    const work = await loadChangeable(tx, context, input.id);
+    const work = await loadManageable(tx, context, input.id);
     if (isTerminal(work.status as WorkState)) throw new AppError('INVALID_STATE');
     await assertActiveMember(tx, input.membershipId);
     const added = await tx
@@ -1015,6 +1042,7 @@ export function assignContributor(
         workUnitId: input.id,
         membershipId: input.membershipId,
         responsibility: input.responsibility ?? 'contributor',
+        actorType: 'human',
       })
       .onConflictDoNothing()
       .returning({ id: workAssignments.membershipId });
@@ -1033,7 +1061,10 @@ export function assignContributor(
   });
 }
 
-/** Taking someone off the work stays possible whatever its status: revoking access must always work. */
+/**
+ * Taking someone off the work stays possible whatever its status: revoking access must always work.
+ * Anyone on the work can take themselves off. Taking off someone else is for whoever answers for it.
+ */
 export function unassign(
   database: AppDatabase,
   context: TenantContext,
@@ -1041,6 +1072,7 @@ export function unassign(
 ) {
   return withTenantTx(database, context, async (tx) => {
     const work = await loadChangeable(tx, context, input.id);
+    if (input.membershipId !== context.membershipId) await assertCanManage(tx, context, work);
     const removed = await tx
       .delete(workAssignments)
       .where(
@@ -1182,9 +1214,10 @@ export function getWorkDetail(database: AppDatabase, context: TenantContext, id:
       .leftJoin(users, eq(users.id, memberships.userId))
       .where(eq(workTransitions.workUnitId, id))
       .orderBy(desc(workTransitions.occurredAt));
-    const canChange =
-      context.actorType === 'service' ||
-      canChangeWork(accessFacts(work, await assignedTo(tx, context, id)), viewer(context));
+    const facts = accessFacts(work, await assignedTo(tx, context, id));
+    const isService = context.actorType === 'service';
+    const canChange = isService || canChangeWork(facts, viewer(context));
+    const canManage = isService || canManageWork(facts, viewer(context));
     return {
       work,
       ownerName: owner?.name ?? null,
@@ -1197,6 +1230,7 @@ export function getWorkDetail(database: AppDatabase, context: TenantContext, id:
       history,
       evidence: await evidenceFor(tx, work, now),
       canChange,
+      canManage,
     };
   });
 }

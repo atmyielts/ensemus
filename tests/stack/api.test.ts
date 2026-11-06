@@ -1,9 +1,17 @@
 // API-12, API-13, NEXT-01: the public /api/v1 contract against built images, through the proxy.
-// Shapes are checked against docs/specifications/openapi.yaml, by way of the types generated from it.
+// Every response goes through call(), which validates it against docs/specifications/openapi.yaml at
+// run time (see tests/helpers/openapi.ts). The generated types then only name what was validated.
 import { randomUUID } from 'node:crypto';
 import pg from 'pg';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import type { components } from '../../packages/contracts/generated/openapi';
+import {
+  contractProblems,
+  operationName,
+  operations,
+  requestLimit,
+  spec,
+} from '../helpers/openapi';
 import {
   BASE,
   createOrganization,
@@ -19,43 +27,36 @@ import { urls } from '../helpers/stack';
 
 type WorkUnit = components['schemas']['WorkUnit'];
 type ApiError = components['schemas']['Error'];
+type PendingApproval = components['schemas']['PendingApproval'];
+type Approval = components['schemas']['Approval'];
 
-const WORK_STATUSES: readonly WorkUnit['status'][] = [
-  'queued',
-  'ready',
-  'running',
-  'blocked',
-  'awaiting_approval',
-  'verifying',
-  'completed',
-  'failed',
-  'cancelled',
-];
-const WORK_UNIT_FIELDS: ReadonlySet<string> = new Set<keyof WorkUnit>([
-  'id',
-  'organization_id',
-  'title',
-  'objective',
-  'status',
-  'version',
-  'due_at',
-  'completion',
-]);
-const ERROR_FIELDS: ReadonlySet<string> = new Set<keyof ApiError>([
-  'code',
-  'message',
-  'request_id',
-  'retryable',
-  'details',
-]);
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 /** What must never reach a client: SQL, parameters, ORM wording, or anything from a stack trace. */
 const INTERNALS =
   /\bselect\b[\s\S]*\bfrom\b|insert into|update \S+ set|delete from|stack|postgres|drizzle|node_modules|\bat \S+:\d+:\d+/i;
 
-const unknownFields = (value: object, known: ReadonlySet<string>) =>
-  Object.keys(value).filter((key) => !known.has(key));
+/** The operations a real, successful response has been validated for in this run. */
+const validated = new Set<string>();
+
+/** Fails the test if this response is not what the contract says. */
+function checkContract(
+  method: string,
+  path: string,
+  status: number,
+  headers: Headers,
+  text?: string,
+) {
+  const { operation, problems } = contractProblems({
+    method,
+    path,
+    status,
+    headers,
+    ...(text === undefined ? {} : { text }),
+  });
+  expect(problems).toEqual([]);
+  if (operation && status < 400) validated.add(operation);
+}
 
 type Result = { status: number; headers: Headers; text: string; json: unknown };
 
@@ -90,6 +91,7 @@ async function call(
     ...(payload === undefined ? {} : { body: payload }),
   });
   const text = await response.text();
+  checkContract(method, path, response.status, response.headers, text);
   let json: unknown;
   try {
     json = text ? JSON.parse(text) : undefined;
@@ -103,32 +105,17 @@ function expectError(result: Result, status: number, code?: string): ApiError {
   expect(result.status, result.text).toBe(status);
   expect(result.text).not.toMatch(INTERNALS);
   const error = result.json as ApiError;
-  expect(unknownFields(error, ERROR_FIELDS)).toEqual([]);
   expect(error.code).toMatch(/^[A-Z][A-Z0-9_]*$/);
   if (code) expect(error.code).toBe(code);
   expect(error.message.length).toBeGreaterThan(0);
-  expect(typeof error.retryable).toBe('boolean');
   expect(error.request_id).toMatch(UUID);
   expect(result.headers.get('x-request-id')).toBe(error.request_id);
   expect(result.headers.get('cache-control')).toContain('no-store');
   return error;
 }
 
-function expectWorkUnit(value: unknown): WorkUnit {
-  const work = value as WorkUnit;
-  expect(unknownFields(work, WORK_UNIT_FIELDS)).toEqual([]);
-  expect(work.id).toMatch(UUID);
-  expect(work.organization_id).toMatch(UUID);
-  expect(typeof work.title).toBe('string');
-  expect(WORK_STATUSES).toContain(work.status);
-  expect(Number.isInteger(work.version)).toBe(true);
-  expect(work.version).toBeGreaterThanOrEqual(1);
-  if (work.objective !== undefined) expect(typeof work.objective).toBe('string');
-  if (work.due_at !== undefined && work.due_at !== null) {
-    expect(Number.isNaN(Date.parse(work.due_at))).toBe(false);
-  }
-  return work;
-}
+/** call() has already validated the body against the spec, so this only names its type. */
+const asWorkUnit = (value: unknown) => value as WorkUnit;
 
 const workUnits = (organization: string) => `/api/v1/organizations/${organization}/work-units`;
 const workUnit = (organization: string, id: string) => `${workUnits(organization)}/${id}`;
@@ -137,6 +124,8 @@ const dependencies = (organization: string, id: string) =>
 const events = (organization: string, id: string) => `${workUnit(organization, id)}/events`;
 const decisions = (organization: string, id: string) =>
   `/api/v1/organizations/${organization}/approvals/${id}/decisions`;
+
+const sessionCookieName = spec.components.securitySchemes.sessionCookie?.name as string;
 
 describe('public API', () => {
   let su: pg.Client;
@@ -171,7 +160,7 @@ describe('public API', () => {
       key: randomUUID(),
     });
     expect(result.status, result.text).toBe(201);
-    return expectWorkUnit(result.json);
+    return asWorkUnit(result.json);
   }
 
   beforeAll(async () => {
@@ -195,7 +184,7 @@ describe('public API', () => {
         key: randomUUID(),
       });
       expect(result.status).toBe(201);
-      const work = expectWorkUnit(result.json);
+      const work = asWorkUnit(result.json);
       expect(work).toMatchObject({
         organization_id: org,
         title,
@@ -254,7 +243,7 @@ describe('public API', () => {
       const theirs = await call(member, 'POST', workUnits(org), { body, key });
       expect(mine.status).toBe(201);
       expect(theirs.status).toBe(201);
-      expect(expectWorkUnit(theirs.json).id).not.toBe(expectWorkUnit(mine.json).id);
+      expect(asWorkUnit(theirs.json).id).not.toBe(asWorkUnit(mine.json).id);
     });
 
     it('needs a usable key', async () => {
@@ -293,7 +282,7 @@ describe('public API', () => {
       expect(list.headers.get('cache-control')).toContain('no-store');
       const page = list.json as { items: unknown[]; next_cursor: string | null };
       expect(Object.keys(page).sort()).toEqual(['items', 'next_cursor']);
-      const items = page.items.map(expectWorkUnit);
+      const items = page.items.map(asWorkUnit);
       expect(items.map((item) => item.id)).toContain(work.id);
       expect(new Set(items.map((item) => item.organization_id))).toEqual(new Set([org]));
     });
@@ -301,7 +290,7 @@ describe('public API', () => {
     it('filters by status, and refuses a status or cursor it does not know', async () => {
       const work = await createWork();
       const none = await call(owner, 'GET', `${workUnits(org)}?status=completed`);
-      const items = (none.json as { items: unknown[] }).items.map(expectWorkUnit);
+      const items = (none.json as { items: unknown[] }).items.map(asWorkUnit);
       expect(items.map((item) => item.id)).not.toContain(work.id);
       expect(items.every((item) => item.status === 'completed')).toBe(true);
       expectError(await call(owner, 'GET', `${workUnits(org)}?status=bogus`), 400, 'INVALID_INPUT');
@@ -341,7 +330,7 @@ describe('public API', () => {
       const work = await createWork();
       const result = await call(owner, 'GET', workUnit(org, work.id));
       expect(result.status).toBe(200);
-      expect(expectWorkUnit(result.json)).toEqual(work);
+      expect(asWorkUnit(result.json)).toEqual(work);
       expect(result.headers.get('etag')).toBe('"1"');
     });
 
@@ -381,7 +370,7 @@ describe('public API', () => {
         headers: { 'if-match': '"1"' },
       });
       expect(result.status).toBe(200);
-      expect(expectWorkUnit(result.json)).toMatchObject({
+      expect(asWorkUnit(result.json)).toMatchObject({
         title: 'New title',
         objective: 'New objective',
         due_at: null,
@@ -402,7 +391,7 @@ describe('public API', () => {
       });
       expectError(stale, 409, 'VERSION_CONFLICT');
       const current = await call(owner, 'GET', workUnit(org, work.id));
-      expect(expectWorkUnit(current.json)).toMatchObject({ title: 'Saved first', version: 2 });
+      expect(asWorkUnit(current.json)).toMatchObject({ title: 'Saved first', version: 2 });
     });
 
     it('lets one of two racing writers win', async () => {
@@ -429,7 +418,7 @@ describe('public API', () => {
       expectError(await patch({ 'if-match': '"1"' }, {}), 400, 'INVALID_INPUT');
       expectError(await patch({ 'if-match': '"1"' }, { status: 'completed' }), 400);
       const current = await call(owner, 'GET', workUnit(org, work.id));
-      expect(expectWorkUnit(current.json).version).toBe(1);
+      expect(asWorkUnit(current.json).version).toBe(1);
     });
 
     it('accepts a member reading internal work, but not changing it', async () => {
@@ -490,13 +479,13 @@ describe('public API', () => {
 
       const listed = await call(reviewer, 'GET', approvals(org));
       expect(listed.status).toBe(200);
-      const items = (listed.json as { items: Array<{ id: string; work_unit_id: string }> }).items;
+      const { items } = listed.json as { items: PendingApproval[] };
       const item = items.find((entry) => entry.work_unit_id === work.id);
       if (!item) throw new Error('Approval not listed');
 
       const read = await call(reviewer, 'GET', `${approvals(org)}/${item.id}`);
       expect(read.status).toBe(200);
-      const approval = read.json as { action_hash: string; status: string; action: unknown };
+      const approval = read.json as Approval;
       expect(approval.status).toBe('pending');
       expect(approval.action).toBeTruthy();
 
@@ -727,10 +716,87 @@ describe('public API', () => {
       expect((await call(owner, 'GET', workUnit(org, work.id))).json).toEqual(work);
     });
 
+    it('records a forged tenant and a forged role, once each, with nothing they sent', async () => {
+      const prober = await join(owner, org, 'Pat Prober');
+      const { rows: users } = await su.query('select id from identity.users where email = $1', [
+        prober.email,
+      ]);
+      const account = users[0].id as string;
+      const membership = await membershipOf(prober);
+      const refusals = async (organization: string, actor: string) => {
+        const { rows } = await su.query(
+          `select action, target_ref, decision, safe_reason from governance.audit_events
+           where organization_id = $1 and actor_id = $2 and action like 'access.refused%'`,
+          [organization, actor],
+        );
+        return rows;
+      };
+
+      const canary = `Canary-${randomUUID()}`;
+      for (let i = 0; i < 5; i += 1) {
+        expectError(
+          await call(prober, 'POST', workUnits(rivalOrg), {
+            body: { title: canary, objective: 'x' },
+            key: randomUUID(),
+          }),
+          404,
+          'NOT_FOUND',
+        );
+      }
+      expect(await refusals(rivalOrg, account)).toEqual([
+        {
+          action: 'access.refused.api',
+          target_ref: `organization:${rivalOrg}`,
+          decision: 'deny',
+          safe_reason: 'TENANT_ACCESS_DENIED',
+        },
+      ]);
+
+      const work = await createWork();
+      for (let i = 0; i < 3; i += 1) {
+        expectError(
+          await call(prober, 'PATCH', workUnit(org, work.id), {
+            body: { title: canary },
+            headers: { 'if-match': '"1"' },
+          }),
+          403,
+          'FORBIDDEN',
+        );
+      }
+      expect(await refusals(org, membership)).toEqual([
+        {
+          action: 'access.refused.api',
+          target_ref: `organization:${org}`,
+          decision: 'deny',
+          safe_reason: 'FORBIDDEN',
+        },
+      ]);
+
+      const { rows: all } = await su.query(
+        'select * from governance.audit_events where organization_id = any($1)',
+        [[org, rivalOrg]],
+      );
+      expect(JSON.stringify(all)).not.toContain(canary);
+    });
+
+    it('records nothing for someone with no session, who names no one', async () => {
+      const refusals = async () => {
+        const { rows } = await su.query(
+          `select count(*)::int as n from governance.audit_events
+           where organization_id = $1 and action like 'access.refused%'`,
+          [org],
+        );
+        return rows[0].n as number;
+      };
+      const before = await refusals();
+      expectError(await call(undefined, 'GET', workUnits(org)), 401, 'UNAUTHENTICATED');
+      expect(await refusals()).toBe(before);
+    });
+
     it('answers 401 without a session, or with a forged one', async () => {
       const work = await createWork();
       const forged: Person = {
-        jar: { cookie: '__Secure-better-auth.session_token=forged.value' },
+        jar: { cookie: `${sessionCookieName}=forged.value` },
         name: 'Nobody',
         email: 'nobody@example.invalid',
       };
@@ -811,6 +877,8 @@ describe('public API', () => {
         },
         signal: abort.signal,
       });
+      // A stream never ends on its own, so only its status, type and headers are checked here.
+      checkContract('GET', path, response.status, response.headers);
       const received: StatusEvent[] = [];
       let ended = false;
       const pump = async () => {
@@ -978,6 +1046,81 @@ describe('public API', () => {
       if (!id) throw new Error('Work not created');
       expectError(await call(member, 'GET', events(org, id)), 404, 'NOT_FOUND');
       expectError(await call(owner, 'GET', events(org, randomUUID())), 404, 'NOT_FOUND');
+    });
+  });
+
+  describe('what the contract promises (API-12)', () => {
+    const WORK = '/organizations/{organization_id}/work-units';
+    const ONE_WORK = `${WORK}/{work_unit_id}`;
+    const DECISIONS = '/organizations/{organization_id}/approvals/{approval_id}/decisions';
+
+    it('answers a malformed ID on the approval reads with the 400 it lists', async () => {
+      const approvals = `/api/v1/organizations/${org}/approvals`;
+      expectError(await call(owner, 'GET', `${approvals}/not-a-uuid`), 400, 'INVALID_INPUT');
+      expectError(
+        await call(owner, 'GET', '/api/v1/organizations/not-a-uuid/approvals'),
+        400,
+        'INVALID_INPUT',
+      );
+    });
+
+    it('holds a new Work Unit to the limits the contract states, exactly', async () => {
+      const titles = requestLimit(WORK, 'post', 'title', 'maxLength');
+      const objectives = requestLimit(WORK, 'post', 'objective', 'maxLength');
+      const create = (title: string, objective: string) =>
+        call(owner, 'POST', workUnits(org), { body: { title, objective }, key: randomUUID() });
+      expect((await create('x'.repeat(titles), 'x'.repeat(objectives))).status).toBe(201);
+      expectError(await create('x'.repeat(titles + 1), 'x'), 400, 'INVALID_INPUT');
+      expectError(await create('x', 'x'.repeat(objectives + 1)), 400, 'INVALID_INPUT');
+    });
+
+    it('holds a change to a Work Unit to the limits the contract states, exactly', async () => {
+      const work = await createWork();
+      const titles = requestLimit(ONE_WORK, 'patch', 'title', 'maxLength');
+      const objectives = requestLimit(ONE_WORK, 'patch', 'objective', 'maxLength');
+      const patch = (body: Record<string, string>) =>
+        call(owner, 'PATCH', workUnit(org, work.id), { body, headers: { 'if-match': '"1"' } });
+      expectError(await patch({ title: 'x'.repeat(titles + 1) }), 400, 'INVALID_INPUT');
+      expectError(await patch({ title: '' }), 400, 'INVALID_INPUT');
+      expectError(await patch({ objective: 'x'.repeat(objectives + 1) }), 400, 'INVALID_INPUT');
+      const fits = await patch({ title: 'x'.repeat(titles), objective: 'x'.repeat(objectives) });
+      expect(fits.status).toBe(200);
+      expect(fits.headers.get('etag')).toBe('"2"');
+    });
+
+    it('holds a decision’s hash to the limit the contract states, exactly', async () => {
+      const longest = requestLimit(DECISIONS, 'post', 'action_hash', 'maxLength');
+      const decide = (hash: string) =>
+        call(reviewer, 'POST', decisions(org, randomUUID()), {
+          body: { decision: 'approve', action_hash: hash },
+        });
+      expectError(await decide('a'.repeat(longest + 1)), 400, 'INVALID_INPUT');
+      // It passes the check on its shape, and goes on to be refused for naming nothing.
+      expectError(await decide('a'.repeat(longest)), 404, 'NOT_FOUND');
+    });
+
+    it('signs in with the cookie it names, and takes no bearer token', async () => {
+      const person = await signUp('Cookie Holder');
+      const session = person.jar.cookie
+        .split('; ')
+        .find((cookie) => cookie.startsWith(`${sessionCookieName}=`));
+      if (!session) throw new Error('The real session cookie is not the one the contract names');
+      const own = await createOrganization(person, `Cookie ${randomUUID()}`);
+      expect((await call(person, 'GET', workUnits(own))).status).toBe(200);
+
+      const value = session.slice(sessionCookieName.length + 1);
+      const asBearer = await call(undefined, 'GET', workUnits(own), {
+        headers: { authorization: `Bearer ${value}` },
+      });
+      expectError(asBearer, 401, 'UNAUTHENTICATED');
+    });
+
+    it('has validated a real response from every operation that exists', () => {
+      const implemented = operations()
+        .filter((operation) => operation.status === undefined)
+        .map(({ method, path }) => operationName(method, path));
+      expect(implemented.length).toBeGreaterThan(0);
+      expect([...validated].sort()).toEqual(implemented.sort());
     });
   });
 });

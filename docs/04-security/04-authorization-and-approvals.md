@@ -44,9 +44,17 @@ An invitation is only for the address it was sent to, and that means something o
 
 Work access comes from being the accountable owner or being assigned, and from nothing else. Whoever creates a Work Unit is assigned when it is created, so that access is listed on the page and can be removed like anyone's.
 
+Being assigned is a delegation, and it is scoped. Someone assigned can work on the unit and move it along: edit it, attach files, change its status, manage its prerequisites, run its plan and ask for a review. Changing the accountable owner, adding or removing anyone else, and stopping the work for good belong to the accountable owner and to organization owners and admins who can see the work. Anyone on the work can take themselves off it. Services enforce this, so a forged form gets the same refusal. Classification is set when work is created, and nothing changes it afterwards.
+
+The directory is filtered by who is asking. Everyone in an organization sees names, roles and whether someone is active, because they need them to pick a reviewer or see who is responsible. Email addresses are shown only to owners and admins, and to each person for themselves.
+
+The first owner on a deployment where sign-up is off gets an account from a one-time setup code that only the operator can issue, with the migrator database role (see the deployment runbook). A code makes one account and grants no access to anything. The application role cannot read or write these codes, the auth role can only use one, and only a hash is stored.
+
 ## 7. Audit record
 
 Who (initiator + actual executor), organization, action, target ID, classification, policy version, decision, approval ID/hash, timestamp, correlation/causation, result external ID, safe reason, and append integrity reference. Avoid storing full confidential payload in default audit. Restrict audit viewers; export with integrity checks and redaction.
+
+Refusals are audited too. A Server Action or API route that refuses a forged tenant, role or state writes one minimal row: who, whether it came through the web or the API, and an error code from a fixed list, with nothing from the request. A refused tenant is recorded under that tenant, so its owners and admins can see the attempt and nobody in the person's own tenant can. An ID that is no organization has nowhere to go and leaves no row. One person repeating one refusal makes one row an hour, and a tenant takes at most 1,000 such rows an hour, so a flood cannot fill the table or bury what came before. Requests with no session are refused before any of this and are not recorded, because they name no one. Only owners and admins can list a tenant's audit log.
 
 ## 8. Break glass
 

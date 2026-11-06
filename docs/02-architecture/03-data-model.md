@@ -10,6 +10,7 @@
 |---|---|---|
 | `organizations` | id, name, mode, lifecycle_status, region | Primary tenant identity |
 | `users` | id, external_subject, email, display_name | Global identity, unique stable subject |
+| `setup_tokens` | id, token_hash, expires_at, used_at | One-time operator codes for a new account. Hash only, out of the application role's reach |
 | `memberships` | organization_id, id, user_id, status | Unique `(organization_id,user_id)` |
 | `teams` | organization_id, id, parent_team_id, name | Same-tenant parent, no hierarchy cycles |
 | `team_memberships` | organization_id, team_id, membership_id | Same-tenant FKs |
@@ -24,7 +25,7 @@
 | `projects` | organization_id, id, client_id, status, owner | Tenant-safe client relationship |
 | `work_units` | organization_id, id, objective, status, owner, version | Optimistic locking, explicit owner |
 | `work_dependencies` | organization_id, prerequisite_id, dependent_id | No self-edge, no multi-node cycles |
-| `work_assignments` | organization_id, work_unit_id, assignee principal, role | At most one primary accountable owner |
+| `work_assignments` | organization_id, work_unit_id, assignee principal, actor_type, role | At most one primary accountable owner. `actor_type` is `human` or `agent`, and only `human` is written until M4 |
 | `work_comments` | organization_id, id, work_unit_id, author, content_class | ACL inherited and enforced |
 | `work_artifacts` | organization_id, work_unit_id, artifact_id, purpose | Source/work link |
 | `artifacts` | organization_id, id, object_uri, hash, mime, class | Object storage authority, tamper checks |
@@ -72,7 +73,7 @@
 | `domain_events` | organization_id, id, type, schema_version, aggregate/version | Append-only business record |
 | `outbox_events` | id, event_id, dispatch_state, retry_count | Transactionally published |
 | `inbox_events` | consumer_id, event_id, first_seen | Consumer deduplication |
-| `audit_events` | organization_id, who, action, target, decision, timestamp | Append-oriented restricted store |
+| `audit_events` | organization_id, who, action, target, decision, timestamp, dedupe_key | Append-oriented restricted store. `dedupe_key` is set only on refusals, one row per person, code and hour |
 | `policy_bundles` | organization_id, id, hash, version, active | Review/publish control |
 | `entitlements` | organization_id, mode, version, period, capacities | Signed/verified source |
 | `usage_ledger` | organization_id, metric, idempotency_key, measured_at | Reconciliation and billing |

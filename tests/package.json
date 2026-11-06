@@ -9,20 +9,23 @@
   "dependencies": {
     "@ensemus/application": "workspace:*",
     "@ensemus/auth": "workspace:*",
-    "@ensemus/domain": "workspace:*",
     "@ensemus/database": "workspace:*",
-    "@ensemus/telemetry": "workspace:*",
+    "@ensemus/domain": "workspace:*",
+    "@ensemus/secrets": "workspace:*",
     "@ensemus/storage": "workspace:*",
+    "@ensemus/telemetry": "workspace:*",
     "@ensemus/workflows": "workspace:*",
     "@temporalio/client": "1.25.0",
+    "@temporalio/common": "1.25.0",
     "@temporalio/worker": "1.25.0",
     "@temporalio/workflow": "1.25.0",
-    "@temporalio/common": "1.25.0",
-    "@ensemus/secrets": "workspace:*",
     "drizzle-orm": "0.45.4",
     "pg": "8.23.1"
   },
   "devDependencies": {
-    "@types/pg": "8.23.1"
+    "@types/pg": "8.23.1",
+    "ajv": "8.20.0",
+    "ajv-formats": "3.0.1",
+    "yaml": "2.9.1"
   }
 }

@@ -29,12 +29,47 @@ const headersOf = (jar?: Jar): Record<string, string> => (jar ? { cookie: jar.co
 export const visit = (path: string, jar?: Jar) =>
   fetch(`${BASE}${path}`, { headers: headersOf(jar), redirect: 'manual' });
 
+/**
+ * Puts a streamed page together, which React's inline scripts do in a browser. A page can arrive with
+ * a form or a section split over several hidden segments, depending on timing, and read raw that would
+ * make a check on it pass or fail by luck.
+ */
+export function assembled(raw: string): string {
+  const segments = new Map<string, string>();
+  let html = raw;
+  for (let opening = /<div hidden id="S:(\w+)">/.exec(html); opening;) {
+    const start = opening.index + opening[0].length;
+    const tags = /<div\b|<\/div>/g;
+    tags.lastIndex = start;
+    let end = start;
+    for (let depth = 1; depth > 0;) {
+      const tag = tags.exec(html);
+      if (!tag) throw new Error('A streamed segment never closed');
+      depth += tag[0] === '</div>' ? -1 : 1;
+      end = tag.index;
+    }
+    segments.set(opening[1] as string, html.slice(start, end));
+    html = html.slice(0, opening.index) + html.slice(tags.lastIndex);
+    opening = /<div hidden id="S:(\w+)">/.exec(html);
+  }
+  for (const [, boundary, segment] of raw.matchAll(/\$RC\("B:(\w+)","S:(\w+)"\)/g)) {
+    html = html.replace(
+      new RegExp(`<!--\\$\\?--><template id="B:${boundary}"></template>[\\s\\S]*?<!--/\\$-->`),
+      () => segments.get(segment as string) ?? '',
+    );
+  }
+  for (let left = /<template id="P:(\w+)"><\/template>/; left.test(html);) {
+    html = html.replace(left, (_, id: string) => segments.get(id) ?? '');
+  }
+  return html;
+}
+
 export async function read(path: string, jar?: Jar) {
   const response = await visit(path, jar);
   return {
     status: response.status,
     location: response.headers.get('location'),
-    html: await response.text(),
+    html: assembled(await response.text()),
   };
 }
 

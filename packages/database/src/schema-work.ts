@@ -227,6 +227,8 @@ export const workAssignments = workSchema.table(
     workUnitId: uuid().notNull(),
     membershipId: uuid().notNull(),
     responsibility: text().notNull().default('contributor'),
+    /** Who holds this assignment. Only people are assigned until agents arrive in M4. */
+    actorType: text().notNull().default('human'),
     createdAt: createdAt(),
   },
   (t) => [
@@ -241,6 +243,7 @@ export const workAssignments = workSchema.table(
     }),
     index('work_assignments_member_idx').on(t.organizationId, t.membershipId),
     check('work_assignments_kind_check', sql`${t.responsibility} in ('contributor','reviewer')`),
+    check('work_assignments_actor_type_check', sql`${t.actorType} in ('human','agent')`),
   ],
 );
 
@@ -398,6 +401,8 @@ export const notifications = platformSchema.table(
     targetRef: text().notNull(),
     remindAt: timestamp({ withTimezone: true }),
     remindersSent: integer().notNull().default(0),
+    /** When a reminder last brought this back up the inbox. */
+    lastRemindedAt: timestamp({ withTimezone: true }),
     readAt: timestamp({ withTimezone: true }),
     createdAt: createdAt(),
   },

@@ -9,6 +9,7 @@ import {
   addTeamMember,
   AppError,
   assignContributor,
+  auditRefusal,
   confirmInvitation,
   createClient,
   createInvitation,
@@ -20,6 +21,7 @@ import {
   disableMember,
   getApproval,
   getWorkUnit,
+  isAuditedRefusal,
   markRead,
   removeDependency,
   removeStoppedHiddenPrerequisites,
@@ -29,10 +31,12 @@ import {
   revokeInvitation,
   setMemberRole,
   setOwner,
+  setTeamParent,
   transitionWorkUnit,
   unassign,
   updateWorkUnit,
 } from '@ensemus/application';
+import type { AppDatabase, TenantContext } from '@ensemus/database';
 import { WORK_STATES, type WorkState } from '@ensemus/domain/work-unit';
 import { errorCode } from '@ensemus/telemetry';
 import { revalidatePath } from 'next/cache';
@@ -50,13 +54,34 @@ const int = (form: FormData, name: string) => Number.parseInt(text(form, name), 
 const orgOf = (form: FormData) => text(form, 'organizationId');
 const orUndefined = (value: string) => (value.trim() ? value : undefined);
 
+type Tenant = { context: TenantContext; database: AppDatabase };
+
+/**
+ * Leaves a record when a form asks for something its role or the work's state does not allow. A form
+ * can name anything in its hidden fields. Failing to write this never changes what the person is told.
+ */
+async function recordRefusal(tenant: Tenant | null, error: unknown) {
+  if (!tenant || !isAuditedRefusal(error)) return;
+  await auditRefusal(tenant.database, tenant.context, {
+    code: error.code,
+    surface: 'web',
+  }).catch((failure: unknown) =>
+    getRuntime().log.error('audit.refusal_failed', { errorCode: errorCode(failure) }),
+  );
+}
+
 /** Sends people back to where they were, with a known error code and never a raw message. */
-async function run(back: string, action: () => Promise<string | void>): Promise<never> {
+async function run(
+  tenant: Tenant | null,
+  back: string,
+  action: () => Promise<string | void>,
+): Promise<never> {
   let target = back;
   try {
     const next = await action();
     if (next) target = next;
   } catch (error) {
+    await recordRefusal(tenant, error);
     if (error instanceof AppError) {
       target = `${back}${back.includes('?') ? '&' : '?'}error=${error.code}`;
     } else {
@@ -73,7 +98,8 @@ function assertConfirmed(form: FormData) {
 }
 
 /** Reduces any failure to a code a form can show. Nothing else about it reaches the person. */
-function codeOf(error: unknown): string {
+async function codeOf(tenant: Tenant, error: unknown): Promise<string> {
+  await recordRefusal(tenant, error);
   if (error instanceof AppError) return error.code;
   getRuntime().log.error('action.failed', { errorCode: errorCode(error) });
   return 'UNEXPECTED';
@@ -117,7 +143,7 @@ export async function createWorkFormAction(
     });
     id = work.id;
   } catch (error) {
-    return { code: codeOf(error), values };
+    return { code: await codeOf({ context, database }, error), values };
   }
   redirect(`/o/${org}/work/${id}`);
 }
@@ -145,7 +171,7 @@ export async function updateWorkFormAction(
       dueAt: values.dueAt ? new Date(values.dueAt) : null,
     });
   } catch (error) {
-    const code = codeOf(error);
+    const code = await codeOf({ context, database }, error);
     if (code !== 'VERSION_CONFLICT') return { code, values };
     // Hands back what changed, so the person can compare it with their draft and decide.
     const latest = await getWorkUnit(database, context, id);
@@ -169,7 +195,7 @@ export async function transitionWorkAction(form: FormData) {
   const { context, database } = await requireTenant(org);
   const to = text(form, 'to') as WorkState;
   const reason = orUndefined(text(form, 'reason'));
-  await run(`/o/${org}/work/${id}`, async () => {
+  await run({ context, database }, `/o/${org}/work/${id}`, async () => {
     if (!WORK_STATES.includes(to)) throw new AppError('INVALID_INPUT');
     if (to === 'cancelled') {
       assertConfirmed(form);
@@ -189,7 +215,7 @@ export async function runPlanAction(form: FormData) {
   const id = text(form, 'id');
   const { context, database } = await requireTenant(org);
   const reviewerMembershipId = orUndefined(text(form, 'reviewerMembershipId'));
-  await run(`/o/${org}/work/${id}`, async () => {
+  await run({ context, database }, `/o/${org}/work/${id}`, async () => {
     await requestExecution(database, context, id, {
       ...(reviewerMembershipId ? { reviewerMembershipId } : {}),
     });
@@ -200,7 +226,7 @@ export async function addDependencyAction(form: FormData) {
   const org = orgOf(form);
   const id = text(form, 'id');
   const { context, database } = await requireTenant(org);
-  await run(`/o/${org}/work/${id}`, async () => {
+  await run({ context, database }, `/o/${org}/work/${id}`, async () => {
     await addDependency(database, context, {
       dependentId: id,
       prerequisiteId: text(form, 'prerequisiteId'),
@@ -212,7 +238,7 @@ export async function removeDependencyAction(form: FormData) {
   const org = orgOf(form);
   const id = text(form, 'id');
   const { context, database } = await requireTenant(org);
-  await run(`/o/${org}/work/${id}`, async () => {
+  await run({ context, database }, `/o/${org}/work/${id}`, async () => {
     await removeDependency(database, context, {
       dependentId: id,
       prerequisiteId: text(form, 'prerequisiteId'),
@@ -224,7 +250,7 @@ export async function removeStoppedHiddenPrerequisitesAction(form: FormData) {
   const org = orgOf(form);
   const id = text(form, 'id');
   const { context, database } = await requireTenant(org);
-  await run(`/o/${org}/work/${id}`, async () => {
+  await run({ context, database }, `/o/${org}/work/${id}`, async () => {
     await removeStoppedHiddenPrerequisites(database, context, { dependentId: id });
   });
 }
@@ -233,7 +259,7 @@ export async function setOwnerAction(form: FormData) {
   const org = orgOf(form);
   const id = text(form, 'id');
   const { context, database } = await requireTenant(org);
-  await run(`/o/${org}/work/${id}`, async () => {
+  await run({ context, database }, `/o/${org}/work/${id}`, async () => {
     await setOwner(database, context, {
       id,
       expectedVersion: int(form, 'version'),
@@ -246,7 +272,7 @@ export async function assignAction(form: FormData) {
   const org = orgOf(form);
   const id = text(form, 'id');
   const { context, database } = await requireTenant(org);
-  await run(`/o/${org}/work/${id}`, async () => {
+  await run({ context, database }, `/o/${org}/work/${id}`, async () => {
     await assignContributor(database, context, {
       id,
       membershipId: text(form, 'membershipId'),
@@ -258,7 +284,7 @@ export async function unassignAction(form: FormData) {
   const org = orgOf(form);
   const id = text(form, 'id');
   const { context, database } = await requireTenant(org);
-  await run(`/o/${org}/work/${id}`, async () => {
+  await run({ context, database }, `/o/${org}/work/${id}`, async () => {
     await unassign(database, context, { id, membershipId: text(form, 'membershipId') });
   });
 }
@@ -268,7 +294,7 @@ export async function uploadArtifactAction(form: FormData) {
   const id = text(form, 'id');
   const { context, database } = await requireTenant(org);
   const file = form.get('file');
-  await run(`/o/${org}/work/${id}`, async () => {
+  await run({ context, database }, `/o/${org}/work/${id}`, async () => {
     if (!(file instanceof File) || file.size === 0) throw new AppError('INVALID_INPUT');
     await addArtifact(database, getStore(), context, {
       workUnitId: id,
@@ -283,7 +309,7 @@ export async function deleteArtifactAction(form: FormData) {
   const org = orgOf(form);
   const id = text(form, 'id');
   const { context, database } = await requireTenant(org);
-  await run(`/o/${org}/work/${id}`, async () => {
+  await run({ context, database }, `/o/${org}/work/${id}`, async () => {
     assertConfirmed(form);
     await deleteArtifact(database, getStore(), context, {
       workUnitId: id,
@@ -297,7 +323,7 @@ export async function requestReviewAction(form: FormData) {
   const org = orgOf(form);
   const id = text(form, 'id');
   const { context, database } = await requireTenant(org);
-  await run(`/o/${org}/work/${id}`, async () => {
+  await run({ context, database }, `/o/${org}/work/${id}`, async () => {
     // What the review covers is read by the service. The form only says who should give it.
     await requestWorkReview(database, context, {
       workUnitId: id,
@@ -313,7 +339,7 @@ export async function decideApprovalAction(form: FormData) {
   const { context, database } = await requireTenant(org);
   const decision = text(form, 'decision') === 'approve' ? 'approve' : 'deny';
   const reason = orUndefined(text(form, 'reason'));
-  await run(`/o/${org}/approvals/${approvalId}`, async () => {
+  await run({ context, database }, `/o/${org}/approvals/${approvalId}`, async () => {
     if (decision === 'deny') {
       // Denying a review that holds the work stops the work for good, so it has to be meant.
       const { approval, work } = await getApproval(database, context, approvalId);
@@ -350,14 +376,14 @@ export async function inviteAction(
     revalidatePath(`/o/${org}/people`);
     return { link: `${getRuntime().config.publicUrl}/invite/${encodeURIComponent(token)}` };
   } catch (error) {
-    return { code: codeOf(error), values: { email, role } };
+    return { code: await codeOf({ context, database }, error), values: { email, role } };
   }
 }
 
 export async function revokeInvitationAction(form: FormData) {
   const org = orgOf(form);
   const { context, database } = await requireTenant(org);
-  await run(`/o/${org}/people`, async () => {
+  await run({ context, database }, `/o/${org}/people`, async () => {
     await revokeInvitation(database, context, { invitationId: text(form, 'invitationId') });
   });
 }
@@ -365,7 +391,7 @@ export async function revokeInvitationAction(form: FormData) {
 export async function confirmInvitationAction(form: FormData) {
   const org = orgOf(form);
   const { context, database } = await requireTenant(org);
-  await run(`/o/${org}/people`, async () => {
+  await run({ context, database }, `/o/${org}/people`, async () => {
     assertConfirmed(form);
     await confirmInvitation(database, context, { invitationId: text(form, 'invitationId') });
   });
@@ -375,7 +401,7 @@ export async function acceptInvitationAction(form: FormData) {
   const actor = await requireActor();
   const token = text(form, 'token');
   const here = `/invite/${encodeURIComponent(token)}`;
-  await run(here, async () => {
+  await run(null, here, async () => {
     const outcome = await acceptInvitation(getRuntime().app, {
       token,
       userId: actor.userId,
@@ -389,7 +415,7 @@ export async function acceptInvitationAction(form: FormData) {
 export async function setRoleAction(form: FormData) {
   const org = orgOf(form);
   const { context, database } = await requireTenant(org);
-  await run(`/o/${org}/people`, async () => {
+  await run({ context, database }, `/o/${org}/people`, async () => {
     await setMemberRole(database, context, {
       membershipId: text(form, 'membershipId'),
       role: text(form, 'role') as 'member',
@@ -400,7 +426,7 @@ export async function setRoleAction(form: FormData) {
 export async function disableMemberAction(form: FormData) {
   const org = orgOf(form);
   const { context, database } = await requireTenant(org);
-  await run(`/o/${org}/people`, async () => {
+  await run({ context, database }, `/o/${org}/people`, async () => {
     assertConfirmed(form);
     await disableMember(database, context, { membershipId: text(form, 'membershipId') });
   });
@@ -410,7 +436,7 @@ export async function createTeamAction(form: FormData) {
   const org = orgOf(form);
   const { context, database } = await requireTenant(org);
   const parentId = orUndefined(text(form, 'parentId'));
-  await run(`/o/${org}/people`, async () => {
+  await run({ context, database }, `/o/${org}/people`, async () => {
     await createTeam(database, context, {
       name: text(form, 'name'),
       ...(parentId ? { parentId } : {}),
@@ -421,7 +447,7 @@ export async function createTeamAction(form: FormData) {
 export async function addTeamMemberAction(form: FormData) {
   const org = orgOf(form);
   const { context, database } = await requireTenant(org);
-  await run(`/o/${org}/people`, async () => {
+  await run({ context, database }, `/o/${org}/people`, async () => {
     await addTeamMember(database, context, {
       teamId: text(form, 'teamId'),
       membershipId: text(form, 'membershipId'),
@@ -432,10 +458,21 @@ export async function addTeamMemberAction(form: FormData) {
 export async function removeTeamMemberAction(form: FormData) {
   const org = orgOf(form);
   const { context, database } = await requireTenant(org);
-  await run(`/o/${org}/people`, async () => {
+  await run({ context, database }, `/o/${org}/people`, async () => {
     await removeTeamMember(database, context, {
       teamId: text(form, 'teamId'),
       membershipId: text(form, 'membershipId'),
+    });
+  });
+}
+
+export async function setTeamParentAction(form: FormData) {
+  const org = orgOf(form);
+  const { context, database } = await requireTenant(org);
+  await run({ context, database }, `/o/${org}/people`, async () => {
+    await setTeamParent(database, context, {
+      teamId: text(form, 'teamId'),
+      parentId: orUndefined(text(form, 'parentId')) ?? null,
     });
   });
 }
@@ -444,7 +481,7 @@ export async function removeTeamMemberAction(form: FormData) {
 export async function createClientAction(form: FormData) {
   const org = orgOf(form);
   const { context, database } = await requireTenant(org);
-  await run(`/o/${org}/clients`, async () => {
+  await run({ context, database }, `/o/${org}/clients`, async () => {
     await createClient(database, context, { displayName: text(form, 'displayName') });
   });
 }
@@ -453,7 +490,7 @@ export async function createProjectAction(form: FormData) {
   const org = orgOf(form);
   const { context, database } = await requireTenant(org);
   const clientId = orUndefined(text(form, 'clientId'));
-  await run(`/o/${org}/clients`, async () => {
+  await run({ context, database }, `/o/${org}/clients`, async () => {
     await createProject(database, context, {
       name: text(form, 'name'),
       ...(clientId ? { clientId } : {}),
@@ -465,7 +502,7 @@ export async function createProjectAction(form: FormData) {
 export async function openNotificationAction(form: FormData) {
   const org = orgOf(form);
   const { context, database } = await requireTenant(org);
-  await run(`/o/${org}/inbox`, async () => {
+  await run({ context, database }, `/o/${org}/inbox`, async () => {
     await markRead(database, context, text(form, 'id'));
     const target = text(form, 'target');
     // Only ever a path inside this organization, built by our own page.
