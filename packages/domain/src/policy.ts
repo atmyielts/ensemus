@@ -13,7 +13,12 @@ export type Capability =
   | 'work.create'
   | 'work.recover_owner'
   | 'member.view_email'
-  | 'connection.manage';
+  | 'connection.manage'
+  | 'skill.manage'
+  | 'skill.publish'
+  | 'sandbox.run'
+  | 'marketplace.publish'
+  | 'marketplace.install';
 
 const GRANTS: Record<Role, ReadonlySet<Capability>> = {
   owner: new Set([
@@ -27,6 +32,12 @@ const GRANTS: Record<Role, ReadonlySet<Capability>> = {
     'work.recover_owner',
     'member.view_email',
     'connection.manage',
+    'skill.manage',
+    'skill.publish',
+    'sandbox.run',
+    // Only an owner can say this organization's package may be shown to other organizations.
+    'marketplace.publish',
+    'marketplace.install',
   ]),
   admin: new Set([
     'member.invite',
@@ -37,6 +48,10 @@ const GRANTS: Record<Role, ReadonlySet<Capability>> = {
     'work.create',
     'member.view_email',
     'connection.manage',
+    'skill.manage',
+    'skill.publish',
+    'sandbox.run',
+    'marketplace.install',
   ]),
   member: new Set(['client.manage', 'project.manage', 'work.create']),
 };

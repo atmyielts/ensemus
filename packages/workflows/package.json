@@ -15,7 +15,11 @@
     "./connector-deps": "./src/connector-deps.ts",
     "./external-action-activities": "./src/external-action-activities.ts",
     "./webhook-activities": "./src/webhook-activities.ts",
-    "./connector-sync-activities": "./src/connector-sync-activities.ts"
+    "./connector-sync-activities": "./src/connector-sync-activities.ts",
+    "./skill-deps": "./src/skill-deps.ts",
+    "./skill-verification-activities": "./src/skill-verification-activities.ts",
+    "./sandbox-run-activities": "./src/sandbox-run-activities.ts",
+    "./marketplace-install-activities": "./src/marketplace-install-activities.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"
@@ -25,12 +29,14 @@
     "@ensemus/connectors": "workspace:*",
     "@ensemus/database": "workspace:*",
     "@ensemus/domain": "workspace:*",
+    "@ensemus/sandbox": "workspace:*",
+    "@ensemus/skills": "workspace:*",
     "@ensemus/telemetry": "workspace:*",
-    "drizzle-orm": "0.45.4",
     "@temporalio/client": "1.25.0",
     "@temporalio/common": "1.25.0",
     "@temporalio/proto": "1.25.0",
     "@temporalio/workflow": "1.25.0",
+    "drizzle-orm": "0.45.4",
     "zod": "4.6.7"
   }
 }

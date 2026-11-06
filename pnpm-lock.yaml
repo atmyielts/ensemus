@@ -122,6 +122,9 @@ importers:
 
   packages/config:
     dependencies:
+      '@ensemus/domain':
+        specifier: workspace:*
+        version: link:../domain
       zod:
         specifier: 4.6.7
         version: 4.6.7
@@ -156,6 +159,9 @@ importers:
 
   packages/database:
     dependencies:
+      '@ensemus/domain':
+        specifier: workspace:*
+        version: link:../domain
       drizzle-orm:
         specifier: 0.45.4
         version: 0.45.4(@types/pg@8.23.1)(kysely@0.29.8)(pg@8.23.1)
@@ -172,6 +178,18 @@ importers:
 
   packages/domain: {}
 
+  packages/sandbox:
+    dependencies:
+      '@ensemus/domain':
+        specifier: workspace:*
+        version: link:../domain
+      '@ensemus/telemetry':
+        specifier: workspace:*
+        version: link:../telemetry
+      zod:
+        specifier: 4.6.7
+        version: 4.6.7
+
   packages/secrets:
     dependencies:
       '@ensemus/database':
@@ -180,6 +198,18 @@ importers:
       drizzle-orm:
         specifier: 0.45.4
         version: 0.45.4(@types/pg@8.23.1)(kysely@0.29.8)(pg@8.23.1)
+
+  packages/skills:
+    dependencies:
+      '@ensemus/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+      '@ensemus/domain':
+        specifier: workspace:*
+        version: link:../domain
+      zod:
+        specifier: 4.6.7
+        version: 4.6.7
 
   packages/storage:
     dependencies:
@@ -203,6 +233,12 @@ importers:
       '@ensemus/domain':
         specifier: workspace:*
         version: link:../domain
+      '@ensemus/sandbox':
+        specifier: workspace:*
+        version: link:../sandbox
+      '@ensemus/skills':
+        specifier: workspace:*
+        version: link:../skills
       '@ensemus/telemetry':
         specifier: workspace:*
         version: link:../telemetry
@@ -245,9 +281,15 @@ importers:
       '@ensemus/domain':
         specifier: workspace:*
         version: link:../packages/domain
+      '@ensemus/sandbox':
+        specifier: workspace:*
+        version: link:../packages/sandbox
       '@ensemus/secrets':
         specifier: workspace:*
         version: link:../packages/secrets
+      '@ensemus/skills':
+        specifier: workspace:*
+        version: link:../packages/skills
       '@ensemus/storage':
         specifier: workspace:*
         version: link:../packages/storage
@@ -340,9 +382,15 @@ importers:
       '@ensemus/domain':
         specifier: workspace:*
         version: link:../../packages/domain
+      '@ensemus/sandbox':
+        specifier: workspace:*
+        version: link:../../packages/sandbox
       '@ensemus/secrets':
         specifier: workspace:*
         version: link:../../packages/secrets
+      '@ensemus/skills':
+        specifier: workspace:*
+        version: link:../../packages/skills
       '@ensemus/storage':
         specifier: workspace:*
         version: link:../../packages/storage

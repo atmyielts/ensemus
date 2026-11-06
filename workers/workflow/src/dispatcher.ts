@@ -21,6 +21,15 @@ import {
   EXTERNAL_ACTION_READY,
   WEBHOOK_RECEIVED,
 } from '@ensemus/domain/integration-events';
+import {
+  AGGREGATE_MARKETPLACE_INSTALLATION,
+  AGGREGATE_SANDBOX_RUN,
+  AGGREGATE_SKILL_VERSION,
+  MARKETPLACE_INSTALL_REQUESTED,
+  SANDBOX_RUN_CANCEL_REQUESTED,
+  SANDBOX_RUN_REQUESTED,
+  SKILL_VERSION_UPLOADED,
+} from '@ensemus/domain/skill-events';
 import { TOMBSTONE_RECORDED } from '@ensemus/domain/tombstone-ledger';
 import { S3ObjectStore } from '@ensemus/storage';
 import { createLogger, errorCode } from '@ensemus/telemetry';
@@ -31,7 +40,13 @@ import {
   connectorSyncWorkflowIdFor,
   externalActionInputSchema,
   externalActionWorkflowIdFor,
+  marketplaceInstallInputSchema,
+  marketplaceInstallWorkflowIdFor,
   reminderScheduleIdFor,
+  sandboxRunInputSchema,
+  sandboxRunWorkflowIdFor,
+  skillVerificationInputSchema,
+  skillVerificationWorkflowIdFor,
   webhookDeliveryInputSchema,
   webhookWorkflowIdFor,
   workflowIdFor,
@@ -204,7 +219,57 @@ async function main() {
         });
         return;
 
-      // Unlike those two, this one is run again each time something asks. An open run covers it.
+      // M11B (ADR-034). One verification per version, one run per sandbox row, one install per request.
+      // A finished one stays finished, so an event delivered again cannot run anything a second time.
+      case SKILL_VERSION_UPLOADED:
+        if (event.aggregateType !== AGGREGATE_SKILL_VERSION) return;
+        await startOnce('skillVerificationWorkflow', {
+          input: skillVerificationInputSchema.parse({
+            organizationId: event.organizationId,
+            skillVersionId: event.aggregateId,
+          }),
+          workflowIdFor: skillVerificationWorkflowIdFor,
+        });
+        return;
+
+      case SANDBOX_RUN_REQUESTED:
+        if (event.aggregateType !== AGGREGATE_SANDBOX_RUN) return;
+        await startOnce('sandboxRunWorkflow', {
+          input: sandboxRunInputSchema.parse({
+            organizationId: event.organizationId,
+            sandboxRunId: event.aggregateId,
+          }),
+          workflowIdFor: sandboxRunWorkflowIdFor,
+        });
+        return;
+
+      // The row was marked first, and is rechecked before a start, so losing this race loses nothing.
+      case SANDBOX_RUN_CANCEL_REQUESTED: {
+        if (event.aggregateType !== AGGREGATE_SANDBOX_RUN) return;
+        const runInput = sandboxRunInputSchema.parse({
+          organizationId: event.organizationId,
+          sandboxRunId: event.aggregateId,
+        });
+        try {
+          await client.workflow.getHandle(sandboxRunWorkflowIdFor(runInput)).cancel();
+        } catch (error) {
+          if (!(error instanceof WorkflowNotFoundError)) throw error;
+        }
+        return;
+      }
+
+      case MARKETPLACE_INSTALL_REQUESTED:
+        if (event.aggregateType !== AGGREGATE_MARKETPLACE_INSTALLATION) return;
+        await startOnce('marketplaceInstallWorkflow', {
+          input: marketplaceInstallInputSchema.parse({
+            organizationId: event.organizationId,
+            installationId: event.aggregateId,
+          }),
+          workflowIdFor: marketplaceInstallWorkflowIdFor,
+        });
+        return;
+
+      // Unlike those, this one is run again each time something asks. An open run covers it.
       case CONNECTOR_SYNC_REQUESTED:
       case CONNECTION_REVOKED: {
         if (event.aggregateType !== AGGREGATE_CONNECTION) return;

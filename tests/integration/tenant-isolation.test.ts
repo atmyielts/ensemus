@@ -214,7 +214,7 @@ describe('role boundaries', () => {
   it('gives no runtime role superuser, CREATEROLE or BYPASSRLS', async () => {
     const { rows } = await su.query(
       `select rolname from pg_roles
-        where rolname in ('ensemus_app','ensemus_auth','ensemus_dispatcher','ensemus_secrets','ensemus_migrator')
+        where rolname in ('ensemus_app','ensemus_auth','ensemus_dispatcher','ensemus_secrets','ensemus_migrator','ensemus_marketplace')
           and (rolsuper or rolcreaterole or rolbypassrls or rolcreatedb)`,
     );
     expect(rows).toEqual([]);
@@ -225,7 +225,7 @@ describe('role boundaries', () => {
       `select n.nspname || '.' || c.relname as t
          from pg_class c join pg_namespace n on n.oid = c.relnamespace
         where c.relkind in ('r','p')
-          and n.nspname in ('org','platform','governance','secrets','identity','work','integrations')
+          and n.nspname in ('org','platform','governance','secrets','identity','work','integrations','skills','sandbox','marketplace')
           and not (c.relrowsecurity and c.relforcerowsecurity)`,
     );
     expect(rows).toEqual([]);

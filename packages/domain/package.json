@@ -11,7 +11,11 @@
     "./external-action": "./src/external-action.ts",
     "./integration-events": "./src/integration-events.ts",
     "./webhook": "./src/webhook.ts",
-    "./connector": "./src/connector.ts"
+    "./connector": "./src/connector.ts",
+    "./skill": "./src/skill.ts",
+    "./sandbox": "./src/sandbox.ts",
+    "./marketplace": "./src/marketplace.ts",
+    "./skill-events": "./src/skill-events.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"

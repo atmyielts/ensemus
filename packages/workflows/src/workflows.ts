@@ -154,3 +154,8 @@ export async function tenantRemindersWorkflow(input: TenantInput): Promise<void>
 export { connectorSyncWorkflow } from './connector-sync-workflow';
 export { externalActionWorkflow } from './external-action-workflow';
 export { webhookDeliveryWorkflow } from './webhook-workflow';
+
+// M11B (ADR-034). The same, for the same reason.
+export { marketplaceInstallWorkflow } from './marketplace-install-workflow';
+export { sandboxRunWorkflow } from './sandbox-run-workflow';
+export { skillVerificationWorkflow } from './skill-verification-workflow';

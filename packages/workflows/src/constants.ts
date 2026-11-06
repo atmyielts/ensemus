@@ -7,6 +7,13 @@ export const PLATFORM_TASK_QUEUE = 'ensemus-platform';
 export const CONNECTOR_TASK_QUEUE = 'ensemus-connectors';
 
 /**
+ * The Activities that hand code and data to a sandbox runner. Only the sandbox worker polls this. It holds
+ * no secrets broker and no connector, and it runs only under the `sandbox` profile. If it is not running,
+ * these wait a bounded time and the run ends `runner_unavailable` (ADR-034 D3).
+ */
+export const SANDBOX_TASK_QUEUE = 'ensemus-sandbox';
+
+/**
  * For every gRPC client connection to Temporal. By default the client looks up a DNS TXT record for
  * the server's name, to fetch a service config we do not use. Docker cannot answer that for a
  * container name, so it forwards the query to the host's resolver and it leaves the network, which

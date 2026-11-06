@@ -88,5 +88,63 @@ export type ConnectorSyncOutcome = {
   resources: number;
 };
 
+// --- M11B (ADR-034). The same rule: IDs, enums and counters, with no manifest, input, output or job text.
+
+export const skillVerificationInputSchema = z.strictObject({
+  organizationId: z.uuid(),
+  skillVersionId: z.uuid(),
+});
+export type SkillVerificationInput = z.infer<typeof skillVerificationInputSchema>;
+export const skillVerificationWorkflowIdFor = (input: SkillVerificationInput) =>
+  `skill-verification-${input.organizationId}-${input.skillVersionId}`;
+export type SkillVerificationOutcome = 'verified' | 'rejected';
+
+/** What the check Activity found. Content stays in PostgreSQL, so fixtures go by their runs' IDs. */
+export type SkillCheckStep =
+  /** Refused or already finished, and the row says so. */
+  | { step: 'finished'; outcome: SkillVerificationOutcome }
+  /** No code to run. The contract test passed and the row is verified. */
+  | { step: 'run_fixtures'; sandboxRunIds: readonly string[] };
+
+export const sandboxRunInputSchema = z.strictObject({
+  organizationId: z.uuid(),
+  sandboxRunId: z.uuid(),
+});
+export type SandboxRunInput = z.infer<typeof sandboxRunInputSchema>;
+export const sandboxRunWorkflowIdFor = (input: SandboxRunInput) =>
+  `sandbox-run-${input.organizationId}-${input.sandboxRunId}`;
+
+/** The enum a run ended on, exactly as its row says. No text from the job. */
+export type SandboxRunOutcome =
+  | 'succeeded'
+  | 'failed'
+  | 'timed_out'
+  | 'memory_exceeded'
+  | 'output_exceeded'
+  | 'denied'
+  | 'cancelled'
+  | 'runner_unavailable';
+export type SandboxRunResult = { sandboxRunId: string; outcome: SandboxRunOutcome };
+
+/** What one execute Activity reports. */
+export type SandboxExecuteStep =
+  | { step: 'settled'; outcome: SandboxRunOutcome }
+  /** At the tenant's ceiling. Worth waiting, and costs no attempt. */
+  | { step: 'busy'; afterMs: number }
+  /** The runner did not answer, the row is queued again, and nothing it did can have left. */
+  | { step: 'retry'; afterMs: number };
+
+export const marketplaceInstallInputSchema = z.strictObject({
+  organizationId: z.uuid(),
+  installationId: z.uuid(),
+});
+export type MarketplaceInstallInput = z.infer<typeof marketplaceInstallInputSchema>;
+export const marketplaceInstallWorkflowIdFor = (input: MarketplaceInstallInput) =>
+  `marketplace-install-${input.organizationId}-${input.installationId}`;
+export type MarketplaceInstallOutcome = 'installed' | 'failed';
+export type MarketplaceInstallStep =
+  | { step: 'failed' }
+  | { step: 'verify'; skillVersionId: string };
+
 /** Parses the IDs back out of a workflow ID. The dispatcher builds these, so the format is ours. */
 export const UUID_PATTERN = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';

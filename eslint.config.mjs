@@ -36,8 +36,70 @@ const connectorCode = {
     'Connectors run in the connector worker. The web tier may read manifests only (ADR-027).',
 };
 const testDoubles = {
-  group: ['@ensemus/connectors/testing'],
-  message: 'Test doubles never reach a shipped image.',
+  group: [
+    '@ensemus/connectors/testing',
+    '@ensemus/skills/testing',
+    '@ensemus/skills/sign',
+    '@ensemus/sandbox/testing',
+  ],
+  message: 'Test doubles and signing never reach a shipped image (ADR-034 D2).',
+};
+const operatorDatabase = {
+  group: ['@ensemus/database/marketplace-operator'],
+  message: 'Only the marketplace operator command may use its role (ADR-034 D6).',
+};
+const webSkillCode = {
+  group: ['@ensemus/sandbox', '@ensemus/sandbox/*', '@ensemus/skills', '@ensemus/skills/*'],
+  message: 'The web tier stores bytes and parses nothing. A worker checks a bundle (ADR-034 D2).',
+};
+const sandboxReach = {
+  group: [
+    '@ensemus/application',
+    '@ensemus/application/*',
+    '@ensemus/auth',
+    '@ensemus/auth/*',
+    '@ensemus/config',
+    '@ensemus/connectors',
+    '@ensemus/connectors/*',
+    '@ensemus/database',
+    '@ensemus/database/*',
+    '@ensemus/secrets',
+    '@ensemus/secrets/*',
+    '@ensemus/storage',
+    '@ensemus/workflows',
+    '@ensemus/workflows/*',
+    '@temporalio/*',
+    'drizzle-orm',
+    'drizzle-orm/*',
+    'pg',
+    'pg/*',
+  ],
+  message: 'The sandbox package holds no credential and reaches no store (ADR-034 D3).',
+};
+const skillReach = {
+  group: [...sandboxReach.group, '@ensemus/sandbox', '@ensemus/sandbox/*'],
+  message: 'Reading a bundle needs no store and no credential (ADR-034 D2).',
+};
+const sandboxWorkerReach = {
+  group: [
+    '@ensemus/connectors',
+    '@ensemus/connectors/*',
+    '@ensemus/secrets',
+    '@ensemus/secrets/*',
+    '@ensemus/database/secrets',
+    '@ensemus/database/service',
+    '@ensemus/database/dispatcher',
+    '@ensemus/database/setup-token',
+  ],
+  message: 'The sandbox worker holds no broker and no connector, so it has nothing to give away.',
+};
+const runnerReach = {
+  group: [
+    ...sandboxReach.group.filter((pattern) => pattern !== '@ensemus/config'),
+    '@ensemus/skills',
+    '@ensemus/skills/*',
+  ],
+  message: 'The runner holds no database and no credential. It only starts jobs (ADR-034 D3).',
 };
 const connectorReach = {
   group: [
@@ -122,17 +184,35 @@ export default tseslint.config(
   },
   restrict(
     ['**/*.{ts,tsx}'],
-    [rawDatabase, authDatabase],
+    [rawDatabase, authDatabase, operatorDatabase],
     ['packages/database/**', 'packages/auth/**', 'tests/**', 'apps/web/**'],
   ),
   restrict(['packages/auth/**/*.ts'], [rawDatabase, temporal, broker]),
   restrict(
     ['apps/web/**/*.{ts,tsx}'],
-    [rawDatabase, authDatabase, temporal, broker, connectorCode],
+    [rawDatabase, authDatabase, temporal, broker, connectorCode, operatorDatabase, webSkillCode],
   ),
   restrict(
     ['workers/**/*.ts', 'packages/workflows/**/*.ts'],
+    [rawDatabase, authDatabase, testDoubles, operatorDatabase],
+  ),
+  // M11B. Later rule sets replace earlier ones on the same files, so each names everything it means.
+  restrict(
+    ['workers/workflow/src/marketplace-operator.ts', 'workers/workflow/src/marketplace-command.ts'],
     [rawDatabase, authDatabase, testDoubles],
+  ),
+  restrict(
+    ['workers/workflow/src/sandbox-worker.ts', 'packages/workflows/src/sandbox-run-activities.ts'],
+    [rawDatabase, authDatabase, testDoubles, operatorDatabase, sandboxWorkerReach],
+  ),
+  restrict(['workers/workflow/src/sandbox-runner.ts'], [rawDatabase, runnerReach, testDoubles]),
+  restrict(
+    ['packages/sandbox/**/*.ts'],
+    [sandboxReach, { group: ['@ensemus/skills', '@ensemus/skills/*'], message: 'A job is only bytes.' }],
+  ),
+  restrict(
+    ['packages/skills/**/*.ts'],
+    [skillReach, rawNetwork, { group: ['node:child_process', 'child_process'], message: 'Reading a bundle runs nothing.' }],
   ),
   // packages/connectors, in two parts. A rule set on the same files replaces the one before it, so
   // the first has to name everything: its testing folder may use a socket, and network.ts must.

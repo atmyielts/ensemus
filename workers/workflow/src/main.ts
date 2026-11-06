@@ -2,7 +2,7 @@
 import { writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { readSecret } from '@ensemus/config';
+import { loadSkillWorkerConfig, readSecret } from '@ensemus/config';
 import { openAppDatabase } from '@ensemus/database';
 import { S3ObjectStore } from '@ensemus/storage';
 import { createLogger, errorCode } from '@ensemus/telemetry';
@@ -10,6 +10,9 @@ import { createActivities, type WorkflowProbe } from '@ensemus/workflows/activit
 import { AesGcmPayloadCodec } from '@ensemus/workflows/codec';
 import { PLATFORM_TASK_QUEUE, TEMPORAL_CHANNEL_ARGS } from '@ensemus/workflows/constants';
 import { createExternalActionPlatformActivities } from '@ensemus/workflows/external-action-activities';
+import { createMarketplaceInstallActivities } from '@ensemus/workflows/marketplace-install-activities';
+import { createSandboxRunPlatformActivities } from '@ensemus/workflows/sandbox-run-activities';
+import { createSkillVerificationActivities } from '@ensemus/workflows/skill-verification-activities';
 import { createTemporalLogger } from '@ensemus/workflows/safe-logger';
 import { workflowIdFor } from '@ensemus/workflows/schemas';
 import { Client, Connection, WorkflowNotFoundError } from '@temporalio/client';
@@ -58,6 +61,14 @@ async function main() {
       return 'open';
     }
   };
+  // Off and empty unless an operator says otherwise. Checking a bundle needs no secret and no runner.
+  const skills = loadSkillWorkerConfig();
+  const skillDeps = {
+    database: db,
+    store,
+    ceilings: skills.ceilings,
+    reviewKeys: skills.reviewKeys,
+  };
   const worker = await Worker.create({
     connection,
     namespace: process.env.TEMPORAL_NAMESPACE ?? 'default',
@@ -67,6 +78,9 @@ async function main() {
       ...createActivities({ database: db, store, probeWorkflow }),
       // Only what reads PostgreSQL. Anything holding a credential is on the connector queue.
       ...createExternalActionPlatformActivities({ database: db }),
+      ...createSkillVerificationActivities(skillDeps),
+      ...createSandboxRunPlatformActivities(skillDeps),
+      ...createMarketplaceInstallActivities(skillDeps),
     },
     dataConverter: {
       payloadCodecs: [new AesGcmPayloadCodec(readSecret('TEMPORAL_CODEC_KEY'))],

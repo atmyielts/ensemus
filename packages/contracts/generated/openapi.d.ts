@@ -1359,6 +1359,1365 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/organizations/{organization_id}/skill-signers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+            };
+            cookie?: never;
+        };
+        /** Public keys this organization trusts for packages it uploads */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Signers */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            items: components["schemas"]["SkillSigner"][];
+                        };
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        put?: never;
+        /** Trust a public key. A private key has no field to go in, and Ensemus never holds one */
+        post: {
+            parameters: {
+                query?: never;
+                header: {
+                    "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                };
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        display_name: string;
+                        /** @description A raw 32-byte Ed25519 public key. */
+                        public_key_base64: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description Signer */
+                201: {
+                    headers: {
+                        ETag: components["headers"]["ETag"];
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["SkillSigner"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                409: components["responses"]["Conflict"];
+                413: components["responses"]["PayloadTooLarge"];
+                415: components["responses"]["UnsupportedMediaType"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/organizations/{organization_id}/skill-signers/{skill_signer_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+                skill_signer_id: components["parameters"]["SkillSignerID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Revoke a key for good, and yank every version of this organization's it signed */
+        delete: {
+            parameters: {
+                query?: never;
+                header: {
+                    /** @description The version last read, as sent in the ETag response header. Weak tags, lists and * are refused. */
+                    "If-Match": components["parameters"]["IfMatch"];
+                };
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                    skill_signer_id: components["parameters"]["SkillSignerID"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Revoked */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                409: components["responses"]["Conflict"];
+                428: components["responses"]["PreconditionRequired"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/organizations/{organization_id}/skill-packages": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+            };
+            cookie?: never;
+        };
+        /** Skill packages in this organization */
+        get: {
+            parameters: {
+                query?: {
+                    cursor?: string;
+                };
+                header?: never;
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Page of packages */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            items: components["schemas"]["SkillPackage"][];
+                            next_cursor: string | null;
+                        };
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        put?: never;
+        /** Name a new package. Its versions are uploaded separately */
+        post: {
+            parameters: {
+                query?: never;
+                header: {
+                    "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                };
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        name: string;
+                        display_name: string;
+                        content_classification?: components["schemas"]["SkillContentClassification"];
+                    };
+                };
+            };
+            responses: {
+                /** @description Package */
+                201: {
+                    headers: {
+                        ETag: components["headers"]["ETag"];
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["SkillPackage"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                409: components["responses"]["Conflict"];
+                413: components["responses"]["PayloadTooLarge"];
+                415: components["responses"]["UnsupportedMediaType"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/organizations/{organization_id}/skill-packages/{skill_package_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+                skill_package_id: components["parameters"]["SkillPackageID"];
+            };
+            cookie?: never;
+        };
+        /** One package */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                    skill_package_id: components["parameters"]["SkillPackageID"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Package */
+                200: {
+                    headers: {
+                        ETag: components["headers"]["ETag"];
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["SkillPackage"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Rename, disable, or change how sensitive a package's own content is */
+        patch: {
+            parameters: {
+                query?: never;
+                header: {
+                    /** @description The version last read, as sent in the ETag response header. Weak tags, lists and * are refused. */
+                    "If-Match": components["parameters"]["IfMatch"];
+                };
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                    skill_package_id: components["parameters"]["SkillPackageID"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        display_name?: string;
+                        /** @enum {string} */
+                        state?: "active" | "disabled";
+                        content_classification?: components["schemas"]["SkillContentClassification"];
+                    };
+                };
+            };
+            responses: {
+                /** @description Package */
+                200: {
+                    headers: {
+                        ETag: components["headers"]["ETag"];
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["SkillPackage"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                409: components["responses"]["Conflict"];
+                413: components["responses"]["PayloadTooLarge"];
+                415: components["responses"]["UnsupportedMediaType"];
+                428: components["responses"]["PreconditionRequired"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        trace?: never;
+    };
+    "/organizations/{organization_id}/skill-packages/{skill_package_id}/versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+                skill_package_id: components["parameters"]["SkillPackageID"];
+            };
+            cookie?: never;
+        };
+        /** A package's versions, newest upload first */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                    skill_package_id: components["parameters"]["SkillPackageID"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Versions */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            items: components["schemas"]["SkillVersion"][];
+                        };
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        put?: never;
+        /**
+         * Store a signed bundle. Nothing in it is believed until a worker has checked it
+         * @description The body is the bundle's bytes, up to 8 MiB, under this media type alone. This answers once they are stored and the check is queued, and the same bytes sent again find the same version. The web tier does not parse the bundle, so a bad one is rejected later, on the version.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                    skill_package_id: components["parameters"]["SkillPackageID"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/vnd.ensemus.skill-bundle+json": string;
+                };
+            };
+            responses: {
+                /** @description Stored, and waiting to be checked */
+                202: {
+                    headers: {
+                        ETag: components["headers"]["ETag"];
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["SkillVersion"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                409: components["responses"]["Conflict"];
+                413: components["responses"]["SkillBundleTooLarge"];
+                415: components["responses"]["UnsupportedMediaType"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/organizations/{organization_id}/skill-versions/{skill_version_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+                skill_version_id: components["parameters"]["SkillVersionID"];
+            };
+            cookie?: never;
+        };
+        /** One version, with what it declares it can reach and its latest test result */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                    skill_version_id: components["parameters"]["SkillVersionID"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Version */
+                200: {
+                    headers: {
+                        ETag: components["headers"]["ETag"];
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["SkillVersion"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/organizations/{organization_id}/skill-versions/{skill_version_id}/publication": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+                skill_version_id: components["parameters"]["SkillVersionID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Publish a verified version. Someone other than whoever uploaded it has to do this */
+        post: {
+            parameters: {
+                query?: never;
+                header: {
+                    /** @description The version last read, as sent in the ETag response header. Weak tags, lists and * are refused. */
+                    "If-Match": components["parameters"]["IfMatch"];
+                };
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                    skill_version_id: components["parameters"]["SkillVersionID"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Version */
+                200: {
+                    headers: {
+                        ETag: components["headers"]["ETag"];
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["SkillVersion"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                409: components["responses"]["Conflict"];
+                428: components["responses"]["PreconditionRequired"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/organizations/{organization_id}/skill-versions/{skill_version_id}/yank": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+                skill_version_id: components["parameters"]["SkillVersionID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Stop a version being used, for good. A fix is a new version */
+        post: {
+            parameters: {
+                query?: never;
+                header: {
+                    /** @description The version last read, as sent in the ETag response header. Weak tags, lists and * are refused. */
+                    "If-Match": components["parameters"]["IfMatch"];
+                };
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                    skill_version_id: components["parameters"]["SkillVersionID"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        /** @enum {string} */
+                        code: "WITHDRAWN_BY_OWNER" | "SECURITY_ISSUE";
+                    };
+                };
+            };
+            responses: {
+                /** @description Version */
+                200: {
+                    headers: {
+                        ETag: components["headers"]["ETag"];
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["SkillVersion"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                409: components["responses"]["Conflict"];
+                413: components["responses"]["PayloadTooLarge"];
+                415: components["responses"]["UnsupportedMediaType"];
+                428: components["responses"]["PreconditionRequired"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/organizations/{organization_id}/skill-versions/{skill_version_id}/sandbox-runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+                skill_version_id: components["parameters"]["SkillVersionID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Try a version's code by hand, with input you provide */
+        post: {
+            parameters: {
+                query?: never;
+                header: {
+                    "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                };
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                    skill_version_id: components["parameters"]["SkillVersionID"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        /** @enum {string} */
+                        classification: "public" | "internal" | "confidential";
+                        input: unknown;
+                    };
+                };
+            };
+            responses: {
+                /** @description Queued */
+                202: {
+                    headers: {
+                        ETag: components["headers"]["ETag"];
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["SandboxRun"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                409: components["responses"]["Conflict"];
+                413: components["responses"]["PayloadTooLarge"];
+                415: components["responses"]["UnsupportedMediaType"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/organizations/{organization_id}/sandbox-runs/{sandbox_run_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+                sandbox_run_id: components["parameters"]["SandboxRunID"];
+            };
+            cookie?: never;
+        };
+        /** One run, with its limits, what it used and how it ended */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                    sandbox_run_id: components["parameters"]["SandboxRunID"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Run */
+                200: {
+                    headers: {
+                        ETag: components["headers"]["ETag"];
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["SandboxRun"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/organizations/{organization_id}/sandbox-runs/{sandbox_run_id}/cancellation": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+                sandbox_run_id: components["parameters"]["SandboxRunID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Ask a run to stop. It is rechecked before it starts, so a run asked in time never starts */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                    sandbox_run_id: components["parameters"]["SandboxRunID"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Asked */
+                202: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                409: components["responses"]["Conflict"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/organizations/{organization_id}/sandbox/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+            };
+            cookie?: never;
+        };
+        /** Whether code can run on this deployment, and exactly how much anyone can say about the limits */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Status */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["SandboxStatus"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/organizations/{organization_id}/marketplace/publisher": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+            };
+            cookie?: never;
+        };
+        /** This organization's publisher profile, if it has one */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Publisher */
+                200: {
+                    headers: {
+                        ETag: components["headers"]["ETag"];
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["MarketplacePublisher"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        put?: never;
+        /** Become a publisher on this deployment */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        display_name: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description Publisher */
+                201: {
+                    headers: {
+                        ETag: components["headers"]["ETag"];
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["MarketplacePublisher"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                409: components["responses"]["Conflict"];
+                413: components["responses"]["PayloadTooLarge"];
+                415: components["responses"]["UnsupportedMediaType"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/organizations/{organization_id}/marketplace/submissions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+            };
+            cookie?: never;
+        };
+        /** What this organization has asked to list, and what became of it */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Submissions */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            items: components["schemas"]["MarketplaceSubmission"][];
+                        };
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        put?: never;
+        /** Ask for a verified version of a public package to be reviewed for listing */
+        post: {
+            parameters: {
+                query?: never;
+                header: {
+                    "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                };
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        /** Format: uuid */
+                        skill_version_id: string;
+                        /** @constant */
+                        confirm_share_with_other_organizations: true;
+                    };
+                };
+            };
+            responses: {
+                /** @description Submission */
+                201: {
+                    headers: {
+                        ETag: components["headers"]["ETag"];
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["MarketplaceSubmission"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                409: components["responses"]["Conflict"];
+                413: components["responses"]["PayloadTooLarge"];
+                415: components["responses"]["UnsupportedMediaType"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/organizations/{organization_id}/marketplace/submissions/{submission_id}/withdrawal": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+                submission_id: components["parameters"]["SubmissionID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Withdraw a submission that is not listed */
+        post: {
+            parameters: {
+                query?: never;
+                header: {
+                    /** @description The version last read, as sent in the ETag response header. Weak tags, lists and * are refused. */
+                    "If-Match": components["parameters"]["IfMatch"];
+                };
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                    submission_id: components["parameters"]["SubmissionID"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Submission */
+                200: {
+                    headers: {
+                        ETag: components["headers"]["ETag"];
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["MarketplaceSubmission"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                409: components["responses"]["Conflict"];
+                428: components["responses"]["PreconditionRequired"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/organizations/{organization_id}/marketplace/submissions/{submission_id}/delist-request": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+                submission_id: components["parameters"]["SubmissionID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Ask the operator to take a listing down. A publisher cannot write a listing itself */
+        post: {
+            parameters: {
+                query?: never;
+                header: {
+                    /** @description The version last read, as sent in the ETag response header. Weak tags, lists and * are refused. */
+                    "If-Match": components["parameters"]["IfMatch"];
+                };
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                    submission_id: components["parameters"]["SubmissionID"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Submission */
+                200: {
+                    headers: {
+                        ETag: components["headers"]["ETag"];
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["MarketplaceSubmission"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                409: components["responses"]["Conflict"];
+                428: components["responses"]["PreconditionRequired"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/organizations/{organization_id}/marketplace/listings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+            };
+            cookie?: never;
+        };
+        /** What is on offer on this deployment. Each has been signed and reviewed */
+        get: {
+            parameters: {
+                query?: {
+                    cursor?: string;
+                };
+                header?: never;
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Page of listings */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            items: components["schemas"]["MarketplaceListing"][];
+                            next_cursor: string | null;
+                        };
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/organizations/{organization_id}/marketplace/listings/{listing_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+                listing_id: components["parameters"]["ListingID"];
+            };
+            cookie?: never;
+        };
+        /** One listing, with what it would be able to ask for and who reviewed it */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                    listing_id: components["parameters"]["ListingID"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Listing */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["MarketplaceListing"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/organizations/{organization_id}/marketplace/installations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+            };
+            cookie?: never;
+        };
+        /** What this organization has taken from the marketplace */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Installations */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            items: components["schemas"]["MarketplaceInstallation"][];
+                        };
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        put?: never;
+        /** Take a listing. This copies it and grants nothing, and someone still has to publish it here */
+        post: {
+            parameters: {
+                query?: never;
+                header: {
+                    "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                };
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        /** Format: uuid */
+                        listing_id: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description Queued */
+                202: {
+                    headers: {
+                        ETag: components["headers"]["ETag"];
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["MarketplaceInstallation"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                409: components["responses"]["Conflict"];
+                413: components["responses"]["PayloadTooLarge"];
+                415: components["responses"]["UnsupportedMediaType"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/organizations/{organization_id}/marketplace/installations/{installation_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+                installation_id: components["parameters"]["InstallationID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Remove an installed package, and stop its versions being used here */
+        delete: {
+            parameters: {
+                query?: never;
+                header: {
+                    /** @description The version last read, as sent in the ETag response header. Weak tags, lists and * are refused. */
+                    "If-Match": components["parameters"]["IfMatch"];
+                };
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                    installation_id: components["parameters"]["InstallationID"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Removed */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                409: components["responses"]["Conflict"];
+                428: components["responses"]["PreconditionRequired"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1578,6 +2937,200 @@ export interface components {
             allowed_classes: string[];
             region?: string | null;
         };
+        /**
+         * @description How sensitive a package's own instructions are. Only public can be submitted for listing.
+         * @enum {string}
+         */
+        SkillContentClassification: "public" | "internal" | "confidential" | "restricted";
+        SkillSigner: {
+            /** Format: uuid */
+            id: string;
+            display_name: string;
+            /** @description SHA-256 of the raw public key. */
+            key_id: string;
+            /** @enum {string} */
+            state: "active" | "revoked";
+            version: number;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            revoked_at: string | null;
+        };
+        SkillPackage: {
+            /** Format: uuid */
+            id: string;
+            name: string;
+            display_name: string;
+            /** @enum {string} */
+            origin: "tenant" | "marketplace";
+            /** @enum {string} */
+            state: "active" | "disabled";
+            content_classification: components["schemas"]["SkillContentClassification"];
+            /** Format: uuid */
+            listing_id: string | null;
+            version: number;
+            /** Format: date-time */
+            created_at: string;
+        };
+        /** @enum {string} */
+        SkillVersionState: "uploaded" | "verifying" | "verified" | "rejected" | "published" | "yanked";
+        SkillTestResult: {
+            /** @enum {string} */
+            mode: "contract" | "sandbox";
+            /** @enum {string} */
+            outcome: "passed" | "failed" | "error";
+            fixtures_total: number;
+            fixtures_passed: number;
+            first_failed_fixture: number | null;
+            code: string | null;
+            /** Format: date-time */
+            finished_at: string;
+        };
+        /** @description Everything but the bytes' hash and size is null until a worker has checked the bundle. What it declares is shown so a person can see what it could ask for before it goes live, and declaring a tool grants nothing. */
+        SkillVersion: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            package_id: string;
+            state: components["schemas"]["SkillVersionState"];
+            bundle_sha256: string;
+            size_bytes: number;
+            semver: string | null;
+            digest: string | null;
+            /** @enum {string|null} */
+            execution_kind: "declarative" | "sandbox" | null;
+            license: string | null;
+            /** @enum {string|null} */
+            max_classification: "public" | "internal" | "confidential" | null;
+            signer_key_id: string | null;
+            tool_boundaries: string[];
+            reject_code: string | null;
+            yank_code: string | null;
+            latest_test: components["schemas"]["SkillTestResult"] | null;
+            /** Format: date-time */
+            uploaded_at: string;
+            /** Format: date-time */
+            published_at: string | null;
+            version: number;
+        };
+        /** @enum {string} */
+        SandboxRunStatus: "queued" | "running" | "succeeded" | "failed" | "timed_out" | "memory_exceeded" | "output_exceeded" | "denied" | "cancelled" | "runner_unavailable";
+        /**
+         * @description How much anyone can say. probe_passed means a runner's own probe found the limits held for one job on this server. There is no value meaning isolated, because only outside review could say that.
+         * @enum {string}
+         */
+        IsolationEvidence: "none" | "probe_passed";
+        SandboxLimits: {
+            wall_ms: number;
+            cpu_ms: number;
+            memory_mb: number;
+            tmpfs_mb: number;
+            output_kb: number;
+            pids: number;
+        };
+        SandboxRun: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            skill_version_id: string;
+            /** @enum {string} */
+            purpose: "skill_test" | "agent_tool" | "operator_test";
+            /** @enum {string} */
+            classification: "public" | "internal" | "confidential";
+            status: components["schemas"]["SandboxRunStatus"];
+            outcome_code: string | null;
+            limits: components["schemas"]["SandboxLimits"];
+            /** @enum {string} */
+            network: "none";
+            isolation_evidence: components["schemas"]["IsolationEvidence"];
+            exit_code: number | null;
+            wall_ms: number | null;
+            cpu_ms: number | null;
+            peak_memory_kb: number | null;
+            /** @description What the code returned. Data */
+            output: unknown;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            finished_at: string | null;
+            version: number;
+        };
+        /** @description What this organization has seen, from its own runs. The web tier has no path to a runner, so a deployment nobody has run anything on has no evidence to show. */
+        SandboxStatus: {
+            enabled: boolean;
+            isolation_evidence: components["schemas"]["IsolationEvidence"];
+            /** Format: date-time */
+            last_probe_passed_at: string | null;
+            ceilings: components["schemas"]["SandboxLimits"];
+        };
+        MarketplacePublisher: {
+            /** Format: uuid */
+            id: string;
+            display_name: string;
+            /** @enum {string} */
+            state: "active" | "suspended";
+            version: number;
+        };
+        MarketplaceSubmission: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            skill_version_id: string;
+            name: string;
+            semver: string;
+            digest: string;
+            /** @enum {string} */
+            state: "submitted" | "in_review" | "approved" | "rejected" | "withdrawn";
+            /** Format: date-time */
+            delist_requested_at: string | null;
+            finding_codes: string[];
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            decided_at: string | null;
+            version: number;
+        };
+        /** @description Reviewed means someone holding a review key looked and signed, on the date shown. It is not a certification. There is no price here, because nothing in M11B takes a payment. */
+        MarketplaceListing: {
+            /** Format: uuid */
+            id: string;
+            publisher_display_name: string;
+            name: string;
+            semver: string;
+            display_name: string;
+            summary: string;
+            digest: string;
+            license: string;
+            /** @enum {string} */
+            execution_kind: "declarative" | "sandbox";
+            /** @enum {string} */
+            max_classification: "public" | "internal" | "confidential";
+            tool_boundaries: string[];
+            signer_key_id: string;
+            reviewer_key_id: string;
+            /** @enum {string} */
+            state: "listed" | "delisted";
+            /** @enum {string|null} */
+            delist_mode: "stop_new" | "revoke" | null;
+            /** Format: date-time */
+            listed_at: string;
+        };
+        MarketplaceInstallation: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            listing_id: string;
+            /** @enum {string} */
+            state: "requested" | "installing" | "installed" | "failed" | "removed";
+            /** Format: uuid */
+            package_id: string | null;
+            /** Format: uuid */
+            skill_version_id: string | null;
+            failure_code: string | null;
+            /** Format: date-time */
+            created_at: string;
+            version: number;
+        };
         Error: {
             code: string;
             message: string;
@@ -1652,6 +3205,15 @@ export interface components {
                 "application/json": components["schemas"]["Error"];
             };
         };
+        /** @description Skill bundle over the 8 MiB limit */
+        SkillBundleTooLarge: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["Error"];
+            };
+        };
         /** @description Body is not application/json */
         UnsupportedMediaType: {
             headers: {
@@ -1698,6 +3260,13 @@ export interface components {
         WorkUnitID: string;
         ExternalActionID: string;
         ConnectionID: string;
+        SkillSignerID: string;
+        SkillPackageID: string;
+        SkillVersionID: string;
+        SandboxRunID: string;
+        SubmissionID: string;
+        ListingID: string;
+        InstallationID: string;
     };
     requestBodies: never;
     headers: {
