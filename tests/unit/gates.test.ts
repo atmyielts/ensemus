@@ -33,6 +33,8 @@ const COMMANDS: Record<string, string> = {
   'check:backlog': 'pnpm check:backlog',
   'check:contracts': 'pnpm check:contracts',
   'check:licenses': 'pnpm check:licenses',
+  // The one place the deployed Caddyfile runs. CI needs no install for it, so it names the script.
+  'check:proxy': 'node infrastructure/scripts/check-proxy.mjs',
   audit: 'pnpm audit --prod --audit-level high',
   manifest: 'regenerate-manifest.mjs',
   'air-gap control': 'air-gap-gate.mjs --control',

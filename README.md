@@ -60,6 +60,7 @@ pnpm stack:down
 | `pnpm test:upgrade`                             | A paused approval is decided after a real release upgrade                      |
 | `pnpm check:backlog`                            | The backlog and traceability matrix are consistent                             |
 | `pnpm check:licenses`                           | No production dependency has an unreviewed license                             |
+| `pnpm check:proxy`                              | The deployed proxy discards forged addresses and honours its two settings      |
 
 `infrastructure/scripts/run-all-gates.sh` runs every gate on one machine, each from a clean stack. CI runs the same list.
 

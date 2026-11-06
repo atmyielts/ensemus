@@ -11,7 +11,7 @@ Deploy exactly the same Ensemus business capabilities in SaaS Cloud, SaaS BYOM, 
 ## Standard deployment sequence
 
 1. Install and configure supported PostgreSQL + pgvector, Temporal server with persisted backend and an approved S3-compatible object store. Valkey runs in the stack too, but no code reads or writes it yet (ADR-025 D9), so nothing depends on it today. Provide a key-encryption key for the built-in `SecretBroker`. An external IdP, KMS or vault is optional (ADR-024 D5). Restrict DB/Temporal/object administration to private network.
-2. Configure DNS/TLS/reverse proxy; restrict direct access to Next.js and internal worker ports. Set external origin, request limits and trusted proxy headers.
+2. Configure DNS/TLS/reverse proxy; restrict direct access to Next.js and internal worker ports. Set external origin, request limits and trusted proxy headers (see [Hostname and client addresses](#hostname-and-client-addresses)).
 3. Provision runtime secret IDs and per-service DB/Temporal permissions, and the dispatcher's own object-store identity, which reaches only the `tombstone-ledger/` prefix (ADR-026). Without it, deletions still block access but pile up in the ledger backlog. Enable RLS and test non-owner/non-bypass roles; do not install with administrator DB role as app role.
 4. Validate migration and version compatibility; back up before any schema mutation. Apply migration once.
 5. Deploy pinned `ensemus-web` image (Next.js standalone) and `ensemus-worker` (Node/Temporal) with independent readiness/liveness checks, resource constraints and restart policies.
@@ -59,6 +59,26 @@ Ingress: HTTPS only to reverse proxy → web. Internal: web → PostgreSQL, obje
 Internal service names are pinned to fixed addresses in `compose.yaml`. Docker forwards the name of a stopped container to the host resolver, so without the pins an outage would send internal names off the network. The default range is `172.30.0.0/16`. If your site already uses it, set `ENSEMUS_NETWORK_PREFIX` (for example `172.29`) before the first start; changing it later recreates the networks. The air-gap gate stops each service in turn and fails on any lookup that leaves. It also fails if requests through the proxy to either web replica do not get the answer that outage should give, or if the running stack is not on the watched range. Valkey has no client yet, so its round only shows that nothing else breaks.
 
 **Scaling web.** Because `web` has a fixed address, `docker compose up --scale web=2` does not work on the shipped `compose.yaml`: the second container asks for the address the first holds and fails to start. There is no shipped way to run more web replicas today. To add one, define it as a service of its own with its own address on the `edge` network, pin that name in `proxy`, and add it to the upstreams in `proxy/Caddyfile`. `web-2` in `compose.test.yaml` is the working example of the service and its pin, and `proxy/Caddyfile.test` routes to it, for tests only. The deployed `Caddyfile` knows one upstream, so a replica you add gets no traffic until you change it.
+
+## Hostname and client addresses
+
+**`ENSEMUS_HOSTNAME`** is the one name the proxy answers to. It defaults to `localhost`, and a request for any other name fails at the TLS handshake, so a real deployment has to set it. Give the name alone, with no scheme or port, and use the same name in `ENSEMUS_PUBLIC_URL`, which also carries the port people use. The certificate comes from the proxy's own local authority (`tls internal`) and nothing is requested from outside, so whatever connects has to trust that authority. Its root is `/data/caddy/pki/authorities/local/root.crt` in the `proxy` container.
+
+**`ENSEMUS_TRUSTED_PROXIES`** says who may state a client's address. Sign-in is limited to 10 attempts a minute and sign-up to 5, for each client address, so what the proxy tells the app decides who shares an allowance. It takes addresses or CIDR ranges separated by spaces, and it defaults to empty.
+
+- **Clients connect directly to this proxy:** leave it empty. Any `X-Forwarded-For` a client sends is overwritten with the address of its connection, so a client cannot forge an address, and each address has its own allowance.
+- **A host-level reverse proxy or load balancer of yours is in front, and this is empty:** forged addresses are still overwritten, but every person now has your proxy's address and they all share one allowance. **Ten wrong passwords from anyone refuse sign-in for everyone for up to a minute.** Nothing warns you when this happens.
+- **Your proxy is in front, and this names it:** for a connection from a listed address, the proxy reads `X-Forwarded-For` from the right, passes over listed addresses, and tells the app the first address that is not listed. A connection from anywhere else is treated as a direct client, and what it claims is overwritten.
+
+When you set it:
+
+- **Your proxy must add the address it received the connection from, to the right of `X-Forwarded-For`, or replace the header with that address.** In nginx that is `$proxy_add_x_forwarded_for` or `$remote_addr`. A proxy that passes on the client's own header unchanged lets every client choose its address, so it can escape the limit or use up someone else's allowance.
+- **List only proxies you operate, and let only them reach the published port** (`ENSEMUS_BIND_ADDRESS`, `ENSEMUS_HTTPS_PORT`). Anyone who can connect from a listed address can state any client address. A wide range such as `private_ranges` also trusts every ordinary user on that range.
+- **List the address this proxy sees, which may not be the one your proxy has.** Through a port published on the same host, it is normally Docker's gateway on the `edge` network, and not `127.0.0.1`. Do not guess: while your proxy is carrying traffic, the foreign address on port 443 in `docker compose -f infrastructure/compose/compose.yaml exec proxy netstat -tn` is the one to list.
+- **Send `ENSEMUS_HOSTNAME` from your proxy as both the TLS server name and the `Host` header.** A listed proxy's `X-Forwarded-Host` and `X-Forwarded-Proto` are passed on to the app as well, so have it set those to the public values.
+- A value the proxy cannot read stops it from starting, so a mistake here shows at the next `up` and does not widen who is trusted.
+
+`node infrastructure/scripts/check-proxy.mjs` runs the deployed `Caddyfile` in containers with no network and proves what this proxy does with both settings and with a forged address, whether or not the connection is listed. It cannot prove what your own proxy does. It runs in CI.
 
 ## Outbox and stuck work
 

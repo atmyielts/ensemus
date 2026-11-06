@@ -30,6 +30,12 @@ services:
     networks: [edge]
     extra_hosts:
       - web:${ENSEMUS_NETWORK_PREFIX:-172.30}.1.10
+    environment:
+      # The one name this site answers to. It has to match ENSEMUS_PUBLIC_URL.
+      ENSEMUS_HOSTNAME: ${ENSEMUS_HOSTNAME:-localhost}
+      # Who may state a client's address. Empty means nobody, which is right unless another proxy on
+      # this host or site sits in front of this one. See the container deployment runbook.
+      ENSEMUS_TRUSTED_PROXIES: ${ENSEMUS_TRUSTED_PROXIES:-}
     depends_on:
       web: { condition: service_healthy }
 

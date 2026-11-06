@@ -86,6 +86,8 @@ function stack(label, tree, scratch) {
       ENSEMUS_HTTPS_PORT: PORT,
       // Its own addresses, so it can run while the air-gap gate's stack is still up.
       ENSEMUS_NETWORK_PREFIX: '172.29',
+      ENSEMUS_HOSTNAME: 'localhost',
+      ENSEMUS_TRUSTED_PROXIES: '',
       ENSEMUS_PUBLIC_URL: BASE_URL,
       ENSEMUS_ALLOW_SIGNUP: 'true',
     },

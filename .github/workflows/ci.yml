@@ -53,6 +53,19 @@ jobs:
       - name: Real PostgreSQL roles, RLS, auth and secrets
         run: pnpm test:integration
 
+  # The stack jobs below run the test overlay's Caddyfile, so this is the one place the deployed Caddyfile
+  # runs. It builds nothing, and needs only the proxy's pinned image.
+  proxy:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+      - name: Deployed proxy - forged client address, trusted proxy and hostname
+        run: node infrastructure/scripts/check-proxy.mjs
+
   # Each job below starts its own stack on its own runner, so none can collide with another. Run on one
   # machine, infrastructure/scripts/run-all-gates.sh clears the stack between them instead.
   stack:

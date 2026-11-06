@@ -2,6 +2,15 @@
 NODE_ENV=production
 ENSEMUS_MODE=sovereign
 ENSEMUS_PUBLIC_URL=https://ensemus.example.invalid
+# The one name the proxy answers to, with no scheme or port. Use the name in ENSEMUS_PUBLIC_URL. If this is
+# not set the proxy answers only as localhost, and any other name fails at the TLS handshake.
+ENSEMUS_HOSTNAME=ensemus.example.invalid
+# Addresses or CIDR ranges, separated by spaces, of your own proxies in front of the Ensemus proxy, as the
+# Ensemus proxy sees them. Empty means nobody is trusted, and any X-Forwarded-For a client sends is
+# overwritten. Leave it empty if clients connect directly. If a proxy of yours is in front and this is empty,
+# everyone shares that proxy's address, so ten wrong passwords from anyone refuse every sign-in for up to a
+# minute. See "Hostname and client addresses" in docs/05-operations/05-container-deployment-runbook.md.
+ENSEMUS_TRUSTED_PROXIES=
 ENSEMUS_REGION=local
 ENSEMUS_LICENSE_FILE=/run/secrets/ensemus-license
 DATABASE_URL_FILE=/run/secrets/database-url
