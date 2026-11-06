@@ -23,6 +23,8 @@ import {
   getWorkUnit,
   isAuditedRefusal,
   markRead,
+  recoverWorkOwner,
+  refusalCode,
   removeDependency,
   removeStoppedHiddenPrerequisites,
   removeTeamMember,
@@ -44,7 +46,7 @@ import { redirect } from 'next/navigation';
 import { z } from 'zod';
 import type { InviteFormState, NewWorkFormState, WorkFormState } from '@/lib/form-state';
 import { requireActor } from './actor';
-import { getRuntime, getStore } from './runtime';
+import { getRestoreGate, getRuntime, getStore } from './runtime';
 import { requireTenant } from './tenant';
 
 const text = (form: FormData, name: string) => {
@@ -64,7 +66,7 @@ type Tenant = { context: TenantContext; database: AppDatabase };
 async function recordRefusal(tenant: Tenant | null, error: unknown) {
   if (!tenant || !isAuditedRefusal(error)) return;
   await auditRefusal(tenant.database, tenant.context, {
-    code: error.code,
+    code: refusalCode(error),
     surface: 'web',
   }).catch((failure: unknown) =>
     getRuntime().log.error('audit.refusal_failed', { errorCode: errorCode(failure) }),
@@ -83,7 +85,9 @@ async function run(
     if (next) target = next;
   } catch (error) {
     await recordRefusal(tenant, error);
-    if (error instanceof AppError) {
+    if (error instanceof AppError && error.code === 'RESTORE_PENDING') {
+      target = '/restoring';
+    } else if (error instanceof AppError) {
       target = `${back}${back.includes('?') ? '&' : '?'}error=${error.code}`;
     } else {
       getRuntime().log.error('action.failed', { errorCode: errorCode(error) });
@@ -346,11 +350,9 @@ export async function decideApprovalAction(form: FormData) {
   await run({ context, database }, `/o/${org}/approvals/${approvalId}`, async () => {
     if (decision === 'deny') {
       // Denying a review that holds the work stops the work for good, so it has to be meant.
+      // The reason it also needs is checked by the service, for the API as well.
       const { approval, work } = await getApproval(database, context, approvalId);
-      if (approval.holdsWork && work.status === 'awaiting_approval') {
-        assertConfirmed(form);
-        if (!reason) throw new AppError('REASON_REQUIRED');
-      }
+      if (approval.holdsWork && work.status === 'awaiting_approval') assertConfirmed(form);
     }
     await decideApproval(database, context, {
       approvalId,
@@ -411,6 +413,9 @@ export async function acceptInvitationAction(form: FormData) {
       userId: actor.userId,
       email: actor.email,
       emailVerified: actor.emailVerified,
+      // Asked here, because this person has no tenant yet for requireTenant to check.
+      assertServing: (organizationId, userId) =>
+        getRestoreGate().assertServingInvited(organizationId, userId),
     });
     return outcome.status === 'joined' ? `/o/${outcome.organizationId}` : `${here}?state=waiting`;
   });
@@ -433,6 +438,20 @@ export async function disableMemberAction(form: FormData) {
   await run({ context, database }, `/o/${org}/people`, async () => {
     assertConfirmed(form);
     await disableMember(database, context, { membershipId: text(form, 'membershipId') });
+  });
+}
+
+/** Names a new owner for work whose owner was disabled, which only an organization owner can do. */
+export async function recoverWorkOwnerAction(form: FormData) {
+  const org = orgOf(form);
+  const { context, database } = await requireTenant(org);
+  await run({ context, database }, `/o/${org}/people`, async () => {
+    assertConfirmed(form);
+    await recoverWorkOwner(database, context, {
+      id: text(form, 'id'),
+      expectedVersion: int(form, 'version'),
+      ownerMembershipId: text(form, 'membershipId'),
+    });
   });
 }
 

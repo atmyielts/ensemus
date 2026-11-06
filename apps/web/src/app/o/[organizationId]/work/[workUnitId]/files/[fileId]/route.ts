@@ -1,4 +1,4 @@
-import { AppError, readArtifact } from '@ensemus/application';
+import { AppError, auditRefusal, readArtifact } from '@ensemus/application';
 import { errorCode } from '@ensemus/telemetry';
 import { unstable_rethrow } from 'next/navigation';
 import { z } from 'zod';
@@ -53,8 +53,10 @@ export async function GET(
 ) {
   const ids = pathIds.safeParse(await route.params);
   if (!ids.success) return notFoundResponse();
+  let tenant: Awaited<ReturnType<typeof requireTenant>> | undefined;
   try {
-    const { context, database } = await requireTenant(ids.data.organizationId);
+    tenant = await requireTenant(ids.data.organizationId);
+    const { context, database } = tenant;
     const file = await readArtifact(database, getStore(), context, {
       workUnitId: ids.data.workUnitId,
       artifactId: ids.data.fileId,
@@ -73,7 +75,18 @@ export async function GET(
   } catch (error) {
     // requireTenant signals sign-in and not-found with errors that Next.js itself must handle.
     unstable_rethrow(error);
-    if (error instanceof AppError && error.code === 'NOT_FOUND') return notFoundResponse();
+    if (error instanceof AppError && error.code === 'NOT_FOUND') {
+      // The same record the API leaves for the same probe. Failing to write it changes no answer.
+      if (tenant) {
+        await auditRefusal(tenant.database, tenant.context, {
+          code: 'NOT_FOUND',
+          surface: 'web',
+        }).catch((failure: unknown) =>
+          getRuntime().log.error('audit.refusal_failed', { errorCode: errorCode(failure) }),
+        );
+      }
+      return notFoundResponse();
+    }
     getRuntime().log.error('file.download_failed', { errorCode: errorCode(error) });
     return new Response('Something went wrong', { status: 500, headers: NO_STORE });
   }

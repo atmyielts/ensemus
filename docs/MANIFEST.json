@@ -197,8 +197,8 @@
     },
     {
       "path": "04-security/04-authorization-and-approvals.md",
-      "size_bytes": 6252,
-      "sha256": "b0563c8c58fa04dd3551de56f7d7bf1049df18f991123c07418337dc8dae83c3"
+      "size_bytes": 7458,
+      "sha256": "81c0a439841a4025820a02266d535ae08393427d2b678317929e4df8d23c9433"
     },
     {
       "path": "04-security/05-data-lifecycle.md",
@@ -442,8 +442,8 @@
     },
     {
       "path": "specifications/openapi.yaml",
-      "size_bytes": 23600,
-      "sha256": "a7a632b95fbabd4eebcd4f0cbdce5a069eb108e0999853fc2236ec8d92f630e9"
+      "size_bytes": 23869,
+      "sha256": "e0d6f51d786806a5d92a2acd2c2558f5ce0f3248ddc32c25a3bb05ae048f7cf5"
     },
     {
       "path": "specifications/qa-scenarios.csv",

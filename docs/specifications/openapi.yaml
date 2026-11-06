@@ -317,7 +317,12 @@ paths:
               properties:
                 decision: {type: string, enum: [approve, deny]}
                 action_hash: {type: string, minLength: 32, maxLength: 128}
-                reason: {type: string, maxLength: 2000}
+                reason:
+                  type: string
+                  maxLength: 2000
+                  description: >-
+                    Required, and not blank, to deny an approval the work is paused on, because that
+                    stops the work for good. Without it the answer is 400 with code REASON_REQUIRED.
       responses:
         '200': {description: Decision recorded}
         '400': {$ref: '#/components/responses/BadRequest'}

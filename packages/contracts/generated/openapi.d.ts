@@ -537,6 +537,7 @@ export interface paths {
                         /** @enum {string} */
                         decision: "approve" | "deny";
                         action_hash: string;
+                        /** @description Required, and not blank, to deny an approval the work is paused on, because that stops the work for good. Without it the answer is 400 with code REASON_REQUIRED. */
                         reason?: string;
                     };
                 };

@@ -137,6 +137,8 @@ describe('durable work execution', () => {
       approvalId: pending!.id,
       decision,
       shownHash: rows[0].action_hash,
+      // Denying a review the work is paused on stops it for good, which has to be explained.
+      ...(decision === 'deny' ? { reason: 'Not this way' } : {}),
     });
   };
 

@@ -7,6 +7,7 @@ import {
   memberships,
   notifications,
   outboxEvents,
+  projects,
   users,
   withTenantTx,
   workArtifacts,
@@ -61,7 +62,7 @@ import {
   type SQL,
 } from 'drizzle-orm';
 import { z } from 'zod';
-import { AppError, pgCode } from './errors';
+import { AppError, foreignReference, pgCode } from './errors';
 import { emit } from './events';
 
 // An outside system's receipt is not offered yet: nothing can provide one until external actions
@@ -176,12 +177,26 @@ async function loadManageable(tx: Tx, context: TenantContext, id: string) {
   return row;
 }
 
-async function assertActiveMember(tx: Tx, membershipId: string) {
+/**
+ * Row-level security limits this to the tenant, so a member it cannot find is one from somewhere else.
+ * Someone disabled is an ordinary thing to run into, on a page that was open when it happened.
+ */
+export async function assertActiveMember(tx: Tx, membershipId: string) {
+  if (!z.uuid().safeParse(membershipId).success) throw new AppError('INVALID_INPUT');
   const [member] = await tx
     .select({ status: memberships.status })
     .from(memberships)
     .where(eq(memberships.id, membershipId));
-  if (member?.status !== 'active') throw new AppError('INVALID_INPUT');
+  if (!member) throw foreignReference();
+  if (member.status !== 'active') throw new AppError('INVALID_INPUT');
+}
+
+async function assertProjectInTenant(tx: Tx, projectId: string) {
+  const [project] = await tx
+    .select({ id: projects.id })
+    .from(projects)
+    .where(eq(projects.id, projectId));
+  if (!project) throw foreignReference();
 }
 
 /** An ID only this person and this form can arrive at, so nobody else can aim at a Work Unit. */
@@ -208,6 +223,7 @@ export async function createWorkUnit(
   return withTenantTx(database, context, async (tx) => {
     const owner = input.ownerMembershipId ?? context.membershipId;
     await assertActiveMember(tx, owner);
+    if (input.projectId) await assertProjectInTenant(tx, input.projectId);
     const [row] = await tx
       .insert(workUnits)
       .values({
@@ -924,6 +940,9 @@ export function removeDependency(
   return withTenantTx(database, context, async (tx) => {
     const dependent = await loadChangeable(tx, context, input.dependentId);
     if (isTerminal(dependent.status as WorkState)) throw new AppError('INVALID_STATE');
+    // Adding one takes being able to see it, and so does this. A hidden prerequisite that can still
+    // finish keeps holding the work, and one that was stopped leaves through the function below.
+    await loadReadable(tx, context, input.prerequisiteId);
     const removed = await tx
       .delete(workDependencies)
       .where(
@@ -1011,31 +1030,116 @@ export function setOwner(
 ) {
   return withTenantTx(database, context, async (tx) => {
     const current = await loadManageable(tx, context, input.id);
-    if (current.version !== input.expectedVersion) throw new AppError('VERSION_CONFLICT');
-    await assertActiveMember(tx, input.ownerMembershipId);
-    const nextVersion = current.version + 1;
-    const [row] = await tx
-      .update(workUnits)
-      .set({
-        ownerMembershipId: input.ownerMembershipId,
-        version: nextVersion,
-        updatedAt: new Date(),
-      })
-      .where(and(eq(workUnits.id, input.id), eq(workUnits.version, input.expectedVersion)))
-      .returning();
-    if (!row) throw new AppError('VERSION_CONFLICT');
-    await emit(tx, context, {
-      eventType: 'work.owner_changed',
-      aggregateType: 'work_unit',
-      aggregateId: input.id,
-      aggregateVersion: nextVersion,
-      classification: current.classification,
-      payload: { work_unit_id: input.id, owner_membership_id: input.ownerMembershipId },
-    });
-    await auditAction(tx, context, 'work.owner_changed', `work_unit:${input.id}`);
-    await notify(tx, context, [input.ownerMembershipId], 'work.assigned', `work_unit:${input.id}`);
-    // Ownership grants access, so moving it can take access away from a reviewer.
-    await closeReviewsForLostAccess(tx, context, { workUnitId: input.id });
+    return moveOwner(tx, context, current, input);
+  });
+}
+
+async function moveOwner(
+  tx: Tx,
+  context: TenantContext,
+  current: WorkRow,
+  input: { id: string; expectedVersion: number; ownerMembershipId: string },
+  auditReason?: string,
+) {
+  if (current.version !== input.expectedVersion) throw new AppError('VERSION_CONFLICT');
+  await assertActiveMember(tx, input.ownerMembershipId);
+  const nextVersion = current.version + 1;
+  const [row] = await tx
+    .update(workUnits)
+    .set({
+      ownerMembershipId: input.ownerMembershipId,
+      version: nextVersion,
+      updatedAt: new Date(),
+    })
+    .where(and(eq(workUnits.id, input.id), eq(workUnits.version, input.expectedVersion)))
+    .returning();
+  if (!row) throw new AppError('VERSION_CONFLICT');
+  await emit(tx, context, {
+    eventType: 'work.owner_changed',
+    aggregateType: 'work_unit',
+    aggregateId: input.id,
+    aggregateVersion: nextVersion,
+    classification: current.classification,
+    payload: { work_unit_id: input.id, owner_membership_id: input.ownerMembershipId },
+  });
+  await auditAction(tx, context, 'work.owner_changed', `work_unit:${input.id}`, auditReason);
+  await notify(tx, context, [input.ownerMembershipId], 'work.assigned', `work_unit:${input.id}`);
+  // Ownership grants access, so moving it can take access away from a reviewer.
+  await closeReviewsForLostAccess(tx, context, { workUnitId: input.id });
+  return row;
+}
+
+const DISABLED_OWNER_LIST_SIZE = 50;
+
+/**
+ * Work whose accountable owner was disabled, for the people page. Nobody else is told, and nothing else
+ * would ever bring it up. Anyone managing members sees what they can already read, by title, and moves
+ * it on its own page. Restricted work they cannot read goes to organization owners only, with no title
+ * and nothing else about what it holds, because it can be moved from here and in no other way.
+ */
+export async function listWorkWithDisabledOwner(database: AppDatabase, context: TenantContext) {
+  if (!can(context.role, 'member.manage')) throw new AppError('FORBIDDEN');
+  const ownerDisabled = ne(memberships.status, 'active');
+  const newestFirst = desc(workUnits.updatedAt);
+  return withTenantTx(database, context, async (tx) => {
+    const visible = await tx
+      .select({ id: workUnits.id, title: workUnits.title, status: workUnits.status })
+      .from(workUnits)
+      .innerJoin(memberships, eq(memberships.id, workUnits.ownerMembershipId))
+      .where(and(ownerDisabled, visibleTo(context)))
+      .orderBy(newestFirst)
+      .limit(DISABLED_OWNER_LIST_SIZE);
+    const hidden = can(context.role, 'work.recover_owner')
+      ? await tx
+          .select({ id: workUnits.id, version: workUnits.version, status: workUnits.status })
+          .from(workUnits)
+          .innerJoin(memberships, eq(memberships.id, workUnits.ownerMembershipId))
+          .where(and(ownerDisabled, not(visibleTo(context) as SQL)))
+          .orderBy(newestFirst)
+          .limit(DISABLED_OWNER_LIST_SIZE)
+      : [];
+    return { visible, hidden };
+  });
+}
+
+/**
+ * The way back to work nobody can reach (WORK-03). Restricted work is closed to everyone but the people
+ * on it, so when its owner is disabled nobody active can read, stop or reassign it, and its files can
+ * never be deleted. An organization owner may name a new owner. That is all this does: it shows them
+ * nothing, and it grants them nothing unless they name themselves, which goes on the record the same
+ * way. Work whose owner is still here gives the same answer as work that does not exist.
+ */
+export async function recoverWorkOwner(
+  database: AppDatabase,
+  context: TenantContext,
+  input: { id: string; expectedVersion: number; ownerMembershipId: string },
+) {
+  if (!can(context.role, 'work.recover_owner')) throw new AppError('FORBIDDEN');
+  return withTenantTx(database, context, async (tx) => {
+    const [current] = await tx
+      .select()
+      .from(workUnits)
+      .where(eq(workUnits.id, input.id))
+      .for('update');
+    if (!current) throw new AppError('NOT_FOUND');
+    const [owner] = await tx
+      .select({ status: memberships.status })
+      .from(memberships)
+      .where(eq(memberships.id, current.ownerMembershipId));
+    if (owner?.status === 'active') throw new AppError('NOT_FOUND');
+    const row = await moveOwner(tx, context, current, input, 'OWNER_DISABLED');
+    const otherOwners = await tx
+      .select({ id: memberships.id })
+      .from(memberships)
+      .where(and(eq(memberships.role, 'owner'), eq(memberships.status, 'active')));
+    // Not a link to the work, which most of them still may not open.
+    await notify(
+      tx,
+      context,
+      otherOwners.map(({ id }) => id),
+      'work.owner_recovered',
+      `membership:${input.ownerMembershipId}`,
+    );
     return row;
   });
 }

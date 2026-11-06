@@ -2,7 +2,7 @@
 // fields Next.js and the page rendered, and posts the form back, through the proxy, against built
 // images. Nothing here reaches past what a person's browser could send.
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { randomUUID } from 'node:crypto';
+import { randomInt, randomUUID } from 'node:crypto';
 
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0'; // The proxy uses a local test certificate.
 
@@ -36,9 +36,26 @@ export const onReplica = <T>(name: 'web' | 'web-2', work: () => Promise<T>) =>
 const replicaHeaders = (): Record<string, string> =>
   replica.getStore() === 'web-2' ? { 'x-ensemus-test-replica': '2' } : {};
 
+const clientAddress = new AsyncLocalStorage<string>();
+
+const anOctet = () => randomInt(1, 255);
+
+/** An address nobody else in this run is using. */
+export const aClientAddress = () => `10.${anOctet()}.${anOctet()}.${anOctet()}`;
+
+/**
+ * Makes the requests inside `work` come from one client. Otherwise each request comes from an address
+ * of its own: sign-in and sign-up are limited per address, and every test really has the same one, so
+ * they would all share one allowance, and pass or fail by what ran before them. Only the test overlay's
+ * proxy understands this (see infrastructure/compose/proxy/Caddyfile.test).
+ */
+export const fromAddress = <T>(address: string, work: () => Promise<T>) =>
+  clientAddress.run(address, work);
+
 const headersOf = (jar?: Jar): Record<string, string> => ({
   ...(jar ? { cookie: jar.cookie } : {}),
   ...replicaHeaders(),
+  'x-ensemus-test-client': clientAddress.getStore() ?? aClientAddress(),
 });
 
 /** One request, without following redirects, so tests see exactly what the server answered. */

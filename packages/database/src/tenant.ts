@@ -22,7 +22,8 @@ export type TenantContext = Readonly<{
 export function createServiceContext(organizationId: string): TenantContext {
   if (!UUID.test(organizationId)) throw new TenantAccessDenied();
   return {
-    organizationId,
+    // One spelling, because it ends up in object keys and lock names, where case makes a difference.
+    organizationId: organizationId.toLowerCase(),
     userId: '',
     membershipId: '',
     role: 'service',
@@ -117,7 +118,12 @@ export function withInvitationTx<T>(
   return database.transaction({ 'app.invitation_token_hash': tokenHash }, fn);
 }
 
-/** Checks an active membership and returns the context needed to reach that tenant's data. */
+/**
+ * Checks an active membership and returns the context needed to reach that tenant's data. The ID in
+ * the context is the one the row holds, never the one that was asked for: a UUID column matches any
+ * case, but object keys and lock names are text, so a request in capitals would otherwise reach the
+ * same data while looking in a different place for what protects it.
+ */
 export async function resolveTenantContext(
   database: AppDatabase,
   userId: string,
@@ -126,7 +132,11 @@ export async function resolveTenantContext(
   assertUuid(organizationId);
   const [membership] = await withUserTx(database, userId, (tx) =>
     tx
-      .select({ id: memberships.id, role: memberships.role })
+      .select({
+        id: memberships.id,
+        role: memberships.role,
+        organizationId: memberships.organizationId,
+      })
       .from(memberships)
       .where(
         and(
@@ -138,7 +148,7 @@ export async function resolveTenantContext(
   );
   if (!membership) throw new TenantAccessDenied();
   return {
-    organizationId,
+    organizationId: membership.organizationId,
     userId,
     membershipId: membership.id,
     role: membership.role,

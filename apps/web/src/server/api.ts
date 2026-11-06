@@ -6,6 +6,7 @@ import {
   auditTenantRefusal,
   HTTP_STATUS,
   isAuditedRefusal,
+  refusalCode,
 } from '@ensemus/application';
 import type { components } from '@ensemus/contracts/openapi';
 import {
@@ -149,7 +150,10 @@ async function recordRefusal(
         surface: 'api',
       });
     } else if (isAuditedRefusal(error) && who.context) {
-      await auditRefusal(who.database, who.context, { code: error.code, surface: 'api' });
+      await auditRefusal(who.database, who.context, {
+        code: refusalCode(error),
+        surface: 'api',
+      });
     }
   } catch (failure) {
     apiLog.error('audit.refusal_failed', { errorCode: errorCode(failure) });

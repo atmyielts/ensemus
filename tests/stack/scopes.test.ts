@@ -24,6 +24,7 @@ import {
   read,
   signUp,
   submit,
+  visit,
 } from '../helpers/forms';
 import { urls } from '../helpers/stack';
 
@@ -312,8 +313,96 @@ describe('who may do what', () => {
       const foreign = await post(people(), owner.jar, form, { parentId: await teamId(theirs) });
       expect(locationOf(foreign)).toBe(`${people()}?error=INVALID_INPUT`);
       expect(await parentOf(top)).toBeNull();
+      // A parent from elsewhere is no mistake anyone can make on this page, so it goes on the record.
+      const { rows } = await su.query(
+        `select safe_reason from governance.audit_events
+         where organization_id = $1 and actor_id = $2 and action = 'access.refused.web'
+           and safe_reason = 'FOREIGN_REFERENCE'`,
+        [org, await membershipOf(su, owner, org)],
+      );
+      expect(rows).toHaveLength(1);
       const outsider = await post(people(), rival.jar, form, { parentId: '' });
       expect(outsider.status).toBe(404);
+    });
+  });
+
+  describe('restricted work whose owner was disabled (WORK-03)', () => {
+    /** Mira was the only person on it, and now she has gone. */
+    async function stranded() {
+      const mira = await join(owner, org, 'Mira Moved');
+      const title = `Stranded ${randomUUID()}`;
+      const id = await createWork(mira, org, { title, classification: 'restricted' });
+      const miraId = await membershipOf(su, mira, org);
+      const gone = await post(
+        people(),
+        owner.jar,
+        await formOn(
+          people(),
+          owner.jar,
+          (form) =>
+            form.hidden.get('membershipId') === miraId && form.html.includes('name="confirm"'),
+        ),
+        { confirm: 'yes' },
+      );
+      expect(locationOf(gone)).toBe(people());
+      return { id, title };
+    }
+
+    const recovering = (id: string) => (form: Form) => form.hidden.get('id') === id;
+
+    it('can be given a new owner by an organization owner, who sees nothing of it', async () => {
+      const { id, title } = await stranded();
+      const page = workPage(org, id);
+      expect((await read(page, owner.jar)).status).toBe(404);
+
+      const section = sectionOf((await read(people(), owner.jar)).html, 'ownerless-heading');
+      expect(section).toContain(id);
+      expect(section).not.toContain(title);
+
+      const moved = await post(
+        people(),
+        owner.jar,
+        await formOn(people(), owner.jar, recovering(id)),
+        { confirm: 'yes', membershipId: await membershipOf(su, delegate, org) },
+      );
+      expect(locationOf(moved)).toBe(people());
+
+      const shown = await read(page, delegate.jar);
+      expect(shown.status).toBe(200);
+      expect(shown.html).toContain(title);
+      // Naming someone else gave the person who did it no way in.
+      expect((await read(page, owner.jar)).status).toBe(404);
+      expect(sectionOf((await read(people(), owner.jar)).html, 'ownerless-heading')).not.toContain(
+        id,
+      );
+      const { rows } = await su.query(
+        `select safe_reason from governance.audit_events
+         where organization_id = $1 and target_ref = $2 and action = 'work.owner_changed'`,
+        [org, `work_unit:${id}`],
+      );
+      expect(rows).toEqual([{ safe_reason: 'OWNER_DISABLED' }]);
+    });
+
+    it('has to be meant', async () => {
+      const { id } = await stranded();
+      const form = await formOn(people(), owner.jar, recovering(id));
+      const refused = await post(people(), owner.jar, form, {
+        membershipId: await membershipOf(su, delegate, org),
+      });
+      expect(locationOf(refused)).toBe(`${people()}?error=INVALID_INPUT`);
+      expect((await read(workPage(org, id), delegate.jar)).status).toBe(404);
+    });
+
+    it('is not shown to a member, and is refused from a forged form', async () => {
+      const { id } = await stranded();
+      const form = await formOn(people(), owner.jar, recovering(id));
+      expect((await read(people(), member.jar)).html).not.toContain(id);
+      const refused = await post(people(), member.jar, form, {
+        confirm: 'yes',
+        membershipId: await membershipOf(su, member, org),
+      });
+      expect(locationOf(refused)).toBe(`${people()}?error=FORBIDDEN`);
+      expect((await read(workPage(org, id), member.jar)).status).toBe(404);
     });
   });
 
@@ -446,6 +535,69 @@ describe('who may do what', () => {
       const refused = await post(page, owner.jar, form, { to: 'completed' });
       expect(locationOf(refused)).toBe(`${page}?error=INVALID_TRANSITION`);
       expect(await refusals(org, actor, 'INVALID_TRANSITION')).toHaveLength(1);
+    });
+
+    it('records a project from another tenant, on the form that names it', async () => {
+      const forger = await join(owner, org, 'Fay Forger');
+      const actor = await membershipOf(su, forger, org);
+      const { rows: theirs } = await su.query(
+        `insert into work.projects (organization_id, name) values ($1, 'Theirs') returning id`,
+        [rivalOrg],
+      );
+      const title = `Forged ${randomUUID()}`;
+      const page = `/o/${org}/work/new`;
+      const form = await formOn(page, forger.jar, /name="title"/);
+      const refused = await post(page, forger.jar, form, {
+        title,
+        classification: 'internal',
+        projectId: theirs[0].id as string,
+      });
+      // What a typing mistake hears, so this says nothing about whether that project exists.
+      expect(refused.status).toBeLessThan(400);
+      expect(locationOf(refused)).not.toContain('/work/');
+      const { rows } = await su.query('select id from work.work_units where title = $1', [title]);
+      expect(rows).toEqual([]);
+      expect(await refusals(org, actor, 'FOREIGN_REFERENCE')).toEqual([
+        {
+          actor_id: actor,
+          action: 'access.refused.web',
+          target_ref: `organization:${org}`,
+          decision: 'deny',
+          safe_reason: 'FOREIGN_REFERENCE',
+        },
+      ]);
+    });
+
+    it('records a person from another tenant', async () => {
+      const forger = await join(owner, org, 'Ford Forger');
+      const actor = await membershipOf(su, forger, org);
+      const id = await createWork(forger, org, { title: `Handed ${randomUUID()}` });
+      const page = workPage(org, id);
+      const form = await formOn(page, forger.jar, /Hand over to/);
+      const refused = await post(page, forger.jar, form, {
+        membershipId: await membershipOf(su, rival, rivalOrg),
+      });
+      expect(locationOf(refused)).toBe(`${page}?error=INVALID_INPUT`);
+      expect(await refusals(org, actor, 'FOREIGN_REFERENCE')).toHaveLength(1);
+    });
+
+    it('records a file it would not hand over, with the same answer as one that is not there', async () => {
+      const prober = await join(owner, org, 'Pam Prober');
+      const actor = await membershipOf(su, prober, org);
+      const hidden = await createWork(owner, org, {
+        title: `Hidden ${randomUUID()}`,
+        classification: 'restricted',
+      });
+      const hiddenFile = await visit(`${workPage(org, hidden)}/files/${randomUUID()}`, prober.jar);
+      expect(hiddenFile.status).toBe(404);
+      const open = await createWork(prober, org, { title: `Open ${randomUUID()}` });
+      const missing = await visit(`${workPage(org, open)}/files/${randomUUID()}`, prober.jar);
+      expect(missing.status).toBe(404);
+      expect(await missing.text()).toBe(await hiddenFile.clone().text());
+      // Repeating it inside the hour adds nothing.
+      expect(await refusals(org, actor, 'NOT_FOUND')).toEqual([
+        expect.objectContaining({ action: 'access.refused.web', decision: 'deny' }),
+      ]);
     });
 
     it('leaves an ordinary mistake unrecorded', async () => {

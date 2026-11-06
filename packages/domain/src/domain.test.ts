@@ -4,6 +4,7 @@ import {
   canonicalJson,
   checkDecision,
   checkExecution,
+  effectiveApprovalStatus,
   reviewCovers,
   WORK_REVIEW_TOOL,
   workReviewAction,
@@ -209,6 +210,17 @@ describe('approval binding', () => {
 
   it('keeps array order significant, since it can change meaning', () => {
     expect(canonicalJson([1, 2])).not.toBe(canonicalJson([2, 1]));
+  });
+
+  it('reports a pending approval past its time as expired, before anything has settled it', () => {
+    const now = new Date('2031-01-01T12:00:00Z');
+    const at = (iso: string, status = 'pending') => ({ status, expiresAt: new Date(iso) });
+    expect(effectiveApprovalStatus(at('2031-01-01T12:00:01Z'), now)).toBe('pending');
+    expect(effectiveApprovalStatus(at('2031-01-01T12:00:00Z'), now)).toBe('expired');
+    expect(effectiveApprovalStatus(at('2031-01-01T11:00:00Z'), now)).toBe('expired');
+    // What was decided in time stays what it was.
+    expect(effectiveApprovalStatus(at('2031-01-01T11:00:00Z', 'approved'), now)).toBe('approved');
+    expect(effectiveApprovalStatus(at('2031-01-01T11:00:00Z', 'denied'), now)).toBe('denied');
   });
 
   it('accepts the right approver seeing the exact action', () => {

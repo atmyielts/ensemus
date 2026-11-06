@@ -28,6 +28,7 @@ import { AppError, pgCode, type ErrorCode } from './errors';
 import { emit } from './events';
 import {
   applyTransition,
+  assertActiveMember,
   auditAction,
   clearApprovalNotifications,
   currentReviewAction,
@@ -131,6 +132,7 @@ export async function createApprovalInTx(
     await recordExpiry(tx, context, work, open, now, 'REPLACED');
   }
 
+  await assertActiveMember(tx, input.approverMembershipId);
   // Shared, so that disabling or demoting this person at this moment either waits for this request
   // to commit and then closes it, or commits first and is seen here. Plain reads would miss each other.
   const [approver] = await tx
@@ -261,6 +263,11 @@ export async function decideApproval(
     }
 
     const reason = input.reason?.trim().slice(0, MAX_REASON_LENGTH) || undefined;
+    const holdingWork = approval.holdsWork && work.status === 'awaiting_approval';
+    // Denying this stops the work for good, so the record says why, however the denial arrived.
+    if (input.decision === 'deny' && holdingWork && !reason) {
+      throw new AppError('REASON_REQUIRED');
+    }
     const status = input.decision === 'approve' ? 'approved' : 'denied';
     await tx
       .update(approvals)
@@ -278,7 +285,7 @@ export async function decideApproval(
 
     // Only the approval that caused the pause can end it. A later review of the same work is just a
     // review: it records an opinion, and overrides nobody.
-    if (approval.holdsWork && work.status === 'awaiting_approval') {
+    if (holdingWork) {
       await applyTransition(tx, context, work, status === 'approved' ? 'running' : 'cancelled', {
         ...(reason ? { reason } : {}),
       });

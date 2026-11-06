@@ -55,10 +55,22 @@ const MESSAGES: Record<ErrorCode, string> = {
 
 export class AppError extends Error {
   override name = 'AppError';
-  constructor(readonly code: ErrorCode) {
+  constructor(
+    readonly code: ErrorCode,
+    /** What the audit log calls this, when that says more than the person is told. */
+    readonly auditAs?: 'FOREIGN_REFERENCE',
+  ) {
     super(MESSAGES[code]);
   }
 }
+
+/**
+ * A request named a project, person, team or client that is not in this tenant. Every form only ever
+ * offers ones that are, so this is someone writing their own request. They hear what a typing mistake
+ * would hear, whether it exists elsewhere or nowhere, so no ID can be probed, and the log says what it
+ * was (NEXT-01).
+ */
+export const foreignReference = () => new AppError('INVALID_INPUT', 'FOREIGN_REFERENCE');
 
 export const HTTP_STATUS: Record<ErrorCode, number> = {
   NOT_FOUND: 404,

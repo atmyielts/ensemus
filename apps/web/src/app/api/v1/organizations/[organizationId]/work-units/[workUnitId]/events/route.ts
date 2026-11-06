@@ -3,7 +3,7 @@ import { AppError, getWorkUnit } from '@ensemus/application';
 import { resolveTenantContext, TenantAccessDenied } from '@ensemus/database';
 import { errorCode } from '@ensemus/telemetry';
 import { apiLog, apiRoute, workUnitParams } from '@/server/api';
-import { getRuntime } from '@/server/runtime';
+import { getRestoreGate, getRuntime } from '@/server/runtime';
 
 export const dynamic = 'force-dynamic';
 
@@ -41,6 +41,8 @@ export const GET = apiRoute(
     /** Access is decided afresh on each pass, and nothing about the person is carried over. */
     async function currentVersion() {
       const fresh = await resolveTenantContext(database, userId, organizationId);
+      // A stream opened before a restore does not outlast it, or it would report a past that is gone.
+      await getRestoreGate().assertServing(fresh);
       const work = await getWorkUnit(database, fresh, workUnitId);
       return work.version;
     }
@@ -81,11 +83,12 @@ export const GET = apiRoute(
           version = await currentVersion();
         }
       } catch (error) {
-        // Disconnects, the lifetime cap and lost access are all normal ways for this to end.
-        const revoked =
+        // Disconnects, the lifetime cap, lost access and a restore are all normal ways for this to end.
+        const ended =
           error instanceof TenantAccessDenied ||
-          (error instanceof AppError && error.code === 'NOT_FOUND');
-        if (!signal.aborted && !revoked) {
+          (error instanceof AppError &&
+            (error.code === 'NOT_FOUND' || error.code === 'RESTORE_PENDING'));
+        if (!signal.aborted && !ended) {
           apiLog.warn('api.stream_failed', { requestId, errorCode: errorCode(error) });
         }
       } finally {

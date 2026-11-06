@@ -30,13 +30,18 @@ const REFUSALS: ReadonlySet<ErrorCode> = new Set<ErrorCode>([
 
 /** Whether this error is one a person should be able to find in the audit log afterwards. */
 export const isAuditedRefusal = (error: unknown): error is AppError =>
-  error instanceof AppError && REFUSALS.has(error.code);
+  error instanceof AppError && (error.auditAs !== undefined || REFUSALS.has(error.code));
+
+export type RefusalCode = ErrorCode | NonNullable<AppError['auditAs']>;
+
+/** The code a refusal goes on the record under. */
+export const refusalCode = (error: AppError): RefusalCode => error.auditAs ?? error.code;
 
 /** A refusal inside the tenant this person belongs to. Returns whether a new row was written. */
 export function auditRefusal(
   database: AppDatabase,
   context: TenantContext,
-  refusal: { code: ErrorCode; surface: RefusalSurface; now?: Date },
+  refusal: { code: RefusalCode; surface: RefusalSurface; now?: Date },
 ) {
   return withTenantTx(database, context, (tx) =>
     appendRefusal(tx, {
@@ -62,10 +67,12 @@ export async function auditTenantRefusal(
   refusal: { userId: string; organizationId: string; surface: RefusalSurface; now?: Date },
 ) {
   if (!UUID.test(refusal.organizationId)) return false;
+  // This came straight from a request, with no membership row to take the real spelling from.
+  const organizationId = refusal.organizationId.toLowerCase();
   try {
-    return await withNewTenantTx(database, refusal.organizationId, refusal.userId, (tx) =>
+    return await withNewTenantTx(database, organizationId, refusal.userId, (tx) =>
       appendRefusal(tx, {
-        organizationId: refusal.organizationId,
+        organizationId,
         actorId: refusal.userId,
         surface: refusal.surface,
         code: 'TENANT_ACCESS_DENIED',

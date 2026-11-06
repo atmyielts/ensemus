@@ -8,10 +8,12 @@ import {
   blobLifecycle,
   organizations,
   tombstones,
+  withNewTenantTx,
   withTenantTx,
   workArtifacts,
   type AppDatabase,
   type TenantContext,
+  type Tx,
 } from '@ensemus/database';
 import {
   LEDGER_PREFIX,
@@ -36,16 +38,29 @@ export interface LedgerReader {
  * behind the database. Any count above zero means the database went back in time. No transaction stays
  * open during a call to the store, and row-level security confines the check to this tenant.
  */
-export async function countUnappliedTombstones(
+export function countUnappliedTombstones(
   database: AppDatabase,
   store: Pick<LedgerReader, 'listPages'>,
   context: TenantContext,
 ): Promise<number> {
+  return countMissing(store, {
+    organizationId: context.organizationId,
+    bound: (fn) => withTenantTx(database, context, fn),
+  });
+}
+
+/** A tenant to check, and how to reach its rows with row-level security bound to it. */
+type GateTenant = {
+  organizationId: string;
+  bound: <T>(fn: (tx: Tx) => Promise<T>) => Promise<T>;
+};
+
+async function countMissing(store: Pick<LedgerReader, 'listPages'>, tenant: GateTenant) {
   let missing = 0;
-  for await (const page of store.listPages(ledgerPrefixFor(context.organizationId))) {
+  for await (const page of store.listPages(ledgerPrefixFor(tenant.organizationId))) {
     const named = page.flatMap((key) => parseLedgerKey(key) ?? []);
     if (named.length === 0) continue;
-    const known = await withTenantTx(database, context, (tx) =>
+    const known = await tenant.bound((tx) =>
       tx
         .select({ type: tombstones.targetType, id: tombstones.targetId })
         .from(tombstones)
@@ -85,18 +100,18 @@ export function createRestoreGate(options: {
   const known = new Map<string, { closed: boolean; until: number }>();
   const checking = new Map<string, Promise<boolean>>();
 
-  const check = async (context: TenantContext) => {
-    const before = known.get(context.organizationId)?.closed ?? false;
+  const check = async (tenant: GateTenant) => {
+    const before = known.get(tenant.organizationId)?.closed ?? false;
     let closed = before;
     try {
-      const missing = await countUnappliedTombstones(options.database, options.store, context);
+      const missing = await countMissing(options.store, tenant);
       closed = missing > 0;
-      if (closed) options.onClosed?.(context.organizationId, missing);
+      if (closed) options.onClosed?.(tenant.organizationId, missing);
     } catch (error) {
       options.onCheckFailed?.(error);
     }
     if (known.size >= MAX_REMEMBERED) known.clear();
-    known.set(context.organizationId, {
+    known.set(tenant.organizationId, {
       closed,
       until: now() + (closed ? CLOSED_FOR_MS : CLEAR_FOR_MS),
     });
@@ -104,13 +119,13 @@ export function createRestoreGate(options: {
   };
 
   /** One check at a time for each tenant. Everyone asking meanwhile waits for the same answer. */
-  const isClosed = (context: TenantContext) => {
-    const organizationId = context.organizationId;
+  const isClosed = (tenant: GateTenant) => {
+    const { organizationId } = tenant;
     const current = known.get(organizationId);
     if (current && current.until > now()) return Promise.resolve(current.closed);
     let running = checking.get(organizationId);
     if (!running) {
-      running = check(context).finally(() => checking.delete(organizationId));
+      running = check(tenant).finally(() => checking.delete(organizationId));
       checking.set(organizationId, running);
     }
     return running;
@@ -118,7 +133,22 @@ export function createRestoreGate(options: {
 
   return {
     async assertServing(context: TenantContext) {
-      if (await isClosed(context)) throw new AppError('RESTORE_PENDING');
+      const tenant: GateTenant = {
+        organizationId: context.organizationId,
+        bound: (fn) => withTenantTx(options.database, context, fn),
+      };
+      if (await isClosed(tenant)) throw new AppError('RESTORE_PENDING');
+    },
+    /**
+     * The same, for someone about to join through an invitation, who has no membership to check yet.
+     * The organization comes from the invitation's row, never from the request.
+     */
+    async assertServingInvited(organizationId: string, userId: string) {
+      const tenant: GateTenant = {
+        organizationId,
+        bound: (fn) => withNewTenantTx(options.database, organizationId, userId, fn),
+      };
+      if (await isClosed(tenant)) throw new AppError('RESTORE_PENDING');
     },
   };
 }

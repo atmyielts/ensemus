@@ -23,7 +23,9 @@ export default async function SignInPage({
         <h1>Sign in to Ensemus</h1>
         {error && (
           <p className="notice error" role="alert">
-            That email and password did not match.
+            {error === 'rate'
+              ? 'Too many attempts from here. Wait a minute, then try again.'
+              : 'That email and password did not match.'}
           </p>
         )}
         <form className="fields" action={signInAction}>

@@ -44,6 +44,22 @@ export function logSafely(level: string, _message: string, ...args: unknown[]) {
 export type SetupAccount = { token: string; name: string; email: string; password: string };
 export type SetupOutcome = 'created' | 'invalid_token' | 'invalid_details';
 
+export type CredentialForm =
+  | { path: '/sign-in/email'; body: { email: string; password: string } }
+  | { path: '/sign-up/email'; body: { name: string; email: string; password: string } };
+
+export type CredentialOutcome = {
+  outcome: 'accepted' | 'refused' | 'rate_limited';
+  /** The HTTP status behind the outcome, for the log. */
+  status: number;
+  /** The cookies to set, which the caller's framework has to pass on to the browser. */
+  setCookie: string | null;
+};
+
+/** What the limits and the session record read. Nothing else from the form's request is passed on. */
+const FORWARDED_HEADERS = ['x-forwarded-for', 'user-agent'];
+const TOO_MANY_REQUESTS = 429;
+
 export function createAuth(options: AuthOptions) {
   const { db, close } = openAuthDatabase(options.databaseUrl);
   const build = (allowSignup: boolean) =>
@@ -101,6 +117,42 @@ export function createAuth(options: AuthOptions) {
     });
   const auth = build(options.allowSignup);
 
+  /**
+   * Submits a sign-in or sign-up form the way /api/auth receives it. Better Auth applies its rate limit
+   * in its router, and `auth.api` goes straight to the endpoint past that, so a form calling `auth.api`
+   * could be tried without limit. Going through the router means one limit and one count, whichever way
+   * someone arrives. The Server Action has already had its origin checked by Next.js.
+   */
+  async function submitCredentials(
+    form: CredentialForm,
+    incoming: Headers,
+  ): Promise<CredentialOutcome> {
+    const headers = new Headers({
+      'content-type': 'application/json',
+      origin: new URL(options.baseURL).origin,
+    });
+    for (const name of FORWARDED_HEADERS) {
+      const value = incoming.get(name);
+      if (value) headers.set(name, value);
+    }
+    const response = await auth.handler(
+      new Request(new URL(`/api/auth${form.path}`, options.baseURL), {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(form.body),
+      }),
+    );
+    return {
+      outcome: response.ok
+        ? 'accepted'
+        : response.status === TOO_MANY_REQUESTS
+          ? 'rate_limited'
+          : 'refused',
+      status: response.status,
+      setCookie: response.ok ? response.headers.get('set-cookie') : null,
+    };
+  }
+
   // Never mounted on any route, so sign-up stays exactly as closed as it was. The only way in here is
   // through redeemSetupToken, past a code only the operator's command can make.
   let forSetupCodes: typeof auth | undefined;
@@ -127,7 +179,7 @@ export function createAuth(options: AuthOptions) {
     }
   }
 
-  return { auth, close, redeemSetupToken };
+  return { auth, close, redeemSetupToken, submitCredentials };
 }
 
 export type EnsemusAuth = ReturnType<typeof createAuth>['auth'];

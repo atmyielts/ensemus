@@ -2,7 +2,7 @@
 // each watched for anything leaving the proxy's origin. The app loads nothing from outside (ADR-021),
 // so any such request fails the test that caused it.
 import { expect, test as base, type BrowserContext, type Page } from '@playwright/test';
-import { BASE, type Person } from '../../helpers/forms';
+import { aClientAddress, BASE, type Person } from '../../helpers/forms';
 import { buildWorld, type World } from './world';
 
 const ORIGIN = new URL(BASE).origin;
@@ -96,6 +96,9 @@ export const test = base.extend<
         javaScriptEnabled: options.javaScriptEnabled ?? true,
         colorScheme: options.colorScheme ?? 'light',
         viewport: { width: options.width ?? 1280, height: options.height ?? 800 },
+        // Each browser is a client of its own, as it would be, so that the sign-in and sign-up limits
+        // per address are not shared between tests.
+        extraHTTPHeaders: { 'x-ensemus-test-client': aClientAddress() },
       });
       contexts.push(context);
       await guard(context, outsideRequests);

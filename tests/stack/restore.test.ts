@@ -6,7 +6,12 @@ import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { objectKey, readArtifact, type ReapplyResult } from '@ensemus/application';
 import { openAppDatabase, resolveTenantContext } from '@ensemus/database';
-import { ledgerKeyFor, LEDGER_PREFIX, TOMBSTONE_RECORDED } from '@ensemus/domain/tombstone-ledger';
+import {
+  ledgerKeyFor,
+  LEDGER_PREFIX,
+  serializeLedgerEntry,
+  TOMBSTONE_RECORDED,
+} from '@ensemus/domain/tombstone-ledger';
 import { S3ObjectStore } from '@ensemus/storage';
 import {
   createOrganization,
@@ -17,10 +22,12 @@ import {
   read,
   signUp,
   submit,
+  tokenIn,
   visit,
 } from '../helpers/forms';
 import { createWork, locationOf, mainOf, workPage } from '../helpers/flows';
 import { compose, secret, urls } from '../helpers/stack';
+import { eventsPath, openStreams } from '../helpers/streams';
 
 const LONG = 300_000;
 const WAIT = { timeout: 30_000, interval: 250 };
@@ -210,6 +217,70 @@ describe('restoring a database backup', () => {
     await app?.close();
     await su?.end();
   });
+
+  it(
+    'closes a tenant on every way in, without a real restore to wait for',
+    async () => {
+      const person = await signUp('Paula Paths');
+      const tenant = await createOrganization(person, `Paths ${randomUUID()}`);
+      const work = await createWork(person, tenant, { title: `Paths ${randomUUID()}` });
+      const invited = await signUp('Ivy Invited');
+      const made = await submit(`/o/${tenant}/people`, person.jar, /name="email"/, {
+        email: invited.email,
+        role: 'member',
+      });
+      const token = tokenIn(await made.text());
+      if (!token) throw new Error('No invitation link');
+      const streams = openStreams();
+      const stream = await streams.follow(person.jar, eventsPath(tenant, work));
+      expect(stream.status).toBe(200);
+
+      // What a restore leaves behind: a deletion the ledger knows about and the database does not.
+      const entry = {
+        organizationId: tenant,
+        targetType: 'artifact',
+        targetId: randomUUID(),
+        deletedAt: new Date(),
+      };
+      const key = ledgerKeyFor(entry);
+      await admin().put(key, serializeLedgerEntry(entry), 'application/json');
+      try {
+        const api = `/api/v1/organizations/${tenant}/work-units/${work}`;
+        await expect
+          .poll(async () => (await visit(api, person.jar)).status, GATE_INTERVAL)
+          .toBe(503);
+
+        // A stream opened before it closed does not stay open past that.
+        await expect.poll(() => stream.ended(), WAIT).toBe(true);
+
+        // The same tenant in capitals is still the same tenant.
+        const shouted = tenant.toUpperCase();
+        const shoutedPage = await visit(workPage(shouted, work), person.jar);
+        expect(shoutedPage.status).toBe(307);
+        expect(locationOf(shoutedPage)).toBe('/restoring');
+        const shoutedApi = await visit(
+          `/api/v1/organizations/${shouted}/work-units/${work}`,
+          person.jar,
+        );
+        expect(shoutedApi.status).toBe(503);
+        expect(await shoutedApi.json()).toMatchObject({ code: 'RESTORE_PENDING' });
+
+        // Someone joining gets no membership, no claim and no notification out of this.
+        const accepted = await submit(`/invite/${token}`, invited.jar, /Accept invitation/);
+        expect(locationOf(accepted)).toBe('/restoring');
+        const invitation = await su.query(
+          'select accepted_at, claimed_at from org.invitations where organization_id = $1',
+          [tenant],
+        );
+        expect(invitation.rows).toEqual([{ accepted_at: null, claimed_at: null }]);
+        expect((await read(`/o/${tenant}`, invited.jar)).status).toBe(404);
+      } finally {
+        streams.closeAll();
+        await admin().delete(key);
+      }
+    },
+    LONG,
+  );
 
   it(
     'cannot bring a deleted file back once the ledger is re-applied, and refuses to serve until then',

@@ -20,6 +20,8 @@ const KIND_WORDS: Record<string, string> = {
   'work.stopped': 'Work you own was stopped',
   'work.failed': 'Work you own did not finish',
   'work.assigned': 'You were put on some work',
+  'work.owner_recovered':
+    'Another owner chose a new owner for restricted work whose owner was disabled',
   'member.join_requested': 'Someone is asking to join, and needs confirming',
 };
 

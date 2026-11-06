@@ -884,6 +884,7 @@ describe('work', () => {
         approvalId: created.id,
         decision: 'deny',
         shownHash: created.actionHash,
+        reason: 'Not good enough',
       });
       expect((await getWorkUnit(db(), a, work.id)).status).toBe('cancelled');
     });

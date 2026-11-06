@@ -55,6 +55,19 @@ export type ApprovalStatus = 'pending' | 'approved' | 'denied' | 'expired' | 'ca
 export type ApprovalDenial =
   'NOT_PENDING' | 'EXPIRED' | 'WRONG_APPROVER' | 'HASH_MISMATCH' | 'SELF_APPROVAL';
 
+/**
+ * The status an approval really has. Past its time it can no longer be decided, whether or not the
+ * periodic check has got round to writing that down, so everything that reports a status says so.
+ */
+export function effectiveApprovalStatus(
+  approval: { status: string; expiresAt: Date },
+  now = new Date(),
+): string {
+  return approval.status === 'pending' && approval.expiresAt.getTime() <= now.getTime()
+    ? 'expired'
+    : approval.status;
+}
+
 export type ApprovalFacts = {
   status: ApprovalStatus;
   expiresAt: Date;

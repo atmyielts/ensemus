@@ -504,9 +504,17 @@ describe('public API', () => {
         work.id,
       ]);
       const id = rows[0].id as string;
-      expectError(await call(rival, 'GET', `${approvals(org)}/${id}`), 404, 'NOT_FOUND');
+      expectError(
+        await call(rival, 'GET', `/api/v1/organizations/${org}/approvals/${id}`),
+        404,
+        'NOT_FOUND',
+      );
       expectError(await call(rival, 'GET', `${approvals(rivalOrg)}/${id}`), 404, 'NOT_FOUND');
-      expectError(await call(undefined, 'GET', `${approvals(org)}/${id}`), 401, 'UNAUTHENTICATED');
+      expectError(
+        await call(undefined, 'GET', `/api/v1/organizations/${org}/approvals/${id}`),
+        401,
+        'UNAUTHENTICATED',
+      );
     });
   });
 
@@ -594,6 +602,62 @@ describe('public API', () => {
       expectError(await call(rival, 'POST', decisions(rivalOrg, id), { body }), 404, 'NOT_FOUND');
       expectError(await call(rival, 'POST', decisions(org, id), { body }), 404, 'NOT_FOUND');
       expect(await statusOf(id)).toBe('pending');
+    });
+
+    it('reports an approval past its time as expired, before anything has settled it', async () => {
+      const { id, hash } = await askForReview();
+      await su.query(
+        `update work.approvals set expires_at = now() - interval '1 minute' where id = $1`,
+        [id],
+      );
+      const shown = await call(reviewer, 'GET', `/api/v1/organizations/${org}/approvals/${id}`);
+      expect(shown.status).toBe(200);
+      expect((shown.json as Approval).status).toBe('expired');
+      // The row still says pending, and the page, the API and a decision all agree that it is not.
+      expect(await statusOf(id)).toBe('pending');
+      expectError(
+        await call(reviewer, 'POST', decisions(org, id), {
+          body: { decision: 'approve', action_hash: hash },
+        }),
+        409,
+        'APPROVAL_EXPIRED',
+      );
+      expect((await read(`/o/${org}/approvals/${id}`, reviewer.jar)).html).toContain('Expired');
+    });
+
+    it('needs a reason to stop paused work for good, the same as the form does', async () => {
+      const work = await createWork();
+      const page = `/o/${org}/work/${work.id}`;
+      for (const to of ['ready', 'running']) {
+        await submit(page, owner.jar, (form) => form.hidden.get('to') === to);
+      }
+      await submit(page, owner.jar, /Request review/, {
+        approverMembershipId: await membershipOf(reviewer),
+      });
+      const id = /\/approvals\/([0-9a-f-]{36})"/.exec((await read(page, owner.jar)).html)?.[1];
+      if (!id) throw new Error('No approval link');
+      const { rows } = await su.query('select action_hash from work.approvals where id = $1', [id]);
+      const body = { decision: 'deny', action_hash: rows[0].action_hash as string };
+
+      for (const silent of [body, { ...body, reason: '   ' }]) {
+        expectError(
+          await call(reviewer, 'POST', decisions(org, id), { body: silent }),
+          400,
+          'REASON_REQUIRED',
+        );
+      }
+      expect(await statusOf(id)).toBe('pending');
+      expect((await call(owner, 'GET', workUnit(org, work.id))).json).toMatchObject({
+        status: 'awaiting_approval',
+      });
+
+      const denied = await call(reviewer, 'POST', decisions(org, id), {
+        body: { ...body, reason: 'Not this way' },
+      });
+      expect(denied.status, denied.text).toBe(200);
+      expect((await call(owner, 'GET', workUnit(org, work.id))).json).toMatchObject({
+        status: 'cancelled',
+      });
     });
 
     it('refuses a malformed decision', async () => {
@@ -714,6 +778,33 @@ describe('public API', () => {
         );
       }
       expect((await call(owner, 'GET', workUnit(org, work.id))).json).toEqual(work);
+    });
+
+    it('records a project from another tenant, and answers as for any bad input', async () => {
+      const forger = await join(owner, org, 'Fred Forger');
+      const membership = await membershipOf(forger);
+      const { rows: theirs } = await su.query(
+        `insert into work.projects (organization_id, name) values ($1, 'Theirs') returning id`,
+        [rivalOrg],
+      );
+      const title = `Forged ${randomUUID()}`;
+      for (const project of [theirs[0].id as string, randomUUID()]) {
+        expectError(
+          await call(forger, 'POST', workUnits(org), {
+            body: { title, objective: 'x', project_id: project },
+            key: randomUUID(),
+          }),
+          400,
+          'INVALID_INPUT',
+        );
+      }
+      expect(await titleCount(title)).toBe(0);
+      const { rows } = await su.query(
+        `select action, safe_reason from governance.audit_events
+         where organization_id = $1 and actor_id = $2 and action like 'access.refused%'`,
+        [org, membership],
+      );
+      expect(rows).toEqual([{ action: 'access.refused.api', safe_reason: 'FOREIGN_REFERENCE' }]);
     });
 
     it('records a forged tenant and a forged role, once each, with nothing they sent', async () => {

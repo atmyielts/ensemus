@@ -20,10 +20,11 @@ import {
 import { can, type Capability } from '@ensemus/domain/policy';
 import { and, asc, eq, isNull, sql } from 'drizzle-orm';
 import { z } from 'zod';
-import { AppError, pgCode } from './errors';
+import { AppError, foreignReference, pgCode } from './errors';
 import { emit } from './events';
-import { closeReviewsForLostAccess } from './work';
+import { assertActiveMember, closeReviewsForLostAccess } from './work';
 
+const FOREIGN_KEY_VIOLATION = '23503';
 const name = z.string().trim().min(1).max(200);
 const classification = z.enum(['public', 'internal', 'confidential', 'restricted']);
 const identifier = z.uuid();
@@ -67,7 +68,7 @@ export async function createTeam(
 function teamWriteError(error: unknown) {
   const code = pgCode(error);
   if (code === 'EN002' || code === '23514') return new AppError('TEAM_CYCLE');
-  if (code === '23503') return new AppError('INVALID_INPUT');
+  if (code === FOREIGN_KEY_VIOLATION) return foreignReference();
   return error;
 }
 
@@ -110,11 +111,7 @@ export async function addTeamMember(
   requireCapability(context, 'team.manage');
   const input = parse(z.strictObject({ teamId: identifier, membershipId: identifier }), raw);
   return withTenantTx(database, context, async (tx) => {
-    const [member] = await tx
-      .select({ status: memberships.status })
-      .from(memberships)
-      .where(eq(memberships.id, input.membershipId));
-    if (member?.status !== 'active') throw new AppError('INVALID_INPUT');
+    await assertActiveMember(tx, input.membershipId);
     const [team] = await tx.select({ id: teams.id }).from(teams).where(eq(teams.id, input.teamId));
     if (!team) throw new AppError('NOT_FOUND');
     await tx
@@ -448,7 +445,17 @@ export type InvitationOutcome =
  */
 export async function acceptInvitation(
   database: AppDatabase,
-  input: { token: string; userId: string; email: string; emailVerified: boolean },
+  input: {
+    token: string;
+    userId: string;
+    email: string;
+    emailVerified: boolean;
+    /**
+     * Refuses while this tenant is being restored (ADR-026). It is asked only once the invitation is
+     * known to be this person's, so that nobody else can learn a restore is under way.
+     */
+    assertServing?: (organizationId: string, userId: string) => Promise<void>;
+  },
 ): Promise<InvitationOutcome> {
   const tokenHash = hashToken(input.token);
   const [invitation] = await withInvitationTx(database, tokenHash, (tx) =>
@@ -461,6 +468,7 @@ export async function acceptInvitation(
     invitation.expiresAt > new Date() &&
     invitation.email === input.email.trim().toLowerCase();
   if (!usable) throw new AppError('INVITATION_INVALID');
+  await input.assertServing?.(invitation.organizationId, input.userId);
 
   return withNewTenantTx(database, invitation.organizationId, input.userId, async (tx) => {
     // Re-read under a lock, so two simultaneous accepts cannot both succeed.
@@ -636,15 +644,20 @@ export async function createProject(
   requireCapability(context, 'project.manage');
   const input = parse(z.strictObject({ name, clientId: z.uuid().optional() }), raw);
   return withTenantTx(database, context, async (tx) => {
-    const [row] = await tx
-      .insert(projects)
-      .values({
-        organizationId: context.organizationId,
-        name: input.name,
-        clientId: input.clientId ?? null,
-      })
-      .returning();
-    return row;
+    try {
+      const [row] = await tx
+        .insert(projects)
+        .values({
+          organizationId: context.organizationId,
+          name: input.name,
+          clientId: input.clientId ?? null,
+        })
+        .returning();
+      return row;
+    } catch (error) {
+      // A client elsewhere fails its tenant-safe key.
+      throw pgCode(error) === FOREIGN_KEY_VIOLATION ? foreignReference() : error;
+    }
   });
 }
 

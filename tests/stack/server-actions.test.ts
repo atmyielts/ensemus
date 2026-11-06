@@ -2,6 +2,14 @@
 // it submits a form without JavaScript, through the proxy, against built images.
 import { randomUUID } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
+import {
+  aClientAddress,
+  formOn,
+  fromAddress,
+  post,
+  read,
+  signUp as signUpPerson,
+} from '../helpers/forms';
 
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0'; // The proxy uses a local test certificate.
 
@@ -45,7 +53,8 @@ async function submit(
   for (const [name, value] of Object.entries(values)) body.append(name, value);
   const response = await fetch(`${BASE}${path}`, {
     method: 'POST',
-    headers: { cookie: jar.cookie, origin },
+    // An address of its own, so these do not use up one another's sign-up allowance.
+    headers: { cookie: jar.cookie, origin, 'x-ensemus-test-client': aClientAddress() },
     body,
     redirect: 'manual',
   });
@@ -85,6 +94,88 @@ describe('Server Actions through real forms', () => {
     });
     expect(response.headers.get('location')).toBe('/sign-in?error=invalid');
     expect(jar.cookie).not.toContain('session_token');
+  });
+
+  describe('how many attempts one client gets', () => {
+    it('refuses the sign-in past the limit, even with the right password', async () => {
+      const person = await signUpPerson('Lim Limited');
+      await fromAddress(aClientAddress(), async () => {
+        const form = await formOn('/sign-in', undefined, /name="password"/);
+        for (let i = 0; i < 10; i += 1) {
+          const jar: Jar = { cookie: '' };
+          const refused = await post('/sign-in', jar, form, {
+            email: person.email,
+            password: `wrong password ${i}`,
+          });
+          expect(refused.headers.get('location')).toBe('/sign-in?error=invalid');
+        }
+        const jar: Jar = { cookie: '' };
+        const past = await post('/sign-in', jar, form, {
+          email: person.email,
+          password: PASSWORD,
+        });
+        expect(past.headers.get('location')).toBe('/sign-in?error=rate');
+        expect(jar.cookie).not.toContain('session_token');
+        const { html } = await read('/sign-in?error=rate');
+        expect(html).toContain('Too many attempts from here.');
+        expect(html).not.toContain('did not match');
+      });
+      // Someone else is not held up by this, and neither is the person, somewhere else.
+      const jar: Jar = { cookie: '' };
+      const elsewhere = await fromAddress(aClientAddress(), async () =>
+        post('/sign-in', jar, await formOn('/sign-in', undefined, /name="password"/), {
+          email: person.email,
+          password: PASSWORD,
+        }),
+      );
+      expect(elsewhere.headers.get('location')).toBe('/');
+      expect(jar.cookie).toContain('session_token');
+    });
+
+    it('still counts attempts made through the route toward the form’s limit', async () => {
+      const address = aClientAddress();
+      for (let i = 0; i < 10; i += 1) {
+        const response = await fetch(`${BASE}/api/auth/sign-in/email`, {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            origin: BASE,
+            'x-ensemus-test-client': address,
+          },
+          body: JSON.stringify({ email: 'nobody@example.invalid', password: 'wrong password' }),
+        });
+        expect(response.status).toBe(401);
+      }
+      const past = await fromAddress(address, async () =>
+        post('/sign-in', { cookie: '' }, await formOn('/sign-in', undefined, /name="password"/), {
+          email: 'nobody@example.invalid',
+          password: 'wrong password',
+        }),
+      );
+      expect(past.headers.get('location')).toBe('/sign-in?error=rate');
+    });
+
+    it('refuses the sign-up past the limit, and makes no account', async () => {
+      await fromAddress(aClientAddress(), async () => {
+        const form = await formOn('/sign-up', undefined, /name="password"/);
+        const account = (email: string) => ({ name: 'Form User', email, password: PASSWORD });
+        for (let i = 0; i < 5; i += 1) {
+          const jar: Jar = { cookie: '' };
+          const made = await post(
+            '/sign-up',
+            jar,
+            form,
+            account(`${randomUUID()}@example.invalid`),
+          );
+          expect(made.headers.get('location')).toBe('/');
+          expect(jar.cookie).toContain('session_token');
+        }
+        const jar: Jar = { cookie: '' };
+        const past = await post('/sign-up', jar, form, account(`${randomUUID()}@example.invalid`));
+        expect(past.headers.get('location')).toBe('/sign-up?error=rate');
+        expect(jar.cookie).not.toContain('session_token');
+      });
+    });
   });
 
   it('creates an organization and opens it', async () => {

@@ -1,9 +1,11 @@
 'use server';
 
+import type { CredentialForm } from '@ensemus/auth';
 import { organizationNameSchema } from '@ensemus/contracts';
 import { createOrganization } from '@ensemus/database';
 import { errorCode } from '@ensemus/telemetry';
-import { headers } from 'next/headers';
+import { parseSetCookieHeader, toCookieOptions } from 'better-auth/cookies';
+import { cookies, headers } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { z } from 'zod';
 import { safeReturnPath, withReturnPath } from '@/lib/return-path';
@@ -18,41 +20,57 @@ const field = (form: FormData, name: string) => {
   return typeof value === 'string' ? value : '';
 };
 
-export async function signInAction(form: FormData) {
-  const { auth, log } = getRuntime();
-  const next = safeReturnPath(field(form, 'next'));
-  let failed = false;
+/**
+ * Submits the form through the same limit as /api/auth, passes on any session it made, and says which
+ * error the page should show. A failure says nothing more than a refusal would.
+ */
+async function submitForm(form: CredentialForm, event: string): Promise<string | null> {
+  const { log, submitCredentials } = getRuntime();
   try {
-    await auth.api.signInEmail({
-      body: { email: field(form, 'email'), password: field(form, 'password') },
-      headers: await headers(),
-    });
+    const { outcome, status, setCookie } = await submitCredentials(form, await headers());
+    if (outcome === 'accepted') {
+      const jar = await cookies();
+      for (const [name, value] of parseSetCookieHeader(setCookie ?? '')) {
+        jar.set(name, value.value, toCookieOptions(value));
+      }
+      return null;
+    }
+    log.info(event, { errorCode: `HTTP_${status}` });
+    return outcome === 'rate_limited' ? 'rate' : 'invalid';
   } catch (error) {
-    failed = true;
-    log.info('auth.sign_in_failed', { errorCode: errorCode(error) });
+    log.info(event, { errorCode: errorCode(error) });
+    return 'invalid';
   }
-  redirect(failed ? withReturnPath('/sign-in?error=invalid', next) : (next ?? '/'));
+}
+
+export async function signInAction(form: FormData) {
+  const next = safeReturnPath(field(form, 'next'));
+  const error = await submitForm(
+    {
+      path: '/sign-in/email',
+      body: { email: field(form, 'email'), password: field(form, 'password') },
+    },
+    'auth.sign_in_failed',
+  );
+  redirect(error ? withReturnPath(`/sign-in?error=${error}`, next) : (next ?? '/'));
 }
 
 export async function signUpAction(form: FormData) {
-  const { auth, config, log } = getRuntime();
+  const { config } = getRuntime();
   const next = safeReturnPath(field(form, 'next'));
   if (!config.allowSignup) redirect(withReturnPath('/sign-in', next));
-  let failed = false;
-  try {
-    await auth.api.signUpEmail({
+  const error = await submitForm(
+    {
+      path: '/sign-up/email',
       body: {
         name: field(form, 'name'),
         email: field(form, 'email'),
         password: field(form, 'password'),
       },
-      headers: await headers(),
-    });
-  } catch (error) {
-    failed = true;
-    log.info('auth.sign_up_failed', { errorCode: errorCode(error) });
-  }
-  redirect(failed ? withReturnPath('/sign-up?error=invalid', next) : (next ?? '/'));
+    },
+    'auth.sign_up_failed',
+  );
+  redirect(error ? withReturnPath(`/sign-up?error=${error}`, next) : (next ?? '/'));
 }
 
 /**

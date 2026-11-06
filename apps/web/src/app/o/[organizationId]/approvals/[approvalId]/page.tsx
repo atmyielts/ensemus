@@ -1,4 +1,5 @@
 import { getApproval, listDirectory } from '@ensemus/application';
+import { effectiveApprovalStatus } from '@ensemus/domain/approval';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { ConfirmForm } from '@/components/confirm-form';
@@ -56,8 +57,7 @@ export default async function ApprovalPage({
   const base = `/o/${organizationId}`;
 
   // A pending approval past its time can no longer be decided, so it is not shown as open.
-  const expired = approval.status === 'pending' && approval.expiresAt.getTime() <= Date.now();
-  const status = expired ? 'expired' : approval.status;
+  const status = effectiveApprovalStatus(approval);
   const requestedByMe = approval.requestedByMembershipId === context.membershipId;
   const canDecide = isMine && status === 'pending' && !requestedByMe;
   const requester = approval.requestedByMembershipId

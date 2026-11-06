@@ -11,6 +11,7 @@ export type Capability =
   | 'client.manage'
   | 'project.manage'
   | 'work.create'
+  | 'work.recover_owner'
   | 'member.view_email';
 
 const GRANTS: Record<Role, ReadonlySet<Capability>> = {
@@ -22,6 +23,7 @@ const GRANTS: Record<Role, ReadonlySet<Capability>> = {
     'client.manage',
     'project.manage',
     'work.create',
+    'work.recover_owner',
     'member.view_email',
   ]),
   admin: new Set([

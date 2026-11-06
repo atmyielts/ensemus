@@ -125,6 +125,100 @@ describe('authentication', () => {
     expect(statuses).toContain(429);
   });
 
+  describe('the sign-in and sign-up forms', () => {
+    const fromClient = () =>
+      new Headers({
+        'x-forwarded-for': `198.51.100.${Math.floor(Math.random() * 250) + 1}`,
+        // Whatever a form's request carries beyond this, the limit counts the same.
+        'next-action': 'abc',
+        'content-type': 'multipart/form-data; boundary=x',
+        cookie: 'something=else',
+      });
+    const signInForm = (address: string, password: string) =>
+      ({ path: '/sign-in/email', body: { email: address, password } }) as const;
+
+    it('signs in and hands back a session, or refuses, as the route would', async () => {
+      const address = email();
+      await signUp(address);
+      const client = fromClient();
+      const wrong = await open.submitCredentials(
+        signInForm(address, 'wrong password here'),
+        client,
+      );
+      expect(wrong).toEqual({ outcome: 'refused', status: 401, setCookie: null });
+      const right = await open.submitCredentials(signInForm(address, PASSWORD), client);
+      expect(right.outcome).toBe('accepted');
+      const cookie = right.setCookie?.split(';')[0] as string;
+      const session = await open.auth.api.getSession({ headers: new Headers({ cookie }) });
+      expect(session?.user.email).toBe(address);
+    });
+
+    it('refuses the attempt past the limit, even with the right password', async () => {
+      const address = email();
+      await signUp(address);
+      const client = fromClient();
+      for (let i = 0; i < 10; i++) {
+        const { outcome } = await open.submitCredentials(
+          signInForm(address, 'wrong password here'),
+          client,
+        );
+        expect(outcome).toBe('refused');
+      }
+      expect(await open.submitCredentials(signInForm(address, PASSWORD), client)).toEqual({
+        outcome: 'rate_limited',
+        status: 429,
+        setCookie: null,
+      });
+    });
+
+    it('shares its count with the route, so neither is a way around the other', async () => {
+      const address = email();
+      await signUp(address);
+      const client = fromClient();
+      const route = () =>
+        open.auth.handler(
+          new Request(`${baseURL}/api/auth/sign-in/email`, {
+            method: 'POST',
+            headers: {
+              'content-type': 'application/json',
+              origin: baseURL,
+              'x-forwarded-for': client.get('x-forwarded-for') as string,
+            },
+            body: JSON.stringify({ email: address, password: 'wrong password here' }),
+          }),
+        );
+      for (let i = 0; i < 10; i++) expect((await route()).status).toBe(401);
+      const { outcome } = await open.submitCredentials(signInForm(address, PASSWORD), client);
+      expect(outcome).toBe('rate_limited');
+    });
+
+    it('limits sign-up too, and counts each client on its own', async () => {
+      const client = fromClient();
+      const form = () =>
+        ({
+          path: '/sign-up/email',
+          body: { name: 'Test User', email: email(), password: PASSWORD },
+        }) as const;
+      for (let i = 0; i < 5; i++) {
+        expect((await open.submitCredentials(form(), client)).outcome).toBe('accepted');
+      }
+      expect((await open.submitCredentials(form(), client)).outcome).toBe('rate_limited');
+      const elsewhere = new Headers({ 'x-forwarded-for': '192.0.2.200' });
+      expect((await open.submitCredentials(form(), elsewhere)).outcome).toBe('accepted');
+    });
+
+    it('stays as closed as the route when sign-up is off', async () => {
+      const { outcome } = await closed.submitCredentials(
+        {
+          path: '/sign-up/email',
+          body: { name: 'Test User', email: email(), password: PASSWORD },
+        },
+        fromClient(),
+      );
+      expect(outcome).toBe('refused');
+    });
+  });
+
   it('connects a new identity to organizations without crossing roles', async () => {
     const { user } = await signUp(email());
     const org = await createOrganization(app.db, {

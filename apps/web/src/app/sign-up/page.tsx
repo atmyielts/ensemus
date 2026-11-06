@@ -24,8 +24,9 @@ export default async function SignUpPage({
         <h1>Create your account</h1>
         {error && (
           <p className="notice error" role="alert">
-            We could not create that account. Check your details, and use a password of at least 12
-            characters.
+            {error === 'rate'
+              ? 'Too many attempts from here. Wait a minute, then try again.'
+              : 'We could not create that account. Check your details, and use a password of at least 12 characters.'}
           </p>
         )}
         <form className="fields" action={signUpAction}>

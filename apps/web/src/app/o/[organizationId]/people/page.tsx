@@ -1,16 +1,23 @@
-import { listDirectory, listInvitations, listTeams } from '@ensemus/application';
+import {
+  listDirectory,
+  listInvitations,
+  listTeams,
+  listWorkWithDisabledOwner,
+} from '@ensemus/application';
 import { can } from '@ensemus/domain/policy';
+import Link from 'next/link';
 import type { ReactNode } from 'react';
 import { ConfirmForm } from '@/components/confirm-form';
 import { InviteForm } from '@/components/invite-form';
 import { SubmitButton } from '@/components/submit-button';
-import { Empty, ErrorNotice, formatDate, PageHead } from '@/components/ui';
+import { Empty, ErrorNotice, formatDate, PageHead, StatusBadge } from '@/components/ui';
 import { requireTenant } from '@/server/tenant';
 import {
   addTeamMemberAction,
   confirmInvitationAction,
   createTeamAction,
   disableMemberAction,
+  recoverWorkOwnerAction,
   removeTeamMemberAction,
   revokeInvitationAction,
   setRoleAction,
@@ -234,10 +241,11 @@ export default async function PeoplePage({
   const canInvite = can(context.role, 'member.invite');
   const canManageTeams = can(context.role, 'team.manage');
   const seesEmail = can(context.role, 'member.view_email');
-  const [members, teams, invitations] = await Promise.all([
+  const [members, teams, invitations, ownerless] = await Promise.all([
     listDirectory(database, context),
     listTeams(database, context),
     canInvite ? listInvitations(database, context) : [],
+    canManage ? listWorkWithDisabledOwner(database, context) : { visible: [], hidden: [] },
   ]);
 
   const iAmOwner = context.role === 'owner';
@@ -336,6 +344,57 @@ export default async function PeoplePage({
             ))}
           </ul>
         </section>
+
+        {ownerless.visible.length + ownerless.hidden.length > 0 && (
+          <section className="card" aria-labelledby="ownerless-heading">
+            <h2 id="ownerless-heading">Work whose owner was disabled</h2>
+            <p className="muted">This work needs someone new to answer for it.</p>
+            <ul className="list">
+              {ownerless.visible.map((work) => (
+                <li key={work.id}>
+                  <Link href={`/o/${organizationId}/work/${work.id}`}>{work.title}</Link>
+                  <StatusBadge status={work.status} />
+                </li>
+              ))}
+              {ownerless.hidden.map((work) => (
+                <li key={work.id} className="block">
+                  <span>
+                    Restricted work <small>{work.id}</small>
+                  </span>
+                  <StatusBadge status={work.status} />
+                  <ConfirmForm
+                    action={recoverWorkOwnerAction}
+                    fields={
+                      <>
+                        {org}
+                        <input type="hidden" name="id" value={work.id} />
+                        <input type="hidden" name="version" value={work.version} />
+                      </>
+                    }
+                    summary="Choose a new owner"
+                    summaryLabel={`Choose a new owner for restricted work ${work.id}`}
+                    consequence="Make this person its accountable owner. Nobody active can open this work now. They will be able to read everything in it, and you will not, unless you choose yourself. This goes in the audit log, and any other owners are told."
+                    confirmLabel="Make them the owner"
+                  >
+                    <label>
+                      New owner
+                      <select name="membershipId" required defaultValue="">
+                        <option value="" disabled>
+                          Choose a person
+                        </option>
+                        {teamCandidates.map((member) => (
+                          <option key={member.membershipId} value={member.membershipId}>
+                            {member.name}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  </ConfirmForm>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
 
         {canInvite && (
           <section className="card" aria-labelledby="invitations-heading">

@@ -1,4 +1,5 @@
 import { getApproval } from '@ensemus/application';
+import { effectiveApprovalStatus } from '@ensemus/domain/approval';
 import { apiRoute, approvalParams } from '@/server/api';
 
 export const dynamic = 'force-dynamic';
@@ -12,7 +13,8 @@ export const GET = apiRoute(approvalParams, async ({ context, database, params }
   return Response.json({
     id: approval.id,
     work_unit_id: work.id,
-    status: approval.status,
+    // The same as the page and as a decision would find, even before the periodic check has run.
+    status: effectiveApprovalStatus(approval),
     tool_name: approval.toolName,
     action: approval.action,
     action_hash: approval.actionHash,

@@ -1,11 +1,4 @@
-import {
-  AppError,
-  createWorkUnit,
-  listWorkUnits,
-  pgCode,
-  requestHash,
-  runIdempotent,
-} from '@ensemus/application';
+import { createWorkUnit, listWorkUnits, requestHash, runIdempotent } from '@ensemus/application';
 import { WORK_STATES } from '@ensemus/domain/work-unit';
 import { z } from 'zod';
 import {
@@ -33,8 +26,6 @@ export const GET = apiRoute(organizationParams, async ({ request, context, datab
   });
   return Response.json({ items: page.items.map(workUnitDto), next_cursor: page.nextCursor });
 });
-
-const FOREIGN_KEY_VIOLATION = '23503';
 
 const createBody = z.strictObject({
   title: z.string().trim().min(1).max(300),
@@ -71,11 +62,7 @@ export const POST = apiRoute(organizationParams, async ({ request, context, data
         ...(dueAt ? { dueAt } : {}),
       }),
     (row) => ({ status: 201, body: workUnitDto(row) }),
-  ).catch((error: unknown) => {
-    // A project that is missing, or in another tenant, fails its tenant-safe foreign key.
-    if (pgCode(error) === FOREIGN_KEY_VIOLATION) throw new AppError('INVALID_INPUT');
-    throw error;
-  });
+  );
   if (outcome.kind === 'conflict') throw idempotencyKeyReused();
   const { version } = outcome.body as { version: number };
   return Response.json(outcome.body, {
