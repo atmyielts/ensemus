@@ -43,6 +43,9 @@ importers:
       '@ensemus/config':
         specifier: workspace:*
         version: link:../../packages/config
+      '@ensemus/connectors':
+        specifier: workspace:*
+        version: link:../../packages/connectors
       '@ensemus/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
@@ -52,6 +55,9 @@ importers:
       '@ensemus/domain':
         specifier: workspace:*
         version: link:../../packages/domain
+      '@ensemus/secrets':
+        specifier: workspace:*
+        version: link:../../packages/secrets
       '@ensemus/storage':
         specifier: workspace:*
         version: link:../../packages/storage
@@ -120,6 +126,18 @@ importers:
         specifier: 4.6.7
         version: 4.6.7
 
+  packages/connectors:
+    dependencies:
+      '@ensemus/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+      '@ensemus/domain':
+        specifier: workspace:*
+        version: link:../domain
+      zod:
+        specifier: 4.6.7
+        version: 4.6.7
+
   packages/contracts:
     dependencies:
       zod:
@@ -176,6 +194,9 @@ importers:
       '@ensemus/application':
         specifier: workspace:*
         version: link:../application
+      '@ensemus/connectors':
+        specifier: workspace:*
+        version: link:../connectors
       '@ensemus/database':
         specifier: workspace:*
         version: link:../database
@@ -212,6 +233,12 @@ importers:
       '@ensemus/auth':
         specifier: workspace:*
         version: link:../packages/auth
+      '@ensemus/connectors':
+        specifier: workspace:*
+        version: link:../packages/connectors
+      '@ensemus/contracts':
+        specifier: workspace:*
+        version: link:../packages/contracts
       '@ensemus/database':
         specifier: workspace:*
         version: link:../packages/database
@@ -304,12 +331,18 @@ importers:
       '@ensemus/config':
         specifier: workspace:*
         version: link:../../packages/config
+      '@ensemus/connectors':
+        specifier: workspace:*
+        version: link:../../packages/connectors
       '@ensemus/database':
         specifier: workspace:*
         version: link:../../packages/database
       '@ensemus/domain':
         specifier: workspace:*
         version: link:../../packages/domain
+      '@ensemus/secrets':
+        specifier: workspace:*
+        version: link:../../packages/secrets
       '@ensemus/storage':
         specifier: workspace:*
         version: link:../../packages/storage

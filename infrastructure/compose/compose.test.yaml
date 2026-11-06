@@ -4,7 +4,7 @@ services:
   objects:
     ports: ['127.0.0.1:58333:8333']
   postgres:
-    ports: ['127.0.0.1:55432:5432']
+    ports: ['127.0.0.1:${ENSEMUS_TEST_PG_PORT:-55432}:5432']
     # Lets tests/measure count statements. Nothing else uses it, and no deployment loads it.
     command: ['postgres', '-c', 'shared_preload_libraries=pg_stat_statements']
   # Publishing a port makes Docker accept traffic to that container from other networks, which would

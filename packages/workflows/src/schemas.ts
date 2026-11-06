@@ -41,5 +41,52 @@ export const workflowIdFor = (input: WorkInput) =>
   `work-${input.organizationId}-${input.workUnitId}`;
 export const reminderScheduleIdFor = (organizationId: string) => `reminders-${organizationId}`;
 
+// --- M3 (ADR-027). The same rule: IDs, enums and counters, with no recipient, cursor or provider text.
+
+export const externalActionInputSchema = z.strictObject({
+  organizationId: z.uuid(),
+  externalActionId: z.uuid(),
+});
+export type ExternalActionInput = z.infer<typeof externalActionInputSchema>;
+export const externalActionWorkflowIdFor = (input: ExternalActionInput) =>
+  `external-action-${input.organizationId}-${input.externalActionId}`;
+
+/** What the workflow ended on. `unknown` is honest: it stopped, and a person takes it from there. */
+export type ExternalActionOutcome = 'sent' | 'failed' | 'unknown' | 'cancelled';
+export type ExternalActionResult = { externalActionId: string; outcome: ExternalActionOutcome };
+
+/** What one send Activity reports. It carries no payload and no provider text. */
+export type SendStep =
+  | { step: 'sent' | 'failed' | 'cancelled' | 'unknown' }
+  /** Definitely not sent, and worth trying again after this long. */
+  | { step: 'retry'; afterMs: number }
+  /** An attempt could have sent, and only the provider can say. */
+  | { step: 'reconcile' };
+export type InterruptedStep = 'nothing_sent' | 'attempt_open' | 'settled';
+export type ReconcileStepResult = 'sent' | 'failed' | 'retry' | 'unknown';
+
+export const webhookDeliveryInputSchema = z.strictObject({
+  organizationId: z.uuid(),
+  deliveryId: z.uuid(),
+});
+export type WebhookDeliveryInput = z.infer<typeof webhookDeliveryInputSchema>;
+export const webhookWorkflowIdFor = (input: WebhookDeliveryInput) =>
+  `webhook-${input.organizationId}-${input.deliveryId}`;
+export type WebhookDeliveryOutcome = 'applied' | 'duplicate' | 'rejected' | 'skipped';
+
+export const connectorSyncInputSchema = z.strictObject({
+  organizationId: z.uuid(),
+  connectionId: z.uuid(),
+});
+export type ConnectorSyncInput = z.infer<typeof connectorSyncInputSchema>;
+export const connectorSyncWorkflowIdFor = (input: ConnectorSyncInput) =>
+  `connector-sync-${input.organizationId}-${input.connectionId}`;
+/** What the Activity did, from the connection's row: read its streams, or revoke its secret. */
+export type ConnectorSyncOutcome = {
+  outcome: 'synced' | 'revoked' | 'nothing_to_do' | 'failed';
+  pages: number;
+  resources: number;
+};
+
 /** Parses the IDs back out of a workflow ID. The dispatcher builds these, so the format is ours. */
 export const UUID_PATTERN = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';

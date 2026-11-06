@@ -127,7 +127,7 @@ CREATE POLICY memberships_self ON org.memberships FOR SELECT
 
 - **Tenant binding:** `withTenantTx(ctx, fn)` is the only exported way to get a connection, and a lint rule blocks importing the raw pool. It uses `set_config('app.organization_id', $1, true)`, because `SET LOCAL` cannot take a bind parameter, and interpolating a value into it invites injection.
 - **Short transactions:** never hold one across rendering or a model call. Parallel Suspense reads each take a connection, so size the pool for that and measure the extra round trips against the 300 ms read target.
-- **Webhooks:** resolve the tenant from a global `integrations.webhook_routes` table that maps an opaque token to an organization, then bind the tenant and verify the signature.
+- **Webhooks:** resolve the tenant from a global `integrations.webhook_routes` table that maps an opaque token to an organization, then bind the tenant and verify the signature. **Amended by [ADR-027](ADR-027-verified-external-actions.md) D4:** that table is `integrations.webhook_endpoints`, and the web tier stores what arrived without verifying it, because verifying takes a secret and D5 says it can never hold one. A worker verifies later.
 - **Scheduled work:** Temporal Schedules carry the organization ID. Activities re-load the run by `(organization_id, id)` rather than trusting input (SEC-015).
 
 ### D5. Identity and secrets footprint

@@ -9,6 +9,7 @@ import { createLogger, errorCode } from '@ensemus/telemetry';
 import { createActivities, type WorkflowProbe } from '@ensemus/workflows/activities';
 import { AesGcmPayloadCodec } from '@ensemus/workflows/codec';
 import { PLATFORM_TASK_QUEUE, TEMPORAL_CHANNEL_ARGS } from '@ensemus/workflows/constants';
+import { createExternalActionPlatformActivities } from '@ensemus/workflows/external-action-activities';
 import { createTemporalLogger } from '@ensemus/workflows/safe-logger';
 import { workflowIdFor } from '@ensemus/workflows/schemas';
 import { Client, Connection, WorkflowNotFoundError } from '@temporalio/client';
@@ -62,7 +63,11 @@ async function main() {
     namespace: process.env.TEMPORAL_NAMESPACE ?? 'default',
     taskQueue: PLATFORM_TASK_QUEUE,
     workflowBundle: { codePath: path.join(here, 'workflow-bundle.cjs') },
-    activities: createActivities({ database: db, store, probeWorkflow }),
+    activities: {
+      ...createActivities({ database: db, store, probeWorkflow }),
+      // Only what reads PostgreSQL. Anything holding a credential is on the connector queue.
+      ...createExternalActionPlatformActivities({ database: db }),
+    },
     dataConverter: {
       payloadCodecs: [new AesGcmPayloadCodec(readSecret('TEMPORAL_CODEC_KEY'))],
       failureConverterPath: path.join(here, 'failure-converter.cjs'),

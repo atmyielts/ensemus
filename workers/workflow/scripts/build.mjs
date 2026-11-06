@@ -21,6 +21,8 @@ await build({
     'src/setup-token.ts',
     'src/ledger-backlog.ts',
     'src/reapply-ledger.ts',
+    'src/connector-worker.ts',
+    'src/egress-gateway.ts',
   ].map((e) => path.join(root, e)),
   outdir: dist,
   bundle: true,

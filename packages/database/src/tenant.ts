@@ -1,6 +1,7 @@
 import { and, eq, sql } from 'drizzle-orm';
 import { openDatabase, type EnsemusDrizzle } from './connection';
 import { memberships } from './schema';
+import { webhookEndpoints } from './schema-integrations';
 
 const brand: unique symbol = Symbol('TenantContext');
 
@@ -116,6 +117,32 @@ export function withInvitationTx<T>(
   fn: (tx: Tx) => Promise<T>,
 ): Promise<T> {
   return database.transaction({ 'app.invitation_token_hash': tokenHash }, fn);
+}
+
+export type WebhookEndpointRow = typeof webhookEndpoints.$inferSelect;
+
+/**
+ * A public callback (ADR-024 D4, ADR-027 D4). Binds only the hash of the token in the URL, which reveals
+ * that one endpoint, and from its row binds the tenant, so nothing about the tenant comes from the
+ * request. Hands `fn` a context with no person behind it. Answers null, without calling `fn`, when no
+ * active endpoint has that hash. This is the only way the web tier gets a context with no session.
+ */
+export function withWebhookEndpointTx<T>(
+  database: AppDatabase,
+  tokenHash: string,
+  fn: (tx: Tx, scope: { endpoint: WebhookEndpointRow; context: TenantContext }) => Promise<T>,
+): Promise<T | null> {
+  return database.transaction({ 'app.webhook_token_hash': tokenHash }, async (tx) => {
+    const [endpoint] = await tx
+      .select()
+      .from(webhookEndpoints)
+      .where(and(eq(webhookEndpoints.tokenHash, tokenHash), eq(webhookEndpoints.state, 'active')));
+    if (!endpoint) return null;
+    await tx.execute(
+      sql`select set_config('app.organization_id', ${endpoint.organizationId}, true)`,
+    );
+    return fn(tx, { endpoint, context: createServiceContext(endpoint.organizationId) });
+  });
 }
 
 /**

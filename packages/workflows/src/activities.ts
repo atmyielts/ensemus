@@ -12,6 +12,7 @@ import {
   listHeldRuns,
   loadChangeable,
   purgeDueBlobs,
+  purgeExpiredWebhookDeliveries,
   recordApprovalClosed,
   reissueStaleRunRequests,
   REVIEW_HOURS,
@@ -320,6 +321,7 @@ export function createActivities(deps: {
         failed: 0,
       });
       if (blobs.failed > 0) log.warn('blobs.purge_failed', { count: blobs.failed });
+      await attempt(() => purgeExpiredWebhookDeliveries(database, ctx, now), 0);
       if (failures.length > 0) throw failures[0];
       return reminders;
     },

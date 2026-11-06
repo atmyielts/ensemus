@@ -5,6 +5,7 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
+    "./external-actions": "./src/external-actions.ts",
     "./openapi": "./generated/openapi.d.ts"
   },
   "scripts": {
