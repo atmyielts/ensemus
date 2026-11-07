@@ -136,11 +136,10 @@ describe('Context Compiler preserves scope, budget, provenance and query class',
     expect(answer).toMatchObject({ ok: true, items: [{ sourceId: normal.sourceId }] });
     expect(answerModel.calls.every((call) => call.method === 'route')).toBe(true);
     const agentModel = createScriptedModelPort(script);
-    expect(await compile(word, agentModel, reader, { purpose: 'agent_turn' })).toEqual({
-      ok: false,
-      code: 'EGRESS_DENIED',
-    });
-    expect(agentModel.calls.every((call) => call.method === 'route')).toBe(true);
+    await expect(compile(word, agentModel, reader, { purpose: 'agent_turn' })).rejects.toEqual(
+      new AppError('FORBIDDEN'),
+    );
+    expect(agentModel.calls).toEqual([]);
   });
   it('never drops a restricted question when ordinary evidence would reach an external route', async () => {
     const word = knowledgeCanary();

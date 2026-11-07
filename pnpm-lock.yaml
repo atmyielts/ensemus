@@ -240,7 +240,10 @@ importers:
       "@ensemus/domain":
         specifier: workspace:*
         version: link:../domain
-      "@ensemus/policy":
+      '@ensemus/knowledge':
+        specifier: workspace:*
+        version: link:../knowledge
+      '@ensemus/policy':
         specifier: workspace:*
         version: link:../policy
       ajv:

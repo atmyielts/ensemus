@@ -17,6 +17,7 @@
     "./ai-events": "./src/ai-events.ts",
     "./ai-tools": "./src/ai-tools.ts",
     "./knowledge": "./src/knowledge.ts",
+    "./knowledge-models": "./src/knowledge-models.ts",
     "./knowledge-events": "./src/knowledge-events.ts",
     "./product-policy": "./src/product-policy.ts",
     "./product-events": "./src/product-events.ts",

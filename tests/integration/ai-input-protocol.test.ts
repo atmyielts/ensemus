@@ -628,7 +628,7 @@ describe('durable agent input protocol and content fence as actual roles', () =>
     const compiled = await compileEvidence(
       agent.db,
       value.context,
-      { model: createScriptedModelPort({}) },
+      { model: createScriptedModelPort({}), authorizeAgentContext: async () => true },
       {
         purpose: 'agent_turn',
         workUnitId: value.work.id,

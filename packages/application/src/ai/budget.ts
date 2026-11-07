@@ -194,7 +194,11 @@ export async function getUsageSummary(
         ),
       )
       .where(and(eq(budgetReservations.status, 'held'), eq(budgets.period, period)))
-      .groupBy(budgetReservations.stepId, budgetReservations.attempt)
+      .groupBy(
+        budgetReservations.stepId,
+        budgetReservations.attempt,
+        budgetReservations.modelCallId,
+      )
       .as('holds');
     const [held] = await tx.select({ total: sumOf(holds.amount) }).from(holds);
 

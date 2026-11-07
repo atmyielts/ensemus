@@ -12,7 +12,6 @@ import {
   knowledgeChunks,
   knowledgeDocuments,
   knowledgeEmbeddings,
-  knowledgeEmbeddingSpaces,
   knowledgeFactEvidence,
   knowledgeFacts,
   knowledgeSourceGrants,
@@ -29,6 +28,8 @@ import { canReadWork } from '@ensemus/domain/policy';
 import { eq, sql } from 'drizzle-orm';
 import { knowledgeCanary, seedMember, seedSearchableSource, sha256 } from '../helpers/knowledge';
 import { urls } from '../helpers/stack';
+import { seedQualifiedKnowledgeRoute } from '../helpers/knowledge-models';
+import { ensureEmbeddingSpace } from '@ensemus/application/knowledge/embeddings';
 
 const sqlState = (code: string) =>
   expect.objectContaining({ cause: expect.objectContaining({ code }) });
@@ -427,17 +428,8 @@ describe('knowledge rules in the database', () => {
         passages: ['Words.'],
       });
       const service = createServiceContext(ownerA.organizationId);
-      const spaceId = randomUUID();
-      await withTenantTx(database.db, service, (tx) =>
-        tx.insert(knowledgeEmbeddingSpaces).values({
-          organizationId: ownerA.organizationId,
-          id: spaceId,
-          modelId: `test-${spaceId}`,
-          dimension: 3,
-          vectorSpaceVersion: 'v1',
-          state: 'retired',
-        }),
-      );
+      const route = await seedQualifiedKnowledgeRoute(database.db, ownerA, { dimension: 3 });
+      const spaceId = (await ensureEmbeddingSpace(database.db, service, route)).id;
       const insert = (dimension: number, embedding: number[]) =>
         withTenantTx(database.db, service, (tx) =>
           tx.insert(knowledgeEmbeddings).values({

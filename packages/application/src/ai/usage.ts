@@ -537,8 +537,15 @@ const reservationColumns = {
   status: budgetReservations.status,
 };
 
-const asReservation = (row: { status: string } & Omit<ReservationRow, 'status'>) =>
-  ({ ...row, status: row.status as ReservationStatus }) satisfies ReservationRow;
+const asReservation = (
+  row: { status: string; runId: string | null; stepId: string | null } & Omit<
+    ReservationRow,
+    'status' | 'runId' | 'stepId'
+  >,
+): ReservationRow => {
+  if (!row.runId || !row.stepId) throw new AppError('INVALID_STATE');
+  return { ...row, runId: row.runId, stepId: row.stepId, status: row.status as ReservationStatus };
+};
 
 const sqlStore: LedgerStore = {
   budgetsThatApply(tx, query) {
@@ -596,6 +603,7 @@ const sqlStore: LedgerStore = {
         and(
           eq(budgetReservations.stepId, query.stepId),
           eq(budgetReservations.attempt, query.attempt),
+          isNull(budgetReservations.modelCallId),
         ),
       )
       .orderBy(asc(budgetReservations.budgetId));
@@ -641,9 +649,10 @@ const sqlStore: LedgerStore = {
         and(
           eq(budgetReservations.id, query.reservationId),
           eq(budgetReservations.runId, query.runId),
+          isNull(budgetReservations.modelCallId),
         ),
       );
-    if (!head) return [];
+    if (!head?.stepId) return [];
     const rows = await tx
       .select(reservationColumns)
       .from(budgetReservations)
@@ -651,6 +660,7 @@ const sqlStore: LedgerStore = {
         and(
           eq(budgetReservations.stepId, head.stepId),
           eq(budgetReservations.attempt, head.attempt),
+          isNull(budgetReservations.modelCallId),
         ),
       )
       .orderBy(asc(budgetReservations.budgetId))
@@ -755,9 +765,15 @@ const sqlStore: LedgerStore = {
           eq(executionSteps.id, budgetReservations.stepId),
         ),
       )
-      .where(and(eq(budgetReservations.runId, query.runId), eq(budgetReservations.status, 'held')))
+      .where(
+        and(
+          eq(budgetReservations.runId, query.runId),
+          eq(budgetReservations.status, 'held'),
+          isNull(budgetReservations.modelCallId),
+        ),
+      )
       .orderBy(asc(budgetReservations.stepId), asc(budgetReservations.budgetId));
-    return rows.map((row) => ({ ...row, status: row.status as ReservationStatus }));
+    return rows.map((row) => ({ ...row, ...asReservation(row) }));
   },
 };
 

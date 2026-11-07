@@ -80,6 +80,8 @@ export class AppDatabase {
       for (const [name, value] of Object.entries({
         'app.agent_input_protocol': '',
         'app.interactive_session_id': '',
+        'app.knowledge_model_protocol': '',
+        'app.model_job_id': '',
         ...bindings,
       })) {
         await tx.execute(sql`select set_config(${name}, ${value}, true)`);
@@ -184,7 +186,8 @@ export function withWebhookEndpointTx<T>(
       sql`select set_config('app.organization_id', ${endpoint.organizationId}, true),
         set_config('app.user_id', '', true), set_config('app.membership_id', '', true),
         set_config('app.actor_type', 'service', true), set_config('app.agent_run_id', '', true),
-        set_config('app.agent_input_protocol', '', true)`,
+        set_config('app.agent_input_protocol', '', true), set_config('app.interactive_session_id','',true),
+        set_config('app.knowledge_model_protocol','',true), set_config('app.model_job_id','',true)`,
     );
     return fn(tx, { endpoint, context: createServiceContext(endpoint.organizationId) });
   });

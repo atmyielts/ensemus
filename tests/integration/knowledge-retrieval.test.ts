@@ -4,6 +4,8 @@ import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { AppError } from '@ensemus/application';
 import { retrieveHybrid, searchLexical } from '@ensemus/application/knowledge/retrieval';
+import { ensureEmbeddingSpace } from '@ensemus/application/knowledge/embeddings';
+import { seedQualifiedKnowledgeRoute } from '../helpers/knowledge-models';
 import {
   getSource,
   raiseSourceClassification,
@@ -13,7 +15,6 @@ import {
   createOrganization,
   knowledgeDocuments,
   knowledgeEmbeddings,
-  knowledgeEmbeddingSpaces,
   openAppDatabase,
   resolveTenantContext,
   withTenantTx,
@@ -142,27 +143,31 @@ describe('authorized lexical and hybrid retrieval', () => {
     const semanticText = knowledgeCanary();
     const semantic = await seed(semanticText);
     const hidden = await seed(knowledgeCanary(), owner.membershipId);
-    const spaceId = randomUUID();
-    const retired = randomUUID();
+    const retiredRoute = await seedQualifiedKnowledgeRoute(database.db, owner, {
+      dimension: 2,
+      modelId: 'generated-two',
+      vectorSpaceVersion: '1',
+    });
+    const retired = (
+      await ensureEmbeddingSpace(
+        database.db,
+        createServiceContext(owner.organizationId),
+        retiredRoute,
+      )
+    ).id;
+    const activeRoute = await seedQualifiedKnowledgeRoute(database.db, owner, {
+      dimension: 3,
+      modelId: 'generated-three',
+      vectorSpaceVersion: '1',
+    });
+    const spaceId = (
+      await ensureEmbeddingSpace(
+        database.db,
+        createServiceContext(owner.organizationId),
+        activeRoute,
+      )
+    ).id;
     await withTenantTx(database.db, createServiceContext(owner.organizationId), async (tx) => {
-      await tx.insert(knowledgeEmbeddingSpaces).values([
-        {
-          organizationId: owner.organizationId,
-          id: spaceId,
-          modelId: 'generated-three',
-          dimension: 3,
-          vectorSpaceVersion: '1',
-        },
-        {
-          organizationId: owner.organizationId,
-          id: retired,
-          modelId: 'generated-two',
-          dimension: 2,
-          vectorSpaceVersion: '1',
-          state: 'retired',
-          retiredAt: new Date(),
-        },
-      ]);
       await tx.insert(knowledgeEmbeddings).values([
         {
           organizationId: owner.organizationId,

@@ -25,13 +25,21 @@ import {
   type KnowledgeModelPort,
   type ModelPurpose,
   type ModelRoute,
+  type ModelUsage,
+  type ModelInputRef,
 } from '@ensemus/knowledge/ports';
+import { operationKey } from '@ensemus/knowledge/model-operations';
+import type { ModelResultConsumer } from '../ai/knowledge-ports';
 import { and, asc, eq, ne, sql } from 'drizzle-orm';
 import { AppError, pgCode } from '../errors';
 import { idSchema } from '../ids';
 import { requireSearchPerson, searchQuery } from './retrieval';
 
-export type EmbeddingDeps = { model: KnowledgeModelPort; batchSize?: number };
+export type EmbeddingDeps = {
+  model: KnowledgeModelPort;
+  batchSize?: number;
+  acceptResultInTx?: ModelResultConsumer;
+};
 
 export type EmbedStep = { state: EmbeddingState; code: KnowledgeCode | null; embedded: number };
 
@@ -40,6 +48,9 @@ export type EmbeddingSpace = {
   modelId: string;
   dimension: number;
   vectorSpaceVersion: string;
+  modelProfileRef: string;
+  modelProfileVersion: number;
+  qualificationId: string;
 };
 
 export type ModelCallEntry = {
@@ -223,21 +234,41 @@ export async function embedDocument(
       const prepared = await withTenantTx(database, context, async (tx) => {
         const refusal = await batchRefusalTx(tx, documentId, space.id, routeClass);
         if (refusal) return refusal;
-        await recordModelCall(tx, context, {
-          purpose: 'embed',
-          dataClass: routeClass,
-          decision: 'allow',
-          reasonCode: 'ALLOW',
-          policyVersion: route.policyVersion,
-          route,
-          requestSha256: digest(texts),
-          documentId,
-          inputCount: texts.length,
-        });
+        if (!deps.model.recordsCalls)
+          await recordModelCall(tx, context, {
+            purpose: 'embed',
+            dataClass: routeClass,
+            decision: 'allow',
+            reasonCode: 'ALLOW',
+            policyVersion: route.policyVersion,
+            route,
+            requestSha256: digest(texts),
+            documentId,
+            inputCount: texts.length,
+          });
         return null;
       });
       if (prepared) return end(prepared === 'EGRESS_DENIED' ? 'denied' : 'failed', prepared);
-      const result = await deps.model.embed(context.organizationId, route, texts, input.signal);
+      const result = await deps.model.embed(context.organizationId, route, texts, input.signal, {
+        operationKey: operationKey({
+          kind: 'document-embedding',
+          documentId,
+          qualificationId: route.qualificationId,
+          chunks: chunks.map((chunk) => [chunk.id, chunk.contentSha256]),
+        }),
+        inputs: chunks.map((chunk) => ({
+          kind: 'chunk',
+          id: chunk.id,
+          sourceId: chunk.sourceId,
+          sha256: chunk.contentSha256,
+          classification: routeClass,
+        })),
+      });
+      if (
+        result.usage.classification &&
+        strongestClass([routeClass, result.usage.classification]) !== routeClass
+      )
+        return end('denied', 'EGRESS_DENIED');
       if (
         result.vectors.length !== chunks.length ||
         result.vectors.some((vector) => !validVector(vector, space.dimension))
@@ -261,6 +292,14 @@ export async function embedDocument(
           )
           .onConflictDoNothing()
           .returning({ id: knowledgeEmbeddings.chunkId });
+        if (result.usage.callId) {
+          if (!deps.acceptResultInTx) throw new ModelCallFailed('MODEL_UNAVAILABLE');
+          await deps.acceptResultInTx(tx, result.usage, {
+            kind: 'embeddings',
+            id: documentId,
+            spaceId: space.id,
+          });
+        }
         return { refusal: null, rows };
       });
       if (stored.refusal)
@@ -282,9 +321,14 @@ export async function embedQuery(
   database: AppDatabase,
   context: TenantContext,
   deps: EmbeddingDeps,
-  input: { query: string; classification: Classification; signal: AbortSignal },
+  input: {
+    query: string;
+    classification: Classification;
+    signal: AbortSignal;
+    recordInputs?: readonly ModelInputRef[];
+  },
 ): Promise<
-  | { ok: true; spaceId: string; vector: readonly number[]; route: ModelRoute }
+  | { ok: true; spaceId: string; vector: readonly number[]; route: ModelRoute; usage: ModelUsage }
   | { ok: false; code: KnowledgeCode }
 > {
   if (context.actorType === 'service') throw new AppError('FORBIDDEN');
@@ -334,28 +378,39 @@ export async function embedQuery(
     if (current?.id !== space.id) return { ok: false, code: 'SPACE_MISMATCH' };
     await withTenantTx(database, context, async (tx) => {
       await requireSearchPerson(tx, context);
-      await recordModelCall(tx, context, {
-        purpose: 'embed',
-        dataClass: input.classification,
-        decision: 'allow',
-        reasonCode: 'ALLOW',
-        policyVersion: decision.route.policyVersion,
-        route: decision.route,
-        requestSha256: digest([query]),
-        inputCount: 1,
-      });
+      if (!deps.model.recordsCalls)
+        await recordModelCall(tx, context, {
+          purpose: 'embed',
+          dataClass: input.classification,
+          decision: 'allow',
+          reasonCode: 'ALLOW',
+          policyVersion: decision.route.policyVersion,
+          route: decision.route,
+          requestSha256: digest([query]),
+          inputCount: 1,
+        });
     });
     const result = await deps.model.embed(
       context.organizationId,
       decision.route,
       [query],
       input.signal,
+      {
+        operationKey: operationKey({ kind: 'query-embedding', query, spaceId: space.id }),
+        inputs: input.recordInputs ?? [],
+      },
     );
     if (result.vectors.length !== 1 || !validVector(result.vectors[0]!, space.dimension))
       return { ok: false, code: 'SPACE_MISMATCH' };
     if ((await activeEmbeddingSpace(database, context))?.id !== space.id)
       return { ok: false, code: 'SPACE_MISMATCH' };
-    return { ok: true, spaceId: space.id, vector: result.vectors[0]!, route: decision.route };
+    return {
+      ok: true,
+      spaceId: space.id,
+      vector: result.vectors[0]!,
+      route: decision.route,
+      usage: result.usage,
+    };
   } catch (error) {
     return { ok: false, code: modelCode(error) };
   }
@@ -371,12 +426,15 @@ export async function activeEmbeddingSpace(
       .select()
       .from(knowledgeEmbeddingSpaces)
       .where(eq(knowledgeEmbeddingSpaces.state, 'active'));
-    return space
+    return space?.modelProfileRef && space.modelProfileVersion && space.qualificationId
       ? {
           id: space.id,
           modelId: space.modelId,
           dimension: space.dimension,
           vectorSpaceVersion: space.vectorSpaceVersion,
+          modelProfileRef: space.modelProfileRef,
+          modelProfileVersion: space.modelProfileVersion,
+          qualificationId: space.qualificationId,
         }
       : null;
   });
@@ -390,6 +448,7 @@ export async function ensureEmbeddingSpace(
 ): Promise<EmbeddingSpace> {
   validateRoute(route);
   if (!route.embedding) throw new ModelCallFailed('SPACE_MISMATCH');
+  if (!route.qualificationId) throw new ModelCallFailed('NO_APPROVED_MODEL');
   return withTenantTx(database, context, async (tx) => {
     if (context.actorType !== 'service') await requireSearchPerson(tx, context);
     await tx.execute(
@@ -403,6 +462,9 @@ export async function ensureEmbeddingSpace(
           eq(knowledgeEmbeddingSpaces.modelId, route.modelId),
           eq(knowledgeEmbeddingSpaces.dimension, route.embedding!.dimension),
           eq(knowledgeEmbeddingSpaces.vectorSpaceVersion, route.embedding!.vectorSpaceVersion),
+          eq(knowledgeEmbeddingSpaces.modelProfileRef, route.modelProfileRef),
+          eq(knowledgeEmbeddingSpaces.modelProfileVersion, route.modelProfileVersion),
+          eq(knowledgeEmbeddingSpaces.qualificationId, route.qualificationId!),
         ),
       )
       .for('update');
@@ -424,6 +486,7 @@ export async function ensureEmbeddingSpace(
         id: spaceId,
         modelProfileRef: id(route.modelProfileRef),
         modelProfileVersion: route.modelProfileVersion,
+        qualificationId: route.qualificationId,
         modelId: route.modelId,
         dimension: route.embedding!.dimension,
         vectorSpaceVersion: route.embedding!.vectorSpaceVersion,
@@ -433,6 +496,9 @@ export async function ensureEmbeddingSpace(
       modelId: route.modelId,
       dimension: route.embedding!.dimension,
       vectorSpaceVersion: route.embedding!.vectorSpaceVersion,
+      modelProfileRef: route.modelProfileRef,
+      modelProfileVersion: route.modelProfileVersion,
+      qualificationId: route.qualificationId!,
     };
   });
 }
@@ -570,7 +636,10 @@ function matchesSpace(route: ModelRoute, space: EmbeddingSpace) {
   return (
     route.modelId === space.modelId &&
     route.embedding?.dimension === space.dimension &&
-    route.embedding.vectorSpaceVersion === space.vectorSpaceVersion
+    route.embedding.vectorSpaceVersion === space.vectorSpaceVersion &&
+    route.modelProfileRef === space.modelProfileRef &&
+    route.modelProfileVersion === space.modelProfileVersion &&
+    route.qualificationId === space.qualificationId
   );
 }
 function validVector(vector: readonly number[], dimension: number) {

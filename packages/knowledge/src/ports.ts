@@ -13,7 +13,14 @@ export type RouteRequest = {
   /** The strongest class of everything that would go. The caller works it out, and cannot omit it. */
   classification: Classification;
   /** For `embed`, the space existing vectors are in. A route into another space is a new space. */
-  spaceHint?: { modelId: string; dimension: number; vectorSpaceVersion: string } | null;
+  spaceHint?: {
+    modelId: string;
+    dimension: number;
+    vectorSpaceVersion: string;
+    modelProfileRef?: string | null;
+    modelProfileVersion?: number | null;
+    qualificationId?: string | null;
+  } | null;
 };
 
 export type ModelRoute = {
@@ -24,6 +31,10 @@ export type ModelRoute = {
   /** Host only, for the egress ledger. Never a URL with a path, a query or a credential. */
   destinationHost: string;
   policyVersion: string;
+  /** Required by the actual bridge; legacy unqualified routes cannot be used by it. */
+  qualificationId?: string;
+  purpose?: ModelPurpose;
+  classification?: Classification;
   /** Set for `embed`. The port must return vectors of exactly this length. */
   embedding?: { dimension: number; vectorSpaceVersion: string };
 };
@@ -38,6 +49,24 @@ export type ModelUsage = {
   outputTokens: number;
   /** Micro-USD, or null when no rate card applies. Never a guess. */
   costMicros: number | null;
+  /** The canonical paid attempt. A domain writer accepts this receipt in its own transaction. */
+  callId?: string;
+  /** Protection of a used model result includes every input, including uncited ranking passages. */
+  classification?: Classification;
+};
+
+export type ModelInputRef = {
+  kind: 'chunk' | 'work_unit' | 'project' | 'client';
+  id: string;
+  sourceId?: string;
+  sha256: string;
+  classification: Classification;
+};
+export type ModelCallMetadata = {
+  /** Stable trusted operation, never model-selected citation arguments. */
+  operationKey: string;
+  /** Explicit exhaustive actual-read inventory, including an explicit empty list for a raw query. */
+  inputs: readonly ModelInputRef[];
 };
 
 export type EmbedResult = { vectors: readonly (readonly number[])[]; usage: ModelUsage };
@@ -68,6 +97,8 @@ export type AnswerResult = { text: string; usage: ModelUsage };
  * double lives in `@ensemus/knowledge/testing`, which lint keeps out of every shipped entry point.
  */
 export interface KnowledgeModelPort {
+  /** Trusted adapter capability only: the durable gateway records its own actual allow decision. */
+  readonly recordsCalls?: true;
   /** Asks policy and picks a model. Contacts nobody and unseals nothing, so a deny is free and safe. */
   route(request: RouteRequest): Promise<RouteDecision>;
   embed(
@@ -75,6 +106,7 @@ export interface KnowledgeModelPort {
     route: ModelRoute,
     inputs: readonly string[],
     signal: AbortSignal,
+    metadata: ModelCallMetadata,
   ): Promise<EmbedResult>;
   rerank(
     organizationId: string,
@@ -82,12 +114,14 @@ export interface KnowledgeModelPort {
     query: string,
     passages: readonly string[],
     signal: AbortSignal,
+    metadata: ModelCallMetadata,
   ): Promise<RerankResult>;
   answer(
     organizationId: string,
     route: ModelRoute,
     messages: readonly KnowledgeMessage[],
     signal: AbortSignal,
+    metadata: ModelCallMetadata,
   ): Promise<AnswerResult>;
 }
 

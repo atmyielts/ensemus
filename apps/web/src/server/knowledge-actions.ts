@@ -149,7 +149,11 @@ export async function askKnowledgeAction(_state: KnowledgeFormState, form: FormD
       classification: text(form, 'classification'),
     });
     const row = await once(tenant, form, 'knowledge-answer', b, (db) =>
-      askQuestion(db, tenant.context, b),
+      askQuestion(db, tenant.context, {
+        question: b.question,
+        classification: b.classification,
+        ...(b.model ? { model: b.model } : {}),
+      }),
     );
     return `/o/${org}/knowledge/answers/${row.answerId}`;
   });

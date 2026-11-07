@@ -43,6 +43,13 @@ async function main() {
     accessKey: readSecret('OBJECT_STORAGE_ACCESS_KEY'),
     secretKey: readSecret('OBJECT_STORAGE_SECRET_KEY'),
   });
+  const generatedObjects = new S3ObjectStore({
+    endpoint: process.env.OBJECT_STORAGE_ENDPOINT ?? 'http://objects:8333',
+    bucket: process.env.OBJECT_STORAGE_BUCKET ?? 'ensemus',
+    accessKey: readSecret('OBJECT_STORAGE_ACCESS_KEY'),
+    secretKey: readSecret('OBJECT_STORAGE_SECRET_KEY'),
+    maxAttempts: 1,
+  });
   // Reads only whether a run is open, so it needs no payload codec.
   const clientConnection = await Connection.connect({
     address: process.env.TEMPORAL_ADDRESS ?? 'temporal:7233',
@@ -71,7 +78,7 @@ async function main() {
     taskQueue: PLATFORM_TASK_QUEUE,
     workflowBundle: { codePath: path.join(here, 'workflow-bundle.cjs') },
     activities: {
-      ...createActivities({ database: db, store, probeWorkflow }),
+      ...createActivities({ database: db, store: generatedObjects, probeWorkflow }),
       // Only what reads PostgreSQL. Anything holding a credential is on the connector queue.
       ...createExternalActionPlatformActivities({ database: db }),
       ...createClientOnboardingActivities({ database: db, agentRuns: createOnboardingAgentRuns() }),
@@ -95,6 +102,8 @@ async function main() {
   log.info('worker.started', { taskQueue: PLATFORM_TASK_QUEUE });
   await worker.run();
   log.info('worker.stopped');
+  generatedObjects.close();
+  store.close();
   await close();
   await clientConnection.close();
   await connection.close();
