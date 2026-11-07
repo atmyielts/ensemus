@@ -18,7 +18,6 @@ import {
   memberships,
   policyBundles,
   serviceIdentities,
-  withTenantTx,
   type AppDatabase,
   type TenantContext,
   type Tx,
@@ -38,6 +37,7 @@ import { and, desc, eq, isNull, sql } from 'drizzle-orm';
 import { AppError, pgCode } from '../errors';
 import { emit } from '../events';
 import { idSchema } from '../ids';
+import { assertInteractivePrivilege, withPrivilegeTx as withTenantTx } from '../product/privileged';
 
 const UNIQUE_VIOLATION = '23505';
 const AGGREGATE_AGENT_VERSION = 'agent_version';
@@ -267,6 +267,7 @@ export async function publishAgentVersion(
   try {
     return await withTenantTx(database, context, async (tx) => {
       await assertStillPublisher(tx, context);
+      await assertInteractivePrivilege(tx, context, 'agent.publish');
       const bundle = await readActiveBundle(tx, organizationId);
       const policyVersion = policyVersionOf(bundle);
       const prepared = preparePublication(input, limitsOf(bundle), policyVersion);

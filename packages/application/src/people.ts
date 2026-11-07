@@ -12,7 +12,6 @@ import {
   users,
   withInvitationTx,
   withNewTenantTx,
-  withTenantTx,
   type AppDatabase,
   type TenantContext,
   type Tx,
@@ -25,6 +24,7 @@ import { emit } from './events';
 import { idSchema } from './ids';
 import { idFromRequest } from './request-id';
 import { assertActiveMember, closeReviewsForLostAccess } from './work';
+import { assertInteractivePrivilege, withPrivilegeTx as withTenantTx } from './product/privileged';
 
 const FOREIGN_KEY_VIOLATION = '23503';
 const name = z.string().trim().min(1).max(200);
@@ -59,6 +59,7 @@ export async function createTeam(
     ? idFromRequest('team', context.membershipId, input.requestKey, [input.name, parentId])
     : randomUUID();
   return withTenantTx(database, context, async (tx) => {
+    await assertInteractivePrivilege(tx, context, 'member.manage');
     try {
       const [row] = await tx
         .insert(teams)
@@ -91,6 +92,7 @@ export async function setTeamParent(
   requireCapability(context, 'team.manage');
   const input = parse(z.strictObject({ teamId: identifier, parentId: identifier.nullable() }), raw);
   return withTenantTx(database, context, async (tx) => {
+    await assertInteractivePrivilege(tx, context, 'member.manage');
     let moved: Array<{ id: string }>;
     try {
       moved = await tx
@@ -121,6 +123,7 @@ export async function addTeamMember(
   requireCapability(context, 'team.manage');
   const input = parse(z.strictObject({ teamId: identifier, membershipId: identifier }), raw);
   return withTenantTx(database, context, async (tx) => {
+    await assertInteractivePrivilege(tx, context, 'member.manage');
     await assertActiveMember(tx, input.membershipId);
     const [team] = await tx.select({ id: teams.id }).from(teams).where(eq(teams.id, input.teamId));
     if (!team) throw new AppError('NOT_FOUND');
@@ -138,16 +141,17 @@ export async function removeTeamMember(
 ) {
   requireCapability(context, 'team.manage');
   const input = parse(z.strictObject({ teamId: identifier, membershipId: identifier }), raw);
-  return withTenantTx(database, context, (tx) =>
-    tx
+  return withTenantTx(database, context, async (tx) => {
+    await assertInteractivePrivilege(tx, context, 'member.manage');
+    return tx
       .delete(teamMemberships)
       .where(
         and(
           eq(teamMemberships.teamId, input.teamId),
           eq(teamMemberships.membershipId, input.membershipId),
         ),
-      ),
-  );
+      );
+  });
 }
 
 /**
@@ -279,6 +283,7 @@ export async function setMemberRole(
   // Only an owner can create another owner, or change one.
   return withTenantTx(database, context, async (tx) => {
     await serializeMemberChanges(tx, context.organizationId);
+    await assertInteractivePrivilege(tx, context, 'member.manage');
     const [target] = await tx
       .select()
       .from(memberships)
@@ -335,6 +340,7 @@ export async function disableMember(
   requireCapability(context, 'member.manage');
   return withTenantTx(database, context, async (tx) => {
     await serializeMemberChanges(tx, context.organizationId);
+    await assertInteractivePrivilege(tx, context, 'member.manage');
     const [target] = await tx
       .select()
       .from(memberships)
@@ -383,6 +389,7 @@ export async function createInvitation(
   const token = randomBytes(32).toString('base64url');
   const id = randomUUID();
   return withTenantTx(database, context, async (tx) => {
+    await assertInteractivePrivilege(tx, context, 'member.manage');
     await tx.insert(invitations).values({
       organizationId: context.organizationId,
       id,
@@ -429,6 +436,7 @@ export async function revokeInvitation(
 ) {
   requireCapability(context, 'member.invite');
   return withTenantTx(database, context, async (tx) => {
+    await assertInteractivePrivilege(tx, context, 'member.manage');
     const revoked = await tx
       .update(invitations)
       .set({ revokedAt: new Date() })
@@ -500,9 +508,12 @@ export async function acceptInvitation(
       .from(invitations)
       .where(eq(invitations.id, invitation.id))
       .for('update');
-    if (!current || current.acceptedAt || current.revokedAt) {
+    if (!current || current.acceptedAt || current.revokedAt || current.expiresAt <= new Date()) {
       throw new AppError('INVITATION_INVALID');
     }
+    // Preserve the exact existing bearer authority in the effect Tx, not an earlier read. The
+    // database guard recognizes only this immutable, live invitation and its actual recipient.
+    await tx.execute(sql`select set_config('app.invitation_token_hash',${tokenHash},true)`);
     // An invitation carries the authority of whoever made it, for as long as they have it.
     const [inviter] = await tx
       .select({ role: memberships.role, status: memberships.status })
@@ -597,6 +608,7 @@ export async function confirmInvitation(
   requireCapability(context, 'member.invite');
   const id = parse(identifier, input.invitationId);
   return withTenantTx(database, context, async (tx) => {
+    await assertInteractivePrivilege(tx, context, 'member.manage');
     const [current] = await tx
       .select()
       .from(invitations)

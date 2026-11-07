@@ -29,7 +29,9 @@ export function withScimTokenTx<T>(
       .from(scimTokens)
       .where(and(eq(scimTokens.tokenHash, tokenHash), eq(scimTokens.state, 'active')));
     if (!token) return null;
-    await tx.execute(sql`select set_config('app.organization_id', ${token.organizationId}, true)`);
+    await tx.execute(sql`select set_config('app.organization_id', ${token.organizationId}, true),
+      set_config('app.user_id','',true),set_config('app.membership_id','',true),
+      set_config('app.actor_type','service',true),set_config('app.interactive_session_id','',true)`);
     const [connection] = await tx
       .select()
       .from(ssoConnections)
@@ -73,7 +75,9 @@ export function withSsoProviderTx<T>(
       );
     if (!connection) return null;
     await tx.execute(
-      sql`select set_config('app.organization_id', ${connection.organizationId}, true)`,
+      sql`select set_config('app.organization_id', ${connection.organizationId}, true),
+        set_config('app.user_id','',true),set_config('app.membership_id','',true),
+        set_config('app.actor_type','service',true),set_config('app.interactive_session_id','',true)`,
     );
     return fn(tx, { connection, context: createServiceContext(connection.organizationId) });
   });

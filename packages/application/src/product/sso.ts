@@ -5,7 +5,6 @@ import {
   invitations,
   memberships,
   users,
-  withTenantTx,
   type AppDatabase,
   type TenantContext,
   type Tx,
@@ -31,7 +30,7 @@ import { and, asc, eq, isNull, ne, sql } from 'drizzle-orm';
 import { AppError } from '../errors';
 import { emit } from '../events';
 import { auditAction, closeReviewsForLostAccess } from '../work';
-import { assertRecentMfa, type SessionProof } from './privileged';
+import { assertRecentMfa, withPrivilegeTx as withTenantTx, type SessionProof } from './privileged';
 
 async function manager(tx: Tx, context: TenantContext) {
   if (context.actorType !== 'user') throw new AppError('NOT_FOUND');
@@ -520,6 +519,9 @@ export async function completeSsoSignIn(
       input.providerId,
       async (tx, { connection, context }): Promise<SsoSignInResult> => {
         if (!emailInDomain(input.email, connection.domain)) return { outcome: 'refused' };
+        await tx.execute(
+          sql`select set_config('app.sso_subject_user_id',${input.userId},true),set_config('app.sso_subject_key',${key},true)`,
+        );
         // Same order as human member administration and SCIM. Recheck the connection after acquiring it.
         await serializeMembers(tx, context.organizationId);
         const [current] = await tx

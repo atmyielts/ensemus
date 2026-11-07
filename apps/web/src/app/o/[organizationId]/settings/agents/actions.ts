@@ -19,6 +19,8 @@ import {
 import type { AppDatabase, TenantContext } from '@ensemus/database';
 import { errorCode } from '@ensemus/telemetry';
 import { revalidatePath } from 'next/cache';
+import { redirect } from 'next/navigation';
+import { stepUpPath } from '@/lib/step-up';
 import { getRuntime } from '@/server/runtime';
 import { requireTenant } from '@/server/tenant';
 import type { PublishFormState } from './form-state';
@@ -69,6 +71,8 @@ export async function publishAgentVersionAction(
   } catch (error) {
     if (isPublishGateRefusal(error)) await record(database, context, error.code);
     else if (isAuditedRefusal(error)) await record(database, context, refusalCode(error));
+    if (error instanceof AppError && error.code === 'MFA_REQUIRED')
+      redirect(stepUpPath(org, `/o/${org}/settings/agents`));
     if (error instanceof AgentSpecRefused) {
       return { code: error.code, lintCodes: error.lintCodes, fields: error.fields, values };
     }

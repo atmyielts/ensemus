@@ -16,7 +16,6 @@ import {
   appendAudit,
   modelProfiles,
   rateCards,
-  withTenantTx,
   type AppDatabase,
   type TenantContext,
   type Tx,
@@ -44,6 +43,7 @@ import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { AppError, foreignReference, pgCode, type ErrorCode } from '../errors';
 import { emit } from '../events';
+import { assertInteractivePrivilege, withPrivilegeTx as withTenantTx } from '../product/privileged';
 import { idSchema } from '../ids';
 import type { ProfileStore, RateCardRef, RoutableProfile } from './ports';
 
@@ -536,6 +536,7 @@ export async function requestModelProbe(
   const id = profileIdOf(input.profileId);
   try {
     await withTenantTx(database, context, async (tx) => {
+      await assertInteractivePrivilege(tx, context, 'model_profile.activate');
       const row = await lockAtVersion(tx, context, id, input.expectedVersion);
       const refusal = probeRefusal({
         providerKind: row.providerKind as ProviderKind,

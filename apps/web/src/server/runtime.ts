@@ -27,19 +27,20 @@ function build() {
   const config = loadWebConfig();
   const oidc = loadOidc();
   const app = openAppDatabase(readSecret('DATABASE_URL_APP')).db;
-  const { auth, mfa, sso, redeemSetupToken, submitCredentials } = createAuth({
-    databaseUrl: readSecret('DATABASE_URL_AUTH'),
-    secret: readSecret('AUTH_SECRET'),
-    baseURL: config.publicUrl,
-    allowSignup: config.allowSignup,
-    ...(oidc ? { oidc } : {}),
-    sso: {
-      authorizeIdentity: (input) => authorizeSsoIdentity(app, input),
-      completeIdentity: async (input) => (await completeSsoSignIn(app, input)).outcome,
-      currentPrimary: (input) => isSsoPrimaryCurrent(app, input),
-    },
-    plugins: [nextCookies()],
-  });
+  const { auth, mfa, sso, redeemSetupToken, submitCredentials, readInteractiveSession } =
+    createAuth({
+      databaseUrl: readSecret('DATABASE_URL_AUTH'),
+      secret: readSecret('AUTH_SECRET'),
+      baseURL: config.publicUrl,
+      allowSignup: config.allowSignup,
+      ...(oidc ? { oidc } : {}),
+      sso: {
+        authorizeIdentity: (input) => authorizeSsoIdentity(app, input),
+        completeIdentity: async (input) => (await completeSsoSignIn(app, input)).outcome,
+        currentPrimary: (input) => isSsoPrimaryCurrent(app, input),
+      },
+      plugins: [nextCookies()],
+    });
   return {
     config,
     auth,
@@ -47,6 +48,7 @@ function build() {
     sso,
     redeemSetupToken,
     submitCredentials,
+    readInteractiveSession,
     app,
     log: createLogger('web'),
   };

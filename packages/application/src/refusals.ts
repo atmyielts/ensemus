@@ -26,6 +26,8 @@ const REFUSALS: ReadonlySet<ErrorCode> = new Set<ErrorCode>([
   'APPROVAL_WRONG_APPROVER',
   'APPROVAL_SELF_APPROVAL',
   'APPROVAL_HASH_MISMATCH',
+  'MFA_REQUIRED',
+  'SSO_REQUIRED',
 ]);
 
 /** Whether this error is one a person should be able to find in the audit log afterwards. */

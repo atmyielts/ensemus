@@ -62,6 +62,8 @@ export const PRIVILEGED_ACTIONS = {
   'security_policy.change': 'always',
   'agent.publish': 'always',
   'model_profile.activate': 'always',
+  /** Explicit bounded company-data egress and paid model usage authority. */
+  'model_workload.approve': 'always',
   'member.manage': 'administration',
   'organization.manage': 'administration',
   'connection.manage': 'administration',

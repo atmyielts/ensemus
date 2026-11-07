@@ -22,6 +22,20 @@ describe('recent MFA', () => {
   it('allows a recent proof', () => {
     expect(mfaDecision('studio.publish', facts(), NOW)).toBe('allow');
   });
+  it('requires a real recent person for bounded paid-model/data-egress approval independently of opt-in administration', () => {
+    expect(PRIVILEGED_ACTIONS['model_workload.approve']).toBe('always');
+    expect(
+      mfaDecision(
+        'model_workload.approve',
+        facts({ verifiedAt: null, mfaForAdministration: false }),
+        NOW,
+      ),
+    ).toBe('require_mfa');
+    expect(mfaDecision('model_workload.approve', facts(), NOW)).toBe('allow');
+    for (const actorType of ['agent', 'delegated', 'service'])
+      expect(mfaDecision('model_workload.approve', facts({ actorType }), NOW)).toBe('deny_service');
+    expect(Object.keys(PRIVILEGED_ACTIONS)).not.toContain('model_workload.revoke');
+  });
 
   it('refuses no proof, an old proof, and a proof from the future', () => {
     expect(mfaDecision('studio.publish', facts({ verifiedAt: null }), NOW)).toBe('require_mfa');

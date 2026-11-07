@@ -13,7 +13,7 @@ import {
 } from '@ensemus/database';
 import { withRunLookupTx } from '@ensemus/database/agent';
 import { AGGREGATE_MODEL_PROFILE, MODEL_PROFILE_ACTIVATED } from '@ensemus/domain/ai-events';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, isNotNull } from 'drizzle-orm';
 import { toRoutableProfile } from './model-profiles';
 import type { RoutableProfile } from './ports';
 
@@ -34,6 +34,10 @@ export async function loadProfileForProbe(
           eq(modelProfiles.organizationId, input.organizationId),
           eq(modelProfiles.id, input.profileId),
           eq(modelProfiles.status, 'probing'),
+          eq(modelProfiles.probeAuthorizedProfileVersion, modelProfiles.version),
+          eq(modelProfiles.probeAuthorizedMembershipId, modelProfiles.probeRequestedByMembershipId),
+          isNotNull(modelProfiles.probeAuthorizedSessionId),
+          isNotNull(modelProfiles.probeAuthorizedAt),
         ),
       );
     return row ? toRoutableProfile(row) : null;

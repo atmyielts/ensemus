@@ -8,7 +8,6 @@ import {
   inboxEvents,
   webhookDeliveries,
   webhookEndpoints,
-  withTenantTx,
   withWebhookEndpointTx,
   type AppDatabase,
   type TenantContext,
@@ -16,6 +15,7 @@ import {
 } from '@ensemus/database';
 import { AGGREGATE_WEBHOOK_DELIVERY, WEBHOOK_RECEIVED } from '@ensemus/domain/integration-events';
 import { can } from '@ensemus/domain/policy';
+import { assertInteractivePrivilege, withPrivilegeTx as withTenantTx } from './product/privileged';
 import {
   hashWebhookToken,
   isWebhookTokenShape,
@@ -165,6 +165,7 @@ export async function createWebhookEndpoint(
   const endpointId = randomUUID();
   try {
     await withTenantTx(database, context, async (tx) => {
+      await assertInteractivePrivilege(tx, context, 'connection.manage');
       const [connection] = await tx
         .select({ state: connections.state })
         .from(connections)
@@ -203,6 +204,7 @@ export async function disableWebhookEndpoint(
 ): Promise<void> {
   assertManages(context);
   await withTenantTx(database, context, async (tx) => {
+    await assertInteractivePrivilege(tx, context, 'connection.manage');
     const updated = await tx
       .update(webhookEndpoints)
       .set({ state: 'disabled', updatedAt: new Date() })

@@ -22,6 +22,7 @@ import type { AppDatabase, TenantContext } from '@ensemus/database';
 import { errorCode } from '@ensemus/telemetry';
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
+import { stepUpPath } from '@/lib/step-up';
 import {
   addConnection,
   addWebhookEndpoint,
@@ -53,10 +54,15 @@ async function recordRefusal(tenant: Tenant, error: unknown) {
 }
 
 /** Reduces any failure to a code a form can show. Nothing else about it reaches the person. */
-async function codeOf(tenant: Tenant, error: unknown): Promise<string> {
+async function codeOf(
+  tenant: Tenant,
+  error: unknown,
+  back = `/o/${tenant.context.organizationId}/connections`,
+): Promise<string> {
   await recordRefusal(tenant, error);
   if (error instanceof AppError) {
     if (error.code === 'RESTORE_PENDING') redirect('/restoring');
+    if (error.code === 'MFA_REQUIRED') redirect(stepUpPath(tenant.context.organizationId, back));
     return error.code;
   }
   getRuntime().log.error('action.failed', { errorCode: errorCode(error) });
@@ -70,7 +76,7 @@ async function run(tenant: Tenant, back: string, action: () => Promise<string | 
     const next = await action();
     if (next) target = next;
   } catch (error) {
-    target = `${back}${back.includes('?') ? '&' : '?'}error=${await codeOf(tenant, error)}`;
+    target = `${back}${back.includes('?') ? '&' : '?'}error=${await codeOf(tenant, error, back)}`;
   }
   redirect(target);
 }
