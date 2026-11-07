@@ -122,8 +122,6 @@ describe('the spec and the routes', () => {
       'object-records/{object_record_id}',
       'object-records/{object_record_id}',
       'object-records/{object_record_id}/relations',
-      'pulse',
-      'pulse/signals/{signal_key}',
       'outcome-drafts',
       'outcome-drafts',
       'outcome-drafts/{outcome_draft_id}',

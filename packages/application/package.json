@@ -44,6 +44,7 @@
     "./security-policy": "./src/product/security-policy.ts",
     "./sso": "./src/product/sso.ts",
     "./pulse": "./src/product/pulse.ts",
+    "./pulse-metadata": "./src/product/pulse-metadata.ts",
     "./outcomes": "./src/product/outcomes.ts",
     "./onboarding": "./src/product/onboarding.ts",
     "./assistants": "./src/product/assistants.ts",
