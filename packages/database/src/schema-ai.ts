@@ -29,6 +29,7 @@ import {
 } from './schema';
 import { externalActions } from './schema-integrations';
 import { approvals, artifacts, workSchema, workUnits } from './schema-work';
+import { modelCallAttempts, modelJobs } from './schema-model-jobs';
 
 const createdAt = () => timestamp({ withTimezone: true }).notNull().defaultNow();
 const tenantId = () =>
@@ -683,8 +684,10 @@ export const budgetReservations = platformSchema.table(
     organizationId: tenantId(),
     id: uuid().notNull().defaultRandom(),
     budgetId: uuid().notNull(),
-    runId: uuid().notNull(),
-    stepId: uuid().notNull(),
+    runId: uuid(),
+    stepId: uuid(),
+    modelJobId: uuid(),
+    modelCallId: uuid(),
     attempt: integer().notNull().default(1),
     amountMicros: micros(),
     status: text().notNull().default('held'),
@@ -705,7 +708,24 @@ export const budgetReservations = platformSchema.table(
       columns: [t.organizationId, t.stepId],
       foreignColumns: [executionSteps.organizationId, executionSteps.id],
     }),
-    unique('budget_reservations_step_key').on(t.organizationId, t.budgetId, t.stepId, t.attempt),
+    uniqueIndex('budget_reservations_step_key')
+      .on(t.organizationId, t.budgetId, t.stepId, t.attempt)
+      .where(sql`${t.modelCallId} is null`),
+    unique('budget_reservations_call_key').on(t.organizationId, t.budgetId, t.modelCallId),
+    foreignKey({
+      name: 'budget_reservations_model_job_fk',
+      columns: [t.organizationId, t.modelJobId],
+      foreignColumns: [modelJobs.organizationId, modelJobs.id],
+    }),
+    foreignKey({
+      name: 'budget_reservations_model_call_fk',
+      columns: [t.organizationId, t.modelCallId],
+      foreignColumns: [modelCallAttempts.organizationId, modelCallAttempts.id],
+    }),
+    check(
+      'budget_reservations_principal',
+      sql`(${t.modelCallId} is null and ${t.modelJobId} is null and ${t.runId} is not null and ${t.stepId} is not null) or (${t.modelCallId} is not null and ((${t.modelJobId} is not null and ${t.runId} is null and ${t.stepId} is null) or (${t.modelJobId} is null and ${t.runId} is not null and ${t.stepId} is not null)))`,
+    ),
     index('budget_reservations_run_idx').on(t.organizationId, t.runId),
     check('budget_reservations_status_check', sql`${t.status} in ('held','settled','released')`),
     check('budget_reservations_amount_check', sql`${t.amountMicros} >= 0`),
@@ -729,8 +749,10 @@ export const usageLedger = platformSchema.table(
     billingPeriod: text().notNull(),
     commercialMode: text().notNull(),
     reservationId: uuid(),
-    workUnitId: uuid().notNull(),
-    runId: uuid().notNull(),
+    workUnitId: uuid(),
+    runId: uuid(),
+    modelJobId: uuid(),
+    modelCallId: uuid(),
     stepId: uuid(),
     profileId: uuid(),
     profileVersion: integer(),
@@ -773,6 +795,21 @@ export const usageLedger = platformSchema.table(
       foreignColumns: [t.organizationId, t.id],
     }),
     index('usage_ledger_run_idx').on(t.organizationId, t.runId),
+    index('usage_ledger_model_job_idx').on(t.organizationId, t.modelJobId),
+    foreignKey({
+      name: 'usage_ledger_model_job_fk',
+      columns: [t.organizationId, t.modelJobId],
+      foreignColumns: [modelJobs.organizationId, modelJobs.id],
+    }),
+    foreignKey({
+      name: 'usage_ledger_model_call_fk',
+      columns: [t.organizationId, t.modelCallId],
+      foreignColumns: [modelCallAttempts.organizationId, modelCallAttempts.id],
+    }),
+    check(
+      'usage_ledger_principal',
+      sql`(${t.modelJobId} is null and ${t.runId} is not null and ${t.workUnitId} is not null) or (${t.modelJobId} is not null and ${t.modelCallId} is not null and ${t.runId} is null and ${t.workUnitId} is null and ${t.stepId} is null)`,
+    ),
     index('usage_ledger_period_idx').on(t.organizationId, t.billingPeriod),
     check(
       'usage_ledger_meter_check',

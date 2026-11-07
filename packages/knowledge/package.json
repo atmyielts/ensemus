@@ -5,6 +5,7 @@
   "type": "module",
   "exports": {
     "./ports": "./src/ports.ts",
+    "./model-operations": "./src/model-operations.ts",
     "./parsing": "./src/parsing.ts",
     "./chunking": "./src/chunking.ts",
     "./fusion": "./src/fusion.ts",

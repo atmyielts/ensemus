@@ -6,6 +6,7 @@ import {
   knowledgeAnswers,
   knowledgeAnswerSources,
   knowledgeAnswerCitations,
+  modelJobs,
   notifications,
   withTenantTx,
   type AppDatabase,
@@ -13,7 +14,7 @@ import {
   type Tx,
 } from '@ensemus/database';
 import type { AnswerState, KnowledgeCode } from '@ensemus/domain/knowledge';
-import { KNOWLEDGE_CODES, MAX_EVIDENCE_TOKENS } from '@ensemus/domain/knowledge';
+import { KNOWLEDGE_CODES, MAX_EVIDENCE_TOKENS, strongestClass } from '@ensemus/domain/knowledge';
 import {
   AGGREGATE_KNOWLEDGE_ANSWER,
   KNOWLEDGE_ANSWER_REQUESTED,
@@ -39,6 +40,10 @@ import {
 } from './compiler';
 import { requireSearchPerson, searchQuery } from './retrieval';
 import { recordModelCall } from './embeddings';
+import { operationKey } from '@ensemus/knowledge/model-operations';
+import type { ModelJobBounds } from '@ensemus/domain/knowledge-models';
+import type { ModelResultConsumer } from '../ai/knowledge-ports';
+import { modelRequestHash, requestKnowledgeModelJobInTx } from './model-jobs';
 
 export type AnswerCitationView = {
   ordinal: number;
@@ -76,7 +81,12 @@ export type AnswerView = {
 export async function askQuestion(
   database: AppDatabase,
   context: TenantContext,
-  input: { question: string; classification?: Classification; requestKey?: string },
+  input: {
+    question: string;
+    classification?: Classification;
+    requestKey?: string;
+    model?: { approvalId: string; bounds: ModelJobBounds };
+  },
 ): Promise<{ answerId: string }> {
   if (context.actorType === 'service') throw new AppError('FORBIDDEN');
   const question = searchQuery(input.question);
@@ -89,6 +99,20 @@ export async function askQuestion(
         classification,
       ])
     : randomUUID();
+  const modelRequest = input.model
+    ? {
+        kind: 'answer' as const,
+        answerId,
+        query: question,
+        classification,
+        approvalId: input.model.approvalId,
+        bounds: input.model.bounds,
+        requestKey: idFromRequest('answer-model-job', context.membershipId, answerId, [
+          question,
+          classification,
+        ]),
+      }
+    : null;
   await withTenantTx(database, context, async (tx) => {
     await requireSearchPerson(tx, context);
     const [inserted] = await tx
@@ -108,8 +132,18 @@ export async function askQuestion(
         .from(knowledgeAnswers)
         .where(eq(knowledgeAnswers.id, answerId));
       if (!existing) throw new AppError('NOT_FOUND');
+      const [existingJob] = await tx
+        .select({ requestHash: modelJobs.requestHash })
+        .from(modelJobs)
+        .where(eq(modelJobs.answerId, answerId));
+      if (
+        (modelRequest === null) !== (existingJob === undefined) ||
+        (modelRequest && existingJob?.requestHash !== modelRequestHash(modelRequest))
+      )
+        throw new AppError('INVALID_INPUT');
       return;
     }
+    if (modelRequest) await requestKnowledgeModelJobInTx(tx, context, modelRequest);
     await emit(tx, context, {
       eventType: KNOWLEDGE_ANSWER_REQUESTED,
       aggregateType: AGGREGATE_KNOWLEDGE_ANSWER,
@@ -244,6 +278,7 @@ export async function runAnswer(
   });
   if (!row) return { outcome: 'already_done', code: null };
   let expectedSourceClasses: readonly { sourceId: string; classification: Classification }[] = [];
+  let modelReceipt: ModelUsage | undefined;
   const finish = (
     state: 'answered' | 'no_evidence' | 'refused' | 'failed',
     code: KnowledgeCode | null,
@@ -266,6 +301,8 @@ export async function runAnswer(
       extra,
       citations,
       expectedSourceClasses,
+      deps.acceptResultInTx,
+      modelReceipt,
     );
   try {
     const compiled = await compileEvidence(database, asker, deps, {
@@ -347,17 +384,18 @@ export async function runAnswer(
         )
         .onConflictDoNothing();
       await tx.update(knowledgeAnswers).set(metadata).where(eq(knowledgeAnswers.id, answerId));
-      await recordModelCall(tx, service, {
-        purpose: 'answer',
-        dataClass: compiled.strongestClassification,
-        decision: 'allow',
-        reasonCode: 'ALLOW',
-        policyVersion: compiled.route!.policyVersion,
-        route: compiled.route,
-        requestSha256: createHash('sha256').update(JSON.stringify(messages)).digest('hex'),
-        answerId,
-        inputCount: messages.length,
-      });
+      if (!deps.model.recordsCalls)
+        await recordModelCall(tx, service, {
+          purpose: 'answer',
+          dataClass: compiled.strongestClassification,
+          decision: 'allow',
+          reasonCode: 'ALLOW',
+          policyVersion: compiled.route!.policyVersion,
+          route: compiled.route,
+          requestSha256: createHash('sha256').update(JSON.stringify(messages)).digest('hex'),
+          answerId,
+          inputCount: messages.length,
+        });
       return true;
     });
     if (!prepared) return finish('refused', 'EGRESS_DENIED', metadata);
@@ -366,7 +404,25 @@ export async function runAnswer(
       compiled.route,
       messages,
       input.signal,
+      {
+        operationKey: operationKey({ kind: 'answer', answerId, packageId: compiled.packageId }),
+        inputs: [
+          ...compiled.recordInputs,
+          ...compiled.items.map((item) => ({
+            kind: 'chunk' as const,
+            id: item.chunkId,
+            sourceId: item.sourceId,
+            sha256: item.contentSha256,
+            classification: item.classification,
+          })),
+        ],
+      },
     );
+    modelReceipt = result.usage;
+    metadata.strongestClassification = strongestClass([
+      metadata.strongestClassification,
+      result.usage.classification ?? metadata.strongestClassification,
+    ]);
     if (!validUsage(result.usage)) return finish('failed', 'MODEL_UNAVAILABLE', metadata);
     const usage = {
       inputTokens: result.usage.inputTokens,
@@ -420,6 +476,7 @@ export async function failKnowledgeAnswer(
   database: AppDatabase,
   service: TenantContext,
   answerId: string,
+  code: 'MODEL_UNAVAILABLE' | 'NO_APPROVED_MODEL' = 'MODEL_UNAVAILABLE',
 ): Promise<void> {
   if (service.actorType !== 'service') throw new AppError('FORBIDDEN');
   const row = await withTenantTx(database, service, async (tx) => {
@@ -430,7 +487,14 @@ export async function failKnowledgeAnswer(
     return current;
   });
   if (row && (row.state === 'queued' || row.state === 'running'))
-    await finishAnswer(database, service, row.id, row.version, 'failed', 'MODEL_UNAVAILABLE');
+    await finishAnswer(
+      database,
+      service,
+      row.id,
+      row.version,
+      code === 'NO_APPROVED_MODEL' ? 'refused' : 'failed',
+      code,
+    );
 }
 
 type AnswerRow = typeof knowledgeAnswers.$inferSelect;
@@ -501,6 +565,8 @@ async function finishAnswer(
     answerEnd: number;
   }[] = [],
   expectedSourceClasses: readonly { sourceId: string; classification: Classification }[] = [],
+  acceptResultInTx?: ModelResultConsumer,
+  modelReceipt?: ModelUsage,
 ): Promise<AnswerStep> {
   return withTenantTx(database, service, async (tx) => {
     // Source before answer matches purge's lock order. Grant changes bump the same source row.
@@ -535,6 +601,10 @@ async function finishAnswer(
         const changed =
           await tx.execute(sql`select 1 from knowledge.answer_sources x join knowledge.sources s on s.organization_id=x.organization_id and s.id=x.source_id
           where x.organization_id=${service.organizationId}::uuid and x.answer_id=${answerId}::uuid
+            and s.id in (${sql.join(
+              expectedSourceClasses.map((item) => sql`${item.sourceId}::uuid`),
+              sql`, `,
+            )})
             and (s.id,s.classification) not in (${sql.join(
               expectedSourceClasses.map(
                 (item) => sql`(${item.sourceId}::uuid,${item.classification})`,
@@ -570,6 +640,10 @@ async function finishAnswer(
         finishedAt: new Date(),
       })
       .where(eq(knowledgeAnswers.id, answerId));
+    if (finalState === 'answered' && modelReceipt?.callId) {
+      if (!acceptResultInTx) throw new ModelCallFailed('MODEL_UNAVAILABLE');
+      await acceptResultInTx(tx, modelReceipt, { kind: 'answer', id: answerId });
+    }
     await emit(tx, service, {
       eventType: KNOWLEDGE_ANSWER_FINISHED,
       aggregateType: AGGREGATE_KNOWLEDGE_ANSWER,

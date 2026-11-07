@@ -9,7 +9,8 @@
     "./ai": "./src/ai.ts",
     "./ai-tools": "./src/ai-tools.ts",
     "./openapi": "./generated/openapi.d.ts",
-    "./knowledge": "./src/knowledge.ts"
+    "./knowledge": "./src/knowledge.ts",
+    "./knowledge-models": "./src/knowledge-models.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

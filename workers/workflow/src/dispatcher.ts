@@ -38,6 +38,11 @@ import {
   KNOWLEDGE_SOURCE_CLOSED,
 } from '@ensemus/domain/knowledge-events';
 import { TOMBSTONE_RECORDED } from '@ensemus/domain/tombstone-ledger';
+import { MODEL_JOB_REQUESTED, AGGREGATE_MODEL_JOB } from '@ensemus/domain/knowledge-models';
+import {
+  knowledgeModelJobInputSchema,
+  knowledgeModelJobWorkflowIdFor,
+} from '@ensemus/workflows/knowledge-model-job-schemas';
 import { S3ObjectStore } from '@ensemus/storage';
 import { createLogger, errorCode } from '@ensemus/telemetry';
 import { AesGcmPayloadCodec } from '@ensemus/workflows/codec';
@@ -351,6 +356,17 @@ async function main() {
             sourceId: event.aggregateId,
           }),
           workflowIdFor: knowledgePurgeWorkflowIdFor,
+        });
+        return;
+
+      case MODEL_JOB_REQUESTED:
+        if (event.aggregateType !== AGGREGATE_MODEL_JOB) return;
+        await startOnce('knowledgeModelJobWorkflow', {
+          input: knowledgeModelJobInputSchema.parse({
+            organizationId: event.organizationId,
+            jobId: event.aggregateId,
+          }),
+          workflowIdFor: knowledgeModelJobWorkflowIdFor,
         });
         return;
 

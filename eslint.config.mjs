@@ -154,6 +154,10 @@ const agentCodeFromWeb = {
     '@ensemus/application/ai-input-ledger',
     '@ensemus/application/ai-external-action-port',
     '@ensemus/application/ai-model-probe-store',
+    '@ensemus/application/ai-knowledge-call-store',
+    '@ensemus/application/ai-knowledge-result-consumer',
+    '@ensemus/application/ai-knowledge-model-jobs',
+    '@ensemus/application/ai-knowledge-job-content',
   ],
   message: 'The web tier starts and shows runs. It never runs one, and has no key (ADR-028 FD-2).',
 };

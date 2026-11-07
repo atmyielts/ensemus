@@ -2,6 +2,7 @@
 // docs/specifications/openapi.yaml, and a test keeps their enums the same.
 import { z } from 'zod';
 import { modelPurposeSchema } from './ai';
+import { answerModelRequestBodySchema } from './knowledge-models';
 
 const classificationSchema = z.enum(['public', 'internal', 'confidential', 'restricted']);
 
@@ -65,6 +66,7 @@ export const companySearchQuerySchema = z.strictObject({
 export const askQuestionSchema = z.strictObject({
   question: z.string().trim().min(1).max(4000),
   classification: classificationSchema.default('restricted'),
+  model: answerModelRequestBodySchema.optional(),
 });
 export type AskQuestionBody = z.infer<typeof askQuestionSchema>;
 

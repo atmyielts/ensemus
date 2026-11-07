@@ -28,6 +28,9 @@ export type RunRef = {
   runId: string;
   workUnitId: string;
   agentVersionId: string;
+  /** Actual current model step, supplied by runModelTurn after beginTurn. Never fabricated by retrieval. */
+  modelStep?: { stepId: string; stepNumber: number; attempt: number };
+  signal?: AbortSignal;
 };
 
 export type CompiledContext = CompiledTurn & {
@@ -35,7 +38,11 @@ export type CompiledContext = CompiledTurn & {
   classification: AiClassification;
   /** Current assembly trace only. The durable ContextSource ledger is authoritative across every
    * turn/tool and includes returned material omitted for size here; citations never replace it. */
-  sources: readonly { type: 'work_unit' | 'artifact'; id: string; sha256: string }[];
+  sources: readonly {
+    type: 'work_unit' | 'artifact' | 'knowledge_package';
+    id: string;
+    sha256: string;
+  }[];
 };
 
 export interface ContextCompiler {

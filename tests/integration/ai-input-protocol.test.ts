@@ -553,31 +553,25 @@ describe('durable agent input protocol and content fence as actual roles', () =>
       projectId = randomUUID(),
       word = `factparent${randomUUID().replaceAll('-', '')}`;
     await withTenantTx(app.db, value.service, async (tx) => {
-      await tx
-        .insert(clients)
-        .values({
-          organizationId: value.organizationId,
-          id: clientId,
-          displayName: 'Private actual fact parent',
-          classification: 'restricted',
-          ownerMembershipId: value.member.membershipId,
-        });
-      await tx
-        .insert(clientReaders)
-        .values({
-          organizationId: value.organizationId,
-          clientId,
-          membershipId: value.owner.membershipId,
-          grantedByMembershipId: value.member.membershipId,
-        });
-      await tx
-        .insert(projects)
-        .values({
-          organizationId: value.organizationId,
-          id: projectId,
-          clientId,
-          name: 'Actual private fact project',
-        });
+      await tx.insert(clients).values({
+        organizationId: value.organizationId,
+        id: clientId,
+        displayName: 'Private actual fact parent',
+        classification: 'restricted',
+        ownerMembershipId: value.member.membershipId,
+      });
+      await tx.insert(clientReaders).values({
+        organizationId: value.organizationId,
+        clientId,
+        membershipId: value.owner.membershipId,
+        grantedByMembershipId: value.member.membershipId,
+      });
+      await tx.insert(projects).values({
+        organizationId: value.organizationId,
+        id: projectId,
+        clientId,
+        name: 'Actual private fact project',
+      });
       await tx.execute(
         sql`update work.work_units set project_id=${projectId}::uuid,version=version+1 where id=${value.work.id}::uuid`,
       );
@@ -606,7 +600,7 @@ describe('durable agent input protocol and content fence as actual roles', () =>
     const compiled = await compileEvidence(
       agent.db,
       value.context,
-      { model: createScriptedModelPort({}) },
+      { model: createScriptedModelPort({}), authorizeAgentContext: async () => true },
       {
         purpose: 'agent_turn',
         workUnitId: value.work.id,

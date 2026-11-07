@@ -35,6 +35,7 @@ import {
   workSchema,
   workUnits,
 } from './schema-work';
+import { modelOperationQualifications } from './schema-model-jobs';
 
 const bytea = customType<{ data: Buffer; driverData: Buffer }>({ dataType: () => 'bytea' });
 const tsvector = customType<{ data: string; driverData: string }>({ dataType: () => 'tsvector' });
@@ -363,6 +364,7 @@ export const knowledgeEmbeddingSpaces = knowledgeSchema.table(
     id: uuid().notNull().defaultRandom(),
     modelProfileRef: uuid(),
     modelProfileVersion: bigint({ mode: 'number' }),
+    qualificationId: uuid(),
     modelId: text().notNull(),
     dimension: integer().notNull(),
     vectorSpaceVersion: text().notNull(),
@@ -375,11 +377,22 @@ export const knowledgeEmbeddingSpaces = knowledgeSchema.table(
     primaryKey({ columns: [t.organizationId, t.id] }),
     unique('knowledge_embedding_spaces_identity').on(
       t.organizationId,
+      t.modelProfileRef,
+      t.modelProfileVersion,
+      t.qualificationId,
       t.modelId,
       t.dimension,
       t.vectorSpaceVersion,
     ),
     unique('knowledge_embedding_spaces_dimension').on(t.organizationId, t.id, t.dimension),
+    foreignKey({
+      name: 'embedding_spaces_qualification_fk',
+      columns: [t.organizationId, t.qualificationId],
+      foreignColumns: [
+        modelOperationQualifications.organizationId,
+        modelOperationQualifications.id,
+      ],
+    }),
     uniqueIndex('knowledge_embedding_spaces_one_active')
       .on(t.organizationId)
       .where(sql`${t.state} = 'active'`),
@@ -623,7 +636,10 @@ export const knowledgeEvidencePackages = knowledgeSchema.table(
       columns: [t.organizationId, t.workUnitId],
       foreignColumns: [workUnits.organizationId, workUnits.id],
     }),
-    check('knowledge_evidence_packages_purpose', sql`${t.purpose} in ('answer','agent_turn')`),
+    check(
+      'knowledge_evidence_packages_purpose',
+      sql`${t.purpose} in ('answer','agent_turn','query')`,
+    ),
     check(
       'knowledge_evidence_packages_class',
       sql`${t.strongestClassification} in ('public','internal','confidential','restricted')`,

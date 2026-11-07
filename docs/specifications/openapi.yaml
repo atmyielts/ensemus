@@ -1453,6 +1453,61 @@ paths:
           $ref: "#/components/responses/InternalError"
         "503":
           $ref: "#/components/responses/RestorePending"
+  /organizations/{organization_id}/knowledge/model-jobs:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+    post:
+      tags: [ knowledge ]
+      summary: Request a durable, explicitly approved semantic query
+      description: Immediate lexical search remains available separately. This request commits a bounded job; the HTTP process cannot call a model or read its private payload.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [ approval_id, request_key, bounds, classification, query ]
+              properties:
+                approval_id: { type: string, format: uuid }
+                request_key: { type: string, format: uuid }
+                bounds: { $ref: '#/components/schemas/KnowledgeModelJobBounds' }
+                classification: { type: string, enum: [ public, internal, confidential, restricted ] }
+                query: { type: string, minLength: 1, maxLength: 2000 }
+      responses:
+        '202':
+          description: Committed durable job. Poll its ID for the current authorized result.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/KnowledgeModelJob' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
+        '503': { $ref: '#/components/responses/RestorePending' }
+  /organizations/{organization_id}/knowledge/model-jobs/{job_id}:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+      - name: job_id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      tags: [ knowledge ]
+      summary: Read the caller's durable model job and freshly authorized query result
+      responses:
+        '200':
+          description: Current state. Private query text and model receipts are excluded.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/KnowledgeModelJob' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
+        '503': { $ref: '#/components/responses/RestorePending' }
   /organizations/{organization_id}/knowledge/answers:
     parameters:
       - $ref: "#/components/parameters/OrganizationID"
@@ -1532,6 +1587,13 @@ paths:
                     - confidential
                     - restricted
                   default: restricted
+                model:
+                  type: object
+                  additionalProperties: false
+                  required: [ approval_id, bounds ]
+                  properties:
+                    approval_id: { type: string, format: uuid }
+                    bounds: { $ref: '#/components/schemas/KnowledgeModelJobBounds' }
       responses:
         "202":
           description: Asked. Read it back by its ID
@@ -3711,6 +3773,48 @@ components:
             - string
             - "null"
           format: date-time
+    KnowledgeModelJobBounds:
+      type: object
+      additionalProperties: false
+      description: Explicit caller ceilings within a current workload approval. Input and output ceilings must each fit max_total_tokens. No spend ceiling is supplied by default.
+      required: [ max_calls, max_input_tokens, max_output_tokens, max_total_tokens, max_cost_micros, timeout_seconds ]
+      properties:
+        max_calls: { type: integer, minimum: 1, maximum: 1000 }
+        max_input_tokens: { type: integer, minimum: 1, maximum: 2147483647 }
+        max_output_tokens: { type: integer, minimum: 1, maximum: 2147483647 }
+        max_total_tokens: { type: integer, minimum: 1, maximum: 9007199254740991 }
+        max_cost_micros: { type: integer, minimum: 0, maximum: 9007199254740991 }
+        timeout_seconds: { type: integer, minimum: 1, maximum: 86400 }
+    KnowledgeModelJob:
+      type: object
+      additionalProperties: false
+      required: [ job_id, kind, state, code, cost_micros, result ]
+      properties:
+        job_id: { type: string, format: uuid }
+        kind: { type: string, enum: [ qualification, document_embed, query, answer ] }
+        state: { type: string, enum: [ prepared, running, completed, refused, fenced ] }
+        code: { type: [ string, 'null' ] }
+        cost_micros: { type: integer, minimum: 0, maximum: 9007199254740991 }
+        result:
+          type: [ object, 'null' ]
+          additionalProperties: false
+          required: [ package_id, strongest_classification, engine, items ]
+          properties:
+            package_id: { type: string, format: uuid }
+            strongest_classification: { type: string, enum: [ public, internal, confidential, restricted ] }
+            engine: { type: string, enum: [ lexical, hybrid ] }
+            items:
+              type: array
+              items:
+                type: object
+                additionalProperties: false
+                required: [ chunk_id, source_id, document_id, title, excerpt ]
+                properties:
+                  chunk_id: { type: string, format: uuid }
+                  source_id: { type: string, format: uuid }
+                  document_id: { type: string, format: uuid }
+                  title: { type: string }
+                  excerpt: { type: string }
     KnowledgeAnswer:
       type: object
       additionalProperties: false

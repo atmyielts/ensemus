@@ -2439,6 +2439,120 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/organizations/{organization_id}/knowledge/model-jobs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Request a durable, explicitly approved semantic query
+         * @description Immediate lexical search remains available separately. This request commits a bounded job; the HTTP process cannot call a model or read its private payload.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        /** Format: uuid */
+                        approval_id: string;
+                        /** Format: uuid */
+                        request_key: string;
+                        bounds: components["schemas"]["KnowledgeModelJobBounds"];
+                        /** @enum {string} */
+                        classification: "public" | "internal" | "confidential" | "restricted";
+                        query: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description Committed durable job. Poll its ID for the current authorized result. */
+                202: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["KnowledgeModelJob"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/organizations/{organization_id}/knowledge/model-jobs/{job_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        /** Read the caller's durable model job and freshly authorized query result */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                    job_id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Current state. Private query text and model receipts are excluded. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["KnowledgeModelJob"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/organizations/{organization_id}/knowledge/answers": {
         parameters: {
             query?: never;
@@ -2508,6 +2622,11 @@ export interface paths {
                          * @enum {string}
                          */
                         classification?: "public" | "internal" | "confidential" | "restricted";
+                        model?: {
+                            /** Format: uuid */
+                            approval_id: string;
+                            bounds: components["schemas"]["KnowledgeModelJobBounds"];
+                        };
                     };
                 };
             };
@@ -4026,6 +4145,43 @@ export interface components {
             searchable_at?: string;
             /** Format: date-time */
             source_modified_at: string | null;
+        };
+        /** @description Explicit caller ceilings within a current workload approval. Input and output ceilings must each fit max_total_tokens. No spend ceiling is supplied by default. */
+        KnowledgeModelJobBounds: {
+            max_calls: number;
+            max_input_tokens: number;
+            max_output_tokens: number;
+            max_total_tokens: number;
+            max_cost_micros: number;
+            timeout_seconds: number;
+        };
+        KnowledgeModelJob: {
+            /** Format: uuid */
+            job_id: string;
+            /** @enum {string} */
+            kind: "qualification" | "document_embed" | "query" | "answer";
+            /** @enum {string} */
+            state: "prepared" | "running" | "completed" | "refused" | "fenced";
+            code: string | null;
+            cost_micros: number;
+            result: {
+                /** Format: uuid */
+                package_id: string;
+                /** @enum {string} */
+                strongest_classification: "public" | "internal" | "confidential" | "restricted";
+                /** @enum {string} */
+                engine: "lexical" | "hybrid";
+                items: {
+                    /** Format: uuid */
+                    chunk_id: string;
+                    /** Format: uuid */
+                    source_id: string;
+                    /** Format: uuid */
+                    document_id: string;
+                    title: string;
+                    excerpt: string;
+                }[];
+            } | null;
         };
         KnowledgeAnswer: {
             /** Format: uuid */

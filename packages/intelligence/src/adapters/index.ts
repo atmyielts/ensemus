@@ -36,7 +36,7 @@ const failed = (
 ): Failure => ({ kind: 'failure', failure, mayHaveBilled, usage });
 
 /** What the call did on the wire, which decides whether a provider could have billed for it. */
-type WireState = { requested: boolean; status: number | null };
+export type WireState = { requested: boolean; status: number | null };
 
 /**
  * Every provider's package reads its own environment variables for a missing key or address, so a key is
@@ -272,7 +272,7 @@ const codeOf = (error: unknown) => {
   return typeof code === 'string' ? code : null;
 };
 
-function failureOf(error: unknown, wire: WireState): Failure {
+export function failureOf(error: unknown, wire: WireState): Failure {
   const chain = causes(error);
   const refused = chain.find((item) => item instanceof EndpointRefused);
   if (refused instanceof EndpointRefused) {

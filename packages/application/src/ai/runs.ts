@@ -331,7 +331,13 @@ async function clearRunLeftovers(tx: Tx, agentRunId: string, options: { keepLost
     })
     .from(budgetReservations)
     .innerJoin(executionSteps, eq(executionSteps.id, budgetReservations.stepId))
-    .where(and(eq(budgetReservations.runId, agentRunId), eq(budgetReservations.status, 'held')));
+    .where(
+      and(
+        eq(budgetReservations.runId, agentRunId),
+        eq(budgetReservations.status, 'held'),
+        sql`${budgetReservations.modelCallId} is null`,
+      ),
+    );
   const now = new Date();
   for (const row of held) {
     if (options.keepLost && mayHaveReachedProvider(row)) continue;
@@ -899,7 +905,7 @@ export async function listLostAttempts(
   const rows = await withTenantTx(database, context, (tx) =>
     tx
       .select({
-        stepId: budgetReservations.stepId,
+        stepId: executionSteps.id,
         stepNumber: executionSteps.stepNumber,
         attempt: budgetReservations.attempt,
         reservationId: budgetReservations.id,
@@ -911,7 +917,11 @@ export async function listLostAttempts(
       .from(budgetReservations)
       .innerJoin(executionSteps, eq(executionSteps.id, budgetReservations.stepId))
       .where(
-        and(eq(budgetReservations.runId, input.agentRunId), eq(budgetReservations.status, 'held')),
+        and(
+          eq(budgetReservations.runId, input.agentRunId),
+          eq(budgetReservations.status, 'held'),
+          sql`${budgetReservations.modelCallId} is null`,
+        ),
       )
       .orderBy(executionSteps.stepNumber, budgetReservations.attempt, budgetReservations.budgetId),
   );
@@ -1250,7 +1260,13 @@ export function createTurnStore(database: AppDatabase): TurnStore {
             amountMicros: budgetReservations.amountMicros,
           })
           .from(budgetReservations)
-          .where(and(eq(budgetReservations.stepId, row.id), eq(budgetReservations.status, 'held')))
+          .where(
+            and(
+              eq(budgetReservations.stepId, row.id),
+              eq(budgetReservations.status, 'held'),
+              sql`${budgetReservations.modelCallId} is null`,
+            ),
+          )
           .orderBy(budgetReservations.attempt, budgetReservations.budgetId)
           .limit(1);
 
