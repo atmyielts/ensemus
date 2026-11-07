@@ -233,7 +233,11 @@ describe('assessDraft', () => {
   describe('refuses and never repairs', () => {
     const refused: [string, Partial<AgentDraftAnswers>, string][] = [
       ['an unknown tool', { toolIds: ['work.read', 'made.up'] }, 'UNKNOWN_TOOL'],
-      ['any secrets tool, even in the catalog', { toolIds: ['secrets.read'] }, 'SECRET_TOOL_REFUSED'],
+      [
+        'any secrets tool, even in the catalog',
+        { toolIds: ['secrets.read'] },
+        'SECRET_TOOL_REFUSED',
+      ],
       [
         'an external write in a draft mode',
         { toolIds: ['email.send'], autonomy: 'draft_for_review' },
@@ -322,7 +326,10 @@ describe('assessDraft', () => {
       const result = risk({ toolIds: ['email.send'], autonomy: 'act_with_approval' });
       expect(result.riskLevel).toBe('elevated');
       expect(result.risk).toContainEqual({ code: 'WRITES_OUTSIDE', subject: 'email.send' });
-      expect(result.risk).toContainEqual({ code: 'ACTS_WITH_APPROVAL', subject: 'act_with_approval' });
+      expect(result.risk).toContainEqual({
+        code: 'ACTS_WITH_APPROVAL',
+        subject: 'act_with_approval',
+      });
     });
 
     it('is elevated for a delegation tool, and allows one level of delegation for it', () => {

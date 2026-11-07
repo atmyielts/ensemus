@@ -27,7 +27,9 @@ describe('working workspace navigation', () => {
       );
       expect(existsSync(fileURLToPath(page)), item.href).toBe(true);
       expect(item.href).not.toBe(`${base}/agents`);
-      expect(['pulse','compose','objects','get-started'].map(path=>`${base}/${path}`)).not.toContain(item.href);
+      expect(
+        ['pulse', 'compose', 'objects', 'get-started'].map((path) => `${base}/${path}`),
+      ).not.toContain(item.href);
     }
     for (const item of visibleSettings('owner')) {
       expect(

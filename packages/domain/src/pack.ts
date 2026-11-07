@@ -172,7 +172,9 @@ function checkClaims(manifest: PackManifest, add: (path: string, code: string) =
     check(`${path}.name`, draft.name);
     check(`${path}.answers.role`, draft.answers.role);
     check(`${path}.answers.intendedOutcome`, draft.answers.intendedOutcome);
-    draft.answers.boundaries.forEach((line, at) => check(`${path}.answers.boundaries[${at}]`, line));
+    draft.answers.boundaries.forEach((line, at) =>
+      check(`${path}.answers.boundaries[${at}]`, line),
+    );
   });
   manifest.processes.forEach((process, index) => {
     check(`processes[${index}].name`, process.name);
@@ -261,7 +263,8 @@ function checkProcesses(
         }
       }
       if (node.kind === 'external_action' && node.toolId) {
-        if (FORBIDDEN_TOOL.test(node.toolId)) add(`${path}.graph.${node.id}`, 'FORBIDDEN_TOOL_REFUSED');
+        if (FORBIDDEN_TOOL.test(node.toolId))
+          add(`${path}.graph.${node.id}`, 'FORBIDDEN_TOOL_REFUSED');
         if (BULK_TOOL.test(node.toolId)) add(`${path}.graph.${node.id}`, 'BULK_TOOL_REFUSED');
         if (!covered(['external_effect'], node.toolId, ref)) {
           add(`${path}.graph.${node.id}`, 'MISSING_CAPABILITY');
@@ -327,7 +330,8 @@ export function validatePackManifest(manifest: PackManifest): readonly PackIssue
     if (!CAPABILITY_KEY.test(capability.key)) add(`${path}.key`, 'BAD_KEY');
     if (!CAPABILITY_KINDS.includes(capability.kind)) add(`${path}.kind`, 'UNKNOWN_KIND');
     if (!capability.subject.trim()) add(`${path}.subject`, 'REQUIRED');
-    if (capability.risk !== 'low' && capability.risk !== 'elevated') add(`${path}.risk`, 'BAD_RISK');
+    if (capability.risk !== 'low' && capability.risk !== 'elevated')
+      add(`${path}.risk`, 'BAD_RISK');
     // A request that keeps nothing out when declined would be a control that does nothing.
     if (capability.requiredBy.length === 0) add(`${path}.requiredBy`, 'REQUIRED');
     for (const ref of capability.requiredBy) {
@@ -424,7 +428,10 @@ export function planPackUpgrade(from: PackManifest, to: PackManifest): UpgradePl
     if (!next) {
       steps.push({ kind: 'remove_item', itemKind: 'object_type', key: type.slug, refused: true });
       refused = true;
-    } else if (same(typeShape(type), typeShape(next)) && type.classification === next.classification) {
+    } else if (
+      same(typeShape(type), typeShape(next)) &&
+      type.classification === next.classification
+    ) {
       steps.push({ kind: 'keep_item', itemKind: 'object_type', key: type.slug });
     } else {
       steps.push({ kind: 'migrate_type', key: type.slug });
@@ -494,7 +501,9 @@ function refusedBy(
 ) {
   const out = new Map<string, 'declined' | 'undecided'>();
   for (const capability of manifest.capabilities) {
-    const decision = Object.hasOwn(decisions, capability.key) ? decisions[capability.key] : undefined;
+    const decision = Object.hasOwn(decisions, capability.key)
+      ? decisions[capability.key]
+      : undefined;
     if (decision === 'accepted') continue;
     for (const ref of capability.requiredBy) {
       // "Declined" is the stronger thing to tell someone, so it wins over "not decided yet".

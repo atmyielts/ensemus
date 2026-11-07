@@ -276,7 +276,7 @@ export default tseslint.config(
     ['packages/database/**', 'packages/auth/**', 'tests/**', 'apps/web/**'],
   ),
   restrict(['packages/auth/**/*.ts'], [rawDatabase, temporal, broker, ssoOperator]),
-  restrict(['packages/packs/**/*.ts'], [packReach]),
+  restrict(['packages/packs/**/*.ts'], [packReach], ['**/*.test.ts']),
   restrict(
     ['apps/web/**/*.{ts,tsx}'],
     [

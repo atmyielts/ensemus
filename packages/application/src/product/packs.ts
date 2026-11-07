@@ -306,10 +306,7 @@ async function addObjectTypeVersionThroughTables(
     .select()
     .from(objectTypes)
     .where(
-      and(
-        eq(objectTypes.organizationId, context.organizationId),
-        eq(objectTypes.id, input.typeId),
-      ),
+      and(eq(objectTypes.organizationId, context.organizationId), eq(objectTypes.id, input.typeId)),
     )
     .for('no key update');
   if (!type) throw new AppError('NOT_FOUND');
@@ -421,7 +418,9 @@ async function moveType(
     await tx
       .update(objectTypes)
       .set({ classification: after.classification, updatedAt: new Date() })
-      .where(and(eq(objectTypes.organizationId, context.organizationId), eq(objectTypes.id, typeId)));
+      .where(
+        and(eq(objectTypes.organizationId, context.organizationId), eq(objectTypes.id, typeId)),
+      );
   }
 }
 
@@ -599,7 +598,10 @@ async function readDraftStatuses(tx: Tx, context: TenantContext, items: readonly
       .select({ id: agentDrafts.id, status: agentDrafts.status })
       .from(agentDrafts)
       .where(
-        and(eq(agentDrafts.organizationId, context.organizationId), inArray(agentDrafts.id, agentIds)),
+        and(
+          eq(agentDrafts.organizationId, context.organizationId),
+          inArray(agentDrafts.id, agentIds),
+        ),
       );
     for (const row of rows) statuses[row.id] = row.status;
   }
@@ -1013,23 +1015,12 @@ export function createPackService(overrides: Partial<PackDependencies> = {}) {
           if ((active?.id ?? null) !== row.previousInstallationId) {
             throw new AppError('INVALID_STATE');
           }
-          const previous = active
-            ? findManifest(deps, active.packKey, active.packVersion)
-            : null;
+          const previous = active ? findManifest(deps, active.packKey, active.packVersion) : null;
           if (active && (!previous || planPackUpgrade(previous, manifest).refused)) {
             throw new AppError('PACK_INVALID');
           }
 
-          const made = await makeItems(
-            tx,
-            deps,
-            context,
-            row,
-            manifest,
-            previous,
-            decided,
-            tools,
-          );
+          const made = await makeItems(tx, deps, context, row, manifest, previous, decided, tools);
           const now = new Date();
           // The old row first, because one tenant can only hold one active row of a pack at any moment.
           if (active) {

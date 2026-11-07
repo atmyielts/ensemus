@@ -192,7 +192,9 @@ describe('deriveSignals: what is left out', () => {
   it('drops every record whose Work Unit the viewer was not given', () => {
     const input = facts({
       work: [],
-      approvals: [{ id: RECORD, workUnitId: WORK_A, expiresAt: inHours(1), createdAt: inHours(-1) }],
+      approvals: [
+        { id: RECORD, workUnitId: WORK_A, expiresAt: inHours(1), createdAt: inHours(-1) },
+      ],
       externalActions: [
         { id: RECORD, workUnitId: WORK_A, status: 'unknown', updatedAt: inHours(-1) },
       ],
@@ -206,7 +208,9 @@ describe('deriveSignals: what is left out', () => {
     const bad = new Date('not a date');
     expect(deriveSignals(facts({ now: bad, work: [work({ dueAt: inHours(-72) })] }))).toEqual([]);
     expect(deriveSignals(facts({ work: [work({ dueAt: bad })] }))).toEqual([]);
-    expect(deriveSignals(facts({ work: [work({ status: 'not_a_status', dueAt: inHours(-72) })] }))).toEqual([]);
+    expect(
+      deriveSignals(facts({ work: [work({ status: 'not_a_status', dueAt: inHours(-72) })] })),
+    ).toEqual([]);
     expect(deriveSignals(facts({ work: [work({ id: '', dueAt: inHours(-72) })] }))).toEqual([]);
     expect(
       deriveSignals(

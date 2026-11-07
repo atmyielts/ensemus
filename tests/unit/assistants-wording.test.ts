@@ -302,9 +302,12 @@ describe('the cost of a run', () => {
     expect(costWords(aRun({ costMicros: 0 }))).toBe('$0.00');
   });
 
-  it.each([Number.NaN, Number.POSITIVE_INFINITY, -1])('does not show nonsense: %s', (costMicros) => {
-    expect(costWords(aRun({ costMicros }))).toBeNull();
-  });
+  it.each([Number.NaN, Number.POSITIVE_INFINITY, -1])(
+    'does not show nonsense: %s',
+    (costMicros) => {
+      expect(costWords(aRun({ costMicros }))).toBeNull();
+    },
+  );
 });
 
 describe('the list of runs', () => {

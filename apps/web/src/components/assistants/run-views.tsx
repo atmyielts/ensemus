@@ -195,13 +195,7 @@ export function RunSteps({ run }: { run: PresentedRun }) {
 }
 
 /** Reads the run again. An ordinary form, so it works with no JavaScript and always asks the server. */
-export function CheckAgain({
-  action,
-  keepRequested,
-}: {
-  action: string;
-  keepRequested: boolean;
-}) {
+export function CheckAgain({ action, keepRequested }: { action: string; keepRequested: boolean }) {
   return (
     <form method="get" action={action}>
       {keepRequested && <input type="hidden" name="stop" value="requested" />}

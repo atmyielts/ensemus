@@ -24,11 +24,7 @@ export default async function AssistantsPage({
   const after = cursorFrom(rawAfter);
   const error = typeof rawError === 'string' ? rawError : undefined;
 
-  const state = await readAssistantsPage(
-    context,
-    webProductPorts(),
-    after ? { after } : {},
-  );
+  const state = await readAssistantsPage(context, webProductPorts(), after ? { after } : {});
 
   return (
     <>
@@ -64,12 +60,7 @@ export default async function AssistantsPage({
                 />
               )}
               {state.finished.length > 0 && (
-                <RunList
-                  base={base}
-                  id="finished-heading"
-                  label="Finished"
-                  runs={state.finished}
-                />
+                <RunList base={base} id="finished-heading" label="Finished" runs={state.finished} />
               )}
             </div>
           )}

@@ -112,23 +112,23 @@ describe('Assistants on real tenants', () => {
     'answers NOT_FOUND for someone else’s run when asked by an %s of that tenant',
     async (role) => {
       const { a } = seed();
-      await expect(
-        getDelegatedRun(tenants.a[role].context, ports(), a.id),
-      ).rejects.toMatchObject({ code: 'NOT_FOUND' });
-      await expect(
-        readRunPage(tenants.a[role].context, ports(), a.id),
-      ).rejects.toMatchObject({ code: 'NOT_FOUND' });
-      await expect(
-        stopDelegatedRun(tenants.a[role].context, ports(), a.id),
-      ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+      await expect(getDelegatedRun(tenants.a[role].context, ports(), a.id)).rejects.toMatchObject({
+        code: 'NOT_FOUND',
+      });
+      await expect(readRunPage(tenants.a[role].context, ports(), a.id)).rejects.toMatchObject({
+        code: 'NOT_FOUND',
+      });
+      await expect(stopDelegatedRun(tenants.a[role].context, ports(), a.id)).rejects.toMatchObject({
+        code: 'NOT_FOUND',
+      });
     },
   );
 
   it('answers NOT_FOUND, and not forbidden, for a run in another tenant', async () => {
     const { b } = seed();
-    await expect(
-      readRunPage(tenants.a.owner.context, ports(), b.id),
-    ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    await expect(readRunPage(tenants.a.owner.context, ports(), b.id)).rejects.toMatchObject({
+      code: 'NOT_FOUND',
+    });
     const attempt = await attemptStop(tenants.a.owner.context, ports(), b.id, true);
     expect(attempt).toMatchObject({ ok: false, code: 'NOT_FOUND' });
   });

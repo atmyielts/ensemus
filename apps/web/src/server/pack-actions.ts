@@ -3,7 +3,13 @@
 // Every action is a public endpoint. Each one resolves the person and tenant again from the session and the
 // service checks permission itself. The session for a recent-MFA check comes from the verified cookie, and
 // nothing from a form can name one. There is no accept-all here on purpose: one form decides one capability.
-import { AppError, auditRefusal, canonicalId, isAuditedRefusal, refusalCode } from '@ensemus/application';
+import {
+  AppError,
+  auditRefusal,
+  canonicalId,
+  isAuditedRefusal,
+  refusalCode,
+} from '@ensemus/application';
 import { createPackService } from '@ensemus/application/packs';
 import { decidePackCapabilitySchema, requestPackInstallSchema } from '@ensemus/contracts/packs';
 import type { AppDatabase, TenantContext } from '@ensemus/database';

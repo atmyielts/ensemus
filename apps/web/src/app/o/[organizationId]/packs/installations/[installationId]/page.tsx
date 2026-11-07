@@ -60,8 +60,8 @@ export default async function PackInstallationPage({
       </p>
       {review.toolCatalog === 'unavailable' && (
         <p className="notice warn">
-          The list of tools cannot be read on this deployment yet. You can still decide, and anything
-          that names a tool will be left out for now.
+          The list of tools cannot be read on this deployment yet. You can still decide, and
+          anything that names a tool will be left out for now.
         </p>
       )}
       <div className="stack">

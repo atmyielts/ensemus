@@ -331,8 +331,10 @@ function refuse(issues: readonly GraphIssue[]): CompileResult {
   });
   const ordered = unique.sort(
     (a, b) =>
-      byCodeUnit(a.nodeId === null ? '' : `n${a.nodeId}`, b.nodeId === null ? '' : `n${b.nodeId}`) ||
-      byCodeUnit(a.code, b.code),
+      byCodeUnit(
+        a.nodeId === null ? '' : `n${a.nodeId}`,
+        b.nodeId === null ? '' : `n${b.nodeId}`,
+      ) || byCodeUnit(a.code, b.code),
   );
   return { ok: false, spec: null, specSha256: null, issues: ordered };
 }

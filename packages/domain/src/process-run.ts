@@ -66,10 +66,7 @@ function runOrder(spec: ProcessSpec): readonly ProcessStep[] {
 }
 
 /** Whether every path to this step passes a person's approval. Checked by path, not by count. */
-function approvedOnEveryPath(
-  byKey: ReadonlyMap<string, ProcessStep>,
-  step: ProcessStep,
-): boolean {
+function approvedOnEveryPath(byKey: ReadonlyMap<string, ProcessStep>, step: ProcessStep): boolean {
   const memo = new Map<string, boolean>();
   const visit = (current: ProcessStep): boolean => {
     const known = memo.get(current.key);

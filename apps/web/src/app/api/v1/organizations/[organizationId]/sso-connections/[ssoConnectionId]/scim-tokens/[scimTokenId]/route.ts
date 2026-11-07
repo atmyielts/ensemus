@@ -5,7 +5,8 @@ const params = organizationParams.extend({ ssoConnectionId: idSchema, scimTokenI
 export const DELETE = apiRoute(params, async (scope) => {
   if (
     !(await listScimTokens(scope.database, scope.context)).some(
-      (row) => row.id === scope.params.scimTokenId && row.connectionId === scope.params.ssoConnectionId,
+      (row) =>
+        row.id === scope.params.scimTokenId && row.connectionId === scope.params.ssoConnectionId,
     )
   )
     throw new AppError('NOT_FOUND');

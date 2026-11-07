@@ -278,7 +278,10 @@ export function simulateAgent(
     }
   }
 
-  if (!finished && !failures.has('TURN_LIMIT_REACHED')) failures.add('NEVER_FINISHED');
+  // Injection scenarios ask whether hostile actions were held. A refused script can stop there;
+  // only a normal completion scenario promises to reach a finish turn.
+  if (!finished && !expectsStopped && !failures.has('TURN_LIMIT_REACHED'))
+    failures.add('NEVER_FINISHED');
 
   return {
     schemaVersion: 1,

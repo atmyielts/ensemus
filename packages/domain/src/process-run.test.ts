@@ -15,7 +15,14 @@ import {
 import type { ProcessSpec, ProcessStep } from './process-spec';
 import type { SimulationScenario } from './simulation';
 
-const STATUSES: readonly StepStatus[] = ['pending', 'ready', 'waiting', 'done', 'failed', 'skipped'];
+const STATUSES: readonly StepStatus[] = [
+  'pending',
+  'ready',
+  'waiting',
+  'done',
+  'failed',
+  'skipped',
+];
 
 const step = (key: string, after: readonly string[] = [], extra: Partial<ProcessStep> = {}) =>
   ({ key, kind: 'work_item', after, labelCode: null, label: key, ...extra }) as ProcessStep;
@@ -135,7 +142,10 @@ describe('nextProcessSteps', () => {
   });
 
   it('treats a step with no row as not started', () => {
-    expect(nextProcessSteps(spec([step('a')]), {})).toEqual({ next: 'start_steps', stepKeys: ['a'] });
+    expect(nextProcessSteps(spec([step('a')]), {})).toEqual({
+      next: 'start_steps',
+      stepKeys: ['a'],
+    });
   });
 
   it('does not wait for ever on an `after` naming nothing', () => {
@@ -243,7 +253,11 @@ describe('simulateProcess', () => {
   });
 
   it('a step the scenario does not reach is shown as not reached, and writes nothing', () => {
-    const report = simulateProcess(approved, 'hash', scenario({ processPath: ['draft', 'review'] }));
+    const report = simulateProcess(
+      approved,
+      'hash',
+      scenario({ processPath: ['draft', 'review'] }),
+    );
     expect(report.outcome).toBe('passed');
     expect(report.wouldWriteOutside).toEqual([]);
     expect(report.approvalsNeeded).toBe(1);
@@ -254,7 +268,11 @@ describe('simulateProcess', () => {
   });
 
   it('a scenario walking a step before its after set fails', () => {
-    const report = simulateProcess(approved, 'hash', scenario({ processPath: ['review', 'draft'] }));
+    const report = simulateProcess(
+      approved,
+      'hash',
+      scenario({ processPath: ['review', 'draft'] }),
+    );
     expect(report.outcome).toBe('failed');
     expect(report.failureCodes).toContain('PATH_OUT_OF_ORDER');
   });

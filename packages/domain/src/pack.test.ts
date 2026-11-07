@@ -249,10 +249,7 @@ describe('validatePackManifest', () => {
   ])('refuses the forbidden tool %s, as Studio does', (toolId) => {
     const manifest = base({
       agentDrafts: [{ key: 'helper', name: 'Helper', answers: { ...answers, toolIds: [toolId] } }],
-      capabilities: [
-        ...base().capabilities,
-        capability({ key: 'tool.bad', subject: toolId }),
-      ],
+      capabilities: [...base().capabilities, capability({ key: 'tool.bad', subject: toolId })],
       strings: { ...base().strings, ...words('tool.bad') },
     });
     expect(codes(manifest)).toContain('FORBIDDEN_TOOL_REFUSED');
@@ -304,9 +301,7 @@ describe('validatePackManifest', () => {
 
   it('refuses a request for restricted data', () => {
     expect(
-      codes(
-        withCapability({ key: 'data.internal', subject: 'restricted', risk: 'elevated' }),
-      ),
+      codes(withCapability({ key: 'data.internal', subject: 'restricted', risk: 'elevated' })),
     ).toContain('RESTRICTED_NOT_OFFERED');
   });
 
@@ -423,7 +418,9 @@ describe('validatePackManifest', () => {
       ],
     };
     expect(
-      codes(base({ processes: [{ key: 'send', name: 'Send', classification: 'internal', graph }] })),
+      codes(
+        base({ processes: [{ key: 'send', name: 'Send', classification: 'internal', graph }] }),
+      ),
     ).toContain('AGENT_REFERENCE_NOT_ALLOWED');
   });
 
@@ -433,7 +430,9 @@ describe('validatePackManifest', () => {
       edges: [...safeGraph.edges, { from: 'a', to: 'c' }],
     };
     expect(
-      codes(base({ processes: [{ key: 'send', name: 'Send', classification: 'internal', graph }] })),
+      codes(
+        base({ processes: [{ key: 'send', name: 'Send', classification: 'internal', graph }] }),
+      ),
     ).toContain('GRAPH_EFFECT_WITHOUT_APPROVAL');
   });
 
@@ -648,7 +647,9 @@ describe('itemsAllowedBy', () => {
     const child = {
       ...type,
       slug: 'child',
-      relations: [{ key: 'thing', label: 'Thing', toTypeSlug: 'thing', cardinality: 'one' as const }],
+      relations: [
+        { key: 'thing', label: 'Thing', toTypeSlug: 'thing', cardinality: 'one' as const },
+      ],
     };
     const manifest = base({
       objectTypes: [type, child],
@@ -686,7 +687,9 @@ describe('planPackItems', () => {
       TOOLS,
     );
     expect(plan.processes).toEqual([]);
-    expect(plan.leftOut).toEqual([{ ref: 'process_draft:send', reason: 'declined', subject: null }]);
+    expect(plan.leftOut).toEqual([
+      { ref: 'process_draft:send', reason: 'declined', subject: null },
+    ]);
   });
 
   it('leaves out an item whose tool M4 does not have, and says which', () => {

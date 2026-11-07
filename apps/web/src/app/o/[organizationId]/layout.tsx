@@ -72,7 +72,11 @@ export default async function OrganizationLayout({
               {Array.from(actor.name)[0]?.toUpperCase() ?? 'E'}
             </span>
             <div className="account-details">
-              <Link className="account-name" href={`${base}/security`} title="Your account security">
+              <Link
+                className="account-name"
+                href={`${base}/security`}
+                title="Your account security"
+              >
                 {actor.name}
               </Link>
               <span className="account-email">{actor.email}</span>

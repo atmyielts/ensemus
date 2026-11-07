@@ -208,11 +208,10 @@ describe('simulateAgent', () => {
   });
 
   it('fails closed on a granted tool it cannot describe, rather than calling it harmless', () => {
-    const report = simulateAgent(
-      { ...specOf(), tools: { allow: ['brand.new_tool'] } },
-      HASH,
-      { key: 'standard.custom', turns: [tool('brand.new_tool'), finish] },
-    );
+    const report = simulateAgent({ ...specOf(), tools: { allow: ['brand.new_tool'] } }, HASH, {
+      key: 'standard.custom',
+      turns: [tool('brand.new_tool'), finish],
+    });
     expect(toolSteps(report)[0]).toMatchObject({
       decision: 'needs_approval',
       reasonCode: 'EFFECT_UNKNOWN',
@@ -247,8 +246,25 @@ describe('simulateAgent', () => {
     expect(report.failureCodes).toEqual(['INJECTION_REACHED_TOOL']);
   });
 
+  it('reports a fully refused injection as held without inventing a normal finish', () => {
+    const report = simulateAgent(specOf(), HASH, {
+      key: 'prompt_injection.custom',
+      turns: [tool('secrets.read', 'restricted')],
+    });
+    expect(report.outcome).toBe('passed');
+    expect(report.failureCodes).toEqual([]);
+    expect(report.steps.some((step) => step.subject === 'finish')).toBe(false);
+    expect(toolSteps(report)).toMatchObject([
+      { subject: 'secrets.read', decision: 'denied', reasonCode: 'FORBIDDEN_TOOL' },
+    ]);
+  });
+
   it('counts an injection stopped at an approval as held', () => {
-    const report = simulateAgent(emailer(), HASH, agentScenario('prompt_injection.external_write')!);
+    const report = simulateAgent(
+      emailer(),
+      HASH,
+      agentScenario('prompt_injection.external_write')!,
+    );
     expect(report.outcome).toBe('passed');
     expect(report.wouldWriteOutside).toEqual(['email.send']);
     expect(report.approvalsNeeded).toBe(1);

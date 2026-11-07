@@ -87,10 +87,16 @@ export default async function StudioPage({
         <DestinationList
           label="Assistant preparation"
           items={[
-            ...(canProduct(context.role,'pack.manage')?[{
-              href:`${base}/packs`,label:'Packs',
-              description:'Review packaged workflows and the access they request.',icon:'studio' as const,
-            }]:[]),
+            ...(canProduct(context.role, 'pack.manage')
+              ? [
+                  {
+                    href: `${base}/packs`,
+                    label: 'Packs',
+                    description: 'Review packaged workflows and the access they request.',
+                    icon: 'studio' as const,
+                  },
+                ]
+              : []),
             ...(can(context.role, 'model.manage') || can(context.role, 'model.activate')
               ? [
                   {

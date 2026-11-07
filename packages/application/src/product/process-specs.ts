@@ -210,9 +210,7 @@ async function loadDraft(tx: Tx, context: TenantContext, draftId: string, lock: 
   const query = tx
     .select()
     .from(processDrafts)
-    .where(
-      and(eq(processDrafts.organizationId, context.organizationId), eq(processDrafts.id, id)),
-    );
+    .where(and(eq(processDrafts.organizationId, context.organizationId), eq(processDrafts.id, id)));
   const [row] = lock ? await query.for('update') : await query;
   if (!row || !canReadRecord(row, viewer(context))) throw new AppError('NOT_FOUND');
   return row;
@@ -346,9 +344,7 @@ export async function getProcessDraft(
   draftId: string,
 ): Promise<ProcessDraftView> {
   const catalog = await loadProcessCatalog(context, ports);
-  const row = await withTenantTx(database, context, (tx) =>
-    loadDraft(tx, context, draftId, false),
-  );
+  const row = await withTenantTx(database, context, (tx) => loadDraft(tx, context, draftId, false));
   const compiled = compileWith(
     row.graph as ProcessGraph,
     row.classification as ProcessSpec['classification'],
@@ -403,7 +399,9 @@ export async function updateProcessDraft(
     const sameGraph = canonicalJson(graph) === canonicalJson(row.graph);
     const sameHash = compiled.specSha256 === row.specSha256;
     const moreThanMoved =
-      name !== row.name || classification !== row.classification || !sameHash ||
+      name !== row.name ||
+      classification !== row.classification ||
+      !sameHash ||
       // Two graphs that do not compile have no hash to compare, and any edit to one is an edit.
       (compiled.specSha256 === null && !sameGraph);
     if (sameGraph && !moreThanMoved) {
@@ -525,11 +523,7 @@ export async function publishProcessSpecInTx(
         publishedByMembershipId: context.membershipId,
       })
       .onConflictDoNothing({
-        target: [
-          processSpecs.organizationId,
-          processSpecs.processKey,
-          processSpecs.versionNumber,
-        ],
+        target: [processSpecs.organizationId, processSpecs.processKey, processSpecs.versionNumber],
       })
       .returning({ id: processSpecs.id, versionNumber: processSpecs.versionNumber });
     if (row) {

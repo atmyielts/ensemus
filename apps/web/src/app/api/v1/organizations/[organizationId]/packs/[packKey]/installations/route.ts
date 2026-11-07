@@ -13,10 +13,13 @@ const params = z.object({
 });
 
 // Starts a review and grants nothing. The same request again lands on the same open review.
-export const POST = apiRoute(params, async ({ request, context, database, params: { packKey } }) => {
-  const { version } = await readJson(request, requestPackInstallSchema);
-  return installationResponse(
-    await requestPackInstall(database, context, { packKey, version }),
-    201,
-  );
-});
+export const POST = apiRoute(
+  params,
+  async ({ request, context, database, params: { packKey } }) => {
+    const { version } = await readJson(request, requestPackInstallSchema);
+    return installationResponse(
+      await requestPackInstall(database, context, { packKey, version }),
+      201,
+    );
+  },
+);

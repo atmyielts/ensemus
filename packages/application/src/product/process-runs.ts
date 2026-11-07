@@ -23,7 +23,11 @@ import {
 } from '@ensemus/database';
 import { processRuns, processRunSteps, processSpecs } from '@ensemus/database/product';
 import { canonicalJson, type ProposedAction } from '@ensemus/domain/approval';
-import { EMAIL_CONNECTOR_TYPE, EMAIL_SEND_TOOL, EMAIL_SEND_VERSION } from '@ensemus/domain/external-action';
+import {
+  EMAIL_CONNECTOR_TYPE,
+  EMAIL_SEND_TOOL,
+  EMAIL_SEND_VERSION,
+} from '@ensemus/domain/external-action';
 import { canManageWork, type Classification } from '@ensemus/domain/policy';
 import {
   agentStepOutcome,
@@ -575,10 +579,7 @@ export async function getProcessRun(
     const root = await loadReadable(tx, context, row.run.rootWorkUnitId);
     return viewOf(row.run, row, await loadSteps(tx, id.data), answersFor(root, context));
   });
-  const workUnitIds = [
-    view.rootWorkUnitId,
-    ...view.steps.flatMap((step) => step.workUnitId ?? []),
-  ];
+  const workUnitIds = [view.rootWorkUnitId, ...view.steps.flatMap((step) => step.workUnitId ?? [])];
   return { ...view, cost: await measuredCost(context, ports, workUnitIds) };
 }
 
@@ -614,11 +615,7 @@ export async function requestStopProcessRun(
 }
 
 async function lockRun(tx: Tx, runId: string): Promise<RunRow> {
-  const [run] = await tx
-    .select()
-    .from(processRuns)
-    .where(eq(processRuns.id, runId))
-    .for('update');
+  const [run] = await tx.select().from(processRuns).where(eq(processRuns.id, runId)).for('update');
   if (!run) throw new AppError('NOT_FOUND');
   return run;
 }
@@ -668,11 +665,7 @@ async function starterOf(tx: Tx, run: RunRow): Promise<TenantContext | null> {
     .for('share');
   if (!member) return null;
   try {
-    return await resolveTenantContext(
-      insideThisTransaction(tx),
-      member.userId,
-      run.organizationId,
-    );
+    return await resolveTenantContext(insideThisTransaction(tx), member.userId, run.organizationId);
   } catch (error) {
     if (error instanceof TenantAccessDenied) return null;
     throw error;
@@ -698,7 +691,9 @@ async function recheck(tx: Tx, run: RunRow, spec: SpecRow): Promise<Gate> {
     specHashNow: sha256(canonicalJson(spec.spec)),
     starterActive: starter !== null,
   });
-  return code === null && starter ? { code: null, starter } : { code: code ?? 'STARTER_INACTIVE', starter: null };
+  return code === null && starter
+    ? { code: null, starter }
+    : { code: code ?? 'STARTER_INACTIVE', starter: null };
 }
 
 const WAY_TO_DONE: Partial<Record<WorkState, WorkState>> = {
@@ -880,14 +875,7 @@ async function askApproval(
   const [work] = await tx.select().from(workUnits).where(eq(workUnits.id, workUnitId));
   if (!work) throw new AppError('NOT_FOUND');
   const found = await attempt(tx, (nested) =>
-    findApprover(
-      nested,
-      { starter, asking: starter.membershipId },
-      run,
-      spec,
-      step,
-      work,
-    ),
+    findApprover(nested, { starter, asking: starter.membershipId }, run, spec, step, work),
   );
   if (!found.ok) {
     await setStep(tx, run.id, step.key, { status: 'failed', stopCode: found.code });
@@ -943,7 +931,9 @@ async function settleEvidence(
       row: rows.get(key),
       step: process.steps.find((candidate) => candidate.key === key),
     }))
-    .filter((entry): entry is { row: StepRow; step: ProcessStep } => Boolean(entry.row && entry.step));
+    .filter((entry): entry is { row: StepRow; step: ProcessStep } =>
+      Boolean(entry.row && entry.step),
+    );
   const missing = { status: 'waiting', stopCode: 'EVIDENCE_MISSING' };
   switch (step.evidence) {
     case 'artifact_attached': {
@@ -1154,7 +1144,11 @@ async function lockedRound(
   const [spec] = await tx.select().from(processSpecs).where(eq(processSpecs.id, run.specId));
   if (!spec) throw new AppError('NOT_FOUND');
 
-  const end = async (status: Finished['status'], code: string | null, starter: TenantContext | null) => ({
+  const end = async (
+    status: Finished['status'],
+    code: string | null,
+    starter: TenantContext | null,
+  ) => ({
     finished: await finishInTx(tx, context, run, spec, status, code, starter),
     starter,
   });
@@ -1184,9 +1178,7 @@ async function lockedRound(
 
   let moved = await settleWaiting(tx, state);
   const statuses = () =>
-    Object.fromEntries(
-      [...state.rows].map(([key, row]) => [key, row.status as StepStatus]),
-    );
+    Object.fromEntries([...state.rows].map(([key, row]) => [key, row.status as StepStatus]));
 
   const decision = nextProcessSteps(process, statuses());
   if (decision.next === 'completed') return end('completed', null, gate.starter);

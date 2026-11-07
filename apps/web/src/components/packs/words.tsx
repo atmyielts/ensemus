@@ -57,7 +57,8 @@ export const LEFT_OUT_WORDS: Record<string, string> = {
   tool_needs_approval_mode: 'It would need to ask a person first, and it is not set up to.',
   tool_without_approval: 'A tool it needs does not ask a person first on this deployment',
   capability_understated: 'A tool it needs does more here than the pack said',
-  name_in_use: 'Your organization already has a record type with this name, and a pack never takes one over.',
+  name_in_use:
+    'Your organization already has a record type with this name, and a pack never takes one over.',
 };
 
 export const ITEM_KIND_WORDS: Record<string, string> = {

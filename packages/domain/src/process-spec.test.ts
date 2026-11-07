@@ -53,7 +53,6 @@ const graph = (
 ): ProcessGraph => ({ schemaVersion: 1, nodes, edges });
 
 const compile = (g: ProcessGraph, ctx = context()) => compileProcessGraph(g, ctx, sha256);
-const issuesOf = (g: ProcessGraph, ctx = context()): readonly GraphIssue[] => compile(g, ctx).issues;
 
 const SAFE = graph(
   [
@@ -133,10 +132,16 @@ describe('a graph that can run', () => {
   });
 
   it('carries only the setting a kind uses, so a leftover cannot change what runs', () => {
-    const plain = compile(graph([node('s', 'start'), node('w', 'work_item'), node('e', 'end')], chain('s', 'w', 'e')));
+    const plain = compile(
+      graph([node('s', 'start'), node('w', 'work_item'), node('e', 'end')], chain('s', 'w', 'e')),
+    );
     const leftover = compile(
       graph(
-        [node('s', 'start'), node('w', 'work_item', { toolId: TOOL, agentDefinitionId: AGENT }), node('e', 'end')],
+        [
+          node('s', 'start'),
+          node('w', 'work_item', { toolId: TOOL, agentDefinitionId: AGENT }),
+          node('e', 'end'),
+        ],
         chain('s', 'w', 'e'),
       ),
     );
@@ -333,12 +338,7 @@ const TABLE: readonly {
   {
     name: 'a duplicate ID',
     graph: graph(
-      [
-        node('s', 'start'),
-        node('a', 'work_item'),
-        node('a', 'external_action'),
-        node('e', 'end'),
-      ],
+      [node('s', 'start'), node('a', 'work_item'), node('a', 'external_action'), node('e', 'end')],
       chain('s', 'a', 'e'),
     ),
     // One of the two is an effect, so the ID counts as one, wherever it is listed.
@@ -403,11 +403,7 @@ const TABLE: readonly {
   {
     name: 'an unknown kind',
     graph: graph(
-      [
-        node('s', 'start'),
-        node('a', 'send_money' as ProcessNodeKind),
-        node('e', 'end'),
-      ],
+      [node('s', 'start'), node('a', 'send_money' as ProcessNodeKind), node('e', 'end')],
       chain('s', 'a', 'e'),
     ),
     expected: [{ nodeId: 'a', code: 'UNKNOWN_KIND' }],
@@ -448,25 +444,29 @@ const TABLE: readonly {
   },
   ...(
     [
-      ['agent_task', { agentDefinitionId: undefined }],
-      ['external_action', { toolId: undefined }],
-      ['human_approval', { approverRole: undefined }],
-      ['evidence_check', { evidence: undefined }],
+      ['agent_task', 'agentDefinitionId'],
+      ['external_action', 'toolId'],
+      ['human_approval', 'approverRole'],
+      ['evidence_check', 'evidence'],
     ] as const
-  ).map(([kind, without]) => ({
-    name: `a ${kind} missing its setting`,
-    graph: graph(
-      [
-        node('s', 'start'),
-        node('approve', 'human_approval'),
-        // Removed rather than left undefined, as a stored graph would be.
-        JSON.parse(JSON.stringify(node('a', kind, without))) as ProcessGraphNode,
-        node('e', 'end'),
-      ],
-      chain('s', 'approve', 'a', 'e'),
-    ),
-    expected: [{ nodeId: 'a', code: 'MISSING_SETTING' as const }],
-  })),
+  ).map(([kind, setting]) => {
+    const incomplete = node('a', kind);
+    delete incomplete[setting];
+    return {
+      name: `a ${kind} missing its setting`,
+      graph: graph(
+        [
+          node('s', 'start'),
+          node('approve', 'human_approval'),
+          // Removed rather than left undefined, as a stored graph would be.
+          incomplete,
+          node('e', 'end'),
+        ],
+        chain('s', 'approve', 'a', 'e'),
+      ),
+      expected: [{ nodeId: 'a', code: 'MISSING_SETTING' as const }],
+    };
+  }),
   {
     name: 'a setting outside the choices on offer',
     graph: graph(
@@ -485,7 +485,7 @@ const TABLE: readonly {
     expected: [{ nodeId: null, code: 'MISSING_SETTING' }],
   },
   {
-    name: 'an ID that could carry a person\'s text into a log',
+    name: "an ID that could carry a person's text into a log",
     graph: graph(
       [node('s', 'start'), node('my secret plan', 'work_item'), node('e', 'end')],
       chain('s', 'my secret plan', 'e'),
@@ -566,7 +566,7 @@ describe('a graph that cannot run', () => {
   });
 });
 
-describe('the label is a person\'s text', () => {
+describe("the label is a person's text", () => {
   it('stays on the step, for the page, and out of keys and issues', () => {
     const canary = 'CANARY-do-not-repeat';
     const good = compile(
@@ -691,7 +691,9 @@ describe('properties over generated graphs', () => {
       const g = randomDag(seed);
       const random = randomFrom(seed ^ 0x5bd1e995);
       const moved = graph(
-        random.shuffle(g.nodes).map((n) => ({ ...n, x: random.next() * 9000, y: -random.next() * 9000 })),
+        random
+          .shuffle(g.nodes)
+          .map((n) => ({ ...n, x: random.next() * 9000, y: -random.next() * 9000 })),
         random.shuffle(g.edges),
       );
       const before = compile(g);
@@ -725,7 +727,9 @@ describe('properties over generated graphs', () => {
       const g = randomDag(seed);
       const damaged = graph(
         g.nodes.filter(() => random.next() > 0.2),
-        [...g.edges, edge(`m${random.int(12)}`, `m${random.int(12)}`)].filter(() => random.next() > 0.2),
+        [...g.edges, edge(`m${random.int(12)}`, `m${random.int(12)}`)].filter(
+          () => random.next() > 0.2,
+        ),
       );
       const result = compile(damaged);
       expect(result.ok ? result.issues.length === 0 : result.issues.length > 0).toBe(true);
@@ -752,9 +756,7 @@ describe('position and order', () => {
   });
 
   it('a changed connection changes the hash', () => {
-    const changed = compile(
-      graph(SAFE.nodes, [...SAFE.edges, edge('prepare', 'approve')]),
-    );
+    const changed = compile(graph(SAFE.nodes, [...SAFE.edges, edge('prepare', 'approve')]));
     expect(changed.ok).toBe(true);
     expect(changed.specSha256).not.toBe(compile(SAFE).specSha256);
   });
