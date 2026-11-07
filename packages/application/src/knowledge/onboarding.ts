@@ -540,6 +540,9 @@ export async function advanceClientOnboarding(
       if (!status) throw new OnboardingFailure('AGENT_RUN_MISSING');
       identity(status, snapshot);
       if (status.status === 'completed') {
+        if (status.artifactState === 'ambiguous') throw new OnboardingFailure('BRIEF_AMBIGUOUS');
+        if (status.artifactState === 'none') throw new OnboardingFailure('BRIEF_MISSING');
+        if (status.artifactState !== 'ready') throw new OnboardingFailure('BRIEF_UNAVAILABLE');
         if (!status.artifactIds || status.artifactIds.length !== 1)
           throw new OnboardingFailure('BRIEF_MISSING');
         candidate = id(status.artifactIds[0]!);
@@ -690,6 +693,8 @@ export async function advanceClientOnboarding(
             });
           return step('waiting_for_brief');
         }
+        if (status.artifactState === 'ambiguous') throw new OnboardingFailure('BRIEF_AMBIGUOUS');
+        if (status.artifactState !== 'ready') throw new OnboardingFailure('BRIEF_UNAVAILABLE');
         if (
           !candidate ||
           !status.artifactIds ||

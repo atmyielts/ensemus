@@ -147,6 +147,7 @@ describe('deal won to one verified onboarding', () => {
           workUnitId: request.workUnitId,
           initiatorMembershipId: context.membershipId,
           artifactIds: [],
+          artifactState: 'none',
         };
         return requestedRun;
       },
@@ -314,6 +315,7 @@ describe('deal won to one verified onboarding', () => {
       status: 'completed',
       costMicros: 1234,
       artifactIds: [artifact.id],
+      artifactState: 'ready',
     };
     expect(await advance(created.onboardingId, gateway.port)).toMatchObject({
       state: 'waiting_for_acceptance',

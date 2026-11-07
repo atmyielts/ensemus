@@ -33,6 +33,7 @@ import {
   openAppDatabase,
   outboxEvents,
   serviceIdentities,
+  tombstones,
   usageLedger,
   withTenantTx,
 } from '@ensemus/database';
@@ -538,7 +539,103 @@ describe('onboarding uses one authorized actual M4 run', () => {
       expectedVersion: 1,
       reason: 'Synthetic revoke',
     });
-    expect((await status())?.artifactIds).toEqual([]);
+    expect(await status()).toMatchObject({ artifactState: 'unavailable', artifactIds: [] });
+  });
+
+  it('refuses a completed legacy adapter response without complete output inventory authority', async () => {
+    const f = await fixture();
+    await f.requestRun();
+    const legacy = {
+      status: 'completed',
+      costMicros: null,
+      workUnitId: f.request.workUnitId,
+      initiatorMembershipId: f.owner.membershipId,
+      artifactIds: [randomUUID()],
+    } as unknown as NonNullable<Awaited<ReturnType<typeof port.statusOf>>>;
+    expect(
+      await advanceClientOnboarding(
+        app.db,
+        f.service,
+        {
+          agentRuns: { ...port, statusOf: async () => legacy },
+        },
+        { onboardingId: f.onboardingId },
+      ),
+    ).toMatchObject({ state: 'failed' });
+    expect(await f.row()).toMatchObject({ stateCode: 'BRIEF_UNAVAILABLE', briefArtifactId: null });
+  });
+
+  it('never chooses a visible singleton after another actual output of the same run is tombstoned', async () => {
+    const f = await fixture(),
+      run = await f.requestRun();
+    const writer = await prepareRunInputContext(agent.db, f.organizationId, run.agentRunId);
+    const text = 'Generated multi-output brief evidence.';
+    const objects = new Map<string, Buffer>();
+    const store: ObjectStore = {
+      put: async (key, body) => {
+        objects.set(key, Buffer.from(body));
+      },
+      get: async (key) => {
+        const body = objects.get(key);
+        if (!body) throw new Error('TEST_MISSING_OBJECT');
+        return body;
+      },
+      delete: async (key) => {
+        objects.delete(key);
+      },
+      exists: async (key) => objects.has(key),
+    };
+    const create = (name: string) =>
+      addGeneratedArtifact(
+        agent.db,
+        store,
+        writer,
+        {
+          workUnitId: f.request.workUnitId,
+          name,
+          mimeType: 'text/plain',
+          body: Buffer.from(text),
+          execution: { kind: 'agent_run', id: run.agentRunId },
+          requestKey: randomUUID(),
+        },
+        { inventory: createRunInputInventory() },
+      );
+    const first = await create('First actual generated output.txt');
+    const second = await create('Second actual generated output.txt');
+    const status = () =>
+      withTenantTx(app.db, f.delegated, (tx) => port.statusOf(tx, f.delegated, run.agentRunId));
+    expect(await status()).toMatchObject({ artifactState: 'ambiguous', artifactIds: [] });
+    // This is a real per-artifact access fence written under the actual application role. No source
+    // read is omitted from the run inventory, and the test makes no physical-byte-erasure claim.
+    await withTenantTx(app.db, f.owner, (tx) =>
+      tx.insert(tombstones).values({
+        organizationId: f.organizationId,
+        targetType: 'artifact',
+        targetId: first.id,
+        reasonCode: 'USER_DELETED',
+      }),
+    );
+    const actual = await withTenantTx(app.db, f.owner, (tx) =>
+      tx.execute<{ first: boolean; second: boolean }>(
+        sql`select knowledge.artifact_readable(${first.id}::uuid,${f.owner.membershipId}::uuid) as first,
+        knowledge.artifact_readable(${second.id}::uuid,${f.owner.membershipId}::uuid) as second`,
+      ),
+    );
+    expect(actual.rows[0]).toEqual({ first: false, second: true });
+    expect(await status()).toMatchObject({ artifactState: 'ambiguous', artifactIds: [] });
+    await withRunLookupTx(agent.db, f.organizationId, async (tx) => {
+      for (const state of ['preparing', 'running', 'verifying', 'completed'])
+        await tx.update(agentRuns).set({ status: state }).where(eq(agentRuns.id, run.agentRunId));
+    });
+    expect(
+      await advanceClientOnboarding(
+        app.db,
+        f.service,
+        { agentRuns: port },
+        { onboardingId: f.onboardingId },
+      ),
+    ).toMatchObject({ state: 'failed' });
+    expect(await f.row()).toMatchObject({ stateCode: 'BRIEF_AMBIGUOUS', briefArtifactId: null });
   });
 
   it('does not turn a human upload attached to the brief into an agent output', async () => {

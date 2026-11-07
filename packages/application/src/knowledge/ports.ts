@@ -97,5 +97,7 @@ export interface AgentRuns {
     workUnitId?: string;
     initiatorMembershipId?: string;
     artifactIds?: readonly string[];
+    /** Complete retained output/attempt inventory before viewer filtering. Hidden history cannot choose a winner. */
+    artifactState: 'none' | 'ready' | 'ambiguous' | 'unavailable';
   } | null>;
 }

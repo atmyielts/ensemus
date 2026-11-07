@@ -2,7 +2,7 @@
 import { describe, expect, it } from 'vitest';
 import type { TenantContext, Tx } from '@ensemus/database';
 import { AppError } from '../errors';
-import { createOnboardingAgentRuns } from './onboarding-run-port';
+import { assessOnboardingOutputs, createOnboardingAgentRuns } from './onboarding-run-port';
 
 const id = '7f0c1f6e-3a39-4f5e-9d7a-3f4a0a4f1b11';
 const unreachable = {} as Tx;
@@ -40,5 +40,32 @@ describe('the onboarding run gateway boundary', () => {
     await expect(port.requestRun(unreachable, context, input)).rejects.toEqual(
       new AppError('INVALID_INPUT'),
     );
+  });
+});
+
+describe('complete generated-output inventory', () => {
+  it.each([true, false])(
+    'keeps two retained candidates ambiguous when the second is readable=%s',
+    (readable) => {
+      expect(
+        assessOnboardingOutputs([
+          { id, readable: true },
+          { id: 'another-hidden-id', readable },
+        ]),
+      ).toEqual({ artifactState: 'ambiguous', artifactIds: [] });
+    },
+  );
+  it('reports an unavailable sole candidate without exposing its identifier', () => {
+    expect(assessOnboardingOutputs([{ id, readable: false }])).toEqual({
+      artifactState: 'unavailable',
+      artifactIds: [],
+    });
+  });
+  it('distinguishes absent output from one confirmed readable candidate', () => {
+    expect(assessOnboardingOutputs([])).toEqual({ artifactState: 'none', artifactIds: [] });
+    expect(assessOnboardingOutputs([{ id, readable: true }])).toEqual({
+      artifactState: 'ready',
+      artifactIds: [id],
+    });
   });
 });
