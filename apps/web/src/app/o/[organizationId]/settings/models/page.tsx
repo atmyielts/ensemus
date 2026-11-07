@@ -32,6 +32,13 @@ export default async function ModelsPage({
       <PageHead
         title="Models"
         description="The AI models this organization has approved. An agent can only use one that is active here."
+        actions={
+          can(context.role, 'model.activate') && can(context.role, 'budget.manage') ? (
+            <Link href={`/o/${organizationId}/settings/models/workloads`}>
+              Knowledge workload approvals
+            </Link>
+          ) : undefined
+        }
       />
       <ErrorNotice code={error} />
       <div className="stack">

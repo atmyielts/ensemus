@@ -1818,6 +1818,249 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/organizations/{organization_id}/model-profiles/{model_profile_id}/qualifications": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+                model_profile_id: string;
+            };
+            cookie?: never;
+        };
+        /** Read manager-only capability evidence, including stale versions and unknown outcomes */
+        get: {
+            parameters: {
+                query?: {
+                    after?: string;
+                };
+                header?: never;
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                    model_profile_id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description At most 50 content-free evidence records in UUID order */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            items: components["schemas"]["ModelCapabilityEvidence"][];
+                            /** Format: uuid */
+                            next_cursor: string | null;
+                        };
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        put?: never;
+        /**
+         * Queue one bounded synthetic capability qualification for the exact profile version
+         * @description Native interactive identity, tenant required-SSO and model_profile.activate privilege are checked in the effect transaction. This HTTP process has no paid model transport. The worker derives the exact purpose protocol; text probe success cannot substitute for capability qualification.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                    model_profile_id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["RequestModelCapabilityQualification"];
+                };
+            };
+            responses: {
+                /** @description Durable request recorded; no qualification granted yet */
+                202: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** Format: uuid */
+                            qualification_id: string;
+                            /** Format: uuid */
+                            job_id: string;
+                        };
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                409: components["responses"]["Conflict"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/organizations/{organization_id}/knowledge/workload-approvals": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+            };
+            cookie?: never;
+        };
+        /** Read manager-only bounded workload approvals and current evidence availability */
+        get: {
+            parameters: {
+                query?: {
+                    after?: string;
+                };
+                header?: never;
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description At most 50 approvals in UUID order; live call admission still applies */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            items: components["schemas"]["ModelWorkloadApproval"][];
+                            /** Format: uuid */
+                            next_cursor: string | null;
+                        };
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        put?: never;
+        /**
+         * Approve an expiring, explicitly bounded Knowledge workload against current qualification evidence
+         * @description Requires native interactive identity, required-SSO and the model_workload.approve privileged action with fresh MFA. Every purpose needs passed evidence for its exact current profile version. Missing bounds, expiry or source/connection scope refuse. This endpoint grants no provider transport to the web tier.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["ApproveModelWorkloadRequest"];
+                };
+            };
+            responses: {
+                /** @description Bounded authority recorded idempotently; no model call made */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** Format: uuid */
+                            approval_id: string;
+                        };
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                409: components["responses"]["Conflict"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/organizations/{organization_id}/knowledge/workload-approvals/{approval_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+                approval_id: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Revoke workload authority conservatively without a new MFA challenge
+         * @description Native tenant manager identity and required-SSO still apply. Repeating revocation is safe; unknown paid calls retain settlement obligations and are never automatically resent.
+         */
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                    approval_id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Revoked */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/organizations/{organization_id}/model-profiles/{model_profile_id}/rate-cards": {
         parameters: {
             query?: never;
@@ -7206,6 +7449,96 @@ export interface components {
             max_total_tokens: number;
             max_cost_micros: number;
             timeout_seconds: number;
+        };
+        /** @description Exactly one call. Embedding requires explicit dimension and vector-space version; ranking and answers require both fields null. Protocol is derived server-side, not supplied by the requester. */
+        RequestModelCapabilityQualification: {
+            expected_profile_version: number;
+            /** @enum {string} */
+            purpose: "embed" | "rerank" | "answer";
+            dimension: number | null;
+            vector_space_version: string | null;
+            /** Format: uuid */
+            request_key: string;
+            bounds: components["schemas"]["KnowledgeModelJobBounds"];
+        };
+        /** @description Document indexing requires exactly one source or connection scope. Other workloads use organization scope with both reference fields null. Expiry and every spending ceiling are explicit; no default authority is granted. */
+        ApproveModelWorkloadRequest: {
+            /** @enum {string} */
+            kind: "document_embed" | "query" | "answer" | "agent_context";
+            /** @enum {string} */
+            scope: "organization" | "source" | "connection";
+            /** Format: uuid */
+            source_id: string | null;
+            /** Format: uuid */
+            connection_id: string | null;
+            purposes: ("embed" | "rerank" | "answer")[];
+            qualification_ids: string[];
+            /** @enum {string} */
+            max_classification: "public" | "internal" | "confidential" | "restricted";
+            bounds: components["schemas"]["KnowledgeModelJobBounds"];
+            /** Format: date-time */
+            expires_at: string;
+            /** Format: uuid */
+            request_key: string;
+        };
+        ModelCapabilityEvidence: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            profile_id: string;
+            profile_alias: string;
+            profile_version: number;
+            /** @enum {string} */
+            purpose: "embed" | "rerank" | "answer";
+            /** @enum {string} */
+            protocol: "native_embedding_v1" | "structured_ranking_v1" | "text_answer_v1";
+            dimension: number | null;
+            vector_space_version: string | null;
+            /** @enum {string} */
+            state: "requested" | "passed" | "failed";
+            current: boolean;
+            usable: boolean;
+            result_digest: string | null;
+            /** Format: date-time */
+            qualified_at: string | null;
+            /** Format: date-time */
+            created_at: string;
+            bounds: components["schemas"]["KnowledgeModelJobBounds"];
+            job: {
+                /** Format: uuid */
+                id: string;
+                /** @enum {string} */
+                state: "prepared" | "running" | "completed" | "refused" | "fenced";
+                code: string | null;
+                unknown_outcome: boolean;
+            } | null;
+        };
+        ModelWorkloadApproval: {
+            /** Format: uuid */
+            id: string;
+            /** @enum {string} */
+            kind: "document_embed" | "query" | "answer" | "agent_context";
+            /** @enum {string} */
+            scope: "organization" | "source" | "connection";
+            /** Format: uuid */
+            source_id: string | null;
+            /** Format: uuid */
+            connection_id: string | null;
+            purposes: ("embed" | "rerank" | "answer")[];
+            /** @enum {string} */
+            max_classification: "public" | "internal" | "confidential" | "restricted";
+            bounds: components["schemas"]["KnowledgeModelJobBounds"];
+            /** Format: date-time */
+            expires_at: string;
+            /** Format: date-time */
+            revoked_at: string | null;
+            /** Format: date-time */
+            created_at: string;
+            qualifications: {
+                /** Format: uuid */
+                id: string;
+                usable: boolean;
+            }[];
         };
         KnowledgeModelJob: {
             /** Format: uuid */
