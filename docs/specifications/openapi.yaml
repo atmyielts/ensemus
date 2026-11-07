@@ -3933,415 +3933,653 @@ paths:
         "503":
           $ref: "#/components/responses/RestorePending"
   /organizations/{organization_id}/object-types:
-    parameters:
-      - $ref: "#/components/parameters/OrganizationID"
-    get:
-      x-ensemus-status: planned
-      tags:
-        - objects
-      summary: List custom types
-      responses:
-        "200":
-          description: Done
-          content:
-            application/json:
-              schema:
-                type: object
-                required:
-                  - items
-                properties:
-                  items:
-                    type: array
-                    items:
-                      $ref: "#/components/schemas/ObjectType"
-                  next:
-                    type:
-                      - string
-                      - "null"
-        "400":
-          $ref: "#/components/responses/BadRequest"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "404":
-          $ref: "#/components/responses/NotFound"
-        "409":
-          $ref: "#/components/responses/Conflict"
-        "500":
-          $ref: "#/components/responses/InternalError"
-        "503":
-          $ref: "#/components/responses/RestorePending"
-    post:
-      x-ensemus-status: planned
-      tags:
-        - objects
-      summary: Define a custom type
-      description: The body is checked against createObjectTypeSchema in @ensemus/contracts.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              additionalProperties: true
-      responses:
-        "201":
-          description: Done
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ObjectType"
-        "400":
-          $ref: "#/components/responses/BadRequest"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "404":
-          $ref: "#/components/responses/NotFound"
-        "409":
-          $ref: "#/components/responses/Conflict"
-        "413":
-          $ref: "#/components/responses/PayloadTooLarge"
-        "415":
-          $ref: "#/components/responses/UnsupportedMediaType"
-        "422":
-          $ref: "#/components/responses/Validation"
-        "500":
-          $ref: "#/components/responses/InternalError"
-        "503":
-          $ref: "#/components/responses/RestorePending"
-  /organizations/{organization_id}/object-types/{object_type_id}:
-    parameters:
-      - $ref: "#/components/parameters/OrganizationID"
-      - name: object_type_id
-        in: path
-        required: true
-        schema:
-          type: string
-          format: uuid
-    get:
-      x-ensemus-status: planned
-      tags:
-        - objects
-      summary: Read a custom type
-      responses:
-        "200":
-          description: Done
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ObjectType"
-        "400":
-          $ref: "#/components/responses/BadRequest"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "404":
-          $ref: "#/components/responses/NotFound"
-        "409":
-          $ref: "#/components/responses/Conflict"
-        "500":
-          $ref: "#/components/responses/InternalError"
-        "503":
-          $ref: "#/components/responses/RestorePending"
-  /organizations/{organization_id}/object-types/{object_type_id}/versions:
-    parameters:
-      - $ref: "#/components/parameters/OrganizationID"
-      - name: object_type_id
-        in: path
-        required: true
-        schema:
-          type: string
-          format: uuid
-    post:
-      x-ensemus-status: planned
-      tags:
-        - objects
-      summary: Add a new shape. Refused if it could lose data
-      parameters:
-        - $ref: "#/components/parameters/IfMatch"
-      description: The body is checked against addObjectTypeVersionSchema in @ensemus/contracts.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              additionalProperties: true
-      responses:
-        "202":
-          description: Done
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ObjectType"
-        "400":
-          $ref: "#/components/responses/BadRequest"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "404":
-          $ref: "#/components/responses/NotFound"
-        "409":
-          $ref: "#/components/responses/Conflict"
-        "413":
-          $ref: "#/components/responses/PayloadTooLarge"
-        "415":
-          $ref: "#/components/responses/UnsupportedMediaType"
-        "422":
-          $ref: "#/components/responses/Validation"
-        "428":
-          $ref: "#/components/responses/PreconditionRequired"
-        "500":
-          $ref: "#/components/responses/InternalError"
-        "503":
-          $ref: "#/components/responses/RestorePending"
-  /organizations/{organization_id}/object-types/{object_type_id}/records:
-    parameters:
-      - $ref: "#/components/parameters/OrganizationID"
-      - name: object_type_id
-        in: path
-        required: true
-        schema:
-          type: string
-          format: uuid
-    get:
-      x-ensemus-status: planned
-      tags:
-        - objects
-      summary: List records the viewer can read
-      responses:
-        "200":
-          description: Done
-          content:
-            application/json:
-              schema:
-                type: object
-                required:
-                  - items
-                properties:
-                  items:
-                    type: array
-                    items:
-                      $ref: "#/components/schemas/ObjectRecord"
-                  next:
-                    type:
-                      - string
-                      - "null"
-        "400":
-          $ref: "#/components/responses/BadRequest"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "404":
-          $ref: "#/components/responses/NotFound"
-        "409":
-          $ref: "#/components/responses/Conflict"
-        "500":
-          $ref: "#/components/responses/InternalError"
-        "503":
-          $ref: "#/components/responses/RestorePending"
-    post:
-      x-ensemus-status: planned
-      tags:
-        - objects
-      summary: Add a record
-      description: The body is checked against createObjectRecordSchema in @ensemus/contracts.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              additionalProperties: true
-      responses:
-        "201":
-          description: Done
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ObjectRecord"
-        "400":
-          $ref: "#/components/responses/BadRequest"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "404":
-          $ref: "#/components/responses/NotFound"
-        "409":
-          $ref: "#/components/responses/Conflict"
-        "413":
-          $ref: "#/components/responses/PayloadTooLarge"
-        "415":
-          $ref: "#/components/responses/UnsupportedMediaType"
-        "422":
-          $ref: "#/components/responses/Validation"
-        "500":
-          $ref: "#/components/responses/InternalError"
-        "503":
-          $ref: "#/components/responses/RestorePending"
-  /organizations/{organization_id}/object-records/{object_record_id}:
-    parameters:
-      - $ref: "#/components/parameters/OrganizationID"
-      - name: object_record_id
-        in: path
-        required: true
-        schema:
-          type: string
-          format: uuid
-    get:
-      x-ensemus-status: planned
-      tags:
-        - objects
-      summary: Read a record
-      responses:
-        "200":
-          description: Done
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ObjectRecord"
-        "400":
-          $ref: "#/components/responses/BadRequest"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "404":
-          $ref: "#/components/responses/NotFound"
-        "409":
-          $ref: "#/components/responses/Conflict"
-        "500":
-          $ref: "#/components/responses/InternalError"
-        "503":
-          $ref: "#/components/responses/RestorePending"
-    patch:
-      x-ensemus-status: planned
-      tags:
-        - objects
-      summary: Change a record
-      parameters:
-        - $ref: "#/components/parameters/IfMatch"
-      description: The body is checked against updateObjectRecordSchema in @ensemus/contracts.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              additionalProperties: true
-      responses:
-        "200":
-          description: Done
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ObjectRecord"
-        "400":
-          $ref: "#/components/responses/BadRequest"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "404":
-          $ref: "#/components/responses/NotFound"
-        "409":
-          $ref: "#/components/responses/Conflict"
-        "413":
-          $ref: "#/components/responses/PayloadTooLarge"
-        "415":
-          $ref: "#/components/responses/UnsupportedMediaType"
-        "422":
-          $ref: "#/components/responses/Validation"
-        "428":
-          $ref: "#/components/responses/PreconditionRequired"
-        "500":
-          $ref: "#/components/responses/InternalError"
-        "503":
-          $ref: "#/components/responses/RestorePending"
-    delete:
-      x-ensemus-status: planned
-      tags:
-        - objects
-      summary: Remove a record
-      parameters:
-        - $ref: "#/components/parameters/IfMatch"
-      responses:
-        "204":
-          description: Done
-        "400":
-          $ref: "#/components/responses/BadRequest"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "404":
-          $ref: "#/components/responses/NotFound"
-        "409":
-          $ref: "#/components/responses/Conflict"
-        "413":
-          $ref: "#/components/responses/PayloadTooLarge"
-        "415":
-          $ref: "#/components/responses/UnsupportedMediaType"
-        "422":
-          $ref: "#/components/responses/Validation"
-        "428":
-          $ref: "#/components/responses/PreconditionRequired"
-        "500":
-          $ref: "#/components/responses/InternalError"
-        "503":
-          $ref: "#/components/responses/RestorePending"
-  /organizations/{organization_id}/object-records/{object_record_id}/relations:
-    parameters:
-      - $ref: "#/components/parameters/OrganizationID"
-      - name: object_record_id
-        in: path
-        required: true
-        schema:
-          type: string
-          format: uuid
-    post:
-      x-ensemus-status: planned
-      tags:
-        - objects
-      summary: Link two records by a declared relation
-      description: The body is checked against linkObjectRecordsSchema in @ensemus/contracts.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              additionalProperties: true
-      responses:
-        "201":
-          description: Done
-        "400":
-          $ref: "#/components/responses/BadRequest"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "404":
-          $ref: "#/components/responses/NotFound"
-        "409":
-          $ref: "#/components/responses/Conflict"
-        "413":
-          $ref: "#/components/responses/PayloadTooLarge"
-        "415":
-          $ref: "#/components/responses/UnsupportedMediaType"
-        "422":
-          $ref: "#/components/responses/Validation"
-        "500":
-          $ref: "#/components/responses/InternalError"
-        "503":
-          $ref: "#/components/responses/RestorePending"
+    {
+      'parameters': [{ '$ref': '#/components/parameters/OrganizationID' }],
+      'get':
+        {
+          'tags': ['objects'],
+          'summary': 'List custom types',
+          'responses':
+            {
+              '200':
+                {
+                  'description': 'Current authorized data',
+                  'content':
+                    {
+                      'application/json':
+                        {
+                          'schema':
+                            {
+                              'type': 'object',
+                              'additionalProperties': false,
+                              'required': ['items'],
+                              'properties':
+                                {
+                                  'items':
+                                    {
+                                      'type': 'array',
+                                      'items': { '$ref': '#/components/schemas/ObjectType' },
+                                    },
+                                },
+                            },
+                        },
+                    },
+                },
+              '400': { '$ref': '#/components/responses/BadRequest' },
+              '401': { '$ref': '#/components/responses/Unauthorized' },
+              '403': { '$ref': '#/components/responses/Forbidden' },
+              '404': { '$ref': '#/components/responses/NotFound' },
+              '409': { '$ref': '#/components/responses/Conflict' },
+              '500': { '$ref': '#/components/responses/InternalError' },
+              '503': { '$ref': '#/components/responses/RestorePending' },
+            },
+        },
+      'post':
+        {
+          'tags': ['objects'],
+          'summary': 'Define a custom type',
+          'responses':
+            {
+              '201':
+                {
+                  'description': 'Saved',
+                  'content':
+                    {
+                      'application/json':
+                        { 'schema': { '$ref': '#/components/schemas/ObjectType' } },
+                    },
+                  'headers': { 'ETag': { '$ref': '#/components/headers/ETag' } },
+                },
+              '400': { '$ref': '#/components/responses/BadRequest' },
+              '401': { '$ref': '#/components/responses/Unauthorized' },
+              '403': { '$ref': '#/components/responses/Forbidden' },
+              '404': { '$ref': '#/components/responses/NotFound' },
+              '409': { '$ref': '#/components/responses/Conflict' },
+              '500': { '$ref': '#/components/responses/InternalError' },
+              '503': { '$ref': '#/components/responses/RestorePending' },
+              '413': { '$ref': '#/components/responses/PayloadTooLarge' },
+              '415': { '$ref': '#/components/responses/UnsupportedMediaType' },
+            },
+          'requestBody':
+            {
+              'required': true,
+              'content':
+                {
+                  'application/json':
+                    { 'schema': { '$ref': '#/components/schemas/CreateObjectType' } },
+                },
+            },
+          'parameters': [{ '$ref': '#/components/parameters/IdempotencyKey' }],
+        },
+    }
+  /organizations/{organization_id}/object-types/{type_id}:
+    {
+      'parameters':
+        [
+          { '$ref': '#/components/parameters/OrganizationID' },
+          {
+            'name': 'type_id',
+            'in': 'path',
+            'required': true,
+            'schema': { 'type': 'string', 'format': 'uuid' },
+          },
+        ],
+      'get':
+        {
+          'tags': ['objects'],
+          'summary': 'Read a custom type',
+          'responses':
+            {
+              '200':
+                {
+                  'description': 'Current authorized data',
+                  'content':
+                    {
+                      'application/json':
+                        { 'schema': { '$ref': '#/components/schemas/ObjectType' } },
+                    },
+                  'headers': { 'ETag': { '$ref': '#/components/headers/ETag' } },
+                },
+              '400': { '$ref': '#/components/responses/BadRequest' },
+              '401': { '$ref': '#/components/responses/Unauthorized' },
+              '403': { '$ref': '#/components/responses/Forbidden' },
+              '404': { '$ref': '#/components/responses/NotFound' },
+              '409': { '$ref': '#/components/responses/Conflict' },
+              '500': { '$ref': '#/components/responses/InternalError' },
+              '503': { '$ref': '#/components/responses/RestorePending' },
+            },
+        },
+      'patch':
+        {
+          'tags': ['objects'],
+          'summary': 'Raise the minimum sensitivity; lowering is refused',
+          'responses':
+            {
+              '200':
+                {
+                  'description': 'Current authorized data',
+                  'content':
+                    {
+                      'application/json':
+                        { 'schema': { '$ref': '#/components/schemas/ObjectType' } },
+                    },
+                  'headers': { 'ETag': { '$ref': '#/components/headers/ETag' } },
+                },
+              '400': { '$ref': '#/components/responses/BadRequest' },
+              '401': { '$ref': '#/components/responses/Unauthorized' },
+              '403': { '$ref': '#/components/responses/Forbidden' },
+              '404': { '$ref': '#/components/responses/NotFound' },
+              '409': { '$ref': '#/components/responses/Conflict' },
+              '500': { '$ref': '#/components/responses/InternalError' },
+              '503': { '$ref': '#/components/responses/RestorePending' },
+              '428': { '$ref': '#/components/responses/PreconditionRequired' },
+              '413': { '$ref': '#/components/responses/PayloadTooLarge' },
+              '415': { '$ref': '#/components/responses/UnsupportedMediaType' },
+            },
+          'parameters': [{ '$ref': '#/components/parameters/IfMatch' }],
+          'requestBody':
+            {
+              'required': true,
+              'content':
+                {
+                  'application/json':
+                    {
+                      'schema':
+                        {
+                          'type': 'object',
+                          'additionalProperties': false,
+                          'required': ['classification'],
+                          'properties':
+                            {
+                              'classification':
+                                {
+                                  'type': 'string',
+                                  'enum': ['public', 'internal', 'confidential', 'restricted'],
+                                },
+                            },
+                        },
+                    },
+                },
+            },
+        },
+    }
+  /organizations/{organization_id}/object-types/{type_id}/versions:
+    {
+      'parameters':
+        [
+          { '$ref': '#/components/parameters/OrganizationID' },
+          {
+            'name': 'type_id',
+            'in': 'path',
+            'required': true,
+            'schema': { 'type': 'string', 'format': 'uuid' },
+          },
+        ],
+      'post':
+        {
+          'tags': ['objects'],
+          'summary': 'Save a safe immutable shape and queue record migration',
+          'responses':
+            {
+              '202':
+                {
+                  'description': 'Saved',
+                  'content':
+                    {
+                      'application/json':
+                        { 'schema': { '$ref': '#/components/schemas/ObjectMigrationPlan' } },
+                    },
+                },
+              '400': { '$ref': '#/components/responses/BadRequest' },
+              '401': { '$ref': '#/components/responses/Unauthorized' },
+              '403': { '$ref': '#/components/responses/Forbidden' },
+              '404': { '$ref': '#/components/responses/NotFound' },
+              '409': { '$ref': '#/components/responses/Conflict' },
+              '500': { '$ref': '#/components/responses/InternalError' },
+              '503': { '$ref': '#/components/responses/RestorePending' },
+              '413': { '$ref': '#/components/responses/PayloadTooLarge' },
+              '415': { '$ref': '#/components/responses/UnsupportedMediaType' },
+              '428': { '$ref': '#/components/responses/PreconditionRequired' },
+              '200':
+                {
+                  'description': 'Unchanged shape; no migration requested',
+                  'content':
+                    {
+                      'application/json':
+                        { 'schema': { '$ref': '#/components/schemas/ObjectMigrationPlan' } },
+                    },
+                },
+            },
+          'requestBody':
+            {
+              'required': true,
+              'content':
+                {
+                  'application/json':
+                    { 'schema': { '$ref': '#/components/schemas/AddObjectTypeVersion' } },
+                },
+            },
+          'parameters': [{ '$ref': '#/components/parameters/IfMatch' }],
+        },
+    }
+  /organizations/{organization_id}/object-types/{type_id}/records:
+    {
+      'parameters':
+        [
+          { '$ref': '#/components/parameters/OrganizationID' },
+          {
+            'name': 'type_id',
+            'in': 'path',
+            'required': true,
+            'schema': { 'type': 'string', 'format': 'uuid' },
+          },
+        ],
+      'get':
+        {
+          'tags': ['objects'],
+          'summary': 'Page records after applying current access rules',
+          'responses':
+            {
+              '200':
+                {
+                  'description': 'Current authorized data',
+                  'content':
+                    {
+                      'application/json':
+                        {
+                          'schema':
+                            {
+                              'type': 'object',
+                              'additionalProperties': false,
+                              'required': ['items', 'next'],
+                              'properties':
+                                {
+                                  'items':
+                                    {
+                                      'type': 'array',
+                                      'items': { '$ref': '#/components/schemas/ObjectRecord' },
+                                    },
+                                  'next': { 'type': ['string', 'null'], 'format': 'uuid' },
+                                },
+                            },
+                        },
+                    },
+                },
+              '400': { '$ref': '#/components/responses/BadRequest' },
+              '401': { '$ref': '#/components/responses/Unauthorized' },
+              '403': { '$ref': '#/components/responses/Forbidden' },
+              '404': { '$ref': '#/components/responses/NotFound' },
+              '409': { '$ref': '#/components/responses/Conflict' },
+              '500': { '$ref': '#/components/responses/InternalError' },
+              '503': { '$ref': '#/components/responses/RestorePending' },
+            },
+          'parameters':
+            [
+              { 'name': 'after', 'in': 'query', 'schema': { 'type': 'string', 'format': 'uuid' } },
+              {
+                'name': 'limit',
+                'in': 'query',
+                'schema': { 'type': 'integer', 'minimum': 1, 'maximum': 100 },
+              },
+              {
+                'name': 'field',
+                'in': 'query',
+                'description': 'Declared indexed field key; requires equals.',
+                'schema': { 'type': 'string' },
+              },
+              { 'name': 'equals', 'in': 'query', 'schema': { 'type': 'string' } },
+            ],
+        },
+      'post':
+        {
+          'tags': ['objects'],
+          'summary': 'Create a record owned by the current person',
+          'responses':
+            {
+              '201':
+                {
+                  'description': 'Saved',
+                  'content':
+                    {
+                      'application/json':
+                        { 'schema': { '$ref': '#/components/schemas/ObjectRecord' } },
+                    },
+                  'headers': { 'ETag': { '$ref': '#/components/headers/ETag' } },
+                },
+              '400': { '$ref': '#/components/responses/BadRequest' },
+              '401': { '$ref': '#/components/responses/Unauthorized' },
+              '403': { '$ref': '#/components/responses/Forbidden' },
+              '404': { '$ref': '#/components/responses/NotFound' },
+              '409': { '$ref': '#/components/responses/Conflict' },
+              '500': { '$ref': '#/components/responses/InternalError' },
+              '503': { '$ref': '#/components/responses/RestorePending' },
+              '413': { '$ref': '#/components/responses/PayloadTooLarge' },
+              '415': { '$ref': '#/components/responses/UnsupportedMediaType' },
+            },
+          'requestBody':
+            {
+              'required': true,
+              'content':
+                {
+                  'application/json':
+                    { 'schema': { '$ref': '#/components/schemas/CreateObjectRecord' } },
+                },
+            },
+          'parameters': [{ '$ref': '#/components/parameters/IdempotencyKey' }],
+        },
+    }
+  /organizations/{organization_id}/object-records/{record_id}:
+    {
+      'parameters':
+        [
+          { '$ref': '#/components/parameters/OrganizationID' },
+          {
+            'name': 'record_id',
+            'in': 'path',
+            'required': true,
+            'schema': { 'type': 'string', 'format': 'uuid' },
+          },
+        ],
+      'get':
+        {
+          'tags': ['objects'],
+          'summary': 'Read a currently readable custom record',
+          'responses':
+            {
+              '200':
+                {
+                  'description': 'Current authorized data',
+                  'content':
+                    {
+                      'application/json':
+                        { 'schema': { '$ref': '#/components/schemas/ObjectRecord' } },
+                    },
+                  'headers': { 'ETag': { '$ref': '#/components/headers/ETag' } },
+                },
+              '400': { '$ref': '#/components/responses/BadRequest' },
+              '401': { '$ref': '#/components/responses/Unauthorized' },
+              '403': { '$ref': '#/components/responses/Forbidden' },
+              '404': { '$ref': '#/components/responses/NotFound' },
+              '409': { '$ref': '#/components/responses/Conflict' },
+              '500': { '$ref': '#/components/responses/InternalError' },
+              '503': { '$ref': '#/components/responses/RestorePending' },
+            },
+        },
+      'patch':
+        {
+          'tags': ['objects'],
+          'summary': 'Update exact record version; lowering scope requires recent native MFA',
+          'responses':
+            {
+              '200':
+                {
+                  'description': 'Current authorized data',
+                  'content':
+                    {
+                      'application/json':
+                        { 'schema': { '$ref': '#/components/schemas/ObjectRecord' } },
+                    },
+                  'headers': { 'ETag': { '$ref': '#/components/headers/ETag' } },
+                },
+              '400': { '$ref': '#/components/responses/BadRequest' },
+              '401': { '$ref': '#/components/responses/Unauthorized' },
+              '403': { '$ref': '#/components/responses/Forbidden' },
+              '404': { '$ref': '#/components/responses/NotFound' },
+              '409': { '$ref': '#/components/responses/Conflict' },
+              '500': { '$ref': '#/components/responses/InternalError' },
+              '503': { '$ref': '#/components/responses/RestorePending' },
+              '413': { '$ref': '#/components/responses/PayloadTooLarge' },
+              '415': { '$ref': '#/components/responses/UnsupportedMediaType' },
+              '428': { '$ref': '#/components/responses/PreconditionRequired' },
+            },
+          'requestBody':
+            {
+              'required': true,
+              'content':
+                {
+                  'application/json':
+                    { 'schema': { '$ref': '#/components/schemas/UpdateObjectRecord' } },
+                },
+            },
+          'parameters': [{ '$ref': '#/components/parameters/IfMatch' }],
+        },
+      'delete':
+        {
+          'tags': ['objects'],
+          'summary': 'Remove a record and retain its deletion marker',
+          'responses':
+            {
+              '204': { 'description': 'Saved' },
+              '400': { '$ref': '#/components/responses/BadRequest' },
+              '401': { '$ref': '#/components/responses/Unauthorized' },
+              '403': { '$ref': '#/components/responses/Forbidden' },
+              '404': { '$ref': '#/components/responses/NotFound' },
+              '409': { '$ref': '#/components/responses/Conflict' },
+              '500': { '$ref': '#/components/responses/InternalError' },
+              '503': { '$ref': '#/components/responses/RestorePending' },
+              '428': { '$ref': '#/components/responses/PreconditionRequired' },
+            },
+          'parameters': [{ '$ref': '#/components/parameters/IfMatch' }],
+        },
+    }
+  /organizations/{organization_id}/object-records/{record_id}/relations:
+    {
+      'parameters':
+        [
+          { '$ref': '#/components/parameters/OrganizationID' },
+          {
+            'name': 'record_id',
+            'in': 'path',
+            'required': true,
+            'schema': { 'type': 'string', 'format': 'uuid' },
+          },
+        ],
+      'get':
+        {
+          'tags': ['objects'],
+          'summary': 'List readable outgoing relations',
+          'responses':
+            {
+              '200':
+                {
+                  'description': 'Current authorized data',
+                  'content':
+                    {
+                      'application/json':
+                        { 'schema': { '$ref': '#/components/schemas/ObjectRelationsPage' } },
+                    },
+                },
+              '400': { '$ref': '#/components/responses/BadRequest' },
+              '401': { '$ref': '#/components/responses/Unauthorized' },
+              '403': { '$ref': '#/components/responses/Forbidden' },
+              '404': { '$ref': '#/components/responses/NotFound' },
+              '409': { '$ref': '#/components/responses/Conflict' },
+              '500': { '$ref': '#/components/responses/InternalError' },
+              '503': { '$ref': '#/components/responses/RestorePending' },
+            },
+          'parameters':
+            [{ 'name': 'after', 'in': 'query', 'schema': { 'type': 'string', 'format': 'uuid' } }],
+        },
+      'post':
+        {
+          'tags': ['objects'],
+          'summary': 'Link readable records by a declared relation',
+          'responses':
+            {
+              '201':
+                {
+                  'description': 'Saved',
+                  'content':
+                    {
+                      'application/json':
+                        {
+                          'schema':
+                            {
+                              'type': 'object',
+                              'additionalProperties': false,
+                              'required': ['id'],
+                              'properties': { 'id': { 'type': 'string', 'format': 'uuid' } },
+                            },
+                        },
+                    },
+                },
+              '400': { '$ref': '#/components/responses/BadRequest' },
+              '401': { '$ref': '#/components/responses/Unauthorized' },
+              '403': { '$ref': '#/components/responses/Forbidden' },
+              '404': { '$ref': '#/components/responses/NotFound' },
+              '409': { '$ref': '#/components/responses/Conflict' },
+              '500': { '$ref': '#/components/responses/InternalError' },
+              '503': { '$ref': '#/components/responses/RestorePending' },
+              '413': { '$ref': '#/components/responses/PayloadTooLarge' },
+              '415': { '$ref': '#/components/responses/UnsupportedMediaType' },
+            },
+          'requestBody':
+            {
+              'required': true,
+              'content':
+                {
+                  'application/json':
+                    { 'schema': { '$ref': '#/components/schemas/LinkObjectRecords' } },
+                },
+            },
+        },
+    }
+  /organizations/{organization_id}/object-records/{record_id}/relations/{relation_id}:
+    {
+      'parameters':
+        [
+          { '$ref': '#/components/parameters/OrganizationID' },
+          {
+            'name': 'record_id',
+            'in': 'path',
+            'required': true,
+            'schema': { 'type': 'string', 'format': 'uuid' },
+          },
+          {
+            'name': 'relation_id',
+            'in': 'path',
+            'required': true,
+            'schema': { 'type': 'string', 'format': 'uuid' },
+          },
+        ],
+      'delete':
+        {
+          'tags': ['objects'],
+          'summary': 'Unlink an authorized relation',
+          'responses':
+            {
+              '204': { 'description': 'Saved' },
+              '400': { '$ref': '#/components/responses/BadRequest' },
+              '401': { '$ref': '#/components/responses/Unauthorized' },
+              '403': { '$ref': '#/components/responses/Forbidden' },
+              '404': { '$ref': '#/components/responses/NotFound' },
+              '409': { '$ref': '#/components/responses/Conflict' },
+              '500': { '$ref': '#/components/responses/InternalError' },
+              '503': { '$ref': '#/components/responses/RestorePending' },
+            },
+        },
+    }
+  /organizations/{organization_id}/object-types/{type_id}/migrations/{migration_id}:
+    {
+      'parameters':
+        [
+          { '$ref': '#/components/parameters/OrganizationID' },
+          {
+            'name': 'type_id',
+            'in': 'path',
+            'required': true,
+            'schema': { 'type': 'string', 'format': 'uuid' },
+          },
+          {
+            'name': 'migration_id',
+            'in': 'path',
+            'required': true,
+            'schema': { 'type': 'string', 'format': 'uuid' },
+          },
+        ],
+      'get':
+        {
+          'tags': ['objects'],
+          'summary': 'Read actual migration progress; management authority required',
+          'responses':
+            {
+              '200':
+                {
+                  'description': 'Current durable metadata',
+                  'content':
+                    {
+                      'application/json':
+                        { 'schema': { '$ref': '#/components/schemas/ObjectMigration' } },
+                    },
+                },
+              '400': { '$ref': '#/components/responses/BadRequest' },
+              '401': { '$ref': '#/components/responses/Unauthorized' },
+              '403': { '$ref': '#/components/responses/Forbidden' },
+              '404': { '$ref': '#/components/responses/NotFound' },
+              '409': { '$ref': '#/components/responses/Conflict' },
+              '500': { '$ref': '#/components/responses/InternalError' },
+              '503': { '$ref': '#/components/responses/RestorePending' },
+            },
+        },
+    }
+  /organizations/{organization_id}/object-types/{type_id}/migrations/{migration_id}/retry:
+    {
+      'parameters':
+        [
+          { '$ref': '#/components/parameters/OrganizationID' },
+          {
+            'name': 'type_id',
+            'in': 'path',
+            'required': true,
+            'schema': { 'type': 'string', 'format': 'uuid' },
+          },
+          {
+            'name': 'migration_id',
+            'in': 'path',
+            'required': true,
+            'schema': { 'type': 'string', 'format': 'uuid' },
+          },
+        ],
+      'post':
+        {
+          'tags': ['objects'],
+          'summary': 'Create a new retry intent for the exact current schema; prior results retained',
+          'parameters':
+            [
+              { '$ref': '#/components/parameters/IfMatch' },
+              { '$ref': '#/components/parameters/IdempotencyKey' },
+            ],
+          'responses':
+            {
+              '202':
+                {
+                  'description': 'New durable migration requested',
+                  'content':
+                    {
+                      'application/json':
+                        {
+                          'schema':
+                            {
+                              'type': 'object',
+                              'additionalProperties': false,
+                              'required': ['migration_id'],
+                              'properties':
+                                { 'migration_id': { 'type': 'string', 'format': 'uuid' } },
+                            },
+                        },
+                    },
+                },
+              '428': { '$ref': '#/components/responses/PreconditionRequired' },
+              '400': { '$ref': '#/components/responses/BadRequest' },
+              '401': { '$ref': '#/components/responses/Unauthorized' },
+              '403': { '$ref': '#/components/responses/Forbidden' },
+              '404': { '$ref': '#/components/responses/NotFound' },
+              '409': { '$ref': '#/components/responses/Conflict' },
+              '500': { '$ref': '#/components/responses/InternalError' },
+              '503': { '$ref': '#/components/responses/RestorePending' },
+            },
+        },
+    }
   /organizations/{organization_id}/packs:
     parameters:
       - $ref: "#/components/parameters/OrganizationID"
@@ -5367,7 +5605,7 @@ paths:
           format: uuid
     delete:
       operationId: revokeScimToken
-      summary: Revoke this connectionâ€™s provisioning token after recent factor confirmation
+      summary: Revoke this connection’s provisioning token after recent factor confirmation
       responses:
         "204":
           description: Token revoked. No response body.
@@ -7882,89 +8120,310 @@ components:
             - string
             - "null"
           format: date-time
+    ObjectField:
+      {
+        'type': 'object',
+        'additionalProperties': false,
+        'required': ['key', 'label', 'kind', 'required', 'indexed'],
+        'properties':
+          {
+            'key': { 'type': 'string', 'pattern': '^[a-z][a-z0-9_]{0,62}$' },
+            'label': { 'type': 'string', 'minLength': 1, 'maxLength': 120 },
+            'kind':
+              {
+                'type': 'string',
+                'enum': ['text', 'long_text', 'number', 'boolean', 'date', 'enum', 'email', 'url'],
+              },
+            'required': { 'type': 'boolean' },
+            'indexed': { 'type': 'boolean' },
+            'options':
+              {
+                'type': 'array',
+                'maxItems': 64,
+                'items': { 'type': 'string', 'minLength': 1, 'maxLength': 120 },
+              },
+            'maxLength': { 'type': 'integer', 'minimum': 1, 'maximum': 50000 },
+          },
+      }
+    ObjectRelationDefinition:
+      {
+        'type': 'object',
+        'additionalProperties': false,
+        'required': ['key', 'label', 'toTypeSlug', 'cardinality'],
+        'properties':
+          {
+            'key': { 'type': 'string', 'pattern': '^[a-z][a-z0-9_]{0,62}$' },
+            'label': { 'type': 'string', 'minLength': 1, 'maxLength': 120 },
+            'toTypeSlug': { 'type': 'string', 'pattern': '^[a-z][a-z0-9_]{1,63}$' },
+            'cardinality': { 'type': 'string', 'enum': ['one', 'many'] },
+          },
+      }
+    CreateObjectType:
+      {
+        'type': 'object',
+        'additionalProperties': false,
+        'required': ['slug', 'display_name', 'classification', 'fields', 'relations'],
+        'properties':
+          {
+            'slug': { 'type': 'string', 'pattern': '^[a-z][a-z0-9_]{1,63}$' },
+            'display_name': { 'type': 'string', 'minLength': 1, 'maxLength': 120 },
+            'classification':
+              { 'type': 'string', 'enum': ['public', 'internal', 'confidential', 'restricted'] },
+            'fields':
+              {
+                'type': 'array',
+                'maxItems': 64,
+                'items': { '$ref': '#/components/schemas/ObjectField' },
+              },
+            'relations':
+              {
+                'type': 'array',
+                'maxItems': 16,
+                'items': { '$ref': '#/components/schemas/ObjectRelationDefinition' },
+              },
+          },
+      }
+    AddObjectTypeVersion:
+      {
+        'type': 'object',
+        'additionalProperties': false,
+        'required': ['fields', 'relations'],
+        'properties':
+          {
+            'fields':
+              {
+                'type': 'array',
+                'maxItems': 64,
+                'items': { '$ref': '#/components/schemas/ObjectField' },
+              },
+            'relations':
+              {
+                'type': 'array',
+                'maxItems': 16,
+                'items': { '$ref': '#/components/schemas/ObjectRelationDefinition' },
+              },
+          },
+      }
+    CreateObjectRecord:
+      {
+        'type': 'object',
+        'additionalProperties': false,
+        'required': ['display_name', 'attributes'],
+        'properties':
+          {
+            'display_name': { 'type': 'string', 'minLength': 1, 'maxLength': 120 },
+            'attributes':
+              {
+                'type': 'object',
+                'additionalProperties': { 'type': ['string', 'number', 'boolean', 'null'] },
+              },
+            'classification':
+              { 'type': 'string', 'enum': ['public', 'internal', 'confidential', 'restricted'] },
+          },
+      }
+    UpdateObjectRecord:
+      {
+        'type': 'object',
+        'additionalProperties': false,
+        'required': [],
+        'properties':
+          {
+            'display_name': { 'type': 'string', 'minLength': 1, 'maxLength': 120 },
+            'attributes':
+              {
+                'type': 'object',
+                'additionalProperties': { 'type': ['string', 'number', 'boolean', 'null'] },
+              },
+            'classification':
+              { 'type': 'string', 'enum': ['public', 'internal', 'confidential', 'restricted'] },
+          },
+        'minProperties': 1,
+      }
+    LinkObjectRecords:
+      {
+        'type': 'object',
+        'additionalProperties': false,
+        'required': ['relation_key', 'to_record_id'],
+        'properties':
+          {
+            'relation_key': { 'type': 'string', 'pattern': '^[a-z][a-z0-9_]{0,62}$' },
+            'to_record_id': { 'type': 'string', 'format': 'uuid' },
+          },
+      }
     ObjectType:
-      type: object
-      required:
-        - id
-        - slug
-        - classification
-        - current_version_number
-        - fields
-        - version
-      properties:
-        id:
-          type: string
-          format: uuid
-        slug:
-          type: string
-        display_name:
-          type: string
-        classification:
-          type: string
-          enum:
-            - public
-            - internal
-            - confidential
-            - restricted
-        current_version_number:
-          type: integer
-        fields:
-          type: array
-          items:
-            type: object
-            additionalProperties: true
-        relations:
-          type: array
-          items:
-            type: object
-            additionalProperties: true
-        state:
-          type: string
-          enum:
-            - active
-            - archived
-        version:
-          type: integer
+      {
+        'type': 'object',
+        'additionalProperties': false,
+        'required':
+          [
+            'id',
+            'slug',
+            'display_name',
+            'classification',
+            'current_version_number',
+            'fields',
+            'relations',
+            'state',
+            'version',
+          ],
+        'properties':
+          {
+            'id': { 'type': 'string', 'format': 'uuid' },
+            'slug': { 'type': 'string' },
+            'display_name': { 'type': 'string' },
+            'classification':
+              { 'type': 'string', 'enum': ['public', 'internal', 'confidential', 'restricted'] },
+            'current_version_number': { 'type': 'integer' },
+            'fields':
+              {
+                'type': 'array',
+                'maxItems': 64,
+                'items': { '$ref': '#/components/schemas/ObjectField' },
+              },
+            'relations':
+              {
+                'type': 'array',
+                'maxItems': 16,
+                'items': { '$ref': '#/components/schemas/ObjectRelationDefinition' },
+              },
+            'state': { 'type': 'string', 'enum': ['active', 'archived'] },
+            'version': { 'type': 'integer' },
+          },
+      }
     ObjectRecord:
-      type: object
-      required:
-        - id
-        - type_id
-        - display_name
-        - attributes
-        - classification
-        - version
-      properties:
-        id:
-          type: string
-          format: uuid
-        type_id:
-          type: string
-          format: uuid
-        type_version_number:
-          type: integer
-        display_name:
-          type: string
-        attributes:
-          type: object
-          additionalProperties: true
-        classification:
-          type: string
-          enum:
-            - public
-            - internal
-            - confidential
-            - restricted
-        owner_membership_id:
-          type: string
-          format: uuid
-        can_change:
-          type: boolean
-        version:
-          type: integer
-        updated_at:
-          type: string
-          format: date-time
+      {
+        'type': 'object',
+        'additionalProperties': false,
+        'required':
+          [
+            'id',
+            'type_id',
+            'type_version_number',
+            'display_name',
+            'attributes',
+            'classification',
+            'owner_membership_id',
+            'can_change',
+            'version',
+            'updated_at',
+          ],
+        'properties':
+          {
+            'id': { 'type': 'string', 'format': 'uuid' },
+            'type_id': { 'type': 'string', 'format': 'uuid' },
+            'type_version_number': { 'type': 'integer' },
+            'display_name': { 'type': 'string', 'minLength': 1, 'maxLength': 120 },
+            'attributes':
+              {
+                'type': 'object',
+                'additionalProperties': { 'type': ['string', 'number', 'boolean', 'null'] },
+              },
+            'classification':
+              { 'type': 'string', 'enum': ['public', 'internal', 'confidential', 'restricted'] },
+            'owner_membership_id': { 'type': 'string', 'format': 'uuid' },
+            'can_change': { 'type': 'boolean' },
+            'version': { 'type': 'integer' },
+            'updated_at': { 'type': 'string', 'format': 'date-time' },
+          },
+      }
+    ObjectMigrationPlan:
+      {
+        'type': 'object',
+        'additionalProperties': false,
+        'required': ['migration_id', 'plan'],
+        'properties':
+          {
+            'migration_id': { 'type': ['string', 'null'], 'format': 'uuid' },
+            'plan':
+              {
+                'type': 'object',
+                'additionalProperties': false,
+                'required': ['safe', 'steps'],
+                'properties':
+                  {
+                    'safe': { 'type': 'boolean' },
+                    'steps':
+                      {
+                        'type': 'array',
+                        'items':
+                          {
+                            'type': 'object',
+                            'additionalProperties': false,
+                            'required': ['kind', 'key'],
+                            'properties':
+                              {
+                                'kind':
+                                  {
+                                    'type': 'string',
+                                    'enum': ['add_optional', 'change_index', 'widen_enum'],
+                                  },
+                                'key': { 'type': 'string' },
+                              },
+                          },
+                      },
+                  },
+              },
+          },
+      }
+    ObjectRelationsPage:
+      {
+        'type': 'object',
+        'additionalProperties': false,
+        'required': ['items', 'truncated', 'next'],
+        'properties':
+          {
+            'items':
+              {
+                'type': 'array',
+                'items':
+                  {
+                    'type': 'object',
+                    'additionalProperties': false,
+                    'required': ['id', 'relation_key', 'to_record_id', 'to_display_name'],
+                    'properties':
+                      {
+                        'id': { 'type': 'string', 'format': 'uuid' },
+                        'relation_key': { 'type': 'string' },
+                        'to_record_id': { 'type': 'string', 'format': 'uuid' },
+                        'to_display_name': { 'type': 'string' },
+                      },
+                  },
+              },
+            'truncated': { 'type': 'boolean' },
+            'next': { 'type': ['string', 'null'], 'format': 'uuid' },
+          },
+      }
+    ObjectMigration:
+      {
+        'type': 'object',
+        'additionalProperties': false,
+        'required':
+          [
+            'id',
+            'type_id',
+            'from_version_number',
+            'to_version_number',
+            'status',
+            'migrated_count',
+            'failed_count',
+            'error_code',
+          ],
+        'properties':
+          {
+            'id': { 'type': 'string', 'format': 'uuid' },
+            'type_id': { 'type': 'string', 'format': 'uuid' },
+            'from_version_number': { 'type': 'integer' },
+            'to_version_number': { 'type': 'integer' },
+            'status': { 'type': 'string', 'enum': ['queued', 'running', 'completed', 'failed'] },
+            'migrated_count': { 'type': 'integer' },
+            'failed_count': { 'type': 'integer' },
+            'error_code':
+              {
+                'type': ['string', 'null'],
+                'enum': ['MIGRATION_FAILED', 'OBJECT_RECORD_INVALID', null],
+              },
+          },
+      }
     PackCatalogEntry:
       type: object
       required:

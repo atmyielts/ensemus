@@ -49,15 +49,17 @@ export const createObjectRecordSchema = z.strictObject({
 });
 export type CreateObjectRecordBody = z.infer<typeof createObjectRecordSchema>;
 
-export const updateObjectRecordSchema = z.strictObject({
-  display_name: label.optional(),
-  attributes: attributes.optional(),
-  classification: dataClass.optional(),
-});
+export const updateObjectRecordSchema = z
+  .strictObject({
+    display_name: label.optional(),
+    attributes: attributes.optional(),
+    classification: dataClass.optional(),
+  })
+  .refine((body) => Object.keys(body).length > 0);
 export type UpdateObjectRecordBody = z.infer<typeof updateObjectRecordSchema>;
 
 export const linkObjectRecordsSchema = z.strictObject({
   relation_key: key,
-  to_record_id: z.uuid(),
+  to_record_id: z.uuid().toLowerCase(),
 });
 export type LinkObjectRecordsBody = z.infer<typeof linkObjectRecordsSchema>;
