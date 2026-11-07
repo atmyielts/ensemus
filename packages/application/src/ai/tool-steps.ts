@@ -61,6 +61,7 @@ import {
   createRunInputInventory,
 } from './input-ledger';
 import { claimGeneratedPut, settleGeneratedPut } from '../knowledge/generated-writer';
+import { bindModelResultWriteInTx } from './model-admission';
 
 export type StoredProposal = {
   id: string;
@@ -185,7 +186,13 @@ async function ensureStep(
 export async function storeProposal(
   database: AppDatabase,
   context: AgentContext,
-  input: { runId: string; stepNumber: number; toolId: string; args: unknown },
+  input: {
+    runId: string;
+    stepNumber: number;
+    toolId: string;
+    args: unknown;
+    originatingModel?: { stepId: string; attempt: number };
+  },
 ): Promise<{ proposalId: string }> {
   assertOwnRun(context, input.runId);
   const record = proposalRecordFor(input);
@@ -195,6 +202,12 @@ export async function storeProposal(
       .from(agentRuns)
       .where(eq(agentRuns.id, input.runId));
     if (!run) throw new AppError('NOT_FOUND');
+    if (input.originatingModel)
+      await bindModelResultWriteInTx(tx, context, {
+        ...input.originatingModel,
+        classification: run.classification as AiClassification,
+        stepNumber: input.stepNumber,
+      });
     const step = await ensureStep(tx, context, {
       runId: input.runId,
       stepNumber: input.stepNumber,

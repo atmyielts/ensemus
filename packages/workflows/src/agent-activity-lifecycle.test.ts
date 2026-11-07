@@ -13,11 +13,18 @@ import {
 import type { LiveSwitch } from '@ensemus/application/ai-halt';
 import { TenantAccessDenied, type AgentContext, type AppDatabase } from '@ensemus/database';
 import { createServiceContext } from '@ensemus/database/service';
+import { currentRunInputClass } from '@ensemus/application/ai-model-admission';
 import type { TurnOutcome } from '@ensemus/intelligence';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createHaltWatcher, type HaltWatcher } from '../../../workers/workflow/src/kill-switch';
 import { createAgentActivities, type AgentActivityDeps } from './agent-activities';
 import type { StepInput } from './agent-schemas';
+import type { RunRef as CompileRunRef } from '@ensemus/agent-runtime/context';
+
+vi.mock('@ensemus/application/ai-model-admission', () => ({
+  currentRunInputClass: vi.fn(),
+  isMainInputDenied: () => false,
+}));
 
 vi.mock('@ensemus/application/ai-runs', async (original) => ({
   ...(await original<typeof import('@ensemus/application/ai-runs')>()),
@@ -93,7 +100,7 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 
-function fixture() {
+function fixture(compileEffect?: () => Promise<void>) {
   let switches: readonly LiveSwitch[] = [];
   const read = vi.fn(async () => switches);
   const watcher = createHaltWatcher({ pollMs: 10, read, log: { warn: vi.fn(), error: vi.fn() } });
@@ -103,6 +110,7 @@ function fixture() {
   const heartbeat = vi.fn();
   const entered = deferred<AbortSignal>();
   const answer = deferred<TurnOutcome>();
+  const compilations: CompileRunRef[] = [];
   const turn = vi.fn<AgentActivityDeps['gateway']['turn']>(
     async (_ctx, _step, _compiled, signal) => {
       entered.resolve(signal);
@@ -116,26 +124,30 @@ function fixture() {
     gateway: { turn },
     tools: { handle: vi.fn() },
     context: {
-      compile: vi.fn<AgentActivityDeps['context']['compile']>(async () => ({
-        messages: [],
-        tools: [],
-        responseSchema: null,
-        task: {
-          runId: input.agentRunId,
-          purpose: 'reason',
-          quality: 'balanced',
-          required: ['text'],
+      compile: vi.fn<AgentActivityDeps['context']['compile']>(async (_ctx, run) => {
+        compilations.push(run);
+        await compileEffect?.();
+        return {
+          messages: [],
+          tools: [],
+          responseSchema: null,
+          task: {
+            runId: input.agentRunId,
+            purpose: 'reason',
+            quality: 'balanced',
+            required: ['text'],
+            classification: 'internal',
+            requiredRegion: null,
+            allowFallback: false,
+            pinned: null,
+          },
+          requestHash: 'a'.repeat(64),
+          maxOutputTokens: 100,
+          timeoutMs: 1000,
           classification: 'internal',
-          requiredRegion: null,
-          allowFallback: false,
-          pinned: null,
-        },
-        requestHash: 'a'.repeat(64),
-        maxOutputTokens: 100,
-        timeoutMs: 1000,
-        classification: 'internal',
-        sources: [],
-      })),
+          sources: [],
+        };
+      }),
     },
     haltWatcher: watcher,
     pulse: () => ({ heartbeat, signal: temporal.signal }),
@@ -148,6 +160,7 @@ function fixture() {
     entered: entered.promise,
     answer,
     turn,
+    compilations,
     setSwitches: (next: readonly LiveSwitch[]) => {
       switches = next;
     },
@@ -176,6 +189,7 @@ beforeEach(() => {
   vi.mocked(raiseClassification).mockResolvedValue('internal');
   vi.mocked(completeTurn).mockResolvedValue(counters);
   vi.mocked(storeStepPayload).mockResolvedValue();
+  vi.mocked(currentRunInputClass).mockResolvedValue('internal');
 });
 
 afterEach(async () => {
@@ -185,6 +199,72 @@ afterEach(async () => {
 });
 
 describe('an Activity owns its halt watch for one call', () => {
+  it('owns heartbeat, cancellation and exact model-step identity before auxiliary compilation starts', async () => {
+    const entered = deferred<void>(),
+      release = deferred<void>();
+    const world = fixture(async () => {
+        entered.resolve();
+        await release.promise;
+      }),
+      result = world.run();
+    await entered.promise;
+    expect(world.heartbeat).toHaveBeenCalled();
+    expect(world.compilations[0]).toMatchObject({
+      runId: input.agentRunId,
+      modelStep: { stepNumber: input.stepNumber, attempt: 1, stepId: expect.any(String) },
+      signal: expect.any(AbortSignal),
+    });
+    world.setSwitches([{ organizationId: null, scope: 'provider', targetRef: 'openai_hosted' }]);
+    await vi.advanceTimersByTimeAsync(10);
+    expect(world.compilations[0]?.signal?.aborted).toBe(true);
+    release.resolve();
+    await expect(result).resolves.toMatchObject({ outcome: 'stopped', stopCode: 'HALTED' });
+    expect(world.turn).not.toHaveBeenCalled();
+  });
+  it.each([
+    ['costMicros', 'maxCostMicros', 'COST_LIMIT'],
+    ['inputTokens', 'maxTotalTokens', 'TOKEN_LIMIT'],
+    ['modelTurns', 'maxModelTurns', 'TURN_LIMIT'],
+  ] as const)(
+    'does not dispatch the main call after auxiliary spending exhausts %s',
+    async (counter, limit, stopCode) => {
+      vi.mocked(readRunFacts)
+        .mockResolvedValueOnce(facts)
+        .mockResolvedValue({
+          ...facts,
+          counters: { ...facts.counters, [counter]: facts.limits[limit] },
+        });
+      const world = fixture();
+      await expect(world.run()).resolves.toMatchObject({ outcome: 'budget_exhausted', stopCode });
+      expect(world.turn).not.toHaveBeenCalled();
+      expect(completeTurn).toHaveBeenCalledWith(
+        expect.anything(),
+        context,
+        expect.objectContaining({
+          delta: expect.objectContaining({
+            modelTurns: 0,
+            costMicros: 0,
+            inputTokens: 0,
+            outputTokens: 0,
+          }),
+        }),
+      );
+    },
+  );
+  it('does not begin auxiliary compilation when the actual active-time budget is already spent', async () => {
+    vi.mocked(readRunFacts).mockResolvedValue({
+      ...facts,
+      limits: { ...facts.limits, timeoutSeconds: 1 },
+      counters: { ...facts.counters, activeMs: 1000 },
+    });
+    const world = fixture();
+    await expect(world.run()).resolves.toMatchObject({
+      outcome: 'stopped',
+      stopCode: 'TIME_LIMIT',
+    });
+    expect(world.compilations).toEqual([]);
+    expect(world.turn).not.toHaveBeenCalled();
+  });
   it('aborts the first, unpinned call when a provider switch engages', async () => {
     const world = fixture();
     const result = world.run();
@@ -283,6 +363,29 @@ describe('an Activity owns its halt watch for one call', () => {
           inputTokens: 1,
           outputTokens: 1,
           costMicros: 1,
+        }),
+      }),
+    );
+  });
+  it('discards a late class-raised response while preserving its already settled money/tokens', async () => {
+    vi.mocked(currentRunInputClass)
+      .mockResolvedValueOnce('internal')
+      .mockResolvedValue('restricted');
+    const world = fixture(),
+      result = world.run();
+    await world.entered;
+    world.answer.resolve(outcome());
+    await expect(result).resolves.toMatchObject({ outcome: 'stopped', stopCode: 'POLICY_DENIED' });
+    expect(storeStepPayload).not.toHaveBeenCalled();
+    expect(completeTurn).toHaveBeenCalledWith(
+      expect.anything(),
+      context,
+      expect.objectContaining({
+        delta: expect.objectContaining({
+          modelTurns: 1,
+          costMicros: 1,
+          inputTokens: 1,
+          outputTokens: 1,
         }),
       }),
     );

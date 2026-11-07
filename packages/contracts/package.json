@@ -10,6 +10,7 @@
     "./ai-tools": "./src/ai-tools.ts",
     "./openapi": "./generated/openapi.d.ts",
     "./knowledge": "./src/knowledge.ts",
+    "./knowledge-models": "./src/knowledge-models.ts",
     "./studio": "./src/studio.ts",
     "./custom-objects": "./src/custom-objects.ts",
     "./packs": "./src/packs.ts",

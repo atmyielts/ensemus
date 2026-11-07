@@ -418,6 +418,7 @@ export const answersPOST = apiRoute(organizationParams, async (scope) => {
       askQuestion(joined, scope.context, {
         question: body.question,
         classification: body.classification,
+        ...(body.model ? { model: body.model } : {}),
       }),
     async (row) => answerDto(await getAnswer(scope.database, scope.context, row.answerId)),
   );

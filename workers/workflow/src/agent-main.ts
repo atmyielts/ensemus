@@ -37,6 +37,9 @@ async function main() {
     bucket: process.env.OBJECT_STORAGE_BUCKET ?? 'ensemus',
     accessKey: readSecret('OBJECT_STORAGE_ACCESS_KEY'),
     secretKey: readSecret('OBJECT_STORAGE_SECRET_KEY'),
+    // A fulfilled generated put settles one admitted SDK request. Rejected/lost acknowledgements
+    // remain unknown; retries cannot be hidden inside the storage client.
+    maxAttempts: 1,
   });
   let timer: ReturnType<typeof setInterval> | undefined;
   let services: ReturnType<typeof createAgentServices> | undefined;

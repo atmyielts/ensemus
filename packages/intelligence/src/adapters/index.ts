@@ -36,7 +36,7 @@ const failed = (
 ): Failure => ({ kind: 'failure', failure, mayHaveBilled, usage });
 
 /** What the call did on the wire, which decides whether a provider could have billed for it. */
-type WireState = { requested: boolean; status: number | null };
+export type WireState = { requested: boolean; status: number | null };
 
 /**
  * Every provider's package reads its own environment variables for a missing key or address, so a key is
@@ -115,7 +115,7 @@ function wireNames(tools: readonly AdapterTool[]) {
 }
 
 function callOptions(
-  call: AdapterCall,
+  call: Pick<AdapterCall, 'messages' | 'tools' | 'responseSchema' | 'maxOutputTokens'>,
   toWire: ReadonlyMap<string, string>,
   abortSignal: AbortSignal,
 ): LanguageModelV4CallOptions {
@@ -150,6 +150,22 @@ function callOptions(
       ...(hasTools ? { anthropic: { disableParallelToolUse: true } } : {}),
     },
   };
+}
+
+/** Count the actual provider-neutral SDK input, including data-role fences, function names/schema,
+ * response format and role/envelope fields. Never reserve from message text alone. */
+export function generationInputBytes(
+  input: Pick<AdapterCall, 'messages' | 'tools' | 'responseSchema' | 'maxOutputTokens'> & {
+    modelId?: string;
+  },
+): number {
+  return Buffer.byteLength(
+    JSON.stringify({
+      model: input.modelId ?? '',
+      ...callOptions(input, wireNames(input.tools).toWire, new AbortController().signal),
+    }),
+    'utf8',
+  );
 }
 
 function usageOf(result: LanguageModelV4GenerateResult): AdapterUsage {
@@ -272,7 +288,7 @@ const codeOf = (error: unknown) => {
   return typeof code === 'string' ? code : null;
 };
 
-function failureOf(error: unknown, wire: WireState): Failure {
+export function failureOf(error: unknown, wire: WireState): Failure {
   const chain = causes(error);
   const refused = chain.find((item) => item instanceof EndpointRefused);
   if (refused instanceof EndpointRefused) {

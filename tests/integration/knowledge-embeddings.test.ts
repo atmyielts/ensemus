@@ -22,13 +22,21 @@ import {
   type TenantContext,
 } from '@ensemus/database';
 import { createServiceContext } from '@ensemus/database/service';
-import { createScriptedModelPort, fakeRoute } from '@ensemus/knowledge/testing';
+import { createScriptedModelPort as scriptedModel } from '@ensemus/knowledge/testing';
+import type { ModelRoute } from '@ensemus/knowledge/ports';
+import { seedQualifiedKnowledgeRoute } from '../helpers/knowledge-models';
 import { eq } from 'drizzle-orm';
 import { knowledgeCanary, seedSearchableSource } from '../helpers/knowledge';
 import { urls } from '../helpers/stack';
 
 describe('policy-first embedding and isolated spaces', () => {
   let database: ReturnType<typeof openAppDatabase>, auth: pg.Client, owner: TenantContext;
+  let qualifiedRoute: ModelRoute;
+  const createScriptedModelPort = (script: Parameters<typeof scriptedModel>[0]) =>
+    scriptedModel({
+      ...script,
+      route: script.route ?? (() => ({ decision: 'allow', route: qualifiedRoute })),
+    });
   beforeAll(async () => {
     database = openAppDatabase(urls.app());
     auth = new pg.Client({ connectionString: urls.auth() });
@@ -45,6 +53,7 @@ describe('policy-first embedding and isolated spaces', () => {
       commercialMode: 'sovereign',
     });
     owner = await resolveTenantContext(database.db, userId, org.organizationId);
+    qualifiedRoute = await seedQualifiedKnowledgeRoute(database.db, owner);
   });
   afterAll(async () => {
     await auth.end();
@@ -123,15 +132,13 @@ describe('policy-first embedding and isolated spaces', () => {
     expect(rows).toEqual([]);
   });
   it('retire/activate changes never mix spaces, and queries cannot reroute into a different one', async () => {
-    const first = await ensureEmbeddingSpace(database.db, service(), fakeRoute());
-    const second = await ensureEmbeddingSpace(
-      database.db,
-      service(),
-      fakeRoute({
-        modelId: 'generated-eight',
-        embedding: { dimension: 8, vectorSpaceVersion: 'v2' },
-      }),
-    );
+    const first = await ensureEmbeddingSpace(database.db, service(), qualifiedRoute);
+    const secondRoute = await seedQualifiedKnowledgeRoute(database.db, owner, {
+      modelId: 'generated-eight',
+      dimension: 8,
+      vectorSpaceVersion: 'v2',
+    });
+    const second = await ensureEmbeddingSpace(database.db, service(), secondRoute);
     expect(second.id).not.toBe(first.id);
     const spaces = await withTenantTx(database.db, service(), (tx) =>
       tx.select().from(knowledgeEmbeddingSpaces),
@@ -198,7 +205,7 @@ describe('policy-first embedding and isolated spaces', () => {
     expect(await searchLexical(database.db, owner, { query: word })).toHaveLength(1);
   });
   it('denies a secret query before embedding it, even in an existing public space', async () => {
-    await ensureEmbeddingSpace(database.db, service(), fakeRoute());
+    await ensureEmbeddingSpace(database.db, service(), qualifiedRoute);
     const model = createScriptedModelPort({
       route: () => ({ decision: 'deny', reasonCode: 'EGRESS_DENIED', policyVersion: 'v1' }),
     });
@@ -250,9 +257,10 @@ describe('policy-first embedding and isolated spaces', () => {
     const word = knowledgeCanary(),
       source = await seed(word);
     await embed(source.documentId, createScriptedModelPort({}));
-    const route = fakeRoute({
+    const route = await seedQualifiedKnowledgeRoute(database.db, owner, {
       modelId: 'generated-reindex-eight',
-      embedding: { dimension: 8, vectorSpaceVersion: 'v3' },
+      dimension: 8,
+      vectorSpaceVersion: 'v3',
     });
     const space = await ensureEmbeddingSpace(database.db, service(), route);
     expect(

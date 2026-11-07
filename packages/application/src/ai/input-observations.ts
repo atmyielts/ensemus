@@ -36,6 +36,24 @@ export const workInputHash = (work: { title: string; objective: string | null })
   createHash('sha256')
     .update(canonicalJson({ title: work.title, objective: work.objective }))
     .digest('hex');
+/** Protection metadata at the actual read point. The hash remains the Work material actually read. */
+export async function workInputClassInTx(
+  tx: Tx,
+  workId: string,
+  ownClass: AiClassification,
+): Promise<AiClassification> {
+  const lock = await tx.execute<{ locked: boolean }>(
+    sql`select knowledge.lock_structured_record('work_unit',${workId}::uuid) locked`,
+  );
+  if (lock.rows[0]?.locked !== true) throw new AppError('NOT_FOUND');
+  const result = await tx.execute<{ classification: AiClassification }>(
+      sql`select knowledge.structured_record_class('work_unit',${workId}::uuid) classification`,
+    ),
+    current = result.rows[0]?.classification;
+  if (!current || !['public', 'internal', 'confidential', 'restricted'].includes(current))
+    throw new AppError('NOT_FOUND');
+  return strongestClassification(ownClass, current);
+}
 const id = (value: string) => {
   const parsed = idSchema.safeParse(value);
   if (!parsed.success) throw new AppError('INVALID_INPUT');

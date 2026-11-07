@@ -18,7 +18,12 @@ import {
   type AppDatabase,
   type Tx,
 } from '@ensemus/database';
-import { CLASSIFICATIONS, type AiClassification, type ModelCapability } from '@ensemus/domain/ai';
+import {
+  CLASSIFICATIONS,
+  strongestClassification,
+  type AiClassification,
+  type ModelCapability,
+} from '@ensemus/domain/ai';
 import { and, asc, eq, inArray } from 'drizzle-orm';
 import { z } from 'zod';
 import { AppError } from '../errors';
@@ -30,6 +35,7 @@ import {
   assertRunInputsReadable,
   recordRunInputs,
   workInputHash,
+  workInputClassInTx,
 } from './input-ledger';
 
 export type LoadedWork = {
@@ -282,12 +288,18 @@ export function createContextSource(deps: {
           .from(workArtifacts)
           .where(eq(workArtifacts.workUnitId, work.id))
           .orderBy(asc(workArtifacts.artifactId));
+        const clientClassification = await clientClassOf(tx, work.projectId);
+        const effectiveClass = await workInputClassInTx(
+          tx,
+          work.id,
+          strongestClassification(classOf(work.classification), clientClassification ?? 'public'),
+        );
         const loaded = {
           id: work.id,
           title: work.title,
           objective: work.objective,
-          classification: classOf(work.classification),
-          clientClassification: await clientClassOf(tx, work.projectId),
+          classification: effectiveClass,
+          clientClassification,
           artifactIds: attached.map((row) => row.id),
         };
         await recordRunInputs(tx, context, [
@@ -295,7 +307,7 @@ export function createContextSource(deps: {
             kind: 'work_unit',
             id: work.id,
             sha256: workInputHash(work),
-            classification: classOf(work.classification),
+            classification: effectiveClass,
           },
         ]);
         return loaded;
@@ -364,7 +376,7 @@ export function createContextSource(deps: {
             kind: 'work_unit',
             id: work.id,
             sha256: workInputHash(work),
-            classification: classOf(work.classification),
+            classification: await workInputClassInTx(tx, work.id, classOf(work.classification)),
           },
           {
             kind: 'artifact',

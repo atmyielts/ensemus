@@ -24,7 +24,11 @@ import {
   type KnowledgeModelPort,
   type ModelPurpose,
   type ModelRoute,
+  type ModelUsage,
+  type ModelInputRef,
 } from '@ensemus/knowledge/ports';
+import { operationKey } from '@ensemus/knowledge/model-operations';
+import type { ModelResultConsumer } from '../ai/knowledge-ports';
 import { ANSWER_PROMPT_VERSION } from '@ensemus/knowledge/prompt';
 import { sql } from 'drizzle-orm';
 import { AppError } from '../errors';
@@ -36,13 +40,22 @@ import {
   assertRunInputsReadable,
   recordRunInputs,
   workInputHash,
+  workInputClassInTx,
   type ObservedInput,
 } from '../ai/input-observations';
 
-export type CompileDeps = { model: KnowledgeModelPort };
+export type CompileDeps = {
+  model: KnowledgeModelPort;
+  acceptResultInTx?: ModelResultConsumer;
+  /** The actual main-agent purpose/profile policy, distinct from Knowledge answer generation. */
+  authorizeAgentContext?: (
+    context: AgentContext,
+    input: { classification: Classification },
+  ) => Promise<boolean>;
+};
 
 export type CompileInput = {
-  purpose: 'answer' | 'agent_turn';
+  purpose: 'answer' | 'agent_turn' | 'query';
   /** What is being asked or worked on. Hashed for the record, and never stored here. */
   question: string;
   /** The question can quote a secret independently of all retrieved evidence. */
@@ -59,6 +72,7 @@ export type CompiledEvidence =
   | {
       ok: true;
       packageId: string;
+      packageSha256: string;
       policyVersion: string;
       items: readonly SelectedEvidence[];
       /** Only verified facts, marked as such. A model's unverified guess never appears here (Gate C). */
@@ -68,6 +82,8 @@ export type CompiledEvidence =
         predicate: string;
         claim: unknown;
       }[];
+      /** Actual structured parent reads, captured inside the same fact body-read transaction. */
+      recordInputs: readonly ModelInputRef[];
       usedTokens: number;
       strongestClassification: Classification;
       /** A model every included class may reach, by `purpose`. Null only for an empty package. */
@@ -87,6 +103,8 @@ export async function compileEvidence(
   input: CompileInput,
 ): Promise<CompiledEvidence> {
   if (context.actorType === 'service') throw new AppError('FORBIDDEN');
+  if (input.purpose === 'agent_turn' && context.actorType !== 'agent')
+    throw new AppError('FORBIDDEN');
   const question = searchQuery(input.question);
   if (!question || !Number.isSafeInteger(input.budgetTokens) || input.budgetTokens < 1)
     throw new AppError('INVALID_INPUT');
@@ -109,6 +127,8 @@ export async function compileEvidence(
     if (runId) throw new AppError('FORBIDDEN');
     return null;
   })();
+  const recordInputs: ModelInputRef[] = [];
+  const usedModelResults: ModelUsage[] = [];
   const state = await withTenantTx(database, context, async (tx) => {
     await requireSearchPerson(tx, context);
     if (!workUnitId) return { classification: queryClass, subjects: [] as string[] };
@@ -122,20 +142,27 @@ export async function compileEvidence(
       select w.classification,w.title,w.objective,w.project_id as "projectId", p.client_id as "clientId"
         from work.work_units w left join work.projects p on p.organization_id = w.organization_id and p.id = w.project_id
        where w.organization_id = ${context.organizationId}::uuid and w.id = ${workUnitId}::uuid
-         and knowledge.can_read_work(w.id, app.current_membership_id())`);
+         and knowledge.can_read_work(w.id, app.current_membership_id()) for share of w`);
     const work = result.rows[0];
     if (!work) throw new AppError('NOT_FOUND');
+    const effectiveClass = await workInputClassInTx(tx, workUnitId, work.classification);
+    recordInputs.push({
+      kind: 'work_unit',
+      id: workUnitId,
+      sha256: workInputHash(work),
+      classification: effectiveClass,
+    });
     if (agentContext)
       await recordRunInputs(tx, agentContext, [
         {
           kind: 'work_unit',
           id: workUnitId,
           sha256: workInputHash(work),
-          classification: work.classification,
+          classification: effectiveClass,
         },
       ]);
     return {
-      classification: strongestClass([queryClass, work.classification]),
+      classification: strongestClass([queryClass, effectiveClass]),
       subjects: [
         `work_unit:${workUnitId}`,
         ...(work.projectId ? [`project:${work.projectId}`] : []),
@@ -143,16 +170,25 @@ export async function compileEvidence(
       ],
     };
   });
+  let derivedClassification = state.classification;
+  const raiseDerived = (classification: Classification) => {
+    derivedClassification = strongestClass([derivedClassification, classification]);
+    state.classification = strongestClass([state.classification, derivedClassification]);
+  };
   const refreshTaskClass = async () => {
     if (!workUnitId) return;
     const result = await withTenantTx(database, context, async (tx) => {
       await requireSearchPerson(tx, context);
       return tx.execute<{ classification: Classification }>(
-        sql`select w.classification from work.work_units w where w.organization_id=${context.organizationId}::uuid and w.id=${workUnitId}::uuid and knowledge.can_read_work(w.id,app.current_membership_id())`,
+        sql`select knowledge.structured_record_class('work_unit',w.id) classification from work.work_units w where w.organization_id=${context.organizationId}::uuid and w.id=${workUnitId}::uuid and knowledge.can_read_work(w.id,app.current_membership_id())`,
       );
     });
     if (!result.rows[0]) throw new AppError('NOT_FOUND');
-    state.classification = strongestClass([queryClass, result.rows[0].classification]);
+    state.classification = strongestClass([
+      queryClass,
+      result.rows[0].classification,
+      derivedClassification,
+    ]);
   };
   if (input.signal.aborted) return { ok: false, code: 'MODEL_UNAVAILABLE' };
   let candidates: readonly EvidenceCandidate[] = await searchLexical(database, context, {
@@ -187,8 +223,11 @@ export async function compileEvidence(
         query: question,
         classification: state.classification,
         signal: input.signal,
+        recordInputs,
       });
       if (embedded.ok) {
+        raiseDerived(embedded.usage.classification ?? state.classification);
+        usedModelResults.push(embedded.usage);
         spaceId = embedded.spaceId;
         candidates = (
           await retrieveHybrid(database, context, {
@@ -218,27 +257,48 @@ export async function compileEvidence(
       try {
         const fresh = await refreshEvidence(database, context, candidates);
         if (sameEvidence(candidates, fresh)) {
-          await withTenantTx(database, context, (tx) =>
-            recordModelCall(tx, context, {
-              purpose: 'rerank',
-              dataClass: strongestClass([
-                state.classification,
-                ...fresh.map((item) => item.classification),
-              ]),
-              decision: 'allow',
-              reasonCode: 'ALLOW',
-              policyVersion: rerank.route.policyVersion,
-              route: rerank.route,
-              requestSha256: digest(JSON.stringify([question, ...fresh.map((item) => item.text)])),
-              inputCount: fresh.length,
-            }),
-          );
+          if (!deps.model.recordsCalls)
+            await withTenantTx(database, context, (tx) =>
+              recordModelCall(tx, context, {
+                purpose: 'rerank',
+                dataClass: strongestClass([
+                  state.classification,
+                  ...fresh.map((item) => item.classification),
+                ]),
+                decision: 'allow',
+                reasonCode: 'ALLOW',
+                policyVersion: rerank.route.policyVersion,
+                route: rerank.route,
+                requestSha256: digest(
+                  JSON.stringify([question, ...fresh.map((item) => item.text)]),
+                ),
+                inputCount: fresh.length,
+              }),
+            );
           const result = await deps.model.rerank(
             context.organizationId,
             rerank.route,
             question,
             fresh.map((item) => item.text),
             input.signal,
+            {
+              operationKey: operationKey({
+                kind: 'rerank',
+                query: question,
+                qualificationId: rerank.route.qualificationId,
+                chunks: fresh.map((item) => [item.chunkId, item.contentSha256]),
+              }),
+              inputs: [
+                ...recordInputs,
+                ...fresh.map((item) => ({
+                  kind: 'chunk' as const,
+                  id: item.chunkId,
+                  sourceId: item.sourceId,
+                  sha256: item.contentSha256,
+                  classification: item.classification,
+                })),
+              ],
+            },
           );
           const order = result.order;
           if (
@@ -248,6 +308,11 @@ export async function compileEvidence(
             ) &&
             new Set(order).size === order.length
           ) {
+            raiseDerived(
+              result.usage.classification ??
+                strongestClass([state.classification, ...fresh.map((item) => item.classification)]),
+            );
+            usedModelResults.push(result.usage);
             const positions = [
               ...order,
               ...fresh.map((_, index) => index).filter((index) => !order.includes(index)),
@@ -274,12 +339,15 @@ export async function compileEvidence(
           ]),
         ],
         limit: 20,
-        ...(agentContext
-          ? {
-              captureReadsInTx: (tx: Tx, inputs: readonly ObservedInput[]) =>
-                recordRunInputs(tx, agentContext, inputs),
-            }
-          : {}),
+        captureReadsInTx: async (tx: Tx, inputs: readonly ObservedInput[]) => {
+          recordInputs.push(
+            ...inputs.filter(
+              (value): value is ObservedInput & { kind: 'work_unit' | 'project' | 'client' } =>
+                value.kind !== 'artifact',
+            ),
+          );
+          if (agentContext) await recordRunInputs(tx, agentContext, inputs);
+        },
       })
     : [];
   // A trusted claim is included only with all of its underlying passages, so it cannot smuggle an
@@ -308,7 +376,19 @@ export async function compileEvidence(
   let route: ModelRoute | null = null;
   await refreshTaskClass();
   const routedTaskClass = state.classification;
-  if (selection.items.length) {
+  if (selection.items.length && agentContext) {
+    if (
+      !deps.authorizeAgentContext ||
+      !(await deps.authorizeAgentContext(agentContext, {
+        classification: strongestClass([
+          state.classification,
+          ...selection.items.map((item) => item.classification),
+          ...facts.map((fact) => fact.classification),
+        ]),
+      }))
+    )
+      return { ok: false, code: 'EGRESS_DENIED' };
+  } else if (selection.items.length && input.purpose === 'answer') {
     let verdict = await routeForClasses(
       database,
       context,
@@ -372,6 +452,21 @@ export async function compileEvidence(
     ...selection.items.map((item) => item.classification),
     ...facts.map((fact) => fact.classification),
   ]);
+  const evidenceHash = packageHash({
+    querySha256,
+    policyVersion,
+    items: selection.items,
+    facts: facts.map((fact) => ({
+      factId: fact.id,
+      contentSha256: digest(
+        JSON.stringify({
+          subjectRef: fact.subjectRef,
+          predicate: fact.predicate,
+          claim: fact.claim,
+        }),
+      ),
+    })),
+  });
   const persisted = await withTenantTx(database, context, async (tx) => {
     await requireSearchPerson(tx, context);
     if (selection.items.length) {
@@ -413,11 +508,12 @@ export async function compileEvidence(
     }
     if (workUnitId) {
       const work = await tx.execute<{ classification: Classification }>(
-        sql`select w.classification from work.work_units w where w.organization_id=${context.organizationId}::uuid and w.id=${workUnitId}::uuid and knowledge.can_read_work(w.id,app.current_membership_id()) for share`,
+        sql`select knowledge.structured_record_class('work_unit',w.id) classification from work.work_units w where w.organization_id=${context.organizationId}::uuid and w.id=${workUnitId}::uuid and knowledge.can_read_work(w.id,app.current_membership_id()) for share`,
       );
       if (
         !work.rows[0] ||
-        strongestClass([queryClass, work.rows[0].classification]) !== state.classification
+        strongestClass([queryClass, work.rows[0].classification, derivedClassification]) !==
+          state.classification
       )
         return false;
     }
@@ -435,21 +531,7 @@ export async function compileEvidence(
       usedTokens: selection.usedTokens + factTokens,
       strongestClassification: classification,
       verifiedFactIds: facts.map((fact) => fact.id),
-      packageSha256: packageHash({
-        querySha256,
-        policyVersion,
-        items: selection.items,
-        facts: facts.map((fact) => ({
-          factId: fact.id,
-          contentSha256: digest(
-            JSON.stringify({
-              subjectRef: fact.subjectRef,
-              predicate: fact.predicate,
-              claim: fact.claim,
-            }),
-          ),
-        })),
-      }),
+      packageSha256: evidenceHash,
     });
     if (selection.items.length)
       await tx.insert(knowledgeEvidenceItems).values(
@@ -467,6 +549,12 @@ export async function compileEvidence(
           vectorRank: item.vectorRank,
         })),
       );
+    for (const usage of usedModelResults) {
+      if (usage.callId) {
+        if (!deps.acceptResultInTx) throw new ModelCallFailed('MODEL_UNAVAILABLE');
+        await deps.acceptResultInTx(tx, usage, { kind: 'evidence', id: packageId });
+      }
+    }
     return true;
   });
   if (!persisted) return { ok: false, code: 'EGRESS_DENIED' };
@@ -475,6 +563,7 @@ export async function compileEvidence(
   return {
     ok: true,
     packageId,
+    packageSha256: evidenceHash,
     policyVersion,
     items: selection.items,
     verifiedFacts: facts.map((fact) => ({
@@ -486,6 +575,7 @@ export async function compileEvidence(
     usedTokens: selection.usedTokens + factTokens,
     strongestClassification: classification,
     route,
+    recordInputs,
   };
 }
 

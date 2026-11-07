@@ -12,6 +12,7 @@ import { createLogger, errorCode } from '@ensemus/telemetry';
 import { AesGcmPayloadCodec } from '@ensemus/workflows/codec';
 import { KNOWLEDGE_TASK_QUEUE } from '@ensemus/workflows/constants';
 import { createKnowledgeAnswerFallbackActivities } from '@ensemus/workflows/knowledge-answer-activities';
+import { createKnowledgeModelJobFallbackActivities } from '@ensemus/workflows/knowledge-model-job-fallback-activities';
 import { createKnowledgeIngestActivities } from '@ensemus/workflows/knowledge-ingest-activities';
 import { createKnowledgePurgeActivities } from '@ensemus/workflows/knowledge-purge-activities';
 import { createTemporalLogger } from '@ensemus/workflows/safe-logger';
@@ -49,6 +50,7 @@ async function main() {
       ...createKnowledgeIngestActivities(deps),
       ...createKnowledgePurgeActivities(deps),
       ...createKnowledgeAnswerFallbackActivities(deps),
+      ...createKnowledgeModelJobFallbackActivities(deps),
     },
     dataConverter: {
       payloadCodecs: [new AesGcmPayloadCodec(readSecret('TEMPORAL_CODEC_KEY'))],

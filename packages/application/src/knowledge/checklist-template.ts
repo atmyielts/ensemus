@@ -15,6 +15,7 @@ import { AppError } from '../errors';
 import { loadReadable } from '../work';
 import type { ObjectStore } from '../artifacts';
 import { addGeneratedArtifact, type ArtifactInputInventory } from './artifact-provenance';
+import { workInputClassInTx } from '../ai/input-observations';
 
 export const CHECKLIST_TEMPLATE = 'ensemus/completion-checklist/v1';
 export const CHECKLIST_NAME = 'completion-checklist.md';
@@ -71,8 +72,11 @@ export function createChecklistInputInventory(): ArtifactInputInventory {
         execution: input.execution,
         workUnitId: work.id,
         viewerMembershipId: null,
-        classification: work.classification as
-          'public' | 'internal' | 'confidential' | 'restricted',
+        classification: await workInputClassInTx(
+          tx,
+          work.id,
+          work.classification as 'public' | 'internal' | 'confidential' | 'restricted',
+        ),
         noKnowledge: true,
         artifactInputs: [],
         recordInputs: [

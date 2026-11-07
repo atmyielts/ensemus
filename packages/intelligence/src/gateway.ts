@@ -51,6 +51,7 @@ import type {
   RouteDecision,
   TurnOutcome,
 } from './types';
+import type { MainModelAdmission } from '@ensemus/application/ai-model-admission';
 
 export type GatewayDeps = {
   entitlements: Entitlements;
@@ -64,6 +65,12 @@ export type GatewayDeps = {
   adapter: ModelAdapter;
   turns: TurnStore;
   halt: HaltCheck;
+  /** Actual run counters, complete prior-input class and current profile envelope, in the reservation Tx. */
+  admitInTx?: (
+    tx: Tx,
+    context: AgentContext,
+    input: MainModelAdmission,
+  ) => Promise<AiReasonCode | null>;
   /** The operator's list, read by the caller. */
   privateEndpoints: readonly string[];
   /** Strings no output or prompt may hold, for this tenant. Empty is fine. */
@@ -140,6 +147,11 @@ async function callAdapter(
 
 /** Marks a failed halt check, so it can roll the transaction back and still be told from anything else. */
 class Halted extends Error {}
+class AdmissionRefused extends Error {
+  constructor(readonly code: AiReasonCode) {
+    super(code);
+  }
+}
 
 export function createInferenceGateway(deps: GatewayDeps): InferenceGateway {
   const now = deps.now ?? (() => new Date());
@@ -273,13 +285,29 @@ export function createInferenceGateway(deps: GatewayDeps): InferenceGateway {
           tools: compiled.tools,
           responseSchema: compiled.responseSchema,
           maxOutputTokens,
+          modelId: profile.modelId,
         });
         const reservedMicros = costOf(ceiling, rateCard).totalMicros;
+        if (ceiling.inputTokens > profile.limits.maxInputTokens) return refuse('BUDGET_EXHAUSTED');
 
         // 7. In one short transaction, halt check and reservation. A halt rolls the reservation back.
         let reservation: Reservation;
         try {
           reservation = await deps.withTx(context, async (tx) => {
+            if (deps.admitInTx) {
+              const denial = await deps.admitInTx(tx, context, {
+                ...step,
+                purpose: task.purpose,
+                classification: dataClass,
+                profileId: profile.id,
+                profileVersion: profile.version,
+                ceiling,
+                costMicros: reservedMicros,
+                priorUsage: { ...spent },
+                reservationAttempt: callAttempt,
+              });
+              if (denial) throw new AdmissionRefused(denial);
+            }
             try {
               await deps.halt.assertRunning(tx, context, {
                 agentVersionId: step.agentVersionId,
@@ -297,7 +325,13 @@ export function createInferenceGateway(deps: GatewayDeps): InferenceGateway {
             });
           });
         } catch (error) {
-          return refuse(error instanceof Halted ? 'HALTED' : 'POLICY_UNREADABLE');
+          return refuse(
+            error instanceof AdmissionRefused
+              ? error.code
+              : error instanceof Halted
+                ? 'HALTED'
+                : 'POLICY_UNREADABLE',
+          );
         }
         if (!reservation.ok) return refuse(reservation.code);
         const { reservationId } = reservation;
@@ -392,6 +426,36 @@ export function createInferenceGateway(deps: GatewayDeps): InferenceGateway {
         // customer runs may have no key: anywhere else, a missing key is no reason to send without one.
         const sent: { result: AdapterResult | null } = { result: null };
         const send = async (apiKey: Buffer | null) => {
+          if (signal.aborted) throw new AdmissionRefused('HALTED');
+          if (deps.admitInTx)
+            await deps.withTx(context, async (tx) => {
+              let denial: AiReasonCode | null;
+              try {
+                denial = await deps.admitInTx!(tx, context, {
+                  ...step,
+                  purpose: task.purpose,
+                  classification: dataClass,
+                  profileId: profile.id,
+                  profileVersion: profile.version,
+                  ceiling,
+                  costMicros: reservedMicros,
+                  priorUsage: { ...spent },
+                  reservationAttempt: callAttempt,
+                });
+              } catch {
+                throw new AdmissionRefused('POLICY_UNREADABLE');
+              }
+              if (denial) throw new AdmissionRefused(denial);
+              try {
+                await deps.halt.assertRunning(tx, context, {
+                  agentVersionId: step.agentVersionId,
+                  providerKind: profile.providerKind,
+                });
+              } catch {
+                throw new AdmissionRefused('HALTED');
+              }
+            });
+          if (signal.aborted) throw new AdmissionRefused('HALTED');
           sent.result = await callAdapter(
             deps.adapter,
             {
@@ -409,6 +473,7 @@ export function createInferenceGateway(deps: GatewayDeps): InferenceGateway {
             signal,
           );
         };
+        let dispatchDenial: AiReasonCode | null = null;
         try {
           if (profile.secretRef !== null) {
             await deps.credentials.withKey(
@@ -424,7 +489,8 @@ export function createInferenceGateway(deps: GatewayDeps): InferenceGateway {
           } else if (profile.providerKind === 'local_openai_compatible') {
             await send(null);
           }
-        } catch {
+        } catch (error) {
+          if (error instanceof AdmissionRefused) dispatchDenial = error.code;
           // Only the lender can land here, as `callAdapter` does not throw. If it threw after the call
           // came back, the answer stands, and the call is charged below.
         }
@@ -433,6 +499,7 @@ export function createInferenceGateway(deps: GatewayDeps): InferenceGateway {
         if (result === null) {
           // Nothing was sent, so nothing is owed. No key text can reach this outcome.
           await release();
+          if (dispatchDenial) return refuse(dispatchDenial);
           if (!isLast) continue;
           return finish('credential_unavailable', 'CREDENTIAL_UNAVAILABLE', null);
         }
@@ -510,6 +577,14 @@ export function createInferenceGateway(deps: GatewayDeps): InferenceGateway {
         // 12. Validate what came back. An answer we cannot use was still paid for, so it is charged too.
         const check = checkOutput(result, compiled.tools, schema.schema, canaries);
         await charge(result.usage, true);
+        // Reported provider overuse is charged in full, then refused. An admitted ceiling cannot be
+        // expanded by a response, even if its text/schema is otherwise valid.
+        if (
+          result.usage &&
+          (result.usage.inputTokens > ceiling.inputTokens ||
+            result.usage.outputTokens > ceiling.outputTokens)
+        )
+          return refuse('BUDGET_EXHAUSTED');
 
         // The first answer pins the run to this profile and version (FD-13). If that is refused, another
         // turn got there first with a different profile, and this answer must not be acted on.
