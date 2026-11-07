@@ -47,6 +47,10 @@ import {
   PROCESS_RUN_WAKE,
   SIMULATION_REQUESTED,
 } from '@ensemus/domain/product-events';
+import {
+  AGGREGATE_ORGANIZATION_EXPORT,
+  ORGANIZATION_EXPORT_REQUESTED,
+} from '@ensemus/domain/sovereign-events';
 import { TOMBSTONE_RECORDED } from '@ensemus/domain/tombstone-ledger';
 import { MODEL_JOB_REQUESTED, AGGREGATE_MODEL_JOB } from '@ensemus/domain/knowledge-models';
 import {
@@ -84,6 +88,8 @@ import {
   connectorSyncWorkflowIdFor,
   externalActionInputSchema,
   externalActionWorkflowIdFor,
+  organizationExportInputSchema,
+  organizationExportWorkflowIdFor,
   reminderScheduleIdFor,
   webhookDeliveryInputSchema,
   webhookWorkflowIdFor,
@@ -387,6 +393,18 @@ async function main() {
             connectionId: event.aggregateId,
           }),
           workflowIdFor: connectorRevokeWorkflowIdFor,
+        });
+        return;
+
+      // One archive, one run, however many times the event is delivered (ADR-030 D7).
+      case ORGANIZATION_EXPORT_REQUESTED:
+        if (event.aggregateType !== AGGREGATE_ORGANIZATION_EXPORT) return;
+        await startOnce('organizationExportWorkflow', {
+          input: organizationExportInputSchema.parse({
+            organizationId: event.organizationId,
+            exportId: event.aggregateId,
+          }),
+          workflowIdFor: organizationExportWorkflowIdFor,
         });
         return;
 

@@ -20,7 +20,15 @@ import {
   uniqueIndex,
   uuid,
 } from 'drizzle-orm/pg-core';
-import { identitySchema, memberships, orgSchema, organizations, sessions, users } from './schema';
+import {
+  accounts,
+  identitySchema,
+  memberships,
+  orgSchema,
+  organizations,
+  sessions,
+  users,
+} from './schema';
 import { artifacts, approvals, workUnits } from './schema-work';
 import { agentDefinitions, agentRuns } from './schema-ai';
 import { externalActions } from './schema-integrations';
@@ -98,6 +106,8 @@ export const sessionAssurances = identitySchema.table(
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
     ssoProviderId: text(),
+    /** Auth/control metadata only. Legacy unknown SSO proofs cannot authorize a new effect. */
+    primaryAccountId: uuid().references(() => accounts.id, { onDelete: 'cascade' }),
     verifiedAt: timestamp({ withTimezone: true }).notNull(),
   },
   (t) => [
@@ -107,6 +117,10 @@ export const sessionAssurances = identitySchema.table(
     check(
       'session_assurances_sso_provider',
       sql`(${t.kind} = 'sso_saml') = (${t.ssoProviderId} is not null)`,
+    ),
+    check(
+      'session_assurances_primary_account',
+      sql`${t.kind}='sso_saml' or ${t.primaryAccountId} is null`,
     ),
   ],
 );

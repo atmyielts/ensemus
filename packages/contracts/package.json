@@ -15,7 +15,9 @@
     "./custom-objects": "./src/custom-objects.ts",
     "./packs": "./src/packs.ts",
     "./experience": "./src/experience.ts",
-    "./identity-admin": "./src/identity-admin.ts"
+    "./identity-admin": "./src/identity-admin.ts",
+    "./sovereign": "./src/sovereign.ts",
+    "./portability-records": "./src/portability-records.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

@@ -263,3 +263,12 @@ Each of these is new tables and new routes. Taking a nav link and its routes awa
 |---|---|---|---|
 | Project owner | | | |
 | Security owner (D6, D8, D9) | | | |
+
+
+## Additive effect-time SSO binding (0410, source checkpoint)
+
+0404's recent-MFA guard is supplemented by actual required-company-sign-in checks inside the privileged effect transaction. The fixed metadata guard locks current user/session/provider/link/SSO proof without reading account bodies, external subjects, tokens or provider configuration. The specific refusal is SSO_REQUIRED; optional policy and the documented owner/no-active-provider recovery paths remain unchanged. It adds no new MFA default or blanket service exemption.
+
+Auth-only SSO receipts now bind the actual account PK. Account deletion cascades the matching SSO receipt; account identity changes invalidate only its SSO proofs, preserving MFA and other accounts. Legacy unbound SSO receipts refuse new authority. Application SELECT remains limited to the prior assurance columns. Custom session GUCs select a validated SQL binding and are not unforgeable credentials; native in-process verifier provenance remains independently necessary.
+
+0412 may use the session/required-SSO metadata seam for nonprivileged Studio authors without requiring MFA. Export/import admission and durable metadata effects are described in ADR-030's joined source note. See [the joined source evidence](../../06-delivery/evidence/M6-M7-joined-authority-source.md) for actual static checks and the unrun role/migration/runtime gates.

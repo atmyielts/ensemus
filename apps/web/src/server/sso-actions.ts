@@ -1,4 +1,5 @@
 'use server';
+import { redirectForSsoRefusal } from './interactive-refusal';
 import { AppError } from '@ensemus/application';
 import {
   createSsoConnection,
@@ -27,6 +28,7 @@ const field = (form: FormData, name: string) => {
 const home = (id: string) => `/o/${id}/security/sso`;
 function failed(error: unknown, id: string): never {
   if (error instanceof Error && 'digest' in error) throw error;
+  redirectForSsoRefusal(error);
   if (error instanceof AppError && error.code === 'MFA_REQUIRED')
     redirect(stepUpPath(id, home(id)));
   redirect(`${home(id)}?error=${error instanceof AppError ? error.code : 'UNAVAILABLE'}`);
@@ -178,6 +180,7 @@ export async function issueScimTokenAction(
     );
     return { status: 'ready', token: result.token };
   } catch (error) {
+    redirectForSsoRefusal(error);
     if (error instanceof AppError && error.code === 'MFA_REQUIRED')
       redirect(stepUpPath(id, home(id)));
     return { status: 'error' };

@@ -30,4 +30,15 @@ describe('interactive trigger refusal translation', () => {
       } as unknown as AppDatabase;
     await expect(withPrivilegeTx(database, context, async () => 0)).rejects.toBe(error);
   });
+  it('preserves a required company sign-in refusal instead of asking for another factor', async () => {
+    const database = {
+      transaction: async () => {
+        throw new Error('Private SQL parameters', { cause: { code: 'EN410' } });
+      },
+    } as unknown as AppDatabase;
+    await expect(withPrivilegeTx(database, context, async () => 0)).rejects.toMatchObject({
+      code: 'SSO_REQUIRED',
+      message: 'This organization asks you to sign in through its identity provider.',
+    });
+  });
 });

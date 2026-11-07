@@ -116,6 +116,19 @@ const MESSAGE_FOR = new Map<string, string>([
   ['PACK_CAPABILITY_UNREVIEWED', 'Everything this pack asks for has to be decided first.'],
   ['PACK_NOT_ROLLBACKABLE', 'There is no earlier version of this pack to go back to.'],
   ['OUTCOME_CHANGED', 'This preview changed after you read it. Read it again.'],
+  [
+    'LICENSE_NOT_VALID',
+    'That file could not be verified, so nothing was changed. Everything already installed stays as it was.',
+  ],
+  ['EXPORT_ALREADY_RUNNING', 'An export of this organization is already running.'],
+  ['EXPORT_NOT_READY', 'This export is not ready to download.'],
+  [
+    'EXPORT_SUPERSEDED',
+    'Data or access changed after this export started, so this copy can no longer be downloaded. Make a new export.',
+  ],
+  ['IMPORT_TARGET_NOT_EMPTY', 'An archive can only be imported into a new, empty organization.'],
+  ['IMPORT_ALREADY_USED', 'This organization has already taken an archive.'],
+  ['IMPORTED_PERSON_ALREADY_LINKED', 'This person has already been linked to a member.'],
   ['UNEXPECTED', 'Something went wrong on our side. Please try again.'],
 ]);
 

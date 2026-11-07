@@ -76,7 +76,14 @@ export type ErrorCode =
   | 'PACK_INVALID'
   | 'PACK_CAPABILITY_UNREVIEWED'
   | 'PACK_NOT_ROLLBACKABLE'
-  | 'OUTCOME_CHANGED';
+  | 'OUTCOME_CHANGED'
+  | 'LICENSE_NOT_VALID'
+  | 'EXPORT_ALREADY_RUNNING'
+  | 'EXPORT_NOT_READY'
+  | 'EXPORT_SUPERSEDED'
+  | 'IMPORT_TARGET_NOT_EMPTY'
+  | 'IMPORT_ALREADY_USED'
+  | 'IMPORTED_PERSON_ALREADY_LINKED';
 
 const MESSAGES: Record<ErrorCode, string> = {
   IDEMPOTENCY_KEY_REUSED: 'This request key was already used with different details.',
@@ -165,6 +172,15 @@ const MESSAGES: Record<ErrorCode, string> = {
   PACK_CAPABILITY_UNREVIEWED: 'Everything this pack asks for has to be decided first.',
   PACK_NOT_ROLLBACKABLE: 'There is no earlier version of this pack to go back to.',
   OUTCOME_CHANGED: 'This preview changed after you read it. Read it again.',
+  LICENSE_NOT_VALID:
+    'That file could not be verified, so nothing was changed. Everything already installed stays as it was.',
+  EXPORT_ALREADY_RUNNING: 'An export of this organization is already running.',
+  EXPORT_NOT_READY: 'This export is not ready to download.',
+  EXPORT_SUPERSEDED:
+    'Data or access changed after this export started, so this copy can no longer be downloaded. Make a new export.',
+  IMPORT_TARGET_NOT_EMPTY: 'An archive can only be imported into a new, empty organization.',
+  IMPORT_ALREADY_USED: 'This organization has already taken an archive.',
+  IMPORTED_PERSON_ALREADY_LINKED: 'This person has already been linked to a member.',
 };
 
 export class AppError extends Error {
@@ -263,6 +279,13 @@ export const HTTP_STATUS: Record<ErrorCode, number> = {
   PACK_CAPABILITY_UNREVIEWED: 409,
   PACK_NOT_ROLLBACKABLE: 409,
   OUTCOME_CHANGED: 409,
+  LICENSE_NOT_VALID: 400,
+  EXPORT_ALREADY_RUNNING: 409,
+  EXPORT_NOT_READY: 409,
+  EXPORT_SUPERSEDED: 410,
+  IMPORT_TARGET_NOT_EMPTY: 409,
+  IMPORT_ALREADY_USED: 409,
+  IMPORTED_PERSON_ALREADY_LINKED: 409,
 };
 
 /** Reads the Postgres error code through the wrapper Drizzle adds. */

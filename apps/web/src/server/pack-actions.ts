@@ -3,6 +3,7 @@
 // Every action is a public endpoint. Each one resolves the person and tenant again from the session and the
 // service checks permission itself. The session for a recent-MFA check comes from the verified cookie, and
 // nothing from a form can name one. There is no accept-all here on purpose: one form decides one capability.
+import { redirectForSsoRefusal } from './interactive-refusal';
 import {
   AppError,
   auditRefusal,
@@ -59,6 +60,7 @@ async function run(
     revalidatePath(`/o/${organizationId}/packs`);
   } catch (error) {
     await recordRefusal(tenant, error);
+    redirectForSsoRefusal(error);
     if (error instanceof AppError && error.code === 'RESTORE_PENDING') {
       target = '/restoring';
     } else if (error instanceof AppError && error.code === 'MFA_REQUIRED') {

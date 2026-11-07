@@ -13,6 +13,7 @@ export default defineConfig({
     './src/schema-artifact-provenance.ts',
     './src/schema-client-access.ts',
     './src/schema-product.ts',
+    './src/schema-sovereign.ts',
   ],
   out: './migrations',
   casing: 'snake_case',

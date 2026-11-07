@@ -52,3 +52,4 @@ export * from './schema-model-jobs';
 export * from './schema-knowledge';
 export * from './schema-artifact-provenance';
 export * from './schema-client-access';
+export * from './schema-sovereign';

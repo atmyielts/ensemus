@@ -44,11 +44,50 @@ const packReach = {
   regex: '^(?!@ensemus/domain/)(@ensemus/|pg|drizzle-orm|@temporalio/|better-auth|node:)',
   message: 'A pack is data. It proposes things and reaches nothing (ADR-031 D10).',
 };
+const vendorIssuer = {
+  group: ['@ensemus/sovereign/issuer', '@ensemus/sovereign/testing'],
+  message: 'The issuing tool and its test keys are the vendor side and never ship (ADR-030 D3).',
+};
+const webOffSovereignTools = {
+  group: [
+    '@ensemus/sovereign/bundle',
+    '@ensemus/sovereign/backup',
+    '@ensemus/sovereign/diagnostics',
+    '@ensemus/sovereign/sealed',
+    '@ensemus/sovereign/tar',
+  ],
+  message:
+    'Operator tools run in operator commands. The web tier checks signatures only (ADR-030).',
+};
+const sovereignReach = {
+  group: [
+    '@ensemus/application',
+    '@ensemus/application/*',
+    '@ensemus/connectors',
+    '@ensemus/connectors/*',
+    '@ensemus/database',
+    '@ensemus/database/*',
+    '@ensemus/secrets',
+    '@ensemus/secrets/*',
+    '@ensemus/storage',
+    '@ensemus/storage/*',
+    '@ensemus/workflows',
+    '@ensemus/workflows/*',
+    '@temporalio/*',
+    'drizzle-orm',
+    'drizzle-orm/*',
+    'pg',
+    'pg/*',
+  ],
+  message:
+    'This package has to run alone on an isolated machine, so it reaches only the domain (ADR-030 D4).',
+};
 const testDoubles = {
   group: [
     '@ensemus/connectors/testing',
     '@ensemus/intelligence/testing',
     '@ensemus/knowledge/testing',
+    '@ensemus/sovereign/testing',
   ],
   message: 'Test doubles never reach a shipped image.',
 };
@@ -254,6 +293,7 @@ export default tseslint.config(
         console: 'readonly',
         fetch: 'readonly',
         Buffer: 'readonly',
+        structuredClone: 'readonly',
         setTimeout: 'readonly',
       },
     },
@@ -277,10 +317,10 @@ export default tseslint.config(
   },
   restrict(
     ['**/*.{ts,tsx}'],
-    [rawDatabase, authDatabase, agentDatabase],
+    [rawDatabase, authDatabase, vendorIssuer, agentDatabase],
     ['packages/database/**', 'packages/auth/**', 'tests/**', 'apps/web/**'],
   ),
-  restrict(['packages/auth/**/*.ts'], [rawDatabase, temporal, broker, ssoOperator]),
+  restrict(['packages/auth/**/*.ts'], [rawDatabase, temporal, broker, ssoOperator, vendorIssuer]),
   restrict(['packages/packs/**/*.ts'], [packReach], ['**/*.test.ts']),
   restrict(
     ['apps/web/**/*.{ts,tsx}'],
@@ -289,6 +329,8 @@ export default tseslint.config(
       authDatabase,
       temporal,
       broker,
+      vendorIssuer,
+      webOffSovereignTools,
       connectorCode,
       agentDatabase,
       agentCodeFromWeb,
@@ -299,54 +341,69 @@ export default tseslint.config(
   ),
   restrict(
     ['workers/**/*.ts', 'packages/workflows/**/*.ts'],
-    [rawDatabase, authDatabase, testDoubles, agentDatabase],
+    [rawDatabase, authDatabase, vendorIssuer, testDoubles, agentDatabase],
     agentWorkerFiles,
   ),
   // Agent code. A rule set on the same files replaces the one before it, so each names everything.
   restrict(
     ['packages/policy/**/*.ts'],
-    [rawDatabase, authDatabase, policyReach, aiCore, rawNetworkForModels],
+    [rawDatabase, authDatabase, vendorIssuer, policyReach, aiCore, rawNetworkForModels],
   ),
   restrict(
     ['packages/commercial/**/*.ts'],
-    [rawDatabase, authDatabase, agentDatabase, serviceContext],
+    [rawDatabase, authDatabase, vendorIssuer, agentDatabase, serviceContext],
   ),
   restrict(
     ['packages/application/src/ai/**/*.ts'],
-    [rawDatabase, authDatabase, agentDatabase, serviceContext, temporal],
+    [rawDatabase, authDatabase, vendorIssuer, agentDatabase, serviceContext, temporal],
     agentWorkerFiles,
   ),
-  restrict(agentWorkerFiles, [rawDatabase, authDatabase, serviceContext, testDoubles]),
+  restrict(agentWorkerFiles, [
+    rawDatabase,
+    authDatabase,
+    vendorIssuer,
+    serviceContext,
+    testDoubles,
+  ]),
   restrict(
     ['packages/agent-runtime/**/*.ts'],
-    [rawDatabase, authDatabase, anyDatabase, serviceContext, temporal, aiCore],
+    [rawDatabase, authDatabase, vendorIssuer, anyDatabase, serviceContext, temporal, aiCore],
     ['packages/agent-runtime/src/reducer.ts'],
   ),
   restrict(['packages/agent-runtime/src/reducer.ts'], [anything]),
   restrict(
     ['packages/intelligence/**/*.ts'],
-    [rawDatabase, authDatabase, anyDatabase, serviceContext, temporal, aiCore, rawNetworkForModels],
+    [
+      rawDatabase,
+      authDatabase,
+      vendorIssuer,
+      anyDatabase,
+      serviceContext,
+      temporal,
+      aiCore,
+      rawNetworkForModels,
+    ],
     ['packages/intelligence/src/net/**', 'packages/intelligence/src/testing/**'],
   ),
   restrict(
     ['packages/intelligence/src/net/**', 'packages/intelligence/src/testing/**'],
-    [rawDatabase, authDatabase, anyDatabase, serviceContext, temporal, aiCore],
+    [rawDatabase, authDatabase, vendorIssuer, anyDatabase, serviceContext, temporal, aiCore],
   ),
   // The agent's workflow files are workflow code: nothing but the SDK, types and the reducer.
   restrict(
     ['packages/workflows/src/agent-run.ts', 'packages/workflows/src/model-probe.ts'],
-    [rawDatabase, authDatabase, agentDatabase, serviceContext, testDoubles],
+    [rawDatabase, authDatabase, vendorIssuer, agentDatabase, serviceContext, testDoubles],
   ),
   // packages/connectors, in two parts. A rule set on the same files replaces the one before it, so
   // the first has to name everything: its testing folder may use a socket, and network.ts must.
   restrict(
     ['packages/connectors/**/*.ts'],
-    [connectorReach, rawNetwork],
+    [connectorReach, rawNetwork, vendorIssuer],
     ['packages/connectors/src/runtime/network.ts', 'packages/connectors/src/testing/**'],
   ),
   restrict(
     ['packages/connectors/src/runtime/network.ts', 'packages/connectors/src/testing/**'],
-    [connectorReach],
+    [connectorReach, vendorIssuer],
   ),
   {
     files: ['packages/connectors/**/*.ts'],
@@ -360,7 +417,7 @@ export default tseslint.config(
       ],
     },
   },
-  restrict(['packages/knowledge/**/*.ts'], [knowledgeReach, knowledgeNetwork]),
+  restrict(['packages/knowledge/**/*.ts'], [knowledgeReach, knowledgeNetwork, vendorIssuer]),
   {
     files: ['packages/knowledge/**/*.ts'],
     rules: {
@@ -384,6 +441,23 @@ export default tseslint.config(
         {
           name: 'fetch',
           message: 'A model call uses the guarded fetch it was handed (ADR-028 FD-10).',
+        },
+      ],
+    },
+  },
+  // Sovereign/operator tools preserve their standalone no-network/no-runtime boundary (ADR-030).
+  restrict(
+    ['packages/sovereign/**/*.ts', 'workers/workflow/src/tools/**/*.ts'],
+    [sovereignReach, rawNetwork, rawDatabase, authDatabase, vendorIssuer],
+  ),
+  {
+    files: ['packages/sovereign/**/*.ts', 'workers/workflow/src/tools/**/*.ts'],
+    rules: {
+      'no-restricted-globals': [
+        'error',
+        {
+          name: 'fetch',
+          message: 'Nothing in the Sovereign tools may reach a network (ADR-030 D4).',
         },
       ],
     },

@@ -1,0 +1,70 @@
+{
+  "baseCommit": "897da3c6b283f2aae7422153ebb053ee4dcd3d6b",
+  "inventoryVersion": "ensemus.m3-m5/2",
+  "supportedLegacyInventory": "ensemus.m3-m5/1",
+  "inspectedRuntimeCommit": "aa6c234402a311bdfadd468f0ac512c448efb5f5",
+  "qualification": "Source only; metadata SQL and actual restore binding unrun",
+  "checks": "13 changed TS/TSX format/lint;267 unit passed,2 skipped,11 files;serial domain/contracts/application/tests/worker/web/browser types passed",
+  "files": [
+    {
+      "path": "apps/web/src/components/export-list.tsx",
+      "sha256": "da2576f2cbc15610312901fb629525deb780c6b7de32250ec4c94436d3eb58c0"
+    },
+    {
+      "path": "apps/web/src/lib/messages.ts",
+      "sha256": "c43fc87d431c7d05623eb555dd3b6fff80f3822b6685399ca5f31fdcf719991b"
+    },
+    {
+      "path": "docs/06-delivery/evidence/M6-input-inventory-followup.md",
+      "sha256": "871c4ca659915620e4192c2f22e646aeb55243d7f6d633b877c6863fe041ff5d"
+    },
+    {
+      "path": "docs/06-delivery/evidence/M6-report.md",
+      "sha256": "2a97ba1c777929e5dfeb73b7e95185f60a950b37cbd817be0195f5265d71891c"
+    },
+    {
+      "path": "packages/application/src/errors.ts",
+      "sha256": "b9685b705220158b6373b4fc5a476f5cee63c752eef3c2ce4825663943f5ff60"
+    },
+    {
+      "path": "packages/application/src/portability-import.ts",
+      "sha256": "7dfb8978dfb002de7488c0cc397b5ea70d853786a20160b18e500d1d8c1259ad"
+    },
+    {
+      "path": "packages/application/src/restore-contributors.ts",
+      "sha256": "daaba37706d6a6a566b2760f4ab02e98a75cced44bf96317143abc4069de1a46"
+    },
+    {
+      "path": "packages/application/src/sovereign-ports.ts",
+      "sha256": "2482468d0f5cc3443eb28ae81daf296696ff65a07328518129b6ce6e4c674b9d"
+    },
+    {
+      "path": "packages/contracts/src/portability-records.ts",
+      "sha256": "3aa9f11961d6c83ff60cc395d42872bbc8a5a51b19af837f031e2fc5acfe7671"
+    },
+    {
+      "path": "packages/domain/src/portability.ts",
+      "sha256": "b7fdb486745bdf604a34e2543e70d08b7d80f58e8c5c32de3ade32aa4fa06483"
+    },
+    {
+      "path": "tests/unit/advisory-rehearsal.test.ts",
+      "sha256": "554f44b02c10f48612923f07daf96067c99a1a09d5c81ba540a47e92103b436d"
+    },
+    {
+      "path": "tests/unit/portability-inventory.test.ts",
+      "sha256": "2222fa73e3ed84c74c90adb93f1c3a9563a92e40987462aae0a4ac4088d5ebd1"
+    },
+    {
+      "path": "tests/unit/restore-input-metadata.test.ts",
+      "sha256": "20277b21899396da0dd7cbcd02dd13122971f17cd9d7471b9eb60dffdd37d09c"
+    },
+    {
+      "path": "tests/unit/web-messages.test.ts",
+      "sha256": "a9b35967a6ee99cac38952e0d20faf4ba4b1036db3141f64deac0a1b01bd7907"
+    },
+    {
+      "path": "workers/workflow/src/tools/open-archive.ts",
+      "sha256": "1d2226446aa97f22af20590dea1bd73b90acb62ca01caf0ae29a8fb763e55a2f"
+    }
+  ]
+}
