@@ -43,6 +43,7 @@ import {
   workInputClassInTx,
   type ObservedInput,
 } from '../ai/input-observations';
+import { assertWithinAgentProtection, loadAgentReadScope } from '../ai/read-scope';
 
 export type CompileDeps = {
   model: KnowledgeModelPort;
@@ -65,6 +66,7 @@ export type CompileInput = {
   /** Capped by `MAX_EVIDENCE_TOKENS`. */
   budgetTokens: number;
   sourceIds?: readonly string[];
+  maxClassification?: Classification;
   signal: AbortSignal;
 };
 
@@ -127,6 +129,27 @@ export async function compileEvidence(
     if (runId) throw new AppError('FORBIDDEN');
     return null;
   })();
+  let sourceIds = input.sourceIds?.map(id);
+  let maxClassification = input.maxClassification;
+  if (maxClassification !== undefined) validClass(maxClassification);
+  if (agentContext) {
+    const scope = await loadAgentReadScope(database, agentContext);
+    if (!scope.sourceIds.length) return { ok: false, code: 'EGRESS_DENIED' };
+    sourceIds = sourceIds
+      ? sourceIds.filter((id) => scope.sourceIds.includes(id))
+      : [...scope.sourceIds];
+    if (
+      scope.ceiling &&
+      (!maxClassification || classRank(scope.ceiling) < classRank(maxClassification))
+    )
+      maxClassification = scope.ceiling;
+    assertWithinAgentProtection({ ...scope, ceiling: maxClassification ?? null }, queryClass);
+  }
+  const classAllowed = (classification: Classification) =>
+    !maxClassification || classRank(classification) <= classRank(maxClassification);
+  const protectionAllowed = (classification: Classification) =>
+    !maxClassification ||
+    classRank(classification) <= Math.max(classRank(maxClassification), classRank('internal'));
   const recordInputs: ModelInputRef[] = [];
   const usedModelResults: ModelUsage[] = [];
   const state = await withTenantTx(database, context, async (tx) => {
@@ -142,10 +165,13 @@ export async function compileEvidence(
       select w.classification,w.title,w.objective,w.project_id as "projectId", p.client_id as "clientId"
         from work.work_units w left join work.projects p on p.organization_id = w.organization_id and p.id = w.project_id
        where w.organization_id = ${context.organizationId}::uuid and w.id = ${workUnitId}::uuid
-         and knowledge.can_read_work(w.id, app.current_membership_id()) for share of w`);
+         and knowledge.can_read_work(w.id, app.current_membership_id())
+         ${maxClassification ? sql`and knowledge.structured_record_class('work_unit',w.id) is not null and knowledge.class_rank(knowledge.structured_record_class('work_unit',w.id))<=knowledge.class_rank(${maxClassification})` : sql``} for share of w nowait`);
     const work = result.rows[0];
     if (!work) throw new AppError('NOT_FOUND');
-    const effectiveClass = await workInputClassInTx(tx, workUnitId, work.classification);
+    const lockedClass = await workInputClassInTx(tx, workUnitId, 'public');
+    if (!classAllowed(lockedClass)) throw new AppError('POLICY_DENIED');
+    const effectiveClass = strongestClass([lockedClass, work.classification]);
     recordInputs.push({
       kind: 'work_unit',
       id: workUnitId,
@@ -174,6 +200,7 @@ export async function compileEvidence(
   const raiseDerived = (classification: Classification) => {
     derivedClassification = strongestClass([derivedClassification, classification]);
     state.classification = strongestClass([state.classification, derivedClassification]);
+    if (!protectionAllowed(state.classification)) throw new AppError('POLICY_DENIED');
   };
   const refreshTaskClass = async () => {
     if (!workUnitId) return;
@@ -184,27 +211,30 @@ export async function compileEvidence(
       );
     });
     if (!result.rows[0]) throw new AppError('NOT_FOUND');
+    if (!classAllowed(result.rows[0].classification)) throw new AppError('POLICY_DENIED');
     state.classification = strongestClass([
       queryClass,
       result.rows[0].classification,
       derivedClassification,
     ]);
+    if (!protectionAllowed(state.classification)) throw new AppError('POLICY_DENIED');
   };
   if (input.signal.aborted) return { ok: false, code: 'MODEL_UNAVAILABLE' };
   let candidates: readonly EvidenceCandidate[] = await searchLexical(database, context, {
     query: question,
     limit: 50,
-    ...(input.sourceIds ? { sourceIds: input.sourceIds } : {}),
+    ...(sourceIds ? { sourceIds } : {}),
+    ...(maxClassification ? { maxClassification } : {}),
   });
   let spaceId: string | null = null;
   // No question is embedded just because a hidden tenant-wide space exists. There must be a current
   // authorized vector to search, and embedQuery applies the question's own egress classification.
   const vectors = await withTenantTx(database, context, async (tx) => {
     await requireSearchPerson(tx, context);
-    const scope = input.sourceIds
-      ? input.sourceIds.length
+    const scope = sourceIds
+      ? sourceIds.length
         ? sql`and e.source_id in (${sql.join(
-            input.sourceIds.map((value) => sql`${id(value)}::uuid`),
+            sourceIds.map((value) => sql`${id(value)}::uuid`),
             sql`, `,
           )})`
         : sql`and false`
@@ -214,7 +244,8 @@ export async function compileEvidence(
       join knowledge.chunks c on c.organization_id = e.organization_id and c.id = e.chunk_id
       join knowledge.documents d on d.organization_id = c.organization_id and d.id = c.document_id
       where e.organization_id = ${context.organizationId}::uuid and d.state = 'searchable' and d.superseded_at is null
-        and e.source_id in (select knowledge.readable_source_ids(app.current_membership_id())) ${scope} limit 1`);
+        and e.source_id in (select knowledge.readable_source_ids(app.current_membership_id())) ${scope}
+        ${maxClassification ? sql`and greatest(knowledge.class_rank(d.classification),(select knowledge.class_rank(s.classification) from knowledge.sources s where s.organization_id=d.organization_id and s.id=d.source_id))<=knowledge.class_rank(${maxClassification})` : sql``} limit 1`);
   });
   if (vectors.rows.length) {
     try {
@@ -234,7 +265,8 @@ export async function compileEvidence(
             query: question,
             queryVector: embedded,
             limit: 50,
-            ...(input.sourceIds ? { sourceIds: input.sourceIds } : {}),
+            ...(sourceIds ? { sourceIds } : {}),
+            ...(maxClassification ? { maxClassification } : {}),
           })
         ).passages;
       }
@@ -242,7 +274,7 @@ export async function compileEvidence(
       // An unavailable embedding provider never takes the lexical path away.
     }
   }
-  candidates = await refreshEvidence(database, context, candidates);
+  candidates = await refreshEvidence(database, context, candidates, maxClassification);
   if (candidates.length && !input.signal.aborted) {
     await refreshTaskClass();
     const rerank = await routeForClasses(
@@ -255,7 +287,7 @@ export async function compileEvidence(
     );
     if (rerank.ok) {
       try {
-        const fresh = await refreshEvidence(database, context, candidates);
+        const fresh = await refreshEvidence(database, context, candidates, maxClassification);
         if (sameEvidence(candidates, fresh)) {
           if (!deps.model.recordsCalls)
             await withTenantTx(database, context, (tx) =>
@@ -328,7 +360,7 @@ export async function compileEvidence(
       }
     }
   }
-  candidates = await refreshEvidence(database, context, candidates);
+  candidates = await refreshEvidence(database, context, candidates, maxClassification);
   let selection = selectEvidence(candidates, budget);
   let facts = selection.items.length
     ? await verifiedFactsFor(database, context, {
@@ -339,6 +371,8 @@ export async function compileEvidence(
           ]),
         ],
         limit: 20,
+        ...(sourceIds ? { sourceIds } : {}),
+        ...(maxClassification ? { maxClassification } : {}),
         captureReadsInTx: async (tx: Tx, inputs: readonly ObservedInput[]) => {
           recordInputs.push(
             ...inputs.filter(
@@ -431,7 +465,7 @@ export async function compileEvidence(
     if (!verdict.ok) return verdict;
     route = verdict.route;
   }
-  const fresh = await refreshEvidence(database, context, selection.items);
+  const fresh = await refreshEvidence(database, context, selection.items, maxClassification);
   if (!sameEvidence(selection.items, fresh)) return { ok: false, code: 'EGRESS_DENIED' };
   await refreshTaskClass();
   if (
@@ -584,6 +618,7 @@ export async function refreshEvidence(
   database: AppDatabase,
   context: TenantContext,
   items: readonly EvidenceCandidate[],
+  maxClassification?: Classification,
 ): Promise<readonly EvidenceCandidate[]> {
   return withTenantTx(database, context, async (tx) => {
     await requireSearchPerson(tx, context);
@@ -607,7 +642,8 @@ export async function refreshEvidence(
          sql`, `,
        )})
          and s.state = 'active' and d.state = 'searchable' and d.superseded_at is null
-         and c.source_id in (select knowledge.readable_source_ids(app.current_membership_id()))`);
+         and c.source_id in (select knowledge.readable_source_ids(app.current_membership_id()))
+         ${maxClassification ? sql`and greatest(knowledge.class_rank(s.classification),knowledge.class_rank(d.classification))<=knowledge.class_rank(${maxClassification})` : sql``}`);
     const previous = new Map(items.map((item) => [item.chunkId, item]));
     const live = new Map(result.rows.map((row) => [row.chunkId, row]));
     return items.flatMap((item) => {

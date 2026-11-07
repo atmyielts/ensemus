@@ -16,6 +16,7 @@ import { strongestClassification, type AiClassification } from '@ensemus/domain/
 import { AppError, pgCode } from '../errors';
 import { idSchema } from '../ids';
 import type { ArtifactInputInventory } from '../knowledge/artifact-provenance';
+import { assertWithinAgentCeiling, loadAgentReadScopeInTx } from './read-scope';
 
 export type ObservedInput = {
   kind: 'work_unit' | 'project' | 'client' | 'artifact';
@@ -67,6 +68,7 @@ const own = (context: AgentContext) => {
 /** A birth-complete marker is meaningful only under the new immutable runtime admission protocol. */
 export async function assertRunInputsOpen(tx: Tx, context: AgentContext) {
   const runId = own(context);
+  await loadAgentReadScopeInTx(tx, context);
   const proof = await tx.execute<{ admitted: boolean }>(
     sql`select ai.run_input_admitted(${runId}::uuid) as admitted`,
   );
@@ -116,6 +118,8 @@ export async function recordRunInputs(
         .orderBy(knowledgeSources.id)
         .for('share', { noWait: true });
   }
+  const scope = await loadAgentReadScopeInTx(tx, context, undefined, { lockRun: true });
+  for (const row of input) assertWithinAgentCeiling(scope, row.classification);
   const [run] = await tx
     .select({ classification: agentRuns.effectiveClassification })
     .from(agentRuns)

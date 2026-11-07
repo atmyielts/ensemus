@@ -49,7 +49,8 @@ import { AppError } from '../errors';
 import { emit } from '../events';
 import { applyTransition, closeOutdatedReviews, failRun, loadChangeable } from '../work';
 import type { HaltCheck, TurnStart, TurnStore } from './ports';
-import { lockRunInputsForContent } from './input-ledger';
+import { assertRunInputsOpen, lockRunInputsForContent, workInputClassInTx } from './input-ledger';
+import { assertWithinAgentCeiling, loadAgentReadScopeInTx } from './read-scope';
 import { bindModelResultWriteInTx } from './model-admission';
 
 export type ClaimedRun = {
@@ -443,9 +444,12 @@ export async function claimQueuedRun(
     // whatever they could do, which is why that is not what is asked.
     let work: Awaited<ReturnType<typeof loadChangeable>>;
     try {
+      const scope = await loadAgentReadScopeInTx(tx, context);
+      assertWithinAgentCeiling(scope, await workInputClassInTx(tx, workUnitId, 'public'));
       work = await loadChangeable(tx, context, workUnitId);
     } catch (error) {
-      if (!isAccessRefusal(error)) throw error;
+      if (!isAccessRefusal(error) && !(error instanceof AppError && error.code === 'POLICY_DENIED'))
+        throw error;
       await refuseClaim(tx, organizationId, run, 'policy_denied', 'POLICY_DENIED');
       return null;
     }
@@ -1230,6 +1234,7 @@ export function createTurnStore(database: AppDatabase): TurnStore {
   return {
     beginTurn(context, step): Promise<TurnStart> {
       return withTenantTx(database, context, async (tx) => {
+        await assertRunInputsOpen(tx, context);
         // Runtime-version fence for a run that has auxiliary Knowledge calls. This is not user
         // authorization; the actual full-envelope admission happens in the reservation transaction.
         await tx.execute(

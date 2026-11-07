@@ -144,7 +144,10 @@ export function createMinimalContextCompiler(deps: {
       // shaped by it, so leaving out its words does not take back what it was told.
       let classification = transcript.reduce(
         (strongest, part) => strongestClassification(strongest, part.classification),
-        strongestClassification(brief.classification, taskClass),
+        strongestClassification(
+          'internal',
+          strongestClassification(brief.classification, taskClass),
+        ),
       );
 
       const task = (coverage: string) =>
@@ -245,7 +248,8 @@ export function createMinimalContextCompiler(deps: {
           role: 'task',
           partId: `work:${work.id}`,
           text: task(coverageText(evidence.length, leftOut)),
-          classification: taskClass,
+          // The task also contains the published manifest's objective, which is never unlabeled public data.
+          classification: strongestClassification('internal', taskClass),
         },
         ...evidence,
         ...kept,

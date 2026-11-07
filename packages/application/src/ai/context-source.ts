@@ -37,6 +37,13 @@ import {
   workInputHash,
   workInputClassInTx,
 } from './input-ledger';
+import {
+  assertWithinAgentCeiling,
+  assertWithinAgentProtection,
+  loadAgentReadScopeInTx,
+} from './read-scope';
+import { currentRunInputClassInTx } from './model-admission';
+export { loadAgentReadScope } from './read-scope';
 
 export type LoadedWork = {
   id: string;
@@ -282,11 +289,27 @@ export function createContextSource(deps: {
       if (!id.success) throw new AppError('NOT_FOUND');
       return withTenantTx(database, context, async (tx) => {
         await assertRunInputsOpen(tx, context);
+        const scope = await loadAgentReadScopeInTx(tx, context);
+        // 0414 filters the body by the current immutable company ceiling. Acquire its row before
+        // metadata locks, then recheck the locked parent closure before capture/material leaves.
         const work = await loadReadable(tx, context, id.data);
+        const floor = await workInputClassInTx(tx, id.data, 'public');
+        assertWithinAgentCeiling(scope, floor);
         const attached = await tx
           .select({ id: workArtifacts.artifactId })
           .from(workArtifacts)
-          .where(eq(workArtifacts.workUnitId, work.id))
+          .innerJoin(artifacts, eq(artifacts.id, workArtifacts.artifactId))
+          .where(
+            and(
+              eq(workArtifacts.workUnitId, work.id),
+              scope.ceiling
+                ? inArray(
+                    artifacts.classification,
+                    CLASSIFICATIONS.slice(0, CLASSIFICATIONS.indexOf(scope.ceiling) + 1),
+                  )
+                : undefined,
+            ),
+          )
           .orderBy(asc(workArtifacts.artifactId));
         const clientClassification = await clientClassOf(tx, work.projectId);
         const effectiveClass = await workInputClassInTx(
@@ -325,8 +348,11 @@ export function createContextSource(deps: {
       // The transaction ends before the bytes are read: nothing holds a connection across a store call.
       const found = await withTenantTx(database, context, async (tx) => {
         await assertRunInputsOpen(tx, context);
+        const scope = await loadAgentReadScopeInTx(tx, context);
         try {
           await loadReadable(tx, context, workUnitId.data);
+          const workClass = await workInputClassInTx(tx, workUnitId.data, 'public');
+          assertWithinAgentCeiling(scope, workClass);
         } catch (error) {
           if (error instanceof AppError && error.code === 'NOT_FOUND') return null;
           throw error;
@@ -349,6 +375,11 @@ export function createContextSource(deps: {
             ),
           );
         if (!row) return null;
+        if (
+          scope.ceiling &&
+          strongestClassification(scope.ceiling, classOf(row.classification)) !== scope.ceiling
+        )
+          return null;
         const tombstone = await tx
           .select({ id: tombstones.targetId })
           .from(tombstones)
@@ -363,13 +394,22 @@ export function createContextSource(deps: {
       // commit. Sources precede run/checkpoint locks, matching source-close/purge order.
       return withTenantTx(database, context, async (tx) => {
         await lockArtifactInputSources(tx, context, { artifactId: loaded.id });
+        const scope = await loadAgentReadScopeInTx(tx, context);
+        assertWithinAgentCeiling(scope, loaded.classification);
         const work = await loadReadable(tx, context, workUnitId.data);
+        assertWithinAgentCeiling(scope, await workInputClassInTx(tx, workUnitId.data, 'public'));
         const [current] = await tx
-          .select({ sha256: artifacts.sha256 })
+          .select({ sha256: artifacts.sha256, classification: artifacts.classification })
           .from(workArtifacts)
           .innerJoin(artifacts, eq(artifacts.id, workArtifacts.artifactId))
           .where(and(eq(workArtifacts.workUnitId, work.id), eq(artifacts.id, loaded.id)));
         if (!current || current.sha256 !== loaded.sha256)
+          return { refused: 'NOT_PERMITTED' as const };
+        const finalClass = strongestClassification(
+          loaded.classification,
+          classOf(current.classification),
+        );
+        if (scope.ceiling && strongestClassification(scope.ceiling, finalClass) !== scope.ceiling)
           return { refused: 'NOT_PERMITTED' as const };
         await recordRunInputs(tx, context, [
           {
@@ -382,10 +422,10 @@ export function createContextSource(deps: {
             kind: 'artifact',
             id: loaded.id,
             sha256: loaded.sha256,
-            classification: loaded.classification,
+            classification: finalClass,
           },
         ]);
-        return loaded;
+        return { ...loaded, classification: finalClass };
       });
     },
 
@@ -394,6 +434,21 @@ export function createContextSource(deps: {
       assertOwnRun(context, runId);
       const rows = await withTenantTx(database, context, async (tx) => {
         await assertRunInputsReadable(tx, context);
+        const scope = await loadAgentReadScopeInTx(tx, context);
+        // Internal policy text does not prove company data was public. Check every retained actual
+        // current/historical influence before allowing an internally protected transcript body.
+        await currentRunInputClassInTx(tx, context);
+        const classes = await tx
+          .select({ classification: stepPayloads.classification })
+          .from(stepPayloads)
+          .innerJoin(executionSteps, eq(executionSteps.id, stepPayloads.stepId))
+          .where(
+            and(
+              eq(executionSteps.runId, context.agentRunId),
+              inArray(stepPayloads.kind, [...TRANSCRIPT_KINDS]),
+            ),
+          );
+        for (const row of classes) assertWithinAgentProtection(scope, classOf(row.classification));
         const rows = await tx
           .select({
             stepNumber: executionSteps.stepNumber,

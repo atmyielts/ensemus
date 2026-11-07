@@ -161,6 +161,21 @@ const INJECTIONS = [
 ];
 
 describe('whose access decides', () => {
+  it('protects manifest policy/objective at least internally even with only public company material', async () => {
+    const { source } = doubleSource({
+      work: work({ classification: 'public' }),
+      brief: brief({ classification: 'public' }),
+    });
+    const compiled = await compile(source);
+    expect(compiled.classification).toBe('internal');
+    expect(compiled.task.classification).toBe('internal');
+    expect(compiled.messages.find((message) => message.role === 'policy')?.classification).toBe(
+      'internal',
+    );
+    expect(compiled.messages.find((message) => message.role === 'task')?.classification).toBe(
+      'internal',
+    );
+  });
   it('gives nothing to an initiator without access, whatever the agent could read', async () => {
     const secret = canary();
     const { source, asked } = doubleSource({

@@ -33,6 +33,7 @@ import { idSchema } from '../ids';
 import { rowLockTarget } from '../row-lock';
 import { factClaim, factPage, factReason, factSubject } from './fact-input';
 import { workInputClassInTx, type ObservedInput } from '../ai/input-observations';
+import { loadAgentReadScopeInTx } from '../ai/read-scope';
 
 export type FactEvidenceInput = { chunkId: string; quoteStart: number; quoteEnd: number };
 /** Internal trusted compiler seam. Called once, after all body locks and before this read commits. */
@@ -442,28 +443,131 @@ export function getFact(
 export function verifiedFactsFor(
   database: AppDatabase,
   context: TenantContext,
-  input: { subjectRefs: readonly string[]; limit?: number; captureReadsInTx?: FactReadCapture },
+  input: {
+    subjectRefs: readonly string[];
+    limit?: number;
+    captureReadsInTx?: FactReadCapture;
+    sourceIds?: readonly string[];
+    maxClassification?: Classification;
+  },
 ): Promise<readonly FactView[]> {
   if (!Array.isArray(input.subjectRefs) || input.subjectRefs.length > 100)
     throw new AppError('INVALID_INPUT');
   const subjects = [...new Set(input.subjectRefs.map((value) => factSubject(value).ref))];
+  const requestedSources = input.sourceIds?.map(identifier);
+  if (requestedSources && requestedSources.length > 200) throw new AppError('INVALID_INPUT');
+  if (
+    input.maxClassification !== undefined &&
+    !['public', 'internal', 'confidential', 'restricted'].includes(input.maxClassification)
+  )
+    throw new AppError('INVALID_INPUT');
   const { limit } = factPage({ limit: input.limit ?? 25 });
   return withTenantTx(database, context, async (tx) => {
     await person(tx, context);
-    if (!subjects.length) return [];
-    const rows = await tx
-      .select()
-      .from(knowledgeFacts)
-      .where(
-        and(
-          inArray(knowledgeFacts.subjectRef, subjects),
-          eq(knowledgeFacts.trustState, 'verified'),
-          sql`(${knowledgeFacts.validFrom} is null or ${knowledgeFacts.validFrom} <= now())`,
-          sql`(${knowledgeFacts.validUntil} is null or ${knowledgeFacts.validUntil} > now())`,
-        ),
-      )
-      .orderBy(asc(knowledgeFacts.id))
-      .limit(limit);
+    let sourceIds = requestedSources,
+      maxClassification = input.maxClassification;
+    if (context.actorType === 'agent') {
+      if (!context.agentRunId) throw new AppError('FORBIDDEN');
+      const scope = await loadAgentReadScopeInTx(tx, {
+        ...context,
+        actorType: 'agent',
+        agentRunId: context.agentRunId,
+      });
+      sourceIds = sourceIds
+        ? sourceIds.filter((id) => scope.sourceIds.includes(id))
+        : [...scope.sourceIds];
+      const rank = (value: Classification) =>
+        ['public', 'internal', 'confidential', 'restricted'].indexOf(value);
+      if (scope.ceiling && (!maxClassification || rank(scope.ceiling) < rank(maxClassification)))
+        maxClassification = scope.ceiling;
+    }
+    if (!subjects.length || sourceIds?.length === 0) return [];
+    // A fact is indivisible: every evidence row and its current subject floor must fit BEFORE a
+    // body read or LIMIT. A fact grounded partly in an unselected source is not read then dropped.
+    const scoped = sourceIds !== undefined || maxClassification !== undefined;
+    const subjectClass = sql`case when split_part(${knowledgeFacts.subjectRef},':',1) in('work_unit','project','client') then knowledge.structured_record_class(split_part(${knowledgeFacts.subjectRef},':',1),split_part(${knowledgeFacts.subjectRef},':',2)::uuid)
+      when split_part(${knowledgeFacts.subjectRef},':',1)='knowledge_source' then(select s.classification from knowledge.sources s where s.organization_id=${knowledgeFacts.organizationId} and s.id=split_part(${knowledgeFacts.subjectRef},':',2)::uuid and s.state='active') else 'internal' end`;
+    const condition = and(
+      inArray(knowledgeFacts.subjectRef, subjects),
+      eq(knowledgeFacts.trustState, 'verified'),
+      sql`(${knowledgeFacts.validFrom} is null or ${knowledgeFacts.validFrom} <= now())`,
+      sql`(${knowledgeFacts.validUntil} is null or ${knowledgeFacts.validUntil} > now())`,
+      scoped
+        ? sql`exists(select 1 from knowledge.fact_evidence e where e.organization_id=${knowledgeFacts.organizationId} and e.fact_id=${knowledgeFacts.id}) and not exists(
+            select 1 from knowledge.fact_evidence e left join knowledge.chunks c on c.organization_id=e.organization_id and c.id=e.chunk_id
+            left join knowledge.documents d on d.organization_id=c.organization_id and d.id=c.document_id
+            left join knowledge.sources s on s.organization_id=e.organization_id and s.id=e.source_id
+            where e.organization_id=${knowledgeFacts.organizationId} and e.fact_id=${knowledgeFacts.id} and (
+              c.id is null or d.id is null or s.id is null or s.state<>'active' or d.state<>'searchable' or d.superseded_at is not null
+              or c.content_sha256<>e.content_sha256 or e.source_id not in(select knowledge.readable_source_ids(${context.membershipId}::uuid))
+              ${
+                sourceIds
+                  ? sql`or e.source_id not in(${sql.join(
+                      sourceIds.map((id) => sql`${id}::uuid`),
+                      sql`,`,
+                    )})`
+                  : sql``
+              }
+              ${maxClassification ? sql`or greatest(knowledge.class_rank(s.classification),knowledge.class_rank(d.classification))>knowledge.class_rank(${maxClassification})` : sql``}
+            ))`
+        : undefined,
+      maxClassification
+        ? sql`knowledge.class_rank(${knowledgeFacts.classification})<=knowledge.class_rank(${maxClassification}) and coalesce(knowledge.class_rank(${subjectClass}),4)<=knowledge.class_rank(${maxClassification})`
+        : undefined,
+      sourceIds
+        ? sql`(split_part(${knowledgeFacts.subjectRef},':',1)<>'knowledge_source' or split_part(${knowledgeFacts.subjectRef},':',2)::uuid in(${sql.join(
+            sourceIds.map((id) => sql`${id}::uuid`),
+            sql`,`,
+          )}))`
+        : undefined,
+    );
+    let rows: FactRow[];
+    if (scoped) {
+      const metadata = await tx
+        .select({ id: knowledgeFacts.id, subjectRef: knowledgeFacts.subjectRef })
+        .from(knowledgeFacts)
+        .where(condition)
+        .orderBy(asc(knowledgeFacts.id))
+        .limit(limit);
+      if (!metadata.length) return [];
+      const locked = await lockFactSources(
+        tx,
+        metadata.map((row) => row.id),
+      );
+      for (const ref of [...new Set(metadata.map((row) => row.subjectRef))].sort()) {
+        const subject = factSubject(ref);
+        if (['work_unit', 'project', 'client'].includes(subject.type)) {
+          const proof = await tx.execute<{ locked: boolean }>(
+            sql`select knowledge.lock_structured_record(${subject.type},${subject.id}::uuid) locked`,
+          );
+          if (!proof.rows[0]?.locked) throw new AppError('NOT_FOUND');
+        }
+      }
+      await assertStableSources(
+        tx,
+        metadata.map((row) => row.id),
+        locked,
+      );
+      rows = await tx
+        .select()
+        .from(knowledgeFacts)
+        .where(
+          and(
+            inArray(
+              knowledgeFacts.id,
+              metadata.map((row) => row.id),
+            ),
+            condition,
+          ),
+        )
+        .orderBy(asc(knowledgeFacts.id));
+    } else
+      rows = await tx
+        .select()
+        .from(knowledgeFacts)
+        .where(condition)
+        .orderBy(asc(knowledgeFacts.id))
+        .limit(limit);
     return views(tx, context, rows, input.captureReadsInTx);
   });
 }
