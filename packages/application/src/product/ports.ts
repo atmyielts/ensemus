@@ -43,13 +43,21 @@ export type EvaluationReportInput = {
 export interface AgentRegistryPort {
   publish(
     context: TenantContext,
-    input: { spec: Record<string, unknown>; evaluationReport: EvaluationReportInput },
+    input: {
+      spec: Record<string, unknown>;
+      evaluationReport: EvaluationReportInput;
+      ownerMembershipId?: string;
+    },
   ): Promise<PublishedAgentVersion>;
   /** The real local M4 publication must join the final review transaction: it also activates a version. */
   publishInTransaction(
     tx: Tx,
     context: TenantContext,
-    input: { spec: Record<string, unknown>; evaluationReport: EvaluationReportInput },
+    input: {
+      spec: Record<string, unknown>;
+      evaluationReport: EvaluationReportInput;
+      ownerMembershipId?: string;
+    },
   ): Promise<PublishedAgentVersion>;
   list(context: TenantContext): Promise<readonly AgentVersionSummary[]>;
   /** Points an agent back at an older version. Work already running keeps its own version. */

@@ -430,6 +430,9 @@ export const publishReviews = studioSchema.table(
     subjectId: uuid().notNull(),
     subjectSha256: text().notNull(),
     simulationRunId: uuid().notNull(),
+    /** The responsible person reviewed along with the spec; nullable only for legacy receipts. */
+    subjectOwnerMembershipId: uuid(),
+    subjectName: text(),
     riskLevel: text().notNull(),
     /** The capabilities the reader is asked to accept, as data. Fixed once written. */
     riskSummary: jsonb().notNull(),
@@ -448,6 +451,11 @@ export const publishReviews = studioSchema.table(
   },
   (t) => [
     primaryKey({ columns: [t.organizationId, t.id] }),
+    foreignKey({
+      name: 'publish_reviews_subject_owner_fk',
+      columns: [t.organizationId, t.subjectOwnerMembershipId],
+      foreignColumns: [memberships.organizationId, memberships.id],
+    }),
     foreignKey({
       columns: [t.organizationId, t.simulationRunId],
       foreignColumns: [simulationRuns.organizationId, simulationRuns.id],

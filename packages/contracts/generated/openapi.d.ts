@@ -3937,7 +3937,9 @@ export interface paths {
         post: {
             parameters: {
                 query?: never;
-                header?: never;
+                header: {
+                    "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                };
                 path: {
                     /** @description Requires authenticated organization membership; UUID alone is never authorization. */
                     organization_id: components["parameters"]["OrganizationID"];
@@ -3946,9 +3948,7 @@ export interface paths {
             };
             requestBody: {
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["CreateAgentDraftRequest"];
                 };
             };
             responses: {
@@ -4047,9 +4047,7 @@ export interface paths {
             };
             requestBody: {
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["UpdateAgentDraftRequest"];
                 };
             };
             responses: {
@@ -4097,7 +4095,9 @@ export interface paths {
         post: {
             parameters: {
                 query?: never;
-                header?: never;
+                header: {
+                    "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                };
                 path: {
                     /** @description Requires authenticated organization membership; UUID alone is never authorization. */
                     organization_id: components["parameters"]["OrganizationID"];
@@ -4107,9 +4107,7 @@ export interface paths {
             };
             requestBody: {
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["RequestStudioSimulation"];
                 };
             };
             responses: {
@@ -4192,7 +4190,9 @@ export interface paths {
         post: {
             parameters: {
                 query?: never;
-                header?: never;
+                header: {
+                    "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                };
                 path: {
                     /** @description Requires authenticated organization membership; UUID alone is never authorization. */
                     organization_id: components["parameters"]["OrganizationID"];
@@ -4201,9 +4201,7 @@ export interface paths {
             };
             requestBody: {
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["CreateProcessDraftRequest"];
                 };
             };
             responses: {
@@ -4302,9 +4300,7 @@ export interface paths {
             };
             requestBody: {
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["UpdateProcessDraftRequest"];
                 };
             };
             responses: {
@@ -4352,7 +4348,9 @@ export interface paths {
         post: {
             parameters: {
                 query?: never;
-                header?: never;
+                header: {
+                    "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                };
                 path: {
                     /** @description Requires authenticated organization membership; UUID alone is never authorization. */
                     organization_id: components["parameters"]["OrganizationID"];
@@ -4362,9 +4360,7 @@ export interface paths {
             };
             requestBody: {
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["RequestStudioSimulation"];
                 };
             };
             responses: {
@@ -4498,7 +4494,9 @@ export interface paths {
         post: {
             parameters: {
                 query?: never;
-                header?: never;
+                header: {
+                    "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                };
                 path: {
                     /** @description Requires authenticated organization membership; UUID alone is never authorization. */
                     organization_id: components["parameters"]["OrganizationID"];
@@ -4507,9 +4505,7 @@ export interface paths {
             };
             requestBody: {
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["RequestStudioPublishReview"];
                 };
             };
             responses: {
@@ -4585,7 +4581,43 @@ export interface paths {
         };
         put?: never;
         post?: never;
-        delete?: never;
+        /**
+         * Cancel a pending or approved review
+         * @description Closes the review without publishing. A new review is required to assign a different reviewer.
+         */
+        delete: {
+            parameters: {
+                query?: never;
+                header: {
+                    /** @description The version last read, as sent in the ETag response header. Weak tags, lists and * are refused. */
+                    "If-Match": components["parameters"]["IfMatch"];
+                };
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                    publish_review_id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Cancelled */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                409: components["responses"]["Conflict"];
+                428: components["responses"]["PreconditionRequired"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
         options?: never;
         head?: never;
         patch?: never;
@@ -4612,6 +4644,7 @@ export interface paths {
             parameters: {
                 query?: never;
                 header: {
+                    "Idempotency-Key": components["parameters"]["IdempotencyKey"];
                     /** @description The version last read, as sent in the ETag response header. Weak tags, lists and * are refused. */
                     "If-Match": components["parameters"]["IfMatch"];
                 };
@@ -4624,9 +4657,7 @@ export interface paths {
             };
             requestBody: {
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["DecideStudioPublishReview"];
                 };
             };
             responses: {
@@ -4676,6 +4707,7 @@ export interface paths {
             parameters: {
                 query?: never;
                 header: {
+                    "Idempotency-Key": components["parameters"]["IdempotencyKey"];
                     /** @description The version last read, as sent in the ETag response header. Weak tags, lists and * are refused. */
                     "If-Match": components["parameters"]["IfMatch"];
                 };
@@ -6930,7 +6962,7 @@ export interface paths {
         get?: never;
         put?: never;
         post?: never;
-        /** Revoke this connection�s provisioning token after recent factor confirmation */
+        /** Revoke this connection’s provisioning token after recent factor confirmation */
         delete: operations["revokeScimToken"];
         options?: never;
         head?: never;
@@ -8338,6 +8370,115 @@ export interface components {
             created_at: string;
             /** Format: date-time */
             finished_at: string | null;
+        };
+        CreateAgentDraftRequest: {
+            name: string;
+            answers: {
+                role: string;
+                intendedOutcome: string;
+                boundaries: string[];
+                knowledgeSourceIds: string[];
+                toolIds: string[];
+                /** @constant */
+                triggerKind: "manual";
+                maxCostMicros: number | null;
+                maxTurns: number;
+                maxToolCalls: number;
+                maxTotalTokens: number;
+                /** @enum {string} */
+                qualityTier: "economy" | "balanced" | "high";
+                timeoutSeconds: number;
+                /** @enum {string} */
+                autonomy: "suggest_only" | "draft_for_review" | "act_with_approval";
+                /** @enum {string} */
+                memoryWrite: "none" | "propose_only";
+                /** @enum {string} */
+                outputFormat: "markdown_brief" | "structured_report";
+                dataClasses: ("public" | "internal" | "confidential")[];
+                /** Format: uuid */
+                ownerMembershipId: string;
+            };
+            /** Format: uuid */
+            agent_definition_id?: string;
+        };
+        UpdateAgentDraftRequest: {
+            name?: string;
+            answers?: {
+                role: string;
+                intendedOutcome: string;
+                boundaries: string[];
+                knowledgeSourceIds: string[];
+                toolIds: string[];
+                /** @constant */
+                triggerKind: "manual";
+                maxCostMicros: number | null;
+                maxTurns: number;
+                maxToolCalls: number;
+                maxTotalTokens: number;
+                /** @enum {string} */
+                qualityTier: "economy" | "balanced" | "high";
+                timeoutSeconds: number;
+                /** @enum {string} */
+                autonomy: "suggest_only" | "draft_for_review" | "act_with_approval";
+                /** @enum {string} */
+                memoryWrite: "none" | "propose_only";
+                /** @enum {string} */
+                outputFormat: "markdown_brief" | "structured_report";
+                dataClasses: ("public" | "internal" | "confidential")[];
+                /** Format: uuid */
+                ownerMembershipId: string;
+            };
+        };
+        CreateProcessDraftRequest: {
+            name: string;
+            /** @enum {string} */
+            classification: "public" | "internal" | "confidential" | "restricted";
+        };
+        UpdateProcessDraftRequest: {
+            name?: string;
+            /** @enum {string} */
+            classification?: "public" | "internal" | "confidential" | "restricted";
+            graph?: {
+                /** @constant */
+                schemaVersion: 1;
+                nodes: {
+                    id: string;
+                    /** @enum {string} */
+                    kind: "start" | "work_item" | "agent_task" | "human_approval" | "external_action" | "evidence_check" | "end";
+                    label: string;
+                    /** Format: uuid */
+                    agentDefinitionId?: string;
+                    toolId?: string;
+                    /** @enum {string} */
+                    approverRole?: "process_owner" | "starter_manager" | "named_reviewer";
+                    /** @enum {string} */
+                    evidence?: "artifact_attached" | "external_receipt" | "reviewer_approved";
+                    x: number;
+                    y: number;
+                }[];
+                edges: {
+                    from: string;
+                    to: string;
+                }[];
+            };
+        };
+        RequestStudioSimulation: {
+            scenario_key: string;
+        };
+        RequestStudioPublishReview: {
+            /** @enum {string} */
+            subject_kind: "agent_draft" | "process_draft";
+            /** Format: uuid */
+            subject_id: string;
+            /** Format: uuid */
+            simulation_run_id: string;
+            /** Format: uuid */
+            reviewer_membership_id?: string;
+        };
+        DecideStudioPublishReview: {
+            /** @enum {string} */
+            decision: "approved" | "rejected";
+            reason?: string;
         };
         AgentDraft: {
             /** Format: uuid */

@@ -1,4 +1,4 @@
-import { AppError } from '@ensemus/application';
+import { AppError, idSchema } from '@ensemus/application';
 import {
   approveModelWorkloadSchema,
   requestModelQualificationSchema,
@@ -18,6 +18,13 @@ const integer = (form: FormData, key: string) => {
     throw new AppError('INVALID_INPUT');
   return Number(value);
 };
+const idOf = (form: FormData, key: string, optional = false) => {
+  const raw = text(form, key);
+  if (optional && !raw) return null;
+  const parsed = idSchema.safeParse(raw);
+  if (!parsed.success) throw new AppError('INVALID_INPUT');
+  return parsed.data;
+};
 const values = (form: FormData, key: string) =>
   form.getAll(key).map((value) => {
     if (typeof value !== 'string') throw new AppError('INVALID_INPUT');
@@ -33,12 +40,12 @@ const bounds = (form: FormData) => ({
 });
 export function qualificationFromForm(form: FormData) {
   const parsed = requestModelQualificationSchema.safeParse({
-    profileId: text(form, 'profileId'),
+    profileId: idOf(form, 'profileId'),
     expectedProfileVersion: integer(form, 'version'),
     purpose: text(form, 'purpose'),
     dimension: text(form, 'dimension') ? integer(form, 'dimension') : null,
     vectorSpaceVersion: text(form, 'vectorSpaceVersion') || null,
-    requestKey: text(form, 'requestKey'),
+    requestKey: idOf(form, 'requestKey'),
     bounds: bounds(form),
   });
   if (!parsed.success) throw new AppError('INVALID_INPUT');
@@ -48,14 +55,14 @@ export function workloadFromForm(form: FormData) {
   const parsed = approveModelWorkloadSchema.safeParse({
     kind: text(form, 'kind'),
     scope: text(form, 'scope'),
-    sourceId: text(form, 'sourceId') || null,
-    connectionId: text(form, 'connectionId') || null,
+    sourceId: idOf(form, 'sourceId', true),
+    connectionId: idOf(form, 'connectionId', true),
     purposes: values(form, 'purposes'),
     qualificationIds: values(form, 'qualificationIds'),
     maxClassification: text(form, 'maxClassification'),
     bounds: bounds(form),
     expiresAt: text(form, 'expiresAt'),
-    requestKey: text(form, 'requestKey'),
+    requestKey: idOf(form, 'requestKey'),
   });
   if (!parsed.success) throw new AppError('INVALID_INPUT');
   return parsed.data;

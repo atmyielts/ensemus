@@ -7,7 +7,7 @@ import {
   processGraphSchema,
   updateProcessDraftSchema,
 } from '@ensemus/contracts/studio';
-import { withTenantTx, type AppDatabase, type TenantContext, type Tx } from '@ensemus/database';
+import { type AppDatabase, type TenantContext, type Tx } from '@ensemus/database';
 import { processDrafts, processSpecs, publishReviews } from '@ensemus/database/product';
 import type { ToolFacts } from '@ensemus/domain/agent-draft';
 import { canonicalJson } from '@ensemus/domain/approval';
@@ -25,6 +25,8 @@ import { AppError } from '../errors';
 import { canonicalId } from '../ids';
 import { auditAction } from '../work';
 import type { AgentVersionSummary, ProductPorts } from './ports';
+import { assertInteractivePrivilege } from './privileged';
+import { studioPerson, withStudioTx as withTenantTx } from './studio-authority';
 
 export type ProcessDraftView = {
   id: string;
@@ -495,6 +497,8 @@ export async function publishProcessSpecInTx(
   if (context.actorType !== 'user' || !canProduct(context.role, 'studio.publish')) {
     throw new AppError('FORBIDDEN');
   }
+  await studioPerson(tx, context, 'studio.publish');
+  await assertInteractivePrivilege(tx, context, 'studio.publish');
   if (!PROCESS_KEY.test(input.processKey)) throw new AppError('INVALID_INPUT');
   if (input.spec.classification !== input.classification) throw new AppError('INVALID_INPUT');
   if (sha256(canonicalJson(input.spec)) !== input.specSha256) {

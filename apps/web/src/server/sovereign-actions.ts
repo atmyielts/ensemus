@@ -7,7 +7,6 @@ import { redirectForSsoRefusal } from './interactive-refusal';
 import {
   AppError,
   auditRefusal,
-  canonicalId,
   idSchema,
   installSignedDocument,
   isAuditedRefusal,
@@ -51,7 +50,12 @@ const text = (form: FormData, name: string) => {
   const value = form.get(name);
   return typeof value === 'string' ? value : '';
 };
-const orgOf = (form: FormData) => canonicalId(text(form, 'organizationId'));
+const idOf = (form: FormData, key: string) => {
+  const parsed = idSchema.safeParse(text(form, key));
+  if (!parsed.success) throw new AppError('INVALID_INPUT');
+  return parsed.data;
+};
+const orgOf = (form: FormData) => idOf(form, 'organizationId');
 
 /** Leaves the record a refused request should leave. Failing to write it changes nothing the person hears. */
 async function recordRefusal({ context, database }: Tenant, error: unknown) {
@@ -157,12 +161,11 @@ export async function linkImportedPersonAction(form: FormData) {
   const org = orgOf(form);
   const tenant = await requireTenant(org);
   await runAndReturn(tenant, `/o/${org}/data`, async () => {
-    const sourceMembershipId = idSchema.safeParse(text(form, 'sourceMembershipId'));
-    const membershipId = idSchema.safeParse(text(form, 'membershipId'));
-    if (!sourceMembershipId.success || !membershipId.success) throw new AppError('INVALID_INPUT');
+    const sourceMembershipId = idOf(form, 'sourceMembershipId');
+    const membershipId = idOf(form, 'membershipId');
     await linkImportedPerson(tenant.database, tenant.context, {
-      sourceMembershipId: sourceMembershipId.data,
-      membershipId: membershipId.data,
+      sourceMembershipId,
+      membershipId,
     });
   });
 }

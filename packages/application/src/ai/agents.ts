@@ -37,7 +37,11 @@ import { and, desc, eq, isNull, sql } from 'drizzle-orm';
 import { AppError, pgCode } from '../errors';
 import { emit } from '../events';
 import { idSchema } from '../ids';
-import { assertInteractivePrivilege, withPrivilegeTx as withTenantTx } from '../product/privileged';
+import {
+  assertInteractivePrivilege,
+  lockInteractivePolicy,
+  withPrivilegeTx as withTenantTx,
+} from '../product/privileged';
 
 const UNIQUE_VIOLATION = '23505';
 const AGGREGATE_AGENT_VERSION = 'agent_version';
@@ -195,10 +199,17 @@ export async function getAgentPolicyVersion(
  * their right to is read again here, and held until commit, against a change of role at the same moment.
  */
 async function assertStillPublisher(tx: Tx, context: TenantContext) {
+  await lockInteractivePolicy(tx, context);
   const [member] = await tx
     .select({ role: memberships.role, status: memberships.status })
     .from(memberships)
-    .where(eq(memberships.id, context.membershipId))
+    .where(
+      and(
+        eq(memberships.id, context.membershipId),
+        eq(memberships.userId, context.userId),
+        eq(memberships.organizationId, context.organizationId),
+      ),
+    )
     .for('share');
   if (member?.status !== 'active' || !can(member.role, 'agent.publish')) {
     throw new AppError('FORBIDDEN');
@@ -206,21 +217,57 @@ async function assertStillPublisher(tx: Tx, context: TenantContext) {
 }
 
 /** The definition for this manifest's `id`. A first publish also makes the identity it runs under. */
-async function findOrCreateDefinition(tx: Tx, context: TenantContext, slug: string) {
+async function findOrCreateDefinition(
+  tx: Tx,
+  context: TenantContext,
+  slug: string,
+  requestedOwner?: string,
+) {
   const organizationId = context.organizationId;
+  if (requestedOwner) {
+    const [owner] = await tx
+      .select({ id: memberships.id })
+      .from(memberships)
+      .where(
+        and(
+          eq(memberships.organizationId, organizationId),
+          eq(memberships.id, requestedOwner),
+          eq(memberships.status, 'active'),
+        ),
+      )
+      .for('share');
+    if (!owner) throw new AppError('NOT_FOUND');
+  }
   const [existing] = await tx
-    .select({ id: agentDefinitions.id })
+    .select({ id: agentDefinitions.id, ownerMembershipId: agentDefinitions.ownerMembershipId })
     .from(agentDefinitions)
     .where(
       and(eq(agentDefinitions.organizationId, organizationId), eq(agentDefinitions.slug, slug)),
     );
-  if (existing) return existing.id;
+  if (existing) {
+    if (requestedOwner && requestedOwner !== existing.ownerMembershipId)
+      throw new AppError('INVALID_INPUT');
+    return existing.id;
+  }
+  const ownerMembershipId = requestedOwner ?? context.membershipId;
+  const [owner] = await tx
+    .select({ id: memberships.id })
+    .from(memberships)
+    .where(
+      and(
+        eq(memberships.organizationId, organizationId),
+        eq(memberships.id, ownerMembershipId),
+        eq(memberships.status, 'active'),
+      ),
+    )
+    .for('share');
+  if (!owner) throw new AppError('NOT_FOUND');
   const serviceIdentityId = randomUUID();
   const id = randomUUID();
   await tx.insert(serviceIdentities).values({
     organizationId,
     id: serviceIdentityId,
-    ownerMembershipId: context.membershipId,
+    ownerMembershipId,
     purpose: `agent:${slug}`,
   });
   await tx.insert(agentDefinitions).values({
@@ -228,7 +275,7 @@ async function findOrCreateDefinition(tx: Tx, context: TenantContext, slug: stri
     id,
     slug,
     name: slug,
-    ownerMembershipId: context.membershipId,
+    ownerMembershipId,
     serviceIdentityId,
   });
   return id;
@@ -260,7 +307,12 @@ function versionView(row: VersionRow): AgentVersionView {
 export async function publishAgentVersion(
   database: AppDatabase,
   context: TenantContext,
-  input: { spec: unknown; evaluationReport: unknown; policyVersion: string },
+  input: {
+    spec: unknown;
+    evaluationReport: unknown;
+    policyVersion: string;
+    ownerMembershipId?: string;
+  },
 ): Promise<AgentVersionView> {
   requirePublisher(context);
   const organizationId = context.organizationId;
@@ -273,7 +325,11 @@ export async function publishAgentVersion(
       const prepared = preparePublication(input, limitsOf(bundle), policyVersion);
       const { spec } = prepared;
 
-      const definitionId = await findOrCreateDefinition(tx, context, spec.id);
+      const ownerInput =
+        input.ownerMembershipId === undefined ? null : idSchema.safeParse(input.ownerMembershipId);
+      if (ownerInput && !ownerInput.success) throw new AppError('INVALID_INPUT');
+      const requestedOwner = ownerInput?.success ? ownerInput.data : undefined;
+      const definitionId = await findOrCreateDefinition(tx, context, spec.id, requestedOwner);
       const [newest] = await tx
         .select({ versionNumber: agentVersions.versionNumber })
         .from(agentVersions)

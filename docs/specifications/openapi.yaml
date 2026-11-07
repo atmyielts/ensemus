@@ -3276,7 +3276,6 @@ paths:
     parameters:
       - $ref: "#/components/parameters/OrganizationID"
     get:
-      x-ensemus-status: planned
       tags:
         - studio
       summary: List agent drafts
@@ -3313,7 +3312,8 @@ paths:
         "503":
           $ref: "#/components/responses/RestorePending"
     post:
-      x-ensemus-status: planned
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
       tags:
         - studio
       summary: Start a guided agent draft
@@ -3323,8 +3323,7 @@ paths:
         content:
           application/json:
             schema:
-              type: object
-              additionalProperties: true
+              $ref: "#/components/schemas/CreateAgentDraftRequest"
       responses:
         "201":
           description: Done
@@ -3362,7 +3361,6 @@ paths:
           type: string
           format: uuid
     get:
-      x-ensemus-status: planned
       tags:
         - studio
       summary: Read a draft with its issues and risk
@@ -3388,7 +3386,6 @@ paths:
         "503":
           $ref: "#/components/responses/RestorePending"
     patch:
-      x-ensemus-status: planned
       tags:
         - studio
       summary: Change a draft. Earlier simulations lapse
@@ -3400,8 +3397,7 @@ paths:
         content:
           application/json:
             schema:
-              type: object
-              additionalProperties: true
+              $ref: "#/components/schemas/UpdateAgentDraftRequest"
       responses:
         "200":
           description: Done
@@ -3441,7 +3437,8 @@ paths:
           type: string
           format: uuid
     post:
-      x-ensemus-status: planned
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
       tags:
         - studio
       summary: Simulate a draft, with no side effects
@@ -3451,8 +3448,7 @@ paths:
         content:
           application/json:
             schema:
-              type: object
-              additionalProperties: true
+              $ref: "#/components/schemas/RequestStudioSimulation"
       responses:
         "202":
           description: Done
@@ -3484,7 +3480,6 @@ paths:
     parameters:
       - $ref: "#/components/parameters/OrganizationID"
     get:
-      x-ensemus-status: planned
       tags:
         - studio
       summary: List workflow drafts
@@ -3521,7 +3516,8 @@ paths:
         "503":
           $ref: "#/components/responses/RestorePending"
     post:
-      x-ensemus-status: planned
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
       tags:
         - studio
       summary: Start a workflow draft
@@ -3531,8 +3527,7 @@ paths:
         content:
           application/json:
             schema:
-              type: object
-              additionalProperties: true
+              $ref: "#/components/schemas/CreateProcessDraftRequest"
       responses:
         "201":
           description: Done
@@ -3570,7 +3565,6 @@ paths:
           type: string
           format: uuid
     get:
-      x-ensemus-status: planned
       tags:
         - studio
       summary: Read a workflow draft and what stops it compiling
@@ -3596,7 +3590,6 @@ paths:
         "503":
           $ref: "#/components/responses/RestorePending"
     patch:
-      x-ensemus-status: planned
       tags:
         - studio
       summary: Save a workflow graph and compile it
@@ -3608,8 +3601,7 @@ paths:
         content:
           application/json:
             schema:
-              type: object
-              additionalProperties: true
+              $ref: "#/components/schemas/UpdateProcessDraftRequest"
       responses:
         "200":
           description: Done
@@ -3649,7 +3641,8 @@ paths:
           type: string
           format: uuid
     post:
-      x-ensemus-status: planned
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
       tags:
         - studio
       summary: Simulate a workflow, with no side effects
@@ -3659,8 +3652,7 @@ paths:
         content:
           application/json:
             schema:
-              type: object
-              additionalProperties: true
+              $ref: "#/components/schemas/RequestStudioSimulation"
       responses:
         "202":
           description: Done
@@ -3698,7 +3690,6 @@ paths:
           type: string
           format: uuid
     get:
-      x-ensemus-status: planned
       tags:
         - studio
       summary: Read a simulation and its report
@@ -3727,7 +3718,6 @@ paths:
     parameters:
       - $ref: "#/components/parameters/OrganizationID"
     get:
-      x-ensemus-status: planned
       tags:
         - studio
       summary: List publish reviews
@@ -3764,7 +3754,8 @@ paths:
         "503":
           $ref: "#/components/responses/RestorePending"
     post:
-      x-ensemus-status: planned
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
       tags:
         - studio
       summary: Ask to publish one simulated hash
@@ -3774,8 +3765,7 @@ paths:
         content:
           application/json:
             schema:
-              type: object
-              additionalProperties: true
+              $ref: "#/components/schemas/RequestStudioPublishReview"
       responses:
         "201":
           description: Done
@@ -3813,7 +3803,6 @@ paths:
           type: string
           format: uuid
     get:
-      x-ensemus-status: planned
       tags:
         - studio
       summary: Read a publish review
@@ -3838,6 +3827,32 @@ paths:
           $ref: "#/components/responses/InternalError"
         "503":
           $ref: "#/components/responses/RestorePending"
+    delete:
+      tags:
+        - studio
+      summary: Cancel a pending or approved review
+      description: Closes the review without publishing. A new review is required to assign a different reviewer.
+      parameters:
+        - $ref: "#/components/parameters/IfMatch"
+      responses:
+        "204":
+          description: Cancelled
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/RestorePending"
   /organizations/{organization_id}/studio/publish-reviews/{publish_review_id}/decisions:
     parameters:
       - $ref: "#/components/parameters/OrganizationID"
@@ -3848,11 +3863,11 @@ paths:
           type: string
           format: uuid
     post:
-      x-ensemus-status: planned
       tags:
         - studio
       summary: Approve or reject. Needs recent MFA
       parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
         - $ref: "#/components/parameters/IfMatch"
       description: The body is checked against decidePublishReviewSchema in @ensemus/contracts.
       requestBody:
@@ -3860,8 +3875,7 @@ paths:
         content:
           application/json:
             schema:
-              type: object
-              additionalProperties: true
+              $ref: "#/components/schemas/DecideStudioPublishReview"
       responses:
         "200":
           description: Done
@@ -3901,11 +3915,11 @@ paths:
           type: string
           format: uuid
     post:
-      x-ensemus-status: planned
       tags:
         - studio
       summary: Publish what was approved. Needs recent MFA
       parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
         - $ref: "#/components/parameters/IfMatch"
       responses:
         "200":
@@ -5823,7 +5837,7 @@ paths:
           format: uuid
     delete:
       operationId: revokeScimToken
-      summary: Revoke this connection’s provisioning token after recent factor confirmation
+      summary: Revoke this connectionâ€™s provisioning token after recent factor confirmation
       responses:
         "204":
           description: Token revoked. No response body.
@@ -8550,6 +8564,413 @@ components:
             - string
             - "null"
           format: date-time
+    CreateAgentDraftRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 120
+        answers:
+          type: object
+          properties:
+            role:
+              type: string
+              minLength: 1
+              maxLength: 2000
+            intendedOutcome:
+              type: string
+              minLength: 1
+              maxLength: 2000
+            boundaries:
+              maxItems: 20
+              type: array
+              items:
+                type: string
+                minLength: 1
+                maxLength: 500
+            knowledgeSourceIds:
+              maxItems: 50
+              type: array
+              items:
+                type: string
+                format: uuid
+                pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+            toolIds:
+              maxItems: 50
+              type: array
+              items:
+                type: string
+                pattern: ^[a-z][a-z0-9_.-]{1,63}$
+            triggerKind:
+              type: string
+              const: manual
+            maxCostMicros:
+              anyOf:
+                - type: integer
+                  exclusiveMinimum: 0
+                  maximum: 1000000000000
+                - type: "null"
+            maxTurns:
+              type: integer
+              minimum: 1
+              maximum: 1000
+            maxToolCalls:
+              type: integer
+              minimum: 0
+              maximum: 1000
+            maxTotalTokens:
+              type: integer
+              minimum: 1
+              maximum: 100000000
+            qualityTier:
+              type: string
+              enum:
+                - economy
+                - balanced
+                - high
+            timeoutSeconds:
+              type: integer
+              minimum: 1
+              maximum: 86400
+            autonomy:
+              type: string
+              enum:
+                - suggest_only
+                - draft_for_review
+                - act_with_approval
+            memoryWrite:
+              type: string
+              enum:
+                - none
+                - propose_only
+            outputFormat:
+              type: string
+              enum:
+                - markdown_brief
+                - structured_report
+            dataClasses:
+              minItems: 1
+              maxItems: 3
+              type: array
+              items:
+                type: string
+                enum:
+                  - public
+                  - internal
+                  - confidential
+            ownerMembershipId:
+              type: string
+              format: uuid
+              pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+          required:
+            - role
+            - intendedOutcome
+            - boundaries
+            - knowledgeSourceIds
+            - toolIds
+            - triggerKind
+            - maxCostMicros
+            - maxTurns
+            - maxToolCalls
+            - maxTotalTokens
+            - qualityTier
+            - timeoutSeconds
+            - autonomy
+            - memoryWrite
+            - outputFormat
+            - dataClasses
+            - ownerMembershipId
+          additionalProperties: false
+        agent_definition_id:
+          type: string
+          format: uuid
+          pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+      required:
+        - name
+        - answers
+      additionalProperties: false
+    UpdateAgentDraftRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 120
+        answers:
+          type: object
+          properties:
+            role:
+              type: string
+              minLength: 1
+              maxLength: 2000
+            intendedOutcome:
+              type: string
+              minLength: 1
+              maxLength: 2000
+            boundaries:
+              maxItems: 20
+              type: array
+              items:
+                type: string
+                minLength: 1
+                maxLength: 500
+            knowledgeSourceIds:
+              maxItems: 50
+              type: array
+              items:
+                type: string
+                format: uuid
+                pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+            toolIds:
+              maxItems: 50
+              type: array
+              items:
+                type: string
+                pattern: ^[a-z][a-z0-9_.-]{1,63}$
+            triggerKind:
+              type: string
+              const: manual
+            maxCostMicros:
+              anyOf:
+                - type: integer
+                  exclusiveMinimum: 0
+                  maximum: 1000000000000
+                - type: "null"
+            maxTurns:
+              type: integer
+              minimum: 1
+              maximum: 1000
+            maxToolCalls:
+              type: integer
+              minimum: 0
+              maximum: 1000
+            maxTotalTokens:
+              type: integer
+              minimum: 1
+              maximum: 100000000
+            qualityTier:
+              type: string
+              enum:
+                - economy
+                - balanced
+                - high
+            timeoutSeconds:
+              type: integer
+              minimum: 1
+              maximum: 86400
+            autonomy:
+              type: string
+              enum:
+                - suggest_only
+                - draft_for_review
+                - act_with_approval
+            memoryWrite:
+              type: string
+              enum:
+                - none
+                - propose_only
+            outputFormat:
+              type: string
+              enum:
+                - markdown_brief
+                - structured_report
+            dataClasses:
+              minItems: 1
+              maxItems: 3
+              type: array
+              items:
+                type: string
+                enum:
+                  - public
+                  - internal
+                  - confidential
+            ownerMembershipId:
+              type: string
+              format: uuid
+              pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+          required:
+            - role
+            - intendedOutcome
+            - boundaries
+            - knowledgeSourceIds
+            - toolIds
+            - triggerKind
+            - maxCostMicros
+            - maxTurns
+            - maxToolCalls
+            - maxTotalTokens
+            - qualityTier
+            - timeoutSeconds
+            - autonomy
+            - memoryWrite
+            - outputFormat
+            - dataClasses
+            - ownerMembershipId
+          additionalProperties: false
+      additionalProperties: false
+    CreateProcessDraftRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 120
+        classification:
+          type: string
+          enum:
+            - public
+            - internal
+            - confidential
+            - restricted
+      required:
+        - name
+        - classification
+      additionalProperties: false
+    UpdateProcessDraftRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 120
+        classification:
+          type: string
+          enum:
+            - public
+            - internal
+            - confidential
+            - restricted
+        graph:
+          type: object
+          properties:
+            schemaVersion:
+              type: number
+              const: 1
+            nodes:
+              maxItems: 64
+              type: array
+              items:
+                type: object
+                properties:
+                  id:
+                    type: string
+                    pattern: ^[a-zA-Z0-9_-]{1,64}$
+                  kind:
+                    type: string
+                    enum:
+                      - start
+                      - work_item
+                      - agent_task
+                      - human_approval
+                      - external_action
+                      - evidence_check
+                      - end
+                  label:
+                    type: string
+                    minLength: 1
+                    maxLength: 120
+                  agentDefinitionId:
+                    type: string
+                    format: uuid
+                    pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+                  toolId:
+                    type: string
+                    pattern: ^[a-z][a-z0-9_.-]{1,63}$
+                  approverRole:
+                    type: string
+                    enum:
+                      - process_owner
+                      - starter_manager
+                      - named_reviewer
+                  evidence:
+                    type: string
+                    enum:
+                      - artifact_attached
+                      - external_receipt
+                      - reviewer_approved
+                  x:
+                    type: number
+                  y:
+                    type: number
+                required:
+                  - id
+                  - kind
+                  - label
+                  - x
+                  - y
+                additionalProperties: false
+            edges:
+              maxItems: 128
+              type: array
+              items:
+                type: object
+                properties:
+                  from:
+                    type: string
+                    pattern: ^[a-zA-Z0-9_-]{1,64}$
+                  to:
+                    type: string
+                    pattern: ^[a-zA-Z0-9_-]{1,64}$
+                required:
+                  - from
+                  - to
+                additionalProperties: false
+          required:
+            - schemaVersion
+            - nodes
+            - edges
+          additionalProperties: false
+      additionalProperties: false
+    RequestStudioSimulation:
+      type: object
+      properties:
+        scenario_key:
+          type: string
+          pattern: ^[a-z][a-z0-9_.-]{1,63}$
+      required:
+        - scenario_key
+      additionalProperties: false
+    RequestStudioPublishReview:
+      type: object
+      properties:
+        subject_kind:
+          type: string
+          enum:
+            - agent_draft
+            - process_draft
+        subject_id:
+          type: string
+          format: uuid
+          pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+        simulation_run_id:
+          type: string
+          format: uuid
+          pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+        reviewer_membership_id:
+          type: string
+          format: uuid
+          pattern: ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
+      required:
+        - subject_kind
+        - subject_id
+        - simulation_run_id
+      additionalProperties: false
+    DecideStudioPublishReview:
+      type: object
+      properties:
+        decision:
+          type: string
+          enum:
+            - approved
+            - rejected
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 2000
+      required:
+        - decision
+      additionalProperties: false
     AgentDraft:
       type: object
       required:

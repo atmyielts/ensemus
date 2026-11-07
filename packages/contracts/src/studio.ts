@@ -1,6 +1,7 @@
 // Runtime contracts for Agent Studio and process specs (ADR-031). The shapes match the planned operations in
 // docs/specifications/openapi.yaml.
 import { z } from 'zod';
+const uuid = z.uuid().toLowerCase();
 
 const plainText = (max: number) =>
   z
@@ -17,7 +18,7 @@ export const agentDraftAnswersSchema = z.strictObject({
   role: plainText(2000),
   intendedOutcome: plainText(2000),
   boundaries: z.array(plainText(500)).max(20),
-  knowledgeSourceIds: z.array(z.uuid()).max(50),
+  knowledgeSourceIds: z.array(uuid).max(50),
   toolIds: z.array(z.string().regex(/^[a-z][a-z0-9_.-]{1,63}$/)).max(50),
   triggerKind: z.literal('manual'),
   maxCostMicros: z.number().int().positive().max(1_000_000_000_000).nullable(),
@@ -34,14 +35,14 @@ export const agentDraftAnswersSchema = z.strictObject({
     .array(z.enum(['public', 'internal', 'confidential']))
     .min(1)
     .max(3),
-  ownerMembershipId: z.uuid(),
+  ownerMembershipId: uuid,
 });
 export type AgentDraftAnswersBody = z.infer<typeof agentDraftAnswersSchema>;
 
 export const createAgentDraftSchema = z.strictObject({
   name: plainText(120),
   answers: agentDraftAnswersSchema,
-  agent_definition_id: z.uuid().optional(),
+  agent_definition_id: uuid.optional(),
 });
 export type CreateAgentDraftBody = z.infer<typeof createAgentDraftSchema>;
 
@@ -58,9 +59,9 @@ export type RequestSimulationBody = z.infer<typeof requestSimulationSchema>;
 
 export const requestPublishReviewSchema = z.strictObject({
   subject_kind: z.enum(['agent_draft', 'process_draft']),
-  subject_id: z.uuid(),
-  simulation_run_id: z.uuid(),
-  reviewer_membership_id: z.uuid().optional(),
+  subject_id: uuid,
+  simulation_run_id: uuid,
+  reviewer_membership_id: uuid.optional(),
 });
 export type RequestPublishReviewBody = z.infer<typeof requestPublishReviewSchema>;
 
@@ -92,7 +93,7 @@ export const processGraphSchema = z.strictObject({
           'end',
         ]),
         label: plainText(120),
-        agentDefinitionId: z.uuid().optional(),
+        agentDefinitionId: uuid.optional(),
         toolId: z
           .string()
           .regex(/^[a-z][a-z0-9_.-]{1,63}$/)
@@ -108,6 +109,36 @@ export const processGraphSchema = z.strictObject({
 });
 export type ProcessGraphBody = z.infer<typeof processGraphSchema>;
 
+/** The immutable executable shape, also used to validate a saved rehearsal before displaying it. */
+export const processSpecSchema = z.strictObject({
+  schemaVersion: z.literal(1),
+  classification: dataClassSchema,
+  steps: z
+    .array(
+      z.strictObject({
+        key: nodeId,
+        kind: z.enum([
+          'work_item',
+          'agent_task',
+          'human_approval',
+          'external_action',
+          'evidence_check',
+        ]),
+        after: z.array(nodeId).max(64),
+        labelCode: z.string().max(128).nullable(),
+        label: plainText(120),
+        agentDefinitionId: uuid.optional(),
+        toolId: z
+          .string()
+          .regex(/^[a-z][a-z0-9_.-]{1,63}$/)
+          .optional(),
+        approverRole: z.enum(['process_owner', 'starter_manager', 'named_reviewer']).optional(),
+        evidence: z.enum(['artifact_attached', 'external_receipt', 'reviewer_approved']).optional(),
+      }),
+    )
+    .max(64),
+});
+
 export const createProcessDraftSchema = z.strictObject({
   name: plainText(120),
   classification: dataClassSchema,
@@ -122,7 +153,7 @@ export const updateProcessDraftSchema = z.strictObject({
 export type UpdateProcessDraftBody = z.infer<typeof updateProcessDraftSchema>;
 
 export const startProcessRunSchema = z.strictObject({
-  spec_id: z.uuid(),
+  spec_id: uuid,
   title: plainText(200),
   due_at: z.iso.datetime({ offset: true }).optional(),
 });

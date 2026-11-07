@@ -140,7 +140,7 @@ const progressSchema = z.object({
   stage: z.enum(['sections', 'files', 'artifact_records', 'tombstones', 'manifest', 'done']),
   completedSections: z.array(z.string()),
   cursor: z.string().nullable(),
-  fileAfter: z.uuid().nullable(),
+  fileAfter: idSchema.nullable(),
   /** The last part number used, for each section and kind. */
   sequences: z.record(z.string(), z.int()),
   recordPass: z.int().min(0),

@@ -1,8 +1,8 @@
 import { memberships, type AppDatabase, type TenantContext, type Tx } from '@ensemus/database';
 import { canProduct, type ProductCapability } from '@ensemus/domain/product-policy';
-import { and, eq, sql } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { AppError, pgCode } from '../errors';
-import { withPrivilegeTx } from './privileged';
+import { lockInteractivePolicy, withPrivilegeTx } from './privileged';
 
 export async function withStudioTx<T>(
   database: AppDatabase,
@@ -26,9 +26,7 @@ export async function studioPerson(
   if (context.actorType !== 'user') throw new AppError('FORBIDDEN');
   // Administration takes this before the target membership lock. Keep the same order so disabling
   // an author cannot deadlock with their concurrent draft/review transaction.
-  await tx.execute(
-    sql`select pg_advisory_xact_lock(hashtextextended('interactive_policy:'||${context.organizationId}::text,0))`,
-  );
+  await lockInteractivePolicy(tx, context);
   const [member] = await tx
     .select({ role: memberships.role })
     .from(memberships)

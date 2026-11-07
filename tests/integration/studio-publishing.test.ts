@@ -1,5 +1,11 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { openAppDatabase, withTenantTx, agentVersions } from '@ensemus/database';
+import {
+  openAppDatabase,
+  withTenantTx,
+  agentVersions,
+  agentDefinitions,
+  serviceIdentities,
+} from '@ensemus/database';
 import { createServiceContext } from '@ensemus/database/service';
 import { createAgentDraft, updateAgentDraft } from '@ensemus/application/agent-drafts';
 import { requestSimulation, runSimulationStep } from '@ensemus/application/simulations';
@@ -7,6 +13,7 @@ import {
   requestPublishReview,
   decidePublishReview,
   publishApproved,
+  cancelPublishReview,
 } from '@ensemus/application/publish-reviews';
 import { createRuntimeProductPorts } from '@ensemus/application/product-runtime';
 import { makeTwoTenants, proveSecondFactor, testAnswers } from '../helpers/product';
@@ -44,6 +51,38 @@ describe('Studio publishes only the actually rehearsed and reviewed revision', (
     });
     return { a, b, ports, answers, draft, simulation };
   }
+  it('closes a named review without MFA and requires a new immutable reviewer assignment', async () => {
+    const f = await fixture(),
+      review = await requestPublishReview(app.db, f.a.owner.context, {
+        subjectKind: 'agent_draft',
+        subjectId: f.draft.id,
+        simulationRunId: f.simulation.id,
+        reviewerMembershipId: f.a.admin.context.membershipId,
+      });
+    expect(
+      (
+        await cancelPublishReview(app.db, f.a.owner.context, {
+          reviewId: review.id,
+          expectedVersion: review.version,
+        })
+      ).status,
+    ).toBe('cancelled');
+    const next = await requestPublishReview(app.db, f.a.owner.context, {
+      subjectKind: 'agent_draft',
+      subjectId: f.draft.id,
+      simulationRunId: f.simulation.id,
+    });
+    expect(next.id).not.toBe(review.id);
+    expect(next.reviewerMembershipId).toBeNull();
+    expect(
+      (
+        await cancelPublishReview(app.db, f.a.owner.context, {
+          reviewId: review.id,
+          expectedVersion: review.version,
+        })
+      ).status,
+    ).toBe('cancelled');
+  });
   it('refuses missing, foreign and stale simulation evidence', async () => {
     const f = await fixture();
     await expect(
@@ -203,5 +242,58 @@ describe('Studio publishes only the actually rehearsed and reviewed revision', (
     expect(
       await withTenantTx(app.db, f.a.owner.context, (tx) => tx.select().from(agentVersions)),
     ).toHaveLength(1);
+  });
+  it('publishes with the actual reviewed responsible person while retaining the native human signer', async () => {
+    const { a } = await makeTwoTenants(app.db),
+      ports = createRuntimeProductPorts(app.db),
+      draft = await createAgentDraft(app.db, a.owner.context, ports, {
+        name: `Generated accountable ${a.organizationId}`,
+        answers: testAnswers(a.member.context.membershipId),
+      }),
+      simulation = await requestSimulation(app.db, a.owner.context, {
+        subject: { kind: 'agent_draft', draftId: draft.id },
+        scenarioKey: 'standard.draft_only',
+      });
+    await runSimulationStep(app.db, createServiceContext(a.organizationId), {
+      simulationId: simulation.id,
+    });
+    await proveSecondFactor(a.owner);
+    const proof = { sessionId: a.owner.sessionId },
+      review = await requestPublishReview(app.db, a.owner.context, {
+        subjectKind: 'agent_draft',
+        subjectId: draft.id,
+        simulationRunId: simulation.id,
+      }),
+      approved = await decidePublishReview(app.db, a.owner.context, proof, {
+        reviewId: review.id,
+        expectedVersion: 1,
+        decision: 'approved',
+      });
+    await publishApproved(app.db, a.owner.context, ports, proof, {
+      reviewId: review.id,
+      expectedVersion: approved.version,
+    });
+    expect(
+      await withTenantTx(app.db, a.owner.context, (tx) =>
+        tx
+          .select({
+            owner: agentDefinitions.ownerMembershipId,
+            identityOwner: serviceIdentities.ownerMembershipId,
+            signer: agentVersions.publishedByMembershipId,
+          })
+          .from(agentVersions)
+          .innerJoin(agentDefinitions, eq(agentDefinitions.id, agentVersions.definitionId))
+          .innerJoin(
+            serviceIdentities,
+            eq(serviceIdentities.id, agentDefinitions.serviceIdentityId),
+          ),
+      ),
+    ).toEqual([
+      {
+        owner: a.member.context.membershipId,
+        identityOwner: a.member.context.membershipId,
+        signer: a.owner.context.membershipId,
+      },
+    ]);
   });
 });

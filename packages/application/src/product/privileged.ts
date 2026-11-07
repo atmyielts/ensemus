@@ -33,6 +33,12 @@ export async function withPrivilegeTx<T>(
  */
 export type SessionProof = { sessionId: string };
 
+/** Administrative changes lock the policy before people; privileged effects keep that order. */
+export async function lockInteractivePolicy(tx: Tx, context: TenantContext): Promise<void> {
+  await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(
+    'interactive_policy:'||${context.organizationId}::text,0))`);
+}
+
 /**
  * Throws MFA_REQUIRED unless this session proved a second factor recently enough. A service context never
  * passes, whatever is in the table. No proof at all, which is what a missing or forged session ID comes to,

@@ -9,6 +9,7 @@ import {
   agentDefinitions,
   agentVersions,
   knowledgeSources,
+  users,
   memberships,
   type AppDatabase,
   type TenantContext,
@@ -100,20 +101,30 @@ async function compiled(
   let slug = agentSpecId(name, sha256);
   if (definitionId) {
     const [definition] = await tx
-      .select({ slug: agentDefinitions.slug })
+      .select({
+        slug: agentDefinitions.slug,
+        ownerMembershipId: agentDefinitions.ownerMembershipId,
+      })
       .from(agentDefinitions)
       .where(eq(agentDefinitions.id, definitionId))
       .for('share');
     if (!definition) throw new AppError('NOT_FOUND');
+    if (definition.ownerMembershipId !== answers.ownerMembershipId)
+      throw new AppError('INVALID_INPUT');
     slug = definition.slug;
   }
   const [latest] = await tx
-    .select({ version: agentVersions.versionNumber })
+    .select({
+      version: agentVersions.versionNumber,
+      ownerMembershipId: agentDefinitions.ownerMembershipId,
+    })
     .from(agentVersions)
     .innerJoin(agentDefinitions, eq(agentDefinitions.id, agentVersions.definitionId))
     .where(eq(agentDefinitions.slug, slug))
     .orderBy(desc(agentVersions.versionNumber))
     .limit(1);
+  if (latest && latest.ownerMembershipId !== answers.ownerMembershipId)
+    throw new AppError('INVALID_INPUT');
   const assessment = bindAgentSpec(
     assessDraft(answers, catalog.tools, catalog.limits, sha256),
     answers,
@@ -164,6 +175,54 @@ export type AgentDraftView = {
   updatedAt: Date;
 };
 
+/** Readable choices are filtered before the bound; a manager's source metadata is not a body grant. */
+export async function getAgentDraftChoices(
+  database: AppDatabase,
+  context: TenantContext,
+  selectedOwner?: string,
+  selectedSourceIds: readonly string[] = [],
+) {
+  if (selectedSourceIds.length > 50) throw new AppError('INVALID_INPUT');
+  const sourceIds = [...new Set(selectedSourceIds.map(canonicalId))];
+  return withTenantTx(database, context, async (tx) => {
+    await studioPerson(tx, context);
+    const owner = selectedOwner ? canonicalId(selectedOwner) : context.membershipId;
+    const people = await tx
+      .select({ id: memberships.id, name: users.name })
+      .from(memberships)
+      .innerJoin(users, eq(users.id, memberships.userId))
+      .where(eq(memberships.status, 'active'))
+      .orderBy(
+        sql`case when ${memberships.id}=${owner}::uuid then 0 else 1 end`,
+        users.name,
+        memberships.id,
+      )
+      .limit(200);
+    const sources = await tx.execute<{
+      id: string;
+      title: string;
+      classification: 'public' | 'internal' | 'confidential';
+    }>(sql`
+      select s.id,d.title,s.classification from knowledge.sources s
+      join lateral(select doc.title from knowledge.documents doc where doc.organization_id=s.organization_id
+        and doc.source_id=s.id and doc.state='searchable' and doc.superseded_at is null
+        order by doc.version_no desc limit 1)d on true
+      where s.organization_id=${context.organizationId}::uuid and s.state='active'
+        and s.classification in ('public','internal','confidential')
+        and s.id in(select knowledge.readable_source_ids(app.current_membership_id()))
+      order by case when ${
+        sourceIds.length
+          ? sql`s.id in (${sql.join(
+              sourceIds.map((id) => sql`${id}::uuid`),
+              sql`,`,
+            )})`
+          : sql`false`
+      }
+        then 0 else 1 end,s.updated_at desc,s.id desc limit 200`);
+    return { people, sources: sources.rows };
+  });
+}
+
 /** Needs `studio.author`. A draft can act on nothing, so writing one takes no MFA. */
 export async function createAgentDraft(
   database: AppDatabase,
@@ -171,17 +230,16 @@ export async function createAgentDraft(
   ports: Ports,
   input: { name: string; answers: AgentDraftAnswers; agentDefinitionId?: string },
 ): Promise<AgentDraftView> {
-  await withTenantTx(database, context, (tx) => studioPerson(tx, context));
   const parsed = createAgentDraftSchema.safeParse({
     name: input.name,
     answers: input.answers,
     ...(input.agentDefinitionId ? { agent_definition_id: input.agentDefinitionId } : {}),
   });
   if (!parsed.success) throw new AppError('INVALID_INPUT');
-  const catalog = await catalogs(context, ports);
   return withTenantTx(database, context, async (tx) => {
     const actor = await studioPerson(tx, context),
       answers = parsed.data.answers;
+    const catalog = await catalogs(actor, ports);
     await selectedReferences(tx, answers);
     const binding = await compiled(
       tx,
@@ -284,19 +342,18 @@ export async function updateAgentDraft(
   ports: Ports,
   input: { draftId: string; expectedVersion: number; name?: string; answers?: AgentDraftAnswers },
 ): Promise<AgentDraftView> {
-  await withTenantTx(database, context, (tx) => studioPerson(tx, context));
   const parsed = updateAgentDraftSchema.safeParse({
     ...(input.name !== undefined ? { name: input.name } : {}),
     ...(input.answers !== undefined ? { answers: input.answers } : {}),
   });
   if (!parsed.success || !Number.isSafeInteger(input.expectedVersion) || input.expectedVersion < 1)
     throw new AppError('INVALID_INPUT');
-  const catalog = await catalogs(context, ports);
   return withTenantTx(database, context, async (tx) => {
     const actor = await studioPerson(tx, context),
       row = await load(tx, input.draftId, true);
     if (row.version !== input.expectedVersion) throw new AppError('VERSION_CONFLICT');
     if (row.status === 'archived') throw new AppError('INVALID_STATE');
+    const catalog = await catalogs(actor, ports);
     const answers = parsed.data.answers ?? (row.answers as AgentDraftAnswers),
       name = parsed.data.name ?? row.name;
     await selectedReferences(tx, answers);

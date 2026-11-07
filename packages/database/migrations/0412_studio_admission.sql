@@ -10,6 +10,9 @@ ALTER TABLE studio.agent_drafts ADD CONSTRAINT agent_drafts_compilation CHECK(
     AND spec_sha256=encode(sha256(convert_to(compiled_spec_canonical,'UTF8')),'hex')));
 -- Legacy draft hashes remain historical. A real save supplies the exact compilation before simulation.
 GRANT UPDATE(compiled_spec,compiled_spec_canonical,compile_policy_version) ON studio.agent_drafts TO ensemus_app;
+ALTER TABLE studio.publish_reviews ADD COLUMN subject_owner_membership_id uuid,ADD COLUMN subject_name text,
+  ADD CONSTRAINT publish_reviews_subject_owner_fk FOREIGN KEY(organization_id,subject_owner_membership_id)
+    REFERENCES org.memberships(organization_id,id);
 CREATE TABLE studio.simulation_inputs(
   organization_id uuid NOT NULL,simulation_run_id uuid NOT NULL,source_version bigint NOT NULL,
   spec_canonical text NOT NULL,policy_version text NOT NULL,requested_by_membership_id uuid NOT NULL,
@@ -124,7 +127,10 @@ BEGIN
    IF TG_RELID='studio.agent_drafts'::regclass THEN
      IF NOT EXISTS(SELECT 1 FROM ai.agent_versions v JOIN ai.agent_publications p
        ON p.organization_id=v.organization_id AND p.definition_id=v.definition_id AND p.version_id=v.id
+       JOIN ai.agent_definitions d ON d.organization_id=v.organization_id AND d.id=v.definition_id
+       JOIN org.service_identities identity ON identity.organization_id=d.organization_id AND identity.id=d.service_identity_id
        WHERE v.organization_id=NEW.organization_id AND v.definition_id=NEW.agent_definition_id
+         AND d.owner_membership_id=NEW.owner_membership_id AND identity.owner_membership_id=NEW.owner_membership_id
          AND v.spec_sha256=NEW.spec_sha256 AND v.spec=NEW.compiled_spec AND p.active_from<=now()
          AND (p.active_until IS NULL OR p.active_until>now())) THEN
        RAISE EXCEPTION 'DRAFT_REAL_AGENT_VERSION_REQUIRED' USING ERRCODE='EN412';END IF;
@@ -210,21 +216,23 @@ CREATE POLICY reviews_current_person ON studio.publish_reviews AS RESTRICTIVE TO
    WHERE d.organization_id=publish_reviews.organization_id AND d.id=publish_reviews.subject_id)))
  WITH CHECK(studio.current_author());
 CREATE FUNCTION studio.guard_review_authority() RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog AS $$
-DECLARE subject_hash text;subject_status text;simulation studio.simulation_runs%ROWTYPE;
-  snapshot studio.simulation_inputs%ROWTYPE;spec jsonb;requires_second boolean;reviewer uuid;
+DECLARE subject_hash text;subject_status text;subject_owner uuid;subject_name text;simulation studio.simulation_runs%ROWTYPE;
+  snapshot studio.simulation_inputs%ROWTYPE;spec jsonb;requires_second boolean;reviewer uuid;definition_key uuid;identity_key uuid;
 BEGIN
  IF NEW.organization_id IS DISTINCT FROM app.current_organization_id() OR NOT studio.current_author() THEN
    RAISE EXCEPTION 'REVIEW_PERSON_REQUIRED' USING ERRCODE='EN412';END IF;
  IF NEW.subject_kind='agent_draft' THEN
-   SELECT d.spec_sha256,d.status INTO subject_hash,subject_status FROM studio.agent_drafts d
+   SELECT d.spec_sha256,d.status,d.owner_membership_id,d.name INTO subject_hash,subject_status,subject_owner,subject_name FROM studio.agent_drafts d
      WHERE d.organization_id=NEW.organization_id AND d.id=NEW.subject_id FOR SHARE;
  ELSE
-   SELECT d.spec_sha256,d.status INTO subject_hash,subject_status FROM studio.process_drafts d
+   SELECT d.spec_sha256,d.status,d.owner_membership_id,d.name INTO subject_hash,subject_status,subject_owner,subject_name FROM studio.process_drafts d
      WHERE d.organization_id=NEW.organization_id AND d.id=NEW.subject_id FOR SHARE;
  END IF;
  IF TG_OP='INSERT' THEN
    IF NEW.requested_by_membership_id IS DISTINCT FROM app.current_membership_id() OR NOT studio.author_allowed()
-     OR subject_hash IS DISTINCT FROM NEW.subject_sha256 OR subject_status='archived' THEN
+     OR subject_hash IS DISTINCT FROM NEW.subject_sha256 OR subject_status='archived'
+     OR NEW.subject_owner_membership_id IS NULL OR NEW.subject_owner_membership_id IS DISTINCT FROM subject_owner
+     OR NEW.subject_name IS NULL OR NEW.subject_name IS DISTINCT FROM subject_name THEN
      RAISE EXCEPTION 'REVIEW_SUBJECT_CHANGED' USING ERRCODE='EN412';END IF;
    SELECT s.* INTO simulation FROM studio.simulation_runs s
      WHERE s.organization_id=NEW.organization_id AND s.id=NEW.simulation_run_id FOR SHARE;
@@ -247,16 +255,21 @@ BEGIN
      RAISE EXCEPTION 'REVIEW_RISK_DOWNGRADE' USING ERRCODE='EN412';END IF;
    RETURN NEW;
  END IF;
+ IF NEW.subject_name IS NULL OR NEW.subject_name IS DISTINCT FROM subject_name THEN
+   IF NEW.status<>'cancelled' THEN RAISE EXCEPTION 'REVIEW_NAME_CHANGED' USING ERRCODE='EN412';END IF;
+ END IF;
  IF NEW.reviewer_membership_id IS DISTINCT FROM OLD.reviewer_membership_id THEN
    RAISE EXCEPTION 'REVIEWER_ASSIGNMENT_FIXED' USING ERRCODE='EN412';END IF;
  IF NEW.status IN ('approved','rejected') AND OLD.status='pending' THEN
    IF NEW.decided_by_membership_id IS DISTINCT FROM app.current_membership_id()
      OR (NEW.reviewer_membership_id IS NOT NULL AND NEW.reviewer_membership_id<>app.current_membership_id())
      OR subject_hash IS DISTINCT FROM NEW.subject_sha256 OR subject_status='archived'
+     OR NEW.subject_owner_membership_id IS NULL OR NEW.subject_owner_membership_id IS DISTINCT FROM subject_owner
      OR NOT app.interactive_privilege_allowed('studio.review_decision') THEN
      RAISE EXCEPTION 'REVIEW_DECISION_AUTHORITY_REQUIRED' USING ERRCODE='EN412';END IF;
  ELSIF NEW.status='published' AND OLD.status='approved' THEN
    IF subject_hash IS DISTINCT FROM NEW.subject_sha256 OR subject_status<>'published'
+     OR NEW.subject_owner_membership_id IS NULL OR NEW.subject_owner_membership_id IS DISTINCT FROM subject_owner
      OR NOT app.interactive_privilege_allowed('studio.publish') THEN
      RAISE EXCEPTION 'REVIEW_PUBLISH_AUTHORITY_REQUIRED' USING ERRCODE='EN412';END IF;
    SELECT m.id INTO reviewer FROM org.memberships m WHERE m.organization_id=NEW.organization_id
@@ -268,12 +281,23 @@ BEGIN
    spec:=snapshot.spec_canonical::jsonb;
    IF NEW.subject_kind='agent_draft' THEN
      -- Immutable metadata hashes alone cannot stand in for the actual reviewed manifest/body.
+     SELECT d.id,d.service_identity_id INTO definition_key,identity_key FROM ai.agent_versions v JOIN ai.agent_definitions d
+       ON d.organization_id=v.organization_id AND d.id=v.definition_id
+       WHERE v.organization_id=NEW.organization_id AND v.id=NEW.published_ref AND v.spec_sha256=NEW.subject_sha256;
+     IF definition_key IS NULL OR NOT pg_try_advisory_xact_lock_shared(hashtextextended(
+       'ensemus:agent-publication:'||NEW.organization_id::text||':'||definition_key::text,0)) THEN
+       RAISE EXCEPTION 'REVIEW_PUBLICATION_BUSY' USING ERRCODE='55P03';END IF;
+     PERFORM 1 FROM org.service_identities i WHERE i.organization_id=NEW.organization_id AND i.id=identity_key
+       AND i.status='active' AND (i.expires_at IS NULL OR i.expires_at>now()) FOR SHARE NOWAIT;
+     IF NOT FOUND THEN RAISE EXCEPTION 'REVIEW_IDENTITY_CLOSED' USING ERRCODE='EN412';END IF;
      IF NOT EXISTS(SELECT 1 FROM ai.agent_versions v JOIN ai.agent_definitions d
        ON d.organization_id=v.organization_id AND d.id=v.definition_id JOIN org.service_identities identity
        ON identity.organization_id=d.organization_id AND identity.id=d.service_identity_id
        JOIN studio.agent_drafts draft ON draft.organization_id=v.organization_id AND draft.id=NEW.subject_id
        WHERE v.organization_id=NEW.organization_id AND v.id=NEW.published_ref AND v.spec_sha256=NEW.subject_sha256
          AND v.spec=spec AND draft.compiled_spec=spec AND draft.agent_definition_id=d.id AND d.slug=spec->>'id'
+         AND d.owner_membership_id=NEW.subject_owner_membership_id AND identity.owner_membership_id=NEW.subject_owner_membership_id
+         AND d.name=NEW.subject_name
          AND identity.status='active' AND (identity.expires_at IS NULL OR identity.expires_at>now())
          AND (SELECT count(*) FROM ai.agent_publications p WHERE p.organization_id=v.organization_id
            AND p.definition_id=d.id AND p.active_from<=now() AND (p.active_until IS NULL OR p.active_until>now()))=1
@@ -296,3 +320,50 @@ END $$;
 CREATE TRIGGER publish_reviews_authority BEFORE INSERT OR UPDATE ON studio.publish_reviews
  FOR EACH ROW EXECUTE FUNCTION studio.guard_review_authority();
 REVOKE ALL ON FUNCTION studio.guard_review_authority() FROM PUBLIC;
+
+--> statement-breakpoint
+-- Frozen checked-in catalog bodies. No tenant data or inferred execution capability.
+CREATE FUNCTION studio.bundled_publication_matches(p_key text,p_ref text,p_name text,p_class text,p_hash text,p_spec jsonb)
+RETURNS boolean LANGUAGE sql IMMUTABLE SET search_path=pg_catalog AS $$
+ SELECT EXISTS(SELECT 1 FROM (VALUES
+ ('client-status-update','client-status-update@1','Client status update','internal','03855c0f0fa8b2c548e2aef96453c54d144d5b24a22166fdadd8a564f6537fe7','{"classification":"internal","schemaVersion":1,"steps":[{"after":["send_update"],"evidence":"external_receipt","key":"confirm_sent","kind":"evidence_check","label":"Confirm it was sent","labelCode":null},{"after":["gather_evidence"],"key":"draft_update","kind":"work_item","label":"Draft the update","labelCode":null},{"after":[],"key":"gather_evidence","kind":"work_item","label":"Gather the evidence","labelCode":null},{"after":["draft_update"],"approverRole":"process_owner","key":"review_update","kind":"human_approval","label":"Review the update","labelCode":null},{"after":["review_update"],"key":"send_update","kind":"external_action","label":"Send the update","labelCode":null,"toolId":"email.send"}]}'),
+ ('meeting-actions','meeting-actions@1','Meeting actions','internal','fee4cb2940cc37b601ffe499bc306a4748263402e2552d13b797d9a8f976a9c6','{"classification":"internal","schemaVersion":1,"steps":[{"after":["extract_actions"],"key":"assign_owners","kind":"work_item","label":"Give each action an owner","labelCode":null},{"after":["meeting_summary"],"key":"extract_actions","kind":"work_item","label":"List the actions","labelCode":null},{"after":[],"key":"meeting_summary","kind":"work_item","label":"Bring in the meeting summary","labelCode":null},{"after":["track_due_dates"],"approverRole":"process_owner","key":"review_completion","kind":"human_approval","label":"Check the actions were done","labelCode":null},{"after":["assign_owners"],"key":"track_due_dates","kind":"work_item","label":"Track the due dates","labelCode":null},{"after":["review_completion"],"evidence":"reviewer_approved","key":"verified_completion","kind":"evidence_check","label":"Confirm a reviewer checked","labelCode":null}]}'),
+ ('project-invoice-handoff','project-invoice-handoff@1','Project invoice handoff','confidential','15f8658d6b4f258438c7ed8413ee2d1bac11b3e7fc3ed96006e6d84cefb91602','{"classification":"confidential","schemaVersion":1,"steps":[{"after":["finance_handoff"],"approverRole":"process_owner","key":"approve_draft_request","kind":"human_approval","label":"Approve asking for the invoice draft","labelCode":null},{"after":[],"evidence":"artifact_attached","key":"deliverables_attached","kind":"evidence_check","label":"Attach the deliverables","labelCode":null},{"after":["review_deliverables"],"key":"finance_handoff","kind":"work_item","label":"Hand over to finance","labelCode":null},{"after":["approve_draft_request"],"key":"invoice_draft","kind":"external_action","label":"Ask for an invoice draft in the accounting system","labelCode":null,"toolId":"accounting.invoice_draft.create"},{"after":["deliverables_attached"],"approverRole":"process_owner","key":"review_deliverables","kind":"human_approval","label":"Review the deliverables","labelCode":null}]}'),
+ ('new-employee-onboarding','new-employee-onboarding@1','New employee onboarding','confidential','c54c5e803ba16a8b24f83598ae027a4eb62a8b161a645c048e724eb223fe78cf','{"classification":"confidential","schemaVersion":1,"steps":[{"after":["first_tasks"],"key":"access_request","kind":"work_item","label":"File the access request","labelCode":null},{"after":["access_request"],"approverRole":"process_owner","key":"approve_access_request","kind":"human_approval","label":"Approve the access request","labelCode":null},{"after":["onboarding_checklist"],"evidence":"artifact_attached","key":"checklist_attached","kind":"evidence_check","label":"Attach the finished checklist","labelCode":null},{"after":["policy_pack"],"key":"first_tasks","kind":"work_item","label":"Set the first tasks","labelCode":null},{"after":["approve_access_request"],"key":"onboarding_checklist","kind":"work_item","label":"Complete the onboarding checklist","labelCode":null},{"after":[],"key":"policy_pack","kind":"work_item","label":"Share the policy pack","labelCode":null}]}')
+ ) AS released(key,ref,name,class,hash,spec) WHERE released.key=p_key AND released.ref=p_ref
+ AND released.name=p_name AND released.class=p_class AND released.hash=p_hash AND released.spec::jsonb=p_spec)
+$$;
+REVOKE ALL ON FUNCTION studio.bundled_publication_matches(text,text,text,text,text,jsonb) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION studio.bundled_publication_matches(text,text,text,text,text,jsonb) TO ensemus_app;
+
+CREATE FUNCTION studio.guard_process_publication() RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog AS $$
+BEGIN
+ IF NEW.organization_id IS DISTINCT FROM app.current_organization_id()
+   OR NEW.published_by_membership_id IS DISTINCT FROM app.current_membership_id()
+   OR NOT studio.author_allowed() OR NOT app.interactive_privilege_allowed('studio.publish') THEN
+   RAISE EXCEPTION 'PROCESS_NATIVE_PUBLISHER_REQUIRED' USING ERRCODE='EN412';END IF;
+ IF NEW.source='bundled' THEN
+   IF NOT studio.bundled_publication_matches(NEW.process_key,NEW.source_ref,NEW.name,NEW.classification,NEW.spec_sha256,NEW.spec) THEN
+     RAISE EXCEPTION 'PROCESS_CATALOG_BODY_REQUIRED' USING ERRCODE='EN412';END IF;
+ ELSIF NEW.source IN ('graph','pack') THEN
+   IF NOT EXISTS(SELECT 1 FROM studio.publish_reviews r JOIN studio.process_drafts d
+     ON d.organization_id=r.organization_id AND d.id=r.subject_id JOIN studio.simulation_inputs i
+     ON i.organization_id=r.organization_id AND i.simulation_run_id=r.simulation_run_id
+     JOIN studio.simulation_runs s ON s.organization_id=i.organization_id AND s.id=i.simulation_run_id
+     WHERE r.organization_id=NEW.organization_id AND r.subject_kind='process_draft' AND r.status='approved'
+       AND r.subject_id::text=NEW.source_ref AND NEW.process_key='process-'||r.subject_id::text
+       AND r.subject_sha256=NEW.spec_sha256 AND d.spec_sha256=NEW.spec_sha256 AND d.status='in_review'
+       AND r.subject_owner_membership_id=d.owner_membership_id AND r.subject_name=NEW.name AND d.name=NEW.name
+       AND d.classification=NEW.classification AND i.spec_canonical::jsonb=NEW.spec
+       AND encode(sha256(convert_to(i.spec_canonical,'UTF8')),'hex')=NEW.spec_sha256
+       AND s.status='passed' AND s.subject_kind='process_draft' AND s.subject_id=d.id
+       AND s.subject_sha256=NEW.spec_sha256 AND s.scenario_key='standard.process'
+       AND EXISTS(SELECT 1 FROM org.memberships m WHERE m.organization_id=r.organization_id
+         AND m.id=r.decided_by_membership_id AND m.status='active' AND m.role IN ('owner','admin'))) THEN
+     RAISE EXCEPTION 'PROCESS_APPROVED_BODY_REQUIRED' USING ERRCODE='EN412';END IF;
+ ELSE RAISE EXCEPTION 'PROCESS_PUBLICATION_SOURCE_REQUIRED' USING ERRCODE='EN412';END IF;
+ RETURN NEW;
+END $$;
+CREATE TRIGGER process_specs_authority BEFORE INSERT ON studio.process_specs
+ FOR EACH ROW EXECUTE FUNCTION studio.guard_process_publication();
+REVOKE ALL ON FUNCTION studio.guard_process_publication() FROM PUBLIC;

@@ -2,6 +2,7 @@
 import { createHash } from 'node:crypto';
 import {
   agentVersions,
+  agentDefinitions,
   memberships,
   type AppDatabase,
   type TenantContext,
@@ -15,6 +16,8 @@ import {
   simulationRuns,
 } from '@ensemus/database/product';
 import { decidePublishReviewSchema, requestPublishReviewSchema } from '@ensemus/contracts/studio';
+import { agentDraftAnswersSchema } from '@ensemus/contracts/studio';
+import { processSpecSchema } from '@ensemus/contracts/studio';
 import { agentSpecV1Schema } from '@ensemus/contracts/ai';
 import {
   assessDraft,
@@ -38,7 +41,7 @@ import {
   publishReviewTargetRef,
 } from '@ensemus/domain/product-events';
 import { requiredAgentScenarioKey, type SimulationReport } from '@ensemus/domain/simulation';
-import { and, desc, eq } from 'drizzle-orm';
+import { and, desc, eq, sql } from 'drizzle-orm';
 import { AppError, pgCode } from '../errors';
 import { emit } from '../events';
 import { canonicalId } from '../ids';
@@ -87,7 +90,10 @@ async function subject(tx: Tx, context: TenantContext, kind: Kind, id: string) {
     )
       throw new AppError('DRAFT_INVALID');
     const parsedSpec = agentSpecV1Schema.safeParse(JSON.parse(row.compiledSpecCanonical));
+    const parsedAnswers = agentDraftAnswersSchema.safeParse(row.answers);
     if (
+      !parsedAnswers.success ||
+      parsedAnswers.data.ownerMembershipId !== row.ownerMembershipId ||
       !parsedSpec.success ||
       compileBoundSpec(
         row.answers as AgentDraftAnswers,
@@ -160,6 +166,11 @@ async function lockedReview(tx: Tx, context: TenantContext, id: string) {
     .where(eq(publishReviews.id, canonical))
     .for('update');
   if (!review) throw new AppError('NOT_FOUND');
+  if (
+    review.subjectOwnerMembershipId !== current.row.ownerMembershipId ||
+    review.subjectName !== current.row.name
+  )
+    throw new AppError('SIMULATION_STALE');
   return { review, current };
 }
 
@@ -263,6 +274,8 @@ export async function requestPublishReview(
           subjectKind: current.kind,
           subjectId: current.row.id,
           subjectSha256: current.hash,
+          subjectOwnerMembershipId: current.row.ownerMembershipId,
+          subjectName: current.row.name,
           simulationRunId: canonicalId(input.simulationRunId),
           riskLevel: current.riskLevel,
           riskSummary: current.risk,
@@ -303,7 +316,7 @@ export async function requestPublishReview(
 export async function listPublishReviews(
   database: AppDatabase,
   context: TenantContext,
-  input: { status?: PublishReviewView['status'] } = {},
+  input: { status?: PublishReviewView['status']; subjectKind?: Kind; subjectId?: string } = {},
 ): Promise<readonly PublishReviewView[]> {
   if (
     input.status &&
@@ -316,7 +329,15 @@ export async function listPublishReviews(
       await tx
         .select()
         .from(publishReviews)
-        .where(input.status ? eq(publishReviews.status, input.status) : undefined)
+        .where(
+          and(
+            input.status ? eq(publishReviews.status, input.status) : undefined,
+            input.subjectKind ? eq(publishReviews.subjectKind, input.subjectKind) : undefined,
+            input.subjectId
+              ? eq(publishReviews.subjectId, canonicalId(input.subjectId))
+              : undefined,
+          ),
+        )
         .orderBy(desc(publishReviews.createdAt), desc(publishReviews.id))
         .limit(200)
     ).map(view);
@@ -336,6 +357,118 @@ export async function getPublishReview(
       .where(eq(publishReviews.id, canonicalId(reviewId)));
     if (!row) throw new AppError('NOT_FOUND');
     return view(row);
+  });
+}
+
+/** Conservative closure: no publication, no new authority and no new MFA obstacle. */
+export async function cancelPublishReview(
+  database: AppDatabase,
+  context: TenantContext,
+  input: { reviewId: string; expectedVersion: number },
+): Promise<PublishReviewView> {
+  if (!Number.isSafeInteger(input.expectedVersion) || input.expectedVersion < 1)
+    throw new AppError('INVALID_INPUT');
+  return withTenantTx(database, context, async (tx) => {
+    const actor = await studioPerson(tx, context),
+      id = canonicalId(input.reviewId);
+    const [header] = await tx
+      .select({ kind: publishReviews.subjectKind, subjectId: publishReviews.subjectId })
+      .from(publishReviews)
+      .where(eq(publishReviews.id, id));
+    if (!header) throw new AppError('NOT_FOUND');
+    const table = header.kind === 'agent_draft' ? agentDrafts : processDrafts;
+    const [draft] = await tx
+      .select({ id: table.id, status: table.status, version: table.version })
+      .from(table)
+      .where(eq(table.id, header.subjectId))
+      .for('update');
+    if (!draft) throw new AppError('NOT_FOUND');
+    const [row] = await tx
+      .select()
+      .from(publishReviews)
+      .where(eq(publishReviews.id, id))
+      .for('update');
+    if (!row) throw new AppError('NOT_FOUND');
+    if (row.status === 'cancelled') return view(row);
+    if (row.version !== input.expectedVersion) throw new AppError('VERSION_CONFLICT');
+    if (!['pending', 'approved'].includes(row.status)) throw new AppError('INVALID_STATE');
+    const [saved] = await tx
+      .update(publishReviews)
+      .set({ status: 'cancelled', version: row.version + 1, updatedAt: new Date() })
+      .where(eq(publishReviews.id, id))
+      .returning();
+    if (!saved) throw new AppError('NOT_FOUND');
+    const [other] = await tx
+      .select({ id: publishReviews.id })
+      .from(publishReviews)
+      .where(
+        and(
+          eq(publishReviews.subjectId, row.subjectId),
+          eq(publishReviews.subjectKind, row.subjectKind),
+          sql`${publishReviews.status} in ('pending','approved')`,
+        ),
+      )
+      .limit(1);
+    if (!other && draft.status === 'in_review')
+      await tx
+        .update(table)
+        .set({ status: 'editing', version: draft.version + 1, updatedAt: new Date() })
+        .where(eq(table.id, draft.id));
+    await auditAction(tx, actor, 'publish_review.cancelled', `publish_review:${id}`, 'CANCELLED');
+    return view(saved);
+  });
+}
+
+/** Display the exact immutable input, even after its draft changes. It grants no execution authority. */
+export async function getPublishReviewSnapshot(
+  database: AppDatabase,
+  context: TenantContext,
+  reviewId: string,
+) {
+  return withTenantTx(database, context, async (tx) => {
+    await studioPerson(tx, context);
+    const [row] = await tx
+      .select({
+        kind: publishReviews.subjectKind,
+        hash: publishReviews.subjectSha256,
+        ownerMembershipId: publishReviews.subjectOwnerMembershipId,
+        name: publishReviews.subjectName,
+        sourceVersion: simulationInputs.sourceVersion,
+        canonical: simulationInputs.specCanonical,
+      })
+      .from(publishReviews)
+      .innerJoin(
+        simulationInputs,
+        and(
+          eq(simulationInputs.organizationId, publishReviews.organizationId),
+          eq(simulationInputs.simulationRunId, publishReviews.simulationRunId),
+        ),
+      )
+      .where(eq(publishReviews.id, canonicalId(reviewId)));
+    if (!row) throw new AppError('NOT_FOUND');
+    if (!row.ownerMembershipId || sha256(row.canonical) !== row.hash)
+      throw new AppError('DRAFT_INVALID');
+    const raw: unknown = JSON.parse(row.canonical);
+    if (row.kind === 'agent_draft') {
+      const parsed = agentSpecV1Schema.safeParse(raw);
+      if (!parsed.success) throw new AppError('DRAFT_INVALID');
+      return {
+        kind: 'agent_draft' as const,
+        name: row.name,
+        ownerMembershipId: row.ownerMembershipId,
+        sourceVersion: row.sourceVersion,
+        spec: parsed.data,
+      };
+    }
+    const parsed = processSpecSchema.safeParse(raw);
+    if (!parsed.success) throw new AppError('GRAPH_INVALID');
+    return {
+      kind: 'process_draft' as const,
+      name: row.name,
+      ownerMembershipId: row.ownerMembershipId,
+      sourceVersion: row.sourceVersion,
+      spec: parsed.data,
+    };
   });
 }
 
@@ -449,6 +582,7 @@ export async function publishApproved(
     if (current.kind === 'agent_draft') {
       const version = await ports.agentRegistry.publishInTransaction(tx, actor, {
         spec: current.spec,
+        ownerMembershipId: current.row.ownerMembershipId,
         evaluationReport: {
           report_version: 1,
           spec_sha256: current.hash,
@@ -480,6 +614,10 @@ export async function publishApproved(
       )
         throw new AppError('SIMULATION_STALE');
       publishedRef = actual.id;
+      await tx
+        .update(agentDefinitions)
+        .set({ name: current.row.name })
+        .where(eq(agentDefinitions.id, actual.definitionId));
       await tx
         .update(agentDrafts)
         .set({
