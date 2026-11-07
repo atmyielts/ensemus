@@ -659,8 +659,10 @@ export function updateObjectRecord(
       const classification = input.classification ?? row.classification;
       if (rank(classification) < rank(t.classification) || rank(classification) < 0)
         throw new AppError('OBJECT_RECORD_INVALID');
-      if (rank(classification) < rank(row.classification))
+      if (rank(classification) < rank(row.classification)) {
+        if (!canProduct(viewer.role, 'object_type.manage')) throw new AppError('FORBIDDEN');
         await assertInteractivePrivilege(tx, context, 'object_type.lower_scope');
+      }
       const [changed] = await tx
         .update(objectRecords)
         .set({

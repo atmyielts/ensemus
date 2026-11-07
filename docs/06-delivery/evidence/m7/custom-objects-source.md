@@ -11,8 +11,9 @@ database, HTTP, browser, Temporal, provider or operator acceptance.
   Restricted records remain owner-only, including against an organization admin.
 - Validated custom types, immutable hashed schema versions and refusal of unsafe
   migrations. Records keep their pinned schema. Type floors only rise; record
-  scope can lower only above that floor with the existing native recent-MFA
-  action. No delegated/agent context becomes a human.
+  scope can lower only above that floor by a current owner/admin who can read the
+  target, with the existing native recent-MFA action. Ordinary owners can edit
+  their fields and raise sensitivity. No delegated/agent context becomes a human.
 - Optimistic record edits, exact derived index rows in the same SQL transaction,
   declared same-tenant relations, and atomic one-valued slots that include hidden
   endpoints. Native forms preserve safe submitted values on ordinary refusal.
@@ -72,6 +73,40 @@ Mandatory composition still owed:
 All data remains in PostgreSQL. Events, audit references and Temporal payloads
 carry IDs/codes, not attribute or schema text. No model, provider, credentials,
 dependency, mode setting or Sovereign phone-home is introduced.
+
+### Manager-only lowering follow-up
+
+Read-only integration review of 0404 found its native privileged-action role map
+already limits `object_type.lower_scope` to current owners/admins. Root explicitly
+kept that policy. The DAL now refuses an ordinary member's lowering with typed
+`FORBIDDEN` after the target is authorized, and 0407 independently requires that
+current management role before native MFA. No shared 0404 action map was widened.
+Native member forms offer only their current or stronger sensitivity. Real-role
+source now denies member lowering even with valid MFA, preserves their ordinary
+field edits, denies an unreadable manager, and tests an actually readable
+owner/admin-owned record with native MFA. Browser source also checks the member
+403 and its narrower selector. These SQL/browser assertions remain unrun.
+
+This follow-up follows the 144-test source checkpoint. Its separately granted
+bounded check passed: **128 focused tests across four files** (custom object,
+product policy, custom-object contracts and OpenAPI), max one worker; six owned
+TS/TSX files passed scoped formatting/lint; application, tests, browser and web
+typegen/TypeScript checks all passed sequentially. `git diff --check` passed. No
+contract regeneration was needed: HTTP shapes did not change. These 128 tests
+overlap the earlier 144 and are not added to that count. Neither check ran SQL,
+actual browser journeys or migration workflows.
+
+Root also approved an actual-row SELECT predicate for `INSERT RETURNING`. Ordinary
+human body RLS now uses `objects.record_row_readable` with the actual row's
+class/owner/deleted fields and pre-existing type floor, active member and
+tombstone checks; a known dead catalog identity stays closed. It does not depend
+on a new catalog row becoming visible inside the same statement. The canonical
+`objects.record_readable(id,viewer)` remains retained-input/named-export authority.
+The real-role creation cases are authored; PostgreSQL reproduction is still owed.
+
+The same follow-up separates type-key/sensitivity/date labels from helper text
+with the existing `aria-labelledby`/`aria-describedby` pattern. Browser and axe
+source is authored and typechecked, not executed.
 
 ## Authored gates and actual results
 

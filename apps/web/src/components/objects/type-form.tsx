@@ -198,16 +198,18 @@ export function ObjectTypeForm({
               />
             </label>
             <label htmlFor={`${prefix}-slug`}>
-              Type key
+              <span id={`${prefix}-slug-label`}>Type key</span>
               <input
                 id={`${prefix}-slug`}
+                aria-labelledby={`${prefix}-slug-label`}
+                aria-describedby={`${prefix}-slug-help`}
                 name="slug"
                 required
                 pattern="[a-z][a-z0-9_]{1,63}"
                 maxLength={64}
                 defaultValue={value('slug')}
               />
-              <span className="muted">
+              <span className="muted" id={`${prefix}-slug-help`}>
                 A stable key such as supplier or device. Use lowercase letters, numbers and
                 underscores.
               </span>
