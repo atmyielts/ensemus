@@ -1,6 +1,10 @@
 // Progress outcomes use the same words on every onboarding page. Technical codes stay in details.
 const outcomes = new Map<string, string>([
   [
+    'BRIEF_AMBIGUOUS',
+    'The run has more than one output or retained output attempt, so a single brief could not be confirmed. Open the brief work to inspect its run and outputs before starting another onboarding.',
+  ],
+  [
     'AGENT_UNAVAILABLE',
     'Onboarding stopped because the approved brief agent or its model setup was unavailable. Ask an administrator to check the published client brief agent, active model and budget before starting another onboarding.',
   ],
