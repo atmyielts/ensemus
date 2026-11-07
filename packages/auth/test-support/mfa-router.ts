@@ -3,6 +3,7 @@
 import { betterAuth } from 'better-auth';
 import { drizzleAdapter } from 'better-auth/adapters/drizzle';
 import { parseSetCookieHeader } from 'better-auth/cookies';
+import { makeSignature } from 'better-auth/crypto';
 export { hashPassword as fixturePasswordHash } from 'better-auth/crypto';
 import { authSchema, type openAuthDatabase } from '@ensemus/database/auth';
 import { mfaPlugins } from '../src/mfa';
@@ -30,3 +31,8 @@ export const fixtureCookies = (setCookie: string | null) =>
   [...parseSetCookieHeader(setCookie ?? '')]
     .map(([name, value]) => `${name}=${value.value}`)
     .join('; ');
+
+/** Generated DB-session fixture only. Production still verifies this cookie through getSession. */
+export async function fixtureSessionCookie(token: string, secret: string): Promise<string> {
+  return `better-auth.session_token=${encodeURIComponent(`${token}.${await makeSignature(token, secret)}`)}`;
+}

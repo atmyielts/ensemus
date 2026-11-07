@@ -47,6 +47,7 @@ import { errorCode } from '@ensemus/telemetry';
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import type { InviteFormState, NewWorkFormState, WorkFormState } from '@/lib/form-state';
+import { stepUpPath } from '@/lib/step-up';
 import { requireActor } from './actor';
 import { getRestoreGate, getRuntime, getStore } from './runtime';
 import { requireTenant } from './tenant';
@@ -98,6 +99,8 @@ async function run(
     await recordRefusal(tenant, error);
     if (error instanceof AppError && error.code === 'RESTORE_PENDING') {
       target = '/restoring';
+    } else if (error instanceof AppError && error.code === 'MFA_REQUIRED' && tenant) {
+      target = stepUpPath(tenant.context.organizationId, back);
     } else if (error instanceof AppError) {
       target = `${back}${back.includes('?') ? '&' : '?'}error=${error.code}`;
     } else {
@@ -116,6 +119,10 @@ function assertConfirmed(form: FormData) {
 /** Reduces any failure to a code a form can show. Nothing else about it reaches the person. */
 async function codeOf(tenant: Tenant, error: unknown): Promise<string> {
   await recordRefusal(tenant, error);
+  if (error instanceof AppError && error.code === 'MFA_REQUIRED')
+    redirect(
+      stepUpPath(tenant.context.organizationId, `/o/${tenant.context.organizationId}/people`),
+    );
   if (error instanceof AppError) return error.code;
   getRuntime().log.error('action.failed', { errorCode: errorCode(error) });
   return 'UNEXPECTED';

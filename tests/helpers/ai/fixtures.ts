@@ -21,6 +21,7 @@ import { createContextSource } from '@ensemus/application/ai-context-source';
 import { eq } from 'drizzle-orm';
 import pg from 'pg';
 import { urls } from '../stack';
+import { makePerson, nativePersonContext, proveSecondFactor } from '../product';
 
 export const openAgentTestDatabase = (max = 2) => openAgentDatabase(urls.agent(), { max });
 
@@ -83,14 +84,17 @@ export async function seedAiTenant(
   database: AppDatabase,
   input: { name?: string; commercialMode?: 'cloud' | 'byom' | 'sovereign' } = {},
 ): Promise<AiTenant> {
-  const ownerId = await makeTestUser('ai-owner');
+  // Publishers/probe requesters carry an actual generated native session and auth-role MFA proof.
+  const ownerPerson = await makePerson('ai-owner');
+  const ownerId = ownerPerson.userId;
   const memberId = await makeTestUser('ai-member');
   const { organizationId } = await createOrganization(database, {
     userId: ownerId,
     name: input.name ?? 'Same Name Ltd',
     commercialMode: input.commercialMode ?? 'byom',
   });
-  const owner = await resolveTenantContext(database, ownerId, organizationId);
+  await proveSecondFactor(ownerPerson);
+  const owner = await nativePersonContext(database, ownerPerson, organizationId);
   const superuser = new pg.Client({ connectionString: urls.superuser() });
   await superuser.connect();
   try {
@@ -264,7 +268,10 @@ export async function seedActiveProfile(
 ): Promise<string> {
   const id = await seedDraftProfile(database, context, overrides);
   await withTenantTx(database, context, (tx) =>
-    tx.update(modelProfiles).set({ status: 'probing' }).where(eq(modelProfiles.id, id)),
+    tx
+      .update(modelProfiles)
+      .set({ status: 'probing', probeRequestedByMembershipId: context.membershipId })
+      .where(eq(modelProfiles.id, id)),
   );
   await withRunLookupTx(agentDatabase, context.organizationId, (tx) =>
     tx

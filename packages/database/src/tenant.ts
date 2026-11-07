@@ -1,7 +1,12 @@
 import { and, eq, sql } from 'drizzle-orm';
 import { openDatabase, type EnsemusDrizzle } from './connection';
-import { memberships } from './schema';
+import { memberships, sessions } from './schema';
 import { webhookEndpoints } from './schema-integrations';
+import {
+  interactiveIdentity,
+  isVerifiedInteractiveIdentity,
+  type VerifiedInteractiveIdentity,
+} from './interactive-identity';
 
 const brand: unique symbol = Symbol('TenantContext');
 
@@ -14,6 +19,8 @@ export type TenantContext = Readonly<{
   actorType: 'user' | 'service' | 'agent' | 'delegated';
   /** Which run this is acting for. Set only on an agent's context. */
   agentRunId?: string;
+  /** An opaque native-verifier handoff. JSON/Temporal cannot carry this symbol; no worker mints it. */
+  [interactiveIdentity]?: VerifiedInteractiveIdentity;
   [brand]: true;
 }>;
 
@@ -70,7 +77,11 @@ export class AppDatabase {
   transaction<T>(bindings: Record<string, string>, fn: (tx: Tx) => Promise<T>): Promise<T> {
     return this.#db.transaction(async (tx) => {
       // set_config because SET LOCAL cannot take a bind parameter (ADR-024 D4).
-      for (const [name, value] of Object.entries({ 'app.agent_input_protocol': '', ...bindings })) {
+      for (const [name, value] of Object.entries({
+        'app.agent_input_protocol': '',
+        'app.interactive_session_id': '',
+        ...bindings,
+      })) {
         await tx.execute(sql`select set_config(${name}, ${value}, true)`);
       }
       return fn(tx);
@@ -123,6 +134,7 @@ export async function withTenantTx<T>(
       'app.agent_run_id': context.actorType === 'agent' ? (context.agentRunId ?? '') : '',
       // A trusted immutable runtime-version admission, never an authorization claim from user input.
       'app.agent_input_protocol': context.actorType === 'agent' ? 'v1' : '',
+      'app.interactive_session_id': interactiveSessionOf(context)?.sessionId ?? '',
     },
     fn,
   );
@@ -215,6 +227,41 @@ export async function resolveTenantContext(
     actorType: 'user',
     [brand]: true,
   };
+}
+
+/** A readable ID is not a native verified session. Only auth's in-process handoff can bind one. */
+export function interactiveSessionOf(context: TenantContext): VerifiedInteractiveIdentity | null {
+  const identity = context[interactiveIdentity];
+  return context.actorType === 'user' &&
+    isVerifiedInteractiveIdentity(identity) &&
+    identity.userId === context.userId
+    ? identity
+    : null;
+}
+
+/** Called by HTTP/page boundaries with the result of native getSession, never with form IDs. */
+export async function resolveInteractiveTenantContext(
+  database: AppDatabase,
+  identity: VerifiedInteractiveIdentity,
+  organizationId: string,
+): Promise<TenantContext> {
+  if (!isVerifiedInteractiveIdentity(identity)) throw new TenantAccessDenied();
+  const live = await withUserTx(database, identity.userId, async (tx) => {
+    const [session] = await tx
+      .select({ id: sessions.id })
+      .from(sessions)
+      .where(
+        and(
+          eq(sessions.id, identity.sessionId),
+          eq(sessions.userId, identity.userId),
+          sql`${sessions.expiresAt}>clock_timestamp()`,
+        ),
+      );
+    return !!session;
+  });
+  if (!live) throw new TenantAccessDenied();
+  const context = await resolveTenantContext(database, identity.userId, organizationId);
+  return { ...context, [interactiveIdentity]: identity };
 }
 
 /**

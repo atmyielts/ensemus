@@ -34,7 +34,7 @@ import type {
 import { assertTenantSignIn } from '@ensemus/application/sso';
 import type { components } from '@ensemus/contracts/openapi';
 import {
-  resolveTenantContext,
+  resolveInteractiveTenantContext,
   TenantAccessDenied,
   type AppDatabase,
   type TenantContext,
@@ -207,15 +207,19 @@ export function apiRoute<S extends z.ZodType<{ organizationId: string }>>(
     let response: Response;
     let who: Parameters<typeof recordRefusal>[1] | undefined;
     try {
-      const { app, auth, config } = getRuntime();
-      const session = await auth.api.getSession({ headers: request.headers });
+      const { app, readInteractiveSession, config } = getRuntime();
+      const session = await readInteractiveSession(request.headers);
       if (!session) throw unauthenticated();
       if (!READ_METHODS.has(request.method)) assertOwnOrigin(request, config.publicUrl);
 
       const params = paramsSchema.safeParse(await route.params);
       if (!params.success) throw invalidInput(params.error.issues);
       who = { database: app, userId: session.user.id, organizationId: params.data.organizationId };
-      const context = await resolveTenantContext(app, session.user.id, params.data.organizationId);
+      const context = await resolveInteractiveTenantContext(
+        app,
+        session.identity,
+        params.data.organizationId,
+      );
       who = { ...who, context };
       // After the membership check, so nobody outside the tenant can learn it is being restored.
       await getRestoreGate().assertServing(context);

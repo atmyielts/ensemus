@@ -114,6 +114,11 @@ export const modelProfiles = aiSchema.table(
     qualifiedAt: timestamp({ withTimezone: true }),
     /** Who last asked for a probe, for the audit row the probe writes. */
     probeRequestedByMembershipId: uuid(),
+    /** Exact-version pending intent, retained independently of later session logout/deletion. */
+    probeAuthorizedProfileVersion: integer(),
+    probeAuthorizedMembershipId: uuid(),
+    probeAuthorizedSessionId: uuid(),
+    probeAuthorizedAt: timestamp({ withTimezone: true }),
     createdByMembershipId: uuid(),
     createdAt: createdAt(),
     updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
@@ -132,6 +137,20 @@ export const modelProfiles = aiSchema.table(
       columns: [t.organizationId, t.probeRequestedByMembershipId],
       foreignColumns: [memberships.organizationId, memberships.id],
     }),
+    foreignKey({
+      name: 'model_probe_authorization_member',
+      columns: [t.organizationId, t.probeAuthorizedMembershipId],
+      foreignColumns: [memberships.organizationId, memberships.id],
+    }),
+    check(
+      'model_probe_authorization_complete',
+      sql`(
+      (${t.probeAuthorizedProfileVersion} is null and ${t.probeAuthorizedMembershipId} is null
+        and ${t.probeAuthorizedSessionId} is null and ${t.probeAuthorizedAt} is null)
+      or (${t.probeAuthorizedProfileVersion} is not null and ${t.probeAuthorizedProfileVersion}>0
+        and ${t.probeAuthorizedMembershipId} is not null and ${t.probeAuthorizedSessionId} is not null
+        and ${t.probeAuthorizedAt} is not null))`,
+    ),
     foreignKey({
       columns: [t.organizationId, t.crossBillingApprovedByMembershipId],
       foreignColumns: [memberships.organizationId, memberships.id],

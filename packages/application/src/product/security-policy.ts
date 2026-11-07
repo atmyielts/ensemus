@@ -2,7 +2,6 @@
 import {
   memberships,
   users,
-  withTenantTx,
   type AppDatabase,
   type TenantContext,
   type Tx,
@@ -17,7 +16,7 @@ import {
 } from '@ensemus/domain/product-policy';
 import { SECURITY_POLICY_CHANGED, AGGREGATE_ORGANIZATION } from '@ensemus/domain/product-events';
 import { and, asc, eq } from 'drizzle-orm';
-import { assertRecentMfa, type SessionProof } from './privileged';
+import { assertRecentMfa, withPrivilegeTx as withTenantTx, type SessionProof } from './privileged';
 import { AppError } from '../errors';
 import { emit } from '../events';
 import { auditAction } from '../work';

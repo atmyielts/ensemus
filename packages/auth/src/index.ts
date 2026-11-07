@@ -13,6 +13,7 @@ import {
   storeSsoProvider,
   readSsoProvider,
   recordSsoAssurance,
+  createVerifiedInteractiveIdentity,
 } from '@ensemus/database/auth';
 import { createLogger, errorCode } from '@ensemus/telemetry';
 import { betterAuth, type BetterAuthPlugin } from 'better-auth';
@@ -323,7 +324,34 @@ export function createAuth(options: AuthOptions) {
     verifiedSession: (input) => primary.verifiedSaml(input),
   });
 
-  return { auth, close, mfa, redeemSetupToken, sso, submitCredentials };
+  /** The sole interactive-context admission: the actual native verifier owns the cookie/session. */
+  async function readInteractiveSession(headers: Headers) {
+    const current = await auth.api.getSession({ headers, query: { disableCookieCache: true } });
+    if (!current || current.session.userId !== current.user.id) return null;
+    const expiresAt =
+      current.session.expiresAt instanceof Date
+        ? current.session.expiresAt.getTime()
+        : Date.parse(String(current.session.expiresAt));
+    if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()) return null;
+    return {
+      identity: createVerifiedInteractiveIdentity({
+        userId: current.user.id,
+        sessionId: current.session.id,
+      }),
+      user: {
+        id: current.user.id,
+        name: current.user.name,
+        email: current.user.email,
+        emailVerified: current.user.emailVerified,
+      },
+      session: {
+        id: current.session.id,
+        userId: current.session.userId,
+        expiresAt: current.session.expiresAt,
+      },
+    };
+  }
+  return { auth, close, mfa, redeemSetupToken, sso, submitCredentials, readInteractiveSession };
 }
 
 export type EnsemusAuth = ReturnType<typeof createAuth>['auth'];

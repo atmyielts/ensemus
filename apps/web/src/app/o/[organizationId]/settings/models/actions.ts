@@ -22,6 +22,7 @@ import type { AppDatabase, TenantContext } from '@ensemus/database';
 import { errorCode } from '@ensemus/telemetry';
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
+import { stepUpPath } from '@/lib/step-up';
 import { getRuntime } from '@/server/runtime';
 import { requireTenant } from '@/server/tenant';
 import { captureModelKey } from './capture';
@@ -62,6 +63,8 @@ async function run(
     }
     if (error instanceof AppError && error.code === 'RESTORE_PENDING') {
       target = '/restoring';
+    } else if (error instanceof AppError && error.code === 'MFA_REQUIRED') {
+      target = stepUpPath(tenant.context.organizationId, back);
     } else if (error instanceof AppError) {
       target = `${back}?error=${error.code}`;
     } else {

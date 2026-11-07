@@ -7,6 +7,7 @@ import { accounts, rateLimits, sessions, setupTokens, users, verifications } fro
 import { sessionAssurances, ssoProviders, twoFactors } from './schema-product';
 import { ssoConfigurationSha256 } from './sso-fingerprint';
 export { ssoConfigurationSha256 } from './sso-fingerprint';
+export { createVerifiedInteractiveIdentity } from './interactive-identity';
 
 export const authSchema = {
   user: users,

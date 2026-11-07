@@ -15,6 +15,8 @@ import type { ProviderKind } from '@ensemus/domain/ai';
 import { modelKeyPurpose } from '@ensemus/domain/ai-binding';
 import { MODEL_PROFILE_PROBE_REQUESTED } from '@ensemus/domain/ai-events';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { AppError } from '../errors';
+import { assertInteractivePrivilege } from '../product/privileged';
 import {
   addRateCard,
   assertKeyMayBeStored,
@@ -44,6 +46,12 @@ vi.mock('@ensemus/database', async (original) => ({
   ...(await original<typeof import('@ensemus/database')>()),
   withTenantTx: (database: { tx: unknown }, _context: unknown, fn: (tx: unknown) => unknown) =>
     fn(database.tx),
+}));
+// This recording transaction exercises profile rules. Real native/auth authority is covered by
+// interactive-privileges.test.ts; its explicit double still verifies that refusal precedes writes.
+vi.mock('../product/privileged', async (original) => ({
+  ...(await original<typeof import('../product/privileged')>()),
+  assertInteractivePrivilege: vi.fn(async () => undefined),
 }));
 vi.mock('@ensemus/policy/endpoint', () => ({
   checkEndpoint: (kind: string, endpointUrl: string, settings: { privateEndpoints: string[] }) => {
@@ -96,6 +104,10 @@ const row = (overrides: Partial<ModelProfileRow> = {}): ModelProfileRow => ({
   status: 'draft',
   qualifiedAt: null,
   probeRequestedByMembershipId: null,
+  probeAuthorizedProfileVersion: null,
+  probeAuthorizedMembershipId: null,
+  probeAuthorizedSessionId: null,
+  probeAuthorizedAt: null,
   createdByMembershipId: null,
   createdAt: new Date(),
   updatedAt: new Date(),
@@ -562,6 +574,14 @@ describe('taking a key', () => {
 });
 
 describe('asking for a probe', () => {
+  it('refuses a missing interactive proof before any profile write', async () => {
+    const { database, writes } = recordingDatabase([row()]);
+    vi.mocked(assertInteractivePrivilege).mockRejectedValueOnce(new AppError('MFA_REQUIRED'));
+    await expect(
+      requestModelProbe(database, owner, { profileId: PROFILE, expectedVersion: 3 }),
+    ).rejects.toMatchObject({ code: 'MFA_REQUIRED' });
+    expect(writes).toEqual([]);
+  });
   it('moves to probing and emits its event, in one transaction', async () => {
     const { database, writes } = recordingDatabase([row()]);
     await requestModelProbe(database, owner, { profileId: PROFILE, expectedVersion: 3 });

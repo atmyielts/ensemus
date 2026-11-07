@@ -18,6 +18,8 @@ export {
   openAppDatabase,
   pingDatabase,
   resolveTenantContext,
+  resolveInteractiveTenantContext,
+  interactiveSessionOf,
   TenantAccessDenied,
   withInvitationTx,
   withNewTenantTx,
@@ -31,6 +33,7 @@ export {
   type Tx,
   type WebhookEndpointRow,
 } from './tenant';
+export type { VerifiedInteractiveIdentity } from './interactive-identity';
 export {
   auditEvents,
   domainEvents,

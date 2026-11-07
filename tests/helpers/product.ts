@@ -2,14 +2,20 @@
 // triggers, so a seed can never reach a state the rules forbid. Generated values only: nothing here is a real
 // address, credential or provider. Fakes live here, with the tests, and no shipped code can import them.
 import { randomUUID } from 'node:crypto';
+import { createAuth } from '@ensemus/auth';
 import { unavailablePorts, type ProductPorts } from '@ensemus/application/product-ports';
-import { openAppDatabase, createOrganization, resolveTenantContext } from '@ensemus/database';
+import {
+  openAppDatabase,
+  createOrganization,
+  resolveInteractiveTenantContext,
+} from '@ensemus/database';
 import type { TenantContext } from '@ensemus/database';
 import { authSchema, recordSessionAssurance, openAuthDatabase } from '@ensemus/database/auth';
 import { eq } from 'drizzle-orm';
 import type { AgentDraftAnswers, ToolFacts } from '@ensemus/domain/agent-draft';
 import pg from 'pg';
 import { urls } from './stack';
+import { fixtureSessionCookie } from '../../packages/auth/test-support/mfa-router';
 
 export type TestPerson = { userId: string; context: TenantContext; sessionId: string };
 
@@ -41,6 +47,43 @@ export async function makePerson(label: string): Promise<{ userId: string; sessi
   }
 }
 
+/** A real native-verifier handoff for a generated session; no test constructs the opaque brand. */
+export async function nativePersonContext(
+  database: ReturnType<typeof openAppDatabase>['db'],
+  person: { userId: string; sessionId: string },
+  organizationId: string,
+): Promise<TenantContext> {
+  const client = await authClient(),
+    secret = `generated-context-${randomUUID()}-${randomUUID()}`;
+  const runtime = createAuth({
+    databaseUrl: urls.auth(),
+    secret,
+    baseURL: 'http://127.0.0.1:3996',
+    allowSignup: false,
+  });
+  try {
+    const found = await client.query<{ token: string }>(
+      'select token from identity.sessions where id=$1 and user_id=$2',
+      [person.sessionId, person.userId],
+    );
+    if (!found.rows[0]) throw new Error('TEST_NATIVE_SESSION_MISSING');
+    const headers = new Headers({
+      cookie: await fixtureSessionCookie(found.rows[0].token, secret),
+    });
+    const current = await runtime.readInteractiveSession(headers);
+    if (
+      !current ||
+      current.identity.userId !== person.userId ||
+      current.identity.sessionId !== person.sessionId
+    )
+      throw new Error('TEST_NATIVE_SESSION_REFUSED');
+    return resolveInteractiveTenantContext(database, current.identity, organizationId);
+  } finally {
+    await client.end();
+    await runtime.close();
+  }
+}
+
 /** Two tenants with the same name, each with an owner, an admin and a member. */
 export async function makeTwoTenants(database: ReturnType<typeof openAppDatabase>['db']) {
   const tenant = async (suffix: string) => {
@@ -50,7 +93,7 @@ export async function makeTwoTenants(database: ReturnType<typeof openAppDatabase
       name: 'Same Name Ltd',
       commercialMode: 'byom',
     });
-    const context = await resolveTenantContext(database, owner.userId, organizationId);
+    const context = await nativePersonContext(database, owner, organizationId);
     const join = async (role: 'admin' | 'member'): Promise<TestPerson> => {
       const person = await makePerson(`${role}${suffix}`);
       const client = new pg.Client({ connectionString: urls.superuser() });
@@ -66,7 +109,7 @@ export async function makeTwoTenants(database: ReturnType<typeof openAppDatabase
       }
       return {
         ...person,
-        context: await resolveTenantContext(database, person.userId, organizationId),
+        context: await nativePersonContext(database, person, organizationId),
       };
     };
     return {

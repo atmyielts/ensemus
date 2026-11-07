@@ -1,7 +1,7 @@
 import 'server-only';
 import { AppError, auditTenantRefusal } from '@ensemus/application';
 import { assertTenantSignIn } from '@ensemus/application/sso';
-import { resolveTenantContext, TenantAccessDenied } from '@ensemus/database';
+import { resolveInteractiveTenantContext, TenantAccessDenied } from '@ensemus/database';
 import { errorCode } from '@ensemus/telemetry';
 import { notFound, redirect } from 'next/navigation';
 import { cache } from 'react';
@@ -16,7 +16,11 @@ export const requireTenant = cache(async (organizationId: string) => {
   const actor = await requireActor();
   const { app } = getRuntime();
   try {
-    const context = await resolveTenantContext(app, actor.userId, organizationId);
+    const context = await resolveInteractiveTenantContext(
+      app,
+      actor.interactiveIdentity,
+      organizationId,
+    );
     // After the membership check, so nobody outside the tenant can learn it is being restored.
     await getRestoreGate().assertServing(context);
     await assertTenantSignIn(app, context, { sessionId: actor.sessionId });

@@ -11,7 +11,6 @@ import {
   syncCursors,
   users,
   webhookEndpoints,
-  withTenantTx,
   type AppDatabase,
   type TenantContext,
   type Tx,
@@ -40,6 +39,7 @@ import {
   CONNECTOR_SYNC_REQUESTED,
 } from '@ensemus/domain/integration-events';
 import { can } from '@ensemus/domain/policy';
+import { assertInteractivePrivilege, withPrivilegeTx as withTenantTx } from './product/privileged';
 import { and, eq, inArray, isNotNull, isNull, lt, ne, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { AppError, foreignReference, pgCode } from './errors';
@@ -140,6 +140,7 @@ export async function createConnection(
 
   const id = randomUUID();
   return withTenantTx(database, context, async (tx) => {
+    await assertInteractivePrivilege(tx, context, 'connection.manage');
     let row: ConnectionRow | undefined;
     try {
       [row] = await tx
@@ -215,6 +216,7 @@ export async function revokeConnection(
   requireManage(context);
   if (!isIdentifier(input.connectionId)) throw new AppError('NOT_FOUND');
   await withTenantTx(database, context, async (tx) => {
+    await assertInteractivePrivilege(tx, context, 'connection.manage');
     const [row] = await tx
       .select()
       .from(connections)
@@ -264,6 +266,7 @@ export async function requestConnectorSync(
   requireManage(context);
   if (!isIdentifier(input.connectionId)) throw new AppError('NOT_FOUND');
   await withTenantTx(database, context, async (tx) => {
+    await assertInteractivePrivilege(tx, context, 'connection.manage');
     const [row] = await tx
       .select({ state: connections.state, version: connections.version })
       .from(connections)
