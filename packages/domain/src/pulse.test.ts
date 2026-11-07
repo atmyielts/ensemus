@@ -6,6 +6,7 @@ import {
   PULSE_APPROVAL_WINDOW_HOURS,
   PULSE_DUE_SOON_HOURS,
   PULSE_SIGNAL_KINDS,
+  PULSE_MAX_SNOOZE_DAYS,
   pulseSignalKey,
   snoozeEndIsAllowed,
   type PulseFacts,
@@ -43,6 +44,169 @@ const facts = (overrides: Partial<PulseFacts> = {}): PulseFacts => ({
 });
 
 const kinds = (input: PulseFacts) => deriveSignals(input).map((signal) => signal.kind);
+
+describe('conservative Pulse boundaries', () => {
+  it('uses the UTC day boundary, including exactly midnight', () => {
+    const due = new Date('2026-06-14T23:59:59.999Z');
+    expect(
+      kinds(
+        facts({
+          now: new Date('2026-06-14T23:59:59.999Z'),
+          work: [work({ dueAt: due, updatedAt: inHours(-24) })],
+        }),
+      ),
+    ).toEqual(['work_due_soon']);
+    expect(
+      kinds(
+        facts({
+          now: new Date('2026-06-15T00:00:00.000Z'),
+          work: [work({ dueAt: due, updatedAt: inHours(-24) })],
+        }),
+      ),
+    ).toEqual(['work_overdue']);
+  });
+
+  it('uses an inclusive approval warning window and excludes an already expired approval', () => {
+    const approval = { id: RECORD, workUnitId: WORK_A, createdAt: inHours(-1) };
+    expect(kinds(facts({ work: [work()], approvals: [{ ...approval, expiresAt: NOW }] }))).toEqual(
+      [],
+    );
+    expect(
+      kinds(
+        facts({
+          work: [work()],
+          approvals: [{ ...approval, expiresAt: inHours(PULSE_APPROVAL_WINDOW_HOURS) }],
+        }),
+      ),
+    ).toEqual(['approval_waiting_past_expiry_window']);
+    expect(
+      deriveSignals(
+        facts({
+          work: [work()],
+          approvals: [{ ...approval, createdAt: inHours(2), expiresAt: inHours(1) }],
+        }),
+      ),
+    ).toEqual([]);
+  });
+
+  it('canonicalizes IDs without echoing invalid grouping values', () => {
+    const value = work({
+      id: WORK_A.toUpperCase(),
+      dueAt: inHours(-72),
+      projectId: WORK_B.toUpperCase(),
+      clientId: 'private label rather than an id',
+    });
+    const [signal] = deriveSignals(facts({ work: [value] }));
+    expect(signal?.key).toBe(`work_overdue:${WORK_A}`);
+    expect(signal?.scope).toEqual({ projectId: WORK_B, clientId: null });
+    expect(JSON.stringify(signal)).not.toContain('private label');
+  });
+
+  it('collapses identical duplicates and refuses conflicting Work snapshots in either order', () => {
+    const value = work({ dueAt: inHours(-72) });
+    expect(deriveSignals(facts({ work: [value, { ...value }] }))).toHaveLength(1);
+    const changed = { ...value, status: 'completed' };
+    for (const copies of [
+      [value, changed],
+      [changed, value],
+    ])
+      expect(
+        deriveSignals(
+          facts({
+            work: copies,
+            externalActions: [
+              { id: RECORD, workUnitId: WORK_A, status: 'unknown', updatedAt: inHours(-1) },
+            ],
+          }),
+        ),
+      ).toEqual([]);
+  });
+
+  it('does not choose between conflicting duplicate supporting records', () => {
+    const first = { id: RECORD, workUnitId: WORK_A, expiresAt: inHours(1), createdAt: inHours(-1) };
+    const second = { ...first, workUnitId: WORK_B };
+    for (const copies of [
+      [first, second],
+      [second, first],
+    ])
+      expect(
+        deriveSignals(facts({ work: [work(), work({ id: WORK_B })], approvals: copies })),
+      ).toEqual([]);
+  });
+
+  it('uses only trusted agent stop codes and never copies raw run text', () => {
+    const raw = 'PRIVATE_PROVIDER_SENTENCE';
+    const [signal] = deriveSignals(
+      facts({
+        work: [work()],
+        agentRuns: [{ id: RECORD, workUnitId: WORK_A, stopCode: raw, at: inHours(-1) }],
+      }),
+    );
+    expect(signal?.evidence[1]?.reasonCode).toBe('AGENT_RUN_STOPPED');
+    expect(JSON.stringify(signal)).not.toContain(raw);
+    const [process] = deriveSignals(
+      facts({
+        work: [work()],
+        processRuns: [{ id: RECORD, rootWorkUnitId: WORK_A, stopCode: raw, at: inHours(-1) }],
+      }),
+    );
+    expect(process?.evidence[0]?.reasonCode).toBe('PROCESS_RUN_FAILED');
+    expect(JSON.stringify(process)).not.toContain(raw);
+  });
+
+  it('does not turn invalid or future observation dates into established facts', () => {
+    expect(
+      deriveSignals(facts({ work: [work({ updatedAt: new Date(NaN), ownerDisabled: true })] })),
+    ).toEqual([]);
+    expect(
+      deriveSignals(facts({ work: [work({ updatedAt: inHours(1), dueAt: inHours(-72) })] })),
+    ).toEqual([]);
+    expect(
+      deriveSignals(
+        facts({
+          work: [work()],
+          agentRuns: [{ id: RECORD, workUnitId: WORK_A, stopCode: 'COST_LIMIT', at: inHours(1) }],
+        }),
+      ),
+    ).toEqual([]);
+  });
+
+  it('never mutates supplied facts or lets returned dates rewrite them', () => {
+    const value = work({ dueAt: inHours(-72) });
+    const input = facts({ work: [Object.freeze(value)] });
+    const before = JSON.stringify(input);
+    const [signal] = deriveSignals(input);
+    signal?.evidence[0].observedAt.setTime(0);
+    signal?.since.setTime(0);
+    expect(JSON.stringify(input)).toBe(before);
+  });
+});
+
+describe('strict Pulse key and snooze boundaries', () => {
+  it('refuses invalid key construction rather than issuing a usable-looking key', () => {
+    expect(() => pulseSignalKey('work_overdue', `${WORK_A}\n`)).toThrow();
+    expect(() => pulseSignalKey('constructor' as never, WORK_A)).toThrow();
+    expect(parsePulseSignalKey(`work_overdue:${WORK_A}\r\n`)).toBeNull();
+  });
+  it('allows exactly thirty days and refuses a longer, indefinite or nonfuture snooze', () => {
+    expect(PULSE_MAX_SNOOZE_DAYS).toBe(30);
+    const edge = new Date(NOW.getTime() + PULSE_MAX_SNOOZE_DAYS * 24 * HOUR);
+    expect(snoozeEndIsAllowed(edge, NOW)).toBe(true);
+    expect(snoozeEndIsAllowed(new Date(edge.getTime() + 1), NOW)).toBe(false);
+    expect(snoozeEndIsAllowed(edge, new Date(NaN))).toBe(false);
+    expect(personalStateOf({ state: 'snoozed', until: new Date(edge.getTime() + 1) }, NOW)).toEqual(
+      { personalState: 'open', snoozedUntil: null },
+    );
+    expect(personalStateOf({ state: 'dismissed', until: edge }, NOW)).toEqual({
+      personalState: 'open',
+      snoozedUntil: null,
+    });
+    expect(personalStateOf({ state: 'dismissed', until: null }, new Date(NaN))).toEqual({
+      personalState: 'open',
+      snoozedUntil: null,
+    });
+  });
+});
 
 describe('deriveSignals: what each fact becomes', () => {
   it('says nothing about work that has nothing to report', () => {
