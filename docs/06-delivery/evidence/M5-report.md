@@ -43,13 +43,21 @@ semantics. The added browser journeys are authored, not rendered/accepted.
 | Runtime protocol migration | 0214 applied to the existing disposable database and snapshotted; 32 journal entries now registered |
 | Joined runtime/ledger batch | **119 passed** in five files, 31.10 seconds: actual protocol, compiler context, tools, generated provenance and sharing ledger |
 | Joined focused units | **129 passed** in four files, including closed-input tool paths, deterministic checklist inventory and actual hypothetical policy binding |
+| Full units at `090f098` | **3,055 passed** across 121 files, 73.58 seconds |
+| Full real-role regression at `090f098` | **1,442 passed, 15 failed** across 55 files, 240.12 seconds; restore cleanup and older runtime/tenant fixtures required repair |
+| Onboarding source checkpoints | `f0e0568` and `de7e806` composed; actual run/outbox binding, complete retained output inventory, retry classification and plain-language recovery state. Their source-only 110-test and 32-test batches are separate from actual-role results |
+| Legacy onboarding upgrade refusal | Proposed 0215 refused pre-existing unbound run references with EN215 inside a rolled-back migration transaction; journal, temporary policies and helper function remained unchanged |
+| Repaired restore/onboarding gate | **83 passed** in four files, 35.06 seconds, after applying 33 migrations from a fresh disposable PostgreSQL database. Includes direct-role human/service refusal and actual reviewer/publication/service-identity concurrency |
+| Full repaired unit suite | **3,084 passed** in 125 files, 73.60 seconds; single worker to bound resource use |
+| Full repaired real-role suite | **1,486 passed** in 56 files, 249.80 seconds; all 15 earlier full-regression failures resolved and new actual gateway/private-restore/race cases included |
+| Latest schema metadata | 211 selected actual constraints audited against 0215 snapshot; zero naming differences |
 
 Source-management follow-up separately passed 80 focused units, scoped lint/format and serial
 database/application/tests/web/browser types before composition. Migration 0212 is now applied in
 the disposable database; its built browser journeys remain unrun. [Source details](m5/source-management.md)
 distinguish the earlier source checks. All current repaired source passed scoped formatting/lint and
-serial domain/database/application/connectors/tests types. The composed runtime join still needs
-its own checks.
+serial domain/database/application/connectors/tests types. The full regression found the additional
+cross-milestone gaps listed below; its failed result is retained rather than counted as acceptance.
 
 The actual input-runtime and compiler capture checkpoints are now composed. The first four-file
 runtime database run passed 103/113 cases; new protocol and generated-provenance suites passed, while
@@ -60,7 +68,38 @@ fresh all-input authority. The app role successfully reads only proposal metadat
 its private argument read remains denied. A later five-file run exposed two obsolete fixture assumptions
 and one incorrect raw schema reference; after correction, all 119 cases passed. Current scoped lint/format
 and sequential domain/database/application/agent-runtime/knowledge/tests/web types passed; broader
-regressions are the next gate.
+regression repairs are in progress.
+
+The first full regression exposed ordinary restore deleting its serving visibility before cleaning
+file metadata and invalidating reviews. A service-only, fixed SQL maintenance function now exposes
+ordinary file keys and affected Work IDs without exposing names or bytes. Whole surviving private
+files still require operator confirmation. Generated or unknown lineage is refused. Positive ordinary
+origin survives deletion in the retained catalog; unknown history is never silently promoted. The
+existing generated-file lifecycle still requires holds and writer/physical proof. Fresh SQL and
+repeat/review/private-serving regressions are being checked before this repair is accepted.
+
+Actual onboarding tests caught a reviewer/contributor assignment mismatch in the new adapter. Admission
+and advancement now require the reviewer assignment the workflow actually creates. Publication-set
+advisory locking and exclusive Work locks also guard direct SQL binding against concurrent publication
+and assignment changes. Work completion and list counts now consult fresh exact human acceptance or
+the existing pinned onboarding-adoption bridge before counting a generated output. The latest focused
+database round passed 78/79 checks and exposed the missing completion bridge; that repair and new
+direct-role concurrency regressions subsequently passed all 83 focused cases. The separate 179-case
+Work suite passed after refusing overlapping generated uploads and preserving unconfirmed stopped
+output bytes. The complete post-repair database regression subsequently passed all 1,486 cases.
+
+The repair passed scoped format/lint and sequential database/application/tests/workflows/worker/web
+types, including actual Next route generation. Commands run:
+
+```powershell
+pnpm exec vitest run --project unit --maxWorkers 1
+pnpm exec vitest run --project integration tests/integration/client-onboarding.test.ts tests/integration/client-onboarding-gateway.test.ts tests/integration/tombstone-ledger.test.ts tests/integration/knowledge-restore.test.ts
+pnpm exec vitest run --project integration
+```
+
+All three commands passed in the final repair gate. Local logs retain each failed iteration and rerun;
+failed test scaffolding and incorrect array binding were corrected without weakening serving RLS,
+input capture, physical erasure proof or M4's Work completion kernel.
 
 The data-sharing page now reads real run decisions with the same millisecond/UUID cursor as knowledge
 calls. It lists actual published/live agent versions and uses the shared pure egress policy with the
@@ -105,15 +144,16 @@ its exact Drive stream. A caller naming that stream on another connector cannot 
 
 ## Remaining integration
 
-Structured-input lineage 0211, source authority 0212 and evidence integrity 0213 are journaled, applied
-and snapshotted. Complete the broader regression and upgrade gates. Bind the exhaustive actual M4 compiler
-and tool-read inventory before generated writes, cited verification and human acceptance. Preserve
+Structured-input lineage 0211, source authority 0212, evidence integrity 0213, actual run-input protocol
+0214 and onboarding binding/restore guard 0215 are journaled, applied and snapshotted. The full local
+unit/database regression passed; built journey, replay, upgrade and runtime transport qualification
+remain. The actual compiler/tool inventory is composed and tested before generated writes. Preserve
 fresh named-viewer access and all inherited inputs through serving, revocation and physical erasure.
 
 Real knowledge model/embedding/rerank ports, capability-specific qualification, approved standalone
-model jobs, object-writer recovery, provider/OAuth/MCP guarded transports and actual onboarding
-run/cost/evidence binding still need composition. Canonical purposes, transcript writer fencing and
-actual egress readers are composed; full runtime/stack/mode acceptance remains open. Remaining
+model jobs, object-writer recovery and provider/OAuth/MCP guarded transports still need composition.
+Canonical purposes, transcript writer fencing, actual egress readers and onboarding run/cost/output
+binding are composed; full runtime/stack/mode acceptance remains open. Remaining
 unavailable ports fail closed.
 No model or provider result, full built browser journey, replay corpus, measured recall, hosted pilot,
 or complete Cloud/BYOM/Sovereign acceptance is claimed. Independent security and accessibility gates

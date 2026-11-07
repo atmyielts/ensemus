@@ -697,7 +697,7 @@ export async function createProject(
       return existing;
     } catch (error) {
       // A client elsewhere fails its tenant-safe key.
-      if (pgCode(error) === '42501') throw new AppError('NOT_FOUND');
+      if (pgCode(error) === '42501') throw new AppError('NOT_FOUND', 'FOREIGN_REFERENCE');
       throw pgCode(error) === FOREIGN_KEY_VIOLATION ? foreignReference() : error;
     }
   });

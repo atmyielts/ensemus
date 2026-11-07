@@ -399,7 +399,7 @@ export async function listWorkOverview(
         .select({
           workUnitId: workArtifacts.workUnitId,
           id: artifacts.id,
-          createdBy: artifacts.createdByMembershipId,
+          countsAsEvidence: artifactEvidenceFor(workArtifacts.workUnitId),
         })
         .from(workArtifacts)
         .innerJoin(artifacts, eq(artifacts.id, workArtifacts.artifactId))
@@ -539,10 +539,19 @@ export async function incompletePrerequisites(tx: Tx, id: string) {
 
 async function fileFacts(tx: Tx, id: string) {
   return tx
-    .select({ id: artifacts.id, createdBy: artifacts.createdByMembershipId })
+    .select({ id: artifacts.id, countsAsEvidence: artifactEvidenceFor(sql`${id}::uuid`) })
     .from(workArtifacts)
     .innerJoin(artifacts, eq(artifacts.id, workArtifacts.artifactId))
     .where(eq(workArtifacts.workUnitId, id));
+}
+
+/** Generated text proves completion only after fresh exact acceptance, or the pinned onboarding
+ * adoption bridge. Neither a model's own output nor a stale/foreign Work acceptance is enough. */
+function artifactEvidenceFor(workId: SQL | typeof workArtifacts.workUnitId) {
+  return sql<boolean>`case when ${artifacts.provenanceState}='ordinary'
+      and ${artifacts.createdByMembershipId} is not null then true
+    else knowledge.artifact_is_accepted(${artifacts.id},${workId})
+      or knowledge.onboarding_artifact_evidence(${artifacts.id},${workId}) end`;
 }
 
 /** The review a Work Unit would need right now: its current text and its current files. */
@@ -556,8 +565,8 @@ export async function currentReviewAction(tx: Tx, work: WorkRow) {
 
 /**
  * What the work can show right now. This is the only place evidence is counted, and both completion
- * paths and the page go through it. A file a plan generated itself proves nothing, so only files a
- * person added count. A review counts only while it covers exactly what the work now holds.
+ * paths and the page go through it. A generated file requires current exact human acceptance. A
+ * review counts only while it covers exactly what the work now holds.
  */
 export async function evidenceFor(tx: Tx, work: WorkRow, now = new Date()) {
   const files = await fileFacts(tx, work.id);
@@ -576,7 +585,7 @@ const APPROVED_REVIEW = {
 
 function countEvidence(
   work: WorkRow,
-  files: ReadonlyArray<{ id: string; createdBy: string | null }>,
+  files: ReadonlyArray<{ id: string; countsAsEvidence: boolean }>,
   approved: ReadonlyArray<{ toolName: string; expiresAt: Date; boundHash: string }>,
   verifiedReceiptCount: number,
   now: Date,
@@ -586,7 +595,7 @@ function countEvidence(
     files.map((file) => file.id),
   );
   return {
-    artifactCount: files.filter((file) => file.createdBy !== null).length,
+    artifactCount: files.filter((file) => file.countsAsEvidence).length,
     approvedReviewCount: approved.filter((row) =>
       reviewCovers({ ...row, status: 'approved' }, current, now),
     ).length,

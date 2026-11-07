@@ -4,7 +4,6 @@
 // puts back what a restore lost.
 import {
   appendAudit,
-  artifacts,
   artifactAclCatalog,
   artifactLineage,
   blobLifecycle,
@@ -12,7 +11,6 @@ import {
   tombstones,
   withNewTenantTx,
   withTenantTx,
-  workArtifacts,
   type AppDatabase,
   type TenantContext,
   type Tx,
@@ -27,7 +25,7 @@ import {
   type LedgerEntry,
 } from '@ensemus/domain/tombstone-ledger';
 import type { DerivedArtifactLifecycle } from './knowledge/artifact-provenance';
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 import { objectKey, type ObjectStore } from './artifacts';
 import { AppError } from './errors';
 import { closeOutdatedReviews, loadChangeable } from './work';
@@ -265,10 +263,31 @@ async function isWholeFile(
   context: TenantContext,
   targetId: string,
 ) {
-  const [artifact] = await withTenantTx(database, context, (tx) =>
-    tx.select({ key: artifacts.objectKey }).from(artifacts).where(eq(artifacts.id, targetId)),
+  const artifact = await withTenantTx(database, context, (tx) =>
+    ordinaryRestoreTarget(tx, targetId),
   );
-  return artifact ? store.exists(artifact.key) : false;
+  return artifact ? store.exists(artifact.objectKey) : false;
+}
+
+/** Fixed service-only SQL exposes key/work IDs, never a name or file content. It sees an ordinary
+ * private file despite serving RLS and refuses every generated/unknown lineage. */
+async function ordinaryRestoreTarget(
+  tx: Tx,
+  artifactId: string,
+  expectedWorks?: readonly string[],
+) {
+  const expected =
+    expectedWorks === undefined
+      ? sql`null::uuid[]`
+      : sql`ARRAY[${sql.join(
+          expectedWorks.map((id) => sql`${id}::uuid`),
+          sql`, `,
+        )}]::uuid[]`;
+  const result = await tx.execute<{ objectKey: string; workUnitIds: string[]; removed: boolean }>(
+    sql`select object_key as "objectKey",work_unit_ids as "workUnitIds",removed
+      from knowledge.restore_ordinary_artifact_metadata(${artifactId}::uuid,${expectedWorks !== undefined},${expected})`,
+  );
+  return result.rows[0];
 }
 
 /** One entry. Blocks access first, in one transaction, and only then touches any bytes. */
@@ -417,6 +436,12 @@ async function reapplyEntry(
       .from(organizations)
       .where(eq(organizations.id, organizationId));
     if (!organization) return null;
+    const artifact = await ordinaryRestoreTarget(tx, targetId);
+    // Work first, then the artifact catalog. New links after this snapshot are refused by the
+    // fixed delete helper, so no previously-unlocked Work is acquired under its metadata lock.
+    const affectedWork = [];
+    for (const workId of [...(artifact?.workUnitIds ?? [])].sort())
+      affectedWork.push(await loadChangeable(tx, context, workId));
     const added = await tx
       .insert(tombstones)
       .values({
@@ -428,13 +453,9 @@ async function reapplyEntry(
       })
       .onConflictDoNothing()
       .returning({ id: tombstones.targetId });
-    const [artifact] = await tx
-      .select({ key: artifacts.objectKey })
-      .from(artifacts)
-      .where(eq(artifacts.id, targetId));
-    const key = artifact?.key ?? objectKey(organizationId, targetId);
-    // Purged stays purged, so running this again writes nothing. An upload that was still in flight
-    // when the backup was taken became this file, and its row now says what is really happening.
+    const key = artifact?.objectKey ?? objectKey(organizationId, targetId);
+    // Preserve an old purge receipt only when no restored file exists. A surviving restored file
+    // invalidates that receipt and needs a fresh, durable deletion reservation.
     await tx
       .insert(blobLifecycle)
       .values({
@@ -447,22 +468,17 @@ async function reapplyEntry(
       .onConflictDoUpdate({
         target: [blobLifecycle.organizationId, blobLifecycle.artifactId],
         set: { state: 'deleting', purgeAfter: new Date() },
-        where: eq(blobLifecycle.state, 'uploading'),
+        ...(artifact ? {} : { where: eq(blobLifecycle.state, 'uploading') }),
       });
+    let artifactRemoved = false;
     if (artifact) {
-      const works = await tx
-        .select({ id: workArtifacts.workUnitId })
-        .from(workArtifacts)
-        .where(eq(workArtifacts.artifactId, targetId));
-      // Takes its links to work with it, through the foreign key.
-      await tx.delete(artifacts).where(eq(artifacts.id, targetId));
+      artifactRemoved =
+        (await ordinaryRestoreTarget(tx, targetId, artifact.workUnitIds))?.removed === true;
       // A review open in the backup may cover this file. Unlike an ordinary deletion, that review can
       // be holding its work, because the backup can hold what a person was never able to do.
-      for (const { id } of works) {
-        await closeOutdatedReviews(tx, context, await loadChangeable(tx, context, id));
-      }
+      for (const work of affectedWork) await closeOutdatedReviews(tx, context, work);
     }
-    if (added.length > 0 || artifact) {
+    if (added.length > 0 || artifactRemoved) {
       await appendAudit(tx, {
         organizationId,
         actorType: 'system',
@@ -472,7 +488,7 @@ async function reapplyEntry(
         safeReason: 'RESTORE_REAPPLY',
       });
     }
-    return { key, tombstoneAdded: added.length > 0, artifactRemoved: Boolean(artifact) };
+    return { key, tombstoneAdded: added.length > 0, artifactRemoved };
   });
 
   if (applied) {

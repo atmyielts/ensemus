@@ -579,9 +579,12 @@ describe('starting, steering and reading a run, as the real roles', () => {
       const workUnitId = await work(a);
       const view = await start(a, workUnitId);
       await expect(getAgentRun(app.db, a.member, view.id)).resolves.toBeTruthy();
-      await su.query(`update work.work_units set classification = 'restricted' where id = $1`, [
-        workUnitId,
-      ]);
+      await withTenantTx(app.db, a.owner, (tx) =>
+        tx
+          .update(workUnits)
+          .set({ classification: 'restricted' })
+          .where(eq(workUnits.id, workUnitId)),
+      );
       await refusedWith('NOT_FOUND', getAgentRun(app.db, a.member, view.id));
     });
 

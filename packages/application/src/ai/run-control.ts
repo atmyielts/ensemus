@@ -403,7 +403,7 @@ export async function requestOnboardingAgentRunInTx(
         inArray(workAssignments.workUnitId, [row.briefWorkUnitId!, row.reviewWorkUnitId]),
         eq(workAssignments.membershipId, row.reviewerMembershipId),
         eq(workAssignments.actorType, 'human'),
-        eq(workAssignments.responsibility, 'contributor'),
+        eq(workAssignments.responsibility, 'reviewer'),
       ),
     );
   if (new Set(assignments.map((assignment) => assignment.workUnitId)).size !== 2)

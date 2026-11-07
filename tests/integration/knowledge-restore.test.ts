@@ -4,6 +4,7 @@ import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
   AppError,
+  addArtifact,
   countUnappliedTombstones,
   createRestoreGate,
   createWorkUnit,
@@ -16,6 +17,7 @@ import { addUploadedSource, getSource } from '@ensemus/application/knowledge/sou
 import {
   createOrganization,
   artifactLineage,
+  artifacts,
   blobLifecycle,
   knowledgeSources,
   openAppDatabase,
@@ -31,7 +33,7 @@ import {
   serializeLedgerEntry,
   type LedgerEntry,
 } from '@ensemus/domain/tombstone-ledger';
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { urls } from '../helpers/stack';
 import {
   addGeneratedArtifact,
@@ -103,7 +105,9 @@ describe('knowledge source ledger reapply', () => {
       database.db,
       store,
       createServiceContext,
-      undefined,
+      (error) => {
+        throw error;
+      },
       confirmed ? { confirmed } : {},
     );
   it('keeps serving closed and requires confirmation when both restored rows and bytes survive', async () => {
@@ -140,6 +144,64 @@ describe('knowledge source ledger reapply', () => {
     );
     expect(mark?.createdAt).toEqual(source.entry.deletedAt);
     expect((await getSource(database.db, owner, source.sourceId)).state).toBe('deleted');
+  });
+  it('requires confirmation for an ordinary private file hidden from the service serving path', async () => {
+    const work = await createWorkUnit(database.db, owner, {
+      title: 'Private restored attachment',
+      objective: 'Retain the private file until restore confirmation.',
+      classification: 'restricted',
+    });
+    const artifact = await addArtifact(database.db, store, owner, {
+      workUnitId: work.id,
+      name: 'private-restored.txt',
+      mimeType: 'text/plain',
+      body: Buffer.from('Private restore fixture.'),
+    });
+    const service = createServiceContext(owner.organizationId);
+    expect(
+      await withTenantTx(database.db, service, (tx) =>
+        tx.select({ id: artifacts.id }).from(artifacts).where(eq(artifacts.id, artifact.id)),
+      ),
+    ).toEqual([]);
+    const metadata = (context: TenantContext) =>
+      withTenantTx(database.db, context, (tx) =>
+        tx.execute<{ objectKey: string; workUnitIds: string[]; removed: boolean }>(
+          sql`select object_key as "objectKey",work_unit_ids as "workUnitIds",removed
+            from knowledge.restore_ordinary_artifact_metadata(${artifact.id}::uuid)`,
+        ),
+      );
+    await expect(metadata(owner)).rejects.toThrow();
+    expect((await metadata(service)).rows).toEqual([
+      {
+        objectKey: `${owner.organizationId}/artifacts/${artifact.id}`,
+        workUnitIds: [work.id],
+        removed: false,
+      },
+    ]);
+    const entry: LedgerEntry = {
+      organizationId: owner.organizationId,
+      targetType: 'artifact',
+      targetId: artifact.id,
+      deletedAt: new Date(),
+    };
+    await store.put(ledgerKeyFor(entry), serializeLedgerEntry(entry), 'application/json');
+    const waiting = await reapply();
+    expect(waiting).toMatchObject({ unconfirmed: 1, artifactsRemoved: 0, bytesRemoved: 0 });
+    expect(
+      await readArtifact(database.db, store, owner, {
+        workUnitId: work.id,
+        artifactId: artifact.id,
+      }),
+    ).toMatchObject({ body: Buffer.from('Private restore fixture.') });
+    const applied = await reapply(new Set([ledgerRef(entry)]));
+    expect(applied).toMatchObject({
+      unconfirmed: 0,
+      artifactsRemoved: 1,
+      bytesRemoved: 1,
+      failed: 0,
+    });
+    expect((await metadata(service)).rows).toEqual([]);
+    expect(objects.has(`${owner.organizationId}/artifacts/${artifact.id}`)).toBe(false);
   });
   it('keeps a restored generated deletion pending across missing, held and unconfirmed lifecycle proof', async () => {
     const work = await createWorkUnit(database.db, owner, {
@@ -197,6 +259,14 @@ describe('knowledge source ledger reapply', () => {
       targetId: artifact.id,
       deletedAt: new Date(),
     };
+    for (const apply of [false, true])
+      await expect(
+        withTenantTx(database.db, service, (tx) =>
+          tx.execute(sql`select * from knowledge.restore_ordinary_artifact_metadata(
+            ${artifact.id}::uuid,${apply},ARRAY[${work.id}::uuid])`),
+        ),
+      ).rejects.toThrow();
+    expect(objects.has(`${owner.organizationId}/artifacts/${artifact.id}`)).toBe(true);
     await store.put(ledgerKeyFor(entry), serializeLedgerEntry(entry), 'application/json');
     const failures: unknown[] = [];
     const confirmed = new Set([ledgerRef(entry)]),

@@ -225,6 +225,13 @@
       "when": 1794007141493,
       "tag": "0214_agent_input_protocol",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1794010184887,
+      "tag": "0215_onboarding_run_binding",
+      "breakpoints": true
     }
   ]
 }

@@ -405,7 +405,11 @@ describe('tenant rules', () => {
 
   describe('naming something from another tenant (NEXT-01)', () => {
     /** A refusal the caller hears as bad input, and that the audit log records as what it was. */
-    async function expectForged(attempt: Promise<unknown>, context: TenantContext) {
+    async function expectForged(
+      attempt: Promise<unknown>,
+      context: TenantContext,
+      expectedCode = 'INVALID_INPUT',
+    ) {
       const error = await attempt.then(
         () => {
           throw new Error('It was not refused');
@@ -413,7 +417,7 @@ describe('tenant rules', () => {
         (failure: unknown) => failure,
       );
       expect(error).toBeInstanceOf(AppError);
-      expect((error as AppError).code).toBe('INVALID_INPUT');
+      expect((error as AppError).code).toBe(expectedCode);
       expect(isAuditedRefusal(error)).toBe(true);
       expect(refusalCode(error as AppError)).toBe('FOREIGN_REFERENCE');
       await auditRefusal(db(), context, {
@@ -544,6 +548,7 @@ describe('tenant rules', () => {
       await expectForged(
         createProject(db(), org, { name: 'Forged', clientId: theirs?.id as string }),
         org,
+        'NOT_FOUND',
       );
     });
 

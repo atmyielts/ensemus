@@ -525,7 +525,7 @@ describe('named client visibility on PostgreSQL application roles', () => {
     expect(pgCode(denied)).toBe('42501');
     await expect(
       createProject(database.db, reader, { name: 'Hidden relationship', clientId: client.id }),
-    ).rejects.toEqual(new AppError('NOT_FOUND'));
+    ).rejects.toMatchObject({ code: 'NOT_FOUND' });
     const fresh = await seedMember(database.db, owner, auth),
       disabled = await resolveTenantContext(database.db, fresh.userId, owner.organizationId);
     const own = await createClient(database.db, disabled, {

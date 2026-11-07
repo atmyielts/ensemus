@@ -18,7 +18,7 @@ import {
   policyBundles,
   withTenantTx,
 } from '@ensemus/database';
-import { createAgentContext, withRunLookupTx } from '@ensemus/database/agent';
+import { withRunLookupTx } from '@ensemus/database/agent';
 import {
   createInferenceGateway,
   createModelRouter,
@@ -29,6 +29,7 @@ import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
   openAgentTestDatabase,
+  prepareRunInputContext,
   seedActiveProfile,
   seedAgentVersion,
   seedAiTenant,
@@ -72,11 +73,7 @@ describe('routing, as the real roles', () => {
       version,
       classification,
     });
-    const context = await createAgentContext(agent.db, {
-      organizationId: tenant.organizationId,
-      initiatorMembershipId: tenant.owner.membershipId,
-      agentRunId: runId,
-    });
+    const context = await prepareRunInputContext(agent.db, tenant.organizationId, runId);
     return { runId, context, workUnitId, versionId: version.versionId };
   }
 

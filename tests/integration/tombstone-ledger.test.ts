@@ -861,7 +861,9 @@ describe('the tombstone ledger', () => {
       const before = await stateOf(a.organizationId);
       const objects = [...store.objects.keys()].sort();
 
-      const second = await reapplyTombstoneLedger(db(), store, createServiceContext);
+      const second = await reapplyTombstoneLedger(db(), store, createServiceContext, (error) => {
+        throw error;
+      });
       expect(second).toEqual({
         entries: first.entries,
         tombstonesAdded: 0,

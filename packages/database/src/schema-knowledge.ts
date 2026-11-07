@@ -20,6 +20,7 @@ import {
   uuid,
 } from 'drizzle-orm/pg-core';
 import { memberships, organizations } from './schema';
+import { agentRuns } from './schema-ai';
 import {
   connections,
   externalResources,
@@ -1069,7 +1070,7 @@ export const clientOnboardings = workSchema.table(
     briefObjectiveSha256: text(),
     reviewObjectiveSha256: text(),
     sendObjectiveSha256: text(),
-    /** M4's actual run; the tenant FK is added when the ai schema is joined. */
+    /** M4's actual root run, with a tenant FK and the 0215 immutable admission guard. */
     agentRunId: uuid(),
     /** Immutable provenance identifier; deliberately survives the generated artifact's privacy purge. */
     briefArtifactId: uuid(),
@@ -1086,6 +1087,11 @@ export const clientOnboardings = workSchema.table(
   (t) => [
     primaryKey({ columns: [t.organizationId, t.id] }),
     unique('client_onboardings_deal').on(t.organizationId, t.dealRef),
+    foreignKey({
+      name: 'client_onboarding_run_fk',
+      columns: [t.organizationId, t.agentRunId],
+      foreignColumns: [agentRuns.organizationId, agentRuns.id],
+    }),
     foreignKey({
       name: 'client_onboardings_organization_id_owner_membership_id_fkey',
       columns: [t.organizationId, t.ownerMembershipId],

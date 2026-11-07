@@ -298,13 +298,19 @@ describe('access scopes', () => {
         [work.id],
       );
       expect(new Set(rows.map((row) => row.actor_type))).toEqual(new Set(['human']));
-      await expect(
-        su.query(
-          `update work.work_assignments set actor_type = 'robot'
+      await su.query('begin');
+      try {
+        await su.query("select set_config('app.organization_id',$1,true)", [dan.organizationId]);
+        await expect(
+          su.query(
+            `update work.work_assignments set actor_type = 'robot'
            where work_unit_id = $1 and membership_id = $2`,
-          [work.id, dan.membershipId],
-        ),
-      ).rejects.toThrow(/work_assignments_actor_type_check/);
+            [work.id, dan.membershipId],
+          ),
+        ).rejects.toThrow(/work_assignments_actor_type_check/);
+      } finally {
+        await su.query('rollback');
+      }
     });
   });
 

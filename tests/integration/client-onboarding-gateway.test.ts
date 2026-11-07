@@ -36,6 +36,8 @@ import {
   tombstones,
   usageLedger,
   withTenantTx,
+  workAssignments,
+  type TenantContext,
 } from '@ensemus/database';
 import { createDelegatedContext, createServiceContext } from '@ensemus/database/service';
 import { withRunLookupTx } from '@ensemus/database/agent';
@@ -156,6 +158,103 @@ describe('onboarding uses one authorized actual M4 run', () => {
       onboardingId: snapshot.id,
     };
   }
+
+  const rawBind = (f: Awaited<ReturnType<typeof fixture>>, runId: string, context = f.delegated) =>
+    withTenantTx(app.db, context, (tx) =>
+      tx
+        .update(clientOnboardings)
+        .set({
+          agentRunId: runId,
+          state: 'waiting_for_brief',
+          version: sql`${clientOnboardings.version}+1`,
+        })
+        .where(eq(clientOnboardings.id, f.onboardingId)),
+    );
+  const unboundRun = (f: Awaited<ReturnType<typeof fixture>>) =>
+    startAgentRun(app.db, f.owner, {
+      work_unit_id: f.request.workUnitId,
+      agent_version_id: f.published!.id,
+    });
+  const deferred = () => {
+    let resolve = () => undefined as void;
+    const promise = new Promise<void>((done) => {
+      resolve = done;
+    });
+    return { promise, resolve: () => resolve() };
+  };
+  const sqlRefused = (code: string, action: Promise<unknown>) =>
+    expect(action).rejects.toSatisfy((error: unknown) => {
+      let cause = error;
+      for (let depth = 0; depth < 5 && cause && typeof cause === 'object'; depth++) {
+        if ('code' in cause && cause.code === code) return true;
+        cause = 'cause' in cause ? cause.cause : null;
+      }
+      return false;
+    });
+
+  it('SQL independently refuses human, service and foreign-run binding before accepting its exact delegated run', async () => {
+    const f = await fixture(),
+      run = await unboundRun(f);
+    for (const context of [f.owner, f.service] as TenantContext[])
+      await sqlRefused('42501', rawBind(f, run.id, context));
+    await sqlRefused('EN215', rawBind(f, randomUUID()));
+    expect(await f.row()).toMatchObject({ state: 'started', agentRunId: null });
+    await rawBind(f, run.id);
+    expect(await f.row()).toMatchObject({ state: 'waiting_for_brief', agentRunId: run.id });
+  });
+
+  it.each(['reviewer assignment', 'publication set', 'service identity'] as const)(
+    'serializes SQL binding against a concurrent change to the %s',
+    async (change) => {
+      const f = await fixture(),
+        run = await unboundRun(f);
+      const serviceIdentityId = (await f.runRows())[0]!.serviceIdentityId;
+      const entered = deferred(),
+        release = deferred();
+      const mutation = withTenantTx(app.db, f.owner, async (tx) => {
+        if (change === 'reviewer assignment') {
+          await tx
+            .delete(workAssignments)
+            .where(
+              and(
+                eq(workAssignments.workUnitId, f.request.workUnitId),
+                eq(workAssignments.membershipId, f.member.membershipId),
+              ),
+            );
+        } else if (change === 'publication set') {
+          await tx.insert(agentPublications).values({
+            organizationId: f.organizationId,
+            definitionId: f.published!.definition_id,
+            versionId: f.published!.id,
+            activeFrom: new Date(Date.now() - 1000),
+            activeUntil: new Date(Date.now() + 60 * 60 * 1000),
+          });
+        } else {
+          await tx
+            .update(serviceIdentities)
+            .set({ status: 'disabled' })
+            .where(eq(serviceIdentities.id, serviceIdentityId));
+        }
+        entered.resolve();
+        await release.promise;
+      });
+      try {
+        await Promise.race([
+          entered.promise,
+          mutation.then(() => {
+            throw new Error('TEST_MUTATION_NOT_HELD');
+          }),
+        ]);
+        await sqlRefused('55P03', rawBind(f, run.id));
+        expect(await f.row()).toMatchObject({ state: 'started', agentRunId: null });
+      } finally {
+        release.resolve();
+        await mutation;
+      }
+      await sqlRefused('EN215', rawBind(f, run.id));
+      expect(await f.row()).toMatchObject({ state: 'started', agentRunId: null });
+    },
+  );
 
   it('binds one real run, outbox and waiting state across retries and a lost response', async () => {
     const f = await fixture();
@@ -342,9 +441,9 @@ describe('onboarding uses one authorized actual M4 run', () => {
           objective: 'Changed after onboarding creation.',
         });
       if (change === 'owner')
-        await su.query(
-          'update work.work_units set owner_membership_id=$1 where organization_id=$2 and id=$3',
-          [f.owner.membershipId, f.organizationId, f.request.workUnitId],
+        await withTenantTx(app.db, f.owner, (tx) =>
+          tx.execute(sql`update work.work_units set owner_membership_id=${f.owner.membershipId}::uuid
+            where id=${f.request.workUnitId}::uuid`),
         );
       if (change === 'assignment')
         await unassign(app.db, f.owner, {
@@ -357,9 +456,10 @@ describe('onboarding uses one authorized actual M4 run', () => {
           [f.organizationId, f.request.workUnitId],
         );
       if (change === 'project')
-        await su.query(
-          'update work.work_units set project_id=null where organization_id=$1 and id=$2',
-          [f.organizationId, f.request.workUnitId],
+        await withTenantTx(app.db, f.owner, (tx) =>
+          tx.execute(
+            sql`update work.work_units set project_id=null where id=${f.request.workUnitId}::uuid`,
+          ),
         );
       await refused('VERSION_CONFLICT', f.requestRun());
       expect(await f.runRows()).toHaveLength(0);

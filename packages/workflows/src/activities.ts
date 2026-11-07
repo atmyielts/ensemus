@@ -141,7 +141,7 @@ export function createActivities(deps: {
 
     /**
      * Produces the plan's deterministic artifact, on work this run holds. A retry finds it and adds
-     * nothing, and an attempt still in flight after a timeout loses to whichever attached it first.
+     * nothing. An overlapping upload is refused while the original writer remains active.
      */
     async produceChecklistArtifact(input: RunInput): Promise<{ artifactId: string }> {
       const ctx = context(input);

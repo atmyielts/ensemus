@@ -2,12 +2,14 @@
 import { randomUUID } from 'node:crypto';
 import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { AppError } from '@ensemus/application';
+import { AppError, getWorkDetail, listWorkOverview } from '@ensemus/application';
 import { agentSpecSha256, publishAgentVersion } from '@ensemus/application/ai-agents';
 import { createOnboardingAgentRuns } from '@ensemus/application/knowledge/onboarding-run-port';
+import { compileEvidence } from '@ensemus/application/knowledge/compiler';
 import { addGeneratedArtifact } from '@ensemus/application/knowledge/artifact-provenance';
 import { createRunInputInventory } from '@ensemus/application/ai-input-ledger';
 import { agentSpecV1Schema } from '@ensemus/contracts/ai';
+import { createScriptedModelPort } from '@ensemus/knowledge/testing';
 import {
   openAgentTestDatabase,
   prepareRunInputContext,
@@ -287,6 +289,28 @@ describe('deal won to one verified onboarding', () => {
       };
     const text = 'Generated cited client brief.';
     const writer = await prepareRunInputContext(agent.db, owner.organizationId, stored.agentRunId!);
+    const source = await seedSearchableSource(database.db, owner, {
+      passages: [text],
+      grants: [{ kind: 'organization' }],
+    });
+    // Exercise actual retrieval/capture before generation; a later citation cannot invent an input.
+    // This scripted model port is confined to the synthetic state-machine test.
+    const compiled = await compileEvidence(
+      agent.db,
+      writer,
+      { model: createScriptedModelPort({}) },
+      {
+        purpose: 'agent_turn',
+        question: text,
+        queryClassification: 'internal',
+        workUnitId: stored.briefWorkUnitId!,
+        runId: stored.agentRunId!,
+        sourceIds: [source.sourceId],
+        budgetTokens: 1000,
+        signal: AbortSignal.timeout(10_000),
+      },
+    );
+    expect(compiled).toMatchObject({ ok: true, items: [{ sourceId: source.sourceId }] });
     const artifact = await addGeneratedArtifact(
       agent.db,
       store,
@@ -301,10 +325,6 @@ describe('deal won to one verified onboarding', () => {
       },
       { inventory: createRunInputInventory() },
     );
-    const source = await seedSearchableSource(database.db, owner, {
-      passages: [text],
-      grants: [{ kind: 'organization' }],
-    });
     await recordArtifactCitations(database.db, owner, {
       workUnitId: stored.briefWorkUnitId!,
       artifactId: artifact.id,
@@ -322,6 +342,9 @@ describe('deal won to one verified onboarding', () => {
       waitFor: 'person',
     });
     expect((await row(created.onboardingId)).emailExternalActionId).toBeNull();
+    expect(
+      (await getWorkDetail(database.db, owner, stored.briefWorkUnitId!)).evidence.artifactCount,
+    ).toBe(0);
     const reviewInput = { workUnitId: stored.briefWorkUnitId!, artifactId: artifact.id };
     await checkArtifactGrounding(database.db, store, service(), reviewInput);
     const proof = await getArtifactVerification(database.db, reviewer, reviewInput);
@@ -343,6 +366,14 @@ describe('deal won to one verified onboarding', () => {
     });
     await advance(created.onboardingId, gateway.port);
     const updated = await row(created.onboardingId);
+    for (const workId of [stored.workUnitId, stored.briefWorkUnitId!, stored.reviewWorkUnitId!])
+      expect((await getWorkDetail(database.db, owner, workId)).evidence.artifactCount).toBe(1);
+    const overview = await listWorkOverview(database.db, owner, { projectId: stored.projectId! });
+    expect(
+      overview.items
+        .filter((work) => work.id !== stored.sendWorkUnitId)
+        .map((work) => work.evidence.artifactCount),
+    ).toEqual([1, 1, 1]);
     expect(updated.acceptedVerificationId).not.toBeNull();
     expect(updated.emailExternalActionId).not.toBeNull();
     const [action] = await withTenantTx(database.db, service(), (tx) =>
@@ -398,6 +429,9 @@ describe('deal won to one verified onboarding', () => {
       ),
     );
     expect((await bridge()).rows[0]).toEqual({ parent: true, review: false });
+    expect(
+      (await getWorkDetail(database.db, owner, stored.reviewWorkUnitId!)).evidence.artifactCount,
+    ).toBe(0);
     expect(await advance(created.onboardingId, gateway.port)).toMatchObject({
       state: 'failed',
       waitFor: 'nothing',

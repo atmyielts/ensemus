@@ -629,7 +629,7 @@ export async function advanceClientOnboarding(
             inArray(workAssignments.workUnitId, [brief.id, review.id]),
             eq(workAssignments.membershipId, row.reviewerMembershipId),
             eq(workAssignments.actorType, 'human'),
-            eq(workAssignments.responsibility, 'contributor'),
+            eq(workAssignments.responsibility, 'reviewer'),
           ),
         );
       if (new Set(reviewerAssignments.map((assignment) => assignment.workUnitId)).size !== 2)
