@@ -79,5 +79,31 @@ test.describe('custom record native forms', () => {
     const other = await open(world.bob);
     await other.goto(`/o/${world.organization}/objects`);
     expect((await other.request.get(`${base}/object-records/${record.id}`)).status()).toBe(404);
+    const memberCreated = await other.request.post(`${base}/object-types/${type.id}/records`, {
+      headers: { ...headers, 'idempotency-key': randomUUID() },
+      data: {
+        display_name: 'Member-owned restricted record',
+        attributes: {},
+        classification: 'restricted',
+      },
+    });
+    expect(memberCreated.status()).toBe(201);
+    const memberRecord = await memberCreated.json();
+    const memberLowering = await other.request.patch(`${base}/object-records/${memberRecord.id}`, {
+      headers: { ...headers, 'if-match': memberCreated.headers()['etag'] ?? '' },
+      data: { classification: 'internal' },
+    });
+    expect(memberLowering.status()).toBe(403);
+    expect((await memberLowering.json()).code).toBe('FORBIDDEN');
+    await other.goto(`/o/${world.organization}/objects/records/${memberRecord.id}`);
+    await other.getByText('Edit record', { exact: true }).click();
+    await expect(
+      other
+        .getByLabel('Sensitivity', { exact: true })
+        .getByRole('option', { name: 'Internal', exact: true }),
+    ).toHaveCount(0);
+    expect((await page.request.get(`${base}/object-records/${memberRecord.id}`)).status()).toBe(
+      404,
+    );
   });
 });
