@@ -57,6 +57,7 @@ import { toRoutableProfile } from './model-profiles';
 import { billingPeriodOf, costMicros, isBillable } from './usage';
 import { createHaltCheck } from './halt';
 import { assertRunInputsReadable, lockRunInputsForContent } from './input-observations';
+import { assertWithinAgentProtection, loadAgentReadScopeInTx } from './read-scope';
 import type { HaltCheck, RateCardRef } from './ports';
 import type {
   KnowledgeCallStore,
@@ -222,6 +223,34 @@ export async function lockKnowledgeModelInputs(
     );
     if (!result.rows[0]?.locked) throw fail();
   }
+}
+
+/** The actual immutable manifest narrows both the current operation and every retained prior
+ * influence. This is content admission only; late accounting settlement deliberately remains open. */
+export async function assertKnowledgeAgentScopeInTx(
+  tx: Tx,
+  principal: KnowledgeModelPrincipal,
+  classification: string,
+  inputs: readonly { kind: string; sourceId?: string | null }[],
+) {
+  if (principal.kind !== 'agent_run') return;
+  const scope = await loadAgentReadScopeInTx(tx, principal.context, principal.step, {
+    lockRun: true,
+  });
+  if (
+    !scope.sourceIds.length ||
+    rank(classification) < 0 ||
+    inputs.some(
+      (input) => input.kind === 'chunk' && !scope.sourceIds.includes(input.sourceId ?? ''),
+    )
+  )
+    throw fail();
+  assertWithinAgentProtection(
+    scope,
+    classification as import('@ensemus/domain/ai').AiClassification,
+  );
+  if (!scope.hasTargetWork || rank(classification) < rank(scope.companyClassification))
+    throw fail();
 }
 
 export function createKnowledgeCallStore(
@@ -627,6 +656,12 @@ export function createKnowledgeCallStore(
       withModelPrincipalTx(database, principal, async (tx) => {
         await requireNamedMember(tx, principal);
         await lockKnowledgeModelInputs(tx, input.metadata.inputs);
+        await assertKnowledgeAgentScopeInTx(
+          tx,
+          principal,
+          input.classification,
+          input.metadata.inputs,
+        );
         if (principal.kind === 'agent_run') await lockRunInputsForContent(tx, principal.context);
         const facts = await principalFacts(tx, principal, true);
         const [prior] = await tx
@@ -977,6 +1012,7 @@ export function createKnowledgeCallStore(
             ...(input.sourceId ? { sourceId: input.sourceId } : {}),
           })),
         );
+        await assertKnowledgeAgentScopeInTx(tx, principal, c.classification, inputs);
         if (principal.kind === 'agent_run') await lockRunInputsForContent(tx, principal.context);
         await halt.assertRunning(tx, principal.context, {
           providerKind: (
@@ -1007,6 +1043,13 @@ export function createKnowledgeCallStore(
       withModelPrincipalTx(database, principal, async (tx) => {
         const c = await ownAttempt(tx, principal, callId);
         if (c.state !== 'response_received') throw fail('MODEL_UNAVAILABLE');
+        const inputs = await tx
+          .select({ kind: modelCallInputs.kind, sourceId: modelCallInputs.sourceId })
+          .from(modelCallInputs)
+          .where(eq(modelCallInputs.callId, c.id))
+          .limit(1001);
+        if (inputs.length > 1000) throw fail();
+        await assertKnowledgeAgentScopeInTx(tx, principal, c.classification, inputs);
         await tx.execute(
           sql`select ai.assert_model_call(c) from ai.model_call_attempts c where c.organization_id=${principal.context.organizationId}::uuid and c.id=${c.id}::uuid`,
         );

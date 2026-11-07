@@ -42,7 +42,12 @@ export type RetrievedPassage = {
 export async function searchLexical(
   database: AppDatabase,
   context: TenantContext,
-  input: { query: string; limit?: number; sourceIds?: readonly string[] },
+  input: {
+    query: string;
+    limit?: number;
+    sourceIds?: readonly string[];
+    maxClassification?: Classification;
+  },
 ): Promise<readonly RetrievedPassage[]> {
   const result = await retrieveHybrid(database, context, { ...input, queryVector: null });
   return result.passages;
@@ -61,11 +66,17 @@ export async function retrieveHybrid(
     queryVector: { spaceId: string; vector: readonly number[] } | null;
     limit?: number;
     sourceIds?: readonly string[];
+    maxClassification?: Classification;
   },
 ): Promise<{ mode: 'hybrid' | 'lexical'; passages: readonly RetrievedPassage[] }> {
   if (context.actorType === 'service') throw new AppError('FORBIDDEN');
   const query = searchQuery(input.query);
   const limit = searchLimit(input.limit);
+  if (
+    input.maxClassification !== undefined &&
+    !['public', 'internal', 'confidential', 'restricted'].includes(input.maxClassification)
+  )
+    throw new AppError('INVALID_INPUT');
   const sourceIds = input.sourceIds?.map((id) => {
     const parsed = idSchema.safeParse(id);
     if (!parsed.success) throw new AppError('INVALID_INPUT');
@@ -103,7 +114,14 @@ export async function retrieveHybrid(
     }
     // Both rankings and the words they name come from one statement, so a concurrent revoke cannot
     // leave a rank, count or passage from an older ACL paired with a newer one.
-    const rows = await rankedPassages(tx, context, query, sourceIds, approvedVector);
+    const rows = await rankedPassages(
+      tx,
+      context,
+      query,
+      sourceIds,
+      approvedVector,
+      input.maxClassification,
+    );
     const lexical = rows.filter((row) => row.channel === 'lexical');
     const vectors = rows.filter((row) => row.channel === 'vector');
     const byId = new Map(rows.map((row) => [row.chunkId, row]));
@@ -169,6 +187,7 @@ async function rankedPassages(
   query: string,
   sourceIds: readonly string[] | undefined,
   vector: { spaceId: string; vector: readonly number[] } | null,
+  maxClassification?: Classification,
 ): Promise<readonly RankedPassage[]> {
   const scope = sourceIds
     ? sql`and c.source_id in (${sql.join(
@@ -202,6 +221,7 @@ async function rankedPassages(
          and d.state = 'searchable' and d.superseded_at is null and d.searchable_at is not null
          and c.source_id in (select knowledge.readable_source_ids(app.current_membership_id()))
          ${scope}
+         ${maxClassification ? sql`and greatest(knowledge.class_rank(s.classification),knowledge.class_rank(d.classification))<=knowledge.class_rank(${maxClassification})` : sql``}
     ), lexical as (
       select "chunkId", 'lexical'::text as channel,
              row_number() over (order by ts_rank_cd(lexemes, websearch_to_tsquery('english', ${query})) desc, "chunkId")::integer as rank

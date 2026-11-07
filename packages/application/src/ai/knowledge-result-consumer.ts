@@ -7,7 +7,11 @@ import {
   type ModelUsage,
 } from '@ensemus/knowledge/ports';
 import { and, eq, sql } from 'drizzle-orm';
-import { bindModelPrincipal, lockKnowledgeModelInputs } from './knowledge-call-store';
+import {
+  assertKnowledgeAgentScopeInTx,
+  bindModelPrincipal,
+  lockKnowledgeModelInputs,
+} from './knowledge-call-store';
 import { lockRunInputsForContent } from './input-observations';
 import type { KnowledgeModelPrincipal, ModelResultConsumer } from './knowledge-ports';
 
@@ -18,6 +22,7 @@ const bindings = [
   'app.actor_type',
   'app.agent_run_id',
   'app.agent_input_protocol',
+  'app.agent_scope_protocol',
   'app.knowledge_model_protocol',
   'app.model_job_id',
   'app.interactive_session_id',
@@ -81,6 +86,7 @@ export function bindKnowledgeModelReceipts(
         'app.actor_type': c.actorType,
         'app.agent_run_id': principal.kind === 'agent_run' ? principal.step.runId : '',
         'app.agent_input_protocol': principal.kind === 'agent_run' ? 'v1' : '',
+        'app.agent_scope_protocol': '',
         'app.interactive_session_id': '',
       };
       for (const [name, value] of Object.entries(temporary))
@@ -115,6 +121,7 @@ export function bindKnowledgeModelReceipts(
           ...(input.sourceId ? { sourceId: input.sourceId } : {}),
         })),
       );
+      await assertKnowledgeAgentScopeInTx(inner, principal, call.classification, inputs);
       if (principal.kind === 'agent_run') await lockRunInputsForContent(inner, principal.context);
       await inner.execute(
         sql`select ai.assert_model_call(c) from ai.model_call_attempts c where c.organization_id=${c.organizationId}::uuid and c.id=${callId}::uuid`,

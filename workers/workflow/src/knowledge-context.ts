@@ -3,6 +3,7 @@ import type { ContextCompiler, RunRef, ContextLimits } from '@ensemus/agent-runt
 import { compileEvidence, type CompileDeps } from '@ensemus/application/knowledge/compiler';
 import type { KnowledgeModelPrincipal } from '@ensemus/application/ai-knowledge-ports';
 import { AppError } from '@ensemus/application';
+import { loadAgentReadScope } from '@ensemus/application/ai-context-source';
 import type { AgentContext, AppDatabase } from '@ensemus/database';
 import { strongestClassification } from '@ensemus/domain/ai';
 import { canonicalJson } from '@ensemus/domain/approval';
@@ -28,10 +29,11 @@ export function createKnowledgeContextCompiler(deps: {
 }): ContextCompiler {
   return {
     async compile(context, run) {
+      const scope = await loadAgentReadScope(deps.database, context, run);
       const base = await deps.base.compile(context, run);
       // An old Activity cannot claim a new paid auxiliary principal. It may still assemble the existing
       // M4-only context; the joined new Activity supplies this exact identity before Knowledge is used.
-      if (!run.modelStep || !run.signal) return base;
+      if (!run.modelStep || !run.signal || scope.sourceIds.length === 0) return base;
       const { modelStep } = run;
       const principal: KnowledgeModelPrincipal = {
         kind: 'agent_run',
@@ -76,6 +78,8 @@ export function createKnowledgeContextCompiler(deps: {
           workUnitId: run.workUnitId,
           runId: run.runId,
           budgetTokens: Math.max(1, Math.min(MAX_EVIDENCE_TOKENS, room)),
+          sourceIds: scope.sourceIds,
+          ...(scope.ceiling ? { maxClassification: scope.ceiling } : {}),
           signal: run.signal,
         },
       );

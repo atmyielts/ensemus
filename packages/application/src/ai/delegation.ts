@@ -336,6 +336,14 @@ export async function createChildRun(
       const refuse = (code: DelegationCode, reason?: string) =>
         denyInTx(tx, context, parentRunId, code, reason);
 
+      // An actual delegation-birth influence receipt is unavailable until 0416 is joined. Refuse
+      // before copying any parent-derived Work text; a scope/class label is not provenance proof.
+      const influence = await tx.execute<{ ready: boolean }>(
+        sql`select ai.delegation_influence_ready(${parentRunId}::uuid,${ids.runId}::uuid) ready`,
+      );
+      if (influence.rows[0]?.ready !== true)
+        return refuse('DELEGATION_WIDENED', 'DELEGATION_INPUT_PROOF_UNAVAILABLE');
+
       // The initiator's own access, read now. They may have lost it since the run began.
       if (!can(context.role, 'work.create') || !can(context.role, 'agent.run')) {
         return refuse('DELEGATION_WIDENED', 'RESOURCE_NOT_PERMITTED');
