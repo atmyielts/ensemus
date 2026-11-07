@@ -1215,7 +1215,7 @@ describe('public API', () => {
         // These operations have their own successful-response coverage assertion.
         .filter(
           ({ path }) =>
-            !/\/(external-actions|connections|agent-runs|agent-versions|model-profiles|budgets|usage|entitlements)(\/|$)/.test(
+            !/\/(external-actions|connections|agent-runs|agent-versions|model-profiles|budgets|usage|entitlements|object-types|object-records)(\/|$)/.test(
               path,
             ),
         )

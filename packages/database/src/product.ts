@@ -5,6 +5,7 @@ import { ssoConnections, scimTokens } from './schema-product';
 import { createServiceContext, type AppDatabase, type TenantContext, type Tx } from './tenant';
 
 export * from './schema-product';
+export * from './schema-object-authority';
 
 export type ScimScope = {
   token: typeof scimTokens.$inferSelect;

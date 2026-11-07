@@ -4751,7 +4751,7 @@ export interface paths {
             };
             requestBody?: never;
             responses: {
-                /** @description Done */
+                /** @description Current authorized data */
                 200: {
                     headers: {
                         [name: string]: unknown;
@@ -4759,7 +4759,6 @@ export interface paths {
                     content: {
                         "application/json": {
                             items: components["schemas"]["ObjectType"][];
-                            next?: string | null;
                         };
                     };
                 };
@@ -4773,14 +4772,13 @@ export interface paths {
             };
         };
         put?: never;
-        /**
-         * Define a custom type
-         * @description The body is checked against createObjectTypeSchema in @ensemus/contracts.
-         */
+        /** Define a custom type */
         post: {
             parameters: {
                 query?: never;
-                header?: never;
+                header: {
+                    "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                };
                 path: {
                     /** @description Requires authenticated organization membership; UUID alone is never authorization. */
                     organization_id: components["parameters"]["OrganizationID"];
@@ -4789,15 +4787,14 @@ export interface paths {
             };
             requestBody: {
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["CreateObjectType"];
                 };
             };
             responses: {
-                /** @description Done */
+                /** @description Saved */
                 201: {
                     headers: {
+                        ETag: components["headers"]["ETag"];
                         [name: string]: unknown;
                     };
                     content: {
@@ -4811,7 +4808,6 @@ export interface paths {
                 409: components["responses"]["Conflict"];
                 413: components["responses"]["PayloadTooLarge"];
                 415: components["responses"]["UnsupportedMediaType"];
-                422: components["responses"]["Validation"];
                 500: components["responses"]["InternalError"];
                 503: components["responses"]["RestorePending"];
             };
@@ -4822,14 +4818,14 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/organizations/{organization_id}/object-types/{object_type_id}": {
+    "/organizations/{organization_id}/object-types/{type_id}": {
         parameters: {
             query?: never;
             header?: never;
             path: {
                 /** @description Requires authenticated organization membership; UUID alone is never authorization. */
                 organization_id: components["parameters"]["OrganizationID"];
-                object_type_id: string;
+                type_id: string;
             };
             cookie?: never;
         };
@@ -4841,15 +4837,16 @@ export interface paths {
                 path: {
                     /** @description Requires authenticated organization membership; UUID alone is never authorization. */
                     organization_id: components["parameters"]["OrganizationID"];
-                    object_type_id: string;
+                    type_id: string;
                 };
                 cookie?: never;
             };
             requestBody?: never;
             responses: {
-                /** @description Done */
+                /** @description Current authorized data */
                 200: {
                     headers: {
+                        ETag: components["headers"]["ETag"];
                         [name: string]: unknown;
                     };
                     content: {
@@ -4870,27 +4867,8 @@ export interface paths {
         delete?: never;
         options?: never;
         head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/organizations/{organization_id}/object-types/{object_type_id}/versions": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
-                organization_id: components["parameters"]["OrganizationID"];
-                object_type_id: string;
-            };
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Add a new shape. Refused if it could lose data
-         * @description The body is checked against addObjectTypeVersionSchema in @ensemus/contracts.
-         */
-        post: {
+        /** Raise the minimum sensitivity; lowering is refused */
+        patch: {
             parameters: {
                 query?: never;
                 header: {
@@ -4900,21 +4878,23 @@ export interface paths {
                 path: {
                     /** @description Requires authenticated organization membership; UUID alone is never authorization. */
                     organization_id: components["parameters"]["OrganizationID"];
-                    object_type_id: string;
+                    type_id: string;
                 };
                 cookie?: never;
             };
             requestBody: {
                 content: {
                     "application/json": {
-                        [key: string]: unknown;
+                        /** @enum {string} */
+                        classification: "public" | "internal" | "confidential" | "restricted";
                     };
                 };
             };
             responses: {
-                /** @description Done */
-                202: {
+                /** @description Current authorized data */
+                200: {
                     headers: {
+                        ETag: components["headers"]["ETag"];
                         [name: string]: unknown;
                     };
                     content: {
@@ -4928,7 +4908,72 @@ export interface paths {
                 409: components["responses"]["Conflict"];
                 413: components["responses"]["PayloadTooLarge"];
                 415: components["responses"]["UnsupportedMediaType"];
-                422: components["responses"]["Validation"];
+                428: components["responses"]["PreconditionRequired"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        trace?: never;
+    };
+    "/organizations/{organization_id}/object-types/{type_id}/versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+                type_id: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Save a safe immutable shape and queue record migration */
+        post: {
+            parameters: {
+                query?: never;
+                header: {
+                    /** @description The version last read, as sent in the ETag response header. Weak tags, lists and * are refused. */
+                    "If-Match": components["parameters"]["IfMatch"];
+                };
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                    type_id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["AddObjectTypeVersion"];
+                };
+            };
+            responses: {
+                /** @description Unchanged shape; no migration requested */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ObjectMigrationPlan"];
+                    };
+                };
+                /** @description Saved */
+                202: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ObjectMigrationPlan"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                409: components["responses"]["Conflict"];
+                413: components["responses"]["PayloadTooLarge"];
+                415: components["responses"]["UnsupportedMediaType"];
                 428: components["responses"]["PreconditionRequired"];
                 500: components["responses"]["InternalError"];
                 503: components["responses"]["RestorePending"];
@@ -4940,32 +4985,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/organizations/{organization_id}/object-types/{object_type_id}/records": {
+    "/organizations/{organization_id}/object-types/{type_id}/records": {
         parameters: {
             query?: never;
             header?: never;
             path: {
                 /** @description Requires authenticated organization membership; UUID alone is never authorization. */
                 organization_id: components["parameters"]["OrganizationID"];
-                object_type_id: string;
+                type_id: string;
             };
             cookie?: never;
         };
-        /** List records the viewer can read */
+        /** Page records after applying current access rules */
         get: {
             parameters: {
-                query?: never;
+                query?: {
+                    after?: string;
+                    limit?: number;
+                    /** @description Declared indexed field key; requires equals. */
+                    field?: string;
+                    equals?: string;
+                };
                 header?: never;
                 path: {
                     /** @description Requires authenticated organization membership; UUID alone is never authorization. */
                     organization_id: components["parameters"]["OrganizationID"];
-                    object_type_id: string;
+                    type_id: string;
                 };
                 cookie?: never;
             };
             requestBody?: never;
             responses: {
-                /** @description Done */
+                /** @description Current authorized data */
                 200: {
                     headers: {
                         [name: string]: unknown;
@@ -4973,7 +5024,8 @@ export interface paths {
                     content: {
                         "application/json": {
                             items: components["schemas"]["ObjectRecord"][];
-                            next?: string | null;
+                            /** Format: uuid */
+                            next: string | null;
                         };
                     };
                 };
@@ -4987,32 +5039,30 @@ export interface paths {
             };
         };
         put?: never;
-        /**
-         * Add a record
-         * @description The body is checked against createObjectRecordSchema in @ensemus/contracts.
-         */
+        /** Create a record owned by the current person */
         post: {
             parameters: {
                 query?: never;
-                header?: never;
+                header: {
+                    "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                };
                 path: {
                     /** @description Requires authenticated organization membership; UUID alone is never authorization. */
                     organization_id: components["parameters"]["OrganizationID"];
-                    object_type_id: string;
+                    type_id: string;
                 };
                 cookie?: never;
             };
             requestBody: {
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["CreateObjectRecord"];
                 };
             };
             responses: {
-                /** @description Done */
+                /** @description Saved */
                 201: {
                     headers: {
+                        ETag: components["headers"]["ETag"];
                         [name: string]: unknown;
                     };
                     content: {
@@ -5026,7 +5076,6 @@ export interface paths {
                 409: components["responses"]["Conflict"];
                 413: components["responses"]["PayloadTooLarge"];
                 415: components["responses"]["UnsupportedMediaType"];
-                422: components["responses"]["Validation"];
                 500: components["responses"]["InternalError"];
                 503: components["responses"]["RestorePending"];
             };
@@ -5037,18 +5086,18 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/organizations/{organization_id}/object-records/{object_record_id}": {
+    "/organizations/{organization_id}/object-records/{record_id}": {
         parameters: {
             query?: never;
             header?: never;
             path: {
                 /** @description Requires authenticated organization membership; UUID alone is never authorization. */
                 organization_id: components["parameters"]["OrganizationID"];
-                object_record_id: string;
+                record_id: string;
             };
             cookie?: never;
         };
-        /** Read a record */
+        /** Read a currently readable custom record */
         get: {
             parameters: {
                 query?: never;
@@ -5056,15 +5105,16 @@ export interface paths {
                 path: {
                     /** @description Requires authenticated organization membership; UUID alone is never authorization. */
                     organization_id: components["parameters"]["OrganizationID"];
-                    object_record_id: string;
+                    record_id: string;
                 };
                 cookie?: never;
             };
             requestBody?: never;
             responses: {
-                /** @description Done */
+                /** @description Current authorized data */
                 200: {
                     headers: {
+                        ETag: components["headers"]["ETag"];
                         [name: string]: unknown;
                     };
                     content: {
@@ -5082,7 +5132,7 @@ export interface paths {
         };
         put?: never;
         post?: never;
-        /** Remove a record */
+        /** Remove a record and retain its deletion marker */
         delete: {
             parameters: {
                 query?: never;
@@ -5093,13 +5143,13 @@ export interface paths {
                 path: {
                     /** @description Requires authenticated organization membership; UUID alone is never authorization. */
                     organization_id: components["parameters"]["OrganizationID"];
-                    object_record_id: string;
+                    record_id: string;
                 };
                 cookie?: never;
             };
             requestBody?: never;
             responses: {
-                /** @description Done */
+                /** @description Saved */
                 204: {
                     headers: {
                         [name: string]: unknown;
@@ -5111,9 +5161,6 @@ export interface paths {
                 403: components["responses"]["Forbidden"];
                 404: components["responses"]["NotFound"];
                 409: components["responses"]["Conflict"];
-                413: components["responses"]["PayloadTooLarge"];
-                415: components["responses"]["UnsupportedMediaType"];
-                422: components["responses"]["Validation"];
                 428: components["responses"]["PreconditionRequired"];
                 500: components["responses"]["InternalError"];
                 503: components["responses"]["RestorePending"];
@@ -5121,10 +5168,7 @@ export interface paths {
         };
         options?: never;
         head?: never;
-        /**
-         * Change a record
-         * @description The body is checked against updateObjectRecordSchema in @ensemus/contracts.
-         */
+        /** Update exact record version; lowering scope requires recent native MFA */
         patch: {
             parameters: {
                 query?: never;
@@ -5135,21 +5179,20 @@ export interface paths {
                 path: {
                     /** @description Requires authenticated organization membership; UUID alone is never authorization. */
                     organization_id: components["parameters"]["OrganizationID"];
-                    object_record_id: string;
+                    record_id: string;
                 };
                 cookie?: never;
             };
             requestBody: {
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["UpdateObjectRecord"];
                 };
             };
             responses: {
-                /** @description Done */
+                /** @description Current authorized data */
                 200: {
                     headers: {
+                        ETag: components["headers"]["ETag"];
                         [name: string]: unknown;
                     };
                     content: {
@@ -5163,7 +5206,6 @@ export interface paths {
                 409: components["responses"]["Conflict"];
                 413: components["responses"]["PayloadTooLarge"];
                 415: components["responses"]["UnsupportedMediaType"];
-                422: components["responses"]["Validation"];
                 428: components["responses"]["PreconditionRequired"];
                 500: components["responses"]["InternalError"];
                 503: components["responses"]["RestorePending"];
@@ -5171,23 +5213,53 @@ export interface paths {
         };
         trace?: never;
     };
-    "/organizations/{organization_id}/object-records/{object_record_id}/relations": {
+    "/organizations/{organization_id}/object-records/{record_id}/relations": {
         parameters: {
             query?: never;
             header?: never;
             path: {
                 /** @description Requires authenticated organization membership; UUID alone is never authorization. */
                 organization_id: components["parameters"]["OrganizationID"];
-                object_record_id: string;
+                record_id: string;
             };
             cookie?: never;
         };
-        get?: never;
+        /** List readable outgoing relations */
+        get: {
+            parameters: {
+                query?: {
+                    after?: string;
+                };
+                header?: never;
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                    record_id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Current authorized data */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ObjectRelationsPage"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                409: components["responses"]["Conflict"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
         put?: never;
-        /**
-         * Link two records by a declared relation
-         * @description The body is checked against linkObjectRecordsSchema in @ensemus/contracts.
-         */
+        /** Link readable records by a declared relation */
         post: {
             parameters: {
                 query?: never;
@@ -5195,20 +5267,77 @@ export interface paths {
                 path: {
                     /** @description Requires authenticated organization membership; UUID alone is never authorization. */
                     organization_id: components["parameters"]["OrganizationID"];
-                    object_record_id: string;
+                    record_id: string;
                 };
                 cookie?: never;
             };
             requestBody: {
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["LinkObjectRecords"];
                 };
             };
             responses: {
-                /** @description Done */
+                /** @description Saved */
                 201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** Format: uuid */
+                            id: string;
+                        };
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                409: components["responses"]["Conflict"];
+                413: components["responses"]["PayloadTooLarge"];
+                415: components["responses"]["UnsupportedMediaType"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/organizations/{organization_id}/object-records/{record_id}/relations/{relation_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+                record_id: string;
+                relation_id: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Unlink an authorized relation */
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                    record_id: string;
+                    relation_id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Saved */
+                204: {
                     headers: {
                         [name: string]: unknown;
                     };
@@ -5219,9 +5348,119 @@ export interface paths {
                 403: components["responses"]["Forbidden"];
                 404: components["responses"]["NotFound"];
                 409: components["responses"]["Conflict"];
-                413: components["responses"]["PayloadTooLarge"];
-                415: components["responses"]["UnsupportedMediaType"];
-                422: components["responses"]["Validation"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/organizations/{organization_id}/object-types/{type_id}/migrations/{migration_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+                type_id: string;
+                migration_id: string;
+            };
+            cookie?: never;
+        };
+        /** Read actual migration progress; management authority required */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                    type_id: string;
+                    migration_id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Current durable metadata */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ObjectMigration"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                409: components["responses"]["Conflict"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/organizations/{organization_id}/object-types/{type_id}/migrations/{migration_id}/retry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+                type_id: string;
+                migration_id: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create a new retry intent for the exact current schema; prior results retained */
+        post: {
+            parameters: {
+                query?: never;
+                header: {
+                    /** @description The version last read, as sent in the ETag response header. Weak tags, lists and * are refused. */
+                    "If-Match": components["parameters"]["IfMatch"];
+                    "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                };
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                    type_id: string;
+                    migration_id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description New durable migration requested */
+                202: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** Format: uuid */
+                            migration_id: string;
+                        };
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                409: components["responses"]["Conflict"];
+                428: components["responses"]["PreconditionRequired"];
                 500: components["responses"]["InternalError"];
                 503: components["responses"]["RestorePending"];
             };
@@ -6448,7 +6687,7 @@ export interface paths {
         get?: never;
         put?: never;
         post?: never;
-        /** Revoke this connection’s provisioning token after recent factor confirmation */
+        /** Revoke this connection�s provisioning token after recent factor confirmation */
         delete: operations["revokeScimToken"];
         options?: never;
         head?: never;
@@ -7326,22 +7565,68 @@ export interface components {
             /** Format: date-time */
             finished_at?: string | null;
         };
+        ObjectField: {
+            key: string;
+            label: string;
+            /** @enum {string} */
+            kind: "text" | "long_text" | "number" | "boolean" | "date" | "enum" | "email" | "url";
+            required: boolean;
+            indexed: boolean;
+            options?: string[];
+            maxLength?: number;
+        };
+        ObjectRelationDefinition: {
+            key: string;
+            label: string;
+            toTypeSlug: string;
+            /** @enum {string} */
+            cardinality: "one" | "many";
+        };
+        CreateObjectType: {
+            slug: string;
+            display_name: string;
+            /** @enum {string} */
+            classification: "public" | "internal" | "confidential" | "restricted";
+            fields: components["schemas"]["ObjectField"][];
+            relations: components["schemas"]["ObjectRelationDefinition"][];
+        };
+        AddObjectTypeVersion: {
+            fields: components["schemas"]["ObjectField"][];
+            relations: components["schemas"]["ObjectRelationDefinition"][];
+        };
+        CreateObjectRecord: {
+            display_name: string;
+            attributes: {
+                [key: string]: string | number | boolean | null;
+            };
+            /** @enum {string} */
+            classification?: "public" | "internal" | "confidential" | "restricted";
+        };
+        UpdateObjectRecord: {
+            display_name?: string;
+            attributes?: {
+                [key: string]: string | number | boolean | null;
+            };
+            /** @enum {string} */
+            classification?: "public" | "internal" | "confidential" | "restricted";
+        };
+        LinkObjectRecords: {
+            relation_key: string;
+            /** Format: uuid */
+            to_record_id: string;
+        };
         ObjectType: {
             /** Format: uuid */
             id: string;
             slug: string;
-            display_name?: string;
+            display_name: string;
             /** @enum {string} */
             classification: "public" | "internal" | "confidential" | "restricted";
             current_version_number: number;
-            fields: {
-                [key: string]: unknown;
-            }[];
-            relations?: {
-                [key: string]: unknown;
-            }[];
+            fields: components["schemas"]["ObjectField"][];
+            relations: components["schemas"]["ObjectRelationDefinition"][];
             /** @enum {string} */
-            state?: "active" | "archived";
+            state: "active" | "archived";
             version: number;
         };
         ObjectRecord: {
@@ -7349,19 +7634,58 @@ export interface components {
             id: string;
             /** Format: uuid */
             type_id: string;
-            type_version_number?: number;
+            type_version_number: number;
             display_name: string;
             attributes: {
-                [key: string]: unknown;
+                [key: string]: string | number | boolean | null;
             };
             /** @enum {string} */
             classification: "public" | "internal" | "confidential" | "restricted";
             /** Format: uuid */
-            owner_membership_id?: string;
-            can_change?: boolean;
+            owner_membership_id: string;
+            can_change: boolean;
             version: number;
             /** Format: date-time */
-            updated_at?: string;
+            updated_at: string;
+        };
+        ObjectMigrationPlan: {
+            /** Format: uuid */
+            migration_id: string | null;
+            plan: {
+                safe: boolean;
+                steps: {
+                    /** @enum {string} */
+                    kind: "add_optional" | "change_index" | "widen_enum";
+                    key: string;
+                }[];
+            };
+        };
+        ObjectRelationsPage: {
+            items: {
+                /** Format: uuid */
+                id: string;
+                relation_key: string;
+                /** Format: uuid */
+                to_record_id: string;
+                to_display_name: string;
+            }[];
+            truncated: boolean;
+            /** Format: uuid */
+            next: string | null;
+        };
+        ObjectMigration: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            type_id: string;
+            from_version_number: number;
+            to_version_number: number;
+            /** @enum {string} */
+            status: "queued" | "running" | "completed" | "failed";
+            migrated_count: number;
+            failed_count: number;
+            /** @enum {string|null} */
+            error_code: "MIGRATION_FAILED" | "OBJECT_RECORD_INVALID" | null;
         };
         PackCatalogEntry: {
             key: string;

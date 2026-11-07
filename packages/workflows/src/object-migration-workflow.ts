@@ -6,7 +6,7 @@ import type { ObjectMigrationInput, ObjectMigrationOutcome } from './product-sch
 
 const { migrateBatch, failMigration } = proxyActivities<ObjectMigrationActivities>({
   startToCloseTimeout: '5 minutes',
-  retry: { maximumAttempts: 10, initialInterval: '5 seconds', maximumInterval: '1 minute' },
+  retry: { initialInterval: '5 seconds', maximumInterval: '1 minute', backoffCoefficient: 2 },
 });
 
 export async function objectMigrationWorkflow(
@@ -14,8 +14,8 @@ export async function objectMigrationWorkflow(
 ): Promise<ObjectMigrationOutcome> {
   try {
     for (;;) {
-      const { more } = await migrateBatch(input);
-      if (!more) return 'completed';
+      const { more, failed } = await migrateBatch(input);
+      if (!more) return failed ? 'failed' : 'completed';
       if (workflowInfo().continueAsNewSuggested) {
         await continueAsNew<typeof objectMigrationWorkflow>(input);
       }
