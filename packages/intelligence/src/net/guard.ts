@@ -128,7 +128,14 @@ function isRedirectRefusal(error: unknown): boolean {
   return cause?.message === 'unexpected redirect';
 }
 
-function capped(upstream: Awaited<ReturnType<typeof undiciFetch>>): Response {
+/** Adapt Undici's Node stream to the runtime's Response stream without mixing DOM and Node stream
+ * implementations. Zero buffering here: only an actual downstream read advances the upstream. */
+export function cappedModelResponse(
+  upstream: Pick<
+    Awaited<ReturnType<typeof undiciFetch>>,
+    'status' | 'statusText' | 'headers' | 'body'
+  >,
+): Response {
   const declared = Number(upstream.headers.get('content-length'));
   if (declared > MAX_RESPONSE_BYTES) {
     void upstream.body?.cancel().catch(() => undefined);
@@ -143,14 +150,56 @@ function capped(upstream: Awaited<ReturnType<typeof undiciFetch>>): Response {
     return new Response(null, init);
   }
   let seen = 0;
-  const counted = upstream.body.pipeThrough(
-    new TransformStream<Uint8Array, Uint8Array>({
-      transform(chunk, controller) {
-        seen += chunk.byteLength;
-        if (seen > MAX_RESPONSE_BYTES) controller.error(new ResponseTooLarge());
-        else controller.enqueue(chunk);
+  const reader = upstream.body.getReader();
+  let closed = false,
+    released = false;
+  const release = () => {
+    if (!released) {
+      released = true;
+      reader.releaseLock();
+    }
+  };
+  const counted = new ReadableStream<Uint8Array>(
+    {
+      async pull(controller) {
+        try {
+          const next = await reader.read();
+          if (closed) return;
+          if (next.done) {
+            closed = true;
+            controller.close();
+            release();
+            return;
+          }
+          const chunk = next.value;
+          if (!ArrayBuffer.isView(chunk)) throw new TypeError('MODEL_RESPONSE_BYTES_REQUIRED');
+          seen += chunk.byteLength;
+          if (seen > MAX_RESPONSE_BYTES) throw new ResponseTooLarge();
+          controller.enqueue(new Uint8Array(chunk.buffer, chunk.byteOffset, chunk.byteLength));
+        } catch (error) {
+          if (closed) return;
+          closed = true;
+          controller.error(error);
+          // Preserve the original overflow/transport error, while releasing its socket and reader.
+          try {
+            await reader.cancel(error);
+          } catch {
+            /* Upstream may already be errored. */
+          } finally {
+            release();
+          }
+        }
       },
-    }),
+      async cancel(reason) {
+        closed = true;
+        try {
+          await reader.cancel(reason);
+        } finally {
+          release();
+        }
+      },
+    },
+    { highWaterMark: 0 },
   );
   return new Response(counted, init);
 }
@@ -185,7 +234,7 @@ export function createEndpointGuard(deps: { resolve?: Resolver } = {}): Endpoint
         }
         // Graceful: it waits for the body still being read, then closes the socket.
         void agent.close().catch(() => undefined);
-        return capped(upstream);
+        return cappedModelResponse(upstream);
       };
       return guarded as typeof fetch;
     },
