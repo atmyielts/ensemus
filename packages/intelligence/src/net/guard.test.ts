@@ -7,9 +7,12 @@ import {
   type Server as TcpServer,
 } from 'node:net';
 import { afterEach, describe, expect, it } from 'vitest';
+import { ReadableStream as NodeReadableStream } from 'node:stream/web';
+import { Response as UpstreamResponse } from 'undici';
 import type { VerifiedEndpoint } from '../types';
 import {
   createEndpointGuard,
+  cappedModelResponse,
   EndpointRefused,
   EndpointUnreachable,
   ResponseTooLarge,
@@ -341,6 +344,102 @@ describe('a guarded fetch only reaches its own endpoint', () => {
 });
 
 describe('responses', () => {
+  it('does not read ahead and propagates downstream cancellation with response metadata intact', async () => {
+    let pulls = 0,
+      cancelled: unknown;
+    const body = new NodeReadableStream<Uint8Array>(
+      {
+        pull(controller) {
+          pulls += 1;
+          controller.enqueue(new Uint8Array([1, 2, 3]));
+        },
+        cancel(reason) {
+          cancelled = reason;
+        },
+      },
+      { highWaterMark: 0 },
+    );
+    const upstream = new UpstreamResponse(body, {
+      status: 206,
+      statusText: 'Partial Content',
+      headers: { 'x-test': 'stream' },
+    });
+    const response = cappedModelResponse(upstream);
+    expect(pulls).toBe(0);
+    expect(response.status).toBe(206);
+    expect(response.statusText).toBe('Partial Content');
+    expect(response.headers.get('x-test')).toBe('stream');
+    const reader = response.body!.getReader();
+    expect((await reader.read()).value).toEqual(new Uint8Array([1, 2, 3]));
+    expect(pulls).toBe(1);
+    const reason = new Error('generated-downstream-stop');
+    await reader.cancel(reason);
+    expect(cancelled).toBe(reason);
+    expect(pulls).toBe(1);
+    expect(upstream.body?.locked).toBe(false);
+  });
+
+  it('cancels the upstream at the streaming byte cap without reading another chunk', async () => {
+    let pulls = 0,
+      cancelled: unknown;
+    const chunk = new Uint8Array(1024 * 1024);
+    const upstream = new UpstreamResponse(
+      new NodeReadableStream<Uint8Array>(
+        {
+          pull(controller) {
+            pulls += 1;
+            controller.enqueue(chunk);
+          },
+          cancel(reason) {
+            cancelled = reason;
+          },
+        },
+        { highWaterMark: 0 },
+      ),
+    );
+    const reader = cappedModelResponse(upstream).body!.getReader();
+    for (let i = 0; i < 32; i += 1)
+      expect((await reader.read()).value?.byteLength).toBe(chunk.byteLength);
+    await expect(reader.read()).rejects.toBeInstanceOf(ResponseTooLarge);
+    // Cancellation settles asynchronously after the rejection is delivered.
+    await Promise.resolve();
+    expect(cancelled).toBeInstanceOf(ResponseTooLarge);
+    expect(pulls).toBe(33);
+  });
+
+  it('preserves the upstream read error and releases its reader', async () => {
+    const failure = new Error('generated-upstream-failure');
+    const upstream = new UpstreamResponse(
+      new NodeReadableStream<Uint8Array>(
+        {
+          pull(controller) {
+            controller.error(failure);
+          },
+        },
+        { highWaterMark: 0 },
+      ),
+    );
+    await expect(cappedModelResponse(upstream).arrayBuffer()).rejects.toBe(failure);
+    await Promise.resolve();
+    expect(upstream.body?.locked).toBe(false);
+  });
+
+  it('propagates an abort after response headers while the body is pending', async () => {
+    const { port } = await startServer('127.0.0.1', (_req, res) => {
+      res.writeHead(200);
+      res.flushHeaders();
+    });
+    const e = endpoint({ host: '127.0.0.1', port });
+    const controller = new AbortController();
+    const response = await createEndpointGuard({}).fetchFor(e)(urlOn(e), {
+      signal: controller.signal,
+    });
+    const reading = response.arrayBuffer();
+    const refused = expect(reading).rejects.toMatchObject({ name: 'AbortError' });
+    controller.abort();
+    await refused;
+  });
+
   it('reads a large body to the end, after the connection pool has started closing', async () => {
     const chunk = Buffer.alloc(64 * 1024, 'a');
     const { port } = await startServer('127.0.0.1', (_req, res) => {
