@@ -14,6 +14,7 @@ export function ObjectRecordForm({
   floor,
   record,
   requestKey,
+  canLowerSensitivity = false,
 }: {
   organizationId: string;
   typeId: string;
@@ -21,6 +22,7 @@ export function ObjectRecordForm({
   floor: string;
   record?: ObjectRecordView;
   requestKey?: string;
+  canLowerSensitivity?: boolean;
 }) {
   const [state, action] = useActionState<ObjectFormState, FormData>(saveObjectRecordAction, {}),
     prefix = useId(),
@@ -57,23 +59,34 @@ export function ObjectRecordForm({
           />
         </label>
         <label htmlFor={`${prefix}-class`}>
-          Sensitivity
+          <span id={`${prefix}-class-label`}>Sensitivity</span>
           <select
             id={`${prefix}-class`}
+            aria-labelledby={`${prefix}-class-label`}
+            aria-describedby={`${prefix}-class-help`}
             name="classification"
             defaultValue={value('classification', record?.classification ?? 'restricted')}
           >
             {classes
-              .filter((_, i) => i >= classes.indexOf(floor))
+              .filter(
+                (_, i) =>
+                  i >=
+                  Math.max(
+                    classes.indexOf(floor),
+                    record && !canLowerSensitivity ? classes.indexOf(record.classification) : 0,
+                  ),
+              )
               .map((c) => (
                 <option key={c} value={c}>
                   {c[0]?.toUpperCase() + c.slice(1)}
                 </option>
               ))}
           </select>
-          <span className="muted">
-            Restricted records are available only to their owner. Lowering sensitivity requires you
-            to confirm your identity and cannot go below the type’s minimum.
+          <span className="muted" id={`${prefix}-class-help`}>
+            Restricted records are available only to their owner.{' '}
+            {record && !canLowerSensitivity
+              ? 'Your role can raise sensitivity. Lowering is limited to organization administrators who already have access.'
+              : 'Lowering is limited to organization administrators with access, requires identity confirmation, and cannot go below the type’s minimum.'}
           </span>
         </label>
         {fields.map((f, index) => {
@@ -87,18 +100,30 @@ export function ObjectRecordForm({
             current = value(fieldName, initial);
           return (
             <label key={f.key} htmlFor={fieldId}>
-              <span>
+              <span id={`${fieldId}-label`}>
                 {f.label}
                 {f.required ? ' (required)' : ''}
               </span>
               {f.kind === 'boolean' ? (
-                <select id={fieldId} name={fieldName} required={f.required} defaultValue={current}>
+                <select
+                  id={fieldId}
+                  aria-labelledby={`${fieldId}-label`}
+                  name={fieldName}
+                  required={f.required}
+                  defaultValue={current}
+                >
                   <option value="">Not specified</option>
                   <option value="true">Yes</option>
                   <option value="false">No</option>
                 </select>
               ) : f.kind === 'enum' ? (
-                <select id={fieldId} name={fieldName} required={f.required} defaultValue={current}>
+                <select
+                  id={fieldId}
+                  aria-labelledby={`${fieldId}-label`}
+                  name={fieldName}
+                  required={f.required}
+                  defaultValue={current}
+                >
                   <option value="">Choose a value</option>
                   {f.options?.map((o) => (
                     <option key={o} value={o}>
@@ -109,6 +134,7 @@ export function ObjectRecordForm({
               ) : f.kind === 'long_text' ? (
                 <textarea
                   id={fieldId}
+                  aria-labelledby={`${fieldId}-label`}
                   name={fieldName}
                   required={f.required}
                   maxLength={f.maxLength ?? 50000}
@@ -118,6 +144,8 @@ export function ObjectRecordForm({
               ) : (
                 <input
                   id={fieldId}
+                  aria-labelledby={`${fieldId}-label`}
+                  aria-describedby={f.kind === 'date' ? `${fieldId}-help` : undefined}
                   name={fieldName}
                   type={
                     f.kind === 'number'
@@ -135,7 +163,7 @@ export function ObjectRecordForm({
                 />
               )}
               {f.kind === 'date' && (
-                <span className="muted">
+                <span className="muted" id={`${fieldId}-help`}>
                   Use YYYY-MM-DD or an ISO date and time with a timezone.
                 </span>
               )}

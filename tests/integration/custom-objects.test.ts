@@ -192,7 +192,7 @@ describe('custom objects through real tenant roles', () => {
     });
   });
 
-  it('never lowers a type and requires native MFA before lowering a record above its floor', async () => {
+  it('never lowers a type, denies member declassification and requires native MFA for a readable manager record', async () => {
     const t = await type();
     const r = await createObjectRecord(database.db, tenants.a.member.context, {
       typeId: t.id,
@@ -206,7 +206,7 @@ describe('custom objects through real tenant roles', () => {
         expectedVersion: r.version,
         classification: 'internal',
       }),
-    ).rejects.toMatchObject({ code: 'MFA_REQUIRED' });
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' });
     await proveSecondFactor(tenants.a.member);
     await expect(
       updateObjectRecord(database.db, tenants.a.member.context, {
@@ -214,7 +214,49 @@ describe('custom objects through real tenant roles', () => {
         expectedVersion: r.version,
         classification: 'internal',
       }),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    await expect(
+      updateObjectRecord(database.db, tenants.a.admin.context, {
+        recordId: r.id,
+        expectedVersion: r.version,
+        classification: 'internal',
+      }),
+    ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    await expect(
+      updateObjectRecord(database.db, tenants.a.member.context, {
+        recordId: r.id,
+        expectedVersion: r.version,
+        displayName: 'Owner can still edit fields',
+      }),
+    ).resolves.toMatchObject({ classification: 'restricted' });
+    const managed = await createObjectRecord(database.db, tenants.a.owner.context, {
+      typeId: t.id,
+      displayName: 'Manager-owned record',
+      attributes: { name: 'managed' },
+      classification: 'restricted',
+    });
+    await expect(
+      updateObjectRecord(database.db, tenants.a.owner.context, {
+        recordId: managed.id,
+        expectedVersion: managed.version,
+        classification: 'internal',
+      }),
+    ).rejects.toMatchObject({ code: 'MFA_REQUIRED' });
+    await proveSecondFactor(tenants.a.owner);
+    await expect(
+      updateObjectRecord(database.db, tenants.a.owner.context, {
+        recordId: managed.id,
+        expectedVersion: managed.version,
+        classification: 'internal',
+      }),
     ).resolves.toMatchObject({ classification: 'internal' });
+    await expect(
+      withTenantTx(database.db, tenants.a.member.context, (tx) =>
+        tx.execute(
+          sql`update objects.records set classification='internal',version=version+1 where id=${r.id}::uuid`,
+        ),
+      ),
+    ).rejects.toThrow();
     await expect(
       raiseObjectTypeClassification(database.db, tenants.a.owner.context, {
         typeId: t.id,

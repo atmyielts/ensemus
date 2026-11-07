@@ -116,13 +116,27 @@ CREATE FUNCTION objects.pending_migration(p_type uuid) RETURNS boolean LANGUAGE 
 $$;
 REVOKE ALL ON FUNCTION objects.pending_migration(uuid) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION objects.pending_migration(uuid) TO ensemus_app;
+-- INSERT RETURNING must judge the actual row: a STABLE function cannot require the record catalog
+-- entry inserted by that same statement's BEFORE trigger. The parent floor already exists. Keep
+-- the canonical record_readable(id,viewer) above for retained-input/export authority, not this helper.
+CREATE FUNCTION objects.record_row_readable(p_id uuid,p_type uuid,p_class text,p_owner uuid,p_deleted timestamptz,p_viewer uuid) RETURNS boolean LANGUAGE sql STABLE AS $$
+ SELECT p_deleted IS NULL AND p_class IN ('public','internal','confidential','restricted')
+ AND NOT EXISTS(SELECT 1 FROM platform.tombstones t WHERE t.organization_id=app.current_organization_id() AND t.target_type='object_record' AND t.target_id=p_id)
+ AND NOT EXISTS(SELECT 1 FROM knowledge.structured_record_catalog c WHERE c.organization_id=app.current_organization_id() AND c.record_kind='object_record' AND c.record_id=p_id AND NOT c.alive)
+ AND EXISTS(SELECT 1 FROM org.memberships m JOIN objects.type_acl_catalog t ON t.organization_id=m.organization_id AND t.type_id=p_type
+ CROSS JOIN LATERAL(SELECT CASE WHEN knowledge.class_rank(p_class)>=knowledge.class_rank(t.classification) THEN p_class ELSE t.classification END AS classification) scope
+ WHERE m.organization_id=app.current_organization_id() AND m.id=p_viewer AND m.status='active'
+ AND (scope.classification IN ('public','internal') OR (scope.classification='confidential' AND (m.id=p_owner OR m.role IN ('owner','admin'))) OR (scope.classification='restricted' AND m.id=p_owner)))
+$$;
+REVOKE ALL ON FUNCTION objects.record_row_readable(uuid,uuid,text,uuid,timestamptz,uuid) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION objects.record_row_readable(uuid,uuid,text,uuid,timestamptz,uuid) TO ensemus_app;
 CREATE POLICY object_type_read ON objects.types AS RESTRICTIVE FOR SELECT TO ensemus_app USING(objects.active_person() OR app.current_actor_type()='service');
 -- Broad visible-row USING permits evidence locks; the trigger owns exact mutation authority.
 CREATE POLICY object_type_update ON objects.types AS RESTRICTIVE FOR UPDATE TO ensemus_app USING(objects.active_person() OR app.current_actor_type()='service') WITH CHECK(objects.active_person(true));
 CREATE POLICY object_type_insert ON objects.types AS RESTRICTIVE FOR INSERT TO ensemus_app WITH CHECK(objects.active_person(true) AND created_by_membership_id=app.current_membership_id());
 CREATE POLICY object_shape_read ON objects.type_versions AS RESTRICTIVE FOR SELECT TO ensemus_app USING(objects.active_person() OR app.current_actor_type()='service');
 CREATE POLICY object_shape_insert ON objects.type_versions AS RESTRICTIVE FOR INSERT TO ensemus_app WITH CHECK(objects.active_person(true) AND created_by_membership_id=app.current_membership_id());
-CREATE POLICY object_record_read ON objects.records AS RESTRICTIVE FOR SELECT TO ensemus_app USING((objects.active_person() AND objects.record_readable(id,app.current_membership_id())) OR objects.pending_migration(type_id));
+CREATE POLICY object_record_read ON objects.records AS RESTRICTIVE FOR SELECT TO ensemus_app USING((objects.active_person() AND objects.record_row_readable(id,type_id,classification,owner_membership_id,deleted_at,app.current_membership_id())) OR objects.pending_migration(type_id));
 CREATE POLICY object_record_lock ON objects.records AS RESTRICTIVE FOR UPDATE TO ensemus_app USING((objects.active_person() AND objects.record_readable(id,app.current_membership_id())) OR objects.pending_migration(type_id)) WITH CHECK(true);
 CREATE POLICY object_record_insert ON objects.records AS RESTRICTIVE FOR INSERT TO ensemus_app WITH CHECK(objects.active_person() AND owner_membership_id=app.current_membership_id() AND created_by_membership_id=app.current_membership_id());
 CREATE POLICY object_values_read ON objects.record_values AS RESTRICTIVE FOR SELECT TO ensemus_app USING(objects.active_person() AND objects.record_readable(record_id,app.current_membership_id()));
@@ -204,7 +218,10 @@ CREATE FUNCTION objects.guard_record_write() RETURNS trigger LANGUAGE plpgsql AS
  IF NEW.owner_membership_id<>app.current_membership_id() OR NEW.created_by_membership_id<>app.current_membership_id() OR NEW.type_version_number<>t.current_version_number OR NEW.version<>1 OR NEW.deleted_at IS NOT NULL THEN RAISE EXCEPTION 'OBJECT_INSERT_INVALID' USING ERRCODE='42501'; END IF;
  ELSE
  IF NOT objects.record_readable(OLD.id,app.current_membership_id()) OR NOT (OLD.owner_membership_id=app.current_membership_id() OR role_name IN ('owner','admin')) OR NEW.type_version_number<>OLD.type_version_number THEN RAISE EXCEPTION 'OBJECT_AUTHORITY_DENIED' USING ERRCODE='42501'; END IF;
- IF app.classification_rank(NEW.classification)<app.classification_rank(OLD.classification) AND NOT app.interactive_privilege_allowed('object_type.lower_scope',app.current_interactive_session_id()) THEN RAISE EXCEPTION 'MFA_REQUIRED' USING ERRCODE='EN405'; END IF;
+ IF app.classification_rank(NEW.classification)<app.classification_rank(OLD.classification) THEN
+ IF role_name NOT IN ('owner','admin') THEN RAISE EXCEPTION 'OBJECT_CLASSIFICATION_ROLE_REQUIRED' USING ERRCODE='42501'; END IF;
+ IF NOT app.interactive_privilege_allowed('object_type.lower_scope',app.current_interactive_session_id()) THEN RAISE EXCEPTION 'MFA_REQUIRED' USING ERRCODE='EN405'; END IF;
+ END IF;
  END IF;
  IF t.state<>'active' AND NEW.deleted_at IS NULL THEN RAISE EXCEPTION 'OBJECT_TYPE_INACTIVE' USING ERRCODE='EN407'; END IF;
  END IF;

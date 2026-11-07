@@ -8,6 +8,7 @@ import {
 } from '@ensemus/application/custom-objects';
 import { idSchema } from '@ensemus/application';
 import { isSafeObjectLink } from '@ensemus/domain/custom-object';
+import { canProduct } from '@ensemus/domain/product-policy';
 import Link from 'next/link';
 import { PageHead, ClassificationBadge, Empty, ErrorNotice } from '@/components/ui';
 import { ObjectRecordForm } from '@/components/objects/record-form';
@@ -113,6 +114,7 @@ export default async function RecordPage({
             fields={shape.fields}
             floor={type.classification}
             record={record}
+            canLowerSensitivity={canProduct(context.role, 'object_type.manage')}
           />
         </details>
       )}
