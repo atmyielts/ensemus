@@ -495,6 +495,21 @@ textarea[aria-invalid='true'] {
 .nowrap {
   white-space: nowrap;
 }
+/* Keys and signed files, which are long and have to be read character by character. */
+.mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.8125rem;
+}
+/* A record from an archive, shown as it came, which must wrap and never push the page sideways. */
+.record-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  margin: 0.5rem 0 0;
+}
+/* A wrapper that exists for the markup only, such as a mapped pair inside a list of terms. */
+.contents {
+  display: contents;
+}
 
 /* The pages someone sees before they are in an organization, and the pages for when something fails. */
 .centered {

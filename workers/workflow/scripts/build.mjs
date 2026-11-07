@@ -29,6 +29,10 @@ await build({
     'src/knowledge-worker.ts',
     // Spawned by URL from the bundled knowledge entry point; it must exist as its own file.
     'src/parse-thread.ts',
+    'src/sovereign-license.ts',
+    'src/organization-import.ts',
+    'src/restore-reconcile.ts',
+    'src/diagnostics-export.ts',
   ].map((e) => path.join(root, e)),
   outdir: dist,
   bundle: true,

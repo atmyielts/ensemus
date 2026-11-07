@@ -19,6 +19,7 @@ const config: NextConfig = {
     '@ensemus/knowledge',
     '@ensemus/packs',
     '@ensemus/secrets',
+    '@ensemus/sovereign',
     '@ensemus/storage',
     '@ensemus/telemetry',
   ],

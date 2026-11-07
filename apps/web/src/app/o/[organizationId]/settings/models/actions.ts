@@ -3,6 +3,7 @@
 // Every action is a public endpoint. Each one resolves the person and tenant again from the session, and
 // the services re-check permission. None captures a value in a closure, and none returns one, so a key
 // sent to `attachKeyAction` goes no further than the sealing call.
+import { redirectForSsoRefusal } from '@/server/interactive-refusal';
 import {
   AppError,
   auditRefusal,
@@ -61,6 +62,7 @@ async function run(
         getRuntime().log.error('audit.refusal_failed', { errorCode: errorCode(failure) }),
       );
     }
+    redirectForSsoRefusal(error);
     if (error instanceof AppError && error.code === 'RESTORE_PENDING') {
       target = '/restoring';
     } else if (error instanceof AppError && error.code === 'MFA_REQUIRED') {

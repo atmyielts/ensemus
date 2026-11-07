@@ -2,6 +2,7 @@
 
 // Every action is a public endpoint. This one resolves the person and tenant again from the session, and
 // the service checks permission itself, so nothing in the form decides who is publishing.
+import { redirectForSsoRefusal } from '@/server/interactive-refusal';
 import {
   AppError,
   auditRefusal,
@@ -71,6 +72,7 @@ export async function publishAgentVersionAction(
   } catch (error) {
     if (isPublishGateRefusal(error)) await record(database, context, error.code);
     else if (isAuditedRefusal(error)) await record(database, context, refusalCode(error));
+    redirectForSsoRefusal(error);
     if (error instanceof AppError && error.code === 'MFA_REQUIRED')
       redirect(stepUpPath(org, `/o/${org}/settings/agents`));
     if (error instanceof AgentSpecRefused) {

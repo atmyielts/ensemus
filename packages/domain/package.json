@@ -28,7 +28,11 @@
     "./process-run": "./src/process-run.ts",
     "./custom-object": "./src/custom-object.ts",
     "./pack": "./src/pack.ts",
-    "./onboarding": "./src/onboarding.ts"
+    "./onboarding": "./src/onboarding.ts",
+    "./license": "./src/license.ts",
+    "./portability": "./src/portability.ts",
+    "./portable-definition": "./src/portable-definition.ts",
+    "./sovereign-events": "./src/sovereign-events.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"

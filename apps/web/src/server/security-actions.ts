@@ -1,5 +1,6 @@
 'use server';
 
+import { redirectForSsoRefusal } from './interactive-refusal';
 import { AppError } from '@ensemus/application';
 import { getSecurityPolicy, updateSecurityPolicy } from '@ensemus/application/security-policy';
 import { stepUpSchema, updateSecurityPolicySchema } from '@ensemus/contracts/identity-admin';
@@ -189,6 +190,7 @@ export async function updateSecurityPolicyAction(organizationId: string, form: F
       redirect(`/o/${organizationId}/security?notice=saved`);
     } catch (failure) {
       if (failure instanceof Error && 'digest' in failure) throw failure;
+      redirectForSsoRefusal(failure);
       if (failure instanceof AppError) {
         if (failure.code === 'MFA_REQUIRED')
           redirect(stepUpPath(organizationId, `/o/${organizationId}/security`));

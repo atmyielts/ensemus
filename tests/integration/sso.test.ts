@@ -2,6 +2,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import pg from 'pg';
+import { sql } from 'drizzle-orm';
 import { eq } from 'drizzle-orm';
 import { createAuth } from '@ensemus/auth';
 import { parseSamlMetadata } from '@ensemus/auth/sso';
@@ -21,11 +22,14 @@ import {
   scimReactivateUser,
   assertTenantSignIn,
 } from '@ensemus/application/sso';
-import { updateSecurityPolicy } from '@ensemus/application/security-policy';
+import { getSecurityPolicy, updateSecurityPolicy } from '@ensemus/application/security-policy';
+import { createTeam } from '@ensemus/application';
+import { assertInteractivePrivilege, withPrivilegeTx } from '@ensemus/application/privileged';
 import {
   memberships,
   openAppDatabase,
   resolveTenantContext,
+  resolveInteractiveTenantContext,
   withTenantTx,
   type TenantContext,
 } from '@ensemus/database';
@@ -1289,5 +1293,290 @@ describe('SAML admission, company isolation and SCIM on actual roles', () => {
     } finally {
       await app.end();
     }
+  });
+
+  //0410 joins the actual signed native callback above to actual privileged effects. No test mints a
+  // fake SSO assurance: only the separate MFA fixture is auth-role seeded, as explicitly named below.
+  describe('required company sign-in remains current through the effect transaction', () => {
+    async function effectPerson(required = true) {
+      const own = await makeTwoTenants(database.db);
+      await proveSecondFactor(own.a.owner);
+      const f = await connection(true, own.a.owner),
+        p = await person(f, true, 'admin'),
+        signed = await accepted(f, p);
+      await proveSecondFactor(signed.identity);
+      const current = await runtime.readInteractiveSession(signed.headers);
+      expect(current).toBeTruthy();
+      const context = await resolveInteractiveTenantContext(
+        database.db,
+        current!.identity,
+        own.a.organizationId,
+      );
+      if (required) {
+        const policy = await getSecurityPolicy(database.db, own.a.owner.context);
+        await updateSecurityPolicy(database.db, own.a.owner.context, proof(own.a.owner), {
+          expectedVersion: policy.version,
+          mfaForAdministration: false,
+          mfaMaxAgeSeconds: 900,
+          ssoEnforcement: 'required',
+        });
+      }
+      const rows = await authDriver.query<{ primary_account_id: string }>(
+        'select primary_account_id from identity.session_assurances where session_id=$1 and kind=$2',
+        [signed.identity.sessionId, 'sso_saml'],
+      );
+      expect(rows.rows[0]?.primary_account_id).toBeTruthy();
+      return {
+        f,
+        p,
+        signed,
+        context,
+        accountId: rows.rows[0]!.primary_account_id,
+        organizationId: own.a.organizationId,
+      };
+    }
+    async function blockedBy(pid: number) {
+      const until = Date.now() + 5000;
+      while (Date.now() < until) {
+        const state = await driver.query<{ blocked: boolean }>(
+          "select exists(select 1 from pg_stat_activity where usename='ensemus_app' and $1=any(pg_blocking_pids(pid))) as blocked",
+          [pid],
+        );
+        if (state.rows[0]?.blocked) return;
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+      throw new Error('TEST_EXPECTED_SSO_DATABASE_LOCK_WAIT');
+    }
+    const effect = (input: Awaited<ReturnType<typeof effectPerson>>) =>
+      createTeam(database.db, input.context, { name: `Generated effect ${randomUUID()}` });
+    it('binds a real native SAML account proof and permits the actual admin effect', async () => {
+      const input = await effectPerson();
+      await assertTenantSignIn(database.db, input.context, {
+        sessionId: input.signed.identity.sessionId,
+      });
+      expect(await effect(input)).toMatchObject({ organizationId: input.organizationId });
+    });
+    it('does not expose the opaque primary-account control column through the app role', async () => {
+      const input = await effectPerson(),
+        app = new pg.Client({ connectionString: urls.app() });
+      await app.connect();
+      try {
+        await expect(
+          app.query('select primary_account_id from identity.session_assurances'),
+        ).rejects.toMatchObject({ code: '42501' });
+      } finally {
+        await app.end();
+      }
+      expect(input.accountId).toBeTruthy();
+    });
+    it('refuses a legacy unbound SSO row at both the existing read gate and the effect', async () => {
+      const input = await effectPerson();
+      await authDriver.query(
+        'update identity.session_assurances set primary_account_id=null where session_id=$1 and kind=$2',
+        [input.signed.identity.sessionId, 'sso_saml'],
+      );
+      await expect(
+        assertTenantSignIn(database.db, input.context, {
+          sessionId: input.signed.identity.sessionId,
+        }),
+      ).rejects.toMatchObject({ code: 'SSO_REQUIRED' });
+      await expect(effect(input)).rejects.toMatchObject({ code: 'SSO_REQUIRED' });
+    });
+    it('rejects an account deleted after request admission while preserving its local factor proof', async () => {
+      const input = await effectPerson();
+      await assertTenantSignIn(database.db, input.context, {
+        sessionId: input.signed.identity.sessionId,
+      });
+      await authDriver.query('delete from identity.accounts where id=$1', [input.accountId]);
+      expect(
+        (
+          await authDriver.query<{ kind: string }>(
+            'select kind from identity.session_assurances where session_id=$1',
+            [input.signed.identity.sessionId],
+          )
+        ).rows.map((row) => row.kind),
+      ).toEqual(['mfa_totp']);
+      await expect(effect(input)).rejects.toMatchObject({ code: 'SSO_REQUIRED' });
+    });
+    it('invalidates only the SSO proof for a changed account identity', async () => {
+      const input = await effectPerson(),
+        other = await effectPerson();
+      await authDriver.query(
+        "update identity.accounts set account_id=account_id||'-changed' where id=$1",
+        [input.accountId],
+      );
+      await expect(effect(input)).rejects.toMatchObject({ code: 'SSO_REQUIRED' });
+      expect(await effect(other)).toMatchObject({ organizationId: other.organizationId });
+      expect(
+        (
+          await authDriver.query(
+            'select count(*)::int as n from identity.session_assurances where session_id=$1 and kind=$2',
+            [input.signed.identity.sessionId, 'mfa_totp'],
+          )
+        ).rows[0]?.n,
+      ).toBe(1);
+    });
+    it('retains a valid SSO receipt for an unrelated account token refresh', async () => {
+      const input = await effectPerson();
+      await authDriver.query(
+        'update identity.accounts set updated_at=clock_timestamp() where id=$1',
+        [input.accountId],
+      );
+      expect(await effect(input)).toMatchObject({ organizationId: input.organizationId });
+    });
+    it('refuses provider trust removal after the earlier request gate succeeded', async () => {
+      const input = await effectPerson();
+      await assertTenantSignIn(database.db, input.context, {
+        sessionId: input.signed.identity.sessionId,
+      });
+      await authDriver.query(
+        'update identity.sso_providers set domain_verified=false where provider_id=$1',
+        [input.f.providerId],
+      );
+      await expect(effect(input)).rejects.toMatchObject({ code: 'SSO_REQUIRED' });
+    });
+    it('keeps optional SSO optional despite a missing receipt', async () => {
+      const input = await effectPerson(false);
+      await authDriver.query(
+        'delete from identity.session_assurances where session_id=$1 and kind=$2',
+        [input.signed.identity.sessionId, 'sso_saml'],
+      );
+      expect(await effect(input)).toMatchObject({ organizationId: input.organizationId });
+    });
+    it('preserves the documented owner recovery path', async () => {
+      const input = await effectPerson();
+      await authDriver.query(
+        'update identity.sso_providers set domain_verified=false where provider_id=$1',
+        [input.f.providerId],
+      );
+      expect(
+        await createTeam(database.db, input.f.owner.context, { name: 'Owner recovery' }),
+      ).toMatchObject({ organizationId: input.organizationId });
+    });
+    it('preserves the documented no-active-connection recovery path', async () => {
+      const input = await effectPerson();
+      await updateSsoConnection(
+        database.db,
+        input.f.owner.context,
+        proof(input.f.owner),
+        { connectionId: input.f.id, expectedVersion: input.f.version, state: 'disabled' },
+        { providerReady: async () => false },
+      );
+      expect(await effect(input)).toMatchObject({ organizationId: input.organizationId });
+    });
+    for (const revocation of ['provider trust', 'primary account', 'SSO receipt'] as const) {
+      it(`waits for concurrent ${revocation} revocation and then refuses the actual effect`, async () => {
+        const input = await effectPerson(),
+          pid = (await authDriver.query<{ pid: number }>('select pg_backend_pid() as pid')).rows[0]!
+            .pid;
+        await authDriver.query('begin');
+        let attempted: Promise<unknown> | undefined;
+        try {
+          if (revocation === 'provider trust')
+            await authDriver.query(
+              'update identity.sso_providers set domain_verified=false where provider_id=$1',
+              [input.f.providerId],
+            );
+          else if (revocation === 'primary account')
+            await authDriver.query('delete from identity.accounts where id=$1', [input.accountId]);
+          else
+            await authDriver.query(
+              'delete from identity.session_assurances where session_id=$1 and kind=$2',
+              [input.signed.identity.sessionId, 'sso_saml'],
+            );
+          attempted = effect(input).then(
+            (value) => ({ value }),
+            (error) => ({ error }),
+          );
+          await blockedBy(pid);
+          await authDriver.query('commit');
+          expect(await attempted).toMatchObject({ error: { code: 'SSO_REQUIRED' } });
+        } finally {
+          await authDriver.query('rollback');
+          await attempted;
+        }
+      });
+    }
+    it('waits for a control-plane link revocation even when its membership remains active', async () => {
+      const input = await effectPerson(),
+        pid = (await driver.query<{ pid: number }>('select pg_backend_pid() as pid')).rows[0]!.pid;
+      await driver.query('begin');
+      let attempted: Promise<unknown> | undefined;
+      try {
+        // Trusted fixture isolates the link state left by an explicit member re-enable; actual SCIM
+        // also disables the member, which the existing current-person guard independently denies.
+        await driver.query(
+          "update org.sso_member_links set state='deprovisioned',deprovisioned_at=clock_timestamp() where organization_id=$1 and membership_id=$2",
+          [input.organizationId, input.context.membershipId],
+        );
+        attempted = effect(input).then(
+          (value) => ({ value }),
+          (error) => ({ error }),
+        );
+        await blockedBy(pid);
+        await driver.query('commit');
+        expect(await attempted).toMatchObject({ error: { code: 'SSO_REQUIRED' } });
+      } finally {
+        await driver.query('rollback');
+        await attempted;
+      }
+    });
+    it('serializes an optional-to-required policy change before the actual admin effect', async () => {
+      const input = await effectPerson(false),
+        owner = input.f.owner,
+        control = new pg.Client({ connectionString: urls.app() });
+      await authDriver.query(
+        'delete from identity.session_assurances where session_id=$1 and kind=$2',
+        [input.signed.identity.sessionId, 'sso_saml'],
+      );
+      await control.connect();
+      await control.query('begin');
+      let attempted: Promise<unknown> | undefined;
+      try {
+        await control.query(
+          "select set_config('app.organization_id',$1,true),set_config('app.user_id',$2,true),set_config('app.membership_id',$3,true),set_config('app.actor_type','user',true),set_config('app.interactive_session_id',$4,true)",
+          [input.organizationId, owner.userId, owner.context.membershipId, owner.sessionId],
+        );
+        await control.query(
+          "insert into org.security_policies(organization_id,mfa_for_administration,mfa_max_age_seconds,sso_enforcement,version,updated_by_membership_id) values($1,false,900,'required',2,$2)",
+          [input.organizationId, owner.context.membershipId],
+        );
+        const pid = (await control.query<{ pid: number }>('select pg_backend_pid() as pid'))
+          .rows[0]!.pid;
+        attempted = effect(input).then(
+          (value) => ({ value }),
+          (error) => ({ error }),
+        );
+        await blockedBy(pid);
+        await control.query('commit');
+        expect(await attempted).toMatchObject({ error: { code: 'SSO_REQUIRED' } });
+      } finally {
+        await control.query('rollback');
+        await attempted;
+        await control.end();
+      }
+    });
+    it('rolls back a successful authority check with its transaction and restores private scope', async () => {
+      const input = await effectPerson(),
+        failure = new Error('TEST_SSO_ROLLBACK');
+      await expect(
+        withPrivilegeTx(database.db, input.context, async (tx) => {
+          const before = await tx.execute(
+            sql`select current_setting('identity.mfa_guard_active',true) as active,current_setting('identity.mfa_guard_user',true) as person,current_setting('identity.mfa_guard_session',true) as session`,
+          );
+          await assertInteractivePrivilege(tx, input.context, 'member.manage');
+          const after = await tx.execute(
+            sql`select current_setting('identity.mfa_guard_active',true) as active,current_setting('identity.mfa_guard_user',true) as person,current_setting('identity.mfa_guard_session',true) as session`,
+          );
+          const normalized = (rows: typeof before.rows) =>
+            rows.map((row) =>
+              Object.fromEntries(Object.entries(row).map(([key, value]) => [key, value ?? ''])),
+            );
+          expect(normalized(after.rows)).toEqual(normalized(before.rows));
+          throw failure;
+        }),
+      ).rejects.toBe(failure);
+      expect(await effect(input)).toMatchObject({ organizationId: input.organizationId });
+    });
   });
 });

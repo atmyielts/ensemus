@@ -2,7 +2,15 @@ openapi: 3.1.0
 info:
   title: Ensemus Canonical API (Reference Contract)
   version: 2.0.0
-  description: "Next.js Route Handler reference interface for tenant-aware work, agent, approval, search and provider policies. The work-unit routes, and the approval list, read and decision routes, are implemented, and accept a browser session cookie, with writes also checked against the Origin header. Bearer tokens are not accepted yet. An operation marked x-ensemus-status planned is an architectural specification and does not exist yet. Real responses from every other operation are validated against this file by tests/stack/api.test.ts, and tests/unit/openapi-contract.test.ts keeps the two lists honest. The public webhook address, POST /api/webhooks/{token}, is not here: it takes no session, it is not a client API, and it answers only 202, 404, 413 and 429 with no body, so a stranger learns nothing (ADR-027 D4)."
+  description: "Next.js Route Handler reference interface for tenant-aware work, agent, approval,
+    search and provider policies. The work-unit routes, and the approval list, read and decision
+    routes, are implemented, and accept a browser session cookie, with writes also checked against
+    the Origin header. Bearer tokens are not accepted yet. An operation marked x-ensemus-status
+    planned is an architectural specification and does not exist yet. Real responses from every
+    other operation are validated against this file by tests/stack/api.test.ts, and
+    tests/unit/openapi-contract.test.ts keeps the two lists honest. The public webhook address, POST
+    /api/webhooks/{token}, is not here: it takes no session, it is not a client API, and it answers
+    only 202, 404, 413 and 429 with no body, so a stranger learns nothing (ADR-027 D4)."
 servers:
   - url: https://ensemus.example.invalid/api/v1
     description: Illustrative placeholder; not a live endpoint.
@@ -155,7 +163,8 @@ paths:
         - name: If-Match
           in: header
           required: true
-          description: The version last read, as sent in the ETag response header. Weak tags, lists and * are refused.
+          description: The version last read, as sent in the ETag response header. Weak tags, lists and * are
+            refused.
           schema:
             type: string
       requestBody:
@@ -222,7 +231,14 @@ paths:
       tags:
         - work
       summary: Follow a Work Unit's version as server-sent events
-      description: Sends an event named status whose data and id are both the current version, whenever the version differs from the last one sent, and comment heartbeats in between. Status comes from PostgreSQL, so a reconnect to any replica resumes from Last-Event-ID. Access is checked again on every poll, and the stream ends when access is lost. Connections close after about 15 minutes, and EventSource reconnects by itself. With include=evidence it also sends an event named evidence, with no id, at once and whenever the Work Unit's files or reviews change, since those can change without the version moving. Its data is an opaque value to compare, and says nothing about them.
+      description: Sends an event named status whose data and id are both the current version, whenever
+        the version differs from the last one sent, and comment heartbeats in between. Status comes
+        from PostgreSQL, so a reconnect to any replica resumes from Last-Event-ID. Access is checked
+        again on every poll, and the stream ends when access is lost. Connections close after about
+        15 minutes, and EventSource reconnects by itself. With include=evidence it also sends an
+        event named evidence, with no id, at once and whenever the Work Unit's files or reviews
+        change, since those can change without the version moving. Its data is an opaque value to
+        compare, and says nothing about them.
       parameters:
         - name: Last-Event-ID
           in: header
@@ -679,7 +695,8 @@ paths:
                 reason:
                   type: string
                   maxLength: 2000
-                  description: Required, and not blank, to deny an approval the work is paused on, because that stops the work for good. Without it the answer is 400 with code REASON_REQUIRED.
+                  description: Required, and not blank, to deny an approval the work is paused on, because that stops
+                    the work for good. Without it the answer is 400 with code REASON_REQUIRED.
       responses:
         "200":
           description: Decision recorded
@@ -1225,7 +1242,8 @@ paths:
                     format: uuid
       responses:
         "200":
-          description: Full-text results the caller's ACL covers, filtered inside the query. Semantic search needs a model, so it runs in a worker, for answers (ADR-029 D5).
+          description: Full-text results the caller's ACL covers, filtered inside the query. Semantic search
+            needs a model, so it runs in a worker, for answers (ADR-029 D5).
           content:
             application/json:
               schema:
@@ -2838,7 +2856,8 @@ paths:
       tags:
         - work
       summary: A person accepts or rejects exactly these bytes against the work's objective
-      description: Acceptance requires objective_sha256 and citations_sha256 from the read view; rejection requires a reason. Stale submitted digests are refused.
+      description: Acceptance requires objective_sha256 and citations_sha256 from the read view; rejection
+        requires a reason. Stale submitted digests are refused.
       requestBody:
         required: true
         content:
@@ -5372,13 +5391,404 @@ paths:
         "204":
           description: Token revoked. No response body.
         default: *a1
+  /organizations/{organization_id}/license:
+    parameters:
+      - $ref: "#/components/parameters/OrganizationID"
+    get:
+      tags:
+        - commercial
+      summary: What this organization's license and maintenance say
+      description: Read by owners and admins. Every value comes from a signed document verified as it is
+        read. What this answers is shown to people and is never used to refuse a request (ADR-030
+        D2).
+      responses:
+        "200":
+          description: License status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LicenseStatus"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/RestorePending"
+  /organizations/{organization_id}/license/documents:
+    parameters:
+      - $ref: "#/components/parameters/OrganizationID"
+    post:
+      tags:
+        - commercial
+      summary: Install a signed license, maintenance statement, advisory or support policy
+      description: Owners only. A file that does not verify changes nothing. Installing the same file
+        twice is safe, and answers 200 the second time. A JSON body here has the same 256 KB limit
+        as any other, and the page's form takes a document up to the limit stated on the field.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InstallSignedDocument"
+      responses:
+        "200":
+          description: This exact file was already installed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InstalledDocument"
+        "201":
+          description: Installed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InstalledDocument"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/RestorePending"
+  /organizations/{organization_id}/advisories:
+    parameters:
+      - $ref: "#/components/parameters/OrganizationID"
+    get:
+      tags:
+        - commercial
+      summary: Signed security advisories installed here, newest first
+      responses:
+        "200":
+          description: Advisories
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - items
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Advisory"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/RestorePending"
+  /organizations/{organization_id}/exports:
+    parameters:
+      - $ref: "#/components/parameters/OrganizationID"
+    get:
+      tags:
+        - commercial
+      summary: Archives of this organization, newest first
+      responses:
+        "200":
+          description: Exports
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - items
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/OrganizationExport"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/RestorePending"
+    post:
+      tags:
+        - commercial
+      summary: Ask for an archive, sealed to a public key you hold the private half of
+      description: Owners only. Restricted work is left out, and the archive says how much (ADR-030 D10).
+        Runs in the worker, and this answers before it starts.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RequestExport"
+      responses:
+        "202":
+          description: Requested
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OrganizationExport"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/RestorePending"
+  /organizations/{organization_id}/exports/{export_id}:
+    parameters:
+      - $ref: "#/components/parameters/OrganizationID"
+      - $ref: "#/components/parameters/ExportID"
+    get:
+      tags:
+        - commercial
+      summary: One archive's status
+      responses:
+        "200":
+          description: The export
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OrganizationExport"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/RestorePending"
+  /organizations/{organization_id}/exports/{export_id}/archive:
+    parameters:
+      - $ref: "#/components/parameters/OrganizationID"
+      - $ref: "#/components/parameters/ExportID"
+    get:
+      tags:
+        - commercial
+      summary: Download the archive, a tar of sealed parts
+      responses:
+        "200":
+          description: The archive
+          headers:
+            Content-Disposition:
+              required: true
+              schema:
+                type: string
+                pattern: ^attachment; filename="[A-Za-z0-9._-]+"$
+            Cache-Control:
+              required: true
+              schema:
+                type: string
+                enum:
+                  - no-store
+          content:
+            application/x-tar:
+              schema:
+                type: string
+                format: binary
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "410":
+          description: Something was deleted after this archive was made. Make a new one.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/RestorePending"
+  /organizations/{organization_id}/imports:
+    parameters:
+      - $ref: "#/components/parameters/OrganizationID"
+    post:
+      tags:
+        - commercial
+      summary: Say this new, empty organization is to take an archive
+      description: Owners only. No bytes come through here. An operator runs the import, so that the
+        private key opening the archive stays in one process on their machine (ADR-030 D8).
+      responses:
+        "201":
+          description: Requested
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OrganizationImport"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/RestorePending"
+  /organizations/{organization_id}/imports/{import_id}:
+    parameters:
+      - $ref: "#/components/parameters/OrganizationID"
+      - $ref: "#/components/parameters/ImportID"
+    get:
+      tags:
+        - commercial
+      summary: How an import went, with counts and warnings
+      responses:
+        "200":
+          description: The import
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OrganizationImport"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/RestorePending"
+  /organizations/{organization_id}/imported-people:
+    parameters:
+      - $ref: "#/components/parameters/OrganizationID"
+    get:
+      tags:
+        - commercial
+      summary: People from the archive, and which of them have been linked to a member here
+      responses:
+        "200":
+          description: People
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - items
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ImportedPerson"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/RestorePending"
+  /organizations/{organization_id}/imported-people/{source_membership_id}/link:
+    parameters:
+      - $ref: "#/components/parameters/OrganizationID"
+      - name: source_membership_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    post:
+      tags:
+        - commercial
+      summary: Say this member here is that person from the archive
+      description: Owners only. Moves what they owned to them, and grants no role.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LinkImportedPerson"
+      responses:
+        "200":
+          description: Linked
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ImportedPerson"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/RestorePending"
 components:
   securitySchemes:
     sessionCookie:
       type: apiKey
       in: cookie
       name: __Secure-better-auth.session_token
-      description: The browser session. Writes must also carry an Origin header naming this deployment. API tokens are not available yet.
+      description: The browser session. Writes must also carry an Origin header naming this deployment.
+        API tokens are not available yet.
   headers:
     ETag:
       description: The version just read or written, as an entity tag. Send it back in If-Match.
@@ -5407,7 +5817,8 @@ components:
       name: If-Match
       in: header
       required: true
-      description: The version last read, as sent in the ETag response header. Weak tags, lists and * are refused.
+      description: The version last read, as sent in the ETag response header. Weak tags, lists and * are
+        refused.
       schema:
         type: string
     WorkUnitID:
@@ -5436,6 +5847,20 @@ components:
       in: path
       required: true
       description: A source the caller's ACL does not cover answers as if it did not exist.
+      schema:
+        type: string
+        format: uuid
+    ExportID:
+      name: export_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    ImportID:
+      name: import_id
+      in: path
+      required: true
       schema:
         type: string
         format: uuid
@@ -5476,7 +5901,8 @@ components:
               type: boolean
             external_receipt:
               type: boolean
-              description: The outside system confirms it happened. Accepted only when this organization has an active connection that can act, because nothing else could ever satisfy it.
+              description: The outside system confirms it happened. Accepted only when this organization has an
+                active connection that can act, because nothing else could ever satisfy it.
     PendingApproval:
       type: object
       additionalProperties: false
@@ -5604,7 +6030,9 @@ components:
             - evidence
             - owner_confirmed
             - not_recorded
-          description: "`evidence` means the Work Unit's criteria were met. `owner_confirmed` means no evidence was requested, and the accountable owner confirmed it themselves. `not_recorded` means it finished before this was recorded."
+          description: "`evidence` means the Work Unit's criteria were met. `owner_confirmed` means no
+            evidence was requested, and the accountable owner confirmed it themselves.
+            `not_recorded` means it finished before this was recorded."
         confirmed_by_membership_id:
           type:
             - string
@@ -5711,7 +6139,10 @@ components:
         - failed
         - unknown
         - cancelled
-      description: "`sent` means the provider accepted it, which for email is the mail server taking it and not the message reaching an inbox. `failed` means it was not sent. `unknown` means it could have gone and the provider cannot say, so it waits for a person and is never sent again by itself."
+      description: "`sent` means the provider accepted it, which for email is the mail server taking it
+        and not the message reaching an inbox. `failed` means it was not sent. `unknown` means it
+        could have gone and the provider cannot say, so it waits for a person and is never sent
+        again by itself."
     ExternalActionSummary:
       type: object
       additionalProperties: false
@@ -8204,6 +8635,397 @@ components:
           type: integer
         provider_ready:
           type: boolean
+    InstallSignedDocument:
+      type: object
+      additionalProperties: false
+      required:
+        - envelope
+      properties:
+        envelope:
+          type: string
+          minLength: 1
+          maxLength: 1048576
+    InstalledDocument:
+      type: object
+      additionalProperties: false
+      required:
+        - type
+        - id
+        - created
+        - test_key
+      properties:
+        type:
+          type: string
+          enum:
+            - license
+            - maintenance
+            - advisory
+            - support_policy
+        id:
+          type: string
+          format: uuid
+        created:
+          type: boolean
+        test_key:
+          type: boolean
+    LicenseStatus:
+      type: object
+      additionalProperties: false
+      required:
+        - standing
+        - license
+        - maintenance
+        - running_release
+        - seats_in_use
+        - notices
+      properties:
+        standing:
+          type: string
+          enum:
+            - licensed
+            - unlicensed
+            - unverifiable
+        license:
+          oneOf:
+            - type: "null"
+            - type: object
+              additionalProperties: false
+              required:
+                - license_id
+                - licensee_name
+                - contract_reference
+                - term
+                - licensed_version
+                - footprint_seats
+                - issued_at
+                - test_key
+                - retired_key
+              properties:
+                license_id:
+                  type: string
+                  format: uuid
+                licensee_name:
+                  type: string
+                contract_reference:
+                  type: string
+                term:
+                  type: object
+                  additionalProperties: false
+                  required:
+                    - kind
+                  properties:
+                    kind:
+                      type: string
+                      enum:
+                        - perpetual
+                        - pilot
+                    review_on:
+                      type: string
+                      format: date
+                licensed_version:
+                  type: string
+                footprint_seats:
+                  type:
+                    - integer
+                    - "null"
+                issued_at:
+                  type: string
+                  format: date-time
+                test_key:
+                  type: boolean
+                retired_key:
+                  type: boolean
+        maintenance:
+          type: object
+          additionalProperties: false
+          required:
+            - status
+            - last_covered_on
+          properties:
+            status:
+              type: string
+              enum:
+                - no_agreement
+                - not_started
+                - active
+                - lapsed
+            last_covered_on:
+              type:
+                - string
+                - "null"
+              format: date
+        running_release:
+          oneOf:
+            - type: "null"
+            - type: object
+              additionalProperties: false
+              required:
+                - version
+                - covered
+              properties:
+                version:
+                  type: string
+                covered:
+                  type:
+                    - boolean
+                    - "null"
+        seats_in_use:
+          type: integer
+          minimum: 0
+        notices:
+          type: array
+          items:
+            type: string
+            enum:
+              - no_license
+              - license_unverifiable
+              - no_maintenance
+              - maintenance_lapsed
+              - maintenance_not_started
+              - pilot_review_due
+              - signed_with_test_key
+              - signed_with_retired_key
+              - clock_before_issue
+              - running_release_outside_rights
+              - seats_above_footprint
+    Advisory:
+      type: object
+      additionalProperties: false
+      required:
+        - advisory_id
+        - severity
+        - title
+        - summary
+        - affected_versions
+        - fixed_in_versions
+        - issued_at
+        - affects_this_release
+        - test_key
+      properties:
+        advisory_id:
+          type: string
+        severity:
+          type: string
+          enum:
+            - low
+            - moderate
+            - high
+            - critical
+        title:
+          type: string
+        summary:
+          type: string
+        affected_versions:
+          type: array
+          items:
+            type: string
+        fixed_in_versions:
+          type: array
+          items:
+            type: string
+        issued_at:
+          type: string
+          format: date-time
+        affects_this_release:
+          type:
+            - boolean
+            - "null"
+        test_key:
+          type: boolean
+    RequestExport:
+      type: object
+      additionalProperties: false
+      required:
+        - recipient_public_key
+      properties:
+        recipient_public_key:
+          type: string
+          minLength: 1
+          maxLength: 512
+    OrganizationExport:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - status
+        - scope
+        - recipient_key_id
+        - requested_at
+        - finished_at
+        - expires_at
+        - part_count
+        - record_count
+        - archive_bytes
+        - excluded
+        - failure_code
+        - downloadable
+      properties:
+        id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum:
+            - requested
+            - running
+            - ready
+            - failed
+            - expired
+        scope:
+          type: string
+          enum:
+            - standard
+        recipient_key_id:
+          type: string
+          pattern: ^[0-9a-f]{32}$
+        requested_at:
+          type: string
+          format: date-time
+        finished_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+        expires_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+        part_count:
+          type: integer
+          minimum: 0
+        record_count:
+          type: integer
+          minimum: 0
+        archive_bytes:
+          type: integer
+          minimum: 0
+        excluded:
+          type: object
+          additionalProperties: false
+          required:
+            - restricted_work
+            - restricted_artifacts
+            - restricted_clients
+          properties:
+            restricted_work:
+              type: integer
+              minimum: 0
+            restricted_artifacts:
+              type: integer
+              minimum: 0
+            restricted_clients:
+              type: integer
+              minimum: 0
+        failure_code:
+          type:
+            - string
+            - "null"
+        downloadable:
+          type: boolean
+    OrganizationImport:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - status
+        - requested_at
+        - finished_at
+        - source_organization_id
+        - exported_at
+        - source_release
+        - applied_counts
+        - warning_counts
+        - failure_code
+      properties:
+        id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum:
+            - requested
+            - running
+            - completed
+            - completed_with_warnings
+            - failed
+        requested_at:
+          type: string
+          format: date-time
+        finished_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+        source_organization_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        exported_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+        source_release:
+          type:
+            - string
+            - "null"
+        applied_counts:
+          type: object
+          additionalProperties:
+            type: integer
+        warning_counts:
+          type: object
+          additionalProperties:
+            type: integer
+        failure_code:
+          type:
+            - string
+            - "null"
+    ImportedPerson:
+      type: object
+      additionalProperties: false
+      required:
+        - source_membership_id
+        - display_name
+        - email
+        - source_role
+        - target_membership_id
+        - linked_at
+      properties:
+        source_membership_id:
+          type: string
+          format: uuid
+        display_name:
+          type: string
+        email:
+          type: string
+        source_role:
+          type: string
+          enum:
+            - owner
+            - admin
+            - member
+        target_membership_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        linked_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+    LinkImportedPerson:
+      type: object
+      additionalProperties: false
+      required:
+        - membership_id
+      properties:
+        membership_id:
+          type: string
+          format: uuid
   responses:
     BadRequest:
       description: Malformed path, query, header or body. details.fields names the fields, never their values.
@@ -8266,7 +9088,10 @@ components:
           schema:
             $ref: "#/components/schemas/Error"
     RestorePending:
-      description: This organization's database was restored from a backup and is behind the tombstone ledger, so nothing is served until an operator has re-applied the ledger. The code is RESTORE_PENDING, the request did nothing, and it can be repeated. Only members of the organization see this.
+      description: This organization's database was restored from a backup and is behind the tombstone
+        ledger, so nothing is served until an operator has re-applied the ledger. The code is
+        RESTORE_PENDING, the request did nothing, and it can be repeated. Only members of the
+        organization see this.
       content:
         application/json:
           schema:

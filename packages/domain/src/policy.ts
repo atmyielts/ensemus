@@ -28,7 +28,11 @@ export type Capability =
   | 'knowledge.manage'
   | 'knowledge.review_fact'
   | 'egress.view'
-  | 'client_onboarding.start';
+  | 'client_onboarding.start'
+  | 'organization.export'
+  | 'organization.import'
+  | 'license.manage'
+  | 'license.view';
 
 const GRANTS: Record<Role, ReadonlySet<Capability>> = {
   owner: new Set([
@@ -55,6 +59,11 @@ const GRANTS: Record<Role, ReadonlySet<Capability>> = {
     'knowledge.review_fact',
     'egress.view',
     'client_onboarding.start',
+    // An archive holds nearly all of a tenant, and a license is the customer's, so these are the owner's.
+    'organization.export',
+    'organization.import',
+    'license.manage',
+    'license.view',
   ]),
   admin: new Set([
     'member.invite',
@@ -78,6 +87,7 @@ const GRANTS: Record<Role, ReadonlySet<Capability>> = {
     'knowledge.review_fact',
     'egress.view',
     'client_onboarding.start',
+    'license.view',
   ]),
   member: new Set(['client.manage', 'project.manage', 'work.create', 'knowledge.add']),
 };

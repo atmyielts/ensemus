@@ -89,6 +89,9 @@ importers:
       "@ensemus/packs":
         specifier: workspace:*
         version: link:../../packages/packs
+      "@ensemus/sovereign":
+        specifier: workspace:*
+        version: link:../../packages/sovereign
     devDependencies:
       "@types/react":
         specifier: 19.3.0
@@ -142,6 +145,9 @@ importers:
       "@ensemus/packs":
         specifier: workspace:*
         version: link:../packs
+      "@ensemus/sovereign":
+        specifier: workspace:*
+        version: link:../sovereign
   packages/auth:
     dependencies:
       "@ensemus/database":
@@ -398,6 +404,9 @@ importers:
       "@ensemus/packs":
         specifier: workspace:*
         version: link:../packages/packs
+      "@ensemus/sovereign":
+        specifier: workspace:*
+        version: link:../packages/sovereign
     devDependencies:
       "@types/pg":
         specifier: 8.23.1
@@ -506,6 +515,9 @@ importers:
       "@ensemus/packs":
         specifier: workspace:*
         version: link:../../packages/packs
+      "@ensemus/sovereign":
+        specifier: workspace:*
+        version: link:../../packages/sovereign
   packages/knowledge:
     dependencies:
       "@ensemus/domain":
@@ -516,6 +528,14 @@ importers:
       "@ensemus/domain":
         specifier: workspace:*
         version: link:../domain
+  packages/sovereign:
+    dependencies:
+      "@ensemus/domain":
+        specifier: workspace:*
+        version: link:../domain
+      zod:
+        specifier: 4.6.7
+        version: 4.6.7
 packages:
   "@ai-sdk/anthropic@4.0.87":
     resolution:

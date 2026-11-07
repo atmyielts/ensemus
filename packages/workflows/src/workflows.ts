@@ -167,3 +167,5 @@ export { knowledgeSweepWorkflow } from './knowledge-sweep-workflow';
 export { objectMigrationWorkflow } from './object-migration-workflow';
 export { processRunWorkflow } from './process-run-workflow';
 export { simulationWorkflow } from './simulation-workflow';
+// M6 (ADR-030).
+export { organizationExportWorkflow } from './portability-workflow';

@@ -22,6 +22,7 @@ export async function withPrivilegeTx<T>(
     return await withTenantTx(database, context, fn);
   } catch (error) {
     if (pgCode(error) === 'EN405') throw new AppError('MFA_REQUIRED');
+    if (pgCode(error) === 'EN410') throw new AppError('SSO_REQUIRED');
     throw error;
   }
 }
@@ -50,11 +51,17 @@ export async function assertRecentMfa(
     throw new AppError('MFA_REQUIRED');
   // SQL owns the clock, row locks, fresh policy/person and auth-only proof. A caller's Date or a
   // copied session UUID cannot make a stale or foreign native session current.
-  const result = await tx.execute<{ allowed: boolean }>(sql`select
+  let result;
+  try {
+    result = await tx.execute<{ allowed: boolean }>(sql`select
     app.current_organization_id()=${context.organizationId}::uuid
     and app.current_user_id()=${context.userId}::uuid
     and app.current_membership_id()=${context.membershipId}::uuid
     and app.interactive_privilege_allowed(${action},${proof?.sessionId ?? null}::uuid) as allowed`);
+  } catch (error) {
+    if (pgCode(error) === 'EN410') throw new AppError('SSO_REQUIRED');
+    throw error;
+  }
   if (result.rows[0]?.allowed !== true) throw new AppError('MFA_REQUIRED');
 }
 

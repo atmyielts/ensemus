@@ -31,7 +31,8 @@
     "./product-schemas": "./src/product-schemas.ts",
     "./simulation-activities": "./src/simulation-activities.ts",
     "./process-run-activities": "./src/process-run-activities.ts",
-    "./object-migration-activities": "./src/object-migration-activities.ts"
+    "./object-migration-activities": "./src/object-migration-activities.ts",
+    "./portability-activities": "./src/portability-activities.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"

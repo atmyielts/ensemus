@@ -2,6 +2,7 @@
 
 // Every action is a public endpoint. Each one resolves the person and tenant again from the session
 // and re-checks permission in its service, and none trusts a hidden field for identity.
+import { redirectForSsoRefusal } from './interactive-refusal';
 import {
   acceptInvitation,
   addArtifact,
@@ -97,6 +98,7 @@ async function run(
     if (next) target = next;
   } catch (error) {
     await recordRefusal(tenant, error);
+    redirectForSsoRefusal(error);
     if (error instanceof AppError && error.code === 'RESTORE_PENDING') {
       target = '/restoring';
     } else if (error instanceof AppError && error.code === 'MFA_REQUIRED' && tenant) {
@@ -119,6 +121,7 @@ function assertConfirmed(form: FormData) {
 /** Reduces any failure to a code a form can show. Nothing else about it reaches the person. */
 async function codeOf(tenant: Tenant, error: unknown): Promise<string> {
   await recordRefusal(tenant, error);
+  redirectForSsoRefusal(error);
   if (error instanceof AppError && error.code === 'MFA_REQUIRED')
     redirect(
       stepUpPath(tenant.context.organizationId, `/o/${tenant.context.organizationId}/people`),

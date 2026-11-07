@@ -40,6 +40,20 @@ export type SettingsDestination = {
 
 export const SETTINGS_DESTINATIONS: readonly SettingsDestination[] = [
   {
+    path: 'license',
+    label: 'License and support',
+    description: 'Read installed license documents and maintenance notices.',
+    icon: 'usage',
+    any: ['license.view'],
+  },
+  {
+    path: 'data',
+    label: 'Export and import',
+    description: 'Prepare an encrypted archive or review data imported into a new organization.',
+    icon: 'arrow',
+    any: ['organization.export', 'organization.import'],
+  },
+  {
     path: 'security',
     label: 'Security and sign-in',
     description: 'Protect your account and manage company sign-in and provisioning.',
@@ -205,7 +219,7 @@ export function workspaceNavigation(input: {
           href: `${base}/settings`,
           label: 'Administration',
           icon: 'settings',
-          matches: [`${base}/connections`, `${base}/security`],
+          matches: [`${base}/connections`, `${base}/security`, `${base}/license`, `${base}/data`],
           excludes: [`${base}/settings/agents`],
         },
       ],

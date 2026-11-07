@@ -199,11 +199,17 @@ export async function recordSsoAssurance(
         userId: input.userId,
         kind: 'sso_saml',
         ssoProviderId: input.providerId,
+        primaryAccountId: account.id,
         verifiedAt: now,
       })
       .onConflictDoUpdate({
         target: [sessionAssurances.sessionId, sessionAssurances.kind],
-        set: { userId: input.userId, ssoProviderId: input.providerId, verifiedAt: now },
+        set: {
+          userId: input.userId,
+          ssoProviderId: input.providerId,
+          primaryAccountId: account.id,
+          verifiedAt: now,
+        },
       });
     return true;
   });

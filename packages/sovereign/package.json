@@ -1,0 +1,26 @@
+{
+  "name": "@ensemus/sovereign",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./envelope": "./src/envelope.ts",
+    "./trust-root": "./src/trust-root.ts",
+    "./documents": "./src/documents.ts",
+    "./verify": "./src/verify.ts",
+    "./sealed": "./src/sealed.ts",
+    "./tar": "./src/tar.ts",
+    "./bundle": "./src/bundle.ts",
+    "./backup": "./src/backup.ts",
+    "./diagnostics": "./src/diagnostics.ts",
+    "./issuer": "./src/issuer.ts",
+    "./testing": "./src/testing.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@ensemus/domain": "workspace:*",
+    "zod": "4.6.7"
+  }
+}

@@ -3,6 +3,7 @@
 // Every action is a public endpoint. Each one resolves the person and tenant again from the session and
 // re-checks permission in its service, and none trusts a hidden field for identity. A credential or a
 // signing secret never goes in a URL or a log, and a credential is never echoed back into a form.
+import { redirectForSsoRefusal } from './interactive-refusal';
 import {
   AppError,
   auditRefusal,
@@ -60,6 +61,7 @@ async function codeOf(
   back = `/o/${tenant.context.organizationId}/connections`,
 ): Promise<string> {
   await recordRefusal(tenant, error);
+  redirectForSsoRefusal(error);
   if (error instanceof AppError) {
     if (error.code === 'RESTORE_PENDING') redirect('/restoring');
     if (error.code === 'MFA_REQUIRED') redirect(stepUpPath(tenant.context.organizationId, back));
