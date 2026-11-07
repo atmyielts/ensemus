@@ -105,3 +105,56 @@ export const requestSemanticQuerySchema = z
     classification: value.classification,
     query: value.query,
   }));
+
+/** HTTP accepts bounded metadata only. Native identity and the qualification protocol are never
+ * browser-supplied authority. The exact capability protocol is derived by the request service. */
+export const requestModelQualificationBodySchema = z
+  .strictObject({
+    expected_profile_version: z.int().min(1),
+    purpose: requestModelQualificationSchema.shape.purpose,
+    dimension: requestModelQualificationSchema.shape.dimension,
+    vector_space_version: requestModelQualificationSchema.shape.vectorSpaceVersion,
+    request_key: id,
+    bounds: modelJobBoundsBodySchema,
+  })
+  .transform((v) => ({
+    expectedProfileVersion: v.expected_profile_version,
+    purpose: v.purpose,
+    dimension: v.dimension,
+    vectorSpaceVersion: v.vector_space_version,
+    requestKey: v.request_key,
+    bounds: v.bounds,
+  }))
+  .refine(
+    (v) =>
+      v.bounds.maxCalls === 1 &&
+      (v.purpose === 'embed'
+        ? v.dimension !== null && v.vectorSpaceVersion !== null
+        : v.dimension === null && v.vectorSpaceVersion === null),
+  );
+export const approveModelWorkloadBodySchema = z
+  .strictObject({
+    kind: approveModelWorkloadSchema.shape.kind,
+    scope: approveModelWorkloadSchema.shape.scope,
+    source_id: id.nullable(),
+    connection_id: id.nullable(),
+    purposes: approveModelWorkloadSchema.shape.purposes,
+    qualification_ids: approveModelWorkloadSchema.shape.qualificationIds,
+    max_classification: approveModelWorkloadSchema.shape.maxClassification,
+    bounds: modelJobBoundsBodySchema,
+    expires_at: approveModelWorkloadSchema.shape.expiresAt,
+    request_key: id,
+  })
+  .transform((v) => ({
+    kind: v.kind,
+    scope: v.scope,
+    sourceId: v.source_id,
+    connectionId: v.connection_id,
+    purposes: v.purposes,
+    qualificationIds: v.qualification_ids,
+    maxClassification: v.max_classification,
+    bounds: v.bounds,
+    expiresAt: v.expires_at,
+    requestKey: v.request_key,
+  }))
+  .pipe(approveModelWorkloadSchema);

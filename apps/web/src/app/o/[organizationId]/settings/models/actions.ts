@@ -18,6 +18,11 @@ import {
   updateModelProfile,
 } from '@ensemus/application/ai-model-profiles';
 import { loadModelEgressSettings } from '@ensemus/config';
+import {
+  approveModelWorkload,
+  requestModelQualification,
+  revokeModelWorkload,
+} from '@ensemus/application/knowledge/model-jobs';
 import type { AppDatabase, TenantContext } from '@ensemus/database';
 import { errorCode } from '@ensemus/telemetry';
 import { revalidatePath } from 'next/cache';
@@ -27,6 +32,7 @@ import { getRuntime } from '@/server/runtime';
 import { requireTenant } from '@/server/tenant';
 import { captureModelKey } from './capture';
 import { createInputFromForm, updateInputFromForm, usdPerMtokToMicros } from './model-form';
+import { qualificationFromForm, workloadFromForm } from './workload-form';
 
 const text = (form: FormData, name: string) => {
   const value = form.get(name);
@@ -159,5 +165,31 @@ export async function addRateCardAction(form: FormData) {
       inputMicrosPerMtok,
       outputMicrosPerMtok,
     });
+  });
+}
+
+export async function requestQualificationAction(form: FormData) {
+  const org = orgOf(form),
+    profileId = profileOf(form),
+    tenant = await requireTenant(org);
+  await run(tenant, profilePath(org, profileId), async () => {
+    // The original native context reaches the effect transaction; no caller-provided MFA receipt.
+    await requestModelQualification(tenant.database, tenant.context, qualificationFromForm(form));
+  });
+}
+export async function approveWorkloadAction(form: FormData) {
+  const org = orgOf(form),
+    tenant = await requireTenant(org);
+  await run(tenant, `${listPath(org)}/workloads`, async () => {
+    await approveModelWorkload(tenant.database, tenant.context, workloadFromForm(form));
+  });
+}
+export async function revokeWorkloadAction(form: FormData) {
+  const org = orgOf(form),
+    tenant = await requireTenant(org);
+  await run(tenant, `${listPath(org)}/workloads`, async () => {
+    if (text(form, 'confirm') !== 'yes') throw new AppError('INVALID_INPUT');
+    // Revoking authority is a conservative stop and deliberately does not request fresh MFA.
+    await revokeModelWorkload(tenant.database, tenant.context, idOf(form, 'approvalId'));
   });
 }

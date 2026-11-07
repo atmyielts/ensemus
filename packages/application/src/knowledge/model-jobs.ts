@@ -38,7 +38,7 @@ import {
 } from '@ensemus/domain/knowledge-models';
 import { can, type Classification } from '@ensemus/domain/policy';
 import { strongestClass } from '@ensemus/domain/knowledge';
-import { and, asc, eq, isNull, sql } from 'drizzle-orm';
+import { and, asc, eq, gt, isNull, sql } from 'drizzle-orm';
 import { AppError } from '../errors';
 import { emit } from '../events';
 import { idFromRequest } from '../request-id';
@@ -46,6 +46,7 @@ import { canonicalJson } from '@ensemus/domain/approval';
 import { idSchema } from '../ids';
 import { requireSearchPerson } from './retrieval';
 import { assertInteractivePrivilege, withPrivilegeTx as withTenantTx } from '../product/privileged';
+import { rowLockTarget } from '../row-lock';
 
 export const modelRequestHash = (value: unknown) =>
   createHash('sha256').update(canonicalJson(value)).digest('hex');
@@ -235,7 +236,8 @@ export async function approveModelWorkload(
             eq(modelProfiles.id, modelOperationQualifications.profileId),
           ),
         )
-        .where(eq(modelOperationQualifications.id, qualificationId));
+        .where(eq(modelOperationQualifications.id, qualificationId))
+        .for('share', { of: [rowLockTarget(modelProfiles)] });
       const row = result[0];
       if (!row) throw new AppError('NOT_FOUND');
       const q = row.qualification as QualifiedModelOperation;
@@ -326,6 +328,11 @@ export async function revokeModelWorkload(
   if (!id.success) throw new AppError('INVALID_INPUT');
   await withTenantTx(database, context, async (tx) => {
     await requireManager(tx, context);
+    const [approval] = await tx
+      .select({ id: modelWorkloadApprovals.id })
+      .from(modelWorkloadApprovals)
+      .where(eq(modelWorkloadApprovals.id, id.data));
+    if (!approval) throw new AppError('NOT_FOUND');
     const rows = await tx
       .update(modelWorkloadApprovals)
       .set({ revokedAt: new Date() })
@@ -339,6 +346,183 @@ export async function revokeModelWorkload(
         targetRef: `model_workload:${id.data}`,
         decision: 'allow',
       });
+  });
+}
+
+export type ModelQualificationView = ModelJobBounds & {
+  id: string;
+  profileId: string;
+  profileAlias: string;
+  profileVersion: number;
+  purpose: string;
+  protocol: string;
+  dimension: number | null;
+  vectorSpaceVersion: string | null;
+  state: string;
+  current: boolean;
+  usable: boolean;
+  resultDigest: string | null;
+  qualifiedAt: string | null;
+  createdAt: string;
+  job: { id: string; state: string; code: string | null; unknownOutcome: boolean } | null;
+};
+export type ModelWorkloadApprovalView = ModelJobBounds & {
+  id: string;
+  kind: string;
+  scope: string;
+  sourceId: string | null;
+  connectionId: string | null;
+  purposes: string[];
+  maxClassification: string;
+  expiresAt: string;
+  revokedAt: string | null;
+  createdAt: string;
+  qualifications: { id: string; usable: boolean }[];
+};
+const managementPageSize = 50;
+/** Safe operator evidence only: no payload, credential reference, result text or provider body. The
+ * same fresh manager check protects API and HTML reads. Cursors are exact UUID order, not time. */
+export async function listModelQualifications(
+  database: AppDatabase,
+  context: TenantContext,
+  filter: { profileId?: string; after?: string } = {},
+): Promise<{ items: ModelQualificationView[]; nextCursor: string | null }> {
+  for (const value of [filter.profileId, filter.after])
+    if (value !== undefined && !idSchema.safeParse(value).success)
+      throw new AppError('INVALID_INPUT');
+  const { profileId, after } = filter;
+  return withTenantTx(database, context, async (tx) => {
+    await requireManager(tx, context);
+    if (profileId) {
+      const [profile] = await tx
+        .select({ id: modelProfiles.id })
+        .from(modelProfiles)
+        .where(eq(modelProfiles.id, profileId));
+      if (!profile) throw new AppError('NOT_FOUND');
+    }
+    const rows = await tx
+      .select({
+        q: modelOperationQualifications,
+        profileVersion: modelProfiles.version,
+        profileAlias: modelProfiles.alias,
+        profileStatus: modelProfiles.status,
+        jobId: modelJobs.id,
+        jobState: modelJobs.state,
+        jobCode: modelJobs.refusalCode,
+        unknownOutcome: sql<boolean>`exists(select 1 from ai.model_call_attempts c where c.organization_id=${modelOperationQualifications.organizationId} and c.job_id=${modelJobs.id} and (c.state='unknown' or (c.state='dispatched' and ${modelJobs.state} in('refused','fenced'))))`,
+      })
+      .from(modelOperationQualifications)
+      .innerJoin(
+        modelProfiles,
+        and(
+          eq(modelProfiles.organizationId, modelOperationQualifications.organizationId),
+          eq(modelProfiles.id, modelOperationQualifications.profileId),
+        ),
+      )
+      .leftJoin(
+        modelJobs,
+        and(
+          eq(modelJobs.organizationId, modelOperationQualifications.organizationId),
+          eq(modelJobs.qualificationId, modelOperationQualifications.id),
+        ),
+      )
+      .where(
+        and(
+          profileId ? eq(modelOperationQualifications.profileId, profileId) : undefined,
+          after ? gt(modelOperationQualifications.id, after) : undefined,
+        ),
+      )
+      .orderBy(asc(modelOperationQualifications.id))
+      .limit(managementPageSize + 1);
+    const items = rows
+      .slice(0, managementPageSize)
+      .map(({ q, ...row }): ModelQualificationView => ({
+        id: q.id,
+        profileId: q.profileId,
+        profileAlias: row.profileAlias,
+        profileVersion: q.profileVersion,
+        purpose: q.purpose,
+        protocol: q.protocol,
+        dimension: q.dimension,
+        vectorSpaceVersion: q.vectorSpaceVersion,
+        state: q.state,
+        current: q.profileVersion === row.profileVersion,
+        usable:
+          q.state === 'passed' &&
+          q.profileVersion === row.profileVersion &&
+          row.profileStatus === 'active',
+        resultDigest: q.resultDigest,
+        qualifiedAt: q.qualifiedAt?.toISOString() ?? null,
+        createdAt: q.createdAt.toISOString(),
+        ...pickBounds(q),
+        job:
+          row.jobId && row.jobState
+            ? {
+                id: row.jobId,
+                state: row.jobState,
+                code: row.jobCode,
+                unknownOutcome: row.unknownOutcome,
+              }
+            : null,
+      }));
+    return { items, nextCursor: rows.length > managementPageSize ? items.at(-1)!.id : null };
+  });
+}
+export async function listModelWorkloadApprovals(
+  database: AppDatabase,
+  context: TenantContext,
+  after?: string,
+): Promise<{ items: ModelWorkloadApprovalView[]; nextCursor: string | null }> {
+  if (after !== undefined && !idSchema.safeParse(after).success)
+    throw new AppError('INVALID_INPUT');
+  return withTenantTx(database, context, async (tx) => {
+    await requireManager(tx, context);
+    const rows = await tx
+      .select()
+      .from(modelWorkloadApprovals)
+      .where(after ? gt(modelWorkloadApprovals.id, after) : undefined)
+      .orderBy(asc(modelWorkloadApprovals.id))
+      .limit(managementPageSize + 1);
+    const items: ModelWorkloadApprovalView[] = [];
+    for (const approval of rows.slice(0, managementPageSize)) {
+      const qualifications = await tx
+        .select({
+          id: modelOperationQualifications.id,
+          usable: sql<boolean>`${modelOperationQualifications.state}='passed' and ${modelOperationQualifications.profileVersion}=${modelProfiles.version} and ${modelProfiles.status}='active'`,
+        })
+        .from(modelWorkloadProfiles)
+        .innerJoin(
+          modelOperationQualifications,
+          and(
+            eq(modelOperationQualifications.organizationId, modelWorkloadProfiles.organizationId),
+            eq(modelOperationQualifications.id, modelWorkloadProfiles.qualificationId),
+          ),
+        )
+        .innerJoin(
+          modelProfiles,
+          and(
+            eq(modelProfiles.organizationId, modelOperationQualifications.organizationId),
+            eq(modelProfiles.id, modelOperationQualifications.profileId),
+          ),
+        )
+        .where(eq(modelWorkloadProfiles.approvalId, approval.id))
+        .orderBy(asc(modelOperationQualifications.id));
+      items.push({
+        id: approval.id,
+        kind: approval.kind,
+        scope: approval.scope,
+        sourceId: approval.sourceId,
+        connectionId: approval.connectionId,
+        purposes: approval.purposes,
+        maxClassification: approval.maxClassification,
+        ...pickBounds(approval),
+        expiresAt: approval.expiresAt.toISOString(),
+        revokedAt: approval.revokedAt?.toISOString() ?? null,
+        createdAt: approval.createdAt.toISOString(),
+        qualifications,
+      });
+    }
+    return { items, nextCursor: rows.length > managementPageSize ? items.at(-1)!.id : null };
   });
 }
 

@@ -5,6 +5,7 @@ import {
   needsReviewInterlock,
 } from '@ensemus/application/ai-model-profiles';
 import { loadModelEgressSettings } from '@ensemus/config';
+import { listModelQualifications } from '@ensemus/application/knowledge/model-jobs';
 import type { ProviderKind } from '@ensemus/domain/ai';
 import { can } from '@ensemus/domain/policy';
 import Link from 'next/link';
@@ -22,6 +23,7 @@ import {
 } from '../actions';
 import { microsToUsd, PROVIDER_LABEL, RETENTION_LABEL, STATUS_LOOK } from '../model-form';
 import { ProfileFields } from '../profile-fields';
+import { QualificationPanel } from '../qualification-panel';
 
 export const metadata = { title: 'Model | Ensemus' };
 
@@ -29,7 +31,7 @@ export const metadata = { title: 'Model | Ensemus' };
 const NEXT_STEP: Record<string, string> = {
   draft: 'Test this model to start using it.',
   probing:
-    'A test is on its way. If nothing changes after a few minutes, ask for it again: the service that runs tests may be away.',
+    'A test is waiting for a confirmed worker result. Refresh to check its progress. An unknown paid outcome is never retried automatically.',
   probe_failed:
     'The last test failed, so nothing is being sent to this model. Check the address and the key, then test it again.',
   active: 'This model passed its test, and agents can use it.',
@@ -41,10 +43,10 @@ export default async function ModelProfilePage({
   searchParams,
 }: {
   params: Promise<{ organizationId: string; profileId: string }>;
-  searchParams: Promise<{ error?: string }>;
+  searchParams: Promise<{ error?: string; qualification_after?: string }>;
 }) {
   const { organizationId, profileId } = await params;
-  const { error } = await searchParams;
+  const { error, qualification_after: after } = await searchParams;
   const { context, database } = await requireTenant(organizationId);
   const canManage = can(context.role, 'model.manage');
   const canActivate = can(context.role, 'model.activate');
@@ -54,6 +56,10 @@ export default async function ModelProfilePage({
     latestRateCardFor(database, context, profile.id),
     listModelProfiles(database, context),
   ]);
+  const qualifications =
+    canActivate && can(context.role, 'budget.manage')
+      ? await listModelQualifications(database, context, { profileId, ...(after ? { after } : {}) })
+      : null;
 
   const kind = profile.provider_kind as ProviderKind;
   // Only whether it is set reaches the page. The operator's reference stays on the server.
@@ -119,6 +125,15 @@ export default async function ModelProfilePage({
             </form>
           )}
         </section>
+
+        {qualifications && (
+          <QualificationPanel
+            organizationId={organizationId}
+            profile={profile}
+            evidence={qualifications.items}
+            nextCursor={qualifications.nextCursor}
+          />
+        )}
 
         <section className="card" aria-labelledby="key-heading">
           <h2 id="key-heading">Key</h2>

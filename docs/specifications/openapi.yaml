@@ -1454,6 +1454,129 @@ paths:
           $ref: "#/components/responses/InternalError"
         "503":
           $ref: "#/components/responses/RestorePending"
+  /organizations/{organization_id}/model-profiles/{model_profile_id}/qualifications:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+      - { name: model_profile_id, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      tags: [models]
+      summary: Read manager-only capability evidence, including stale versions and unknown outcomes
+      parameters:
+        - { name: after, in: query, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: At most 50 content-free evidence records in UUID order
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [items, next_cursor]
+                properties:
+                  items: { type: array, maxItems: 50, items: { $ref: '#/components/schemas/ModelCapabilityEvidence' } }
+                  next_cursor: { type: [string, 'null'], format: uuid }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
+        '503': { $ref: '#/components/responses/RestorePending' }
+    post:
+      tags: [models]
+      summary: Queue one bounded synthetic capability qualification for the exact profile version
+      description: Native interactive identity, tenant required-SSO and model_profile.activate privilege are checked in the effect transaction. This HTTP process has no paid model transport. The worker derives the exact purpose protocol; text probe success cannot substitute for capability qualification.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RequestModelCapabilityQualification' }
+      responses:
+        '202':
+          description: Durable request recorded; no qualification granted yet
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [qualification_id, job_id]
+                properties:
+                  qualification_id: { type: string, format: uuid }
+                  job_id: { type: string, format: uuid }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/InternalError' }
+        '503': { $ref: '#/components/responses/RestorePending' }
+  /organizations/{organization_id}/knowledge/workload-approvals:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+    get:
+      tags: [models]
+      summary: Read manager-only bounded workload approvals and current evidence availability
+      parameters:
+        - { name: after, in: query, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: At most 50 approvals in UUID order; live call admission still applies
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [items, next_cursor]
+                properties:
+                  items: { type: array, maxItems: 50, items: { $ref: '#/components/schemas/ModelWorkloadApproval' } }
+                  next_cursor: { type: [string, 'null'], format: uuid }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalError' }
+        '503': { $ref: '#/components/responses/RestorePending' }
+    post:
+      tags: [models]
+      summary: Approve an expiring, explicitly bounded Knowledge workload against current qualification evidence
+      description: Requires native interactive identity, required-SSO and the model_workload.approve privileged action with fresh MFA. Every purpose needs passed evidence for its exact current profile version. Missing bounds, expiry or source/connection scope refuse. This endpoint grants no provider transport to the web tier.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ApproveModelWorkloadRequest' }
+      responses:
+        '201':
+          description: Bounded authority recorded idempotently; no model call made
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [approval_id]
+                properties:
+                  approval_id: { type: string, format: uuid }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/InternalError' }
+        '503': { $ref: '#/components/responses/RestorePending' }
+  /organizations/{organization_id}/knowledge/workload-approvals/{approval_id}:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+      - { name: approval_id, in: path, required: true, schema: { type: string, format: uuid } }
+    delete:
+      tags: [models]
+      summary: Revoke workload authority conservatively without a new MFA challenge
+      description: Native tenant manager identity and required-SSO still apply. Repeating revocation is safe; unknown paid calls retain settlement obligations and are never automatically resent.
+      responses:
+        '204': { description: Revoked, or already revoked }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
+        '503': { $ref: '#/components/responses/RestorePending' }
   /organizations/{organization_id}/model-profiles/{model_profile_id}/rate-cards:
     parameters:
       - $ref: "#/components/parameters/OrganizationID"
@@ -7074,6 +7197,88 @@ components:
         max_total_tokens: { type: integer, minimum: 1, maximum: 9007199254740991 }
         max_cost_micros: { type: integer, minimum: 0, maximum: 9007199254740991 }
         timeout_seconds: { type: integer, minimum: 1, maximum: 86400 }
+    RequestModelCapabilityQualification:
+      type: object
+      additionalProperties: false
+      required: [expected_profile_version, purpose, dimension, vector_space_version, request_key, bounds]
+      properties:
+        expected_profile_version: { type: integer, minimum: 1 }
+        purpose: { type: string, enum: [embed, rerank, answer] }
+        dimension: { type: [integer, 'null'], minimum: 1, maximum: 8192 }
+        vector_space_version: { type: [string, 'null'], minLength: 1, maxLength: 256 }
+        request_key: { type: string, format: uuid }
+        bounds: { $ref: '#/components/schemas/KnowledgeModelJobBounds' }
+      description: Exactly one call. Embedding requires explicit dimension and vector-space version; ranking and answers require both fields null. Protocol is derived server-side, not supplied by the requester.
+    ApproveModelWorkloadRequest:
+      type: object
+      additionalProperties: false
+      required: [kind, scope, source_id, connection_id, purposes, qualification_ids, max_classification, bounds, expires_at, request_key]
+      properties:
+        kind: { type: string, enum: [document_embed, query, answer, agent_context] }
+        scope: { type: string, enum: [organization, source, connection] }
+        source_id: { type: [string, 'null'], format: uuid }
+        connection_id: { type: [string, 'null'], format: uuid }
+        purposes: { type: array, minItems: 1, maxItems: 3, items: { type: string, enum: [embed, rerank, answer] } }
+        qualification_ids: { type: array, minItems: 1, maxItems: 12, items: { type: string, format: uuid } }
+        max_classification: { type: string, enum: [public, internal, confidential, restricted] }
+        bounds: { $ref: '#/components/schemas/KnowledgeModelJobBounds' }
+        expires_at: { type: string, format: date-time }
+        request_key: { type: string, format: uuid }
+      description: Document indexing requires exactly one source or connection scope. Other workloads use organization scope with both reference fields null. Expiry and every spending ceiling are explicit; no default authority is granted.
+    ModelCapabilityEvidence:
+      type: object
+      additionalProperties: false
+      required: [id, profile_id, profile_alias, profile_version, purpose, protocol, dimension, vector_space_version, state, current, usable, result_digest, qualified_at, created_at, bounds, job]
+      properties:
+        id: { type: string, format: uuid }
+        profile_id: { type: string, format: uuid }
+        profile_alias: { type: string }
+        profile_version: { type: integer, minimum: 1 }
+        purpose: { type: string, enum: [embed, rerank, answer] }
+        protocol: { type: string, enum: [native_embedding_v1, structured_ranking_v1, text_answer_v1] }
+        dimension: { type: [integer, 'null'], minimum: 1, maximum: 8192 }
+        vector_space_version: { type: [string, 'null'] }
+        state: { type: string, enum: [requested, passed, failed] }
+        current: { type: boolean }
+        usable: { type: boolean }
+        result_digest: { type: [string, 'null'], pattern: '^[0-9a-f]{64}$' }
+        qualified_at: { type: [string, 'null'], format: date-time }
+        created_at: { type: string, format: date-time }
+        bounds: { $ref: '#/components/schemas/KnowledgeModelJobBounds' }
+        job:
+          type: [object, 'null']
+          additionalProperties: false
+          required: [id, state, code, unknown_outcome]
+          properties:
+            id: { type: string, format: uuid }
+            state: { type: string, enum: [prepared, running, completed, refused, fenced] }
+            code: { type: [string, 'null'] }
+            unknown_outcome: { type: boolean }
+    ModelWorkloadApproval:
+      type: object
+      additionalProperties: false
+      required: [id, kind, scope, source_id, connection_id, purposes, max_classification, bounds, expires_at, revoked_at, created_at, qualifications]
+      properties:
+        id: { type: string, format: uuid }
+        kind: { type: string, enum: [document_embed, query, answer, agent_context] }
+        scope: { type: string, enum: [organization, source, connection] }
+        source_id: { type: [string, 'null'], format: uuid }
+        connection_id: { type: [string, 'null'], format: uuid }
+        purposes: { type: array, items: { type: string, enum: [embed, rerank, answer] } }
+        max_classification: { type: string, enum: [public, internal, confidential, restricted] }
+        bounds: { $ref: '#/components/schemas/KnowledgeModelJobBounds' }
+        expires_at: { type: string, format: date-time }
+        revoked_at: { type: [string, 'null'], format: date-time }
+        created_at: { type: string, format: date-time }
+        qualifications:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [id, usable]
+            properties:
+              id: { type: string, format: uuid }
+              usable: { type: boolean }
     KnowledgeModelJob:
       type: object
       additionalProperties: false
