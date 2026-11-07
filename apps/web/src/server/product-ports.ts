@@ -1,10 +1,11 @@
 import 'server-only';
-import { unavailablePorts, type ProductPorts } from '@ensemus/application/product-ports';
+import type { ProductPorts } from '@ensemus/application/product-ports';
+import { createRuntimeProductPorts } from '@ensemus/application/product-runtime';
+import { getRuntime } from './runtime';
 
 /**
- * The one place the web tier gets M7's ports (ADR-031 D2). The final merge replaces entries here with M4's and
- * M5's real ones. Until then each says the capability is not available, and each page words that plainly.
+ * Real metadata and authorized DAL effects. No provider transport or credential is present.
  */
 export function webProductPorts(): ProductPorts {
-  return unavailablePorts();
+  return createRuntimeProductPorts(getRuntime().app);
 }

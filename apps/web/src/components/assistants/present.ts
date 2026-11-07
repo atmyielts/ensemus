@@ -48,6 +48,7 @@ const UNKNOWN_BADGE = { label: 'Unknown', tone: 'attention' };
 const STEP_LABELS = new Map<string, string>([
   ['PREPARING', 'Getting ready'],
   ['THINKING', 'Working out what to do next'],
+  ['USING_TOOL', 'Using an available tool'],
   ['READING_WORK', 'Reading the work'],
   ['READING_FILE', 'Reading a file'],
   ['DRAFTING', 'Writing a draft'],

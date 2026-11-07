@@ -161,8 +161,9 @@ remain separate. Only generated fixtures and throwaway credentials have been use
 
 ## Temporary resources
 
-`ensemus-m5-integration` is this task's new disposable PostgreSQL project on localhost 55436 and
-network prefix 172.21. It is kept while these database checks run, then cleaned by exact ownership.
+`ensemus-m5-integration` was this task's disposable PostgreSQL project on localhost 55436 and
+network prefix 172.21. After the full 1,486-case gate and schema audit, its one synthetic container,
+volume and networks were removed by exact ownership; the next combined SQL gate starts fresh.
 Each fresh reset verified the exact one-container/one-volume Compose ownership and absence of other
 volume users before replacing only synthetic data. The owned M4 preview is stopped, with all its
 volumes retained. Heavy image/upgrade rehearsals remain held by the 16 GiB preflight; source checks are serialized.

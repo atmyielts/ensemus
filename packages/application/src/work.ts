@@ -138,7 +138,10 @@ export async function memberCanRead(
   work: WorkRow,
   member: { membershipId: string; role: string },
 ) {
-  return canReadWork(accessFacts(work, await isOnWork(tx, work.id, member.membershipId)), member);
+  const result = await tx.execute<{ readable: boolean }>(
+    sql`select knowledge.can_read_work(${work.id}::uuid,${member.membershipId}::uuid) as readable`,
+  );
+  return result.rows[0]?.readable === true;
 }
 
 /**
@@ -147,7 +150,17 @@ export async function memberCanRead(
  * for. An agent is not a service: it falls through here to its initiator's access (ADR-028 FD-3).
  */
 export async function loadReadable(tx: Tx, context: TenantContext, id: string, lock = false) {
-  const query = tx.select().from(workUnits).where(eq(workUnits.id, id));
+  const query = tx
+    .select()
+    .from(workUnits)
+    .where(
+      and(
+        eq(workUnits.id, id),
+        context.actorType === 'service'
+          ? undefined
+          : sql`knowledge.can_read_work(${workUnits.id},${context.membershipId}::uuid)`,
+      ),
+    );
   const [row] = await (lock ? query.for('update') : query);
   if (!row) throw new AppError('NOT_FOUND');
   if (context.actorType === 'service') return row;
@@ -318,6 +331,8 @@ function onTheWork(me: string) {
 
 /** The visibility rule from the policy, expressed in SQL so that filtering happens in the query. */
 export function visibleTo(context: TenantContext) {
+  if (context.actorType !== 'service')
+    return sql`knowledge.can_read_work(${workUnits.id},${context.membershipId}::uuid)`;
   const elevated = context.role === 'owner' || context.role === 'admin';
   return or(
     inArray(workUnits.classification, ['public', 'internal']),

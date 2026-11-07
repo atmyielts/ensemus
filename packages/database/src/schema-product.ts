@@ -22,6 +22,8 @@ import {
 } from 'drizzle-orm/pg-core';
 import { identitySchema, memberships, orgSchema, organizations, sessions, users } from './schema';
 import { artifacts, approvals, workUnits } from './schema-work';
+import { agentDefinitions, agentRuns } from './schema-ai';
+import { externalActions } from './schema-integrations';
 
 const createdAt = () => timestamp({ withTimezone: true }).notNull().defaultNow();
 const updatedAt = () => timestamp({ withTimezone: true }).notNull().defaultNow();
@@ -243,12 +245,16 @@ export const agentDrafts = studioSchema.table(
     id: uuid().notNull().defaultRandom(),
     name: text().notNull(),
     ownerMembershipId: uuid().notNull(),
-    /** The M4 agent this revises, once one exists. No foreign key until the merge (ADR-031 D2). */
+    /** The actual tenant-owned M4 definition this revises. */
     agentDefinitionId: uuid(),
     /** The guided answers, checked against `agentDraftAnswersSchema`. */
     answers: jsonb().notNull(),
     /** Hash of the spec these answers compile to. Simulations and reviews bind to this. */
     specSha256: text(),
+    /** Exact compiled revision; a registry change cannot silently rebuild a reviewed spec. */
+    compiledSpec: jsonb(),
+    compiledSpecCanonical: text(),
+    compilePolicyVersion: text(),
     status: text().notNull().default('editing'),
     fromPackInstallationId: uuid(),
     version: bigint({ mode: 'number' }).notNull().default(1),
@@ -266,7 +272,21 @@ export const agentDrafts = studioSchema.table(
       columns: [t.organizationId, t.createdByMembershipId],
       foreignColumns: [memberships.organizationId, memberships.id],
     }),
+    foreignKey({
+      name: 'agent_drafts_definition_fk',
+      columns: [t.organizationId, t.agentDefinitionId],
+      foreignColumns: [agentDefinitions.organizationId, agentDefinitions.id],
+    }),
     index('agent_drafts_status_idx').on(t.organizationId, t.status, t.updatedAt),
+    check(
+      'agent_drafts_compilation',
+      sql`(${t.compiledSpec} is null and ${t.compiledSpecCanonical} is null and ${t.compilePolicyVersion} is null)
+      or (${t.compiledSpec} is not null and ${t.compiledSpecCanonical} is not null and ${t.compilePolicyVersion} is not null
+        and ${t.specSha256} is not null and length(${t.compilePolicyVersion}) between 1 and 128
+        and octet_length(${t.compiledSpecCanonical}) between 2 and 262144
+        and ${t.compiledSpecCanonical}::jsonb=${t.compiledSpec}
+        and ${t.specSha256}=encode(sha256(convert_to(${t.compiledSpecCanonical},'UTF8')),'hex'))`,
+    ),
     check(
       'agent_drafts_status',
       sql`${t.status} in ('editing','in_review','published','archived')`,
@@ -350,6 +370,38 @@ export const simulationRuns = studioSchema.table(
     check(
       'simulation_runs_report',
       sql`${t.status} not in ('passed','failed') or (${t.report} is not null and ${t.reportSha256} is not null)`,
+    ),
+  ],
+);
+
+/** A private immutable request-time snapshot. It is never portable execution authority. */
+export const simulationInputs = studioSchema.table(
+  'simulation_inputs',
+  {
+    organizationId: uuid().notNull(),
+    simulationRunId: uuid().notNull(),
+    sourceVersion: bigint({ mode: 'number' }).notNull(),
+    specCanonical: text().notNull(),
+    policyVersion: text().notNull(),
+    requestedByMembershipId: uuid().notNull(),
+    requestedSessionId: uuid().notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.organizationId, t.simulationRunId] }),
+    foreignKey({
+      name: 'simulation_inputs_run_fk',
+      columns: [t.organizationId, t.simulationRunId],
+      foreignColumns: [simulationRuns.organizationId, simulationRuns.id],
+    }),
+    foreignKey({
+      name: 'simulation_inputs_requester_fk',
+      columns: [t.organizationId, t.requestedByMembershipId],
+      foreignColumns: [memberships.organizationId, memberships.id],
+    }),
+    check(
+      'simulation_inputs_bounded',
+      sql`${t.sourceVersion}>0 and octet_length(${t.specCanonical}) between 2 and 262144`,
     ),
   ],
 );
@@ -491,7 +543,7 @@ export const processRunSteps = studioSchema.table(
     workUnitId: uuid(),
     approvalId: uuid(),
     externalActionId: uuid(),
-    /** M4's run row. No foreign key until the merge (ADR-031 D2). */
+    /** The actual M4 run bound atomically to this step. */
     agentRunId: uuid(),
     artifactId: uuid(),
     updatedAt: updatedAt(),
@@ -518,6 +570,16 @@ export const processRunSteps = studioSchema.table(
       'process_run_steps_status',
       sql`${t.status} in ('pending','ready','waiting','done','failed','skipped')`,
     ),
+    foreignKey({
+      name: 'process_step_agent_run_fk',
+      columns: [t.organizationId, t.agentRunId],
+      foreignColumns: [agentRuns.organizationId, agentRuns.id],
+    }),
+    foreignKey({
+      name: 'process_step_external_action_fk',
+      columns: [t.organizationId, t.externalActionId],
+      foreignColumns: [externalActions.organizationId, externalActions.id],
+    }),
   ],
 );
 

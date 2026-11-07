@@ -11,7 +11,6 @@ import {
   connections,
   externalActions,
   memberships,
-  resolveTenantContext,
   TenantAccessDenied,
   withTenantTx,
   workArtifacts,
@@ -21,6 +20,7 @@ import {
   type TenantContext,
   type Tx,
 } from '@ensemus/database';
+import { createDelegatedContext } from '@ensemus/database/service';
 import { processRuns, processRunSteps, processSpecs } from '@ensemus/database/product';
 import { canonicalJson, type ProposedAction } from '@ensemus/domain/approval';
 import {
@@ -72,6 +72,7 @@ import { and, asc, desc, eq, inArray, isNotNull, lt, or, sql } from 'drizzle-orm
 import { z } from 'zod';
 import { createApprovalInTx, REVIEW_HOURS } from '../approvals';
 import { AppError } from '../errors';
+import { databaseInTransaction } from '../transaction-database';
 import { emit } from '../events';
 import { countVerifiedReceipts, proposeExternalActionInTx } from '../external-actions';
 import { idSchema } from '../ids';
@@ -81,6 +82,7 @@ import {
   assignContributor,
   auditAction,
   createWorkUnit,
+  createWorkUnitInTx,
   failRun,
   loadReadable,
   memberCanRead,
@@ -153,21 +155,7 @@ const sha256 = (canonical: string) => createHash('sha256').update(canonical).dig
  * joins a service to its key. It is what makes "the Work Unit and what points at it" one commit, and it needs
  * no second connection while the run's lock is held.
  */
-function insideThisTransaction(tx: Tx): AppDatabase {
-  return {
-    transaction<T>(bindings: Record<string, string>, fn: (nested: Tx) => Promise<T>): Promise<T> {
-      return tx.transaction(async (nested) => {
-        for (const [name, value] of Object.entries(bindings)) {
-          await nested.execute(sql`select set_config(${name}, ${value}, true)`);
-        }
-        return fn(nested);
-      });
-    },
-    run<T>(fn: (nested: Tx) => Promise<T>): Promise<T> {
-      return tx.transaction(fn);
-    },
-  } as unknown as AppDatabase;
-}
+const insideThisTransaction = databaseInTransaction;
 
 type Attempt<T> = { ok: true; value: T } | { ok: false; code: string };
 
@@ -665,7 +653,11 @@ async function starterOf(tx: Tx, run: RunRow): Promise<TenantContext | null> {
     .for('share');
   if (!member) return null;
   try {
-    return await resolveTenantContext(insideThisTransaction(tx), member.userId, run.organizationId);
+    return await createDelegatedContext(
+      insideThisTransaction(tx),
+      run.organizationId,
+      run.startedByMembershipId,
+    );
   } catch (error) {
     if (error instanceof TenantAccessDenied) return null;
     throw error;
@@ -680,9 +672,12 @@ type Gate = { code: string; starter: null } | { code: null; starter: TenantConte
  */
 async function recheck(tx: Tx, run: RunRow, spec: SpecRow): Promise<Gate> {
   const [root] = await tx
-    .select({ status: workUnits.status })
+    .select({ status: workUnits.status, classification: workUnits.classification })
     .from(workUnits)
-    .where(eq(workUnits.id, run.rootWorkUnitId));
+    .where(eq(workUnits.id, run.rootWorkUnitId))
+    .for('share');
+  if (root && root.classification !== spec.classification)
+    return { code: 'WORK_CHANGED', starter: null };
   const starter = await starterOf(tx, run);
   const code = recheckRun({
     stopRequested: run.stopCode === STOP_REQUESTED,
@@ -826,11 +821,18 @@ async function startStep(tx: Tx, state: RoundState, step: ProcessStep): Promise<
   let workUnitId = row.workUnitId;
   if (!workUnitId) {
     const made = await attempt(tx, (nested) =>
-      createWorkUnit(insideThisTransaction(nested), starter, {
-        title: step.label,
-        classification: spec.classification as Classification,
-        requestKey: stepRequestKey(run.id, step.key),
-      }),
+      withTenantTx(insideThisTransaction(nested), starter, (bound) =>
+        createWorkUnitInTx(
+          bound,
+          starter,
+          {
+            title: step.label,
+            classification: spec.classification as Classification,
+            requestKey: stepRequestKey(run.id, step.key),
+          },
+          { parentId: run.rootWorkUnitId },
+        ),
+      ),
     );
     if (!made.ok) {
       await fail(made.code);
@@ -1296,7 +1298,7 @@ async function agentRound(
 
     let values: Parameters<typeof setStep>[3] | null;
     try {
-      values = await agentStep(ports, starter, agent);
+      values = await agentStep(ports, starter, agent, runId);
     } catch (error) {
       if (!(error instanceof AppError)) throw error;
       values = { status: 'failed', stopCode: error.code };
@@ -1315,18 +1317,19 @@ async function agentStep(
   ports: Pick<ProductPorts, 'agentRuns'>,
   starter: TenantContext,
   agent: AgentWork,
+  processRunId: string,
 ): Promise<Parameters<typeof setStep>[3] | null> {
   if (agent.status === 'waiting' && agent.agentRunId) {
     const outcome = agentStepOutcome(await ports.agentRuns.outcome(starter, agent.agentRunId));
     return outcome.status === 'waiting' && outcome.stopCode === null ? null : outcome;
   }
   if (agent.status !== 'ready') return null;
-  const [existing] = await ports.agentRuns.listForWorkUnit(starter, agent.workUnitId);
-  if (existing) return { status: 'waiting', stopCode: null, agentRunId: existing.id };
   if (!agent.agentDefinitionId) return { status: 'failed', stopCode: 'AGENT_NOT_PUBLISHED' };
   const version = await ports.agentRuns.latestVersionOf(starter, agent.agentDefinitionId);
   if (!version) return { status: 'failed', stopCode: 'AGENT_NOT_PUBLISHED' };
   const { runId } = await ports.agentRuns.start(starter, {
+    processRunId,
+    stepKey: agent.stepKey,
     workUnitId: agent.workUnitId,
     agentVersionId: version,
     initiatorMembershipId: starter.membershipId,

@@ -237,7 +237,7 @@ export default tseslint.config(
       '**/dist/**',
       '**/generated/**',
       '**/next-env.d.ts',
-      '**/migrations/**',
+      'packages/database/migrations/**',
     ],
   },
   js.configs.recommended,

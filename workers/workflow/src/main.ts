@@ -77,7 +77,7 @@ async function main() {
       ...createClientOnboardingActivities({ database: db, agentRuns: createOnboardingAgentRuns() }),
       // M7 (ADR-031). None of these holds a credential, or calls anything outside PostgreSQL.
       ...createSimulationActivities({ database: db }),
-      ...createProcessRunActivities({ database: db, ports: workerProductPorts() }),
+      ...createProcessRunActivities({ database: db, ports: workerProductPorts(db) }),
       ...createObjectMigrationActivities({ database: db }),
     },
     dataConverter: {

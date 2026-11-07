@@ -352,6 +352,131 @@ export async function publishAgentVersion(
   }
 }
 
+/** Read the actual publication ceilings, with fresh membership rather than a saved role. */
+export async function getAgentPublicationPolicy(database: AppDatabase, context: TenantContext) {
+  requireRegistryReader(context);
+  return withTenantTx(database, context, async (tx) => {
+    const [member] = await tx
+      .select({ role: memberships.role })
+      .from(memberships)
+      .where(
+        and(
+          eq(memberships.id, context.membershipId),
+          eq(memberships.userId, context.userId),
+          eq(memberships.status, 'active'),
+        ),
+      )
+      .for('share');
+    if (!member || !(can(member.role, 'agent.publish') || can(member.role, 'agent.run')))
+      throw new AppError('FORBIDDEN');
+    const bundle = await readActiveBundle(tx, context.organizationId);
+    return { limits: limitsOf(bundle), policyVersion: policyVersionOf(bundle) };
+  });
+}
+
+/** Repoint new runs to an immutable, previously evaluated version. A changed policy requires a new
+ * evaluated publication; neither rollback nor a saved version restores obsolete permission. */
+export async function pinAgentVersion(
+  database: AppDatabase,
+  context: TenantContext,
+  rawId: string,
+) {
+  requirePublisher(context);
+  const parsed = idSchema.safeParse(rawId);
+  if (!parsed.success) throw new AppError('NOT_FOUND');
+  try {
+    await withTenantTx(database, context, async (tx) => {
+      await assertStillPublisher(tx, context);
+      await assertInteractivePrivilege(tx, context, 'agent.publish');
+      const [version] = await tx
+        .select()
+        .from(agentVersions)
+        .where(eq(agentVersions.id, parsed.data));
+      if (!version) throw new AppError('NOT_FOUND');
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(
+        ${`ensemus:agent-publication:${context.organizationId.toLowerCase()}:${version.definitionId.toLowerCase()}`},0))`);
+      const [definition] = await tx
+        .select({ identityId: agentDefinitions.serviceIdentityId })
+        .from(agentDefinitions)
+        .where(eq(agentDefinitions.id, version.definitionId));
+      if (!definition) throw new AppError('NOT_FOUND');
+      const [identity] = await tx
+        .select({ status: serviceIdentities.status, expiresAt: serviceIdentities.expiresAt })
+        .from(serviceIdentities)
+        .where(eq(serviceIdentities.id, definition.identityId))
+        .for('share');
+      if (
+        !identity ||
+        identity.status !== 'active' ||
+        (identity.expiresAt && identity.expiresAt <= new Date())
+      )
+        throw new AppError('INVALID_STATE');
+      const bundle = await readActiveBundle(tx, context.organizationId);
+      const spec = parseSpec(version.spec),
+        lint = lintAgentSpec(spec, limitsOf(bundle));
+      if (!lint.ok) throw new AgentSpecRefused(lint.codes);
+      if (
+        version.policyVersion !== policyVersionOf(bundle) ||
+        agentSpecSha256(spec) !== version.specSha256 ||
+        spec.version !== version.versionNumber ||
+        !/^[a-f0-9]{64}$/.test(version.evaluationReportSha256)
+      )
+        throw new AppError('AGENT_EVALUATION_REQUIRED');
+      const active = await tx
+        .select()
+        .from(agentPublications)
+        .where(
+          and(
+            eq(agentPublications.definitionId, version.definitionId),
+            sql`(${agentPublications.activeUntil} is null or ${agentPublications.activeUntil}>now())`,
+          ),
+        )
+        .for('update');
+      // A scheduled publication is a separate decision and cannot silently be replaced by a pin.
+      if (active.some((publication) => publication.activeFrom > new Date()))
+        throw new AppError('INVALID_STATE');
+      if (active.length === 1 && active[0]!.versionId === version.id) return;
+      await tx
+        .update(agentPublications)
+        .set({ activeUntil: sql`now()` })
+        .where(
+          and(
+            eq(agentPublications.definitionId, version.definitionId),
+            sql`(${agentPublications.activeUntil} is null or ${agentPublications.activeUntil}>now())`,
+          ),
+        );
+      await tx.insert(agentPublications).values({
+        organizationId: context.organizationId,
+        definitionId: version.definitionId,
+        versionId: version.id,
+        activeFrom: sql`now()`,
+      });
+      await appendAudit(tx, {
+        organizationId: context.organizationId,
+        ...actorOf(context),
+        action: 'agent_version.pinned',
+        targetRef: `agent_version:${version.id}`,
+        decision: 'allow',
+      });
+      await emit(tx, context, {
+        eventType: 'agent_version.pinned',
+        aggregateType: AGGREGATE_AGENT_VERSION,
+        aggregateId: version.id,
+        aggregateVersion: version.versionNumber,
+        classification: 'internal',
+        payload: {
+          definition_id: version.definitionId,
+          version_number: version.versionNumber,
+          spec_sha256: version.specSha256,
+        },
+      });
+    });
+  } catch (error) {
+    if (pgCode(error) === UNIQUE_VIOLATION) throw new AppError('VERSION_CONFLICT');
+    throw error;
+  }
+}
+
 export async function listAgentVersions(
   database: AppDatabase,
   context: TenantContext,

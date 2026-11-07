@@ -1,7 +1,8 @@
-// The one place the worker gets M7's ports (ADR-031 D2). The final merge replaces entries here with M4's and
-// M5's real ones. Until then each says the capability is not available, and a step that needs one stops.
-import { unavailablePorts, type ProductPorts } from '@ensemus/application/product-ports';
+// Actual database adapters. Durable process agent starts retain the saved initiator boundary.
+import type { ProductPorts } from '@ensemus/application/product-ports';
+import { createRuntimeProductPorts } from '@ensemus/application/product-runtime';
+import type { AppDatabase } from '@ensemus/database';
 
-export function workerProductPorts(): ProductPorts {
-  return unavailablePorts();
+export function workerProductPorts(database: AppDatabase): ProductPorts {
+  return createRuntimeProductPorts(database);
 }

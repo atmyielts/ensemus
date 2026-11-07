@@ -1,7 +1,7 @@
 // What M7 needs from milestones written at the same time (ADR-031 D2). M4 and M5 implement these at the
 // final merge, in one wiring file each for the web and the worker. Until then every port says plainly that
 // the capability is not available here, and each page shows that: no fake ever ships as a default.
-import type { TenantContext } from '@ensemus/database';
+import type { TenantContext, Tx } from '@ensemus/database';
 import type { ToolFacts } from '@ensemus/domain/agent-draft';
 import { AppError } from '../errors';
 
@@ -42,6 +42,12 @@ export type EvaluationReportInput = {
  */
 export interface AgentRegistryPort {
   publish(
+    context: TenantContext,
+    input: { spec: Record<string, unknown>; evaluationReport: EvaluationReportInput },
+  ): Promise<PublishedAgentVersion>;
+  /** The real local M4 publication must join the final review transaction: it also activates a version. */
+  publishInTransaction(
+    tx: Tx,
     context: TenantContext,
     input: { spec: Record<string, unknown>; evaluationReport: EvaluationReportInput },
   ): Promise<PublishedAgentVersion>;
@@ -95,13 +101,18 @@ export interface AgentRunsPort {
   /** The newest version of a published agent, which a process step pins when it starts. */
   latestVersionOf(context: TenantContext, agentDefinitionId: string): Promise<string | null>;
   /**
-   * For a process step. Commits in M4's own transaction and acts as the initiator, never as a service (M4
-   * FD-3). M4 allows one live run per Work Unit, so a repeated step finds its run through
-   * `listForWorkUnit` first and starts no second one.
+   * For one actual durable process step. M4 validates and binds that step, its initiator, immutable
+   * definition and Work in the same transaction as the run/outbox. An unrelated old run is never adopted.
    */
   start(
     context: TenantContext,
-    input: { workUnitId: string; agentVersionId: string; initiatorMembershipId: string },
+    input: {
+      processRunId: string;
+      stepKey: string;
+      workUnitId: string;
+      agentVersionId: string;
+      initiatorMembershipId: string;
+    },
   ): Promise<{ runId: string }>;
   listForWorkUnit(context: TenantContext, workUnitId: string): Promise<readonly { id: string }[]>;
   /** Whether a run has finished, for a process step that waits on one. */
@@ -152,6 +163,7 @@ export function unavailablePorts(): ProductPorts {
   return {
     agentRegistry: {
       publish: unavailable,
+      publishInTransaction: unavailable,
       list: unavailable,
       pin: unavailable,
       orgLimits: unavailable,

@@ -18,9 +18,10 @@ const text = (form: FormData, name: string) => {
   const value = form.get(name);
   return typeof value === 'string' ? value : '';
 };
+const idOf = (form: FormData, name: string) => canonicalId(text(form, name));
 
 export async function setPulseSignalStateAction(form: FormData): Promise<never> {
-  const organizationId = canonicalId(text(form, 'organizationId'));
+  const organizationId = idOf(form, 'organizationId');
   const tenant = await requireTenant(organizationId);
   const back = `/o/${organizationId}/pulse`;
   let destination = back;

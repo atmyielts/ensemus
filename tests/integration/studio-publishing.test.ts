@@ -1,0 +1,207 @@
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { openAppDatabase, withTenantTx, agentVersions } from '@ensemus/database';
+import { createServiceContext } from '@ensemus/database/service';
+import { createAgentDraft, updateAgentDraft } from '@ensemus/application/agent-drafts';
+import { requestSimulation, runSimulationStep } from '@ensemus/application/simulations';
+import {
+  requestPublishReview,
+  decidePublishReview,
+  publishApproved,
+} from '@ensemus/application/publish-reviews';
+import { createRuntimeProductPorts } from '@ensemus/application/product-runtime';
+import { makeTwoTenants, proveSecondFactor, testAnswers } from '../helpers/product';
+import { urls } from '../helpers/stack';
+import { publishReviews } from '@ensemus/database/product';
+import { eq, sql } from 'drizzle-orm';
+import { randomUUID } from 'node:crypto';
+import { pgCode } from '../../packages/application/src/errors';
+
+describe('Studio publishes only the actually rehearsed and reviewed revision', () => {
+  let app: ReturnType<typeof openAppDatabase>;
+  beforeAll(() => {
+    app = openAppDatabase(urls.app());
+  });
+  afterAll(async () => {
+    await app?.close();
+  });
+  async function fixture(elevated = false) {
+    const { a, b } = await makeTwoTenants(app.db),
+      ports = createRuntimeProductPorts(app.db),
+      answers = testAnswers(
+        a.owner.context.membershipId,
+        elevated ? { dataClasses: ['confidential'] } : {},
+      ),
+      draft = await createAgentDraft(app.db, a.owner.context, ports, {
+        name: `Generated reviewed ${a.organizationId}`,
+        answers,
+      }),
+      simulation = await requestSimulation(app.db, a.owner.context, {
+        subject: { kind: 'agent_draft', draftId: draft.id },
+        scenarioKey: 'standard.draft_only',
+      });
+    await runSimulationStep(app.db, createServiceContext(a.organizationId), {
+      simulationId: simulation.id,
+    });
+    return { a, b, ports, answers, draft, simulation };
+  }
+  it('refuses missing, foreign and stale simulation evidence', async () => {
+    const f = await fixture();
+    await expect(
+      requestPublishReview(app.db, f.b.owner.context, {
+        subjectKind: 'agent_draft',
+        subjectId: f.draft.id,
+        simulationRunId: f.simulation.id,
+      }),
+    ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    await updateAgentDraft(app.db, f.a.owner.context, f.ports, {
+      draftId: f.draft.id,
+      expectedVersion: 1,
+      answers: { ...f.answers, intendedOutcome: 'A changed reviewed objective with citations.' },
+    });
+    await expect(
+      requestPublishReview(app.db, f.a.owner.context, {
+        subjectKind: 'agent_draft',
+        subjectId: f.draft.id,
+        simulationRunId: f.simulation.id,
+      }),
+    ).rejects.toMatchObject({ code: 'SIMULATION_STALE' });
+  });
+  it('requires actual native MFA and an independent current person for elevated review', async () => {
+    const f = await fixture(true),
+      review = await requestPublishReview(app.db, f.a.owner.context, {
+        subjectKind: 'agent_draft',
+        subjectId: f.draft.id,
+        simulationRunId: f.simulation.id,
+        reviewerMembershipId: f.a.admin.context.membershipId,
+      });
+    await expect(
+      decidePublishReview(app.db, f.a.admin.context, null, {
+        reviewId: review.id,
+        expectedVersion: 1,
+        decision: 'approved',
+      }),
+    ).rejects.toMatchObject({ code: 'MFA_REQUIRED' });
+    await proveSecondFactor(f.a.owner);
+    await expect(
+      decidePublishReview(
+        app.db,
+        f.a.owner.context,
+        { sessionId: f.a.owner.sessionId },
+        { reviewId: review.id, expectedVersion: 1, decision: 'approved' },
+      ),
+    ).rejects.toMatchObject({ code: 'REVIEW_SELF_DECISION' });
+    await proveSecondFactor(f.a.admin);
+    expect(
+      (
+        await decidePublishReview(
+          app.db,
+          f.a.admin.context,
+          { sessionId: f.a.admin.sessionId },
+          { reviewId: review.id, expectedVersion: 1, decision: 'approved' },
+        )
+      ).status,
+    ).toBe('approved');
+  });
+  it('refuses clearing another named reviewer inline during a direct SQL decision', async () => {
+    const f = await fixture();
+    await proveSecondFactor(f.a.owner);
+    const review = await requestPublishReview(app.db, f.a.owner.context, {
+      subjectKind: 'agent_draft',
+      subjectId: f.draft.id,
+      simulationRunId: f.simulation.id,
+      reviewerMembershipId: f.a.admin.context.membershipId,
+    });
+    const denied = await withTenantTx(app.db, f.a.owner.context, (tx) =>
+      tx
+        .update(publishReviews)
+        .set({
+          reviewerMembershipId: null,
+          status: 'approved',
+          decidedByMembershipId: f.a.owner.context.membershipId,
+          decidedAt: new Date(),
+          version: 2,
+        })
+        .where(eq(publishReviews.id, review.id)),
+    ).then(() => null, pgCode);
+    expect(denied).toBe('EN412');
+    expect(
+      await withTenantTx(app.db, f.a.owner.context, (tx) =>
+        tx
+          .select({ status: publishReviews.status, reviewer: publishReviews.reviewerMembershipId })
+          .from(publishReviews)
+          .where(eq(publishReviews.id, review.id)),
+      ),
+    ).toEqual([{ status: 'pending', reviewer: f.a.admin.context.membershipId }]);
+  });
+  it('does not let an approved review manufacture a published draft or a nonexistent immutable result', async () => {
+    const f = await fixture();
+    await proveSecondFactor(f.a.owner);
+    const review = await requestPublishReview(app.db, f.a.owner.context, {
+      subjectKind: 'agent_draft',
+      subjectId: f.draft.id,
+      simulationRunId: f.simulation.id,
+    });
+    await decidePublishReview(
+      app.db,
+      f.a.owner.context,
+      { sessionId: f.a.owner.sessionId },
+      { reviewId: review.id, expectedVersion: 1, decision: 'approved' },
+    );
+    expect(
+      await withTenantTx(app.db, f.a.owner.context, (tx) =>
+        tx.execute(sql`update studio.agent_drafts set status='published'
+      where id=${f.draft.id}::uuid`),
+      ).then(() => null, pgCode),
+    ).toBe('EN412');
+    expect(
+      await withTenantTx(app.db, f.a.owner.context, (tx) =>
+        tx
+          .update(publishReviews)
+          .set({
+            status: 'published',
+            publishedRef: randomUUID(),
+            publishedAt: new Date(),
+            version: 3,
+          })
+          .where(eq(publishReviews.id, review.id)),
+      ).then(() => null, pgCode),
+    ).toBe('EN406');
+    expect(
+      await withTenantTx(app.db, f.a.owner.context, (tx) => tx.select().from(agentVersions)),
+    ).toEqual([]);
+  });
+  it('atomically commits one actual M4 immutable version and an idempotent published receipt', async () => {
+    const f = await fixture();
+    await proveSecondFactor(f.a.owner);
+    const proof = { sessionId: f.a.owner.sessionId },
+      review = await requestPublishReview(app.db, f.a.owner.context, {
+        subjectKind: 'agent_draft',
+        subjectId: f.draft.id,
+        simulationRunId: f.simulation.id,
+      }),
+      approved = await decidePublishReview(app.db, f.a.owner.context, proof, {
+        reviewId: review.id,
+        expectedVersion: 1,
+        decision: 'approved',
+      }),
+      result = await publishApproved(app.db, f.a.owner.context, f.ports, proof, {
+        reviewId: review.id,
+        expectedVersion: approved.version,
+      });
+    const versions = await withTenantTx(app.db, f.a.owner.context, (tx) =>
+      tx.select().from(agentVersions),
+    );
+    expect(versions).toHaveLength(1);
+    expect(versions[0]?.id).toBe(result.publishedRef);
+    expect(versions[0]?.specSha256).toBe(f.draft.specSha256);
+    expect(
+      await publishApproved(app.db, f.a.owner.context, f.ports, proof, {
+        reviewId: review.id,
+        expectedVersion: approved.version,
+      }),
+    ).toEqual(result);
+    expect(
+      await withTenantTx(app.db, f.a.owner.context, (tx) => tx.select().from(agentVersions)),
+    ).toHaveLength(1);
+  });
+});

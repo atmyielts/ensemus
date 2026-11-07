@@ -41,6 +41,7 @@
     "./knowledge/artifact-provenance": "./src/knowledge/artifact-provenance.ts",
     "./knowledge/checklist-template": "./src/knowledge/checklist-template.ts",
     "./product-ports": "./src/product/ports.ts",
+    "./product-runtime": "./src/product/runtime-adapters.ts",
     "./privileged": "./src/product/privileged.ts",
     "./security-policy": "./src/product/security-policy.ts",
     "./sso": "./src/product/sso.ts",

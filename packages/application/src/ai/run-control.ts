@@ -28,6 +28,8 @@ import {
   type TenantContext,
   type Tx,
 } from '@ensemus/database';
+import { processRuns, processRunSteps, processSpecs } from '@ensemus/database/product';
+import { canonicalJson } from '@ensemus/domain/approval';
 import {
   AGENT_RUN_STATUSES,
   canTransitionAgentRun,
@@ -464,6 +466,174 @@ export async function requestOnboardingAgentRunInTx(
 }
 
 /** Who may steer a run. Those who may start or stop any run, and the person who started this one. */
+/** Durable process admission is distinct from an interactive request and a model delegation. Its
+ * actual step, starter, Work and published definition are checked before using the shared kernel. */
+export async function requestProcessAgentRun(
+  database: AppDatabase,
+  context: TenantContext,
+  input: {
+    processRunId: string;
+    stepKey: string;
+    workUnitId: string;
+    agentVersionId: string;
+    initiatorMembershipId: string;
+  },
+): Promise<{ runId: string }> {
+  if (context.actorType !== 'delegated') throw new AppError('FORBIDDEN');
+  const processId = runIdOrMissing(input.processRunId),
+    workId = runIdOrMissing(input.workUnitId),
+    versionId = runIdOrMissing(input.agentVersionId);
+  const initiator = idSchema.safeParse(input.initiatorMembershipId);
+  if (
+    input.stepKey.length < 1 ||
+    input.stepKey.length > 128 ||
+    !initiator.success ||
+    canonicalId(initiator.data) !== context.membershipId
+  )
+    throw new AppError('FORBIDDEN');
+  return withTenantTx(database, context, async (tx) => {
+    const actor = await freshRunInitiator(tx, context);
+    const [process] = await tx
+      .select()
+      .from(processRuns)
+      .where(eq(processRuns.id, processId))
+      .for('update');
+    if (!process || process.startedByMembershipId !== actor.membershipId)
+      throw new AppError('NOT_FOUND');
+    if (!['running', 'waiting'].includes(process.status)) throw new AppError('INVALID_STATE');
+    const root = await loadChangeable(tx, actor, process.rootWorkUnitId);
+    if (['completed', 'cancelled', 'failed'].includes(root.status))
+      throw new AppError('INVALID_STATE');
+    const target = await loadChangeable(tx, actor, workId);
+    if (target.parentId !== root.id) throw new AppError('VERSION_CONFLICT');
+    const [step] = await tx
+      .select()
+      .from(processRunSteps)
+      .where(and(eq(processRunSteps.runId, process.id), eq(processRunSteps.stepKey, input.stepKey)))
+      .for('update');
+    const [spec] = await tx.select().from(processSpecs).where(eq(processSpecs.id, process.specId));
+    if (
+      !step ||
+      step.workUnitId !== workId ||
+      !['ready', 'waiting'].includes(step.status) ||
+      !spec ||
+      root.classification !== spec.classification ||
+      spec.specSha256 !== createHash('sha256').update(canonicalJson(spec.spec)).digest('hex')
+    )
+      throw new AppError('VERSION_CONFLICT');
+    const body = spec.spec as { steps?: unknown };
+    const pins =
+      body && Array.isArray(body.steps)
+        ? body.steps.filter(
+            (value: unknown) =>
+              value && typeof value === 'object' && 'key' in value && value.key === input.stepKey,
+          )
+        : [];
+    const pin = pins[0] as { kind?: unknown; agentDefinitionId?: unknown } | undefined;
+    if (
+      pins.length !== 1 ||
+      pin?.kind !== 'agent_task' ||
+      typeof pin.agentDefinitionId !== 'string'
+    )
+      throw new AppError('VERSION_CONFLICT');
+    if (step.agentRunId) {
+      const [bound] = await tx
+        .select({
+          id: agentRuns.id,
+          workId: agentRuns.workUnitId,
+          initiator: agentRuns.initiatorMembershipId,
+          definition: agentVersions.definitionId,
+        })
+        .from(agentRuns)
+        .innerJoin(
+          agentVersions,
+          and(
+            eq(agentVersions.organizationId, agentRuns.organizationId),
+            eq(agentVersions.id, agentRuns.agentVersionId),
+          ),
+        )
+        .where(eq(agentRuns.id, step.agentRunId));
+      if (
+        !bound ||
+        bound.workId !== workId ||
+        bound.initiator !== actor.membershipId ||
+        bound.definition !== pin.agentDefinitionId
+      )
+        throw new AppError('VERSION_CONFLICT');
+      return { runId: bound.id };
+    }
+    const [version] = await tx
+      .select({ definition: agentVersions.definitionId })
+      .from(agentVersions)
+      .where(eq(agentVersions.id, versionId));
+    if (!version || version.definition !== pin.agentDefinitionId) throw new AppError('NOT_FOUND');
+    const run = await startRunInTx(tx, actor, workId, versionId);
+    await tx
+      .update(processRunSteps)
+      .set({ agentRunId: run.id, status: 'waiting', updatedAt: sql`clock_timestamp()` })
+      .where(
+        and(eq(processRunSteps.runId, process.id), eq(processRunSteps.stepKey, input.stepKey)),
+      );
+    return { runId: run.id };
+  }).catch((error: unknown) => {
+    if (pgCode(error) === 'EN406') throw new AppError('VERSION_CONFLICT');
+    if (pgCode(error) === UNIQUE_VIOLATION) throw new AppError('AGENT_RUN_ACTIVE');
+    throw error;
+  });
+}
+
+/** A process may stop only a run already bound to its own starter and exact step Work. */
+export async function requestProcessAgentStop(
+  database: AppDatabase,
+  context: TenantContext,
+  rawId: string,
+) {
+  if (context.actorType !== 'delegated') throw new AppError('FORBIDDEN');
+  const id = runIdOrMissing(rawId);
+  await withTenantTx(database, context, async (tx) => {
+    const [member] = await tx
+      .select({ role: memberships.role })
+      .from(memberships)
+      .where(
+        and(
+          eq(memberships.id, context.membershipId),
+          eq(memberships.userId, context.userId),
+          eq(memberships.status, 'active'),
+        ),
+      )
+      .for('share');
+    if (!member) throw new AppError('FORBIDDEN');
+    const actor = { ...context, role: member.role };
+    const [bound] = await tx
+      .select({ workId: processRunSteps.workUnitId })
+      .from(processRunSteps)
+      .innerJoin(
+        processRuns,
+        and(
+          eq(processRuns.organizationId, processRunSteps.organizationId),
+          eq(processRuns.id, processRunSteps.runId),
+        ),
+      )
+      .innerJoin(
+        agentRuns,
+        and(
+          eq(agentRuns.organizationId, processRunSteps.organizationId),
+          eq(agentRuns.id, processRunSteps.agentRunId),
+          eq(agentRuns.workUnitId, processRunSteps.workUnitId),
+          eq(agentRuns.initiatorMembershipId, processRuns.startedByMembershipId),
+        ),
+      )
+      .where(
+        and(
+          eq(processRunSteps.agentRunId, id),
+          eq(processRuns.startedByMembershipId, actor.membershipId),
+        ),
+      );
+    if (!bound) throw new AppError('NOT_FOUND');
+    await controlRunInTx(tx, actor, id, 'stop');
+  });
+}
+
 export function mayControlRun(
   person: { membershipId: string; role: string },
   run: { initiatorMembershipId: string },
@@ -522,47 +692,67 @@ export async function controlAgentRun(
   const parsed = runControlSchema.safeParse({ kind: input.kind });
   if (!parsed.success) throw new AppError('INVALID_INPUT');
   const { kind } = parsed.data;
-  await withTenantTx(database, context, async (tx) => {
-    const { run, work } = await loadReadableRun(tx, context, agentRunId);
-    if (!mayControlRun(context, run, kind)) throw new AppError('FORBIDDEN');
-    const [locked] = await tx
-      .select({ status: agentRuns.status })
-      .from(agentRuns)
-      .where(eq(agentRuns.id, agentRunId))
-      .for('update');
-    if (!locked) throw new AppError('NOT_FOUND');
-    const decision = decideControl(
-      locked.status as AgentRunStatus,
-      await latestControlOf(tx, agentRunId),
-      kind,
-    );
-    if (decision === 'already') return;
-    if (decision !== 'record') throw new AppError(decision);
-    await tx.insert(runControls).values({
-      organizationId: context.organizationId,
-      runId: agentRunId,
-      kind,
-      byMembershipId: context.membershipId,
-      // The time now, under the lock. A transaction's own start time could be earlier than the control
-      // it waited for, and then a stop would read as older than the pause it came after.
-      createdAt: sql`clock_timestamp()`,
-    });
-    await emit(tx, context, {
-      eventType: AGENT_RUN_CONTROL_REQUESTED,
-      aggregateType: AGGREGATE_WORK_UNIT,
-      aggregateId: run.workUnitId,
-      aggregateVersion: work.version,
-      classification: run.effectiveClassification,
-      payload: { agent_run_id: agentRunId, kind },
-    });
-    await auditAction(
-      tx,
-      context,
-      'agent_run.control_requested',
-      `agent_run:${agentRunId}`,
-      kind.toUpperCase(),
-    );
+  await withTenantTx(database, context, (tx) => controlRunInTx(tx, context, agentRunId, kind));
+}
+
+async function controlRunInTx(
+  tx: Tx,
+  context: TenantContext,
+  agentRunId: string,
+  kind: RunControlKind,
+) {
+  const [member] = await tx
+    .select({ role: memberships.role })
+    .from(memberships)
+    .where(
+      and(
+        eq(memberships.id, context.membershipId),
+        eq(memberships.userId, context.userId),
+        eq(memberships.status, 'active'),
+      ),
+    )
+    .for('share');
+  if (!member) throw new AppError('FORBIDDEN');
+  const actor = { ...context, role: member.role };
+  const { run, work } = await loadReadableRun(tx, actor, agentRunId);
+  if (!mayControlRun(actor, run, kind)) throw new AppError('FORBIDDEN');
+  const [locked] = await tx
+    .select({ status: agentRuns.status })
+    .from(agentRuns)
+    .where(eq(agentRuns.id, agentRunId))
+    .for('update');
+  if (!locked) throw new AppError('NOT_FOUND');
+  const decision = decideControl(
+    locked.status as AgentRunStatus,
+    await latestControlOf(tx, agentRunId),
+    kind,
+  );
+  if (decision === 'already') return;
+  if (decision !== 'record') throw new AppError(decision);
+  await tx.insert(runControls).values({
+    organizationId: context.organizationId,
+    runId: agentRunId,
+    kind,
+    byMembershipId: context.membershipId,
+    // The time now, under the lock. A transaction's own start time could be earlier than the control
+    // it waited for, and then a stop would read as older than the pause it came after.
+    createdAt: sql`clock_timestamp()`,
   });
+  await emit(tx, actor, {
+    eventType: AGENT_RUN_CONTROL_REQUESTED,
+    aggregateType: AGGREGATE_WORK_UNIT,
+    aggregateId: run.workUnitId,
+    aggregateVersion: work.version,
+    classification: run.effectiveClassification,
+    payload: { agent_run_id: agentRunId, kind },
+  });
+  await auditAction(
+    tx,
+    actor,
+    'agent_run.control_requested',
+    `agent_run:${agentRunId}`,
+    kind.toUpperCase(),
+  );
 }
 
 export type RunnableAgent = { versionId: string; name: string; versionNumber: number };
