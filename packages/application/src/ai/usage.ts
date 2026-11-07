@@ -257,7 +257,11 @@ export function ledgerOver(store: LedgerStore, scope: LedgerScope): UsageLedger 
       }
       const attempt = { stepId: request.stepId, attempt: request.attempt };
       const existing = await store.reservationsOfAttempt(tx, attempt);
-      if (existing.length > 0) return heldAnswer(existing);
+      if (existing.length > 0) {
+        if (existing.some((row) => row.amountMicros !== request.amountMicros))
+          throw new AppError('INVALID_STATE');
+        return heldAnswer(existing);
+      }
 
       const applicable = await store.budgetsThatApply(tx, {
         organizationId: context.organizationId,
@@ -295,7 +299,10 @@ export function ledgerOver(store: LedgerStore, scope: LedgerScope): UsageLedger 
       } catch (error) {
         if (!(error instanceof ReservationStop)) throw error;
         if (error.reason === 'exhausted') return { ok: false, code: 'BUDGET_EXHAUSTED' };
-        return heldAnswer(await store.reservationsOfAttempt(tx, attempt));
+        const raced = await store.reservationsOfAttempt(tx, attempt);
+        if (raced.some((row) => row.amountMicros !== request.amountMicros))
+          throw new AppError('INVALID_STATE');
+        return heldAnswer(raced);
       }
     },
 
@@ -786,8 +793,20 @@ const noOwnTransactions: LedgerScope = {
 };
 
 export function createUsageLedger(database: AppDatabase): UsageLedger {
-  return ledgerOver(sqlStore, {
+  const actual = ledgerOver(sqlStore, {
     inTenant: (context, fn) => withTenantTx(database, context, fn),
     now: () => new Date(),
   });
+  return {
+    ...actual,
+    async reserve(tx, context, request) {
+      assertOwnRun(context, request.runId);
+      if (!wholeAmount(request.amountMicros)) throw new AppError('INVALID_INPUT');
+      const proof = await tx.execute<{ allowed: boolean }>(
+        sql`select ai.main_reservation_admitted(${request.runId}::uuid,${request.stepId}::uuid,${request.attempt},${request.amountMicros}::bigint) allowed`,
+      );
+      if (proof.rows[0]?.allowed !== true) throw new AppError('POLICY_DENIED');
+      return actual.reserve(tx, context, request);
+    },
+  };
 }

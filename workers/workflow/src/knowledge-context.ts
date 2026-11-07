@@ -19,6 +19,7 @@ export function createKnowledgeContextCompiler(deps: {
     context: AgentContext,
     run: RunRef,
     input: {
+      task: import('@ensemus/intelligence').InferenceTask;
       classification: Parameters<
         NonNullable<CompileDeps['authorizeAgentContext']>
       >[1]['classification'];
@@ -64,7 +65,7 @@ export function createKnowledgeContextCompiler(deps: {
                 authorizeAgentContext: (
                   ctx: AgentContext,
                   input: Parameters<NonNullable<CompileDeps['authorizeAgentContext']>>[1],
-                ) => deps.authorizeAgentContext!(ctx, run, input),
+                ) => deps.authorizeAgentContext!(ctx, run, { ...input, task: base.task }),
               }
             : {}),
         },

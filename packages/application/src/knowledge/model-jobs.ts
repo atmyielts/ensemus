@@ -23,7 +23,6 @@ import {
   modelWorkloadApprovals,
   knowledgeEvidencePackages,
   modelWorkloadProfiles,
-  withTenantTx,
   type AppDatabase,
   type TenantContext,
   type Tx,
@@ -46,6 +45,7 @@ import { idFromRequest } from '../request-id';
 import { canonicalJson } from '@ensemus/domain/approval';
 import { idSchema } from '../ids';
 import { requireSearchPerson } from './retrieval';
+import { assertInteractivePrivilege, withPrivilegeTx as withTenantTx } from '../product/privileged';
 
 export const modelRequestHash = (value: unknown) =>
   createHash('sha256').update(canonicalJson(value)).digest('hex');
@@ -71,9 +71,11 @@ export async function requestModelQualification(
   database: AppDatabase,
   context: TenantContext,
   raw: RequestModelQualification,
-  admission?: ModelAuthorityAdmission,
+  admission: ModelAuthorityAdmission = {
+    assertInTx: (tx, originalContext) =>
+      assertInteractivePrivilege(tx, originalContext, 'model_profile.activate'),
+  },
 ): Promise<{ qualificationId: string; jobId: string }> {
-  if (!admission) throw new AppError('FORBIDDEN');
   const parsed = requestModelQualificationSchema.safeParse(raw);
   if (!parsed.success) throw new AppError('INVALID_INPUT');
   const input = parsed.data;
@@ -202,9 +204,11 @@ export async function approveModelWorkload(
   database: AppDatabase,
   context: TenantContext,
   raw: ApproveModelWorkload,
-  admission?: ModelAuthorityAdmission,
+  admission: ModelAuthorityAdmission = {
+    assertInTx: (tx, originalContext) =>
+      assertInteractivePrivilege(tx, originalContext, 'model_workload.approve'),
+  },
 ): Promise<{ approvalId: string }> {
-  if (!admission) throw new AppError('FORBIDDEN');
   const parsed = approveModelWorkloadSchema.safeParse(raw);
   if (!parsed.success) throw new AppError('INVALID_INPUT');
   const input = parsed.data;

@@ -6,11 +6,15 @@ import {
   createRunTranscriptPurge,
 } from '@ensemus/application/ai-input-ledger';
 import { createEgressLog, loadTenantPolicyBundle } from '@ensemus/application/ai-egress-log';
+import {
+  admitMainModelDispatchInTx,
+  currentRunInputClass,
+} from '@ensemus/application/ai-model-admission';
 import { externalActionPort } from '@ensemus/application/ai-external-action-port';
 import { createHaltCheck } from '@ensemus/application/ai-halt';
 import { loadProfileForProbe } from '@ensemus/application/ai-model-probe-store';
 import { createProfileStore } from '@ensemus/application/ai-model-profiles';
-import { createTurnStore } from '@ensemus/application/ai-runs';
+import { createTurnStore, readRunFacts } from '@ensemus/application/ai-runs';
 import { createApprovalBinder } from '@ensemus/application/ai-tool-approvals';
 import { createToolStepStore } from '@ensemus/application/ai-tool-steps';
 import { createUsageLedger } from '@ensemus/application/ai-usage';
@@ -25,6 +29,7 @@ import type { CompileDeps } from '@ensemus/application/knowledge/compiler';
 import { createEntitlements } from '@ensemus/commercial';
 import { loadModelEgressSettings } from '@ensemus/config';
 import { withTenantTx, type AgentContext, type AppDatabase } from '@ensemus/database';
+import { AGENT_TURN_PURPOSE, strongestClassification } from '@ensemus/domain/ai';
 import { createServiceContext } from '@ensemus/database/service';
 import {
   createCredentialLender,
@@ -59,7 +64,9 @@ export function createAgentServices(deps: {
   authorizeKnowledgeAgentContext?: (
     context: AgentContext,
     run: RunRef,
-    input: Parameters<NonNullable<CompileDeps['authorizeAgentContext']>>[1],
+    input: Parameters<NonNullable<CompileDeps['authorizeAgentContext']>>[1] & {
+      task: import('@ensemus/intelligence').InferenceTask;
+    },
   ) => Promise<boolean>;
 }) {
   const { database, objects, log } = deps;
@@ -77,11 +84,13 @@ export function createAgentServices(deps: {
     secrets: deps.secrets,
     reviewInterlock: settings.credentialsReviewed,
   });
+  const router = createModelRouter({ profiles, egress, bundle });
   const gateway = createInferenceGateway({
     entitlements: createEntitlements(database),
     ledger,
     withTx: (context, use) => withTenantTx(database, context, use),
-    router: createModelRouter({ profiles, egress, bundle }),
+    router,
+    admitInTx: admitMainModelDispatchInTx,
     egress,
     guard,
     credentials,
@@ -123,9 +132,44 @@ export function createAgentServices(deps: {
     base: createMinimalContextCompiler({ source, limits: contextLimits }),
     limits: contextLimits,
     forPrincipal: forKnowledgePrincipal,
-    ...(deps.authorizeKnowledgeAgentContext
-      ? { authorizeAgentContext: deps.authorizeKnowledgeAgentContext }
-      : {}),
+    authorizeAgentContext: async (ctx, run, input) => {
+      if (
+        input.task.purpose !== AGENT_TURN_PURPOSE ||
+        input.task.runId !== run.runId ||
+        !run.modelStep
+      )
+        return false;
+      const facts = await readRunFacts(database, ctx, { agentRunId: run.runId });
+      if (
+        !facts ||
+        facts.status !== 'running' ||
+        facts.workUnitId !== run.workUnitId ||
+        facts.agentVersionId !== run.agentVersionId
+      )
+        return false;
+      const floor = strongestClassification(
+        await currentRunInputClass(database, ctx),
+        facts.classification,
+      );
+      if (strongestClassification(floor, input.classification) !== input.classification)
+        return false;
+      const verdict = await router.select(
+        {
+          ...input.task,
+          purpose: AGENT_TURN_PURPOSE,
+          classification: input.classification,
+          pinned: facts.bound
+            ? { profileId: facts.bound.profileId, profileVersion: facts.bound.profileVersion }
+            : null,
+        },
+        ctx,
+      );
+      return (
+        verdict.kind === 'selected' &&
+        (!deps.authorizeKnowledgeAgentContext ||
+          (await deps.authorizeKnowledgeAgentContext(ctx, run, input)))
+      );
+    },
   });
   const tools = createToolGateway({
     source,
@@ -159,6 +203,10 @@ export function createAgentServices(deps: {
         tools,
         context,
         usage: ledger,
+        modelAccounting: {
+          reconcileRun: (organizationId, runId) =>
+            knowledgeCalls.reconcileRun(createServiceContext(organizationId), runId),
+        },
         halt,
         haltWatcher: watcher,
       }),

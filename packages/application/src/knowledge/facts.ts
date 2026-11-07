@@ -32,7 +32,7 @@ import { emit } from '../events';
 import { idSchema } from '../ids';
 import { rowLockTarget } from '../row-lock';
 import { factClaim, factPage, factReason, factSubject } from './fact-input';
-import type { ObservedInput } from '../ai/input-observations';
+import { workInputClassInTx, type ObservedInput } from '../ai/input-observations';
 
 export type FactEvidenceInput = { chunkId: string; quoteStart: number; quoteEnd: number };
 /** Internal trusted compiler seam. Called once, after all body locks and before this read commits. */
@@ -592,15 +592,20 @@ async function subjectRecord(
       .where(and(eq(workUnits.id, subject.id), allowed))
       .for('share');
     if (!row) throw new AppError('NOT_FOUND');
+    const effectiveClass = await workInputClassInTx(
+      tx,
+      subject.id,
+      row.classification as Classification,
+    );
     observations?.push({
       kind: 'work_unit',
       id: subject.id,
       sha256: createHash('sha256')
         .update(JSON.stringify({ id: subject.id, classification: row.classification }))
         .digest('hex'),
-      classification: row.classification as Classification,
+      classification: effectiveClass,
     });
-    return { name: null, classification: row.classification as Classification };
+    return { name: null, classification: effectiveClass };
   }
   if (subject.type === 'knowledge_source') {
     const allowed =

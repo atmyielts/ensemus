@@ -330,6 +330,32 @@ describe('billing period and who pays', () => {
 });
 
 describe('reserve', () => {
+  it('refuses a raced upsert that found another ceiling for the same attempt', async () => {
+    class RacedStore extends MemoryStore {
+      reads = 0;
+      override async reservationsOfAttempt(inner: Tx, query: { stepId: string; attempt: number }) {
+        this.reads++;
+        if (this.reads <= 2) return [];
+        return super.reservationsOfAttempt(inner, query);
+      }
+    }
+    const store = new RacedStore();
+    store.budgets.push(orgBudget(100));
+    const ledger = inMemory(store),
+      first = reservation({ amountMicros: 10 });
+    const results = await Promise.allSettled([
+      ledger.reserve(tx, context, first),
+      ledger.reserve(tx, context, { ...first, amountMicros: 20 }),
+    ]);
+    expect(results[0]).toMatchObject({
+      status: 'fulfilled',
+      value: { ok: true, amountMicros: 10 },
+    });
+    expect(results[1]).toMatchObject({ status: 'rejected', reason: { code: 'INVALID_STATE' } });
+    expect(store.reads).toBeGreaterThanOrEqual(3);
+    expect(store.reservations).toHaveLength(1);
+    expect(store.budgets[0]?.reservedMicros).toBe(10);
+  });
   it('denies with no budget at all, and has no default to fall back on', async () => {
     const store = new MemoryStore();
     await expect(inMemory(store).reserve(tx, context, reservation())).resolves.toEqual({

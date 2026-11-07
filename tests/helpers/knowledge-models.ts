@@ -1,5 +1,6 @@
 // Generated conformance fixtures through the actual app/agent roles and durable model-job path.
-// The explicit admission double is test-only; it is not evidence of joined native-session/MFA gates.
+// Native sessions are verified by auth and second-factor proof is written only by its role. Provider
+// output is synthetic; this fixture is not live-provider or production identity acceptance evidence.
 import { randomUUID } from 'node:crypto';
 import { createModelProfile, addRateCard } from '@ensemus/application/ai-model-profiles';
 import { setBudget } from '@ensemus/application/ai-budget';
@@ -16,6 +17,26 @@ import type { KnowledgeModelPurpose } from '@ensemus/domain/knowledge-models';
 import type { ModelRoute } from '@ensemus/knowledge/ports';
 import { deterministicVector } from '@ensemus/knowledge/testing';
 import { urls } from './stack';
+import pg from 'pg';
+import { nativePersonContext, proveSecondFactor } from './product';
+
+/** Generated native login + auth-role second-factor proof for the existing fixture's actual owner. */
+export async function nativeModelContext(database: AppDatabase, owner: TenantContext) {
+  const auth = new pg.Client({ connectionString: urls.auth() }),
+    sessionId = randomUUID();
+  await auth.connect();
+  try {
+    await auth.query(
+      "insert into identity.sessions(id,user_id,token,expires_at) values($1,$2,$3,now()+interval '1 hour')",
+      [sessionId, owner.userId, randomUUID()],
+    );
+  } finally {
+    await auth.end();
+  }
+  const person = { userId: owner.userId, sessionId };
+  await proveSecondFactor(person);
+  return nativePersonContext(database, person, owner.organizationId);
+}
 
 export const GENERATED_MODEL_ENDPOINT = 'http://generated-model.internal:8080/v1';
 export const GENERATED_MODEL_BOUNDS = {
@@ -38,6 +59,7 @@ export async function seedQualifiedKnowledgeRoute(
 ): Promise<ModelRoute> {
   const purpose = input.purpose ?? 'embed',
     dimension = purpose === 'embed' ? (input.dimension ?? 4) : null;
+  owner = await nativeModelContext(database, owner);
   const profile = await createModelProfile(
     database,
     owner,
@@ -69,20 +91,15 @@ export async function seedQualifiedKnowledgeRoute(
     period: new Date().toISOString().slice(0, 7),
     limit_micros: 1000000,
   });
-  const request = await requestModelQualification(
-    database,
-    owner,
-    {
-      profileId: profile.id,
-      expectedProfileVersion: profile.version,
-      purpose,
-      dimension,
-      vectorSpaceVersion: purpose === 'embed' ? (input.vectorSpaceVersion ?? 'generated-v1') : null,
-      requestKey: randomUUID(),
-      bounds: GENERATED_MODEL_BOUNDS,
-    },
-    { assertInTx: async () => {} },
-  );
+  const request = await requestModelQualification(database, owner, {
+    profileId: profile.id,
+    expectedProfileVersion: profile.version,
+    purpose,
+    dimension,
+    vectorSpaceVersion: purpose === 'embed' ? (input.vectorSpaceVersion ?? 'generated-v1') : null,
+    requestKey: randomUUID(),
+    bounds: GENERATED_MODEL_BOUNDS,
+  });
   const agent = openAgentDatabase(urls.agent(), { max: 2 });
   try {
     const calls = createKnowledgeCallStore(agent.db);

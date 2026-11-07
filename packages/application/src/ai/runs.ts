@@ -50,6 +50,7 @@ import { emit } from '../events';
 import { applyTransition, closeOutdatedReviews, failRun, loadChangeable } from '../work';
 import type { HaltCheck, TurnStart, TurnStore } from './ports';
 import { lockRunInputsForContent } from './input-ledger';
+import { bindModelResultWriteInTx } from './model-admission';
 
 export type ClaimedRun = {
   agentRunId: string;
@@ -1074,10 +1075,17 @@ export async function storeStepPayload(
     kind: 'prompt' | 'completion' | 'tool_args' | 'tool_output';
     classification: AiClassification;
     content: string;
+    attempt?: number;
   },
 ): Promise<void> {
   const contentSha256 = createHash('sha256').update(input.content).digest('hex');
   await withTenantTx(database, context, async (tx) => {
+    if (input.attempt !== undefined)
+      await bindModelResultWriteInTx(tx, context, {
+        stepId: input.stepId,
+        attempt: input.attempt,
+        classification: input.classification,
+      });
     await lockRunInputsForContent(tx, context);
     // A step has one of each. A retried attempt's words replace an earlier attempt's, so the next turn
     // never reads the same step twice.
@@ -1222,6 +1230,11 @@ export function createTurnStore(database: AppDatabase): TurnStore {
   return {
     beginTurn(context, step): Promise<TurnStart> {
       return withTenantTx(database, context, async (tx) => {
+        // Runtime-version fence for a run that has auxiliary Knowledge calls. This is not user
+        // authorization; the actual full-envelope admission happens in the reservation transaction.
+        await tx.execute(
+          sql`select set_config('app.knowledge_model_protocol','main-runtime-v1',true)`,
+        );
         const [fresh] = await tx
           .insert(executionSteps)
           .values({

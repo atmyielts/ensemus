@@ -695,6 +695,29 @@ export function createKnowledgeCallStore(
             throw fail();
         } else {
           const r = facts.run;
+          const legacyHeld = await tx
+            .select({ id: budgetReservations.id })
+            .from(budgetReservations)
+            .where(
+              and(
+                eq(budgetReservations.runId, r.id),
+                eq(budgetReservations.status, 'held'),
+                isNull(budgetReservations.modelCallId),
+              ),
+            )
+            .limit(1);
+          if (legacyHeld.length) throw fail('MODEL_UNAVAILABLE');
+          const unconfirmed = await tx
+            .select({ id: modelCallAttempts.id })
+            .from(modelCallAttempts)
+            .where(
+              and(
+                eq(modelCallAttempts.runId, r.id),
+                inArray(modelCallAttempts.state, ['dispatched', 'unknown']),
+              ),
+            )
+            .limit(1);
+          if (unconfirmed.length) throw fail('MODEL_UNAVAILABLE');
           const totals = await tx.execute<{
             cost: string;
             tokens: string;

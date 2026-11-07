@@ -115,7 +115,7 @@ function wireNames(tools: readonly AdapterTool[]) {
 }
 
 function callOptions(
-  call: AdapterCall,
+  call: Pick<AdapterCall, 'messages' | 'tools' | 'responseSchema' | 'maxOutputTokens'>,
   toWire: ReadonlyMap<string, string>,
   abortSignal: AbortSignal,
 ): LanguageModelV4CallOptions {
@@ -150,6 +150,22 @@ function callOptions(
       ...(hasTools ? { anthropic: { disableParallelToolUse: true } } : {}),
     },
   };
+}
+
+/** Count the actual provider-neutral SDK input, including data-role fences, function names/schema,
+ * response format and role/envelope fields. Never reserve from message text alone. */
+export function generationInputBytes(
+  input: Pick<AdapterCall, 'messages' | 'tools' | 'responseSchema' | 'maxOutputTokens'> & {
+    modelId?: string;
+  },
+): number {
+  return Buffer.byteLength(
+    JSON.stringify({
+      model: input.modelId ?? '',
+      ...callOptions(input, wireNames(input.tools).toWire, new AbortController().signal),
+    }),
+    'utf8',
+  );
 }
 
 function usageOf(result: LanguageModelV4GenerateResult): AdapterUsage {

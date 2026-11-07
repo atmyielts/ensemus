@@ -7,14 +7,19 @@ import { and, eq, sql } from 'drizzle-orm';
 import {
   agentRuns,
   budgetReservations,
+  clients,
+  executionSteps,
   knowledgeChunks,
+  knowledgeDocuments,
   knowledgeEvidencePackages,
   knowledgeSourceGrants,
   modelCallAttempts,
   modelCallInputs,
   modelJobPayloads,
   modelJobs,
+  stepPayloads,
   openAppDatabase,
+  resolveTenantContext,
   usageLedger,
   withTenantTx,
   workUnits,
@@ -22,17 +27,34 @@ import {
   type Tx,
 } from '@ensemus/database';
 import { createDelegatedContext, createServiceContext } from '@ensemus/database/service';
-import { createWorkUnit, assignContributor, unassign } from '@ensemus/application';
+import {
+  createWorkUnit,
+  createClient,
+  createProject,
+  assignContributor,
+  unassign,
+  transitionWorkUnit,
+} from '@ensemus/application';
 import { createKnowledgeCallStore } from '@ensemus/application/ai-knowledge-call-store';
 import { createModelProfile, addRateCard } from '@ensemus/application/ai-model-profiles';
 import { setBudget } from '@ensemus/application/ai-budget';
+import { createUsageLedger } from '@ensemus/application/ai-usage';
 import { bindKnowledgeModelReceipts } from '@ensemus/application/ai-knowledge-result-consumer';
 import { purgeModelJobPayloads } from '@ensemus/application/ai-knowledge-job-content';
 import type {
   KnowledgeModelPrincipal,
   PrepareKnowledgeCall,
 } from '@ensemus/application/ai-knowledge-ports';
-import { createTurnStore, finishRun, listLostAttempts } from '@ensemus/application/ai-runs';
+import {
+  claimQueuedRun,
+  createTurnStore,
+  finishRun,
+  listLostAttempts,
+  storeStepPayload,
+} from '@ensemus/application/ai-runs';
+import { storeProposal } from '@ensemus/application/ai-tool-steps';
+import { admitMainModelInTx, currentRunInputClass } from '@ensemus/application/ai-model-admission';
+import { createAgentActivities } from '@ensemus/workflows/agent-activities';
 import { workInputHash } from '@ensemus/application/ai-input-ledger';
 import {
   approveModelWorkload,
@@ -57,7 +79,11 @@ import { deterministicVector } from '@ensemus/knowledge/testing';
 import { createKnowledgeModelJobFallbackActivities } from '@ensemus/workflows/knowledge-model-job-fallback-activities';
 import { pgCode } from '../../packages/application/src/errors';
 import { seedSearchableSource, sha256 } from '../helpers/knowledge';
-import { seedQualifiedKnowledgeRoute, GENERATED_MODEL_ENDPOINT } from '../helpers/knowledge-models';
+import {
+  seedQualifiedKnowledgeRoute,
+  nativeModelContext,
+  GENERATED_MODEL_ENDPOINT,
+} from '../helpers/knowledge-models';
 import {
   openAgentTestDatabase,
   prepareRunInputContext,
@@ -76,7 +102,6 @@ const bounds = {
   maxCostMicros: 10000,
   timeoutSeconds: 240,
 };
-const admission = { assertInTx: async () => {} }; // Explicit test-only authority adapter.
 const signal = () => AbortSignal.timeout(10000);
 const codeOf = async (use: () => Promise<unknown>) => {
   try {
@@ -94,6 +119,7 @@ describe('bounded Knowledge model jobs and principal-bound result receipts (0216
     app = openAppDatabase(urls.app(), { max: 6 });
     agent = openAgentTestDatabase(6);
     a = await seedAiTenant(app.db, { commercialMode: 'sovereign' });
+    a.owner = await nativeModelContext(app.db, a.owner);
     b = await seedAiTenant(app.db, { commercialMode: 'sovereign' });
     const route = await seedQualifiedKnowledgeRoute(app.db, a.owner, { dimension: 3 });
     if (!route.qualificationId) throw new Error('TEST_QUALIFICATION_MISSING');
@@ -105,23 +131,18 @@ describe('bounded Knowledge model jobs and principal-bound result receipts (0216
   });
 
   async function approval(kind: 'query' | 'answer' | 'agent_context' = 'query') {
-    return approveModelWorkload(
-      app.db,
-      a.owner,
-      {
-        kind,
-        scope: 'organization',
-        sourceId: null,
-        connectionId: null,
-        purposes: ['embed'],
-        qualificationIds: [qualificationId],
-        maxClassification: 'restricted',
-        bounds,
-        expiresAt: new Date(Date.now() + 240000).toISOString(),
-        requestKey: randomUUID(),
-      },
-      admission,
-    );
+    return approveModelWorkload(app.db, a.owner, {
+      kind,
+      scope: 'organization',
+      sourceId: null,
+      connectionId: null,
+      purposes: ['embed'],
+      qualificationIds: [qualificationId],
+      maxClassification: 'restricted',
+      bounds,
+      expiresAt: new Date(Date.now() + 240000).toISOString(),
+      requestKey: randomUUID(),
+    });
   }
   async function fixture(options: { beforeSend?: () => Promise<void>; failure?: boolean } = {}) {
     const approved = await approval(),
@@ -243,6 +264,353 @@ describe('bounded Knowledge model jobs and principal-bound result receipts (0216
       )
     )[0];
 
+  async function actualAuxiliaryRun(
+    limits: { maxCostMicros?: number; maxTotalTokens?: number } = {},
+    projectId?: string,
+  ) {
+    await approval('agent_context');
+    const work = await createWorkUnit(app.db, a.owner, {
+      title: 'Generated joined model runtime',
+      objective: 'A genuine Work context.',
+      ...(projectId ? { projectId } : {}),
+    });
+    await transitionWorkUnit(app.db, a.owner, {
+      id: work.id,
+      expectedVersion: work.version,
+      to: 'ready',
+    });
+    const version = await seedAgentVersion(app.db, a.owner),
+      runId = await seedQueuedRun(app.db, a.owner, { workUnitId: work.id, version, limits }),
+      temporalRunId = randomUUID();
+    const claim = await claimQueuedRun(agent.db, {
+      organizationId: a.organizationId,
+      workUnitId: work.id,
+      temporalRunId,
+    });
+    if (!claim) throw new Error('TEST_RUN_CLAIM_REFUSED');
+    const context = await prepareRunInputContext(agent.db, a.organizationId, runId);
+    await withTenantTx(agent.db, context, (tx) =>
+      tx.update(agentRuns).set({ status: 'running' }).where(eq(agentRuns.id, runId)),
+    );
+    const start = await createTurnStore(agent.db).beginTurn(context, { runId, stepNumber: 1 });
+    if (start.kind !== 'begin') throw new Error('TEST_STEP_REFUSED');
+    const principal: KnowledgeModelPrincipal = {
+        kind: 'agent_run',
+        context,
+        step: {
+          runId,
+          stepId: start.stepId,
+          stepNumber: 1,
+          attempt: start.attempt,
+          workUnitId: work.id,
+          agentVersionId: version.versionId,
+        },
+      },
+      calls = createKnowledgeCallStore(agent.db),
+      candidate = (await calls.candidates(principal, 'embed'))[0];
+    if (!candidate) throw new Error('TEST_CANDIDATE_MISSING');
+    const input: PrepareKnowledgeCall = {
+      candidate,
+      purpose: 'embed',
+      classification: 'internal',
+      requestHash: operationHash({
+        purpose: 'embed',
+        inputs: ['Generated auxiliary input'],
+        dimension: 3,
+      }),
+      metadata: { operationKey: operationKey([runId]), inputs: [] },
+      ceiling: { inputTokens: 31, outputTokens: 0 },
+      policyVersion: 'generated-test-policy',
+    };
+    const main = {
+      ...principal.step,
+      purpose: 'reason',
+      classification: 'internal' as const,
+      profileId,
+      costMicros: 1,
+      profileVersion: 1,
+      reservationAttempt: start.attempt,
+      ceiling: { inputTokens: 30, outputTokens: 5 },
+      priorUsage: { inputTokens: 0, outputTokens: 0, costMicros: 0 },
+    };
+    return { work, runId, temporalRunId, context, principal, calls, input, main };
+  }
+  it.each([
+    { limits: { maxCostMicros: 1 }, label: 'money' },
+    { limits: { maxTotalTokens: 40 }, label: 'tokens' },
+  ] as const)(
+    'rechecks actual auxiliary spending before the main envelope: $label',
+    async ({ limits }) => {
+      const f = await actualAuxiliaryRun(limits),
+        call = await f.calls.prepare(f.principal, f.input);
+      await f.calls.dispatch(f.principal, call.callId);
+      await f.calls.settle(f.principal, call.callId, {
+        usage: { inputTokens: 13, outputTokens: 0 },
+        mayHaveBilled: true,
+        reasonCode: null,
+      });
+      expect(
+        await withTenantTx(agent.db, f.context, (tx) => admitMainModelInTx(tx, f.context, f.main)),
+      ).toBe('BUDGET_EXHAUSTED');
+      expect(
+        await withTenantTx(app.db, a.owner, (tx) =>
+          tx.select().from(usageLedger).where(eq(usageLedger.runId, f.runId)),
+        ),
+      ).toHaveLength(2);
+      expect(
+        await withTenantTx(app.db, a.owner, (tx) =>
+          tx.select().from(modelCallAttempts).where(eq(modelCallAttempts.runId, f.runId)),
+        ),
+      ).toHaveLength(1);
+    },
+  );
+  it('rechecks the current class of a discarded earlier input document, independently of its source class', async () => {
+    const f = await actualAuxiliaryRun(),
+      source = await seedSearchableSource(app.db, a.owner, {
+        passages: ['Generated earlier candidate'],
+        grants: [{ kind: 'membership', membershipId: a.owner.membershipId }],
+      });
+    const [chunk] = await withTenantTx(app.db, a.owner, (tx) =>
+      tx.select().from(knowledgeChunks).where(eq(knowledgeChunks.id, source.chunkIds[0]!)),
+    );
+    if (!chunk) throw new Error('TEST_CHUNK_MISSING');
+    const call = await f.calls.prepare(f.principal, {
+      ...f.input,
+      metadata: {
+        ...f.input.metadata,
+        inputs: [
+          {
+            kind: 'chunk',
+            id: chunk.id,
+            sourceId: source.sourceId,
+            sha256: chunk.contentSha256,
+            classification: 'internal',
+          },
+        ],
+      },
+    });
+    await f.calls.dispatch(f.principal, call.callId);
+    await f.calls.settle(f.principal, call.callId, {
+      usage: { inputTokens: 13, outputTokens: 0 },
+      mayHaveBilled: true,
+      reasonCode: null,
+    });
+    await withTenantTx(app.db, createServiceContext(a.organizationId), (tx) =>
+      tx
+        .update(knowledgeDocuments)
+        .set({ classification: 'restricted', version: sql`${knowledgeDocuments.version}+1` })
+        .where(eq(knowledgeDocuments.id, source.documentId)),
+    );
+    expect(await currentRunInputClass(agent.db, f.context)).toBe('restricted');
+    expect(
+      await withTenantTx(agent.db, f.context, (tx) => admitMainModelInTx(tx, f.context, f.main)),
+    ).toBe('CLASS_DENIED');
+  });
+  it('includes the target Work current client floor even when only the Work body was actually read', async () => {
+    const client = await createClient(app.db, a.owner, {
+      displayName: 'Generated current-scope client',
+      classification: 'internal',
+    });
+    if (!client) throw new Error('TEST_CLIENT_REFUSED');
+    const project = await createProject(app.db, a.owner, {
+      name: 'Generated current-scope project',
+      clientId: client.id,
+    });
+    if (!project) throw new Error('TEST_PROJECT_REFUSED');
+    const f = await actualAuxiliaryRun({}, project.id);
+    await withTenantTx(app.db, a.owner, (tx) =>
+      tx.update(clients).set({ classification: 'restricted' }).where(eq(clients.id, client.id)),
+    );
+    expect(await currentRunInputClass(agent.db, f.context)).toBe('restricted');
+    expect(
+      await withTenantTx(agent.db, f.context, (tx) => admitMainModelInTx(tx, f.context, f.main)),
+    ).toBe('CLASS_DENIED');
+  });
+  it('binds actual finish and terminal reclaim to permanent fencing and once-only unknown auxiliary reconciliation', async () => {
+    const f = await actualAuxiliaryRun(),
+      call = await f.calls.prepare(f.principal, f.input);
+    await f.calls.dispatch(f.principal, call.callId);
+    await expect(
+      f.calls.prepare(f.principal, {
+        ...f.input,
+        metadata: { ...f.input.metadata, operationKey: operationKey(['automatic retry', f.runId]) },
+      }),
+    ).rejects.toThrow();
+    const activities = createAgentActivities({
+      database: agent.db,
+      modelAccounting: {
+        reconcileRun: (organizationId, runId) =>
+          f.calls.reconcileRun(createServiceContext(organizationId), runId),
+      },
+      gateway: {
+        turn: async () => {
+          throw new Error('TEST_UNEXPECTED_MODEL');
+        },
+      },
+      tools: {
+        handle: async () => {
+          throw new Error('TEST_UNEXPECTED_TOOL');
+        },
+      },
+      context: {
+        compile: async () => {
+          throw new Error('TEST_UNEXPECTED_COMPILE');
+        },
+      },
+    });
+    const ref = {
+      organizationId: a.organizationId,
+      workUnitId: f.work.id,
+      agentRunId: f.runId,
+      temporalRunId: f.temporalRunId,
+    };
+    await activities.finishAgentRun({ ...ref, status: 'cancelled', stopCode: 'STOPPED_BY_PERSON' });
+    expect(await activities.reclaimAgentRun(ref)).toEqual({ kind: 'nothing_queued' });
+    await activities.finishAgentRun({ ...ref, status: 'cancelled', stopCode: 'STOPPED_BY_PERSON' });
+    const rows = await withTenantTx(app.db, a.owner, (tx) =>
+      tx.select().from(modelCallAttempts).where(eq(modelCallAttempts.id, call.callId)),
+    );
+    expect(rows).toEqual([
+      expect.objectContaining({ state: 'unknown', status: 'estimated', costMicros: 1 }),
+    ]);
+    expect(
+      await withTenantTx(app.db, a.owner, (tx) =>
+        tx.select().from(usageLedger).where(eq(usageLedger.modelCallId, call.callId)),
+      ),
+    ).toHaveLength(2);
+    expect(
+      (
+        await withTenantTx(app.db, a.owner, (tx) =>
+          tx
+            .select()
+            .from(budgetReservations)
+            .where(eq(budgetReservations.modelCallId, call.callId)),
+        )
+      ).every((row) => row.status === 'settled'),
+    ).toBe(true);
+  });
+  it('rejects an older bundle/attempt and requires same-transaction admission even for an existing main hold', async () => {
+    const f = await actualAuxiliaryRun(),
+      call = await f.calls.prepare(f.principal, f.input);
+    await f.calls.dispatch(f.principal, call.callId);
+    await f.calls.settle(f.principal, call.callId, {
+      usage: { inputTokens: 13, outputTokens: 0 },
+      mayHaveBilled: true,
+      reasonCode: null,
+    });
+    const ledger = createUsageLedger(agent.db),
+      request = {
+        runId: f.runId,
+        stepId: f.main.stepId,
+        attempt: f.main.attempt,
+        agentVersionId: f.main.agentVersionId,
+        amountMicros: 1,
+      };
+    await expect(
+      withTenantTx(agent.db, f.context, (tx) => ledger.reserve(tx, f.context, request)),
+    ).rejects.toMatchObject({ code: 'POLICY_DENIED' });
+    const reservation = await withTenantTx(agent.db, f.context, async (tx) => {
+      expect(await admitMainModelInTx(tx, f.context, f.main)).toBeNull();
+      const first = await ledger.reserve(tx, f.context, request);
+      expect(await ledger.reserve(tx, f.context, request)).toEqual(first);
+      return first;
+    });
+    if (!reservation.ok) throw new Error('TEST_MAIN_RESERVATION_REFUSED');
+    await expect(
+      withTenantTx(agent.db, f.context, (tx) => ledger.reserve(tx, f.context, request)),
+    ).rejects.toMatchObject({ code: 'POLICY_DENIED' });
+    await expect(
+      withTenantTx(agent.db, f.context, async (tx) => {
+        expect(await admitMainModelInTx(tx, f.context, { ...f.main, costMicros: 2 })).toBeNull();
+        await ledger.reserve(tx, f.context, { ...request, amountMicros: 2 });
+      }),
+    ).rejects.toMatchObject({ code: 'INVALID_STATE' });
+    expect(
+      await codeOf(() =>
+        withTenantTx(agent.db, f.context, (tx) =>
+          tx
+            .update(executionSteps)
+            .set({ attempt: f.main.attempt + 1 })
+            .where(eq(executionSteps.id, f.main.stepId)),
+        ),
+      ),
+    ).toBe('EN120');
+    const resumed = await createTurnStore(agent.db).beginTurn(f.context, {
+      runId: f.runId,
+      stepNumber: 1,
+    });
+    expect(resumed).toMatchObject({
+      kind: 'begin',
+      attempt: 2,
+      lostAttempt: { reservationId: reservation.reservationId, attempt: 1 },
+    });
+    await storeStepPayload(agent.db, f.context, {
+      stepId: f.main.stepId,
+      kind: 'completion',
+      classification: 'internal',
+      content: 'Generated current-attempt completion',
+      attempt: 2,
+    });
+    await expect(
+      storeStepPayload(agent.db, f.context, {
+        stepId: f.main.stepId,
+        kind: 'completion',
+        classification: 'internal',
+        content: 'Generated stale completion',
+        attempt: 1,
+      }),
+    ).rejects.toMatchObject({ code: 'POLICY_DENIED' });
+    expect(
+      await codeOf(() =>
+        storeStepPayload(agent.db, f.context, {
+          stepId: f.main.stepId,
+          kind: 'completion',
+          classification: 'internal',
+          content: 'Generated older-bundle completion',
+        }),
+      ),
+    ).toBe('EN119');
+    expect(
+      await withTenantTx(agent.db, f.context, (tx) =>
+        tx
+          .select({ content: stepPayloads.content })
+          .from(stepPayloads)
+          .where(and(eq(stepPayloads.stepId, f.main.stepId), eq(stepPayloads.kind, 'completion'))),
+      ),
+    ).toEqual([{ content: 'Generated current-attempt completion' }]);
+    await expect(
+      storeProposal(agent.db, f.context, {
+        runId: f.runId,
+        stepNumber: 1,
+        toolId: 'artifact.draft.create',
+        args: { name: 'generated.txt', text: 'Generated stale proposal', evidence: [] },
+        originatingModel: { stepId: f.main.stepId, attempt: 1 },
+      }),
+    ).rejects.toMatchObject({ code: 'POLICY_DENIED' });
+    await storeProposal(agent.db, f.context, {
+      runId: f.runId,
+      stepNumber: 1,
+      toolId: 'artifact.draft.create',
+      args: { name: 'generated.txt', text: 'Generated current proposal', evidence: [] },
+      originatingModel: { stepId: f.main.stepId, attempt: 2 },
+    });
+    expect(
+      await withTenantTx(agent.db, f.context, (tx) => admitMainModelInTx(tx, f.context, f.main)),
+    ).toBe('INITIATOR_INACTIVE');
+    expect(
+      (
+        await withTenantTx(agent.db, f.context, (tx) =>
+          tx.execute<{ protocol: string }>(
+            sql`select current_setting('app.knowledge_model_protocol',true) protocol`,
+          ),
+        )
+      ).rows[0]?.protocol,
+    ).toBe('');
+    await withTenantTx(agent.db, f.context, (tx) =>
+      ledger.release(tx, f.context, reservation.reservationId),
+    );
+  });
+
   it('requires explicit spend authority and denies an ordinary member or absent native gate', async () => {
     const raw = {
       kind: 'query' as const,
@@ -256,14 +624,15 @@ describe('bounded Knowledge model jobs and principal-bound result receipts (0216
       expiresAt: new Date(Date.now() + 240000).toISOString(),
       requestKey: randomUUID(),
     };
-    await expect(approveModelWorkload(app.db, a.owner, raw)).rejects.toMatchObject({
-      code: 'FORBIDDEN',
+    const noninteractive = await resolveTenantContext(app.db, a.owner.userId, a.organizationId);
+    await expect(approveModelWorkload(app.db, noninteractive, raw)).rejects.toMatchObject({
+      code: 'MFA_REQUIRED',
     });
-    await expect(approveModelWorkload(app.db, a.member, raw, admission)).rejects.toMatchObject({
+    await expect(approveModelWorkload(app.db, a.member, raw)).rejects.toMatchObject({
       code: 'FORBIDDEN',
     });
     await expect(
-      requestModelQualification(app.db, a.owner, {
+      requestModelQualification(app.db, noninteractive, {
         profileId,
         expectedProfileVersion: 1,
         purpose: 'embed',
@@ -272,7 +641,7 @@ describe('bounded Knowledge model jobs and principal-bound result receipts (0216
         requestKey: randomUUID(),
         bounds: { ...bounds, maxCalls: 1 },
       }),
-    ).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    ).rejects.toMatchObject({ code: 'MFA_REQUIRED' });
   });
   it('binds the request key to immutable input/bounds, with no duplicate event or payload', async () => {
     const f = await fixture();
@@ -796,6 +1165,7 @@ describe('bounded Knowledge model jobs and principal-bound result receipts (0216
   });
   it('refuses Cloud-managed reservation without the actual approved-credit hold port and rolls back every hold', async () => {
     const tenant = await seedAiTenant(app.db, { commercialMode: 'cloud' });
+    tenant.owner = await nativeModelContext(app.db, tenant.owner);
     const profile = await createModelProfile(
       app.db,
       tenant.owner,
@@ -827,20 +1197,15 @@ describe('bounded Knowledge model jobs and principal-bound result receipts (0216
       period: new Date().toISOString().slice(0, 7),
       limit_micros: 10000,
     });
-    const request = await requestModelQualification(
-      app.db,
-      tenant.owner,
-      {
-        profileId: profile.id,
-        expectedProfileVersion: profile.version,
-        purpose: 'embed',
-        dimension: 3,
-        vectorSpaceVersion: 'generated-cloud-v1',
-        requestKey: randomUUID(),
-        bounds: { ...bounds, maxCalls: 1 },
-      },
-      admission,
-    );
+    const request = await requestModelQualification(app.db, tenant.owner, {
+      profileId: profile.id,
+      expectedProfileVersion: profile.version,
+      purpose: 'embed',
+      dimension: 3,
+      vectorSpaceVersion: 'generated-cloud-v1',
+      requestKey: randomUUID(),
+      bounds: { ...bounds, maxCalls: 1 },
+    });
     const requester = await createDelegatedContext(
         agent.db,
         tenant.organizationId,

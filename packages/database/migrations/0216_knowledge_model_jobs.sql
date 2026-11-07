@@ -354,6 +354,7 @@ BEGIN
     IF NOT FOUND OR r.status<>'running' OR NOT EXISTS(SELECT 1 FROM ai.execution_steps s WHERE s.organization_id=c.organization_id and s.id=c.step_id and s.run_id=r.id and s.kind='model_turn' and s.state='in_flight') THEN
       RAISE EXCEPTION 'MODEL_RUN_STEP_REQUIRED' USING ERRCODE='EN120';END IF;
     IF knowledge.class_rank(c.classification)<knowledge.class_rank(r.effective_classification) THEN RAISE EXCEPTION 'MODEL_RUN_CLASS_RAISED' USING ERRCODE='EN120';END IF;
+    IF c.state in('prepared','dispatched') AND EXISTS(SELECT 1 FROM ai.model_call_attempts prior WHERE prior.organization_id=c.organization_id and prior.run_id=c.run_id and prior.id<>c.id and prior.state in('dispatched','unknown')) THEN RAISE EXCEPTION 'MODEL_RUN_RESPONSE_UNCONFIRMED' USING ERRCODE='EN120';END IF;
     IF c.state='accepted' AND(r.cost_micros>r.max_cost_micros OR r.input_tokens::bigint+r.output_tokens::bigint>r.max_total_tokens) THEN RAISE EXCEPTION 'MODEL_RUN_LIMIT' USING ERRCODE='EN120';END IF;
   END IF;
   SELECT * INTO q FROM ai.model_operation_qualifications WHERE organization_id=c.organization_id and id=c.qualification_id FOR SHARE NOWAIT;
@@ -555,11 +556,27 @@ CREATE TRIGGER model_job_no_delete BEFORE DELETE OR TRUNCATE ON ai.model_jobs FO
 --> statement-breakpoint
 -- Auxiliary calls cannot masquerade as an old unscoped reservation, a different job or another
 -- run's step. Existing legacy agent rows retain their original independent checks and constraints.
+CREATE FUNCTION ai.main_reservation_admitted(p_run uuid,p_step uuid,p_attempt integer,p_amount bigint) RETURNS boolean LANGUAGE sql STABLE AS $$
+  SELECT coalesce(current_user='ensemus_agent' and app.current_actor_type()='agent' and p_run::text=current_setting('app.agent_run_id',true) and(
+    NOT EXISTS(SELECT 1 FROM ai.model_call_attempts c WHERE c.organization_id=app.current_organization_id() and c.run_id=p_run)
+    OR(current_setting('app.knowledge_model_protocol',true)=('main-v1:'||p_run::text||':'||p_step::text||':'||p_attempt::text||':'||p_amount::text)
+      and ai.run_input_admitted(p_run) and EXISTS(SELECT 1 FROM ai.agent_runs r JOIN ai.execution_steps s ON s.organization_id=r.organization_id and s.run_id=r.id
+        WHERE r.organization_id=app.current_organization_id() and r.id=p_run and r.status='running' and r.initiator_membership_id=app.current_membership_id()
+          and s.id=p_step and s.kind='model_turn' and s.state='in_flight' and p_attempt>=s.attempt and(p_attempt-s.attempt)%1000=0))),false)
+$$;
+REVOKE ALL ON FUNCTION ai.main_reservation_admitted(uuid,uuid,integer,bigint) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION ai.main_reservation_admitted(uuid,uuid,integer,bigint) TO ensemus_agent;
 CREATE FUNCTION ai.guard_model_money_principal() RETURNS trigger LANGUAGE plpgsql AS $$
 DECLARE c ai.model_call_attempts%ROWTYPE;r record;b record;card record;expected_cost numeric;expected_quantity bigint;
 BEGIN
   IF TG_OP<>'INSERT' OR TG_RELID NOT IN('platform.usage_ledger'::regclass,'platform.budget_reservations'::regclass) THEN RAISE EXCEPTION 'MODEL_MONEY_TARGET' USING ERRCODE='42501';END IF;
-  IF NEW.model_call_id IS NULL THEN RETURN NEW;END IF;
+  IF NEW.model_call_id IS NULL THEN
+    IF TG_RELID='platform.budget_reservations'::regclass AND EXISTS(SELECT 1 FROM ai.model_call_attempts c WHERE c.organization_id=NEW.organization_id and c.run_id=NEW.run_id) THEN
+      IF NEW.organization_id IS DISTINCT FROM app.current_organization_id() OR NOT ai.main_reservation_admitted(NEW.run_id,NEW.step_id,NEW.attempt,NEW.amount_micros) THEN
+        RAISE EXCEPTION 'MAIN_MODEL_ADMISSION_REQUIRED' USING ERRCODE='EN120';END IF;
+    END IF;
+    RETURN NEW;
+  END IF;
   IF current_user<>'ensemus_agent' OR NEW.organization_id IS DISTINCT FROM app.current_organization_id() THEN RAISE EXCEPTION 'MODEL_RUNTIME_REQUIRED' USING ERRCODE='42501';END IF;
   SELECT * INTO c FROM ai.model_call_attempts WHERE organization_id=NEW.organization_id and id=NEW.model_call_id;
   IF NOT FOUND OR NEW.model_job_id IS DISTINCT FROM c.job_id OR NEW.run_id IS DISTINCT FROM c.run_id OR NEW.step_id IS DISTINCT FROM c.step_id THEN RAISE EXCEPTION 'MODEL_MONEY_PRINCIPAL' USING ERRCODE='EN120';END IF;
@@ -600,6 +617,40 @@ END $$;
 REVOKE ALL ON FUNCTION ai.guard_model_money_principal() FROM PUBLIC;
 CREATE TRIGGER model_reservation_principal BEFORE INSERT ON platform.budget_reservations FOR EACH ROW EXECUTE FUNCTION ai.guard_model_money_principal();
 CREATE TRIGGER model_usage_principal BEFORE INSERT ON platform.usage_ledger FOR EACH ROW EXECUTE FUNCTION ai.guard_model_money_principal();
+-- Old bundled workers cannot reuse an existing main hold by taking over an auxiliary-influenced
+-- step without the new runtime. INSERT admission alone would miss the existing-hold fast path.
+CREATE FUNCTION ai.guard_auxiliary_main_runtime() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  IF TG_RELID<>'ai.execution_steps'::regclass OR TG_OP NOT IN('INSERT','UPDATE') THEN RAISE EXCEPTION 'MAIN_RUNTIME_TARGET' USING ERRCODE='42501';END IF;
+  IF NEW.kind='model_turn' AND NEW.state='in_flight' AND EXISTS(SELECT 1 FROM ai.model_call_attempts c WHERE c.organization_id=NEW.organization_id and c.run_id=NEW.run_id) THEN
+    IF TG_OP='UPDATE' THEN
+      IF NEW.attempt IS NOT DISTINCT FROM OLD.attempt THEN RETURN NEW;END IF;
+    END IF;
+    IF current_user<>'ensemus_agent' OR app.current_actor_type() IS DISTINCT FROM 'agent' OR NEW.organization_id IS DISTINCT FROM app.current_organization_id()
+      OR NEW.run_id::text IS DISTINCT FROM current_setting('app.agent_run_id',true)
+      OR current_setting('app.knowledge_model_protocol',true) IS DISTINCT FROM 'main-runtime-v1' THEN
+      RAISE EXCEPTION 'MAIN_MODEL_RUNTIME_REQUIRED' USING ERRCODE='EN120';END IF;
+  END IF;
+  RETURN NEW;
+END $$;
+REVOKE ALL ON FUNCTION ai.guard_auxiliary_main_runtime() FROM PUBLIC;
+CREATE TRIGGER auxiliary_main_runtime BEFORE INSERT OR UPDATE OF attempt,state ON ai.execution_steps FOR EACH ROW EXECUTE FUNCTION ai.guard_auxiliary_main_runtime();
+CREATE FUNCTION ai.guard_auxiliary_model_result() RETURNS trigger LANGUAGE plpgsql AS $$
+DECLARE s record;
+BEGIN
+  IF TG_OP<>'INSERT' OR TG_RELID NOT IN('ai.step_payloads'::regclass,'ai.tool_proposals'::regclass) THEN RAISE EXCEPTION 'MODEL_RESULT_TARGET' USING ERRCODE='42501';END IF;
+  SELECT id,run_id,kind,state,attempt INTO s FROM ai.execution_steps WHERE organization_id=NEW.organization_id and id=NEW.step_id FOR SHARE NOWAIT;
+  IF s.kind='model_turn' AND EXISTS(SELECT 1 FROM ai.model_call_attempts c WHERE c.organization_id=NEW.organization_id and c.run_id=s.run_id) THEN
+    IF current_user<>'ensemus_agent' OR app.current_actor_type() IS DISTINCT FROM 'agent' OR NEW.organization_id IS DISTINCT FROM app.current_organization_id()
+      OR s.run_id::text IS DISTINCT FROM current_setting('app.agent_run_id',true) OR s.state<>'in_flight'
+      OR current_setting('app.knowledge_model_protocol',true) IS DISTINCT FROM('model-result-v1:'||s.run_id::text||':'||s.id::text||':'||s.attempt::text)
+      OR NOT ai.run_input_admitted(s.run_id) THEN RAISE EXCEPTION 'MODEL_RESULT_ATTEMPT_STALE' USING ERRCODE='EN119';END IF;
+  END IF;
+  RETURN NEW;
+END $$;
+REVOKE ALL ON FUNCTION ai.guard_auxiliary_model_result() FROM PUBLIC;
+CREATE TRIGGER auxiliary_model_payload BEFORE INSERT ON ai.step_payloads FOR EACH ROW EXECUTE FUNCTION ai.guard_auxiliary_model_result();
+CREATE TRIGGER auxiliary_model_proposal BEFORE INSERT ON ai.tool_proposals FOR EACH ROW EXECUTE FUNCTION ai.guard_auxiliary_model_result();
 --> statement-breakpoint
 -- Historical unqualified spaces remain for provenance but cannot be reactivated or mixed with an
 -- identically named model behind another profile/endpoint. No legacy embedding precision is guessed.

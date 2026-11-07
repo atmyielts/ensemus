@@ -7,6 +7,7 @@ import {
   withTenantTx,
   type AppDatabase,
   type TenantContext,
+  type Tx,
 } from '@ensemus/database';
 import { can } from '@ensemus/domain/policy';
 import type { TenantPolicyBundle } from '@ensemus/policy';
@@ -100,18 +101,20 @@ export async function loadTenantPolicyBundle(
   database: AppDatabase,
   context: TenantContext,
 ): Promise<TenantPolicyBundle | null> {
-  const [row] = await withTenantTx(database, context, (tx) =>
-    tx
-      .select({ version: policyBundles.version, document: policyBundles.document })
-      .from(policyBundles)
-      .where(
-        and(
-          eq(policyBundles.organizationId, context.organizationId),
-          eq(policyBundles.active, true),
-        ),
-      )
-      .limit(1),
-  );
+  return withTenantTx(database, context, (tx) => loadTenantPolicyBundleInTx(tx, context));
+}
+/** Same decision data in the actual reservation/dispatch transaction. */
+export async function loadTenantPolicyBundleInTx(
+  tx: Tx,
+  context: TenantContext,
+): Promise<TenantPolicyBundle | null> {
+  const [row] = await tx
+    .select({ version: policyBundles.version, document: policyBundles.document })
+    .from(policyBundles)
+    .where(
+      and(eq(policyBundles.organizationId, context.organizationId), eq(policyBundles.active, true)),
+    )
+    .limit(1);
   if (!row) return null;
   const document = (row.document ?? {}) as Record<string, unknown>;
   return {

@@ -4,6 +4,7 @@
 import { createChildRun, settleChildRun } from '@ensemus/application/ai-delegation';
 import { createHaltCheck } from '@ensemus/application/ai-halt';
 import { isRunInputFence } from '@ensemus/application/ai-input-ledger';
+import { currentRunInputClass, isMainInputDenied } from '@ensemus/application/ai-model-admission';
 import type { HaltCheck, UsageLedger } from '@ensemus/application/ai-ports';
 import {
   addToCountersInTx,
@@ -44,6 +45,7 @@ import {
   modelLedgerKey,
   STOP_CODES,
   strongestClassification,
+  isTerminalAgentRun,
   type StopCode,
 } from '@ensemus/domain/ai';
 import { createLogger, errorCode } from '@ensemus/telemetry';
@@ -88,6 +90,8 @@ export type AgentActivityDeps = {
   context: import('@ensemus/agent-runtime/context').ContextCompiler;
   usage?: UsageLedger;
   halt?: HaltCheck;
+  /** Trusted composition binds metadata accounting; no service context enters agent Activities. */
+  modelAccounting?: { reconcileRun(organizationId: string, runId: string): Promise<void> };
   /** Aborts an in-flight call when a kill switch covers it. See workers/workflow/src/kill-switch.ts. */
   haltWatcher?: {
     signalFor(run: {
@@ -138,6 +142,17 @@ export interface AgentActivities {
 const STOP_CODE_SET: ReadonlySet<string> = new Set(STOP_CODES);
 const asStopCode = (code: string | null | undefined): StopCode | null =>
   code && STOP_CODE_SET.has(code) ? (code as StopCode) : null;
+
+/** Auxiliary calls have already updated these real counters; the main call has not started yet. */
+export function mainTurnStop(facts: RunFacts, elapsedMs: number): StopCode | null {
+  if (facts.counters.activeMs + elapsedMs >= facts.limits.timeoutSeconds * 1000)
+    return 'TIME_LIMIT';
+  if (facts.counters.modelTurns >= facts.limits.maxModelTurns) return 'TURN_LIMIT';
+  if (facts.counters.inputTokens + facts.counters.outputTokens >= facts.limits.maxTotalTokens)
+    return 'TOKEN_LIMIT';
+  if (facts.counters.costMicros >= facts.limits.maxCostMicros) return 'COST_LIMIT';
+  return null;
+}
 
 const refusal = (type: string) =>
   ApplicationFailure.create({ type, message: 'Agent run refused', nonRetryable: true });
@@ -243,8 +258,27 @@ export function createAgentActivities(deps: AgentActivityDeps): AgentActivities 
 
     reclaimAgentRun: (input) =>
       guarded(async () => {
-        const context = await contextOf(input);
-        return claimed(await reclaimRun(database, context, input));
+        let context: AgentContext;
+        try {
+          context = await contextOf(input);
+        } catch (error) {
+          if (!(error instanceof TenantAccessDenied)) throw error;
+          await closeRunWithoutContext(database, {
+            organizationId: input.organizationId,
+            agentRunId: input.agentRunId,
+            status: 'cancelled',
+            stopCode: 'INITIATOR_INACTIVE',
+          });
+          await deps.modelAccounting?.reconcileRun(input.organizationId, input.agentRunId);
+          return { kind: 'nothing_queued' as const };
+        }
+        const result = await reclaimRun(database, context, input);
+        if (!result) {
+          const facts = await readRunFacts(database, context, { agentRunId: input.agentRunId });
+          if (facts && isTerminalAgentRun(facts.status))
+            await deps.modelAccounting?.reconcileRun(input.organizationId, input.agentRunId);
+        }
+        return claimed(result);
       }),
 
     readResumePoint: (input) =>
@@ -311,18 +345,6 @@ export function createAgentActivities(deps: AgentActivityDeps): AgentActivities 
           }
         }
 
-        const compiled = await deps.context.compile(context, {
-          runId: agentRunId,
-          workUnitId: input.workUnitId,
-          agentVersionId: facts.agentVersionId,
-        });
-        // The run's class already holds what earlier tools raised it to, and it only rises (FD-13). The
-        // binding is the run's too, so a compiler cannot forget a pin.
-        const classification = await raiseClassification(database, context, {
-          agentRunId,
-          atLeast: strongestClassification(facts.classification, compiled.classification),
-        });
-
         const { heartbeat, signal: temporalSignal } = pulse();
         const watched = deps.haltWatcher?.signalFor({
           organizationId: input.organizationId,
@@ -331,42 +353,102 @@ export function createAgentActivities(deps: AgentActivityDeps): AgentActivities 
           // string is a different, nonexistent provider and would make the watcher miss that stop.
           ...(facts.bound ? { providerKind: facts.bound.providerKind } : {}),
         });
-        const signal = watched ? AbortSignal.any([temporalSignal, watched]) : temporalSignal;
-        const remainingMs = facts.limits.timeoutSeconds * 1000 - facts.counters.activeMs;
-
+        const allowedMs = facts.limits.timeoutSeconds * 1000 - facts.counters.activeMs;
+        const deadline =
+          allowedMs > 0 ? AbortSignal.timeout(allowedMs) : AbortSignal.abort('RUN_TIME_LIMIT');
+        const signal = AbortSignal.any([temporalSignal, deadline, ...(watched ? [watched] : [])]);
         let beat: ReturnType<typeof setInterval> | undefined;
         let outcome: Awaited<ReturnType<typeof deps.gateway.turn>>;
+        let classification = facts.classification,
+          mainStarted = false;
+        const noCall = (
+          stopCode: StopCode | null,
+          budget = false,
+        ): Awaited<ReturnType<typeof deps.gateway.turn>> => ({
+          outcome: budget ? 'budget_exhausted' : 'stopped',
+          stopCode,
+          decisionCode: null,
+          usage: { inputTokens: 0, outputTokens: 0, costMicros: 0 },
+          profile: null,
+          text: null,
+          toolCall: null,
+        });
         try {
           heartbeat();
           beat = setInterval(heartbeat, HEARTBEAT_EVERY_MS);
-          outcome = await deps.gateway.turn(
-            context,
-            {
-              runId: agentRunId,
-              stepId: start.stepId,
-              stepNumber: input.stepNumber,
-              attempt: start.attempt,
-              workUnitId: input.workUnitId,
-              agentVersionId: facts.agentVersionId,
-            },
-            {
-              ...compiled,
-              // Time left, so one slow call cannot carry a run past its limit (FD-22).
-              timeoutMs: Math.max(1, Math.min(compiled.timeoutMs, remainingMs)),
-              task: {
-                ...compiled.task,
+          let compiled: Awaited<ReturnType<typeof deps.context.compile>> | undefined;
+          if (!signal.aborted)
+            try {
+              compiled = await deps.context.compile(context, {
                 runId: agentRunId,
-                classification,
-                pinned: facts.bound
-                  ? {
-                      profileId: facts.bound.profileId,
-                      profileVersion: facts.bound.profileVersion,
-                    }
-                  : null,
-              },
-            },
-            signal,
-          );
+                workUnitId: input.workUnitId,
+                agentVersionId: facts.agentVersionId,
+                modelStep: {
+                  stepId: start.stepId,
+                  stepNumber: input.stepNumber,
+                  attempt: start.attempt,
+                },
+                signal,
+              });
+            } catch (error) {
+              if (!signal.aborted) throw error;
+            }
+          facts = await factsOf(context, input);
+          if (signal.aborted || !compiled)
+            outcome = noCall(watched?.aborted ? 'HALTED' : deadline.aborted ? 'TIME_LIMIT' : null);
+          else {
+            classification = await raiseClassification(database, context, {
+              agentRunId,
+              atLeast: strongestClassification(
+                strongestClassification(facts.classification, compiled.classification),
+                await currentRunInputClass(database, context),
+              ),
+            });
+            facts = await factsOf(context, input);
+            const elapsedMs = Date.now() - startedAt,
+              stop = mainTurnStop(facts, elapsedMs);
+            if (facts.status !== 'running') outcome = noCall(null);
+            else if (stop) outcome = noCall(stop, stop !== 'TIME_LIMIT');
+            else {
+              mainStarted = true;
+              const remainingMs =
+                facts.limits.timeoutSeconds * 1000 - facts.counters.activeMs - elapsedMs;
+              outcome = await deps.gateway.turn(
+                context,
+                {
+                  runId: agentRunId,
+                  stepId: start.stepId,
+                  stepNumber: input.stepNumber,
+                  attempt: start.attempt,
+                  workUnitId: input.workUnitId,
+                  agentVersionId: facts.agentVersionId,
+                },
+                {
+                  ...compiled,
+                  // Time left, so one slow call cannot carry a run past its limit (FD-22).
+                  timeoutMs: Math.max(1, Math.min(compiled.timeoutMs, remainingMs)),
+                  maxOutputTokens: Math.min(
+                    compiled.maxOutputTokens,
+                    facts.limits.maxTotalTokens -
+                      facts.counters.inputTokens -
+                      facts.counters.outputTokens,
+                  ),
+                  task: {
+                    ...compiled.task,
+                    runId: agentRunId,
+                    classification,
+                    pinned: facts.bound
+                      ? {
+                          profileId: facts.bound.profileId,
+                          profileVersion: facts.bound.profileVersion,
+                        }
+                      : null,
+                  },
+                },
+                signal,
+              );
+            }
+          }
         } finally {
           clearInterval(beat);
           if (watched) deps.haltWatcher?.release(watched);
@@ -387,12 +469,20 @@ export function createAgentActivities(deps: AgentActivityDeps): AgentActivities 
         let final = outcome.outcome;
         let inputFenced = false;
         try {
+          if (final === 'final_output' || final === 'tool_proposed') {
+            const currentClass = await currentRunInputClass(database, context);
+            if (strongestClassification(currentClass, classification) !== classification) {
+              inputFenced = true;
+              final = 'stopped';
+            }
+          }
           if (final === 'final_output' && outcome.text) {
             await storeStepPayload(database, context, {
               stepId: start.stepId,
               kind: 'completion',
               classification,
               content: outcome.text,
+              attempt: start.attempt,
             });
           } else if (final === 'tool_proposed' && outcome.toolCall) {
             await storeProposal(database, context, {
@@ -400,12 +490,13 @@ export function createAgentActivities(deps: AgentActivityDeps): AgentActivities 
               stepNumber: input.stepNumber,
               toolId: outcome.toolCall.toolId,
               args: outcome.toolCall.args,
+              originatingModel: { stepId: start.stepId, attempt: start.attempt },
             });
           } else if (final === 'final_output' || final === 'tool_proposed') {
             final = 'invalid_output';
           }
         } catch (error) {
-          if (!isRunInputFence(error)) throw error;
+          if (!isRunInputFence(error) && !isMainInputDenied(error)) throw error;
           // Usage was settled by the gateway. Preserve its counters while discarding late content;
           // a durable content fence cannot be undone by a response that was already in flight.
           inputFenced = true;
@@ -415,9 +506,11 @@ export function createAgentActivities(deps: AgentActivityDeps): AgentActivities 
         const haltedNow = watched?.aborted === true && final === 'stopped';
         const stopCode: StopCode | null = inputFenced
           ? 'POLICY_DENIED'
-          : haltedNow
-            ? 'HALTED'
-            : outcome.stopCode;
+          : deadline.aborted && final === 'stopped'
+            ? 'TIME_LIMIT'
+            : haltedNow
+              ? 'HALTED'
+              : outcome.stopCode;
         const counters = await completeTurn(database, context, {
           agentRunId,
           stepId: start.stepId,
@@ -425,7 +518,7 @@ export function createAgentActivities(deps: AgentActivityDeps): AgentActivities 
           outcome: final,
           code: stopCode ?? outcome.decisionCode,
           delta: {
-            modelTurns: 1,
+            modelTurns: mainStarted ? 1 : 0,
             inputTokens: outcome.usage.inputTokens,
             outputTokens: outcome.usage.outputTokens,
             costMicros: outcome.usage.costMicros,
@@ -539,6 +632,7 @@ export function createAgentActivities(deps: AgentActivityDeps): AgentActivities 
             status: status === 'completed' ? 'cancelled' : status,
             stopCode: 'INITIATOR_INACTIVE',
           });
+          await deps.modelAccounting?.reconcileRun(organizationId, agentRunId);
           return;
         }
         const facts = await readRunFacts(database, context, { agentRunId });
@@ -553,6 +647,7 @@ export function createAgentActivities(deps: AgentActivityDeps): AgentActivities 
             ? await stopReason(database, context, { agentRunId })
             : asStopCode(input.stopCode);
         await finishRun(database, context, { agentRunId, status, stopCode });
+        await deps.modelAccounting?.reconcileRun(organizationId, agentRunId);
       }),
 
     closeQueuedRun: (input) =>

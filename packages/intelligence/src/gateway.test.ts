@@ -31,6 +31,7 @@ import {
 import { createModelRouter } from './router/index';
 import type { ScriptStep } from './testing/scripted-adapter';
 import type { CompiledTurn, VerifiedEndpoint } from './types';
+import { ceilingFor, costOf } from './router/cost';
 
 // endpoint.ts is the transport slice's, and is tested there. Here it is one more stage in the order, so
 // this double says yes to everything but one address, whatever state that slice is in.
@@ -151,6 +152,66 @@ const pinnedTo = (profileId: string, profileVersion = 1) =>
   compiledTurn({ task: task({ pinned: { profileId, profileVersion } }) });
 
 describe('the fixed order (FD-8)', () => {
+  it('refuses freshly exhausted run headroom before a reservation, key or provider call', async () => {
+    const admit = vi.fn<NonNullable<GatewayDeps['admitInTx']>>(async () => 'BUDGET_EXHAUSTED');
+    const harness = setup({ deps: { admitInTx: admit } }),
+      result = await harness.run();
+    expect(result).toMatchObject({ outcome: 'budget_exhausted', stopCode: 'BUDGET_EXHAUSTED' });
+    expect(admit).toHaveBeenCalledTimes(1);
+    expectNothingLeft(harness);
+    expect(harness.log).not.toContain('ledger.reserve');
+  });
+  it('rechecks current input authority after key lending and releases an unsent hold on refusal', async () => {
+    const admit = vi
+      .fn<NonNullable<GatewayDeps['admitInTx']>>()
+      .mockResolvedValueOnce(null)
+      .mockResolvedValue('CLASS_DENIED');
+    const harness = setup({ deps: { admitInTx: admit } }),
+      result = await harness.run();
+    expect(result).toMatchObject({ outcome: 'policy_denied', decisionCode: 'CLASS_DENIED' });
+    expect(admit).toHaveBeenCalledTimes(2);
+    expect(harness.adapter.hits).toBe(0);
+    expect(harness.log).toContain('ledger.release');
+    expect(harness.log).not.toContain('ledger.record');
+  });
+  it('includes actual evidence-role fences and full tool/schema framing in the conservative money envelope', () => {
+    const input = {
+      messages: [message({ role: 'evidence', text: 'Generated evidence' })],
+      tools: [
+        {
+          id: 'work.read',
+          version: '1',
+          description: 'Generated tool',
+          parameters: { type: 'object', properties: { id: { type: 'string' } } },
+        },
+      ],
+      responseSchema: { type: 'object', properties: { ok: { type: 'boolean' } } },
+      maxOutputTokens: 31,
+      modelId: 'generated-model',
+    };
+    const ceiling = ceilingFor(input);
+    const oldTextOnly =
+      Buffer.byteLength(input.messages[0]!.text) +
+      Buffer.byteLength(JSON.stringify(input.tools)) +
+      Buffer.byteLength(JSON.stringify(input.responseSchema));
+    expect(ceiling.inputTokens).toBeGreaterThan(oldTextOnly);
+    expect(ceiling.outputTokens).toBe(31);
+    expect(
+      costOf(
+        { inputTokens: ceiling.inputTokens, outputTokens: 31 },
+        rateCard('generated', { inputMicrosPerMtok: 1000000, outputMicrosPerMtok: 1000000 }),
+      ).totalMicros,
+    ).toBe(ceiling.inputTokens + 31);
+    expect(() =>
+      costOf(
+        { inputTokens: Number.MAX_SAFE_INTEGER, outputTokens: 1 },
+        rateCard('generated', {
+          inputMicrosPerMtok: Number.MAX_SAFE_INTEGER,
+          outputMicrosPerMtok: 1,
+        }),
+      ),
+    ).toThrow();
+  });
   it('runs every stage, in order, on a clean turn', async () => {
     const harness = setup();
     const outcome = await harness.run();
@@ -577,7 +638,7 @@ describe('what a turn needs comes along, so it cannot be dropped', () => {
 
   it('asks for no more output than the profile allows', async () => {
     const harness = setup({
-      profiles: [byomProfile({ limits: { maxInputTokens: 10, maxOutputTokens: 50 } })],
+      profiles: [byomProfile({ limits: { maxInputTokens: 4096, maxOutputTokens: 50 } })],
     });
     await harness.run(compiledTurn({ maxOutputTokens: 5_000 }));
     expect(harness.adapter.calls[0]?.maxOutputTokens).toBe(50);
@@ -810,14 +871,14 @@ describe('the ledger (FD-6, FD-12)', () => {
   it('reserves what the call could cost, rounded up', async () => {
     const harness = setup();
     await harness.run();
-    // 19 bytes of text at 1 per token, and 200 output tokens at 2. The test's own rates.
+    // 190 bytes of actual SDK input framing at 1 per token, plus 200 output at 2. Test-only rates.
     expect(harness.ledger.reservations).toEqual([
       {
         runId: step.runId,
         stepId: 'step-1',
         attempt: 1,
         agentVersionId: 'version-1',
-        amountMicros: 419,
+        amountMicros: 590,
       },
     ]);
   });
@@ -881,13 +942,13 @@ describe('the ledger (FD-6, FD-12)', () => {
     const harness = setup({ script: [{ kind: 'final', text: 'Done.', usage: null }] });
     harness.adapter.generate = async () => ({ kind: 'final', text: 'Done.', usage: null });
     const outcome = await harness.run();
-    expect(outcome.usage.costMicros).toBe(419);
-    expect(harness.ledger.settled).toEqual([{ reservationId: 'reservation-1', actualMicros: 419 }]);
+    expect(outcome.usage.costMicros).toBe(590);
+    expect(harness.ledger.settled).toEqual([{ reservationId: 'reservation-1', actualMicros: 590 }]);
     expect(harness.ledger.entries).toEqual([
       expect.objectContaining({
         idempotencyKey: `model:${step.runId}:3:1`,
         status: 'estimated',
-        costMicros: 419,
+        costMicros: 590,
       }),
     ]);
   });
@@ -899,10 +960,10 @@ describe('the ledger (FD-6, FD-12)', () => {
     const outcome = await harness.run();
     expect(outcome).toMatchObject({
       outcome: 'model_unavailable',
-      usage: { costMicros: 419 },
+      usage: { costMicros: 590 },
     });
     expect(harness.ledger.entries).toEqual([
-      expect.objectContaining({ status: 'estimated', costMicros: 419 }),
+      expect.objectContaining({ status: 'estimated', costMicros: 590 }),
     ]);
     expect(harness.ledger.released).toEqual([]);
   });
@@ -921,7 +982,7 @@ describe('the ledger (FD-6, FD-12)', () => {
     const harness = setup({ script: [{ kind: 'throw' }] });
     const outcome = await harness.run();
     expect(outcome).toMatchObject({ outcome: 'model_unavailable', stopCode: 'MODEL_UNAVAILABLE' });
-    expect(outcome.usage.costMicros).toBe(419);
+    expect(outcome.usage.costMicros).toBe(590);
     expect(JSON.stringify(outcome)).not.toContain('scripted bug');
   });
 
@@ -1191,7 +1252,7 @@ describe('an allowed fallback (FD-9)', () => {
       `model:${step.runId}:3:${1 + FALLBACK_ATTEMPT_STRIDE}`,
       `model:${step.runId}:3:${1 + FALLBACK_ATTEMPT_STRIDE}:output`,
     ]);
-    expect(outcome.usage.costMicros).toBe(419 + 20);
+    expect(outcome.usage.costMicros).toBe(590 + 20);
     const sum = harness.ledger.entries.reduce((total, entry) => total + entry.costMicros, 0);
     expect(sum).toBe(outcome.usage.costMicros);
   });

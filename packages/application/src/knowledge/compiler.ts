@@ -40,6 +40,7 @@ import {
   assertRunInputsReadable,
   recordRunInputs,
   workInputHash,
+  workInputClassInTx,
   type ObservedInput,
 } from '../ai/input-observations';
 
@@ -141,14 +142,15 @@ export async function compileEvidence(
       select w.classification,w.title,w.objective,w.project_id as "projectId", p.client_id as "clientId"
         from work.work_units w left join work.projects p on p.organization_id = w.organization_id and p.id = w.project_id
        where w.organization_id = ${context.organizationId}::uuid and w.id = ${workUnitId}::uuid
-         and knowledge.can_read_work(w.id, app.current_membership_id())`);
+         and knowledge.can_read_work(w.id, app.current_membership_id()) for share of w`);
     const work = result.rows[0];
     if (!work) throw new AppError('NOT_FOUND');
+    const effectiveClass = await workInputClassInTx(tx, workUnitId, work.classification);
     recordInputs.push({
       kind: 'work_unit',
       id: workUnitId,
       sha256: workInputHash(work),
-      classification: work.classification,
+      classification: effectiveClass,
     });
     if (agentContext)
       await recordRunInputs(tx, agentContext, [
@@ -156,11 +158,11 @@ export async function compileEvidence(
           kind: 'work_unit',
           id: workUnitId,
           sha256: workInputHash(work),
-          classification: work.classification,
+          classification: effectiveClass,
         },
       ]);
     return {
-      classification: strongestClass([queryClass, work.classification]),
+      classification: strongestClass([queryClass, effectiveClass]),
       subjects: [
         `work_unit:${workUnitId}`,
         ...(work.projectId ? [`project:${work.projectId}`] : []),
@@ -178,7 +180,7 @@ export async function compileEvidence(
     const result = await withTenantTx(database, context, async (tx) => {
       await requireSearchPerson(tx, context);
       return tx.execute<{ classification: Classification }>(
-        sql`select w.classification from work.work_units w where w.organization_id=${context.organizationId}::uuid and w.id=${workUnitId}::uuid and knowledge.can_read_work(w.id,app.current_membership_id())`,
+        sql`select knowledge.structured_record_class('work_unit',w.id) classification from work.work_units w where w.organization_id=${context.organizationId}::uuid and w.id=${workUnitId}::uuid and knowledge.can_read_work(w.id,app.current_membership_id())`,
       );
     });
     if (!result.rows[0]) throw new AppError('NOT_FOUND');
@@ -506,7 +508,7 @@ export async function compileEvidence(
     }
     if (workUnitId) {
       const work = await tx.execute<{ classification: Classification }>(
-        sql`select w.classification from work.work_units w where w.organization_id=${context.organizationId}::uuid and w.id=${workUnitId}::uuid and knowledge.can_read_work(w.id,app.current_membership_id()) for share`,
+        sql`select knowledge.structured_record_class('work_unit',w.id) classification from work.work_units w where w.organization_id=${context.organizationId}::uuid and w.id=${workUnitId}::uuid and knowledge.can_read_work(w.id,app.current_membership_id()) for share`,
       );
       if (
         !work.rows[0] ||

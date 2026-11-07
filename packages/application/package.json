@@ -26,6 +26,7 @@
     "./ai-delegation": "./src/ai/delegation.ts",
     "./ai-context-source": "./src/ai/context-source.ts",
     "./ai-input-ledger": "./src/ai/input-ledger.ts",
+    "./ai-model-admission": "./src/ai/model-admission.ts",
     "./ai-egress-log": "./src/ai/egress-log.ts",
     "./knowledge/ports": "./src/knowledge/ports.ts",
     "./knowledge/model-jobs": "./src/knowledge/model-jobs.ts",

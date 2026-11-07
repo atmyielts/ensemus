@@ -3,13 +3,18 @@
 // the tenant's rate card: there is no price in this file.
 import type { RateCardRef } from '@ensemus/application/ai-ports';
 import type { AdapterTool, ContextMessage } from '../types';
+import { generationInputBytes } from '../adapters';
 
 const MILLION = 1_000_000n;
 
 /** The cost of a number of tokens at a rate per million, rounded up. */
 export function tokensToMicros(tokens: number, microsPerMtok: number): number {
-  const exact = BigInt(Math.max(0, Math.ceil(tokens))) * BigInt(microsPerMtok);
-  return Number((exact + MILLION - 1n) / MILLION);
+  if (![tokens, microsPerMtok].every((value) => Number.isSafeInteger(value) && value >= 0))
+    throw new RangeError('Invalid model money input');
+  const exact = BigInt(tokens) * BigInt(microsPerMtok),
+    rounded = (exact + MILLION - 1n) / MILLION;
+  if (rounded > BigInt(Number.MAX_SAFE_INTEGER)) throw new RangeError('Model cost is not exact');
+  return Number(rounded);
 }
 
 export type CallCost = { inputMicros: number; outputMicros: number; totalMicros: number };
@@ -20,7 +25,9 @@ export function costOf(
 ): CallCost {
   const inputMicros = tokensToMicros(usage.inputTokens, rate.inputMicrosPerMtok);
   const outputMicros = tokensToMicros(usage.outputTokens, rate.outputMicrosPerMtok);
-  return { inputMicros, outputMicros, totalMicros: inputMicros + outputMicros };
+  const total = BigInt(inputMicros) + BigInt(outputMicros);
+  if (total > BigInt(Number.MAX_SAFE_INTEGER)) throw new RangeError('Model cost is not exact');
+  return { inputMicros, outputMicros, totalMicros: Number(total) };
 }
 
 /**
@@ -33,12 +40,8 @@ export function ceilingFor(input: {
   tools: readonly AdapterTool[];
   responseSchema: Record<string, unknown> | null;
   maxOutputTokens: number;
+  modelId?: string;
 }): { inputTokens: number; outputTokens: number } {
-  let inputTokens = 0;
-  for (const message of input.messages) inputTokens += Buffer.byteLength(message.text, 'utf8');
-  if (input.tools.length > 0) inputTokens += Buffer.byteLength(JSON.stringify(input.tools), 'utf8');
-  if (input.responseSchema) {
-    inputTokens += Buffer.byteLength(JSON.stringify(input.responseSchema), 'utf8');
-  }
+  const inputTokens = generationInputBytes(input);
   return { inputTokens, outputTokens: input.maxOutputTokens };
 }
