@@ -1,10 +1,7 @@
-// AGENT-14, QA-039, QA-040, TR-032 at the level of pure rules. `validateObjectSchema`, `planTypeMigration` and
-// `compileProcessGraph` belong to the objects and graph slices, and are stubs on this branch. The doubles below
-// stand in only while the real one says NOT_IMPLEMENTED, so after the merge these tests run against the real
-// rules without being edited.
-import { describe, expect, it, vi } from 'vitest';
+// Pack rules run against the actual object and process implementations; missing implementations fail.
+import { describe, expect, it } from 'vitest';
 import type { ToolFacts } from './agent-draft';
-import type { ObjectField, TypeMigrationPlan } from './custom-object';
+import type { ObjectField } from './custom-object';
 import {
   comparePackVersions,
   dataAccessStringKey,
@@ -18,78 +15,7 @@ import {
   type PackCapability,
   type PackManifest,
 } from './pack';
-import type { CompileResult, GraphIssue, ProcessGraph } from './process-spec';
-
-const stubs = vi.hoisted(() => ({
-  orElse:
-    <A extends unknown[], R>(real: (...args: A) => R, fallback: (...args: A) => R) =>
-    (...args: A): R => {
-      try {
-        return real(...args);
-      } catch (error) {
-        if (error instanceof Error && error.message === 'NOT_IMPLEMENTED') return fallback(...args);
-        throw error;
-      }
-    },
-}));
-
-vi.mock('./custom-object', async (importOriginal) => {
-  const real = await importOriginal<typeof import('./custom-object')>();
-  const plan = (from: readonly ObjectField[], to: readonly ObjectField[]): TypeMigrationPlan => {
-    const steps: TypeMigrationPlan['steps'][number][] = [];
-    for (const field of from) {
-      const next = to.find((candidate) => candidate.key === field.key);
-      if (!next) steps.push({ kind: 'remove', key: field.key, refused: true });
-      else if (next.kind !== field.kind) {
-        steps.push({ kind: 'change_kind', key: field.key, refused: true });
-      }
-    }
-    for (const field of to) {
-      if (from.some((candidate) => candidate.key === field.key)) continue;
-      steps.push(
-        field.required
-          ? { kind: 'add_required', key: field.key, refused: true }
-          : { kind: 'add_optional', key: field.key },
-      );
-    }
-    return { safe: !steps.some((step) => 'refused' in step), steps };
-  };
-  return {
-    ...real,
-    validateObjectSchema: stubs.orElse(real.validateObjectSchema, () => []),
-    planTypeMigration: stubs.orElse(real.planTypeMigration, plan),
-  };
-});
-
-vi.mock('./process-spec', async (importOriginal) => {
-  const real = await importOriginal<typeof import('./process-spec')>();
-  // Only the rule this file leans on: every path to an effect passes an approval.
-  const compile = (graph: ProcessGraph): CompileResult => {
-    const issues: GraphIssue[] = [];
-    const start = graph.nodes.find((node) => node.kind === 'start');
-    const walk = (id: string, approved: boolean, seen: readonly string[]) => {
-      if (seen.includes(id)) return;
-      const node = graph.nodes.find((candidate) => candidate.id === id);
-      if (!node) return;
-      if (node.kind === 'external_action' && !approved) {
-        issues.push({ nodeId: id, code: 'EFFECT_WITHOUT_APPROVAL' });
-      }
-      for (const edge of graph.edges.filter((candidate) => candidate.from === id)) {
-        walk(edge.to, approved || node.kind === 'human_approval', [...seen, id]);
-      }
-    };
-    if (start) walk(start.id, false, []);
-    return issues.length > 0
-      ? { ok: false, spec: null, specSha256: null, issues }
-      : {
-          ok: true,
-          spec: { schemaVersion: 1, classification: 'internal', steps: [] },
-          specSha256: '',
-          issues: [],
-        };
-  };
-  return { ...real, compileProcessGraph: stubs.orElse(real.compileProcessGraph, compile) };
-});
+import type { ProcessGraph } from './process-spec';
 
 const words = (key: string, reason = `reason.${key}`) => ({
   [reason]: 'Why this is asked for.',

@@ -6256,12 +6256,14 @@ export interface paths {
         put?: never;
         /**
          * Read a sentence into a preview. Nothing runs
-         * @description The body is checked against composeOutcomeSchema in @ensemus/contracts.
+         * @description A private deterministic preview. Replays return only the identity and then recheck current draft access.
          */
         post: {
             parameters: {
                 query?: never;
-                header?: never;
+                header: {
+                    "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                };
                 path: {
                     /** @description Requires authenticated organization membership; UUID alone is never authorization. */
                     organization_id: components["parameters"]["OrganizationID"];
@@ -6270,9 +6272,7 @@ export interface paths {
             };
             requestBody: {
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["ComposeOutcomeInput"];
                 };
             };
             responses: {
@@ -6407,9 +6407,7 @@ export interface paths {
             };
             requestBody: {
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["OutcomePreview"];
                 };
             };
             responses: {
@@ -6470,9 +6468,7 @@ export interface paths {
             };
             requestBody: {
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["AuthorizeOutcomeInput"];
                 };
             };
             responses: {
@@ -6583,9 +6579,7 @@ export interface paths {
             };
             requestBody: {
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["OnboardingDecision"];
                 };
             };
             responses: {
@@ -8814,28 +8808,73 @@ export interface components {
             /** Format: date-time */
             snoozed_until: string | null;
         };
+        ComposeOutcomeInput: {
+            objective: string;
+            /** Format: date */
+            today: string;
+        };
+        AuthorizeOutcomeInput: {
+            preview_sha256: string;
+        };
+        OnboardingDecision: {
+            /** @enum {string} */
+            decision: "acknowledged" | "skipped";
+        };
+        OutcomePreview: {
+            title: string;
+            objective: string;
+            /** Format: date */
+            dueAt: string | null;
+            /** Format: uuid */
+            ownerMembershipId: string;
+            successCriteria: {
+                /** @enum {string} */
+                kind: "artifact_named" | "reviewer_approved" | "none";
+                label: string;
+            }[];
+            dependencyWorkUnitIds: string[];
+            suggestedProcessKey: string | null;
+            /** @enum {string} */
+            classification: "public" | "internal" | "confidential" | "restricted";
+            dataAccess: {
+                usesAgent: boolean;
+                reachesExternalService: boolean;
+                reasonCodes: string[];
+            };
+            uncertainties: ("due_date_unclear" | "owner_assumed" | "no_success_criteria")[];
+        };
         OutcomeDraft: {
             /** Format: uuid */
             id: string;
             objective: string;
-            preview: {
-                [key: string]: unknown;
-            };
+            preview: components["schemas"]["OutcomePreview"];
             preview_sha256: string;
             /** @enum {string} */
             status: "draft" | "authorized" | "discarded";
             /** Format: uuid */
-            work_unit_id?: string | null;
+            work_unit_id: string | null;
             version: number;
             /** Format: date-time */
-            updated_at?: string;
+            updated_at: string;
         };
         Onboarding: {
             steps: {
-                [key: string]: unknown;
+                /** @enum {string} */
+                key: "responsibility_statement" | "invite_team" | "company_structure" | "first_knowledge_source" | "model_provider" | "second_factor" | "first_simulation" | "first_work_unit";
+                /** @enum {string} */
+                state: "done" | "skipped" | "to_do" | "unavailable";
+                optional: boolean;
             }[];
             finished: boolean;
-            next?: string | null;
+            next: string | null;
+            completion_recorded: boolean;
+            latest_simulation: {
+                /** Format: uuid */
+                id: string;
+                /** @enum {string} */
+                status: "queued" | "running" | "passed" | "failed" | "errored";
+                usable: boolean;
+            } | null;
         };
         SecurityPolicy: {
             mfa_for_administration: boolean;

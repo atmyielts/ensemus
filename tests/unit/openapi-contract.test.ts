@@ -101,14 +101,6 @@ describe('the spec and the routes', () => {
       'process-runs',
       'process-runs/{process_run_id}',
       'process-runs/{process_run_id}/stop',
-      'outcome-drafts',
-      'outcome-drafts',
-      'outcome-drafts/{outcome_draft_id}',
-      'outcome-drafts/{outcome_draft_id}',
-      'outcome-drafts/{outcome_draft_id}',
-      'outcome-drafts/{outcome_draft_id}/authorization',
-      'onboarding',
-      'onboarding/steps/{step_key}',
     ]);
   });
 });
