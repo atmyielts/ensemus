@@ -39,7 +39,22 @@
     "./knowledge/onboarding": "./src/knowledge/onboarding.ts",
     "./knowledge/onboarding-run-port": "./src/knowledge/onboarding-run-port.ts",
     "./knowledge/artifact-provenance": "./src/knowledge/artifact-provenance.ts",
-    "./knowledge/checklist-template": "./src/knowledge/checklist-template.ts"
+    "./knowledge/checklist-template": "./src/knowledge/checklist-template.ts",
+    "./product-ports": "./src/product/ports.ts",
+    "./privileged": "./src/product/privileged.ts",
+    "./security-policy": "./src/product/security-policy.ts",
+    "./sso": "./src/product/sso.ts",
+    "./pulse": "./src/product/pulse.ts",
+    "./outcomes": "./src/product/outcomes.ts",
+    "./onboarding": "./src/product/onboarding.ts",
+    "./assistants": "./src/product/assistants.ts",
+    "./agent-drafts": "./src/product/agent-drafts.ts",
+    "./simulations": "./src/product/simulations.ts",
+    "./publish-reviews": "./src/product/publish-reviews.ts",
+    "./process-specs": "./src/product/process-specs.ts",
+    "./process-runs": "./src/product/process-runs.ts",
+    "./custom-objects": "./src/product/custom-objects.ts",
+    "./packs": "./src/product/packs.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"
@@ -51,6 +66,7 @@
     "@ensemus/policy": "workspace:*",
     "drizzle-orm": "0.45.4",
     "zod": "4.6.7",
-    "@ensemus/knowledge": "workspace:*"
+    "@ensemus/knowledge": "workspace:*",
+    "@ensemus/packs": "workspace:*"
   }
 }

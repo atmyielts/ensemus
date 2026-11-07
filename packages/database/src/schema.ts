@@ -36,6 +36,8 @@ export const users = identitySchema.table('users', {
   email: text().notNull().unique(),
   emailVerified: boolean().notNull().default(false),
   image: text(),
+  /** Set by Better Auth once TOTP is confirmed (ADR-031 D8). Nothing else about MFA is on this row. */
+  twoFactorEnabled: boolean().notNull().default(false),
   createdAt: createdAt(),
   updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
 });

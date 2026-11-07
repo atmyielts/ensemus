@@ -9,7 +9,12 @@
     "./ai": "./src/ai.ts",
     "./ai-tools": "./src/ai-tools.ts",
     "./openapi": "./generated/openapi.d.ts",
-    "./knowledge": "./src/knowledge.ts"
+    "./knowledge": "./src/knowledge.ts",
+    "./studio": "./src/studio.ts",
+    "./custom-objects": "./src/custom-objects.ts",
+    "./packs": "./src/packs.ts",
+    "./experience": "./src/experience.ts",
+    "./identity-admin": "./src/identity-admin.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

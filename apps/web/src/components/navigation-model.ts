@@ -1,6 +1,7 @@
 // One navigation model for the sidebar, mobile menu, page context and Administration index. Only
 // working destinations belong here. Visibility helps discovery; every destination authorizes again.
 import { can, isRole, type Capability } from '@ensemus/domain/policy';
+import { canProduct, type ProductCapability } from '@ensemus/domain/product-policy';
 
 export type NavigationIcon =
   | 'home'
@@ -34,9 +35,18 @@ export type SettingsDestination = {
   description: string;
   icon: NavigationIcon;
   any: readonly Capability[];
+  productAny?: readonly ProductCapability[];
 };
 
 export const SETTINGS_DESTINATIONS: readonly SettingsDestination[] = [
+  {
+    path: 'security',
+    label: 'Security and sign-in',
+    description: 'Protect your account and manage company sign-in and provisioning.',
+    icon: 'safety',
+    any: [],
+    productAny: ['security_policy.manage', 'sso.manage'],
+  },
   {
     path: 'people',
     label: 'People and access',
@@ -82,7 +92,11 @@ export const SETTINGS_DESTINATIONS: readonly SettingsDestination[] = [
 ];
 
 export const visibleSettings = (role: string) =>
-  SETTINGS_DESTINATIONS.filter((item) => item.any.some((capability) => can(role, capability)));
+  SETTINGS_DESTINATIONS.filter(
+    (item) =>
+      item.any.some((capability) => can(role, capability)) ||
+      item.productAny?.some((capability) => canProduct(role, capability)),
+  );
 
 const matchesPath = (pathname: string, href: string) =>
   pathname === href || pathname.startsWith(`${href}/`);
@@ -139,12 +153,17 @@ export function workspaceNavigation(input: {
     },
   ];
   if (isRole(role))
-    groups[0]!.items.splice(3, 0, {
-      href: `${base}/knowledge`,
-      label: 'Knowledge',
-      icon: 'knowledge',
-      matches: [`${base}/search`],
-    });
+    groups[0]!.items.splice(
+      3,
+      0,
+      {
+        href: `${base}/knowledge`,
+        label: 'Knowledge',
+        icon: 'knowledge',
+        matches: [`${base}/search`],
+      },
+      { href: `${base}/assistants`, label: 'Assistants', icon: 'studio' },
+    );
   if (can(role, 'agent.publish') || can(role, 'agent.run'))
     groups.push({
       label: 'Build',
@@ -153,7 +172,28 @@ export function workspaceNavigation(input: {
           href: `${base}/studio`,
           label: 'Automation Studio',
           icon: 'studio',
-          matches: [`${base}/settings/agents`],
+          matches: [
+            `${base}/settings/agents`,
+            ...(canProduct(role, 'pack.manage') ? [`${base}/packs`] : []),
+          ],
+          ...(canProduct(role, 'pack.manage')
+            ? {
+                children: [
+                  {
+                    href: `${base}/studio`,
+                    label: 'Overview',
+                    icon: 'studio' as const,
+                    exact: true,
+                  },
+                  {
+                    href: `${base}/settings/agents`,
+                    label: 'Assistant versions',
+                    icon: 'arrow' as const,
+                  },
+                  { href: `${base}/packs`, label: 'Packs', icon: 'arrow' as const },
+                ],
+              }
+            : {}),
         },
       ],
     });
@@ -165,7 +205,7 @@ export function workspaceNavigation(input: {
           href: `${base}/settings`,
           label: 'Administration',
           icon: 'settings',
-          matches: [`${base}/connections`],
+          matches: [`${base}/connections`, `${base}/security`],
           excludes: [`${base}/settings/agents`],
         },
       ],

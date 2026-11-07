@@ -12,6 +12,7 @@ export default defineConfig({
     './src/schema-knowledge.ts',
     './src/schema-artifact-provenance.ts',
     './src/schema-client-access.ts',
+    './src/schema-product.ts',
   ],
   out: './migrations',
   casing: 'snake_case',

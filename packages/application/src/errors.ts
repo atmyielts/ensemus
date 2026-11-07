@@ -60,7 +60,23 @@ export type ErrorCode =
   | 'KNOWLEDGE_FACT_NEEDS_PERSON'
   | 'KNOWLEDGE_ARTIFACT_NOT_GROUNDED'
   | 'MCP_TOOL_NOT_APPROVED'
-  | 'CLIENT_ONBOARDING_EXISTS';
+  | 'CLIENT_ONBOARDING_EXISTS'
+  | 'CAPABILITY_UNAVAILABLE'
+  | 'MFA_REQUIRED'
+  | 'SSO_REQUIRED'
+  | 'SSO_DOMAIN_NOT_VERIFIED'
+  | 'SIMULATION_REQUIRED'
+  | 'SIMULATION_STALE'
+  | 'REVIEW_SELF_DECISION'
+  | 'REVIEW_NOT_APPROVED'
+  | 'GRAPH_INVALID'
+  | 'DRAFT_INVALID'
+  | 'OBJECT_SCHEMA_INVALID'
+  | 'OBJECT_RECORD_INVALID'
+  | 'PACK_INVALID'
+  | 'PACK_CAPABILITY_UNREVIEWED'
+  | 'PACK_NOT_ROLLBACKABLE'
+  | 'OUTCOME_CHANGED';
 
 const MESSAGES: Record<ErrorCode, string> = {
   IDEMPOTENCY_KEY_REUSED: 'This request key was already used with different details.',
@@ -133,6 +149,22 @@ const MESSAGES: Record<ErrorCode, string> = {
     'This cannot be accepted yet, because its citations have not all been confirmed.',
   MCP_TOOL_NOT_APPROVED: 'An administrator has not approved this tool.',
   CLIENT_ONBOARDING_EXISTS: 'This deal already has an onboarding.',
+  CAPABILITY_UNAVAILABLE: 'This is not available on this deployment yet.',
+  MFA_REQUIRED: 'Confirm it is you with your authenticator app, then try again.',
+  SSO_REQUIRED: 'This organization asks you to sign in through its identity provider.',
+  SSO_DOMAIN_NOT_VERIFIED: 'This email domain has not been verified by the operator yet.',
+  SIMULATION_REQUIRED: 'Run a simulation first. Nothing is published without one.',
+  SIMULATION_STALE: 'This changed after it was simulated. Run the simulation again.',
+  REVIEW_SELF_DECISION: 'This asks for something risky, so someone else has to review it.',
+  REVIEW_NOT_APPROVED: 'This has not been approved for publishing.',
+  GRAPH_INVALID: 'This workflow cannot be run as drawn. Fix what is marked and try again.',
+  DRAFT_INVALID: 'This agent cannot be published as set up. Fix what is marked and try again.',
+  OBJECT_SCHEMA_INVALID: 'That shape is not allowed. Fix what is marked and try again.',
+  OBJECT_RECORD_INVALID: 'That does not fit this type. Fix what is marked and try again.',
+  PACK_INVALID: 'This pack cannot be installed.',
+  PACK_CAPABILITY_UNREVIEWED: 'Everything this pack asks for has to be decided first.',
+  PACK_NOT_ROLLBACKABLE: 'There is no earlier version of this pack to go back to.',
+  OUTCOME_CHANGED: 'This preview changed after you read it. Read it again.',
 };
 
 export class AppError extends Error {
@@ -215,6 +247,22 @@ export const HTTP_STATUS: Record<ErrorCode, number> = {
   KNOWLEDGE_ARTIFACT_NOT_GROUNDED: 409,
   MCP_TOOL_NOT_APPROVED: 409,
   CLIENT_ONBOARDING_EXISTS: 409,
+  CAPABILITY_UNAVAILABLE: 409,
+  MFA_REQUIRED: 403,
+  SSO_REQUIRED: 403,
+  SSO_DOMAIN_NOT_VERIFIED: 409,
+  SIMULATION_REQUIRED: 409,
+  SIMULATION_STALE: 409,
+  REVIEW_SELF_DECISION: 403,
+  REVIEW_NOT_APPROVED: 409,
+  GRAPH_INVALID: 400,
+  DRAFT_INVALID: 400,
+  OBJECT_SCHEMA_INVALID: 400,
+  OBJECT_RECORD_INVALID: 400,
+  PACK_INVALID: 400,
+  PACK_CAPABILITY_UNREVIEWED: 409,
+  PACK_NOT_ROLLBACKABLE: 409,
+  OUTCOME_CHANGED: 409,
 };
 
 /** Reads the Postgres error code through the wrapper Drizzle adds. */

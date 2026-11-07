@@ -90,7 +90,49 @@ describe('the spec and the routes', () => {
 
   it('marks what does not exist yet', () => {
     const planned = operations().filter((operation) => operation.status === 'planned');
-    expect(planned.map(({ path }) => path.split('/').slice(3).join('/'))).toEqual([]);
+    expect(planned.map(({ path }) => path.split('/').slice(3).join('/'))).toEqual([
+      'studio/agent-drafts',
+      'studio/agent-drafts',
+      'studio/agent-drafts/{agent_draft_id}',
+      'studio/agent-drafts/{agent_draft_id}',
+      'studio/agent-drafts/{agent_draft_id}/simulations',
+      'studio/process-drafts',
+      'studio/process-drafts',
+      'studio/process-drafts/{process_draft_id}',
+      'studio/process-drafts/{process_draft_id}',
+      'studio/process-drafts/{process_draft_id}/simulations',
+      'studio/simulations/{simulation_id}',
+      'studio/publish-reviews',
+      'studio/publish-reviews',
+      'studio/publish-reviews/{publish_review_id}',
+      'studio/publish-reviews/{publish_review_id}/decisions',
+      'studio/publish-reviews/{publish_review_id}/publication',
+      'process-specs',
+      'process-runs',
+      'process-runs',
+      'process-runs/{process_run_id}',
+      'process-runs/{process_run_id}/stop',
+      'object-types',
+      'object-types',
+      'object-types/{object_type_id}',
+      'object-types/{object_type_id}/versions',
+      'object-types/{object_type_id}/records',
+      'object-types/{object_type_id}/records',
+      'object-records/{object_record_id}',
+      'object-records/{object_record_id}',
+      'object-records/{object_record_id}',
+      'object-records/{object_record_id}/relations',
+      'pulse',
+      'pulse/signals/{signal_key}',
+      'outcome-drafts',
+      'outcome-drafts',
+      'outcome-drafts/{outcome_draft_id}',
+      'outcome-drafts/{outcome_draft_id}',
+      'outcome-drafts/{outcome_draft_id}',
+      'outcome-drafts/{outcome_draft_id}/authorization',
+      'onboarding',
+      'onboarding/steps/{step_key}',
+    ]);
   });
 });
 

@@ -30,6 +30,7 @@
     "@ensemus/telemetry": "workspace:*",
     "@ensemus/workflows": "workspace:*",
     "esbuild": "0.28.2",
-    "@ensemus/knowledge": "workspace:*"
+    "@ensemus/knowledge": "workspace:*",
+    "@ensemus/packs": "workspace:*"
   }
 }

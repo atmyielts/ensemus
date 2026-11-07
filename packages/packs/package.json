@@ -1,0 +1,17 @@
+{
+  "name": "@ensemus/packs",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./bundled": "./src/bundled/index.ts",
+    "./sales-operations": "./src/sales-operations/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@ensemus/domain": "workspace:*"
+  }
+}
