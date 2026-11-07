@@ -96,6 +96,56 @@ export const outcomePreviewSchema = z.strictObject({
 });
 export type OutcomePreviewBody = z.infer<typeof outcomePreviewSchema>;
 
+export const outcomeDraftSchema = z.strictObject({
+  id: z.uuid(),
+  objective: z.string(),
+  preview: outcomePreviewSchema,
+  preview_sha256: z.string().regex(/^[0-9a-f]{64}$/),
+  status: z.enum(['draft', 'authorized', 'discarded']),
+  work_unit_id: z.uuid().nullable(),
+  version: z.int().positive(),
+  updated_at: z.iso.datetime({ offset: true }),
+});
+export const companyOnboardingSchema = z.strictObject({
+  steps: z.array(
+    z.strictObject({
+      key: z.enum([
+        'responsibility_statement',
+        'invite_team',
+        'company_structure',
+        'first_knowledge_source',
+        'model_provider',
+        'second_factor',
+        'first_simulation',
+        'first_work_unit',
+      ]),
+      state: z.enum(['done', 'skipped', 'to_do', 'unavailable']),
+      optional: z.boolean(),
+    }),
+  ),
+  finished: z.boolean(),
+  next: z
+    .enum([
+      'responsibility_statement',
+      'invite_team',
+      'company_structure',
+      'first_knowledge_source',
+      'model_provider',
+      'second_factor',
+      'first_simulation',
+      'first_work_unit',
+    ])
+    .nullable(),
+  completion_recorded: z.boolean(),
+  latest_simulation: z
+    .strictObject({
+      id: z.uuid(),
+      status: z.enum(['queued', 'running', 'passed', 'failed', 'errored']),
+      usable: z.boolean(),
+    })
+    .nullable(),
+});
+
 export const authorizeOutcomeSchema = z.strictObject({
   /** The hash of what the person was reading. It has to match what is stored now. */
   preview_sha256: z.string().regex(/^[0-9a-f]{64}$/),

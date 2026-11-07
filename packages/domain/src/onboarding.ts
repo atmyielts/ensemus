@@ -40,6 +40,37 @@ export type OnboardingStatus = {
 };
 
 /** Pure. The model provider is optional: incomplete provider setup never blocks the core. */
-export function onboardingStatus(_facts: OnboardingFacts): OnboardingStatus {
-  throw new Error('NOT_IMPLEMENTED');
+export function onboardingStatus(facts: OnboardingFacts): OnboardingStatus {
+  const positive = (n: number) => Number.isSafeInteger(n) && n > 0;
+  const optional = new Set<OnboardingStepKey>(['first_knowledge_source', 'model_provider']);
+  const done: Record<OnboardingStepKey, boolean> = {
+    responsibility_statement: facts.responsibilityAcknowledged === true,
+    invite_team:
+      (Number.isSafeInteger(facts.activeMembers) && facts.activeMembers > 1) ||
+      positive(facts.pendingInvitations),
+    company_structure: positive(facts.teams) || positive(facts.projects),
+    first_knowledge_source: facts.knowledgeSources !== null && positive(facts.knowledgeSources),
+    model_provider: facts.activeModelProfiles !== null && positive(facts.activeModelProfiles),
+    second_factor: facts.actorHasSecondFactor === true,
+    first_simulation: positive(facts.passedSimulations),
+    first_work_unit: positive(facts.workUnits),
+  };
+  const steps = ONBOARDING_STEPS.map((key) => ({
+    key,
+    optional: optional.has(key),
+    state: (done[key]
+      ? 'done'
+      : optional.has(key) && facts.skipped.includes(key)
+        ? 'skipped'
+        : (key === 'first_knowledge_source' && facts.knowledgeSources === null) ||
+            (key === 'model_provider' && facts.activeModelProfiles === null)
+          ? 'unavailable'
+          : 'to_do') as OnboardingStepState,
+  }));
+  const finished = steps.every((step) => step.optional || step.state === 'done');
+  return {
+    steps,
+    finished,
+    next: finished ? null : (steps.find((step) => step.state === 'to_do')?.key ?? null),
+  };
 }

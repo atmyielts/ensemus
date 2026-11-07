@@ -907,9 +907,12 @@ export const outcomeDrafts = experienceSchema.table(
     id: uuid().notNull().defaultRandom(),
     objective: text().notNull(),
     preview: jsonb().notNull(),
+    /** Exact canonical bytes the person reviewed; legacy absent snapshots are not authority. */
+    previewCanonical: text(),
     previewSha256: text().notNull(),
     status: text().notNull().default('draft'),
     workUnitId: uuid(),
+    authorizedWorkVersion: bigint({ mode: 'number' }),
     authorizedByMembershipId: uuid(),
     authorizedAt: timestamp({ withTimezone: true }),
     version: bigint({ mode: 'number' }).notNull().default(1),
@@ -940,6 +943,41 @@ export const outcomeDrafts = experienceSchema.table(
   ],
 );
 
+/** Protected Work INSERT provenance. Only the fixed Work trigger can create this receipt. */
+export const outcomeWorkBirths = experienceSchema.table(
+  'outcome_work_births',
+  {
+    organizationId: tenantId(),
+    draftId: uuid().notNull(),
+    workUnitId: uuid().notNull(),
+    previewVersion: bigint({ mode: 'number' }).notNull(),
+    previewSha256: text().notNull(),
+    createdByMembershipId: uuid().notNull(),
+    birthNonce: uuid().notNull().defaultRandom(),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.organizationId, t.draftId] }),
+    unique('outcome_birth_work').on(t.organizationId, t.workUnitId),
+    foreignKey({
+      columns: [t.organizationId, t.draftId],
+      foreignColumns: [outcomeDrafts.organizationId, outcomeDrafts.id],
+    }),
+    foreignKey({
+      columns: [t.organizationId, t.workUnitId],
+      foreignColumns: [workUnits.organizationId, workUnits.id],
+    }),
+    foreignKey({
+      columns: [t.organizationId, t.createdByMembershipId],
+      foreignColumns: [memberships.organizationId, memberships.id],
+    }),
+    check(
+      'outcome_birth_shape',
+      sql`${t.previewVersion}>0 and ${t.previewSha256} ~ '^[0-9a-f]{64}$'`,
+    ),
+  ],
+);
+
 /** Only what cannot be read from the real records: that someone chose to skip or acknowledged a step. */
 export const onboardingSteps = experienceSchema.table(
   'onboarding_steps',
@@ -957,5 +995,32 @@ export const onboardingSteps = experienceSchema.table(
       foreignColumns: [memberships.organizationId, memberships.id],
     }),
     check('onboarding_step_status', sql`${t.status} in ('acknowledged','skipped')`),
+  ],
+);
+
+/** Immutable historical setup receipt; current readiness is always recomputed from live records. */
+export const onboardingCompletions = experienceSchema.table(
+  'onboarding_completions',
+  {
+    organizationId: tenantId().primaryKey(),
+    version: integer().notNull().default(1),
+    completedByMembershipId: uuid().notNull(),
+    firstSimulationId: uuid().notNull(),
+    firstSimulationSha256: text().notNull(),
+    completedAt: createdAt(),
+  },
+  (t) => [
+    foreignKey({
+      columns: [t.organizationId, t.completedByMembershipId],
+      foreignColumns: [memberships.organizationId, memberships.id],
+    }),
+    foreignKey({
+      columns: [t.organizationId, t.firstSimulationId],
+      foreignColumns: [simulationRuns.organizationId, simulationRuns.id],
+    }),
+    check(
+      'onboarding_completion_shape',
+      sql`${t.version}=1 and ${t.firstSimulationSha256} ~ '^[0-9a-f]{64}$'`,
+    ),
   ],
 );
