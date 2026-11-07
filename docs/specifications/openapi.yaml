@@ -4600,77 +4600,91 @@ paths:
           $ref: "#/components/responses/RestorePending"
   /organizations/{organization_id}/pulse:
     parameters:
-      - $ref: "#/components/parameters/OrganizationID"
+      - $ref: '#/components/parameters/OrganizationID'
     get:
-      x-ensemus-status: planned
       tags:
         - experience
       summary: Read evidence-linked signals the viewer can see
+      description: Bounded current-viewer projection with explicit partial codes for unavailable or capped sources. Includes no employee score or raw provider/model text.
+      parameters:
+        - name: include_dismissed
+          in: query
+          schema:
+            type: boolean
+            default: false
       responses:
-        "200":
+        '200':
           description: Done
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/CompanyPulse"
-        "400":
-          $ref: "#/components/responses/BadRequest"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "404":
-          $ref: "#/components/responses/NotFound"
-        "409":
-          $ref: "#/components/responses/Conflict"
-        "500":
-          $ref: "#/components/responses/InternalError"
-        "503":
-          $ref: "#/components/responses/RestorePending"
+                $ref: '#/components/schemas/CompanyPulse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/RestorePending'
   /organizations/{organization_id}/pulse/signals/{signal_key}:
     parameters:
-      - $ref: "#/components/parameters/OrganizationID"
+      - $ref: '#/components/parameters/OrganizationID'
       - name: signal_key
         in: path
         required: true
         schema:
           type: string
     put:
-      x-ensemus-status: planned
       tags:
         - experience
       summary: Dismiss or snooze a signal, for this person only
-      description: The body is checked against setPulseSignalStateSchema in @ensemus/contracts.
+      description: The body is checked against setPulseSignalStateSchema. The signal must still be readable and current. Snoozes require a finite future end within 30 days; open or dismissed accepts no until field.
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
-              additionalProperties: true
+              additionalProperties: false
+              required:
+                - state
+              properties:
+                state:
+                  type: string
+                  enum: [open, dismissed, snoozed]
+                until:
+                  type: string
+                  format: date-time
       responses:
-        "204":
+        '204':
           description: Done
-        "400":
-          $ref: "#/components/responses/BadRequest"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "404":
-          $ref: "#/components/responses/NotFound"
-        "409":
-          $ref: "#/components/responses/Conflict"
-        "413":
-          $ref: "#/components/responses/PayloadTooLarge"
-        "415":
-          $ref: "#/components/responses/UnsupportedMediaType"
-        "422":
-          $ref: "#/components/responses/Validation"
-        "500":
-          $ref: "#/components/responses/InternalError"
-        "503":
-          $ref: "#/components/responses/RestorePending"
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
+        '415':
+          $ref: '#/components/responses/UnsupportedMediaType'
+        '422':
+          $ref: '#/components/responses/Validation'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/RestorePending'
   /organizations/{organization_id}/outcome-drafts:
     parameters:
       - $ref: "#/components/parameters/OrganizationID"
@@ -8031,6 +8045,7 @@ components:
           type: integer
     CompanyPulse:
       type: object
+      additionalProperties: false
       required:
         - generated_at
         - signals
@@ -8043,28 +8058,51 @@ components:
         signals:
           type: array
           items:
-            $ref: "#/components/schemas/PulseSignal"
+            $ref: '#/components/schemas/PulseSignal'
         summary:
           type: object
-          additionalProperties: true
+          additionalProperties: false
+          required: [open_work, overdue, waiting_on_approval, needs_decision]
+          properties:
+            open_work: { type: integer, minimum: 0 }
+            overdue: { type: integer, minimum: 0 }
+            waiting_on_approval: { type: integer, minimum: 0 }
+            needs_decision: { type: integer, minimum: 0 }
         partial:
           type: array
           items:
             type: string
+            enum: [work, approvals, external_actions, agent_runs, process_runs]
     PulseSignal:
       type: object
+      additionalProperties: false
       required:
         - key
         - kind
         - severity
         - evidence
+        - work
+        - scope
         - since
         - personal_state
+        - snoozed_until
       properties:
         key:
           type: string
         kind:
           type: string
+          enum:
+            [
+              work_overdue,
+              work_due_soon,
+              work_blocked_by_prerequisite,
+              work_owner_disabled,
+              approval_waiting_past_expiry_window,
+              external_action_unknown,
+              external_action_failed,
+              process_run_failed,
+              agent_run_stopped,
+            ]
         severity:
           type: string
           enum:
@@ -8072,13 +8110,32 @@ components:
             - watch
         scope:
           type: object
-          additionalProperties: true
+          additionalProperties: false
+          required: [project_id, client_id]
+          properties:
+            project_id: { type: [string, 'null'], format: uuid }
+            client_id: { type: [string, 'null'], format: uuid }
+        work:
+          type: object
+          additionalProperties: false
+          required: [id, title]
+          properties:
+            id: { type: string, format: uuid }
+            title: { type: string }
         evidence:
           type: array
           minItems: 1
           items:
             type: object
-            additionalProperties: true
+            additionalProperties: false
+            required: [kind, id, reason_code, observed_at]
+            properties:
+              kind:
+                type: string
+                enum: [work_unit, approval, external_action, process_run, agent_run]
+              id: { type: string, format: uuid }
+              reason_code: { type: string, pattern: '^[A-Z][A-Z0-9_]{0,63}$' }
+              observed_at: { type: string, format: date-time }
         since:
           type: string
           format: date-time
@@ -8091,7 +8148,7 @@ components:
         snoozed_until:
           type:
             - string
-            - "null"
+            - 'null'
           format: date-time
     OutcomeDraft:
       type: object

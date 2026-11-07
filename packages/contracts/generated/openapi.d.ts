@@ -5468,10 +5468,15 @@ export interface paths {
             };
             cookie?: never;
         };
-        /** Read evidence-linked signals the viewer can see */
+        /**
+         * Read evidence-linked signals the viewer can see
+         * @description Bounded current-viewer projection with explicit partial codes for unavailable or capped sources. Includes no employee score or raw provider/model text.
+         */
         get: {
             parameters: {
-                query?: never;
+                query?: {
+                    include_dismissed?: boolean;
+                };
                 header?: never;
                 path: {
                     /** @description Requires authenticated organization membership; UUID alone is never authorization. */
@@ -5521,7 +5526,7 @@ export interface paths {
         get?: never;
         /**
          * Dismiss or snooze a signal, for this person only
-         * @description The body is checked against setPulseSignalStateSchema in @ensemus/contracts.
+         * @description The body is checked against setPulseSignalStateSchema. The signal must still be readable and current. Snoozes require a finite future end within 30 days; open or dismissed accepts no until field.
          */
         put: {
             parameters: {
@@ -5537,7 +5542,10 @@ export interface paths {
             requestBody: {
                 content: {
                     "application/json": {
-                        [key: string]: unknown;
+                        /** @enum {string} */
+                        state: "open" | "dismissed" | "snoozed";
+                        /** Format: date-time */
+                        until?: string;
                     };
                 };
             };
@@ -7232,27 +7240,45 @@ export interface components {
             generated_at: string;
             signals: components["schemas"]["PulseSignal"][];
             summary: {
-                [key: string]: unknown;
+                open_work: number;
+                overdue: number;
+                waiting_on_approval: number;
+                needs_decision: number;
             };
-            partial: string[];
+            partial: ("work" | "approvals" | "external_actions" | "agent_runs" | "process_runs")[];
         };
         PulseSignal: {
             key: string;
-            kind: string;
+            /** @enum {string} */
+            kind: "work_overdue" | "work_due_soon" | "work_blocked_by_prerequisite" | "work_owner_disabled" | "approval_waiting_past_expiry_window" | "external_action_unknown" | "external_action_failed" | "process_run_failed" | "agent_run_stopped";
             /** @enum {string} */
             severity: "attention" | "watch";
-            scope?: {
-                [key: string]: unknown;
+            scope: {
+                /** Format: uuid */
+                project_id: string | null;
+                /** Format: uuid */
+                client_id: string | null;
+            };
+            work: {
+                /** Format: uuid */
+                id: string;
+                title: string;
             };
             evidence: {
-                [key: string]: unknown;
+                /** @enum {string} */
+                kind: "work_unit" | "approval" | "external_action" | "process_run" | "agent_run";
+                /** Format: uuid */
+                id: string;
+                reason_code: string;
+                /** Format: date-time */
+                observed_at: string;
             }[];
             /** Format: date-time */
             since: string;
             /** @enum {string} */
             personal_state: "open" | "snoozed" | "dismissed";
             /** Format: date-time */
-            snoozed_until?: string | null;
+            snoozed_until: string | null;
         };
         OutcomeDraft: {
             /** Format: uuid */
