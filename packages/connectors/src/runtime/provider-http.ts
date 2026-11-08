@@ -37,7 +37,7 @@ export function createProviderHttpClient(options: ProviderHttpOptions): Provider
       const name =
         request.route === 'mcp_server' ? options.mcpTlsName : ROUTE_TLS_NAMES[request.route];
       if (!network || !name) throw new ProviderHttpFailed('PROVIDER_ROUTE_UNAVAILABLE');
-      return exchange(network, name, request, options.testCa);
+      return exchangeHttpOverRelay(network, name, request, options.testCa);
     },
     async download(request) {
       let target: URL;
@@ -76,7 +76,7 @@ export function createProviderHttpClient(options: ProviderHttpOptions): Provider
             );
       }
       // This request has no way to inherit Graph's Authorization, cookies or any ambient credential.
-      return exchange(
+      return exchangeHttpOverRelay(
         network,
         target.hostname,
         {
@@ -93,10 +93,12 @@ export function createProviderHttpClient(options: ProviderHttpOptions): Provider
   };
 }
 
-function exchange(
+/** Shared bounded TLS transport. Callers supply their own fixed operator-owned route authority. */
+export type RelayHttpRequest = Omit<ProviderRequest, 'route'>;
+export function exchangeHttpOverRelay(
   network: ConnectorNetwork,
   name: string,
-  request: ProviderRequest,
+  request: RelayHttpRequest,
   testCa: Buffer | undefined,
 ): Promise<ProviderResponse> {
   validateLimits(request.timeoutMs, request.maxResponseBytes);

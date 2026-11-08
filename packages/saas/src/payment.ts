@@ -3,6 +3,7 @@
 // because charging someone twice is the same failure as sending an email twice.
 // The types and tables are fixed. The functions are owned by the payments slice.
 import { createHash } from 'node:crypto';
+import { canonicalJson } from '@ensemus/domain/approval';
 import type { PaymentEventKind, PaymentEventFact } from '@ensemus/domain/webhook';
 import type { Micros } from './money';
 
@@ -109,7 +110,9 @@ export type ProcessorCallContext = {
     headers: Readonly<Record<string, string>>;
     body?: Uint8Array;
     timeoutMs: number;
-  }): Promise<{ status: number; body: Uint8Array }>;
+      /** The gateway must bound the response before buffering it. */
+      maxResponseBytes?: number;
+    }): Promise<{ status: number; body: Uint8Array; transportReceipt?: unknown }>;
   signal: AbortSignal;
 };
 
@@ -125,6 +128,66 @@ export type ProcessorManifest = {
   webhookScheme: string;
 };
 
+/** Derived by the native adapter from authenticated, read-only provider identity I/O, never a payload label. */
+export type PaymentExecutionIdentity = {
+  version: 'ensemus.payment-execution/v1';
+  processor: string;
+  adapterVersion: string;
+  environment: string;
+  merchantAccountSha256: string;
+  apiOrigins: readonly string[];
+};
+
+export type PaymentConnectionAuthority = Readonly<{
+  billingOrganizationId: string;
+  connectionId: string;
+  connectionVersion: string;
+  credentialSecretId: string;
+  processor: string;
+  adapterVersion: string;
+  apiOrigin: string;
+  configSha256: string;
+  authoritySha256: string;
+}>;
+export type PaymentGatewayBinding = Readonly<{
+  organizationId: string;
+  paymentId: string;
+  authority: PaymentConnectionAuthority;
+  phase: 'identity' | 'customer' | 'customer_lookup' | 'charge' | 'lookup';
+  executionBinding?: Readonly<{ id: string; identitySha256: string; bindingSha256: string }>;
+  identityProof?: unknown;
+  attemptId?: string;
+  customerToken?: string;
+}>;
+
+/** A bounded canonical public identity. Validation is not authentication; the native verifier supplies it. */
+export function paymentExecutionIdentity(
+  value: unknown,
+  manifest: Pick<ProcessorManifest, 'processor' | 'version'>,
+): { identity: PaymentExecutionIdentity; sha256: string } | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const v = value as Record<string, unknown>;
+  if (Object.keys(v).sort().join(',') !== 'adapterVersion,apiOrigins,environment,merchantAccountSha256,processor,version'
+    || v.version !== 'ensemus.payment-execution/v1' || v.processor !== manifest.processor
+    || v.adapterVersion !== manifest.version || typeof v.environment !== 'string'
+    || !/^[a-z][a-z0-9_-]{0,31}$/.test(v.environment) || typeof v.merchantAccountSha256 !== 'string'
+    || !/^[0-9a-f]{64}$/.test(v.merchantAccountSha256) || !Array.isArray(v.apiOrigins)
+    || v.apiOrigins.length < 1 || v.apiOrigins.length > 8 || new Set(v.apiOrigins).size !== v.apiOrigins.length) return null;
+  for (const origin of v.apiOrigins) {
+    try {
+      if (typeof origin !== 'string' || origin.length > 2048) return null;
+      const url = new URL(origin);
+      if (url.protocol !== 'https:' || url.origin !== origin || url.username || url.password) return null;
+    } catch { return null; }
+  }
+  const identity: PaymentExecutionIdentity = {
+    version: 'ensemus.payment-execution/v1', processor: manifest.processor, adapterVersion: manifest.version,
+    environment: v.environment, merchantAccountSha256: v.merchantAccountSha256,
+    apiOrigins: [...v.apiOrigins as string[]].sort(),
+  };
+  return { identity, sha256: createHash('sha256').update(canonicalJson(identity)).digest('hex') };
+}
+
 /**
  * The adapter contract (BILL-01). An adapter is chosen by the owner, and goes through outside security
  * review before it holds a real credential. It holds no state and touches no database. `@ensemus/saas/testing`
@@ -132,6 +195,8 @@ export type ProcessorManifest = {
  */
 export interface PaymentProcessor {
   readonly manifest: ProcessorManifest;
+  /** Missing or unverifiable is unavailable. Implementations must not substitute static configuration. */
+  identifyExecution?(context: ProcessorCallContext): Promise<PaymentExecutionIdentity | null>;
   /** Registers a billing account and answers its reference. A repeat with the same key is the same one. */
   createCustomer(
     context: ProcessorCallContext,

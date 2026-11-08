@@ -1,12 +1,93 @@
 import {
   PAYMENT_CODES,
+  paymentExecutionIdentity,
   type ChargeRequest,
   type ChargeResult,
   type PaymentLookupResult,
   type PaymentProcessor,
   type ProcessorCallContext,
+  type PaymentExecutionIdentity,
 } from '@ensemus/saas/payment';
+import { createHash } from 'node:crypto';
+import { canonicalJson } from '@ensemus/domain/approval';
 import { SEND_DEADLINE_MS } from '../runtime/actions';
+import { isPaymentTransportReceipt } from './gateway';
+
+const identityProofs = new WeakSet<object>();
+export type VerifiedPaymentExecutionIdentity = Readonly<{
+  identity: PaymentExecutionIdentity;
+  sha256: string;
+  readReceiptSha256: string;
+  authoritySha256: string;
+  verifiedAtEpochMs: number;
+  apiOrigin: string;
+}>;
+export const isVerifiedPaymentExecutionIdentity = (value: unknown): value is VerifiedPaymentExecutionIdentity =>
+  typeof value === 'object' && value !== null && identityProofs.has(value);
+
+/** The native verifier must actually use its credential and read-only gateway; a declaration is insufficient. */
+export async function identifyPaymentExecution(
+  processor: PaymentProcessor,
+  context: ProcessorCallContext,
+  authoritySha256: string,
+): Promise<VerifiedPaymentExecutionIdentity | null> {
+  if (!processor.identifyExecution || context.signal.aborted || !/^[0-9a-f]{64}$/.test(authoritySha256)) return null;
+  let leased = 0;
+  let inFlight = 0;
+  let observedAt = 0;
+  const observedOrigins = new Set<string>();
+  const reads: string[] = [];
+  const controller = new AbortController();
+  const signal = AbortSignal.any([context.signal, controller.signal, AbortSignal.timeout(SEND_DEADLINE_MS)]);
+  try {
+    const identityWork = processor.identifyExecution({
+      signal,
+      withCredential: (use) => context.withCredential(async (secret) => {
+        if (!secret.length || signal.aborted) throw new Error('PAYMENT_IDENTITY_UNAVAILABLE');
+        leased += 1;
+        try { return await use(secret); } finally { leased -= 1; }
+      }),
+      async request(input) {
+        if (leased !== 1 || signal.aborted || input.method !== 'GET' || input.body !== undefined
+          || reads.length >= 4) throw new Error('PAYMENT_IDENTITY_UNAVAILABLE');
+        inFlight += 1;
+        let response: Awaited<ReturnType<ProcessorCallContext['request']>>;
+        try { response = await context.request({ ...input, maxResponseBytes: 262144 }); }
+        finally { inFlight -= 1; }
+        if (signal.aborted || response.status < 200 || response.status >= 300
+          || !(response.body instanceof Uint8Array) || response.body.byteLength > 262144)
+          throw new Error('PAYMENT_IDENTITY_UNAVAILABLE');
+        const transport = response.transportReceipt;
+        if (!isPaymentTransportReceipt(transport) || transport.phase !== 'identity'
+          || transport.authoritySha256 !== authoritySha256 || transport.status !== response.status
+          || transport.responseSha256 !== createHash('sha256').update(response.body).digest('hex'))
+          throw new Error('PAYMENT_IDENTITY_UNAVAILABLE');
+        observedAt = Date.now();
+        observedOrigins.add(transport.origin);
+        reads.push(createHash('sha256').update(canonicalJson({
+          pathSha256: createHash('sha256').update(input.path).digest('hex'),
+          status: response.status,
+          responseSha256: createHash('sha256').update(response.body).digest('hex'),
+        })).digest('hex'));
+        return response;
+      },
+    });
+    const stopped = new Promise<null>((resolve) => signal.addEventListener('abort', () => resolve(null), { once: true }));
+    const raw = await Promise.race([identityWork, stopped]);
+    if (signal.aborted || !reads.length || leased !== 0 || inFlight !== 0) return null;
+    const parsed = paymentExecutionIdentity(raw, processor.manifest);
+    if (!parsed || observedOrigins.size !== 1 || [...observedOrigins].some((origin) => !parsed.identity.apiOrigins.includes(origin))) return null;
+    const proof = Object.freeze({
+      identity: Object.freeze({ ...parsed.identity, apiOrigins: Object.freeze([...parsed.identity.apiOrigins]) }), sha256: parsed.sha256,
+      readReceiptSha256: createHash('sha256').update(canonicalJson(reads)).digest('hex'),
+      authoritySha256,
+      verifiedAtEpochMs: observedAt,
+      apiOrigin: [...observedOrigins][0]!,
+    });
+    identityProofs.add(proof);
+    return proof;
+  } catch { return null; } finally { controller.abort(); }
+}
 const reference = (value: unknown): value is string =>
   typeof value === 'string' && value.length > 0 && value.length <= 256 && !/[\r\n\0]/.test(value);
 function chargeResult(value: ChargeResult): ChargeResult {

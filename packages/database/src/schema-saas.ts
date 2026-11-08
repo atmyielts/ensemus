@@ -17,8 +17,10 @@ import {
   unique,
   uniqueIndex,
   uuid,
+  type AnyPgColumn,
 } from 'drizzle-orm/pg-core';
-import { organizations } from './schema';
+import { organizations, sealedSecrets } from './schema';
+import { connections, webhookDeliveries, webhookEndpoints } from './schema-integrations';
 import { killSwitches } from './schema-ai';
 
 const createdAt = () => timestamp({ withTimezone: true }).notNull().defaultNow();
@@ -297,6 +299,7 @@ export const billingAccounts = billingSchema.table(
     processor: text(),
     processorCustomerRef: text(),
     customerRefHash: text(),
+    processorExecutionSha256: text(),
     version: version(),
     createdByMembershipId: uuid(),
     createdAt: createdAt(),
@@ -306,9 +309,10 @@ export const billingAccounts = billingSchema.table(
     primaryKey({ name: 'billing_accounts_pk', columns: [t.organizationId, t.id] }),
     unique('billing_accounts_one_per_tenant').on(t.organizationId),
     uniqueIndex('billing_accounts_customer_ref')
-      .on(t.processor, t.customerRefHash)
+        .on(t.processor, t.processorExecutionSha256, t.customerRefHash)
       .where(sql`${t.customerRefHash} IS NOT NULL`),
     check('billing_accounts_country', sql`${t.countryCode} ~ '^[A-Z]{2}$'`),
+      check('billing_accounts_execution_hash', sql`${t.processorExecutionSha256} is null or ${t.processorExecutionSha256} ~ '^[0-9a-f]{64}$'`),
     check(
       'billing_accounts_processor_pair',
       sql`(${t.processor} IS NULL) = (${t.customerRefHash} IS NULL)`,
@@ -694,6 +698,65 @@ export const payments = billingSchema.table(
   ],
 );
 
+/** Broker-role qualification metadata. Tokens are stored only as hashes and can be consumed once. */
+export const paymentIdentityAttestations = billingSchema.table('payment_identity_attestations', {
+  organizationId: uuid().notNull(), id: uuid().notNull().defaultRandom(), paymentId: uuid().notNull(),
+  tokenSha256: text().notNull().unique('payment_identity_attestations_token_sha256_key'),
+  billingOrganizationId: uuid().notNull(), connectionId: uuid().notNull(), connectionVersion: bigint({ mode: 'number' }).notNull(),
+  credentialSecretId: uuid().notNull(), processor: text().notNull(), adapterVersion: text().notNull(), apiOrigin: text().notNull(),
+  configSha256: text().notNull(), authoritySha256: text().notNull(), identitySha256: text().notNull(), readReceiptSha256: text().notNull(),
+  issuedAt: timestamp({ withTimezone: true }).notNull().default(sql`clock_timestamp()`),
+  expiresAt: timestamp({ withTimezone: true }).notNull(), consumedBindingId: uuid(),
+}, (t) => [
+  primaryKey({ name: 'payment_identity_pk', columns: [t.organizationId, t.id] }),
+  foreignKey({ name: 'payment_identity_payment', columns: [t.organizationId, t.paymentId], foreignColumns: [payments.organizationId, payments.id] }),
+  foreignKey({ name: 'payment_identity_connection', columns: [t.billingOrganizationId, t.connectionId], foreignColumns: [connections.organizationId, connections.id] }),
+  foreignKey({ name: 'payment_identity_secret', columns: [t.billingOrganizationId, t.credentialSecretId], foreignColumns: [sealedSecrets.organizationId, sealedSecrets.id] }),
+  consumedPaymentBindingFK(t.organizationId, t.consumedBindingId),
+  check('payment_identity_connection_version_check', sql`${t.connectionVersion}>0`),
+  check('payment_identity_hashes', sql`${t.tokenSha256} ~ '^[0-9a-f]{64}$' and ${t.configSha256} ~ '^[0-9a-f]{64}$' and ${t.authoritySha256} ~ '^[0-9a-f]{64}$' and ${t.identitySha256} ~ '^[0-9a-f]{64}$' and ${t.readReceiptSha256} ~ '^[0-9a-f]{64}$'`),
+  check('payment_identity_window', sql`${t.expiresAt}>${t.issuedAt} and ${t.expiresAt}<=${t.issuedAt}+interval '60 seconds'`),
+]);
+
+/** The original native authority is retained across credential/config replacement, including UNKNOWN. */
+export const paymentExecutionBindings = billingSchema.table('payment_execution_bindings', {
+  organizationId: uuid().notNull(), id: uuid().notNull().defaultRandom(), paymentId: uuid().notNull(), attestationId: uuid().notNull(),
+  billingOrganizationId: uuid().notNull(), connectionId: uuid().notNull(), connectionVersion: bigint({ mode: 'number' }).notNull(),
+  credentialSecretId: uuid().notNull(), processor: text().notNull(), adapterVersion: text().notNull(), apiOrigin: text().notNull(), configSha256: text().notNull(),
+  authoritySha256: text().notNull(), identitySha256: text().notNull(), bindingSha256: text().notNull(),
+  qualifiedAt: timestamp({ withTimezone: true }).notNull().default(sql`clock_timestamp()`),
+  customerState: text().notNull().default('new'), customerRequestKey: text().notNull(), customerToken: uuid(),
+  customerRefHash: text(), customerStartedAt: when(), customerTransportStartedAt: when(), customerFinishedAt: when(),
+}, (t) => [
+  primaryKey({ name: 'payment_execution_pk', columns: [t.organizationId, t.id] }),
+  unique('payment_execution_one').on(t.organizationId, t.paymentId),
+  unique('payment_execution_attempt_key').on(t.organizationId, t.paymentId, t.id),
+  foreignKey({ name: 'payment_execution_payment', columns: [t.organizationId, t.paymentId], foreignColumns: [payments.organizationId, payments.id] }),
+  foreignKey({ name: 'payment_execution_attestation', columns: [t.organizationId, t.attestationId], foreignColumns: [paymentIdentityAttestations.organizationId, paymentIdentityAttestations.id] }),
+  foreignKey({ name: 'payment_execution_connection', columns: [t.billingOrganizationId, t.connectionId], foreignColumns: [connections.organizationId, connections.id] }),
+  foreignKey({ name: 'payment_execution_secret', columns: [t.billingOrganizationId, t.credentialSecretId], foreignColumns: [sealedSecrets.organizationId, sealedSecrets.id] }),
+  check('payment_execution_connection_version_check', sql`${t.connectionVersion}>0`),
+  check('payment_execution_customer_state_check', sql`${t.customerState} in ('new','sending','confirmed','unknown')`),
+  check('payment_execution_hashes', sql`${t.configSha256} ~ '^[0-9a-f]{64}$' and ${t.authoritySha256} ~ '^[0-9a-f]{64}$' and ${t.identitySha256} ~ '^[0-9a-f]{64}$' and ${t.bindingSha256} ~ '^[0-9a-f]{64}$' and (${t.customerRefHash} is null or ${t.customerRefHash} ~ '^[0-9a-f]{64}$')`),
+  check('payment_execution_customer', sql`(${t.customerState}='confirmed')=(${t.customerRefHash} is not null) and (${t.customerState} not in ('sending','confirmed','unknown') or (${t.customerToken} is not null and ${t.customerStartedAt} is not null))`),
+]);
+
+function consumedPaymentBindingFK(organizationId: AnyPgColumn, consumedBindingId: AnyPgColumn): ReturnType<typeof foreignKey> {
+  return foreignKey({ name: 'payment_identity_consumed_binding', columns: [organizationId, consumedBindingId], foreignColumns: [paymentExecutionBindings.organizationId, paymentExecutionBindings.id] });
+}
+
+export const paymentCustomerBindings = billingSchema.table('payment_customer_bindings', {
+  organizationId: uuid().notNull(), accountId: uuid().notNull(), processor: text().notNull(), identitySha256: text().notNull(),
+  customerRefHash: text().notNull(), executionBindingId: uuid().notNull(),
+  confirmedAt: timestamp({ withTimezone: true }).notNull().default(sql`clock_timestamp()`),
+}, (t) => [
+  primaryKey({ name: 'payment_customer_pk', columns: [t.organizationId, t.accountId, t.identitySha256] }),
+  unique('payment_customer_route').on(t.processor, t.identitySha256, t.customerRefHash),
+  foreignKey({ name: 'payment_customer_account', columns: [t.organizationId, t.accountId], foreignColumns: [billingAccounts.organizationId, billingAccounts.id] }),
+  foreignKey({ name: 'payment_customer_execution', columns: [t.organizationId, t.executionBindingId], foreignColumns: [paymentExecutionBindings.organizationId, paymentExecutionBindings.id] }),
+  check('payment_customer_hashes', sql`${t.identitySha256} ~ '^[0-9a-f]{64}$' and ${t.customerRefHash} ~ '^[0-9a-f]{64}$'`),
+]);
+
 /** A claim, committed before the processor is contacted. Another is refused while this could have charged. */
 export const paymentAttempts = billingSchema.table(
   'payment_attempts',
@@ -704,6 +767,8 @@ export const paymentAttempts = billingSchema.table(
     attemptNo: integer().notNull(),
     idempotencyKey: text().notNull(),
     runId: text().notNull(),
+    executionBindingId: uuid(),
+    transportStartedAt: when(),
     recordedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
     outcome: text(),
     outcomeCode: text(),
@@ -718,6 +783,8 @@ export const paymentAttempts = billingSchema.table(
       columns: [t.organizationId, t.paymentId],
       foreignColumns: [payments.organizationId, payments.id],
     }),
+    foreignKey({ name: 'payment_attempt_execution', columns: [t.organizationId, t.paymentId, t.executionBindingId],
+      foreignColumns: [paymentExecutionBindings.organizationId, paymentExecutionBindings.paymentId, paymentExecutionBindings.id] }),
     check(
       'payment_attempts_outcome',
       sql`${t.outcome} in ('succeeded','declined','not_sent','indeterminate')`,
@@ -768,6 +835,8 @@ export const paymentWebhookEvents = billingSchema.table(
     id: uuid().notNull().defaultRandom(),
     processor: text().notNull(),
     providerEventId: text().notNull(),
+    sourceDeliveryId: uuid(), sourceEndpointId: uuid(), sourceConnectionId: uuid(), sourceConnectionVersion: bigint({ mode: 'number' }),
+    sourceApiSecretId: uuid(), sourceConfigSha256: text(), executionIdentitySha256: text(), executionBindingSha256: text(),
     kind: text().notNull(),
     customerRefHash: text().notNull(),
     processorPaymentRef: text(),
@@ -783,6 +852,10 @@ export const paymentWebhookEvents = billingSchema.table(
   (t) => [
     primaryKey({ name: 'payment_webhook_events_pk', columns: [t.organizationId, t.id] }),
     unique('payment_webhook_events_provider').on(t.organizationId, t.processor, t.providerEventId),
+    foreignKey({ name: 'payment_webhook_delivery', columns: [t.organizationId, t.sourceDeliveryId], foreignColumns: [webhookDeliveries.organizationId, webhookDeliveries.id] }),
+    foreignKey({ name: 'payment_webhook_endpoint', columns: [t.organizationId, t.sourceEndpointId], foreignColumns: [webhookEndpoints.organizationId, webhookEndpoints.id] }),
+    foreignKey({ name: 'payment_webhook_connection', columns: [t.organizationId, t.sourceConnectionId], foreignColumns: [connections.organizationId, connections.id] }),
+    foreignKey({ name: 'payment_webhook_api_secret', columns: [t.organizationId, t.sourceApiSecretId], foreignColumns: [sealedSecrets.organizationId, sealedSecrets.id] }),
     check(
       'payment_webhook_events_kind',
       sql`${t.kind} in ('payment_succeeded','payment_failed','payment_refunded','payment_disputed','customer_updated')`,

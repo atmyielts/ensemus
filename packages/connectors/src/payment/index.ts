@@ -5,7 +5,11 @@ import type { PaymentProcessor } from '@ensemus/saas/payment';
 import type { Connector } from '../index';
 import { MalformedWebhook } from '../index';
 import { PAYMENT_EVENT_KINDS, SIGNATURE_SCHEMES } from '@ensemus/domain/webhook';
-export { runCharge, runPaymentLookup } from './runtime';
+export {
+  runCharge, runPaymentLookup, identifyPaymentExecution, isVerifiedPaymentExecutionIdentity,
+  type VerifiedPaymentExecutionIdentity,
+} from './runtime';
+export { createPaymentHttpGateway, isPaymentTransportReceipt, type PaymentTransportReceipt } from './gateway';
 
 export const PAYMENT_CONNECTOR_PREFIX = 'payment_';
 export const SECRET_PURPOSE_PAYMENT_PROCESSOR = 'connector.payment_processor';
