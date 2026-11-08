@@ -7,6 +7,9 @@ export type SamlEnvelope = {
   subject: string;
   authenticatedAt: number | null;
   bodySha256: string;
+  /** Untrusted correlation data; usable only after the native verifier accepted this exact body. */
+  requestId?: string | null;
+  relaySha256?: string | null;
 };
 const ASSERTION = 'urn:oasis:names:tc:SAML:2.0:assertion';
 function children(parent: Element, namespace: string, localName: string): Element[] {
@@ -68,6 +71,7 @@ function envelope(xml: string, body: Buffer): SamlEnvelope | null {
     subject,
     authenticatedAt,
     bodySha256: createHash('sha256').update(body).digest('hex'),
+    requestId: root.getAttribute('InResponseTo') || null,
   };
 }
 const refused = () =>
@@ -137,7 +141,10 @@ export async function guardSamlRequest(
         body: new Uint8Array(body),
         signal: request.signal,
       }),
-      envelope: snapshot,
+      envelope: {
+        ...snapshot,
+        relaySha256: typeof relay === 'string' ? createHash('sha256').update(relay).digest('hex') : null,
+      },
     };
   } catch {
     return refused();

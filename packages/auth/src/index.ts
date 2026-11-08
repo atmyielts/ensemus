@@ -27,6 +27,7 @@ import { createSamlFlow } from './sso-flow';
 import { guardSamlRequest } from './sso-request';
 import { createOperatorOidcFlow, type OidcTrust } from './oidc-primary';
 import { createIdpChallenges } from './idp-challenge';
+import {createSamlBrowserFlow} from './saml-browser-flow';
 
 export type OidcProvider = {
   providerId: string;
@@ -105,6 +106,8 @@ export function createAuth(options: AuthOptions) {
       });
     return true;
   });
+  const samlBrowser=createSamlBrowserFlow({database:db,secret:options.secret,baseURL:options.baseURL,
+    providerPrimary:input=>primary.selfLinkProof(input),providerPrimaryCurrent:value=>primary.selfLinkProviderCurrent(value)});
   const idpChallenges = createIdpChallenges(
     db,
     options.secret,
@@ -154,6 +157,7 @@ export function createAuth(options: AuthOptions) {
         customRules: {
           '/sign-in/email': { window: 60, max: 10 },
           '/sign-up/email': { window: 60, max: 5 },
+          '/sso/link-self': {window:60,max:5},
         },
       },
       advanced: {
@@ -184,9 +188,11 @@ export function createAuth(options: AuthOptions) {
               baseURL: options.baseURL,
               ...(options.sso ? { callbacks: options.sso } : {}),
               verified: samlFlow.verified,
+              resolveBrowser:samlBrowser.resolve,
             })
           : []),
         ...(!privateFactorManagement ? [samlFlow.plugin] : []),
+        ...(!privateFactorManagement ? [samlBrowser.plugin(request=>core.handler(request))] : []),
         ...(!privateFactorManagement && options.oidc ? [oidcFlow.plugin] : []),
         // Private MFA responses are forwarded only AFTER durable admission and trusted proof.
         // Framework cookie plugins would otherwise mint the browser cookie before that decision.
@@ -206,10 +212,8 @@ export function createAuth(options: AuthOptions) {
       const checked = await guardSamlRequest(request);
       if (checked instanceof Response) return checked;
       try {
-        return await samlFlow.run(
-          () => oidcFlow.run(() => idpChallenges.run(() => core.handler(checked.request))),
-          checked.envelope,
-        );
+        return await samlBrowser.run(checked.request,checked.envelope,async()=>samlBrowser.bindStart(checked.request,await samlFlow.run(
+          () => oidcFlow.run(() => idpChallenges.run(() => core.handler(checked.request))),checked.envelope)));
       } catch (error) {
         if (
           /\/api\/auth\/(?:callback\/|sso\/saml2\/sp\/acs\/)/.test(new URL(request.url).pathname)
@@ -220,6 +224,7 @@ export function createAuth(options: AuthOptions) {
             { status: 500, headers: { 'cache-control': 'no-store' } },
           );
         }
+        if(new URL(request.url).pathname==='/api/auth/sign-in/sso')return Response.json({code:'SSO_REFUSED',message:'Company sign-in could not be completed.'},{status:400,headers:{'cache-control':'no-store'}});
         throw error;
       }
     },

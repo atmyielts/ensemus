@@ -244,6 +244,24 @@ export function createPrimaryAuthentication(
   const enrollmentIdentity = (input: Identity) =>
     identity(key, { userId: input.userId, sessionId: `enrollment:${input.sessionId}` });
   const operations = {
+    async selfLinkProviderCurrent(value:string):Promise<boolean> {
+      if(value.startsWith('saml:'))return true; //0421 rechecks the actual pinned source-provider row.
+      if(!value.startsWith('oidc:')||!currentOidcTrust)return false;
+      try{
+        const marker=JSON.parse(value.slice(5)) as Record<string,unknown>,trust=await currentOidcTrust();
+        return Boolean(trust&&marker.providerId===trust.providerId&&marker.issuer===trust.issuer&&marker.sourceConfigSha256===trust.sourceConfigSha256);
+      }catch{return false;}
+    },
+    /** A real current signed primary receipt for passwordless explicit self-link preparation. */
+    async selfLinkProof(input:Identity,now=new Date()) {
+      if(!(await fingerprint({...input,maxAgeSeconds:300},now)))return null;
+      const saml=await readSaml(input,now),current=saml??await readOidc(input,now);
+      if(!current||current.authenticatedAt===null)return null;
+      const proof=await db.query.verifications.findFirst({where:(row,{eq})=>eq(row.id,current.proofId)});
+      const sourceProvider=saml?await readSsoProvider(db,saml.providerId):null;
+      if(saml&&!sourceProvider?.samlConfig)return null;
+      return proof?{kind:'provider' as const,accountId:current.accountId,proofId:current.proofId,fingerprint:createHash('sha256').update(proof.value).digest('hex'),authenticatedAt:current.authenticatedAt,providerId:saml?.providerId??providerId!,rawConfigSha256:sourceProvider?.samlConfig?createHash('sha256').update(sourceProvider.samlConfig).digest('hex'):null}:null;
+    },
     async recordSaml(
       input: AcceptedSaml & { sessionId: string },
       now = new Date(),

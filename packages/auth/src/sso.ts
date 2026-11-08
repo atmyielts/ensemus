@@ -1,7 +1,7 @@
 // ADR-031 D9: browser-carried SAML only. Metadata is parsed in process, never downloaded.
 import { X509Certificate } from 'node:crypto';
 import { DOMParser, type Element } from '@xmldom/xmldom';
-import { sso, SignatureAlgorithm, DigestAlgorithm, type SAMLConfig } from '@better-auth/sso';
+import { sso, SignatureAlgorithm, DigestAlgorithm, type SAMLConfig, type SSOSAMLUserResolutionInput,type SSOUserResolutionContext,type SSOUserResolution } from '@better-auth/sso';
 import type { BetterAuthPlugin } from 'better-auth';
 import { APIError } from 'better-auth/api';
 import { ssoBoundary, ssoIdpIssuer, trustedSamlProvider, type SamlCandidate } from './sso-flow';
@@ -204,6 +204,7 @@ export function ssoPlugins(options: {
   baseURL: string;
   callbacks?: SsoCallbacks;
   verified?: (input: SamlCandidate) => void;
+  resolveBrowser?: (input:SSOSAMLUserResolutionInput,context:SSOUserResolutionContext,provider:SsoProviderState)=>Promise<SSOUserResolution>;
 }): BetterAuthPlugin[] {
   return [
     sso({
@@ -250,7 +251,7 @@ export function ssoPlugins(options: {
           }))
         )
           return { action: 'reject', code: 'SSO_REFUSED' };
-        return { action: 'continue' };
+        return options.resolveBrowser?options.resolveBrowser(input,{database},provider):{action:'reject',code:'SSO_REFUSED'};
       },
       provisionUserOnEveryLogin: true,
       provisionUser: async ({ user, userInfo, provider }) => {
