@@ -299,8 +299,13 @@ describe('verified processor callbacks commit the real M8 receipt with the M3 in
       deliveryId = await f.post();
     const stored = await loadStoredDelivery(app.db, f.service, { deliveryId });
     if (!stored) throw new Error('TEST_EXPECTED_REAL_STORED_DELIVERY');
-    const verdict = await createWebhookVerifier(f.deps).verify(f.owner.organizationId, stored, stored.receivedAtMs);
-    if (!verdict.ok || !verdict.paymentVerificationToken) throw new Error('TEST_EXPECTED_NATIVE_VERIFICATION');
+    const verdict = await createWebhookVerifier(f.deps).verify(
+      f.owner.organizationId,
+      stored,
+      stored.receivedAtMs,
+    );
+    if (!verdict.ok || !verdict.paymentVerificationToken)
+      throw new Error('TEST_EXPECTED_NATIVE_VERIFICATION');
     expect(
       await applyVerifiedDelivery(
         app.db,

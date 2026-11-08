@@ -5,7 +5,11 @@ import { interactiveSessionOf, type AppDatabase } from '@ensemus/database';
 import { createServiceContext } from '@ensemus/database/service';
 import type { openSecretsDatabase } from '@ensemus/database/secrets';
 import { createConnection, createWebhookEndpoint } from '@ensemus/application';
-import { requestInvoicePayment, requestInvoicePaymentOnce, beginPaymentAttempt } from '@ensemus/application/saas/payments';
+import {
+  requestInvoicePayment,
+  requestInvoicePaymentOnce,
+  beginPaymentAttempt,
+} from '@ensemus/application/saas/payments';
 import {
   preflightPaymentExecution,
   bindPaymentExecution,
@@ -45,10 +49,14 @@ export async function nativePaymentFixture(
   database: AppDatabase,
   auth: pg.Client,
   secretsDb: ReturnType<typeof openSecretsDatabase>,
-  options: { operator?: Awaited<ReturnType<typeof paymentTenant>>; requestKey?: string; lookup?: 'none' | 'authoritative' } = {},
+  options: {
+    operator?: Awaited<ReturnType<typeof paymentTenant>>;
+    requestKey?: string;
+    lookup?: 'none' | 'authoritative';
+  } = {},
 ) {
   const who = await paymentFixture(database, auth, { legacyCustomer: false });
-  const operator = options.operator ?? await paymentTenant(database, auth);
+  const operator = options.operator ?? (await paymentTenant(database, auth));
   for (const owner of [who.owner, operator])
     await proveSecondFactor({
       userId: owner.userId,
@@ -113,7 +121,12 @@ export async function nativePaymentFixture(
     return fakeJson(socket, 404, { code: 'UNKNOWN_ROUTE' });
   });
   try {
-    const request = (context: ProcessorCallContext, method: 'GET' | 'POST', path: string, body?: unknown) =>
+    const request = (
+      context: ProcessorCallContext,
+      method: 'GET' | 'POST',
+      path: string,
+      body?: unknown,
+    ) =>
       context.withCredential((bytes) =>
         context.request({
           method,
@@ -148,9 +161,11 @@ export async function nativePaymentFixture(
       },
       async charge(context, input) {
         const response = await request(context, 'POST', '/charge', {
-          ...input, amountMicros: input.amountMicros.toString(),
+          ...input,
+          amountMicros: input.amountMicros.toString(),
         });
-        if (response.status === 429) return { outcome: 'not_sent', code: 'RATE_LIMITED', retryable: true };
+        if (response.status === 429)
+          return { outcome: 'not_sent', code: 'RATE_LIMITED', retryable: true };
         if (response.status !== 200) return { outcome: 'indeterminate', code: 'PROCESSOR_ERROR' };
         const value = JSON.parse(Buffer.from(response.body).toString('utf8')) as {
           processorPaymentRef: string;
@@ -195,10 +210,14 @@ export async function nativePaymentFixture(
       signatureScheme: 'ensemus_hmac_sha256_v1',
     });
     const paymentInput = { invoiceId: who.invoice.id, processor: 'test_scripted' };
-    const payment = options.requestKey
-      ? await requestInvoicePaymentOnce(database, who.owner, { ...paymentInput, requestKey: options.requestKey })
+    const requested = options.requestKey
+      ? await requestInvoicePaymentOnce(database, who.owner, {
+          ...paymentInput,
+          requestKey: options.requestKey,
+        })
       : await requestInvoicePayment(database, who.owner, paymentInput);
-    if ('kind' in payment && payment.kind === 'conflict') throw new Error('TEST_PAYMENT_REQUEST_CONFLICT');
+    if (!('paymentId' in requested)) throw new Error('TEST_PAYMENT_REQUEST_CONFLICT');
+    const payment = { paymentId: requested.paymentId, status: requested.status };
     const broker = new SecretBroker(
       secretsDb.db,
       new FileKeyProvider([secret('sealing_private_key.pem')]),
@@ -315,7 +334,9 @@ export async function nativePaymentFixture(
       endpoint,
       payment,
       charges,
-      nextCharge: (mode: ChargeMode) => { nextCharge = mode; },
+      nextCharge: (mode: ChargeMode) => {
+        nextCharge = mode;
+      },
       server,
       broker,
       attest,

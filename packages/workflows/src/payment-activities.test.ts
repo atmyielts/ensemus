@@ -193,8 +193,9 @@ describe('payment Activity original-authority control', () => {
     vi.mocked(getPaymentExecution).mockResolvedValue({ ...execution, status: 'cancelled' });
     const d = deps();
     d.billingEnabled = false;
-    expect(await createPaymentConnectorActivities(d, options()).reconcilePaymentStep(paymentInput))
-      .toBe('cancelled');
+    expect(
+      await createPaymentConnectorActivities(d, options()).reconcilePaymentStep(paymentInput),
+    ).toBe('cancelled');
     expect(readPaymentExecutionBinding).not.toHaveBeenCalled();
     expect(identifyPaymentExecution).not.toHaveBeenCalled();
     expect(beginPaymentReconcile).not.toHaveBeenCalled();
@@ -204,8 +205,9 @@ describe('payment Activity original-authority control', () => {
     vi.mocked(getPaymentExecution).mockResolvedValue({ ...execution, status: 'cancelled' });
     const d = deps();
     d.billingEnabled = false;
-    expect(await createPaymentPlatformActivities(d).concludePaymentWithoutAnswerStep(paymentInput))
-      .toBe('cancelled');
+    expect(
+      await createPaymentPlatformActivities(d).concludePaymentWithoutAnswerStep(paymentInput),
+    ).toBe('cancelled');
     expect(finishPaymentReconcile).not.toHaveBeenCalled();
     expect(runBoundCharge).not.toHaveBeenCalled();
   });
