@@ -2,10 +2,10 @@
 -- archives and 0500-0507. No migration journal/snapshot registration until joined SQL review.
 -- Storage outcome is recorded by the trusted runtime after actual single-attempt transport I/O;
 -- SQL validates identity/order/authority. It does not pretend a Boolean can inspect the provider.
-DO $ BEGIN
+DO $$ BEGIN
  IF current_user<>'ensemus_migrator' OR EXISTS(SELECT 1 FROM pg_roles WHERE rolname=current_user AND(rolsuper OR rolbypassrls))
   OR pg_has_role(current_user,'ensemus_auth','member') THEN RAISE EXCEPTION 'OBJECT_LIFECYCLE_GUARD_OWNER_REQUIRED' USING ERRCODE='42501';END IF;
-END $;
+END $$;
 --> statement-breakpoint
 CREATE TABLE lifecycle.object_deletion_claims (
  organization_id uuid NOT NULL REFERENCES org.organizations(id), id uuid NOT NULL DEFAULT gen_random_uuid(),
@@ -878,7 +878,7 @@ CREATE TRIGGER lineage_0508_restore_debt AFTER UPDATE ON knowledge.artifact_line
 --> statement-breakpoint
 -- Direct restricted-role DELETE must obey the same physical admission, even for tables whose
 -- original append guard is a row trigger or TRUNCATE-only. No role-name-only escape remains.
-CREATE FUNCTION lifecycle.require_erasure_object_receipts() RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog AS $
+CREATE FUNCTION lifecycle.require_erasure_object_receipts() RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog AS $$
 BEGIN
  IF TG_OP<>'DELETE' OR TG_RELID NOT IN('sovereign.imported_archive_files'::regclass,'knowledge.artifact_acl_catalog'::regclass,
   'knowledge.artifact_work_links'::regclass,'knowledge.artifact_lineage'::regclass,'knowledge.artifact_lineage_sources'::regclass,
