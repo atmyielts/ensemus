@@ -25,6 +25,20 @@ export function accountDestinations(organizationId: string, role: string) {
       description: 'Prepare and retrieve an encrypted copy, including while service is paused.',
       icon: 'arrow',
     });
+  if (can(role, 'retention.manage'))
+    items.push({
+      href: `${base}/retention`,
+      label: 'Data retention',
+      description: 'Review how long records are kept and set approved retention rules.',
+      icon: 'safety',
+    });
+  if (can(role, 'legal_hold.manage'))
+    items.push({
+      href: `${base}/legal-holds`,
+      label: 'Legal holds',
+      description: 'Preserve selected records and review existing holds.',
+      icon: 'safety',
+    });
   if (can(role, 'offboarding.manage'))
     items.push({
       href: `${base}/leave`,
