@@ -1,4 +1,5 @@
 // S3-compatible object storage, so the same code runs against any approved store (ADR-017, ADR-021).
+import { createHash } from 'node:crypto';
 import {
   CreateBucketCommand,
   DeleteObjectCommand,
@@ -70,7 +71,7 @@ async function versioningResponseBytes(body: unknown, signal: AbortSignal): Prom
 /** Implements the ObjectStore port from @ensemus/application. */
 export class S3ObjectStore {
   readonly #client: S3Client;
-  readonly #deleteClient: S3Client;
+  readonly #mutationClient: S3Client;
   readonly #bucket: string;
   readonly #capabilityTimeoutMs: number;
 
@@ -96,7 +97,7 @@ export class S3ObjectStore {
     this.#client = new S3Client(options);
     // A rejected first DELETE may still complete at the provider. An implicit SDK retry could
     // hide that unresolved operation behind a second success, so destructive transport never retries.
-    this.#deleteClient = new S3Client({ ...options, maxAttempts: 1 });
+    this.#mutationClient = new S3Client({ ...options, maxAttempts: 1 });
   }
 
   /** Run by the one-shot setup job, never by a request. */
@@ -112,6 +113,22 @@ export class S3ObjectStore {
     await this.#client.send(
       new PutObjectCommand({ Bucket: this.#bucket, Key: key, Body: body, ContentType: mimeType }),
     );
+  }
+
+  /** A future native raw writer owns the durable admission before reaching this method. General
+   * put() deliberately retains its old contract; legacy/derived/archive receipts are not upgraded. */
+  async putSingleAttempt(key: string, body: Buffer, mimeType: string): Promise<{ transport: 'written' | 'unknown' }> {
+    const captured = Buffer.from(body);
+    try {
+      const result = await this.#mutationClient.send(new PutObjectCommand({
+        Bucket: this.#bucket, Key: key, Body: captured, ContentType: mimeType,
+        ContentMD5: createHash('md5').update(captured).digest('base64'),
+      }));
+      // Native S3 PutObject returns200 and an ETag. This is a storage-contract observation, not
+      // a SQL-independent provider attestation or an inventory of historical PUT attempts.
+      return { transport: result.$metadata.httpStatusCode === 200 && typeof result.ETag === 'string' &&
+        result.ETag.length > 0 && result.ETag.length <= 1024 ? 'written' : 'unknown' };
+    } catch { return { transport: 'unknown' }; }
   }
 
   async get(key: string, maxBytes?: number): Promise<Buffer> {
@@ -152,7 +169,7 @@ export class S3ObjectStore {
 
   close(): void {
     this.#client.destroy();
-    this.#deleteClient.destroy();
+    this.#mutationClient.destroy();
   }
 
   async delete(key: string): Promise<void> {
@@ -172,7 +189,7 @@ export class S3ObjectStore {
     }
     let result;
     try {
-      result = await this.#deleteClient.send(
+      result = await this.#mutationClient.send(
         new DeleteObjectCommand({ Bucket: this.#bucket, Key: key }),
       );
     } catch {
