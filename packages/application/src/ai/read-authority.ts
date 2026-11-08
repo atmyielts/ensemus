@@ -15,8 +15,12 @@ export async function bindAgentAuthorityProtocolInTx(tx: Tx, context: AgentConte
   if (row?.protocol === 'legacy') return { complete: false };
   if (context.actorType !== 'agent' || row?.protocol !== 'authority-v1' || row.ready !== true)
     throw new AppError('POLICY_DENIED');
-  await tx.execute(sql`select set_config('app.agent_authority_protocol',${`authority-v1:${context.agentRunId}`},true)`);
-  const admitted = await tx.execute<{ admitted: boolean }>(sql`select ai.run_authority_read_admitted(${context.agentRunId}::uuid) admitted`);
+  await tx.execute(
+    sql`select set_config('app.agent_authority_protocol',${`authority-v1:${context.agentRunId}`},true)`,
+  );
+  const admitted = await tx.execute<{ admitted: boolean }>(
+    sql`select ai.run_authority_read_admitted(${context.agentRunId}::uuid) admitted`,
+  );
   if (admitted.rows[0]?.admitted !== true) throw new AppError('POLICY_DENIED');
   return { complete: true };
 }
@@ -30,7 +34,8 @@ export async function lockReadAuthorityBeforeBody(
 ) {
   const result = await tx.execute<{ locked: boolean }>(sql`select ai.lock_read_authority(
     ${input.kind},${input.id}::uuid,${input.authorizationWorkUnitId ?? null}::uuid) locked`);
-  if (context.actorType !== 'agent' || result.rows[0]?.locked !== true) throw new AppError('NOT_FOUND');
+  if (context.actorType !== 'agent' || result.rows[0]?.locked !== true)
+    throw new AppError('NOT_FOUND');
 }
 
 /** Durable before material leaves. SQL computes the actual locked closure and its digest; defaults
@@ -40,15 +45,27 @@ export async function captureReadAuthoritiesInTx(
   context: AgentContext,
   inputs: readonly { kind: string; id: string; sha256: string; authorizationWorkUnitId?: string }[],
 ) {
-  const state = await tx.execute<{ protocol: string | null }>(sql`select ai.run_authority_protocol_version(${context.agentRunId}::uuid) protocol`);
+  const state = await tx.execute<{ protocol: string | null }>(
+    sql`select ai.run_authority_protocol_version(${context.agentRunId}::uuid) protocol`,
+  );
   if (state.rows[0]?.protocol === 'legacy') return;
-  if (context.actorType !== 'agent' || state.rows[0]?.protocol !== 'authority-v1') throw new AppError('POLICY_DENIED');
-  for (const input of [...inputs].sort((a, b) => `${a.kind}:${a.id}:${a.sha256}`.localeCompare(`${b.kind}:${b.id}:${b.sha256}`))) {
-    if ((input.kind === 'artifact') !== (input.authorizationWorkUnitId !== undefined)) throw new AppError('POLICY_DENIED');
-    await tx.insert(runReadAuthorities).values({
-      organizationId: context.organizationId, runId: context.agentRunId,
-      inputKind: input.kind, inputId: input.id, inputSha256: input.sha256,
-      authorizationWorkUnitId: input.authorizationWorkUnitId ?? null,
-    }).onConflictDoNothing();
+  if (context.actorType !== 'agent' || state.rows[0]?.protocol !== 'authority-v1')
+    throw new AppError('POLICY_DENIED');
+  for (const input of [...inputs].sort((a, b) =>
+    `${a.kind}:${a.id}:${a.sha256}`.localeCompare(`${b.kind}:${b.id}:${b.sha256}`),
+  )) {
+    if ((input.kind === 'artifact') !== (input.authorizationWorkUnitId !== undefined))
+      throw new AppError('POLICY_DENIED');
+    await tx
+      .insert(runReadAuthorities)
+      .values({
+        organizationId: context.organizationId,
+        runId: context.agentRunId,
+        inputKind: input.kind,
+        inputId: input.id,
+        inputSha256: input.sha256,
+        authorizationWorkUnitId: input.authorizationWorkUnitId ?? null,
+      })
+      .onConflictDoNothing();
   }
 }

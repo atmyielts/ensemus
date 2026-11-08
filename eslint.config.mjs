@@ -317,6 +317,13 @@ export default tseslint.config(
     agentWorkerFiles,
   ),
   restrict(agentWorkerFiles, [rawDatabase, authDatabase, serviceContext, testDoubles]),
+  // Fixed terminal metadata/effect adapter only: it constructs no AgentContext and exposes no
+  // service context/callback. Its SQL RPC independently requires the actual agent login and an
+  // exact terminal run/Work/fence/Temporal/version. Ordinary agent logic stays service-forbidden.
+  restrict(
+    ['packages/application/src/ai/terminal-work-control.ts'],
+    [rawDatabase, authDatabase, agentDatabase, temporal, testDoubles],
+  ),
   restrict(
     ['packages/agent-runtime/**/*.ts'],
     [rawDatabase, authDatabase, anyDatabase, serviceContext, temporal, aiCore],

@@ -63,6 +63,7 @@ import {
 } from './input-ledger';
 import { claimGeneratedPut, settleGeneratedPut } from '../knowledge/generated-writer';
 import { bindModelResultWriteInTx } from './model-admission';
+import { delegatedBodyProofFromProposal } from './delegated-title';
 
 export type StoredProposal = {
   id: string;
@@ -252,14 +253,17 @@ export async function storeProposal(
       });
       return { proposalId: id };
     }
-    if (input.originatingModel?.inputSnapshotId)
-      await tx
-        .insert(modelProposalInputs)
-        .values({
-          organizationId: context.organizationId,
-          proposalId: id,
-          snapshotId: input.originatingModel.inputSnapshotId,
-        });
+    if (input.originatingModel?.inputSnapshotId) {
+      const bodyProof =
+        record.toolId === 'agent.delegate' ? delegatedBodyProofFromProposal(input.args) : null;
+      await tx.insert(modelProposalInputs).values({
+        organizationId: context.organizationId,
+        proposalId: id,
+        snapshotId: input.originatingModel.inputSnapshotId,
+        transformVersion: bodyProof?.transformVersion ?? null,
+        derivedBodySha256: bodyProof?.derivedBodySha256 ?? null,
+      });
+    }
     await tx.insert(stepPayloads).values({
       organizationId: context.organizationId,
       stepId: step.id,

@@ -83,6 +83,9 @@ export const modelProposalInputs = aiSchema.table(
     organizationId: uuid().notNull(),
     proposalId: uuid().notNull(),
     snapshotId: uuid().notNull(),
+    /** Trusted Work-kernel transform of the actual delegate result. Legacy NULL is not repaired. */
+    transformVersion: text(),
+    derivedBodySha256: text(),
   },
   (t) => [
     primaryKey({ name: 'model_proposal_inputs_pk', columns: [t.organizationId, t.proposalId] }),
@@ -96,6 +99,10 @@ export const modelProposalInputs = aiSchema.table(
       columns: [t.organizationId, t.snapshotId],
       foreignColumns: [mainInputSnapshots.organizationId, mainInputSnapshots.id],
     }),
+    check(
+      'model_proposal_inputs_title_transform',
+      sql`(${t.transformVersion} is null and ${t.derivedBodySha256} is null) or (${t.transformVersion} is not null and ${t.transformVersion}='work-title-v1' and ${t.derivedBodySha256} is not null and ${t.derivedBodySha256} ~ '^[0-9a-f]{64}$')`,
+    ),
   ],
 );
 

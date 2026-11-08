@@ -28,7 +28,6 @@ import {
   type Tx,
 } from '@ensemus/database';
 import { createAgentContext, withRunLookupTx } from '@ensemus/database/agent';
-import { createServiceContext } from '@ensemus/database/service';
 import {
   AGENT_RUN_STATUSES,
   canTransitionAgentRun,
@@ -48,12 +47,21 @@ import { and, desc, eq, inArray, lte, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { AppError } from '../errors';
 import { emit } from '../events';
-import { applyTransition, closeOutdatedReviews, failRun, loadChangeable, releaseTerminalWorkInTx } from '../work';
+import {
+  applyTransition,
+  closeOutdatedReviews,
+  failRun,
+  loadChangeable,
+  releaseTerminalWorkInTx,
+} from '../work';
 import type { HaltCheck, TurnStart, TurnStore } from './ports';
 import { assertRunInputsOpen, lockRunInputsForContent, workInputClassInTx } from './input-ledger';
 import { assertWithinAgentCeiling, loadAgentReadScopeInTx } from './read-scope';
 import { bindModelResultWriteInTx } from './model-admission';
-import { loadTerminalWorkControlInTx } from './terminal-work-control';
+import {
+  loadTerminalWorkControlInTx,
+  releaseTerminalWorkForLookupInTx,
+} from './terminal-work-control';
 
 export type ClaimedRun = {
   agentRunId: string;
@@ -1039,9 +1047,7 @@ export async function closeRunWithoutContext(
       await auditRun(tx, input.organizationId, ended, 'ai.run_finished', 'deny', input.stopCode);
     }
     await clearRunLeftovers(tx, run.id, { keepLost: true });
-    const service = createServiceContext(input.organizationId);
-    const terminal = await loadTerminalWorkControlInTx(tx, service, run.id);
-    if (terminal.kind === 'control') await releaseTerminalWorkInTx(tx, service, terminal.control);
+    await releaseTerminalWorkForLookupInTx(tx, input.organizationId, run.id);
   });
 }
 

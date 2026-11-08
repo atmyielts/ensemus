@@ -80,8 +80,8 @@ export class AppDatabase {
       for (const [name, value] of Object.entries({
         'app.agent_input_protocol': '',
         'app.agent_scope_protocol': '',
-          'app.agent_authority_protocol': '',
-          'app.terminal_work_control_run': '',
+        'app.agent_authority_protocol': '',
+        'app.terminal_work_control_run': '',
         'app.portability_export_id': '',
         'app.portability_import_id': '',
         'app.portability_part_path': '',

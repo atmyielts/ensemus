@@ -39,11 +39,19 @@ export function workReviewAction(
   artifactIds: readonly string[],
 ): ProposedAction {
   const content = canonicalJson({ title: work.title, objective: work.objective ?? '' });
-  return workReviewActionFromContentHash(work.id, createHash('sha256').update(content).digest('hex'), artifactIds);
+  return workReviewActionFromContentHash(
+    work.id,
+    createHash('sha256').update(content).digest('hex'),
+    artifactIds,
+  );
 }
 
 /** Exact same approval identity when a fixed terminal-control reader returns only the body hash. */
-export function workReviewActionFromContentHash(workUnitId: string, contentSha256: string, artifactIds: readonly string[]): ProposedAction {
+export function workReviewActionFromContentHash(
+  workUnitId: string,
+  contentSha256: string,
+  artifactIds: readonly string[],
+): ProposedAction {
   if (!/^[0-9a-f]{64}$/.test(contentSha256)) throw new TypeError('WORK_REVIEW_HASH_INVALID');
   return {
     toolName: WORK_REVIEW_TOOL,

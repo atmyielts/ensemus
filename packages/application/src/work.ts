@@ -30,6 +30,7 @@ import {
   workReviewActionFromContentHash,
 } from '@ensemus/domain/approval';
 import { isTerminalWorkControl, type TerminalWorkControl } from './ai/terminal-work-control';
+import { workTitleInput } from './work-title';
 import {
   can,
   canChangeWork,
@@ -83,7 +84,7 @@ const criteriaSchema = z.array(
 );
 
 export const createWorkInput = z.strictObject({
-  title: z.string().trim().min(1).max(300),
+  title: workTitleInput,
   objective: z.string().trim().max(10_000).optional(),
   projectId: idSchema.optional(),
   ownerMembershipId: idSchema.optional(),
@@ -95,15 +96,27 @@ export const createWorkInput = z.strictObject({
 });
 
 export const updateWorkInput = z.strictObject({
-  title: z.string().trim().min(1).max(300).optional(),
+  title: workTitleInput.optional(),
   objective: z.string().trim().max(10_000).optional(),
   dueAt: z.coerce.date().nullable().optional(),
 });
 
 export type WorkRow = typeof workUnits.$inferSelect;
 /** Status-only facts. No title, objective, plan text, criteria or fabricated full Work row. */
-export type WorkTransitionMetadata = Pick<WorkRow, 'id' | 'status' | 'version' | 'classification' | 'ownerMembershipId' | 'runId' | 'runRequestedAt' | 'runRequestedByMembershipId'>;
-type WorkTransitionPatch = Pick<WorkRow, 'status' | 'version' | 'updatedAt' | 'runId'> & { runRequestedAt?: null };
+export type WorkTransitionMetadata = Pick<
+  WorkRow,
+  | 'id'
+  | 'status'
+  | 'version'
+  | 'classification'
+  | 'ownerMembershipId'
+  | 'runId'
+  | 'runRequestedAt'
+  | 'runRequestedByMembershipId'
+>;
+type WorkTransitionPatch = Pick<WorkRow, 'status' | 'version' | 'updatedAt' | 'runId'> & {
+  runRequestedAt?: null;
+};
 
 async function isOnWork(tx: Tx, workUnitId: string, membershipId: string) {
   const rows = await tx
@@ -750,7 +763,13 @@ async function closeApprovals(
  * reviewer, so that run fails, and paused manual work stays paused for someone to ask another person.
  */
 export async function closeOutdatedReviews(tx: Tx, context: TenantContext, work: WorkRow) {
-  return closeOutdatedReviewsByHash(tx, context, work, async () => actionHash(await currentReviewAction(tx, work)), () => failRun(tx, context, work));
+  return closeOutdatedReviewsByHash(
+    tx,
+    context,
+    work,
+    async () => actionHash(await currentReviewAction(tx, work)),
+    () => failRun(tx, context, work),
+  );
 }
 
 async function closeOutdatedReviewsByHash(
@@ -861,7 +880,7 @@ export async function applyTransition(
   current: WorkRow,
   to: WorkState,
   options: { reason?: string; correlationId?: string; causationId?: string; runId?: string } = {},
-) {
+): Promise<WorkRow> {
   const reason = options.reason?.trim().slice(0, MAX_REASON_LENGTH) || undefined;
   const decision = decideTransition({
     from: current.status as WorkState,
@@ -875,14 +894,30 @@ export async function applyTransition(
   });
   if (!decision.ok) throw new AppError(decision.reason);
 
-  return persistWorkTransition(tx, context, current, to, {
-    ...options, reason, hasExecutionPlan: Boolean(current.executionPlan),
-    basis: to === 'completed' ? completionBasis(current.completionCriteria as CompletionCriterion[]) : null,
-  }, async (patch) => {
-    const [row] = await tx.update(workUnits).set(patch).where(and(eq(workUnits.id, current.id), eq(workUnits.version, current.version))).returning();
-    if (!row) throw new AppError('VERSION_CONFLICT');
-    return row;
-  });
+  return persistWorkTransition<WorkRow>(
+    tx,
+    context,
+    current,
+    to,
+    {
+      ...options,
+      reason,
+      hasExecutionPlan: Boolean(current.executionPlan),
+      basis:
+        to === 'completed'
+          ? completionBasis(current.completionCriteria as CompletionCriterion[])
+          : null,
+    },
+    async (patch) => {
+      const [row] = await tx
+        .update(workUnits)
+        .set(patch)
+        .where(and(eq(workUnits.id, current.id), eq(workUnits.version, current.version)))
+        .returning();
+      if (!row) throw new AppError('VERSION_CONFLICT');
+      return row;
+    },
+  );
 }
 
 /** One shared set of transition/history/review/notification/event effects for ordinary and fixed
@@ -892,23 +927,29 @@ async function persistWorkTransition<Row extends WorkTransitionMetadata>(
   context: TenantContext,
   current: WorkTransitionMetadata,
   to: WorkState,
-  options: { reason?: string; correlationId?: string; causationId?: string; runId?: string; hasExecutionPlan: boolean; basis: 'owner_confirmed' | 'evidence' | null },
+  options: {
+    reason?: string | undefined;
+    correlationId?: string;
+    causationId?: string;
+    runId?: string;
+    hasExecutionPlan: boolean;
+    basis: 'owner_confirmed' | 'evidence' | null;
+  },
   write: (patch: WorkTransitionPatch) => Promise<Row>,
 ): Promise<Row> {
   const reason = options.reason;
 
   const nextVersion = current.version + 1;
   const row = await write({
-      status: to,
-      version: nextVersion,
-      updatedAt: new Date(),
-      // Leaving ready answers any request to run, however it was left. A delayed event then finds
-      // nothing to act on.
-      ...(current.status === 'ready' ? { runRequestedAt: null } : {}),
-      // A run holds the work only while it is running or waiting on its own review.
-      runId:
-        to === 'running' || to === 'awaiting_approval' ? (options.runId ?? current.runId) : null,
-    });
+    status: to,
+    version: nextVersion,
+    updatedAt: new Date(),
+    // Leaving ready answers any request to run, however it was left. A delayed event then finds
+    // nothing to act on.
+    ...(current.status === 'ready' ? { runRequestedAt: null } : {}),
+    // A run holds the work only while it is running or waiting on its own review.
+    runId: to === 'running' || to === 'awaiting_approval' ? (options.runId ?? current.runId) : null,
+  });
 
   // The reason is free text, so it stays here, under the Work Unit's own access rules. It goes into
   // no event, no audit entry and nothing that travels to Temporal.
@@ -985,23 +1026,50 @@ async function persistWorkTransition<Row extends WorkTransitionMetadata>(
 }
 
 /** Genuine exact-run capability only. It cannot mark completed or restart arbitrary Work. */
-export async function releaseTerminalWorkInTx(tx: Tx, context: TenantContext, control: TerminalWorkControl) {
+export async function releaseTerminalWorkInTx(
+  tx: Tx,
+  context: TenantContext,
+  control: TerminalWorkControl,
+) {
   if (!isTerminalWorkControl(control, tx, context)) throw new AppError('FORBIDDEN');
   const transition = async (to: 'running' | 'failed' | 'verifying') => {
     const current = control.current;
     // These conservative status transitions never consult completion evidence or owner-confirmed
     // criteria. A positive completion still goes through the ordinary human kernel above.
-    const decision = decideTransition({ from: current.status as WorkState, to, incompletePrerequisites: 0, criteria: [], evidence: emptyEvidence, actorIsAccountableOwner: false });
+    const decision = decideTransition({
+      from: current.status as WorkState,
+      to,
+      incompletePrerequisites: 0,
+      criteria: [],
+      evidence: emptyEvidence,
+      actorIsAccountableOwner: false,
+    });
     if (!decision.ok) throw new AppError(decision.reason);
-    return persistWorkTransition(tx, context, current, to, { hasExecutionPlan: control.hasExecutionPlan, basis: null }, (patch) => control.write(patch));
+    return persistWorkTransition(
+      tx,
+      context,
+      current,
+      to,
+      { hasExecutionPlan: control.hasExecutionPlan, basis: null },
+      (patch) => control.write(patch),
+    );
   };
   if (control.runStatus === 'completed' || control.runStatus === 'outcome_unverified') {
     if (control.current.status !== 'running') return;
     const checking = await transition('verifying');
-    await closeOutdatedReviewsByHash(tx, context, checking, async () => actionHash(workReviewActionFromContentHash(checking.id, control.contentSha256, await control.visibleArtifactIds())));
+    await closeOutdatedReviewsByHash(tx, context, checking, async () =>
+      actionHash(
+        workReviewActionFromContentHash(
+          checking.id,
+          control.contentSha256,
+          await control.visibleArtifactIds(),
+        ),
+      ),
+    );
     return;
   }
-  if (['ready','awaiting_approval','verifying'].includes(control.current.status)) await transition('running');
+  if (['ready', 'awaiting_approval', 'verifying'].includes(control.current.status))
+    await transition('running');
   if (control.current.status === 'running') await transition('failed');
 }
 

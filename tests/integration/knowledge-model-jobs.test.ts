@@ -117,7 +117,13 @@ const codeOf = async (use: () => Promise<unknown>) => {
 const isPgRefusal = (error: unknown, code: string, message: string) => {
   let current = error;
   for (let depth = 0; depth < 8 && current && typeof current === 'object'; depth++) {
-    if ('code' in current && current.code === code && 'message' in current && current.message === message) return true;
+    if (
+      'code' in current &&
+      current.code === code &&
+      'message' in current &&
+      current.message === message
+    )
+      return true;
     current = 'cause' in current ? current.cause : null;
   }
   return false;
@@ -155,7 +161,13 @@ describe('bounded Knowledge model jobs and principal-bound result receipts (0216
       requestKey: randomUUID(),
     });
   }
-  async function fixture(options: { beforeSend?: () => Promise<void>; failure?: boolean; classification?: 'internal' | 'restricted' } = {}) {
+  async function fixture(
+    options: {
+      beforeSend?: () => Promise<void>;
+      failure?: boolean;
+      classification?: 'internal' | 'restricted';
+    } = {},
+  ) {
     const approved = await approval(),
       query = `Generated query ${randomUUID()}`;
     const input = {
@@ -278,13 +290,24 @@ describe('bounded Knowledge model jobs and principal-bound result receipts (0216
 
   async function knowledgeAgentVersion(sourceId?: string | null) {
     if (sourceId === null) return seedAgentVersion(app.db, a.owner);
-    const declaredSourceId = sourceId ?? (await seedSearchableSource(app.db, a.owner, {
-      passages: ['Generated explicitly declared Knowledge source.'],
-      grants: [{ kind: 'membership', membershipId: a.owner.membershipId }],
-    })).sourceId;
-    return seedAgentVersion(app.db, a.owner, testAgentSpec({
-      context: { allowed_scopes: ['data.restricted.read', `knowledge.${declaredSourceId}.read`], memory_write_policy: 'none' },
-    }));
+    const declaredSourceId =
+      sourceId ??
+      (
+        await seedSearchableSource(app.db, a.owner, {
+          passages: ['Generated explicitly declared Knowledge source.'],
+          grants: [{ kind: 'membership', membershipId: a.owner.membershipId }],
+        })
+      ).sourceId;
+    return seedAgentVersion(
+      app.db,
+      a.owner,
+      testAgentSpec({
+        context: {
+          allowed_scopes: ['data.restricted.read', `knowledge.${declaredSourceId}.read`],
+          memory_write_policy: 'none',
+        },
+      }),
+    );
   }
   async function actualAuxiliaryRun(
     limits: { maxCostMicros?: number; maxTotalTokens?: number } = {},
@@ -389,15 +412,25 @@ describe('bounded Knowledge model jobs and principal-bound result receipts (0216
   );
   it('refuses auxiliary spending without an explicit immutable Knowledge source scope, even with workload approval', async () => {
     const f = await actualAuxiliaryRun({}, undefined, null);
-    await expect(f.calls.prepare(f.principal, f.input)).rejects.toMatchObject({ code: 'EGRESS_DENIED' });
-    expect(await withTenantTx(app.db, a.owner, (tx) => tx.select().from(modelCallAttempts).where(eq(modelCallAttempts.runId, f.runId)))).toEqual([]);
-    expect(await withTenantTx(app.db, a.owner, (tx) => tx.select().from(budgetReservations).where(eq(budgetReservations.runId, f.runId)))).toEqual([]);
+    await expect(f.calls.prepare(f.principal, f.input)).rejects.toMatchObject({
+      code: 'EGRESS_DENIED',
+    });
+    expect(
+      await withTenantTx(app.db, a.owner, (tx) =>
+        tx.select().from(modelCallAttempts).where(eq(modelCallAttempts.runId, f.runId)),
+      ),
+    ).toEqual([]);
+    expect(
+      await withTenantTx(app.db, a.owner, (tx) =>
+        tx.select().from(budgetReservations).where(eq(budgetReservations.runId, f.runId)),
+      ),
+    ).toEqual([]);
   });
   it('rechecks the current class of a discarded earlier input document, independently of its source class', async () => {
     const source = await seedSearchableSource(app.db, a.owner, {
-        passages: ['Generated earlier candidate'],
-        grants: [{ kind: 'membership', membershipId: a.owner.membershipId }],
-      });
+      passages: ['Generated earlier candidate'],
+      grants: [{ kind: 'membership', membershipId: a.owner.membershipId }],
+    });
     const f = await actualAuxiliaryRun({}, undefined, source.sourceId);
     const [chunk] = await withTenantTx(app.db, a.owner, (tx) =>
       tx.select().from(knowledgeChunks).where(eq(knowledgeChunks.id, source.chunkIds[0]!)),
@@ -555,19 +588,24 @@ describe('bounded Knowledge model jobs and principal-bound result receipts (0216
       }),
     ).rejects.toMatchObject({ code: 'INVALID_STATE' });
     await expect(
-        withTenantTx(agent.db, f.context, async (tx) => {
-          // Admit actual read scope, but never stamp the main-model writer protocol. This isolates
-          // 0414's specific earlier runtime backstop as further before-body protocols are joined.
-          await loadAgentReadScopeInTx(tx, f.context);
-          await tx
-            .update(executionSteps)
-            .set({ attempt: f.main.attempt + 1 })
-            .where(eq(executionSteps.id, f.main.stepId));
-        }),
-    ).rejects.toSatisfy((error: unknown) => isPgRefusal(error, 'EN119', 'MAIN_MODEL_RUNTIME_REQUIRED'));
-    const [untouched] = await withTenantTx(agent.db, f.context, (tx) => tx
-      .select({ attempt: executionSteps.attempt, state: executionSteps.state }).from(executionSteps)
-      .where(eq(executionSteps.id, f.main.stepId)));
+      withTenantTx(agent.db, f.context, async (tx) => {
+        // Admit actual read scope, but never stamp the main-model writer protocol. This isolates
+        // 0414's specific earlier runtime backstop as further before-body protocols are joined.
+        await loadAgentReadScopeInTx(tx, f.context);
+        await tx
+          .update(executionSteps)
+          .set({ attempt: f.main.attempt + 1 })
+          .where(eq(executionSteps.id, f.main.stepId));
+      }),
+    ).rejects.toSatisfy((error: unknown) =>
+      isPgRefusal(error, 'EN119', 'MAIN_MODEL_RUNTIME_REQUIRED'),
+    );
+    const [untouched] = await withTenantTx(agent.db, f.context, (tx) =>
+      tx
+        .select({ attempt: executionSteps.attempt, state: executionSteps.state })
+        .from(executionSteps)
+        .where(eq(executionSteps.id, f.main.stepId)),
+    );
     expect(untouched).toEqual({ attempt: f.main.attempt, state: 'in_flight' });
     const resumed = await createTurnStore(agent.db).beginTurn(f.context, {
       runId: f.runId,
@@ -720,41 +758,80 @@ describe('bounded Knowledge model jobs and principal-bound result receipts (0216
   it('pins approved metadata as real model workers without granting nonhuman or foreign revocation', async () => {
     const f = await fixture();
     const actualRun = await actualAuxiliaryRun();
-    for (const context of [f.requester, actualRun.context, createServiceContext(a.organizationId)]) {
-      expect(await withTenantTx(agent.db, context, (tx) => tx
-        .select({ id: modelWorkloadApprovals.id })
-        .from(modelWorkloadApprovals)
-        .where(eq(modelWorkloadApprovals.id, f.approvalId))
-        .for('share', { noWait: true }))).toEqual([{ id: f.approvalId }]);
-      expect(await codeOf(() => withTenantTx(agent.db, context, (tx) => tx
-        .update(modelWorkloadApprovals).set({ revokedAt: new Date() })
-        .where(eq(modelWorkloadApprovals.id, f.approvalId))))).toBe('42501');
+    for (const context of [
+      f.requester,
+      actualRun.context,
+      createServiceContext(a.organizationId),
+    ]) {
+      expect(
+        await withTenantTx(agent.db, context, (tx) =>
+          tx
+            .select({ id: modelWorkloadApprovals.id })
+            .from(modelWorkloadApprovals)
+            .where(eq(modelWorkloadApprovals.id, f.approvalId))
+            .for('share', { noWait: true }),
+        ),
+      ).toEqual([{ id: f.approvalId }]);
+      expect(
+        await codeOf(() =>
+          withTenantTx(agent.db, context, (tx) =>
+            tx
+              .update(modelWorkloadApprovals)
+              .set({ revokedAt: new Date() })
+              .where(eq(modelWorkloadApprovals.id, f.approvalId)),
+          ),
+        ),
+      ).toBe('42501');
     }
     const foreign = await createDelegatedContext(agent.db, b.organizationId, b.member.membershipId);
-    expect(await withTenantTx(agent.db, foreign, (tx) => tx
-      .select({ id: modelWorkloadApprovals.id }).from(modelWorkloadApprovals)
-      .where(eq(modelWorkloadApprovals.id, f.approvalId)).for('share', { noWait: true }))).toEqual([]);
-    expect(await withTenantTx(agent.db, foreign, (tx) => tx
-      .update(modelWorkloadApprovals).set({ revokedAt: new Date() })
-      .where(eq(modelWorkloadApprovals.id, f.approvalId)).returning({ id: modelWorkloadApprovals.id }))).toEqual([]);
-    expect(await codeOf(() => withTenantTx(agent.db, createServiceContext(a.organizationId), async (tx) => {
-      // Role membership and mutable actor settings cannot turn the actual agent login into app authority.
-      await tx.execute(sql`set local role ensemus_app`);
-      await tx.execute(sql`select set_config('app.actor_type','user',true),
+    expect(
+      await withTenantTx(agent.db, foreign, (tx) =>
+        tx
+          .select({ id: modelWorkloadApprovals.id })
+          .from(modelWorkloadApprovals)
+          .where(eq(modelWorkloadApprovals.id, f.approvalId))
+          .for('share', { noWait: true }),
+      ),
+    ).toEqual([]);
+    expect(
+      await withTenantTx(agent.db, foreign, (tx) =>
+        tx
+          .update(modelWorkloadApprovals)
+          .set({ revokedAt: new Date() })
+          .where(eq(modelWorkloadApprovals.id, f.approvalId))
+          .returning({ id: modelWorkloadApprovals.id }),
+      ),
+    ).toEqual([]);
+    expect(
+      await codeOf(() =>
+        withTenantTx(agent.db, createServiceContext(a.organizationId), async (tx) => {
+          // Role membership and mutable actor settings cannot turn the actual agent login into app authority.
+          await tx.execute(sql`set local role ensemus_app`);
+          await tx.execute(sql`select set_config('app.actor_type','user',true),
         set_config('app.user_id',${a.owner.userId},true),set_config('app.membership_id',${a.owner.membershipId},true)`);
-      await tx.update(modelWorkloadApprovals).set({ revokedAt: new Date() })
-        .where(eq(modelWorkloadApprovals.id, f.approvalId));
-    }))).toBe('42501');
-    const [unchanged] = await withTenantTx(app.db, a.owner, (tx) => tx
-      .select({ revokedAt: modelWorkloadApprovals.revokedAt }).from(modelWorkloadApprovals)
-      .where(eq(modelWorkloadApprovals.id, f.approvalId)));
+          await tx
+            .update(modelWorkloadApprovals)
+            .set({ revokedAt: new Date() })
+            .where(eq(modelWorkloadApprovals.id, f.approvalId));
+        }),
+      ),
+    ).toBe('42501');
+    const [unchanged] = await withTenantTx(app.db, a.owner, (tx) =>
+      tx
+        .select({ revokedAt: modelWorkloadApprovals.revokedAt })
+        .from(modelWorkloadApprovals)
+        .where(eq(modelWorkloadApprovals.id, f.approvalId)),
+    );
     expect(unchanged?.revokedAt).toBeNull();
     // Conservative stopping deliberately does not require a new MFA proof or native session stamp.
     const plainOwner = await resolveTenantContext(app.db, a.owner.userId, a.organizationId);
     await revokeModelWorkload(app.db, plainOwner, f.approvalId);
-    const [revoked] = await withTenantTx(app.db, a.owner, (tx) => tx
-      .select({ revokedAt: modelWorkloadApprovals.revokedAt }).from(modelWorkloadApprovals)
-      .where(eq(modelWorkloadApprovals.id, f.approvalId)));
+    const [revoked] = await withTenantTx(app.db, a.owner, (tx) =>
+      tx
+        .select({ revokedAt: modelWorkloadApprovals.revokedAt })
+        .from(modelWorkloadApprovals)
+        .where(eq(modelWorkloadApprovals.id, f.approvalId)),
+    );
     expect(revoked?.revokedAt).toBeInstanceOf(Date);
   });
   it('charges actual usage once, and accepts only an actual domain result in its publication transaction', async () => {
@@ -950,18 +1027,27 @@ describe('bounded Knowledge model jobs and principal-bound result receipts (0216
     });
     // Unassigning INTERNAL Work does not revoke its organization-wide read right. This case uses
     // the actual restricted named-person boundary and the same sufficient result protection.
-    const access = await withTenantTx(agent.db, f.requester, (tx) => tx.execute<{ readable: boolean }>(
-      sql`select knowledge.structured_record_readable('work_unit',${work.id}::uuid,${a.member.membershipId}::uuid) readable`,
-    ));
+    const access = await withTenantTx(agent.db, f.requester, (tx) =>
+      tx.execute<{ readable: boolean }>(
+        sql`select knowledge.structured_record_readable('work_unit',${work.id}::uuid,${a.member.membershipId}::uuid) readable`,
+      ),
+    );
     expect(access.rows[0]?.readable).toBe(false);
     await expect(f.calls.assertResultFresh(f.principal, output.usage.callId!)).rejects.toThrow();
     await expect(
-      evidence(f.requester, null, (tx, id) =>
-        f.bound.acceptResultInTx(tx, output.usage, { kind: 'evidence', id }),
+      evidence(
+        f.requester,
+        null,
+        (tx, id) => f.bound.acceptResultInTx(tx, output.usage, { kind: 'evidence', id }),
         'restricted',
       ),
     ).rejects.toThrow();
-    expect(await attempt(f.jobId)).toMatchObject({ state: 'response_received', status: 'final', costMicros: 1, resultId: null });
+    expect(await attempt(f.jobId)).toMatchObject({
+      state: 'response_received',
+      status: 'final',
+      costMicros: 1,
+      resultId: null,
+    });
   });
   it('never resends an unconfirmed paid attempt and settles its reserved ceiling exactly once', async () => {
     const f = await fixture({ failure: true });

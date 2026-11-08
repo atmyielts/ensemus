@@ -352,7 +352,11 @@ export function createContextSource(deps: {
         await assertRunInputsOpen(tx, context);
         const scope = await loadAgentReadScopeInTx(tx, context);
         try {
-          await lockReadAuthorityBeforeBody(tx, context, { kind: 'artifact', id: artifactId.data, authorizationWorkUnitId: workUnitId.data });
+          await lockReadAuthorityBeforeBody(tx, context, {
+            kind: 'artifact',
+            id: artifactId.data,
+            authorizationWorkUnitId: workUnitId.data,
+          });
           await loadReadable(tx, context, workUnitId.data);
           const workClass = await workInputClassInTx(tx, workUnitId.data, 'public');
           assertWithinAgentCeiling(scope, workClass);
@@ -399,7 +403,11 @@ export function createContextSource(deps: {
         await lockArtifactInputSources(tx, context, { artifactId: loaded.id });
         const scope = await loadAgentReadScopeInTx(tx, context);
         assertWithinAgentCeiling(scope, loaded.classification);
-        await lockReadAuthorityBeforeBody(tx, context, { kind: 'artifact', id: loaded.id, authorizationWorkUnitId: workUnitId.data });
+        await lockReadAuthorityBeforeBody(tx, context, {
+          kind: 'artifact',
+          id: loaded.id,
+          authorizationWorkUnitId: workUnitId.data,
+        });
         const work = await loadReadable(tx, context, workUnitId.data);
         assertWithinAgentCeiling(scope, await workInputClassInTx(tx, workUnitId.data, 'public'));
         const [current] = await tx

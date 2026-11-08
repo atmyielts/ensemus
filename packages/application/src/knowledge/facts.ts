@@ -653,9 +653,13 @@ async function subjectRecord(
   role: string,
   observations?: ObservedInput[],
 ): Promise<{ name: string | null; classification: Classification }> {
-  if (context.actorType === 'agent' && ['work_unit','project','client'].includes(subject.type)) {
+  if (context.actorType === 'agent' && ['work_unit', 'project', 'client'].includes(subject.type)) {
     if (!context.agentRunId) throw new AppError('FORBIDDEN');
-    await lockReadAuthorityBeforeBody(tx, { ...context, actorType: 'agent', agentRunId: context.agentRunId }, { kind: subject.type, id: subject.id });
+    await lockReadAuthorityBeforeBody(
+      tx,
+      { ...context, actorType: 'agent', agentRunId: context.agentRunId },
+      { kind: subject.type, id: subject.id },
+    );
   }
   if (subject.type === 'client') {
     const [row] = await tx.select().from(clients).where(eq(clients.id, subject.id)).for('share');
