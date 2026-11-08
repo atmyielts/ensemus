@@ -14,6 +14,8 @@ import {
   type Tx,
 } from '@ensemus/database';
 import { createServiceContext } from '@ensemus/database/service';
+import { openAgentDatabase } from '@ensemus/database/agent';
+import { createRunTranscriptPurge } from '@ensemus/application/ai-input-ledger';
 import {
   requestOrganizationImport,
   runOrganizationImport,
@@ -31,7 +33,12 @@ import {
   setSourceGrants,
   raiseSourceClassification,
 } from '@ensemus/application/knowledge/sources';
-import { deleteSource } from '@ensemus/application/knowledge/purge';
+import {
+  deleteSource,
+  failSourcePurge,
+  purgeRunTranscriptsForSource,
+  runSourcePurge,
+} from '@ensemus/application/knowledge/purge';
 import { makePerson, nativePersonContext } from '../helpers/product';
 import { testRecipient } from '../helpers/sovereign';
 import { urls } from '../helpers/stack';
@@ -78,9 +85,10 @@ class PrivateStore {
   }
 }
 describe('inert archive file custody', () => {
-  let app: ReturnType<typeof openAppDatabase>, control: pg.Client, auth: pg.Client;
+  let app: ReturnType<typeof openAppDatabase>, agent: ReturnType<typeof openAgentDatabase>, control: pg.Client, auth: pg.Client;
   beforeAll(async () => {
     app = openAppDatabase(urls.app(), { max: 4 });
+    agent = openAgentDatabase(urls.agent(), { max: 1 });
     control = new pg.Client({ connectionString: urls.superuser() });
     auth = new pg.Client({ connectionString: urls.auth() });
     await control.connect();
@@ -88,6 +96,7 @@ describe('inert archive file custody', () => {
   });
   afterAll(async () => {
     await app.close();
+    await agent.close();
     await control.end();
     await auth.end();
   });
@@ -197,6 +206,29 @@ describe('inert archive file custody', () => {
       return { state: 'purged', quiescent: true };
     },
   });
+  const closedSource = async (f: Awaited<ReturnType<typeof fixture>>) => {
+    const added = await source(f);
+    await deleteSource(app.db, f.person.context, {
+      sourceId: added.sourceId, expectedVersion: 1, reason: 'Generated source closure',
+    });
+    // The actual agent role and actual ledger adapter prove the real (empty) source-run inventory.
+    await purgeRunTranscriptsForSource(agent.db, f.service, {
+      transcripts: createRunTranscriptPurge(),
+    }, { sourceId: added.sourceId });
+    // Deliberately optimistic older-runtime double: it knows nothing about the new private archive
+    // table. These tests require SQL to refuse its false zero, never accept it as lifecycle evidence.
+    const oldArtifactPort = {
+      purgeSource: async () => ({ removed: 0, remaining: 0, held: 0, confirmed: true }),
+      confirmInTx: async () => ({ remaining: 0 }),
+    };
+    const purge = () => runSourcePurge(app.db, f.store, f.service, {
+      sourceId: added.sourceId,
+    }, { derivedArtifacts: oldArtifactPort });
+    const job = async () => (await control.query<{
+      state: string; completed_at: Date | null; last_error_code: string | null;
+    }>('select state,completed_at,last_error_code from knowledge.purge_jobs where organization_id=$1 and source_id=$2', [f.person.context.organizationId, added.sourceId])).rows[0]!;
+    return { ...added, purge, job };
+  };
   it.each([
     null,
     LEGACY_PORTABILITY_INVENTORY_VERSION,
@@ -621,5 +653,77 @@ describe('inert archive file custody', () => {
         tx.execute(sql`delete from sovereign.imported_archive_files`),
       ),
     ).rejects.toThrow();
+  });
+  it('blocks a positive source-purge certificate when an older runtime falsely reports zero archive files', async () => {
+    const f = await fixture(); await f.run();
+    const s = await closedSource(f);
+    expect(await s.purge()).toMatchObject({ state: 'failed' });
+    expect(await s.job()).toMatchObject({ state: 'failed', completed_at: null });
+    for (const forgedScope of ['', 'v1']) await expect(withTenantTx(app.db, f.service, async tx => {
+      // A custom GUC is not a physical proof, including the private metadata selector's spelling.
+      await tx.execute(sql`select set_config('sovereign.archive_source_proof',${forgedScope},true)`);
+      await tx.execute(sql`
+        update knowledge.purge_jobs set state='completed',completed_at=clock_timestamp(),artifacts_checked_at=clock_timestamp()
+        where organization_id=${f.person.context.organizationId}::uuid and source_id=${s.sourceId}::uuid
+      `);
+    })).rejects.toMatchObject({ cause: { code: 'EN415' } });
+    expect((await f.headers())[0]).toMatchObject({ state: 'closing', physical_purged_at: null });
+    expect(await createImportedArchivePurge({ database: app.db, store: f.store, lifecycle: lifecycle(f.store) })
+      .purgeSource(f.service, { sourceId: s.sourceId, limit: 25 })).toMatchObject({ remaining: 0, confirmed: true });
+    // Only the separate actual archive lifecycle receipt permits the same old SQL completion path.
+    expect(await s.purge()).toMatchObject({ state: 'completed' });
+  });
+  it('invalidates an old completed source proof when historically purged archive bytes reappear', async () => {
+    const f = await fixture(); await f.run(); const s = await closedSource(f);
+    const key = (await f.headers())[0]!.object_key;
+    await createImportedArchivePurge({ database: app.db, store: f.store, lifecycle: lifecycle(f.store) })
+      .purgeSource(f.service, { sourceId: s.sourceId, limit: 25 });
+    expect(await s.purge()).toMatchObject({ state: 'completed' });
+    f.store.objects.set(key, f.bytes);
+    expect((await createArchiveQuarantineRecovery(f.store).reconcile(app.db, f.service)).needsAttention).toBeGreaterThan(0);
+    expect(await s.job()).toMatchObject({ state: 'failed', completed_at: null, last_error_code: 'ARTIFACT_PURGE_UNCONFIRMED' });
+    expect(await s.purge()).toMatchObject({ state: 'failed' });
+  });
+  it('keeps explicit source-proof recovery service-only and restores its private selector', async () => {
+    const f = await fixture(); await f.run(); const s = await closedSource(f);
+    await expect(withTenantTx(app.db, f.person.context, tx => tx.execute(sql`
+      select sovereign.reconcile_archive_source_proofs()
+    `))).rejects.toMatchObject({ cause: { code: 'EN415' } });
+    await withTenantTx(app.db, f.service, async tx => {
+      await tx.execute(sql`select set_config('sovereign.archive_source_proof','generated-outer',true)`);
+      await tx.execute(sql`select sovereign.reconcile_archive_source_proofs()`);
+      const current = await tx.execute<{ value: string }>(sql`select current_setting('sovereign.archive_source_proof',true) as value`);
+      expect(current.rows[0]?.value).toBe('generated-outer');
+    });
+    expect(await s.job()).toMatchObject({ state: 'pending', completed_at: null });
+  });
+  it('serializes restored-byte invalidation with a source completion that is still uncommitted', async () => {
+    const f = await fixture(); await f.run(); const s = await closedSource(f);
+    const key = (await f.headers())[0]!.object_key;
+    await createImportedArchivePurge({ database: app.db, store: f.store, lifecycle: lifecycle(f.store) })
+      .purgeSource(f.service, { sourceId: s.sourceId, limit: 25 });
+    expect(await s.purge()).toMatchObject({ state: 'completed' });
+    await failSourcePurge(app.db, f.service, { sourceId: s.sourceId, reason: 'PURGE_FAILED' });
+    f.store.objects.set(key, f.bytes);
+    const driver = new pg.Client({ connectionString: urls.app() }); await driver.connect();
+    let open = false, recovery: ReturnType<ReturnType<typeof createArchiveQuarantineRecovery>['reconcile']> | undefined;
+    try {
+      await driver.query('begin'); open = true;
+      await driver.query("select set_config('app.organization_id',$1,true),set_config('app.actor_type','service',true),set_config('app.user_id','',true),set_config('app.membership_id','',true)", [f.person.context.organizationId]);
+      const pid = (await driver.query<{ pid: number }>('select pg_backend_pid() as pid')).rows[0]!.pid;
+      await driver.query("update knowledge.purge_jobs set state='completed',completed_at=clock_timestamp() where organization_id=$1 and source_id=$2", [f.person.context.organizationId, s.sourceId]);
+      recovery = createArchiveQuarantineRecovery(f.store).reconcile(app.db, f.service);
+      // A scan that only UPDATEs already-completed rows would skip this transaction's old failed
+      // version. The fixed trigger must lock the real job and invalidate its later completion.
+      await expect.poll(async () => (await control.query<{ blocked: boolean }>(
+        "select exists(select 1 from pg_stat_activity where usename='ensemus_app' and $1=any(pg_blocking_pids(pid))) as blocked", [pid],
+      )).rows[0]?.blocked, { timeout: 5000, interval: 20 }).toBe(true);
+      await driver.query('commit'); open = false;
+      expect((await recovery).needsAttention).toBeGreaterThan(0);
+      expect(await s.job()).toMatchObject({ state: 'failed', completed_at: null, last_error_code: 'ARTIFACT_PURGE_UNCONFIRMED' });
+    } finally {
+      if (open) await driver.query('rollback');
+      await recovery; await driver.end();
+    }
   });
 });
