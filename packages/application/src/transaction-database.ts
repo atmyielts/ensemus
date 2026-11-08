@@ -67,6 +67,7 @@ const EMPTY_BINDINGS = {
   'lifecycle.delegated_erase_org': '',
   'lifecycle.delegated_erase_work': '',
   'lifecycle.source_purge_org': '',
+  'lifecycle.raw_object_org': '',
   'lifecycle.source_purge_source': '',
   'lifecycle.source_purge_job': '',
   'lifecycle.material_delete_org': '',
