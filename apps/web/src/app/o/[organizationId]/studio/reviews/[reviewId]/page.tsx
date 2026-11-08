@@ -95,7 +95,7 @@ export default async function PublishReviewPage({
     }
   }
   const subjectPath =
-    review.subjectKind === 'agent_draft' ? `${base}/agents/${review.subjectId}` : base;
+    review.subjectKind === 'agent_draft' ? `${base}/agents/${review.subjectId}` : `${base}/workflows/${review.subjectId}`;
   return (
     <OneActionAtATime>
       <BackLink href={`${base}/reviews`}>Publication reviews</BackLink>
@@ -122,7 +122,7 @@ export default async function PublishReviewPage({
             </dd>
           </div>
           <div>
-            <dt>Source revision</dt>
+            <dt>Rehearsed source revision</dt>
             <dd>{snapshot.sourceVersion}</dd>
           </div>
           <div>
@@ -186,7 +186,7 @@ export default async function PublishReviewPage({
         )}
         <p>
           <Link href={subjectPath}>
-            {review.subjectKind === 'agent_draft' ? 'Read the current draft' : 'Automation Studio'}
+              {review.subjectKind === 'agent_draft' ? 'Read the current draft' : 'Read the current workflow draft'}
           </Link>{' '}
           ·{' '}
           <Link href={`${base}/simulations/${review.simulationRunId}`}>

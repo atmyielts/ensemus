@@ -34,8 +34,8 @@ export default async function SimulationPage({
       const current = await studioRead(
         getProcessDraft(database, context, webProductPorts(), run.subjectId),
       );
-      parent = base;
-      parentLabel = 'Automation Studio';
+      parent = `${base}/workflows/${current.id}`;
+      parentLabel = 'Workflow draft';
       currentHash = current.specSha256;
       if (current.issues.length) currentUnavailable = true;
       else if (currentHash === run.subjectSha256)
