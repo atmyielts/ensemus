@@ -30,10 +30,13 @@ export type VerifiedPaymentLookupOutcome = Readonly<{
   responseSha256: string;
   verifiedAtEpochMs: number;
 }>;
-export const isVerifiedPaymentLookupOutcome = (value: unknown): value is VerifiedPaymentLookupOutcome =>
+export const isVerifiedPaymentLookupOutcome = (
+  value: unknown,
+): value is VerifiedPaymentLookupOutcome =>
   typeof value === 'object' && value !== null && lookupOutcomes.has(value);
-export const getVerifiedPaymentLookupOutcome = (result: PaymentLookupResult): VerifiedPaymentLookupOutcome | null =>
-  lookupResults.get(result) ?? null;
+export const getVerifiedPaymentLookupOutcome = (
+  result: PaymentLookupResult,
+): VerifiedPaymentLookupOutcome | null => lookupResults.get(result) ?? null;
 
 const identityProofs = new WeakSet<object>();
 export type VerifiedPaymentExecutionIdentity = Readonly<{
@@ -85,8 +88,12 @@ function trackedPaymentCall(
       return response;
     },
   };
-  return { context: wrapped, confirmed: () => requests === 1 && receipts === 1,
-    receipt: () => requests === 1 && receipts === 1 ? observed : null, observedAt: () => observedAt };
+  return {
+    context: wrapped,
+    confirmed: () => requests === 1 && receipts === 1,
+    receipt: () => (requests === 1 && receipts === 1 ? observed : null),
+    observedAt: () => observedAt,
+  };
 }
 
 export async function runBoundCustomerRegistration(
@@ -146,14 +153,21 @@ export async function runBoundPaymentLookup(
   if (!receipt || !receipt.lookupOperationId || !receipt.attemptId || !receipt.executionBindingId)
     return { found: 'cannot_answer' };
   const result = Object.freeze({ ...answer });
-  if (result.found !== 'cannot_answer' && (result.found !== 'not_found' || processor.manifest.lookup === 'authoritative')) {
+  if (
+    result.found !== 'cannot_answer' &&
+    (result.found !== 'not_found' || processor.manifest.lookup === 'authoritative')
+  ) {
     const proof = Object.freeze({
-      organizationId: receipt.organizationId, paymentId: receipt.paymentId,
-      attemptId: receipt.attemptId, executionBindingId: receipt.executionBindingId,
-      lookupOperationId: receipt.lookupOperationId, restoreGeneration: receipt.restoreGeneration,
+      organizationId: receipt.organizationId,
+      paymentId: receipt.paymentId,
+      attemptId: receipt.attemptId,
+      executionBindingId: receipt.executionBindingId,
+      lookupOperationId: receipt.lookupOperationId,
+      restoreGeneration: receipt.restoreGeneration,
       authoritySha256: receipt.authoritySha256,
       requestKeySha256: createHash('sha256').update(key).digest('hex'),
-      factCanonical: canonicalJson(result), responseSha256: receipt.responseSha256,
+      factCanonical: canonicalJson(result),
+      responseSha256: receipt.responseSha256,
       verifiedAtEpochMs: tracked.observedAt(),
     });
     lookupOutcomes.add(proof);
@@ -231,7 +245,9 @@ export async function identifyPaymentExecution(
           !isPaymentTransportReceipt(transport) ||
           transport.phase !== 'identity' ||
           transport.authoritySha256 !== authoritySha256 ||
-          !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(transport.restoreGeneration) ||
+          !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+            transport.restoreGeneration,
+          ) ||
           transport.status !== response.status ||
           transport.responseSha256 !== createHash('sha256').update(response.body).digest('hex')
         )

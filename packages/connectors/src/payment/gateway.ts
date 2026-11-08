@@ -1,7 +1,11 @@
 import { createHash } from 'node:crypto';
 import type { ConnectorNetwork } from '../index';
 import { exchangeHttpOverRelay } from '../runtime/provider-http';
-import type { PaymentGatewayBinding, PaymentTransportAdmission, ProcessorCallContext } from '@ensemus/saas/payment';
+import type {
+  PaymentGatewayBinding,
+  PaymentTransportAdmission,
+  ProcessorCallContext,
+} from '@ensemus/saas/payment';
 import { isVerifiedPaymentExecutionIdentity } from './runtime';
 
 const receipts = new WeakSet<object>();
@@ -69,10 +73,15 @@ export function createPaymentHttpGateway(deps: {
     const admitted = Object.freeze({
       ...binding,
       authority,
-      ...(binding.executionBinding ? { executionBinding: Object.freeze({ ...binding.executionBinding }) } : {}),
+      ...(binding.executionBinding
+        ? { executionBinding: Object.freeze({ ...binding.executionBinding }) }
+        : {}),
     });
     const request = {
-      ...input,
+      method: input.method,
+      path: input.path,
+      timeoutMs: input.timeoutMs,
+      maxResponseBytes: input.maxResponseBytes ?? 262144,
       headers: Object.freeze({ ...input.headers }),
       ...(input.body === undefined ? {} : { body: Buffer.from(input.body) }),
     };
@@ -81,7 +90,9 @@ export function createPaymentHttpGateway(deps: {
       authority.apiOrigin !== deps.apiOrigin ||
       authority.processor !== deps.processor ||
       authority.adapterVersion !== deps.adapterVersion ||
-      !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(authority.restoreGeneration) ||
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+        authority.restoreGeneration,
+      ) ||
       !/^[0-9a-f]{64}$/.test(authority.authoritySha256)
     )
       throw new Error('PAYMENT_GATEWAY_AUTHORITY_CHANGED');
@@ -105,11 +116,18 @@ export function createPaymentHttpGateway(deps: {
         throw new Error('PAYMENT_NATIVE_IDENTITY_REQUIRED');
     }
     const admission = await deps.assertAuthority(admitted);
-    if (!admission || admission.restoreGeneration !== authority.restoreGeneration ||
-      (admitted.phase === 'lookup' && (!admitted.attemptId || !admitted.executionBinding ||
-        typeof admission.lookupOperationId !== 'string' ||
-        !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(admission.lookupOperationId))) ||
-      (admitted.phase !== 'lookup' && admission.lookupOperationId !== null))
+    if (
+      !admission ||
+      admission.restoreGeneration !== authority.restoreGeneration ||
+      (admitted.phase === 'lookup' &&
+        (!admitted.attemptId ||
+          !admitted.executionBinding ||
+          typeof admission.lookupOperationId !== 'string' ||
+          !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+            admission.lookupOperationId,
+          ))) ||
+      (admitted.phase !== 'lookup' && admission.lookupOperationId !== null)
+    )
       throw new Error('PAYMENT_TRANSPORT_UNCONFIRMED');
     const lookupOperationId = admission.lookupOperationId;
     const response = await exchangeHttpOverRelay(

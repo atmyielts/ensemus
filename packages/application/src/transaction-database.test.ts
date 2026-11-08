@@ -24,7 +24,8 @@ function savepoints() {
       const parsed = dialect.sqlToQuery(query);
       const key = parsed.params[0];
       if (typeof key !== 'string') throw new Error('TEST_EXPECTED_FIXED_SETTING_KEY');
-      if (parsed.sql.includes('current_setting')) return { rows: [{ value: state.get(key) ?? '' }] };
+      if (parsed.sql.includes('current_setting'))
+        return { rows: [{ value: state.get(key) ?? '' }] };
       if (parsed.sql.includes('set_config') && typeof parsed.params[1] === 'string') {
         state.set(key, parsed.params[1]);
         return { rows: [] };
@@ -33,8 +34,9 @@ function savepoints() {
     },
     async transaction<T>(fn: (nested: Tx) => Promise<T>): Promise<T> {
       const previous = new Map(state);
-      try { return await fn(tx as unknown as Tx); }
-      catch (error) {
+      try {
+        return await fn(tx as unknown as Tx);
+      } catch (error) {
         state.clear();
         for (const [key, value] of previous) state.set(key, value);
         throw error;
@@ -46,21 +48,32 @@ function savepoints() {
 
 describe('payment selector savepoint composition', () => {
   it('clears all private payment selectors for the nested actor and restores them after success', async () => {
-    const { state, tx } = savepoints(), initial = new Map(state);
-    expect(await databaseInTransaction(tx).transaction({ 'app.actor_type': 'service' }, async nested => {
-      for (const key of paymentKeys) expect(state.get(key)).toBe('');
-      await nested.execute(sql`select set_config(${'billing.payment_webhook_token'},${'nested-token'},true)`);
-      return 'saved';
-    })).toBe('saved');
+    const { state, tx } = savepoints(),
+      initial = new Map(state);
+    expect(
+      await databaseInTransaction(tx).transaction(
+        { 'app.actor_type': 'service' },
+        async (nested) => {
+          for (const key of paymentKeys) expect(state.get(key)).toBe('');
+          await nested.execute(
+            sql`select set_config(${'billing.payment_webhook_token'},${'nested-token'},true)`,
+          );
+          return 'saved';
+        },
+      ),
+    ).toBe('saved');
     for (const key of paymentKeys) expect(state.get(key)).toBe(initial.get(key));
   });
   it('restores the outer selectors through savepoint rollback after a nested failure', async () => {
-    const { state, tx } = savepoints(), initial = new Map(state);
-    await expect(databaseInTransaction(tx).run(async nested => {
-      for (const key of paymentKeys) expect(state.get(key)).toBe('');
-      await nested.execute(sql`select set_config(${'billing.payment_org'},${'nested-org'},true)`);
-      throw new Error('TEST_NESTED_PAYMENT_FAILURE');
-    })).rejects.toThrow('TEST_NESTED_PAYMENT_FAILURE');
+    const { state, tx } = savepoints(),
+      initial = new Map(state);
+    await expect(
+      databaseInTransaction(tx).run(async (nested) => {
+        for (const key of paymentKeys) expect(state.get(key)).toBe('');
+        await nested.execute(sql`select set_config(${'billing.payment_org'},${'nested-org'},true)`);
+        throw new Error('TEST_NESTED_PAYMENT_FAILURE');
+      }),
+    ).rejects.toThrow('TEST_NESTED_PAYMENT_FAILURE');
     for (const key of paymentKeys) expect(state.get(key)).toBe(initial.get(key));
   });
 });

@@ -165,57 +165,108 @@ describe('native payment execution identity and single gateway exchange', () => 
     const f = await fixture();
     try {
       const operation = randomUUID();
-      f.admission.mockResolvedValueOnce({ restoreGeneration: authority.restoreGeneration, lookupOperationId: operation });
-      const result = await runBoundPaymentLookup(processor, f.native('lookup'), charge.idempotencyKey, authority.authoritySha256);
+      f.admission.mockResolvedValueOnce({
+        restoreGeneration: authority.restoreGeneration,
+        lookupOperationId: operation,
+      });
+      const result = await runBoundPaymentLookup(
+        processor,
+        f.native('lookup'),
+        charge.idempotencyKey,
+        authority.authoritySha256,
+      );
       const proof = getVerifiedPaymentLookupOutcome(result);
       expect(isVerifiedPaymentLookupOutcome(proof)).toBe(true);
-      expect(proof).toMatchObject({ lookupOperationId: operation, restoreGeneration: authority.restoreGeneration,
-        authoritySha256: authority.authoritySha256, requestKeySha256: sha(charge.idempotencyKey), factCanonical: '{"found":"not_found"}' });
+      expect(proof).toMatchObject({
+        lookupOperationId: operation,
+        restoreGeneration: authority.restoreGeneration,
+        authoritySha256: authority.authoritySha256,
+        requestKeySha256: sha(charge.idempotencyKey),
+        factCanonical: '{"found":"not_found"}',
+      });
       expect(getVerifiedPaymentLookupOutcome({ ...result })).toBeNull();
       expect(isVerifiedPaymentLookupOutcome({ ...proof })).toBe(false);
       expect(Object.isFrozen(result)).toBe(true);
       expect(Object.isFrozen(proof)).toBe(true);
-    } finally { await f.server.close(); }
+    } finally {
+      await f.server.close();
+    }
   });
   it('refuses a lookup when its SQL admission omitted an exact operation before native transport', async () => {
     const f = await fixture();
     try {
-      f.admission.mockResolvedValueOnce({ restoreGeneration: authority.restoreGeneration, lookupOperationId: null });
-      const result = await runBoundPaymentLookup(processor, f.native('lookup'), charge.idempotencyKey, authority.authoritySha256);
+      f.admission.mockResolvedValueOnce({
+        restoreGeneration: authority.restoreGeneration,
+        lookupOperationId: null,
+      });
+      const result = await runBoundPaymentLookup(
+        processor,
+        f.native('lookup'),
+        charge.idempotencyKey,
+        authority.authoritySha256,
+      );
       expect(result).toEqual({ found: 'cannot_answer' });
       expect(getVerifiedPaymentLookupOutcome(result)).toBeNull();
       expect(f.server.requests).toHaveLength(1);
-    } finally { await f.server.close(); }
+    } finally {
+      await f.server.close();
+    }
   });
   it('never qualifies best-effort absence as authoritative not-sent evidence', async () => {
     const f = await fixture();
     try {
-      const result = await runBoundPaymentLookup({ ...processor, manifest: { ...processor.manifest, lookup: 'best_effort' } },
-        f.native('lookup'), charge.idempotencyKey, authority.authoritySha256);
+      const result = await runBoundPaymentLookup(
+        { ...processor, manifest: { ...processor.manifest, lookup: 'best_effort' } },
+        f.native('lookup'),
+        charge.idempotencyKey,
+        authority.authoritySha256,
+      );
       expect(result).toEqual({ found: 'not_found' });
       expect(getVerifiedPaymentLookupOutcome(result)).toBeNull();
       expect(f.server.requests).toHaveLength(2);
-    } finally { await f.server.close(); }
+    } finally {
+      await f.server.close();
+    }
   });
   it('keeps an old result generation/operation unchanged after a new-generation native lookup', async () => {
     // The generation admission is an explicit SQL double; this is not0422 post-ack role proof.
     const f = await fixture();
     try {
-      const old = await runBoundPaymentLookup(processor, f.native('lookup'), charge.idempotencyKey, authority.authoritySha256);
+      const old = await runBoundPaymentLookup(
+        processor,
+        f.native('lookup'),
+        charge.idempotencyKey,
+        authority.authoritySha256,
+      );
       const oldProof = getVerifiedPaymentLookupOutcome(old);
       const currentAuthority = { ...authority, restoreGeneration: randomUUID() };
-      const currentIdentity = await identifyPaymentExecution(processor,
-        f.call({ ...base, authority: currentAuthority, phase: 'identity' }), authority.authoritySha256);
+      const currentIdentity = await identifyPaymentExecution(
+        processor,
+        f.call({ ...base, authority: currentAuthority, phase: 'identity' }),
+        authority.authoritySha256,
+      );
       if (!currentIdentity) throw new Error('TEST_EXPECTED_NEW_NATIVE_IDENTITY');
-      const current = await runBoundPaymentLookup(processor,
-        f.call({ ...base, authority: currentAuthority, phase: 'lookup', identityProof: currentIdentity,
-          executionBinding: f.binding, attemptId: randomUUID() }), charge.idempotencyKey, authority.authoritySha256);
+      const current = await runBoundPaymentLookup(
+        processor,
+        f.call({
+          ...base,
+          authority: currentAuthority,
+          phase: 'lookup',
+          identityProof: currentIdentity,
+          executionBinding: f.binding,
+          attemptId: randomUUID(),
+        }),
+        charge.idempotencyKey,
+        authority.authoritySha256,
+      );
       const currentProof = getVerifiedPaymentLookupOutcome(current);
       expect(oldProof?.restoreGeneration).toBe(authority.restoreGeneration);
       expect(currentProof?.restoreGeneration).toBe(currentAuthority.restoreGeneration);
       expect(currentProof?.lookupOperationId).not.toBe(oldProof?.lookupOperationId);
       expect(getVerifiedPaymentLookupOutcome(old)).toBe(oldProof);
-    } finally { await f.server.close(); }
+    } finally {
+      await f.server.close();
+    }
   });
   it('keeps the observation generation and admitted GET immutable across the admission await', async () => {
     const f = await fixture();
@@ -223,49 +274,76 @@ describe('native payment execution identity and single gateway exchange', () => 
       const mutableAuthority = { ...authority };
       const request = input('GET', '/identity');
       const original = mutableAuthority.restoreGeneration;
-      f.admission.mockImplementationOnce(async admitted => {
+      f.admission.mockImplementationOnce(async (admitted) => {
         expect(admitted.authority.restoreGeneration).toBe(original);
         mutableAuthority.restoreGeneration = randomUUID();
         request.method = 'POST';
         return { restoreGeneration: original, lookupOperationId: null };
       });
-      const response = await f.call({ ...base, authority: mutableAuthority, phase: 'identity' }).request(request);
+      const response = await f
+        .call({ ...base, authority: mutableAuthority, phase: 'identity' })
+        .request(request);
       expect(isPaymentTransportReceipt(response.transportReceipt)).toBe(true);
-      if (!isPaymentTransportReceipt(response.transportReceipt)) throw new Error('TEST_EXPECTED_NATIVE_RECEIPT');
+      if (!isPaymentTransportReceipt(response.transportReceipt))
+        throw new Error('TEST_EXPECTED_NATIVE_RECEIPT');
       expect(response.transportReceipt.restoreGeneration).toBe(original);
       expect(f.server.requests.at(-1)?.method).toBe('GET');
       expect(f.proof.restoreGeneration).toBe(authority.restoreGeneration);
-    } finally { await f.server.close(); }
+    } finally {
+      await f.server.close();
+    }
   });
   it('cannot refresh-stamp a cached genuine identity proof with another restore generation', async () => {
     const f = await fixture();
     try {
-      await expect(f.call({
-        ...base, authority: { ...authority, restoreGeneration: randomUUID() },
-        phase: 'charge', identityProof: f.proof, executionBinding: f.binding, attemptId: randomUUID(),
-      }).request(input('POST', '/charge'))).rejects.toThrow('PAYMENT_NATIVE_IDENTITY_REQUIRED');
+      await expect(
+        f
+          .call({
+            ...base,
+            authority: { ...authority, restoreGeneration: randomUUID() },
+            phase: 'charge',
+            identityProof: f.proof,
+            executionBinding: f.binding,
+            attemptId: randomUUID(),
+          })
+          .request(input('POST', '/charge')),
+      ).rejects.toThrow('PAYMENT_NATIVE_IDENTITY_REQUIRED');
       expect(f.admission).toHaveBeenCalledTimes(1);
       expect(f.server.requests).toHaveLength(1);
-    } finally { await f.server.close(); }
+    } finally {
+      await f.server.close();
+    }
   });
   it('refuses identity assembled from genuine reads in different ready generations', async () => {
     const f = await fixture();
     try {
       const original = f.call({ ...base, phase: 'identity' });
-      const restored = f.call({ ...base, authority: { ...authority, restoreGeneration: randomUUID() }, phase: 'identity' });
+      const restored = f.call({
+        ...base,
+        authority: { ...authority, restoreGeneration: randomUUID() },
+        phase: 'identity',
+      });
       let reads = 0;
       const context: ProcessorCallContext = {
         ...original,
-        request: value => (++reads === 1 ? original : restored).request(value),
+        request: (value) => (++reads === 1 ? original : restored).request(value),
       };
-      const twoReads: PaymentProcessor = { ...processor, identifyExecution: context => context.withCredential(async () => {
-        await context.request(input('GET', '/identity'));
-        await context.request(input('GET', '/identity'));
-        return identity;
-      }) };
-      expect(await identifyPaymentExecution(twoReads, context, authority.authoritySha256)).toBeNull();
+      const twoReads: PaymentProcessor = {
+        ...processor,
+        identifyExecution: (context) =>
+          context.withCredential(async () => {
+            await context.request(input('GET', '/identity'));
+            await context.request(input('GET', '/identity'));
+            return identity;
+          }),
+      };
+      expect(
+        await identifyPaymentExecution(twoReads, context, authority.authoritySha256),
+      ).toBeNull();
       expect(f.server.requests).toHaveLength(3);
-    } finally { await f.server.close(); }
+    } finally {
+      await f.server.close();
+    }
   });
   it('requires an authenticated local TLS identity response, then accepts exactly one real customer/charge/lookup exchange', async () => {
     const f = await fixture();

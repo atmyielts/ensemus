@@ -154,15 +154,25 @@ export function attestNativePaymentWebhook(
 }
 
 /** Only the existing secrets-role worker may call this after checking the process-local native brand. */
-export function attestNativePaymentLookup(db: EnsemusDrizzle, input: {
-  organizationId: string; paymentId: string; attemptId: string; executionBindingId: string;
-  lookupOperationId: string; restoreGeneration: string; authoritySha256: string;
-  requestKeySha256: string; factCanonical: string;
-}): Promise<PaymentAttestation> {
-  return db.transaction(async tx => {
+export function attestNativePaymentLookup(
+  db: EnsemusDrizzle,
+  input: {
+    organizationId: string;
+    paymentId: string;
+    attemptId: string;
+    executionBindingId: string;
+    lookupOperationId: string;
+    restoreGeneration: string;
+    authoritySha256: string;
+    requestKeySha256: string;
+    factCanonical: string;
+  },
+): Promise<PaymentAttestation> {
+  return db.transaction(async (tx) => {
     await assertPaymentGeneration(tx, input.restoreGeneration);
     await tx.execute(sql`select set_config('app.organization_id',${input.organizationId},true)`);
-    const result = await tx.execute<PaymentAttestation>(sql`select * from billing.attest_payment_lookup(
+    const result =
+      await tx.execute<PaymentAttestation>(sql`select * from billing.attest_payment_lookup(
       ${input.organizationId}::uuid,${input.paymentId}::uuid,${input.attemptId}::uuid,${input.executionBindingId}::uuid,
       ${input.lookupOperationId}::uuid,${input.restoreGeneration}::uuid,${input.authoritySha256},
       ${input.requestKeySha256},${input.factCanonical})`);

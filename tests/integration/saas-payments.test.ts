@@ -254,7 +254,12 @@ describe('payment attempts preserve uncertain native transport under actual role
         await finishPaymentReconcile(
           database.db,
           f.who.service,
-          { attemptId: attempt.attemptId, result: lookup, lookup: 'authoritative', nativeLookupToken: lookupToken.token },
+          {
+            attemptId: attempt.attemptId,
+            result: lookup,
+            lookup: 'authoritative',
+            nativeLookupToken: lookupToken.token,
+          },
           paymentAgents,
         ),
       ).toBe('succeeded');

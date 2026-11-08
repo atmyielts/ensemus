@@ -74,7 +74,9 @@ export type PaymentActivityOptions = {
     authority: PaymentConnectionAuthority;
     proof: VerifiedPaymentExecutionIdentity;
   }) => Promise<{ token: string; expiresAt: Date }>;
-  attestLookup?: (proof: VerifiedPaymentLookupOutcome) => Promise<{ token: string; expiresAt: Date }>;
+  attestLookup?: (
+    proof: VerifiedPaymentLookupOutcome,
+  ) => Promise<{ token: string; expiresAt: Date }>;
 };
 const ctx = (input: { organizationId: string }) => createServiceContext(input.organizationId);
 async function outcomeAfterNoReconcile(
@@ -342,16 +344,24 @@ export function createPaymentConnectorActivities(
         native.authority.authoritySha256,
       );
       const proof = getVerifiedPaymentLookupOutcome(result);
-      if (!proof && (result.found === 'succeeded' || result.found === 'declined' ||
-        (result.found === 'not_found' && native.processor.manifest.lookup === 'authoritative'))) return 'retry';
+      if (
+        !proof &&
+        (result.found === 'succeeded' ||
+          result.found === 'declined' ||
+          (result.found === 'not_found' && native.processor.manifest.lookup === 'authoritative'))
+      )
+        return 'retry';
       let nativeLookupToken: string | undefined;
       if (proof) {
         if (!options.attestLookup) return 'retry';
         try {
           const token = await options.attestLookup(proof);
-          if (!(token.expiresAt instanceof Date) || token.expiresAt.getTime() <= Date.now()) return 'retry';
+          if (!(token.expiresAt instanceof Date) || token.expiresAt.getTime() <= Date.now())
+            return 'retry';
           nativeLookupToken = token.token;
-        } catch { return 'retry'; }
+        } catch {
+          return 'retry';
+        }
       }
       return finishPaymentReconcile(
         deps.database,

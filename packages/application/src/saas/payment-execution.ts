@@ -1,7 +1,11 @@
 // No provider I/O here. The broker's native proof token is consumed under fresh, exact SQL authority.
 import type { AppDatabase, TenantContext } from '@ensemus/database';
 import { withAccountTx } from '@ensemus/database/account';
-import type { PaymentConnectionAuthority, PaymentGatewayBinding, PaymentTransportAdmission } from '@ensemus/saas/payment';
+import type {
+  PaymentConnectionAuthority,
+  PaymentGatewayBinding,
+  PaymentTransportAdmission,
+} from '@ensemus/saas/payment';
 import { sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { AppError } from '../errors';
@@ -148,7 +152,10 @@ export async function assertPaymentTransport(
       ${a.billingOrganizationId}::uuid,${a.connectionId}::uuid,${a.processor},${a.adapterVersion},${a.apiOrigin},${a.authoritySha256},
       ${binding.phase},${execution?.id ?? null}::uuid,${execution?.identitySha256 ?? null},${execution?.bindingSha256 ?? null},
       ${binding.attemptId ?? null}::uuid,${binding.customerToken ?? null}::uuid,${a.restoreGeneration}::uuid)`);
-    return one(result.rows, z.strictObject({ restoreGeneration: idSchema, lookupOperationId: idSchema.nullable() }));
+    return one(
+      result.rows,
+      z.strictObject({ restoreGeneration: idSchema, lookupOperationId: idSchema.nullable() }),
+    );
   });
 }
 

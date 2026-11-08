@@ -835,7 +835,9 @@ export async function finishPaymentReconcile(
     const consumeNativeLookup = async () => {
       if (!input.nativeLookupToken || !/^[0-9a-f]{64}$/.test(input.nativeLookupToken))
         throw new AppError('PREREQUISITES_INCOMPLETE');
-      const consumed = await tx.execute<{ consumed: boolean }>(sql`select billing.consume_payment_lookup(
+      const consumed = await tx.execute<{
+        consumed: boolean;
+      }>(sql`select billing.consume_payment_lookup(
         ${id}::uuid,${input.nativeLookupToken},${canonicalJson(result)}) as consumed`);
       if (consumed.rows.length !== 1 || consumed.rows[0]?.consumed !== true)
         throw new AppError('PREREQUISITES_INCOMPLETE');
@@ -873,7 +875,12 @@ export async function finishPaymentReconcile(
     if (decision.status === 'ready')
       await tx
         .update(paymentAttempts)
-        .set({ outcome: 'not_sent', outcomeCode: decision.code, processorPaymentRef: null, finishedAt: new Date() })
+        .set({
+          outcome: 'not_sent',
+          outcomeCode: decision.code,
+          processorPaymentRef: null,
+          finishedAt: new Date(),
+        })
         .where(eq(paymentAttempts.id, id));
     if (result.found === 'declined')
       await tx

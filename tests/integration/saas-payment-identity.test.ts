@@ -225,14 +225,30 @@ describe('original payment identity and customer namespace under real roles', ()
         q.authority.authoritySha256,
       );
       expect(result.outcome).toBe('succeeded');
-      const [transport] = await withTenantTx(app.db, f.who.service, tx => tx.select({
-        transportGeneration: paymentAttempts.transportRestoreGeneration,
-        lookupGeneration: paymentAttempts.lookupRestoreGeneration,
-      }).from(paymentAttempts).where(eq(paymentAttempts.id, begun.attemptId)));
-      expect(transport).toEqual({ transportGeneration: q.proof.restoreGeneration, lookupGeneration: null });
-      await expect(withTenantTx(app.db, f.who.service, tx => tx.update(paymentAttempts).set({
-        transportRestoreGeneration: randomUUID(), lookupRestoreGeneration: randomUUID(),
-      }).where(eq(paymentAttempts.id, begun.attemptId)))).rejects.toSatisfy((error: unknown) => pgCode(error) === '42501');
+      const [transport] = await withTenantTx(app.db, f.who.service, (tx) =>
+        tx
+          .select({
+            transportGeneration: paymentAttempts.transportRestoreGeneration,
+            lookupGeneration: paymentAttempts.lookupRestoreGeneration,
+          })
+          .from(paymentAttempts)
+          .where(eq(paymentAttempts.id, begun.attemptId)),
+      );
+      expect(transport).toEqual({
+        transportGeneration: q.proof.restoreGeneration,
+        lookupGeneration: null,
+      });
+      await expect(
+        withTenantTx(app.db, f.who.service, (tx) =>
+          tx
+            .update(paymentAttempts)
+            .set({
+              transportRestoreGeneration: randomUUID(),
+              lookupRestoreGeneration: randomUUID(),
+            })
+            .where(eq(paymentAttempts.id, begun.attemptId)),
+        ),
+      ).rejects.toSatisfy((error: unknown) => pgCode(error) === '42501');
       expect(
         await finishPaymentAttempt(
           app.db,

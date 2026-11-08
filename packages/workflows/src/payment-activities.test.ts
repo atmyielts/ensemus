@@ -162,7 +162,10 @@ const options = (): PaymentActivityOptions => ({
     token: 'f'.repeat(64),
     expiresAt: new Date(Date.now() + 60000),
   })),
-  attestLookup: vi.fn(async () => ({ token: '7'.repeat(64), expiresAt: new Date(Date.now() + 60000) })),
+  attestLookup: vi.fn(async () => ({
+    token: '7'.repeat(64),
+    expiresAt: new Date(Date.now() + 60000),
+  })),
 });
 beforeEach(() => {
   vi.clearAllMocks();
@@ -336,20 +339,30 @@ describe('payment Activity original-authority control', () => {
     expect(runBoundPaymentLookup).toHaveBeenCalledOnce();
     expect(runBoundCharge).not.toHaveBeenCalled();
     expect(beginPaymentAttempt).not.toHaveBeenCalled();
-    expect(finishPaymentReconcile).toHaveBeenCalledWith(expect.anything(), expect.anything(),
-      expect.objectContaining({ nativeLookupToken: '7'.repeat(64) }), undefined);
+    expect(finishPaymentReconcile).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({ nativeLookupToken: '7'.repeat(64) }),
+      undefined,
+    );
   });
   it('does not forward an unbranded positive lookup to financial settlement', async () => {
     vi.mocked(getPaymentExecution).mockResolvedValue({ ...execution, status: 'sending' });
     vi.mocked(getVerifiedPaymentLookupOutcome).mockReturnValue(null);
-    expect(await createPaymentConnectorActivities(deps(), options()).reconcilePaymentStep(paymentInput)).toBe('retry');
+    expect(
+      await createPaymentConnectorActivities(deps(), options()).reconcilePaymentStep(paymentInput),
+    ).toBe('retry');
     expect(finishPaymentReconcile).not.toHaveBeenCalled();
   });
   it('keeps a stale/denied native lookup unconfirmed when the real attester refuses', async () => {
     vi.mocked(getPaymentExecution).mockResolvedValue({ ...execution, status: 'sending' });
     const configured = options();
-    configured.attestLookup = vi.fn(async () => { throw new Error('PAYMENT_NATIVE_LOOKUP_REQUIRED'); });
-    expect(await createPaymentConnectorActivities(deps(), configured).reconcilePaymentStep(paymentInput)).toBe('retry');
+    configured.attestLookup = vi.fn(async () => {
+      throw new Error('PAYMENT_NATIVE_LOOKUP_REQUIRED');
+    });
+    expect(
+      await createPaymentConnectorActivities(deps(), configured).reconcilePaymentStep(paymentInput),
+    ).toBe('retry');
     expect(finishPaymentReconcile).not.toHaveBeenCalled();
   });
   it('changed original connection/credential authority refuses before identity I/O or reconciliation mutation', async () => {
