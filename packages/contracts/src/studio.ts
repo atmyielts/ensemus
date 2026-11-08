@@ -158,3 +158,92 @@ export const startProcessRunSchema = z.strictObject({
   due_at: z.iso.datetime({ offset: true }).optional(),
 });
 export type StartProcessRunBody = z.infer<typeof startProcessRunSchema>;
+
+// Actual process execution transport. Internal camelCase rows never cross HTTP by assertion.
+export const processRunStatusSchema = z.enum([
+  'queued',
+  'running',
+  'waiting',
+  'completed',
+  'failed',
+  'cancelled',
+]);
+export const processRunsQuerySchema = z.strictObject({
+  status: processRunStatusSchema.optional(),
+  after: z.string().min(1).max(1024).optional(),
+});
+export const processStopBodySchema = z.strictObject({});
+const safeVersion = z.number().int().positive().max(Number.MAX_SAFE_INTEGER);
+const nullableId = uuid.nullable();
+export const processSpecViewSchema = z.strictObject({
+  id: uuid,
+  process_key: z.string().regex(/^[a-z][a-z0-9_.-]{1,63}$/),
+  version_number: safeVersion,
+  name: plainText(120),
+  classification: dataClassSchema,
+  spec: processSpecSchema,
+  spec_sha256: z.string().regex(/^[0-9a-f]{64}$/),
+  source: z.enum(['graph', 'bundled', 'pack']),
+  source_ref: z.string().max(256).nullable(),
+  published_at: z.iso.datetime({ offset: true }),
+});
+export const processRunViewSchema = z.strictObject({
+  id: uuid,
+  spec_id: uuid,
+  title: plainText(200),
+  process_name: plainText(120),
+  root_work_unit_id: uuid,
+  status: processRunStatusSchema,
+  stop_code: z
+    .string()
+    .regex(/^[A-Z][A-Z0-9_]{1,63}$/)
+    .nullable(),
+  steps: z
+    .array(
+      z.strictObject({
+        key: nodeId,
+        label: plainText(120),
+        after: z.array(nodeId).max(64),
+        kind: z.enum([
+          'work_item',
+          'agent_task',
+          'human_approval',
+          'external_action',
+          'evidence_check',
+        ]),
+        tool_id: z
+          .string()
+          .regex(/^[a-z][a-z0-9_.-]{1,63}$/)
+          .nullable(),
+        status: z.enum(['pending', 'ready', 'waiting', 'done', 'failed', 'skipped']),
+        stop_code: z
+          .string()
+          .regex(/^[A-Z][A-Z0-9_]{1,63}$/)
+          .nullable(),
+        work_unit_id: nullableId,
+        approval_id: nullableId,
+        external_action_id: nullableId,
+        agent_run_id: nullableId,
+      }),
+    )
+    .min(1)
+    .max(64),
+  cost: z
+    .strictObject({
+      cost_micros: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+      is_estimate: z.boolean(),
+    })
+    .nullable(),
+  can_manage: z.boolean(),
+  version: safeVersion,
+  created_at: z.iso.datetime({ offset: true }),
+  finished_at: z.iso.datetime({ offset: true }).nullable(),
+});
+export const processRunListSchema = z.strictObject({
+  items: z.array(processRunViewSchema).max(50),
+  next: z.string().max(1024).nullable(),
+});
+export const processSpecListSchema = z.strictObject({
+  items: z.array(processSpecViewSchema).max(200),
+  limited: z.boolean(),
+});

@@ -4758,7 +4758,10 @@ export interface paths {
             };
             cookie?: never;
         };
-        /** List immutable process specs */
+        /**
+         * List up to 200 current readable immutable process versions
+         * @description The current native author and restricted publisher policy apply before LIMIT. limited=true means the 200-row cap was reached; no exhaustive history or cursor is claimed.
+         */
         get: {
             parameters: {
                 query?: never;
@@ -4771,16 +4774,13 @@ export interface paths {
             };
             requestBody?: never;
             responses: {
-                /** @description Done */
+                /** @description Current committed records */
                 200: {
                     headers: {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": {
-                            items: components["schemas"]["ProcessSpec"][];
-                            next?: string | null;
-                        };
+                        "application/json": components["schemas"]["ProcessSpecList"];
                     };
                 };
                 400: components["responses"]["BadRequest"];
@@ -4788,6 +4788,7 @@ export interface paths {
                 403: components["responses"]["Forbidden"];
                 404: components["responses"]["NotFound"];
                 409: components["responses"]["Conflict"];
+                422: components["responses"]["Validation"];
                 500: components["responses"]["InternalError"];
                 503: components["responses"]["RestorePending"];
             };
@@ -4810,10 +4811,14 @@ export interface paths {
             };
             cookie?: never;
         };
-        /** List process runs the viewer can read */
+        /** List real workflow runs whose root Work is currently readable */
         get: {
             parameters: {
-                query?: never;
+                query?: {
+                    status?: "queued" | "running" | "waiting" | "completed" | "failed" | "cancelled";
+                    /** @description Opaque timestamp/ID cursor returned by this endpoint. */
+                    after?: string;
+                };
                 header?: never;
                 path: {
                     /** @description Requires authenticated organization membership; UUID alone is never authorization. */
@@ -4823,16 +4828,13 @@ export interface paths {
             };
             requestBody?: never;
             responses: {
-                /** @description Done */
+                /** @description Current committed records */
                 200: {
                     headers: {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": {
-                            items: components["schemas"]["ProcessRun"][];
-                            next?: string | null;
-                        };
+                        "application/json": components["schemas"]["ProcessRunList"];
                     };
                 };
                 400: components["responses"]["BadRequest"];
@@ -4840,19 +4842,22 @@ export interface paths {
                 403: components["responses"]["Forbidden"];
                 404: components["responses"]["NotFound"];
                 409: components["responses"]["Conflict"];
+                422: components["responses"]["Validation"];
                 500: components["responses"]["InternalError"];
                 503: components["responses"]["RestorePending"];
             };
         };
         put?: never;
         /**
-         * Start a process on a new Work Unit
-         * @description The body is checked against startProcessRunSchema in @ensemus/contracts.
+         * Request a real workflow on new Work, atomically with its durable intent
+         * @description Fresh native start authority, exact immutable spec and complete step inventory are checked. Execution occurs only on the background worker. Request identity is replayed through current record access.
          */
         post: {
             parameters: {
                 query?: never;
-                header?: never;
+                header: {
+                    "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                };
                 path: {
                     /** @description Requires authenticated organization membership; UUID alone is never authorization. */
                     organization_id: components["parameters"]["OrganizationID"];
@@ -4861,15 +4866,15 @@ export interface paths {
             };
             requestBody: {
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["StartProcessRun"];
                 };
             };
             responses: {
-                /** @description Done */
+                /** @description Current committed records */
                 202: {
                     headers: {
+                        /** @description The current version for If-Match. */
+                        ETag?: string;
                         [name: string]: unknown;
                     };
                     content: {
@@ -4905,7 +4910,7 @@ export interface paths {
             };
             cookie?: never;
         };
-        /** Read a run with each step and its measured cost */
+        /** Read actual workflow progress, references and available measured cost */
         get: {
             parameters: {
                 query?: never;
@@ -4919,7 +4924,7 @@ export interface paths {
             };
             requestBody?: never;
             responses: {
-                /** @description Done */
+                /** @description Current committed records */
                 200: {
                     headers: {
                         [name: string]: unknown;
@@ -4933,6 +4938,7 @@ export interface paths {
                 403: components["responses"]["Forbidden"];
                 404: components["responses"]["NotFound"];
                 409: components["responses"]["Conflict"];
+                422: components["responses"]["Validation"];
                 500: components["responses"]["InternalError"];
                 503: components["responses"]["RestorePending"];
             };
@@ -4958,11 +4964,15 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Stop a run. Committed before anything is told */
+        /**
+         * Record a fresh native manager stop request before signalling the worker
+         * @description The actual current root manager may stop. This never recalls an in-flight outside action or converts uncertain delivery into failure.
+         */
         post: {
             parameters: {
                 query?: never;
                 header: {
+                    "Idempotency-Key": components["parameters"]["IdempotencyKey"];
                     /** @description The version last read, as sent in the ETag response header. Weak tags, lists and * are refused. */
                     "If-Match": components["parameters"]["IfMatch"];
                 };
@@ -4973,11 +4983,17 @@ export interface paths {
                 };
                 cookie?: never;
             };
-            requestBody?: never;
+            requestBody: {
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
             responses: {
-                /** @description Done */
+                /** @description Current committed records */
                 202: {
                     headers: {
+                        /** @description The current version for If-Match. */
+                        ETag?: string;
                         [name: string]: unknown;
                     };
                     content: {
@@ -8572,46 +8588,97 @@ export interface components {
             /** Format: date-time */
             created_at?: string;
         };
+        StartProcessRun: {
+            /** Format: uuid */
+            spec_id: string;
+            title: string;
+            /** Format: date-time */
+            due_at?: string;
+        };
+        ProcessSpecStep: {
+            key: string;
+            /** @enum {string} */
+            kind: "work_item" | "agent_task" | "human_approval" | "external_action" | "evidence_check";
+            after: string[];
+            labelCode: string | null;
+            label: string;
+            /** Format: uuid */
+            agentDefinitionId?: string;
+            toolId?: string;
+            /** @enum {string} */
+            approverRole?: "process_owner" | "starter_manager" | "named_reviewer";
+            /** @enum {string} */
+            evidence?: "artifact_attached" | "external_receipt" | "reviewer_approved";
+        };
         ProcessSpec: {
             /** Format: uuid */
             id: string;
             process_key: string;
             version_number: number;
-            name?: string;
+            name: string;
             /** @enum {string} */
-            classification?: "public" | "internal" | "confidential" | "restricted";
-            spec?: {
-                [key: string]: unknown;
+            classification: "public" | "internal" | "confidential" | "restricted";
+            spec: {
+                /** @constant */
+                schemaVersion: 1;
+                /** @enum {string} */
+                classification: "public" | "internal" | "confidential" | "restricted";
+                steps: components["schemas"]["ProcessSpecStep"][];
             };
             spec_sha256: string;
             /** @enum {string} */
-            source?: "graph" | "bundled" | "pack";
-            source_ref?: string | null;
+            source: "graph" | "bundled" | "pack";
+            source_ref: string | null;
             /** Format: date-time */
-            published_at?: string;
+            published_at: string;
+        };
+        ProcessRunStep: {
+            key: string;
+            label: string;
+            after: string[];
+            /** @enum {string} */
+            kind: "work_item" | "agent_task" | "human_approval" | "external_action" | "evidence_check";
+            tool_id: string | null;
+            /** @enum {string} */
+            status: "pending" | "ready" | "waiting" | "done" | "failed" | "skipped";
+            stop_code: string | null;
+            work_unit_id: string | null;
+            approval_id: string | null;
+            external_action_id: string | null;
+            agent_run_id: string | null;
+        };
+        ProcessRunCost: {
+            cost_micros: number;
+            is_estimate: boolean;
         };
         ProcessRun: {
             /** Format: uuid */
             id: string;
             /** Format: uuid */
-            spec_id?: string;
-            process_name?: string;
+            spec_id: string;
+            title: string;
+            process_name: string;
             /** Format: uuid */
             root_work_unit_id: string;
             /** @enum {string} */
             status: "queued" | "running" | "waiting" | "completed" | "failed" | "cancelled";
-            stop_code?: string | null;
-            steps: {
-                [key: string]: unknown;
-            }[];
-            cost?: {
-                [key: string]: unknown;
-            } | null;
+            stop_code: string | null;
+            steps: components["schemas"]["ProcessRunStep"][];
+            cost: components["schemas"]["ProcessRunCost"] | null;
+            can_manage: boolean;
             version: number;
             /** Format: date-time */
-            created_at?: string;
+            created_at: string;
             /** Format: date-time */
-            finished_at?: string | null;
+            finished_at: string | null;
+        };
+        ProcessRunList: {
+            items: components["schemas"]["ProcessRun"][];
+            next: string | null;
+        };
+        ProcessSpecList: {
+            items: components["schemas"]["ProcessSpec"][];
+            limited: boolean;
         };
         ObjectField: {
             key: string;

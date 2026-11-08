@@ -93,15 +93,10 @@ describe('the spec and the routes', () => {
     for (const route of routes) expect(inSpec, `${route} is not in the spec`).toContain(route);
   });
 
-  it('marks what does not exist yet', () => {
-    const planned = operations().filter((operation) => operation.status === 'planned');
-    expect(planned.map(({ path }) => path.split('/').slice(3).join('/'))).toEqual([
-      'process-specs',
-      'process-runs',
-      'process-runs',
-      'process-runs/{process_run_id}',
-      'process-runs/{process_run_id}/stop',
-    ]);
+  it('has no remaining planned operations after implementing the five actual process handlers', () => {
+    // The adjacent assertions require every active operation to have a real exported route and
+    // every route to have a contract. Runtime successful-response coverage remains a separate gate.
+    expect(operations().filter((operation) => operation.status === 'planned')).toEqual([]);
   });
 });
 

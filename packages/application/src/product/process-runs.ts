@@ -104,6 +104,8 @@ export type ProcessRunView = {
   id: string;
   specId: string;
   processName: string;
+  /** Current readable root Work title, separate from the immutable definition name. */
+  title: string;
   rootWorkUnitId: string;
   status: 'queued' | 'running' | 'waiting' | 'completed' | 'failed' | 'cancelled';
   stopCode: string | null;
@@ -112,6 +114,7 @@ export type ProcessRunView = {
     label: string;
     /** What kind of step this is, so a page can say what it is waiting for. */
     kind: ProcessStep['kind'];
+    after: readonly string[];
     /** Which tool, for an external action. */
     toolId: string | null;
     status: StepStatus;
@@ -203,6 +206,7 @@ function viewOf(
   run: RunRow,
   spec: Pick<SpecRow, 'name' | 'spec'>,
   rows: readonly StepRow[],
+  root: Pick<WorkRow, 'title'>,
   canManage: boolean,
   cost: ProcessRunView['cost'] = null,
 ): ProcessRunView {
@@ -212,6 +216,7 @@ function viewOf(
     id: run.id,
     specId: run.specId,
     processName: spec.name,
+    title: root.title,
     rootWorkUnitId: run.rootWorkUnitId,
     status: run.status as ProcessRunView['status'],
     stopCode: run.stopCode,
@@ -222,6 +227,7 @@ function viewOf(
         key: step.key,
         label: step.label,
         kind: step.kind,
+        after: step.after,
         toolId: step.toolId ?? null,
         status: row.status as StepStatus,
         stopCode: row?.stopCode ?? null,
@@ -291,7 +297,7 @@ export async function startProcessRun(
         throw new AppError('VERSION_CONFLICT');
       await processIntent(tx, previous.id);
       const root = await loadReadable(tx, context, previous.rootWorkUnitId);
-      return viewOf(previous, spec, await loadSteps(tx, runId), answersFor(root, context));
+      return viewOf(previous, spec, await loadSteps(tx, runId), root, answersFor(root, context));
     }
     const root = await withProcessBirth(tx, { runId, specId: spec.id }, () =>
       createWorkUnitInTx(tx, context, {
@@ -316,7 +322,7 @@ export async function startProcessRun(
     if (!run) {
       const [existing] = await tx.select().from(processRuns).where(eq(processRuns.id, runId));
       if (!existing) throw new AppError('NOT_FOUND');
-      return viewOf(existing, spec, await loadSteps(tx, runId), answersFor(root, context));
+      return viewOf(existing, spec, await loadSteps(tx, runId), root, answersFor(root, context));
     }
     const rows = steps.length
       ? await tx
@@ -339,7 +345,7 @@ export async function startProcessRun(
       payload: { process_run_id: runId, spec_id: spec.id, work_unit_id: root.id },
     });
     await auditAction(tx, context, 'process_run.started', processRunTargetRef(runId));
-    return viewOf(run, spec, rows, answersFor(root, context));
+    return viewOf(run, spec, rows, root, answersFor(root, context));
   });
 }
 
@@ -555,6 +561,7 @@ export async function listProcessRuns(
           run,
           { name, spec },
           steps.filter((step) => step.runId === run.id),
+          root,
           answersFor(root, context),
         ),
       ),
@@ -607,7 +614,7 @@ export async function getProcessRun(
     if (!row) throw new AppError('NOT_FOUND');
     const root = await loadReadable(tx, context, row.run.rootWorkUnitId);
     await processIntent(tx, row.run.id);
-    return viewOf(row.run, row, await loadSteps(tx, id.data), answersFor(root, context));
+    return viewOf(row.run, row, await loadSteps(tx, id.data), root, answersFor(root, context));
   });
   const workUnitIds = [view.rootWorkUnitId, ...view.steps.flatMap((step) => step.workUnitId ?? [])];
   return { ...view, cost: await measuredCost(context, ports, workUnitIds) };
