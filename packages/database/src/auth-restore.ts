@@ -93,10 +93,10 @@ export async function invalidateRestoredAuthentication(
     await tx.execute(sql`select set_config('identity.auth_restore_operation','invalidate',true),
       set_config('identity.auth_restore_generation',${input.generation},true),
       set_config('identity.auth_restore_empty_cipher_sha256',${hash(input.emptyBackupCiphertext)},true)`);
-    // The owned transaction has no provider/storage I/O. A concurrent writer makes NOWAIT fail,
-    // rather than letting a changing or RLS-filtered inventory become a zero-state certificate.
-    await tx.execute(sql`lock table identity.accounts,identity.session_assurances,identity.sessions,
-      identity.setup_tokens,identity.two_factors,identity.users,identity.verifications in share row exclusive mode nowait`);
+    // Same transaction/control-first order. The fixed helper owns strong table-lock authority,
+    // not native auth's intentionally column-only setup-token grant. No relation/body argument.
+    // NOWAIT and the private guard refuse a stale/changing inventory before crypto or mutation.
+    await tx.execute(sql`select identity.lock_auth_restore_native_inventory(${input.generation}::uuid)`);
     const existing = body.phase === 'invalidated' ? parseProof(body.invalidation) : null;
     let cursor: string | undefined,
       sets = 0;

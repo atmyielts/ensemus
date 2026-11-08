@@ -160,10 +160,13 @@ CREATE FUNCTION identity.guard_restore_authority_change() RETURNS trigger LANGUA
 SET search_path=pg_catalog AS $$
 DECLARE body jsonb;allowed boolean:=false;
 BEGIN
- IF TG_RELID NOT IN('org.memberships'::regclass,'org.security_policies'::regclass,
-  'org.sso_connections'::regclass,'org.sso_member_links'::regclass,'org.scim_tokens'::regclass,
-  'org.team_memberships'::regclass,'org.invitations'::regclass,'identity.sso_providers'::regclass,
-  'identity.accounts'::regclass) THEN
+ -- This is INVOKER: resolving cross-schema regclass constants would require schema USAGE that
+ -- native auth/eraser deliberately do not have. Trigger-owned names identify the exact target
+ -- without granting those roles a new schema lookup or body path.
+ IF (TG_TABLE_SCHEMA,TG_TABLE_NAME) NOT IN(
+  ('org','memberships'),('org','security_policies'),('org','sso_connections'),('org','sso_member_links'),
+  ('org','scim_tokens'),('org','team_memberships'),('org','invitations'),
+  ('identity','sso_providers'),('identity','accounts')) THEN
   RAISE EXCEPTION 'AUTH_RESTORE_RECONCILE_REFUSED' USING ERRCODE='EN422';END IF;
  -- This trigger remains INVOKER. Runtime roles receive only the granted admission assertion;
  -- they must never gain EXECUTE on the private backup/review control body to perform normal DML.
@@ -572,6 +575,30 @@ REVOKE ALL ON FUNCTION identity.extend_auth_restore_admission() FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION identity.extend_auth_restore_admission() TO ensemus_migrator;
 REVOKE ALL ON FUNCTION identity.auth_restore_admission() FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION identity.auth_restore_admission() TO ensemus_auth;
+--> statement-breakpoint
+
+-- Fixed lock-only inventory. Native auth can update only setup_tokens.used_at; a column UPDATE
+-- grant does not authorize LOCK TABLE SHARE ROW EXCLUSIVE (PostgreSQL checks the table ACL).
+-- Preserve that narrow CRUD boundary: only this owner helper takes the exact locks, returns no
+-- body, and accepts no caller relation names. The source control row is always locked FIRST.
+CREATE FUNCTION identity.lock_auth_restore_native_inventory(p_generation uuid) RETURNS void
+LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
+DECLARE body jsonb;
+BEGIN
+ IF current_user<>'ensemus_migrator' OR session_user<>'ensemus_auth' OR p_generation IS NULL THEN
+  RAISE EXCEPTION 'AUTH_RESTORE_NATIVE_ROLE_REQUIRED' USING ERRCODE='42501';END IF;
+ PERFORM id FROM identity.verifications WHERE id='68766d8e-9f7d-4b87-b881-bb4c3ff1654b'
+  AND identifier='ensemus-auth-restore:v1' FOR UPDATE NOWAIT;
+ IF NOT FOUND THEN RAISE EXCEPTION 'RESTORE_PENDING' USING ERRCODE='EN422';END IF;
+ body:=identity.auth_restore_control();
+ IF body->>'generation' IS DISTINCT FROM p_generation::text
+  OR body->>'phase' NOT IN('pending','invalidated') THEN
+  RAISE EXCEPTION 'AUTH_RESTORE_GENERATION_CHANGED' USING ERRCODE='EN422';END IF;
+ LOCK TABLE identity.accounts,identity.session_assurances,identity.sessions,identity.setup_tokens,
+  identity.two_factors,identity.users,identity.verifications IN SHARE ROW EXCLUSIVE MODE NOWAIT;
+END $$;
+REVOKE ALL ON FUNCTION identity.lock_auth_restore_native_inventory(uuid) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION identity.lock_auth_restore_native_inventory(uuid) TO ensemus_auth;
 --> statement-breakpoint
 
 CREATE FUNCTION identity.guard_auth_restore_control() RETURNS trigger LANGUAGE plpgsql

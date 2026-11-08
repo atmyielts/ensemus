@@ -187,6 +187,16 @@ describe('0422 actual-role isolated restore barrier (unrun source)', () => {
   afterAll(async () => {
     await runtime?.close();
   });
+  it('keeps native Account INSERT/UPDATE usable without granting auth org schema reach',async()=>{
+    // The fixture above genuinely signed up through native HTTP, then enrolled/confirmed its
+    // factor. Its Account INSERT must have passed the invoker trigger under this same narrow role.
+    await asRole('AUTH',async connection=>{
+      const scope=await connection.query("select current_user as role,session_user as login,has_schema_privilege(current_user,'org','USAGE') as org_usage");
+      expect(scope.rows[0]).toEqual({role:'ensemus_auth',login:'ensemus_auth',org_usage:false});
+      const written=await connection.query('update identity.accounts set updated_at=clock_timestamp() where id=$1 and user_id=$2',[accountId,userId]);
+      expect(written.rowCount).toBe(1);
+    });
+  });
   it('refuses begin while an actual application reader remains connected', async () => {
     await asRole('APP', async () => {
       await expect(
@@ -226,6 +236,27 @@ describe('0422 actual-role isolated restore barrier (unrun source)', () => {
         (await connection.query('select identity.auth_restore_transient_counts() as counts'))
           .rows[0].counts,
       ).toEqual(actual);
+    });
+  });
+  it('locks the exact pending native inventory through the fixed helper without broad setup-token grants',async()=>{
+    await asRole('AUTH',async connection=>{
+      await connection.query('begin');
+      try{
+        const scope=await connection.query("select has_table_privilege(current_user,'identity.setup_tokens','UPDATE') as table_update,has_column_privilege(current_user,'identity.setup_tokens','used_at','UPDATE') as column_update");
+        expect(scope.rows[0]).toEqual({table_update:false,column_update:true});
+        await connection.query('savepoint denied_raw_lock');
+        await expect(connection.query('lock table identity.setup_tokens in share row exclusive mode nowait')).rejects.toMatchObject({code:'42501'});
+        await connection.query('rollback to savepoint denied_raw_lock');
+        await connection.query('savepoint denied_generation');
+        await expect(connection.query('select identity.lock_auth_restore_native_inventory($1)',[randomUUID()])).rejects.toMatchObject({code:'EN422'});
+        await connection.query('rollback to savepoint denied_generation');
+        await connection.query('select identity.lock_auth_restore_native_inventory($1)',[generation]);
+        const locks=await connection.query("select mode,granted from pg_locks where pid=pg_backend_pid() and relation='identity.setup_tokens'::regclass and mode='ShareRowExclusiveLock'");
+        expect(locks.rows).toEqual([{mode:'ShareRowExclusiveLock',granted:true}]);
+      }finally{await connection.query('rollback');}
+    });
+    for(const role of ['MIGRATOR','APP','AGENT','DISPATCHER','SECRETS'] as const)await asRole(role,async connection=>{
+      await expect(connection.query('select identity.lock_auth_restore_native_inventory($1)',[generation])).rejects.toMatchObject({code:'42501'});
     });
   });
   it('blocks tenant, unbound dispatcher, native identity and generation admission while pending', async () => {
