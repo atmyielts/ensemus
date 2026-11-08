@@ -21,6 +21,7 @@ import {
   type TenantProvisioningPort,
 } from '@ensemus/application/saas/standing';
 import type { AgentHaltPort } from '@ensemus/application/saas/ports';
+import { createStandingAgentHaltPort } from '@ensemus/application/saas/standing-agent-port';
 import { sql } from 'drizzle-orm';
 import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
@@ -31,9 +32,10 @@ describe('standing and trusted provisioning', () => {
   const database = openAppDatabase(urls.app());
   const auth = new pg.Client({ connectionString: urls.auth() });
   let owner: TenantContext;
+  const actualAgents = createStandingAgentHaltPort();
   const agents: AgentHaltPort = {
-    haltTenantAgents: vi.fn(async () => undefined),
-    releaseTenantAgents: vi.fn(async () => undefined),
+    haltTenantAgents: vi.fn(actualAgents.haltTenantAgents),
+    releaseTenantAgents: vi.fn(actualAgents.releaseTenantAgents),
   };
   beforeAll(async () => {
     await auth.connect();

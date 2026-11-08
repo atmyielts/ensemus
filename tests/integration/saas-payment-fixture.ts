@@ -10,13 +10,11 @@ import {
   listInvoices,
 } from '@ensemus/application/saas/invoices';
 import { hashCustomerRef } from '@ensemus/saas/payment';
+import { createStandingAgentHaltPort } from '@ensemus/application/saas/standing-agent-port';
 import type pg from 'pg';
 import { seedBillingAccount, seedPlan } from '../helpers/saas';
 
-export const paymentAgents = {
-  haltTenantAgents: async () => undefined,
-  releaseTenantAgents: async () => undefined,
-};
+export const paymentAgents = createStandingAgentHaltPort();
 export async function paymentTenant(database: AppDatabase, auth: pg.Client) {
   const userId = randomUUID();
   await auth.query('insert into identity.users(id,name,email) values($1,$2,$3)', [

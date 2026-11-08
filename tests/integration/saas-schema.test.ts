@@ -24,6 +24,8 @@ import { eq, sql } from 'drizzle-orm';
 import { withAccountTx } from '@ensemus/database/account';
 import { createServiceContext } from '@ensemus/database/service';
 import { requestOffboarding } from '@ensemus/application/saas/offboarding';
+import { setTenantStandingInTx } from '@ensemus/application/saas/standing';
+import { createStandingAgentHaltPort } from '@ensemus/application/saas/standing-agent-port';
 import { createOffboardingAgentHaltPort } from '@ensemus/application/saas/offboarding-agent-port';
 import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -492,13 +494,19 @@ describe('M8 rules in the database', () => {
 
   it('makes writes in a tenant that is not served in full fail in PostgreSQL itself', async () => {
     const tenant = await makeTenant('saas-ro');
-    await withTenantTx(database.db, tenant, async (tx) => {
-      await tx.execute(sql`
-        insert into billing.standing_changes
-          (organization_id, from_lifecycle, to_lifecycle, reason_code, actor_type, actor_ref)
-        values (${tenant.organizationId}, 'active', 'read_only', 'TEST', 'system', 'test')`);
-      await tx.execute(sql`update org.organizations set lifecycle = 'read_only'`);
-    });
+    const service = createServiceContext(tenant.organizationId);
+    await withAccountTx(database.db, service, (tx) =>
+      setTenantStandingInTx(
+        tx,
+        service,
+        {
+          to: 'read_only',
+          reasonCode: 'TEST',
+          actor: { type: 'operator', ref: 'test@example.invalid' },
+        },
+        createStandingAgentHaltPort(),
+      ),
+    );
     const context = await resolveTenantContext(database.db, tenant.userId, tenant.organizationId);
     expect(context.serving).toBe('read_only');
     await expect(

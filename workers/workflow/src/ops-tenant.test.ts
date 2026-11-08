@@ -68,8 +68,7 @@ describe('trusted tenant commands', () => {
       expect(openAppDatabase).not.toHaveBeenCalled();
     },
   );
-  it('missing ports and malformed input refuse before reading credentials', async () => {
-    expect(await tenantCommand(['suspend', '--file', fileWith(move)])).toBe(2);
+  it('missing provisioning capability and malformed input refuse before reading credentials', async () => {
     expect(
       await tenantCommand(['suspend', '--file', fileWith({ ...move, reasonCode: 'free text' })], {
         agents,
@@ -79,6 +78,22 @@ describe('trusted tenant commands', () => {
       2,
     );
     expect(readSecret).not.toHaveBeenCalled();
+  });
+  it('binds the actual standing SQL adapter when no test override is supplied', async () => {
+    expect(await tenantCommand(['suspend', '--file', fileWith(move)])).toBe(0);
+    const actual = vi.mocked(standing.setTenantStandingInTx).mock.calls[0]![3];
+    const execute = vi.fn().mockResolvedValue({ rows: [] });
+    await expect(
+      actual.haltTenantAgents(
+        { execute } as never,
+        {
+          organizationId: move.organizationId,
+          actorType: 'service',
+        } as never,
+        move.reasonCode,
+      ),
+    ).rejects.toMatchObject({ code: 'PREREQUISITES_INCOMPLETE' });
+    expect(execute).toHaveBeenCalledTimes(1);
   });
   it('missing secret refuses before database access', async () => {
     vi.mocked(readSecret).mockImplementation(() => {

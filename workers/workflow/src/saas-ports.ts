@@ -1,47 +1,32 @@
-// The one place M8's ports meet other milestones' code (ADR-032 D9). Each refuses until its sibling is wired in
-// here at the final merge, so a deployment stops and says so rather than billing nothing or skipping a step.
+// The actual M4 ledger and separately owned standing/offboarding stops meet M8 here (ADR-032 D9).
 import {
-  usageNotWiredIn,
   type AgentHaltPort,
   type OffboardingPorts,
   type RetentionSource,
+  type UsageLedgerPort,
 } from '@ensemus/application/saas/ports';
+import { createUsageLedgerReader } from '@ensemus/application/saas/usage-reader';
+import { createStandingAgentHaltPort } from '@ensemus/application/saas/standing-agent-port';
 import { createRawFilesRetentionSource } from '@ensemus/application/saas/retention';
 import {
   createOffboardingAgentHaltPort,
   createOffboardingExportPort,
 } from '@ensemus/application/saas/offboarding-agent-port';
 
-/** The code a refusal carries, so an operator can tell what is missing from the log alone. */
-class PortNotWiredIn extends Error {
-  override name = 'PortNotWiredIn';
-  constructor(port: string) {
-    super(`PORT_NOT_WIRED_IN_${port}`);
-  }
-}
-
-const agentsNotWiredIn: AgentHaltPort = {
-  haltTenantAgents() {
-    throw new PortNotWiredIn('AGENTS');
-  },
-  releaseTenantAgents() {
-    throw new PortNotWiredIn('AGENTS');
-  },
-};
-
 export function createSaasPorts(_store: unknown): {
-  usage: typeof usageNotWiredIn;
+  usage: UsageLedgerPort;
   agents: AgentHaltPort;
   retentionSources: readonly RetentionSource[];
   offboarding: OffboardingPorts;
 } {
+  const agents = createStandingAgentHaltPort();
   return {
-    usage: usageNotWiredIn,
-    agents: agentsNotWiredIn,
+    usage: createUsageLedgerReader(),
+    agents,
     retentionSources: [createRawFilesRetentionSource(_store)],
     offboarding: {
       exports: createOffboardingExportPort(),
-      agents: agentsNotWiredIn,
+      agents,
       offboardingAgents: createOffboardingAgentHaltPort(),
       windDowns: [],
     },

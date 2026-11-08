@@ -279,6 +279,7 @@ export const PORTABILITY_INVENTORY = [
   inventory('lifecycle.retention_cursors', 'history', 'operational_excluded'),
   inventory('lifecycle.offboarding_agent_stops', 'history', 'operational_excluded'),
   inventory('lifecycle.offboarding_admissions', 'history', 'operational_excluded'),
+  inventory('lifecycle.standing_stop_receipts', 'history', 'operational_excluded'),
   inventory('lifecycle.object_restore_debts', 'history', 'operational_excluded'),
   inventory('lifecycle.object_deletion_claims', 'history', 'operational_excluded'),
   inventory('ai.run_authority_checkpoints', 'history', 'operational_excluded'),

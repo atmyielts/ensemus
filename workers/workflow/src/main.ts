@@ -3,7 +3,7 @@ import { writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createOnboardingAgentRuns } from '@ensemus/application/knowledge/onboarding-run-port';
-import { readSecret } from '@ensemus/config';
+import { loadSaasConfig, readSecret } from '@ensemus/config';
 import { loadSovereignConfig } from '@ensemus/config/sovereign';
 import { openAppDatabase } from '@ensemus/database';
 import { S3ObjectStore } from '@ensemus/storage';
@@ -83,6 +83,7 @@ async function main() {
   };
   const sovereign = loadSovereignConfig();
   const ports = createSaasPorts(store);
+  const billingEnabled = loadSaasConfig().billingEnabled;
   const worker = await Worker.create({
     connection,
     namespace: process.env.TEMPORAL_NAMESPACE ?? 'default',
@@ -108,8 +109,18 @@ async function main() {
         },
       }),
       // M8 (ADR-032). Its ports refuse until sibling milestones are wired in, in saas-ports.ts.
-      ...createBillingActivities({ database: db, usage: ports.usage, agents: ports.agents }),
-      ...createCreditActivities({ database: db, usage: ports.usage, agents: ports.agents }),
+      ...createBillingActivities({
+        database: db,
+        usage: ports.usage,
+        agents: ports.agents,
+        billingEnabled,
+      }),
+      ...createCreditActivities({
+        database: db,
+        usage: ports.usage,
+        agents: ports.agents,
+        billingEnabled,
+      }),
       ...createPaymentPlatformActivities({ database: db }),
       ...createRetentionActivities({ database: db, sources: ports.retentionSources }),
       ...createOffboardingActivities({ database: db, ports: ports.offboarding }),

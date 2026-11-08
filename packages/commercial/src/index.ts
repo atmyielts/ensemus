@@ -1,10 +1,10 @@
 // The entitlement seam (MODEL-04, COMM-02, ADR-028 FD-8). M6's signed offline license and M8's billing
 // implement the same `Entitlements` port behind this. No price, plan or limit lives in code: the only
-// rule here is what each commercial mode already means, and that a Cloud tenant has no included allowance
-// until a row in `platform.entitlements` issues one. An answer here can only stop a call. It has no field
+// rule here is what each commercial mode already means. Hosted access uses the current subscription,
+// standing and exact credit balance; legacy platform grants cannot bypass those facts. An answer here can only stop a call. It has no field
 // that could allow something a policy denied, and the gateway checks policy after it regardless.
-import { AppError } from '@ensemus/application';
-import { readEntitlementFacts } from '@ensemus/application/ai-budget';
+import { AppError, createSovereignEntitlements } from '@ensemus/application';
+import { createEntitlementChecker, getEntitlements } from '@ensemus/application/saas/entitlements';
 import type { Entitlements, EntitlementResult } from '@ensemus/application/ai-ports';
 import type { EntitlementsView } from '@ensemus/contracts/ai';
 import type { AppDatabase, TenantContext } from '@ensemus/database';
@@ -65,23 +65,22 @@ export function capacitiesOf(grant: EntitlementGrant | null, period: string, mod
   );
 }
 
-const periodOf = (now: Date) => now.toISOString().slice(0, 7);
-
 /**
  * A database failure throws, and the Activity retries, so nothing runs and no outage reads as a denial
  * on the record. Nothing is cached, so a new row or a change of mode counts from the next call.
  */
 export function createEntitlements(
   database: AppDatabase,
-  options: { now?: () => Date } = {},
+  options: { now?: () => Date; billingEnabled?: boolean } = {},
 ): Entitlements {
-  const now = options.now ?? (() => new Date());
+  const hosted = createEntitlementChecker(database, options.billingEnabled ?? false);
+  const sovereign = createSovereignEntitlements();
   return {
     async check(context, feature) {
-      const period = periodOf(now());
-      const facts = await readEntitlementFacts(database, context, { period });
-      if (!facts) return { ok: false, code: 'ENTITLEMENT_DENIED' };
-      return decideEntitlement(facts.mode, facts.grant, feature, period);
+      const result = await hosted.check(context, feature);
+      return result.ok && result.commercialMode === 'sovereign'
+        ? sovereign.check(context, feature)
+        : result;
     },
   };
 }
@@ -90,19 +89,34 @@ export function createEntitlements(
 export async function getEntitlementsView(
   database: AppDatabase,
   context: TenantContext,
-  options: { now?: () => Date } = {},
+  options: { now?: () => Date; billingEnabled?: boolean } = {},
 ): Promise<EntitlementsView> {
   if (context.actorType !== 'user' || !can(context.role, 'usage.view')) {
     throw new AppError('FORBIDDEN');
   }
-  const period = periodOf((options.now ?? (() => new Date()))());
-  const facts = await readEntitlementFacts(database, context, { period });
-  if (!facts) throw new AppError('NOT_FOUND');
+  const facts = await getEntitlements(database, context, {
+    billingEnabled: options.billingEnabled ?? false,
+  });
   return {
     mode: facts.mode,
-    features: [...entitledFeatures(facts.mode, facts.grant, period)].sort(),
-    capacity: capacitiesOf(facts.grant, period, facts.mode),
+    features: [...(facts.mode === 'sovereign' ? MODE_FEATURES : facts.features)].sort(),
+    capacity: displayedCapacities(facts.capacity),
   };
+}
+
+/** The original numeric wire contract cannot represent every bigint; absent is never a rounded balance. */
+export function displayedCapacities(values: Readonly<Record<string, string | number | null>>) {
+  const capacity: Record<string, number> = {};
+  for (const [name, value] of Object.entries(values)) {
+    if (typeof value === 'number') {
+      if (Number.isSafeInteger(value)) capacity[name] = value;
+    } else if (typeof value === 'string' && /^-?\d{1,19}$/.test(value)) {
+      const exact = BigInt(value);
+      if (exact >= BigInt(Number.MIN_SAFE_INTEGER) && exact <= BigInt(Number.MAX_SAFE_INTEGER))
+        capacity[name] = Number(exact);
+    }
+  }
+  return capacity;
 }
 
 /** Whole micro-USD as dollars, with the digits it needs and no float in the way. */

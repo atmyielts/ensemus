@@ -92,7 +92,10 @@ export async function getEntitlements(
     const facts = await entitlementFacts(tx, context, options.billingEnabled, true);
     return {
       mode: facts.commercialMode,
-      features: facts.plan?.features ?? [],
+      features:
+        facts.plan?.features.filter(
+          (feature) => evaluateEntitlement(facts, { kind: 'feature', feature }).allowed,
+        ) ?? [],
       capacity: {
         balanceMicrocredits: facts.balanceMicrocredits?.toString() ?? null,
         includedMicrocredits: facts.plan?.includedMicrocredits?.toString() ?? null,

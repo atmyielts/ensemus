@@ -64,8 +64,8 @@ describe('collections follows pinned published steps without deleting tenant con
         .where(eq(subscriptions.id, who.subscription.subscriptionId)),
     );
     const agents = {
-      haltTenantAgents: vi.fn().mockResolvedValue(undefined),
-      releaseTenantAgents: vi.fn().mockResolvedValue(undefined),
+      haltTenantAgents: vi.fn(paymentAgents.haltTenantAgents),
+      releaseTenantAgents: vi.fn(paymentAgents.releaseTenantAgents),
     };
     const counts = () =>
       withAccountTx(database.db, who.service, (tx) =>
