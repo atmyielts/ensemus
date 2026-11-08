@@ -723,8 +723,16 @@ export function extendCoreSection(core: PortabilitySection): PortabilitySection 
     ...core,
     exportPage: async (tx, context, input) => {
       const state = input.cursor?.startsWith('extension:');
-      if (state)
-        return extensionExport(tx, context, { ...input, cursor: input.cursor!.slice(10) || null });
+      if (state) {
+        const page = await extensionExport(tx, context, {
+          ...input,
+          cursor: input.cursor!.slice(10) || null,
+        });
+        return {
+          ...page,
+          nextCursor: page.nextCursor === null ? null : `extension:${page.nextCursor}`,
+        };
+      }
       const page = await core.exportPage(tx, context, input);
       return { ...page, nextCursor: page.nextCursor ?? 'extension:' };
     },

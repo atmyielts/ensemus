@@ -29,6 +29,7 @@ import {
   openAccountExportArchive,
 } from '@ensemus/application/saas/exports';
 import { setTenantStandingInTx } from '@ensemus/application/saas/standing';
+import { createStandingAgentHaltPort } from '@ensemus/application/saas/standing-agent-port';
 import { exportManifestSchema } from '@ensemus/contracts/portability-records';
 import { EXPORT_MANIFEST_PATH } from '@ensemus/domain/portability';
 import { open } from '@ensemus/sovereign/sealed';
@@ -73,10 +74,7 @@ describe('account-only M6 exports while suspended', () => {
       retentionHours: 24,
     };
   let world: Awaited<ReturnType<typeof makeTwoTenants>>, owner: TenantContext, exportId: string;
-  const agents = {
-    haltTenantAgents: async () => undefined,
-    releaseTenantAgents: async () => undefined,
-  }; // isolated tenants have no runs; no agent-lifecycle qualification is claimed.
+  const agents = createStandingAgentHaltPort();
   beforeAll(async () => {
     world = await makeTwoTenants(database.db);
     await setMemberRole(database.db, world.a.owner.context, {

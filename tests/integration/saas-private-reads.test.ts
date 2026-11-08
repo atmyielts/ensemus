@@ -4,7 +4,8 @@ import { memberships, openAppDatabase, withTenantTx, type TenantContext } from '
 import { createServiceContext } from '@ensemus/database/service';
 import { createWorkUnit, disableMember, setMemberRole } from '@ensemus/application';
 import { createEntitlementChecker, getEntitlements } from '@ensemus/application/saas/entitlements';
-import { getTenantStanding } from '@ensemus/application/saas/standing';
+import { getTenantStanding, setTenantStandingInTx } from '@ensemus/application/saas/standing';
+import { createStandingAgentHaltPort } from '@ensemus/application/saas/standing-agent-port';
 import { openTicket } from '@ensemus/application/saas/support';
 import { sql } from 'drizzle-orm';
 import pg from 'pg';
@@ -79,9 +80,24 @@ describe('financial and support bodies remain outside actual agent logins', () =
         values(${owner.organizationId}::uuid,'subscription','XTS',${subscription.id}::uuid,${period.rows[0]!.id}::uuid,${JSON.stringify({ billing_email: email, tax_id: taxId })}::jsonb)`);
       await tx.execute(sql`insert into billing.credit_accounts(organization_id,balance_microcredits,usage_cursor)
         values(${owner.organizationId}::uuid,12345,'generated-private-usage-cursor') on conflict(organization_id) do update set balance_microcredits=12345,usage_cursor='generated-private-usage-cursor'`);
-      await tx.execute(sql`insert into billing.standing_changes(organization_id,from_lifecycle,to_lifecycle,reason_code,actor_type,actor_ref)
-        values(${owner.organizationId}::uuid,'active','active','TEST_PRIVATE_STANDING','operator','generated-private-operator@example.invalid')`);
     });
+    // Retain genuine standing history, then restore active service so privacy negatives cannot pass
+    // merely because the tenant is paused. No no-op row substitutes for an actual transition.
+    const service = createServiceContext(owner.organizationId),
+      standingAgents = createStandingAgentHaltPort();
+    for (const to of ['read_only', 'active'] as const)
+      await withTenantTx(app.db, service, (tx) =>
+        setTenantStandingInTx(
+          tx,
+          service,
+          {
+            to,
+            reasonCode: 'TEST_PRIVATE_STANDING',
+            actor: { type: 'operator', ref: 'generated-private-operator@example.invalid' },
+          },
+          standingAgents,
+        ),
+      );
     ownerTicket = (
       await openTicket(app.db, owner, {
         subject: 'Generated owner subject',

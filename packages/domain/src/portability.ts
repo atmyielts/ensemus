@@ -282,8 +282,8 @@ export const PORTABILITY_INVENTORY = [
   inventory('lifecycle.standing_stop_receipts', 'history', 'operational_excluded'),
   inventory('lifecycle.object_restore_debts', 'history', 'operational_excluded'),
   inventory('lifecycle.object_deletion_claims', 'history', 'operational_excluded'),
-  inventory('ai.run_authority_checkpoints', 'history', 'operational_excluded'),
-  inventory('ai.run_read_authorities', 'history', 'operational_excluded'),
+  // The unregistered 0417/0419 authority tables must join this unpublished profile with their SQL;
+  // active exports still require an exact inventory of every actually installed table.
   inventory('experience.onboarding_completions', 'policy', 'operational_excluded'),
   inventory('experience.outcome_work_births', 'policy', 'operational_excluded'),
 ] as const;
