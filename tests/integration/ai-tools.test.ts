@@ -774,6 +774,51 @@ describe('tool gateway, as the real roles', () => {
       return { connectionId, seeded, approvals };
     };
 
+    it('settles an existing M3 receipt after cancellation without reopening tool payload or Work authority', async () => {
+      const unit = await work(a.owner);
+      const { connectionId, seeded, approvals } = await scripted(a.owner, unit);
+      const run = await startRun(a.owner, { workUnitId: unit });
+      let reads = 0;
+      let requested = 0;
+      const store = createToolStepStore({ database: agent.db, objects });
+      const gateway = createToolGateway({
+        source: source(),
+        externalActions: {
+          propose: () => Promise.reject(new Error('TEST_DUPLICATE_SEND')),
+          readState: async () => {
+            reads += 1;
+            return { status: 'sent', approvalId: seeded.approvalId };
+          },
+        },
+        approvals: {
+          ...approvals,
+          request: (...args) => { requested += 1; return approvals.request(...args); },
+        },
+        halt: createHaltCheck(),
+        store,
+      });
+      expect(await ask(gateway, run, 'email.send', {
+        connection_id: connectionId, email: testEmailPayload(),
+      })).toMatchObject({ outcome: 'needs_approval' });
+      const beforePayloads = await payloadsOf(a.organizationId, run.runId);
+      await moveRun(a.organizationId, run.runId, 'cancelled');
+      store.loadProposal = async () => { throw new Error('TEST_CLOSED_PAYLOAD_READ'); };
+      expect(await gateway.handle(run.agentContext, run.ref(1))).toMatchObject({ outcome: 'done' });
+      expect(await gateway.handle(run.agentContext, run.ref(1))).toMatchObject({ outcome: 'done' });
+      expect(requested).toBe(1);
+      expect(reads).toBe(1);
+      await store.withTx(run.agentContext, async (tx) => {
+        expect(await store.readRun(tx, run.agentContext, run.runId, { lock: true }))
+          .toMatchObject({ status: 'cancelled', inputsOpen: false, workStopped: true });
+        expect(await tx.select({ id: workUnits.id }).from(workUnits).where(eq(workUnits.id, unit)))
+          .toEqual([]);
+      });
+      expect(await payloadsOf(a.organizationId, run.runId)).toEqual(beforePayloads);
+      const [proposal] = await withTenantTx(app.db, a.owner, (tx) =>
+        tx.select().from(toolProposals).where(eq(toolProposals.runId, run.runId)));
+      expect(proposal).toMatchObject({ status: 'done', externalActionId: seeded.id });
+    });
+
     it('does not send twice when a send timed out: AI-TS-01 with a fake port', async () => {
       const unit = await work(a.owner);
       const { connectionId, seeded, approvals } = await scripted(a.owner, unit);

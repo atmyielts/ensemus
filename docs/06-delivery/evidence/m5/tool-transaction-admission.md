@@ -1,0 +1,11 @@
+# Tool transaction admission follow-up
+
+This is source-only follow-up to the checked read-time authority foundation. No new SQL, role grants or body-serving exception is introduced. The 0417/0419 lifecycle remains unqualified and disabled in the root runtime until the joined gate.
+
+`createToolStepStore.readRun` now starts with metadata-only run, stop and active-initiator checks. For an actually running run with its exact current initiator role, it calls the existing immutable scope/current-influence admission helper inside that same tool transaction before inspecting Work control state. Source/catalog closure locks precede checkpoint/run serialization; inverse run locks use NOWAIT. Both authority markers are cleared before admission and whenever admission fails or the run is closed. The closed path reads neither Work material nor manifest prompt text; active tool configuration projects only the immutable tools field.
+
+Only pure typed application refusals become closed metadata facts. PostgreSQL failures, including contention, propagate so an aborted transaction is never reused. Existing terminal proposal status, M3 receipt reconciliation, usage and settlement paths remain unchanged. A closed run cannot acquire new input authority through reconciliation.
+
+Four actual-role cases are authored in `agent-read-authority.test.ts`: valid explicit-scope admission in a fresh transaction and boundary reset; refusal after a current class exceeds the immutable ceiling; terminal metadata-only behavior despite earlier nested markers; and a driver-held run lock producing the actual NOWAIT error. The additional `ai-tools.test.ts` case reconciles one existing external-action receipt after cancellation, forbids the private proposal loader, verifies no second proposal or external read after settlement, and checks unchanged private payloads.
+
+These follow-up tests, formatting, lint and types have not been run at this source checkpoint. No SQL application, database tests, Docker, build, browser, installation, providers or keys ran. Prior green source results recorded in the surrounding evidence do not apply to these new hunks. Root must union this narrow `readRun` hunk with its newer stop/M3 receipt paths rather than replace the entire file from this branch.

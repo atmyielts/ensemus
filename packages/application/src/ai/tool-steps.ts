@@ -21,7 +21,6 @@ import {
   modelProposalInputs,
   organizations,
   runControls,
-  runInputCheckpoints,
   stepPayloads,
   toolProposals,
   usageLedger,
@@ -64,6 +63,7 @@ import {
 import { claimGeneratedPut, settleGeneratedPut } from '../knowledge/generated-writer';
 import { bindModelResultWriteInTx } from './model-admission';
 import { delegatedBodyProofFromProposal } from './delegated-title';
+import { loadAgentReadScopeInTx } from './read-scope';
 
 export type StoredProposal = {
   id: string;
@@ -606,40 +606,96 @@ export function createToolStepStore(deps: {
 
     async readRun(tx, context, runId, options) {
       assertOwnRun(context, runId);
+      // A fresh tool transaction has no material authority. Closed reconciliation must not inherit
+      // a marker from an earlier read, and must remain possible without reopening private inputs.
+      const clearAdmission = () =>
+        tx.execute(sql`select set_config('app.agent_scope_protocol','',true),
+          set_config('app.agent_authority_protocol','',true)`);
+      await clearAdmission();
+      const [initial] = await tx.select().from(agentRuns).where(eq(agentRuns.id, runId));
+      if (!initial) return null;
+      const [initialInitiator] = await tx
+        .select({ role: memberships.role })
+        .from(memberships)
+        .where(
+          and(eq(memberships.id, initial.initiatorMembershipId), eq(memberships.status, 'active')),
+        );
+      const [initialStop] = await tx
+        .select({ id: runControls.id })
+        .from(runControls)
+        .where(and(eq(runControls.runId, runId), eq(runControls.kind, 'stop')))
+        .limit(1);
+      let admitted = false;
+      if (
+        initial.status === 'running' &&
+        !initialStop &&
+        initial.initiatorMembershipId === context.membershipId &&
+        initialInitiator?.role === context.role
+      ) {
+        try {
+          // Actual source/catalog closure first, then checkpoint and run locks. The helper uses
+          // NOWAIT for the inverse run lock; taking it above the closure could deadlock revocation.
+          await loadAgentReadScopeInTx(
+            tx,
+            context,
+            { workUnitId: initial.workUnitId, agentVersionId: initial.agentVersionId },
+            { lockRun: options.lock },
+          );
+          admitted = true;
+        } catch (error) {
+          // Only a pure application refusal leaves this transaction usable for metadata settlement.
+          // PostgreSQL errors (including NOWAIT contention) must abort; never swallow an aborted Tx.
+          if (
+            !(error instanceof AppError) ||
+            !['POLICY_DENIED', 'NOT_FOUND', 'FORBIDDEN'].includes(error.code)
+          )
+            throw error;
+          await clearAdmission();
+        }
+      }
       const query = tx.select().from(agentRuns).where(eq(agentRuns.id, runId));
-      const [run] = await (options.lock ? query.for('update') : query);
+      const [run] = await (options.lock ? query.for('update', { noWait: true }) : query);
       if (!run) return null;
-      if (options.lock)
-        await tx
-          .select({ id: runInputCheckpoints.runId })
-          .from(runInputCheckpoints)
-          .where(eq(runInputCheckpoints.runId, runId))
-          .for('share');
-      const [version] = await tx
-        .select({ spec: agentVersions.spec })
-        .from(agentVersions)
-        .where(eq(agentVersions.id, run.agentVersionId));
       const [initiator] = await tx
         .select({ role: memberships.role })
         .from(memberships)
         .where(
           and(eq(memberships.id, run.initiatorMembershipId), eq(memberships.status, 'active')),
         );
-      const [work] = await tx
-        .select({ status: workUnits.status })
-        .from(workUnits)
-        .where(eq(workUnits.id, run.workUnitId));
       const [stop] = await tx
         .select({ id: runControls.id })
         .from(runControls)
         .where(and(eq(runControls.runId, runId), eq(runControls.kind, 'stop')))
         .limit(1);
-      const spec = specTools.safeParse(version?.spec);
+      admitted &&=
+        run.status === 'running' &&
+        !stop &&
+        run.initiatorMembershipId === context.membershipId &&
+        initiator?.role === context.role;
+      if (!admitted) await clearAdmission();
+      // A closed run needs status/IDs, never Work material or the immutable manifest's prompt text.
+      const [version] = admitted
+        ? await tx
+            .select({ tools: sql<unknown>`${agentVersions.spec}->'tools'` })
+            .from(agentVersions)
+            .where(eq(agentVersions.id, run.agentVersionId))
+        : [];
+      const [work] = admitted
+        ? await tx
+            .select({ status: workUnits.status })
+            .from(workUnits)
+            .where(eq(workUnits.id, run.workUnitId))
+        : [];
+      const spec = specTools.safeParse({ tools: version?.tools });
       const scopes = scopeTools.safeParse(run.delegatedScopes);
-      const inputState = await tx.execute<{ allowed: boolean }>(
-        sql`select ai.run_input_admitted(${runId}::uuid)
-          and ai.run_inputs_readable(${runId}::uuid,${context.membershipId}::uuid) as allowed`,
-      );
+      const inputState = admitted
+        ? await tx.execute<{ allowed: boolean }>(
+            sql`select ai.run_input_admitted(${runId}::uuid)
+              and ai.run_inputs_readable(${runId}::uuid,${context.membershipId}::uuid) as allowed`,
+          )
+        : null;
+      const inputsOpen = inputState?.rows[0]?.allowed === true;
+      if (!inputsOpen || !work || STOPPED_WORK.includes(work.status)) await clearAdmission();
       return {
         status: run.status as AgentRunStatus,
         workUnitId: run.workUnitId,
@@ -648,7 +704,7 @@ export function createToolStepStore(deps: {
         initiatorRole: initiator?.role ?? null,
         stopRequested: Boolean(stop),
         workStopped: !work || STOPPED_WORK.includes(work.status),
-        inputsOpen: inputState.rows[0]?.allowed === true,
+        inputsOpen,
         classification: run.effectiveClassification as AiClassification,
         maxDelegationDepth: run.maxDelegationDepth,
         allow: spec.success ? spec.data.tools.allow : null,
