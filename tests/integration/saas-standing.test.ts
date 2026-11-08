@@ -162,9 +162,10 @@ describe('standing and trusted provisioning', () => {
     ).rejects.toMatchObject({ code: 'NOT_FOUND' });
     expect(commit).not.toHaveBeenCalled();
   });
-  it('a failed trusted bootstrap write rolls back tenant, owner and subscription together', async () => {
+  it('a fabricated bootstrap capability cannot create an invited owner and leaves no tenant or invitation', async () => {
     const plan = await seedPlan({ mode: 'byom' });
     const organizationId = randomUUID();
+    const issueOwnerInvitationInTx = vi.fn(async () => { throw new AppError('VERSION_CONFLICT'); });
     const port: TenantProvisioningPort = {
       prepare: async () => ({
         ownerUserId: owner.userId,
@@ -172,9 +173,7 @@ describe('standing and trusted provisioning', () => {
         ownerMembershipId: randomUUID(),
         capability: randomUUID(),
       }),
-      issueOwnerInvitationInTx: async () => {
-        throw new AppError('VERSION_CONFLICT');
-      },
+      issueOwnerInvitationInTx,
     };
     await expect(
       provisionTenant(
@@ -189,7 +188,8 @@ describe('standing and trusted provisioning', () => {
         },
         port,
       ),
-    ).rejects.toMatchObject({ code: 'VERSION_CONFLICT' });
+    ).rejects.toMatchObject({ cause: { code: 'EN405' } });
+    expect(issueOwnerInvitationInTx).not.toHaveBeenCalled();
     await expect(resolveTenantContext(database.db, owner.userId, organizationId)).rejects.toThrow();
     const persisted = await withTenantTx(database.db, createServiceContext(organizationId), (tx) =>
       tx.execute(sql`select count(*)::int as n from org.organizations`),

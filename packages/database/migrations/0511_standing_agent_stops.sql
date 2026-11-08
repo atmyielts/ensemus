@@ -201,3 +201,42 @@ END $$;
 REVOKE ALL ON FUNCTION lifecycle.keep_standing_receipt() FROM PUBLIC;
 CREATE TRIGGER standing_receipt_change BEFORE UPDATE ON lifecycle.standing_stop_receipts FOR EACH ROW EXECUTE FUNCTION lifecycle.keep_standing_receipt();
 CREATE TRIGGER standing_receipt_keep BEFORE DELETE OR TRUNCATE ON lifecycle.standing_stop_receipts FOR EACH STATEMENT EXECUTE FUNCTION app.reject_change();
+--> statement-breakpoint
+
+-- The service's lifecycle-only effect uses actual INSERT birth. It does not impersonate an interactive
+-- person, and cannot use an old/updated row or a forged selector as authority for another field.
+CREATE FUNCTION lifecycle.service_standing_birth(p_org uuid,p_from text,p_to text) RETURNS boolean
+ LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
+DECLARE prior text:=current_setting('lifecycle.standing_org',true);matches integer;
+BEGIN
+ IF session_user<>'ensemus_app' OR app.current_actor_type() IS DISTINCT FROM 'service'
+  OR p_org IS DISTINCT FROM app.current_organization_id() OR p_org IS NULL OR p_from IS NULL OR p_to IS NULL OR p_from=p_to THEN
+  RETURN false;END IF;
+ PERFORM set_config('lifecycle.standing_org',p_org::text,true);
+ SELECT count(*)::integer INTO matches FROM lifecycle.standing_stop_receipts r
+ JOIN billing.standing_changes s ON s.organization_id=r.organization_id AND s.id=r.standing_change_id
+ WHERE r.organization_id=p_org AND r.birth_transaction=pg_current_xact_id()::text AND r.applied_transaction IS NULL
+  AND s.from_lifecycle=p_from AND s.to_lifecycle=p_to;
+ PERFORM set_config('lifecycle.standing_org',coalesce(prior,''),true);RETURN matches=1;
+EXCEPTION WHEN OTHERS THEN
+ PERFORM set_config('lifecycle.standing_org',coalesce(prior,''),true);RAISE;
+END $$;
+REVOKE ALL ON FUNCTION lifecycle.service_standing_birth(uuid,text,text) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION lifecycle.service_standing_birth(uuid,text,text) TO ensemus_app;
+
+-- Preserve the original function OID and human/agent MFA+SSO fallback. The fixed predicate reads only
+-- the current transaction's genuine witness; no generic service role or custom GUC waives the guard.
+CREATE OR REPLACE FUNCTION org.guard_organization_management() RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog AS $$
+BEGIN
+ IF TG_RELID<>'org.organizations'::regclass OR TG_OP<>'UPDATE' THEN
+  RAISE EXCEPTION 'INTERACTIVE_GUARD_TARGET_INVALID' USING ERRCODE='42501';END IF;
+ IF current_user='ensemus_app' AND session_user='ensemus_app' AND app.current_actor_type()='service'
+  AND NEW.id=app.current_organization_id() AND NEW.lifecycle<>OLD.lifecycle
+  AND(to_jsonb(NEW)-'lifecycle') IS NOT DISTINCT FROM(to_jsonb(OLD)-'lifecycle')
+  AND lifecycle.service_standing_birth(NEW.id,OLD.lifecycle,NEW.lifecycle) THEN RETURN NEW;END IF;
+ IF current_user IN('ensemus_app','ensemus_agent') AND
+  (NEW.id IS DISTINCT FROM app.current_organization_id() OR NOT app.interactive_privilege_allowed('organization.manage')) THEN
+  RAISE EXCEPTION 'MFA_REQUIRED' USING ERRCODE='EN405';END IF;
+ RETURN NEW;
+END $$;
+REVOKE ALL ON FUNCTION org.guard_organization_management() FROM PUBLIC;

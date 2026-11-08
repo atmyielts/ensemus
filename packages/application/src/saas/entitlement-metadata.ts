@@ -2,7 +2,7 @@
 import type { TenantContext, Tx } from '@ensemus/database';
 import { sql } from 'drizzle-orm';
 import { z } from 'zod';
-import { AppError } from '../errors';
+import { AppError, pgCode } from '../errors';
 import { idSchema } from '../ids';
 
 const metadata = z
@@ -23,7 +23,12 @@ const metadata = z
 export async function loadEntitlementMetadataInTx(tx: Tx, context: TenantContext) {
   const result = await tx.execute(
     sql`select "planVersionId","subscriptionStatus","balanceMicrocredits","standingReasonCode","standingChangedAt" from billing.current_entitlement_metadata() where app.current_organization_id()=${context.organizationId}::uuid`,
-  );
+  ).catch((error: unknown) => {
+    // This fixed SQL refusal is stale/disabled person authority, not an empty subscription or outage.
+    const reason = (error as { cause?: { message?: unknown } })?.cause?.message;
+    if (pgCode(error) === '42501' && reason === 'ENTITLEMENT_METADATA_PERSON') throw new AppError('NOT_FOUND');
+    throw error;
+  });
   const parsed = metadata.safeParse(result.rows[0]);
   if (result.rows.length !== 1 || !parsed.success) throw new AppError('NOT_FOUND');
   return parsed.data;
