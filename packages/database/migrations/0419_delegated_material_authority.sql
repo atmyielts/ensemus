@@ -1675,7 +1675,7 @@ $$;
 -- Purge-time control witnesses only. Actual read-time checkpoints and historical authority are
 -- separate. No financial/provider settlement or earlier source-version observation is asserted.
 CREATE TABLE ai.source_run_closures (
-  organization_id uuid NOT NULL,source_id uuid NOT NULL,source_version integer NOT NULL,run_id uuid NOT NULL,
+  organization_id uuid NOT NULL,source_id uuid NOT NULL,source_version bigint NOT NULL,run_id uuid NOT NULL,
   terminal_version bigint NOT NULL,fence_generation integer NOT NULL,terminal_status text NOT NULL,closed_at timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT source_run_closures_pk PRIMARY KEY(organization_id,source_id,source_version,run_id,terminal_version,fence_generation),
   CONSTRAINT source_run_closures_source_fk FOREIGN KEY(organization_id,source_id) REFERENCES knowledge.sources(organization_id,id),
@@ -1726,7 +1726,7 @@ BEGIN
 END $$;
 REVOKE ALL ON FUNCTION ai.guard_fenced_terminal_revival() FROM PUBLIC;
 CREATE TRIGGER fenced_terminal_run_no_revival BEFORE UPDATE ON ai.agent_runs FOR EACH ROW EXECUTE FUNCTION ai.guard_fenced_terminal_revival();
-CREATE FUNCTION ai.source_run_closure_remaining(p_source uuid,p_version integer) RETURNS integer LANGUAGE sql STABLE SET search_path=pg_catalog AS $$
+CREATE FUNCTION ai.source_run_closure_remaining(p_source uuid,p_version bigint) RETURNS integer LANGUAGE sql STABLE SET search_path=pg_catalog AS $$
   SELECT CASE WHEN NOT EXISTS(SELECT 1 FROM knowledge.sources source WHERE source.organization_id=app.current_organization_id()
     AND source.id=p_source AND source.state IN('revoked','deleted') AND source.version=p_version) THEN 1 ELSE(
     SELECT count(*)::integer FROM ai.source_input_runs(p_source) actual(run_id) LEFT JOIN ai.agent_runs run ON run.organization_id=app.current_organization_id() AND run.id=actual.run_id
@@ -1737,5 +1737,92 @@ CREATE FUNCTION ai.source_run_closure_remaining(p_source uuid,p_version integer)
       OR NOT EXISTS(SELECT 1 FROM ai.source_run_closures closure WHERE closure.organization_id=app.current_organization_id() AND closure.source_id=p_source AND closure.source_version=p_version
         AND closure.run_id=actual.run_id AND closure.fence_generation=checkpoint.fence_generation AND closure.terminal_version<=run.version)) END
 $$;
-REVOKE ALL ON FUNCTION ai.source_run_closure_remaining(uuid,integer) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION ai.source_run_closure_remaining(uuid,integer) TO ensemus_app;
+REVOKE ALL ON FUNCTION ai.source_run_closure_remaining(uuid,bigint) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION ai.source_run_closure_remaining(uuid,bigint) TO ensemus_app;
+--> statement-breakpoint
+-- Pure digest of fixed redaction metadata, not a body getter, caller credential or write authority.
+GRANT EXECUTE ON FUNCTION work.delegated_redaction_digest(uuid,uuid,bigint,text,uuid,uuid) TO ensemus_app;
+CREATE FUNCTION ai.delegated_body_disposed(p_child uuid) RETURNS boolean LANGUAGE sql STABLE SET search_path=pg_catalog AS $$
+  SELECT EXISTS(SELECT 1 FROM ai.delegated_input_receipts receipt WHERE receipt.organization_id=app.current_organization_id() AND receipt.child_run_id=p_child
+    AND receipt.redacted_at IS NOT NULL AND receipt.redacted_version>0 AND receipt.disposition_sha256=work.delegated_redaction_digest(receipt.child_run_id,
+      receipt.child_work_unit_id,receipt.redacted_version,receipt.redaction_scope_kind,receipt.redaction_scope_id,receipt.redaction_purge_job_id))
+$$;
+REVOKE ALL ON FUNCTION ai.delegated_body_disposed(uuid) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION ai.delegated_body_disposed(uuid) TO ensemus_app;
+CREATE FUNCTION ai.source_delegated_work_counts(p_source uuid)
+RETURNS TABLE(removed integer,remaining integer,unproven integer,receipts_sha256 text) LANGUAGE sql STABLE SET search_path=pg_catalog AS $$
+  WITH receipts AS(SELECT receipt.child_run_id,receipt.disposition_sha256,ai.delegated_body_disposed(receipt.child_run_id) disposed
+    FROM ai.delegated_input_receipts receipt WHERE receipt.organization_id=app.current_organization_id() AND EXISTS(
+      SELECT 1 FROM ai.delegated_input_refs ref WHERE ref.organization_id=receipt.organization_id AND ref.child_run_id=receipt.child_run_id
+        AND((ref.ref_kind='source' AND ref.ref_id=p_source) OR ref.source_id=p_source)))
+  SELECT count(*) FILTER(WHERE disposed)::integer,count(*) FILTER(WHERE NOT disposed)::integer,
+    (SELECT count(*)::integer FROM ai.unproven_child_work_inputs unknown_input WHERE unknown_input.organization_id=app.current_organization_id()),
+    encode(sha256(convert_to(coalesce(string_agg(child_run_id::text||':'||coalesce(disposition_sha256,'unconfirmed'),E'\n' ORDER BY child_run_id),''),'UTF8')),'hex')
+  FROM receipts
+$$;
+REVOKE ALL ON FUNCTION ai.source_delegated_work_counts(uuid) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION ai.source_delegated_work_counts(uuid) TO ensemus_app;
+ALTER TABLE knowledge.purge_jobs ADD COLUMN delegated_work_removed integer NOT NULL DEFAULT 0,
+  ADD COLUMN delegated_work_remaining integer,ADD COLUMN delegated_work_unknown integer,ADD COLUMN delegated_work_controls_remaining integer,
+  ADD COLUMN delegated_work_checked_at timestamptz,ADD COLUMN delegated_work_source_version bigint,ADD COLUMN delegated_work_receipts_sha256 text,
+  ADD COLUMN delegated_work_cursor_source_version bigint,ADD COLUMN delegated_work_after_run uuid,ADD COLUMN delegated_work_after_child uuid,
+  ADD CONSTRAINT knowledge_purge_delegated_work_counts CHECK(delegated_work_removed>=0 AND(delegated_work_remaining IS NULL OR delegated_work_remaining>=0)
+    AND(delegated_work_unknown IS NULL OR delegated_work_unknown>=0) AND(delegated_work_controls_remaining IS NULL OR delegated_work_controls_remaining>=0)),
+  ADD CONSTRAINT knowledge_purge_delegated_work_proof CHECK((delegated_work_checked_at IS NULL AND delegated_work_source_version IS NULL AND delegated_work_receipts_sha256 IS NULL)
+    OR(delegated_work_checked_at IS NOT NULL AND delegated_work_source_version IS NOT NULL AND delegated_work_source_version>0
+      AND delegated_work_receipts_sha256 IS NOT NULL AND delegated_work_receipts_sha256 ~ '^[0-9a-f]{64}$'
+      AND delegated_work_remaining IS NOT NULL AND delegated_work_remaining=0 AND delegated_work_unknown IS NOT NULL AND delegated_work_unknown=0
+      AND delegated_work_controls_remaining IS NOT NULL AND delegated_work_controls_remaining=0)),
+  ADD CONSTRAINT knowledge_purge_delegated_work_cursor CHECK((delegated_work_cursor_source_version IS NULL AND delegated_work_after_run IS NULL AND delegated_work_after_child IS NULL)
+    OR(delegated_work_cursor_source_version IS NOT NULL AND delegated_work_cursor_source_version>0));
+GRANT UPDATE(delegated_work_removed,delegated_work_remaining,delegated_work_unknown,delegated_work_controls_remaining,delegated_work_checked_at,
+  delegated_work_source_version,delegated_work_receipts_sha256,delegated_work_cursor_source_version,delegated_work_after_run,delegated_work_after_child)
+  ON knowledge.purge_jobs TO ensemus_agent;
+CREATE FUNCTION knowledge.guard_delegated_work_purge_proof() RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog AS $$
+DECLARE source record;counts record;controls integer;validate_proof boolean:=NEW.state='completed';
+BEGIN
+  IF TG_RELID<>'knowledge.purge_jobs'::regclass OR TG_OP NOT IN('INSERT','UPDATE') OR NEW.organization_id IS DISTINCT FROM app.current_organization_id() THEN
+    RAISE EXCEPTION 'DELEGATED_PURGE_PROOF_TARGET' USING ERRCODE='42501';END IF;
+  IF TG_OP='UPDATE' THEN
+    validate_proof:=validate_proof OR(NEW.delegated_work_checked_at IS NOT NULL AND ROW(NEW.delegated_work_checked_at,NEW.delegated_work_source_version,
+        NEW.delegated_work_receipts_sha256,NEW.delegated_work_removed,NEW.delegated_work_remaining,NEW.delegated_work_unknown,NEW.delegated_work_controls_remaining)
+      IS DISTINCT FROM ROW(OLD.delegated_work_checked_at,OLD.delegated_work_source_version,OLD.delegated_work_receipts_sha256,
+        OLD.delegated_work_removed,OLD.delegated_work_remaining,OLD.delegated_work_unknown,OLD.delegated_work_controls_remaining));
+    IF ROW(NEW.delegated_work_removed,NEW.delegated_work_remaining,NEW.delegated_work_unknown,NEW.delegated_work_controls_remaining,NEW.delegated_work_checked_at,
+        NEW.delegated_work_source_version,NEW.delegated_work_receipts_sha256,NEW.delegated_work_cursor_source_version,NEW.delegated_work_after_run,NEW.delegated_work_after_child)
+      IS DISTINCT FROM ROW(OLD.delegated_work_removed,OLD.delegated_work_remaining,OLD.delegated_work_unknown,OLD.delegated_work_controls_remaining,OLD.delegated_work_checked_at,
+        OLD.delegated_work_source_version,OLD.delegated_work_receipts_sha256,OLD.delegated_work_cursor_source_version,OLD.delegated_work_after_run,OLD.delegated_work_after_child) THEN
+      IF current_user<>'ensemus_agent' OR session_user<>'ensemus_agent' OR app.current_actor_type() IS DISTINCT FROM 'service' THEN
+        RAISE EXCEPTION 'DELEGATED_PURGE_PROOF_WRITER' USING ERRCODE='42501';END IF;
+      IF ROW(NEW.delegated_work_removed,NEW.delegated_work_remaining,NEW.delegated_work_unknown,NEW.delegated_work_controls_remaining)
+        IS DISTINCT FROM ROW(OLD.delegated_work_removed,OLD.delegated_work_remaining,OLD.delegated_work_unknown,OLD.delegated_work_controls_remaining) THEN
+        SELECT stored.version INTO source FROM knowledge.sources stored WHERE stored.organization_id=NEW.organization_id AND stored.id=NEW.source_id;
+        SELECT * INTO counts FROM ai.source_delegated_work_counts(NEW.source_id);
+        controls:=ai.source_run_closure_remaining(NEW.source_id,source.version);
+        IF NEW.delegated_work_removed IS DISTINCT FROM counts.removed OR NEW.delegated_work_remaining IS DISTINCT FROM counts.remaining
+          OR NEW.delegated_work_unknown IS DISTINCT FROM counts.unproven OR NEW.delegated_work_controls_remaining IS DISTINCT FROM controls THEN
+          RAISE EXCEPTION 'DELEGATED_PURGE_COUNTS_STALE' USING ERRCODE='EN119';END IF;
+      END IF;
+    END IF;
+  ELSE
+    IF ROW(NEW.delegated_work_removed,NEW.delegated_work_remaining,NEW.delegated_work_unknown,NEW.delegated_work_controls_remaining,NEW.delegated_work_checked_at,
+      NEW.delegated_work_source_version,NEW.delegated_work_receipts_sha256,NEW.delegated_work_cursor_source_version,NEW.delegated_work_after_run,NEW.delegated_work_after_child)
+      IS DISTINCT FROM ROW(0,NULL::integer,NULL::integer,NULL::integer,NULL::timestamptz,NULL::bigint,NULL::text,NULL::bigint,NULL::uuid,NULL::uuid) THEN
+      RAISE EXCEPTION 'DELEGATED_PURGE_PROOF_AT_BIRTH' USING ERRCODE='42501';END IF;
+    validate_proof:=validate_proof OR NEW.delegated_work_checked_at IS NOT NULL;
+  END IF;
+  IF validate_proof THEN
+    SELECT stored.state,stored.version INTO source FROM knowledge.sources stored WHERE stored.organization_id=NEW.organization_id AND stored.id=NEW.source_id;
+    SELECT * INTO counts FROM ai.source_delegated_work_counts(NEW.source_id);
+    controls:=ai.source_run_closure_remaining(NEW.source_id,source.version);
+    IF source.version IS NULL OR source.state NOT IN('revoked','deleted') OR NEW.delegated_work_checked_at IS NULL
+      OR NEW.delegated_work_source_version IS DISTINCT FROM source.version OR NEW.delegated_work_receipts_sha256 IS DISTINCT FROM counts.receipts_sha256
+      OR counts.remaining<>0 OR counts.unproven<>0 OR controls<>0 OR NEW.delegated_work_removed IS DISTINCT FROM counts.removed
+      OR NEW.delegated_work_remaining IS DISTINCT FROM 0 OR NEW.delegated_work_unknown IS DISTINCT FROM 0 OR NEW.delegated_work_controls_remaining IS DISTINCT FROM 0
+      OR NEW.transcripts_checked_at IS NULL OR NEW.transcript_source_version IS DISTINCT FROM source.version THEN
+      RAISE EXCEPTION 'DELEGATED_PURGE_PROOF_UNCONFIRMED' USING ERRCODE='EN119';END IF;
+  END IF;
+  RETURN NEW;
+END $$;
+REVOKE ALL ON FUNCTION knowledge.guard_delegated_work_purge_proof() FROM PUBLIC;
+CREATE TRIGGER source_purge_delegated_work_proof BEFORE INSERT OR UPDATE ON knowledge.purge_jobs FOR EACH ROW EXECUTE FUNCTION knowledge.guard_delegated_work_purge_proof();

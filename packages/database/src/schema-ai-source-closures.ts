@@ -7,7 +7,7 @@ import { runInputCheckpoints } from './schema-ai-inputs';
 import { knowledgeSources } from './schema-knowledge';
 const ai = pgSchema('ai');
 export const sourceRunClosures = ai.table('source_run_closures', {
-  organizationId: uuid().notNull(), sourceId: uuid().notNull(), sourceVersion: integer().notNull(),
+  organizationId: uuid().notNull(), sourceId: uuid().notNull(), sourceVersion: bigint({ mode: 'number' }).notNull(),
   runId: uuid().notNull(), terminalVersion: bigint({ mode: 'number' }).notNull(), fenceGeneration: integer().notNull(),
   terminalStatus: text().notNull(), closedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
 }, (t) => [

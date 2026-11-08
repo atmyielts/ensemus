@@ -27,6 +27,7 @@ import type {
   KnowledgeCloudSpend,
 } from '@ensemus/application/ai-knowledge-ports';
 import type { CompileDeps } from '@ensemus/application/knowledge/compiler';
+import { createDelegatedWorkPurge } from '@ensemus/application/knowledge/delegated-work-purge';
 import { createEntitlements } from '@ensemus/commercial';
 import { loadModelEgressSettings } from '@ensemus/config';
 import { withTenantTx, type AgentContext, type AppDatabase } from '@ensemus/database';
@@ -123,6 +124,7 @@ export function createAgentServices(deps: {
   const transcriptActivities = createKnowledgeTranscriptActivities({
     database,
     transcripts: createRunTranscriptPurge(),
+    delegatedWorks: createDelegatedWorkPurge({ database, accounting: knowledgeCalls }),
   });
   const source = createContextSource({
     database,

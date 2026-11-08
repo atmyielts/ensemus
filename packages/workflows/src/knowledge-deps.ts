@@ -6,6 +6,7 @@ import type {
   AgentRuns,
   RunTranscriptPurge,
   DerivedArtifactPurge,
+  DelegatedWorkPurge,
 } from '@ensemus/application/knowledge/ports';
 import type { ObjectStore } from '@ensemus/application';
 import type { AppDatabase } from '@ensemus/database';
@@ -16,6 +17,7 @@ export type KnowledgeWorkerDeps = {
   store: ObjectStore;
   ingest: IngestDeps;
   derivedArtifacts?: DerivedArtifactPurge;
+  delegatedWorks?: Pick<DelegatedWorkPurge, 'confirmInTx'>;
 };
 
 /** On M4's agent queue, with its database handle. */
@@ -30,6 +32,7 @@ export type KnowledgeModelDeps = {
 export type KnowledgeTranscriptDeps = {
   database: AppDatabase;
   transcripts: RunTranscriptPurge;
+  delegatedWorks?: DelegatedWorkPurge;
 };
 
 export type OnboardingDeps = {

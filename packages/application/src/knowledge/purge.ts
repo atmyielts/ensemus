@@ -29,7 +29,7 @@ import type { ReapplyOptions, ReapplyResult } from '../tombstone-ledger';
 import { AppError } from '../errors';
 import { emit } from '../events';
 import { idSchema } from '../ids';
-import type { RunTranscriptPurge, DerivedArtifactPurge } from './ports';
+import type { RunTranscriptPurge, DerivedArtifactPurge, DelegatedWorkPurge } from './ports';
 import { recoverObjectWrites } from './object-writes';
 
 const PAGE = 100;
@@ -382,7 +382,7 @@ export async function runSourcePurge(
   store: ObjectStore,
   context: TenantContext,
   input: { sourceId: string },
-  deps?: { derivedArtifacts?: DerivedArtifactPurge },
+  deps?: { derivedArtifacts?: DerivedArtifactPurge; delegatedWorks?: Pick<DelegatedWorkPurge,'confirmInTx'> },
 ): Promise<PurgeOutcome> {
   requireService(context);
   const sourceId = checkedId(input.sourceId);
@@ -406,10 +406,12 @@ export async function runSourcePurge(
       const artifactProof = deps?.derivedArtifacts
         ? await deps.derivedArtifacts.confirmInTx(tx, context, { sourceId })
         : null;
+      const workProof = deps?.delegatedWorks ? await deps.delegatedWorks.confirmInTx(tx, context, { sourceId }) : null;
       if (
         !active.length &&
         (await proofValid(tx, context, source, job)) &&
-        artifactProof?.remaining === 0
+        artifactProof?.remaining === 0 && workProof?.confirmed===true && workProof.remaining===0
+        && workProof.controlsRemaining===0 && workProof.unproven===0
       ) {
         const [fresh] = await tx
           .update(knowledgePurgeJobs)
@@ -462,6 +464,8 @@ export async function runSourcePurge(
   try {
     const derived = deps?.derivedArtifacts;
     if (!derived) return fail(database, context, sourceId, 'ARTIFACT_PURGE_UNCONFIRMED');
+    const works = deps?.delegatedWorks;
+    if (!works) return fail(database, context, sourceId, 'DELEGATED_WORK_PURGE_UNCONFIRMED');
     let generated;
     try {
       generated = await derived.purgeSource(context, { sourceId, limit: 25 });
@@ -662,6 +666,9 @@ export async function runSourcePurge(
         throw new Error('TRANSCRIPT_PURGE_UNCONFIRMED');
       const currentArtifacts = await derived.confirmInTx(tx, context, { sourceId });
       if (currentArtifacts.remaining !== 0) throw new Error('ARTIFACT_PURGE_UNCONFIRMED');
+      const currentWorks = await works.confirmInTx(tx, context, { sourceId });
+      if(!currentWorks.confirmed || currentWorks.remaining!==0 || currentWorks.controlsRemaining!==0 || currentWorks.unproven!==0)
+        throw new Error('DELEGATED_WORK_PURGE_UNCONFIRMED');
       if (job.state === 'completed') return outcome(job);
       const [updated] = await tx
         .update(knowledgePurgeJobs)
