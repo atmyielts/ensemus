@@ -185,3 +185,8 @@ verification-table admission. The fixed control reader owns a saved/restored sco
 RLS CASE selects only that row without recursing. The actual count helper explicitly clears and
 restores that narrowing scope before querying, so caller GUCs cannot create a filtered-zero proof.
 Actual-role spoofed-scope/count regressions are authored, unrun; no private body grant is added.
+
+The invoker authority-change trigger uses only the granted admission assertion for ordinary runtime
+roles. Only the actual migrator branch reads the private backup/review control body. This avoids
+requiring a new private-body EXECUTE grant for ordinary admitted membership/account mutations;
+existing authority/RLS guards still run. This source correction awaits the same actual-role gate.

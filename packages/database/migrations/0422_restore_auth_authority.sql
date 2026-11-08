@@ -165,6 +165,12 @@ BEGIN
   'org.team_memberships'::regclass,'org.invitations'::regclass,'identity.sso_providers'::regclass,
   'identity.accounts'::regclass) THEN
   RAISE EXCEPTION 'AUTH_RESTORE_RECONCILE_REFUSED' USING ERRCODE='EN422';END IF;
+ -- This trigger remains INVOKER. Runtime roles receive only the granted admission assertion;
+ -- they must never gain EXECUTE on the private backup/review control body to perform normal DML.
+ IF current_user<>'ensemus_migrator' OR session_user<>'ensemus_migrator' THEN
+  PERFORM app.assert_restore_admitted();
+  IF TG_OP='DELETE' THEN RETURN OLD;END IF;RETURN NEW;
+ END IF;
  body:=identity.auth_restore_control();
  IF body->>'phase'='admitted' THEN IF TG_OP='DELETE' THEN RETURN OLD;END IF;RETURN NEW;END IF;
  IF current_user='ensemus_migrator' AND session_user='ensemus_migrator'
