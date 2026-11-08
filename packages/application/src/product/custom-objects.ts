@@ -2,6 +2,7 @@
 import { createHash } from 'node:crypto';
 import {
   memberships,
+  interactiveSessionOf,
   withTenantTx,
   type AppDatabase,
   type TenantContext,
@@ -40,7 +41,7 @@ import { AppError, pgCode } from '../errors';
 import { idSchema } from '../ids';
 import { emit } from '../events';
 import { auditAction } from '../work';
-import { assertInteractivePrivilege, withPrivilegeTx } from './privileged';
+import { assertInteractivePrivilege, lockInteractivePolicy, withPrivilegeTx } from './privileged';
 
 type Classification = 'public' | 'internal' | 'confidential' | 'restricted';
 const classes: readonly string[] = ['public', 'internal', 'confidential', 'restricted'];
@@ -206,6 +207,8 @@ async function translated<T>(effect: () => Promise<T>): Promise<T> {
     if (pgCode(e) === '23505' || pgCode(e) === 'EN407') throw new AppError('VERSION_CONFLICT');
     if (pgCode(e) === 'EN403') throw new AppError('OBJECT_SCHEMA_INVALID');
     if (pgCode(e) === 'EN405') throw new AppError('MFA_REQUIRED');
+    if (pgCode(e) === 'EN410') throw new AppError('SSO_REQUIRED');
+    if (pgCode(e) === '55P03') throw new AppError('VERSION_CONFLICT');
     throw e;
   }
 }
@@ -648,6 +651,9 @@ export function updateObjectRecord(
 ): Promise<ObjectRecordView> {
   return translated(() =>
     withPrivilegeTx(database, context, async (tx) => {
+      // A lower classification may need native privilege proof. Take its policy lock before the
+      // person/type/record locks, matching deletion and membership revocation.
+      await lockInteractivePolicy(tx, context);
       const viewer = await human(tx, context);
       const { t, row } = await lockedRecord(tx, context, viewer, input.recordId);
       if (!canChangeRecord(row, viewer)) throw new AppError('FORBIDDEN');
@@ -685,19 +691,26 @@ export function deleteObjectRecord(
   context: TenantContext,
   input: { recordId: string; expectedVersion: number },
 ): Promise<void> {
-  return translated(() =>
-    withTenantTx(database, context, async (tx) => {
-      const viewer = await human(tx, context);
-      const { row } = await lockedRecord(tx, context, viewer, input.recordId);
-      if (!canChangeRecord(row, viewer)) throw new AppError('FORBIDDEN');
-      expected(row.version, input.expectedVersion);
-      await tx
-        .update(objectRecords)
-        .set({ deletedAt: new Date(), updatedAt: new Date(), version: row.version + 1 })
-        .where(eq(objectRecords.id, row.id));
-      await auditAction(tx, context, 'object_record.deleted', `object_record:${row.id}`);
-    }),
-  );
+  return translated(async () => {
+    if (context.actorType !== 'user' || !interactiveSessionOf(context))
+      throw new AppError('FORBIDDEN');
+    const recordId = id(input.recordId);
+    if (!Number.isSafeInteger(input.expectedVersion) || input.expectedVersion < 1)
+      throw new AppError('INVALID_INPUT');
+    return withPrivilegeTx(database, context, async (tx) => {
+      // The fixed SQL effect owns all ordered locks, fresh native/SSO admission, current record
+      // authority and optimistic version checks. No prior blocking record lock can invert it.
+      try {
+        await tx.execute(
+          sql`select objects.soft_delete_record(${recordId}::uuid,${input.expectedVersion}::integer)`,
+        );
+      } catch (error) {
+        if (pgCode(error) === '42501') throw new AppError('FORBIDDEN');
+        throw error;
+      }
+      await auditAction(tx, context, 'object_record.deleted', `object_record:${recordId}`);
+    });
+  });
 }
 export function linkObjectRecords(
   database: AppDatabase,

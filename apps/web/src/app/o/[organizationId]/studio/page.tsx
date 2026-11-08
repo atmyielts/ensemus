@@ -23,15 +23,44 @@ export default async function StudioPage({
     <>
       <PageHead
         title="Automation Studio"
-        description="Build and publish the assistants your team can use on work."
+        description="Create assistants, prepare workflows and review changes before your team uses them."
         actions={
           can(context.role, 'agent.publish') ? (
-            <ActionLink href={`${base}/settings/agents#publish-heading`}>
-              Publish an assistant
-            </ActionLink>
+            <ActionLink href={`${base}/studio/agents/new`}>Create assistant</ActionLink>
           ) : undefined
         }
       />
+      {canProduct(context.role, 'studio.author') && (
+        <section className="settings-section" aria-labelledby="studio-build">
+          <div className="section-intro">
+            <h2 id="studio-build">Build and review</h2>
+            <p>Start with a draft, rehearse it and ask another person to review the changes.</p>
+          </div>
+          <DestinationList
+            label="Build and review"
+            items={[
+              {
+                href: `${base}/studio/agents`,
+                label: 'Assistant drafts',
+                description: 'Define an assistant’s task, access and limits before publishing.',
+                icon: 'studio',
+              },
+              {
+                href: `${base}/studio/workflows`,
+                label: 'Workflow drafts',
+                description: 'Arrange the steps, people and checks needed to finish a process.',
+                icon: 'work',
+              },
+              {
+                href: `${base}/studio/reviews`,
+                label: 'Publication reviews',
+                description: 'Review rehearsed changes and publish an approved version.',
+                icon: 'approvals',
+              },
+            ]}
+          />
+        </section>
+      )}
       <section className="card" aria-labelledby="studio-assistants">
         <div className="section-heading">
           <div>
@@ -49,13 +78,11 @@ export default async function StudioPage({
             title="No assistants published yet"
             action={
               can(context.role, 'agent.publish') ? (
-                <Link href={`${base}/settings/agents#publish-heading`}>
-                  Publish your first version
-                </Link>
+                <Link href={`${base}/studio/agents/new`}>Create your first assistant</Link>
               ) : undefined
             }
           >
-            Publish a version with a passing evaluation before your team starts using it.
+            Create a draft, rehearse its behavior and complete a publication review.
           </Empty>
         ) : (
           <ul className="list">
@@ -69,7 +96,7 @@ export default async function StudioPage({
                     {formatDateTime(version.publishedAt)}
                   </small>
                 </span>
-                <span className="badge done">Ready for new work</span>
+                <span className="badge done">Published</span>
               </li>
             ))}
           </ul>

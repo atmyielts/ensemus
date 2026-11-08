@@ -1,6 +1,7 @@
 // 0404: native identity provenance and actual transaction-time authority, generated identities only.
 // These are real-role regression SOURCES until the joined migration/integration gate executes them.
 import { randomUUID } from 'node:crypto';
+import { inFixtureTenant } from '../helpers/fixture-tenant';
 import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { eq, sql } from 'drizzle-orm';
@@ -422,12 +423,10 @@ describe('interactive privilege authority inside the actual effect transaction',
       plain = await resolveTenantContext(app.db, owner.userId, owner.organizationId);
     await expect(
       withTenantTx(app.db, plain, (tx) =>
-        tx
-          .insert(teams)
-          .values({
-            organizationId: owner.organizationId,
-            name: 'Direct SQL without native identity',
-          }),
+        tx.insert(teams).values({
+          organizationId: owner.organizationId,
+          name: 'Direct SQL without native identity',
+        }),
       ),
     ).rejects.toMatchObject({ cause: { code: 'EN405' } });
   });
@@ -532,9 +531,11 @@ describe('interactive privilege authority inside the actual effect transaction',
       profile = await draft(owner);
     await probe(owner, profile.id);
     // A trusted fixture models pre-0404 history. It never marks a model qualified or disables a trigger.
-    await observer.query(
-      'update ai.model_profiles set probe_authorized_profile_version=null,probe_authorized_membership_id=null,probe_authorized_session_id=null,probe_authorized_at=null where organization_id=$1 and id=$2',
-      [owner.organizationId, profile.id],
+    await inFixtureTenant(observer, owner.organizationId, () =>
+      observer.query(
+        'update ai.model_profiles set probe_authorized_profile_version=null,probe_authorized_membership_id=null,probe_authorized_session_id=null,probe_authorized_at=null where organization_id=$1 and id=$2',
+        [owner.organizationId, profile.id],
+      ),
     );
     expect(await loadProfileForProbe(agent.db, modelInput(owner, profile.id))).toBeNull();
     await probe(owner, profile.id);
@@ -637,9 +638,11 @@ describe('interactive privilege authority inside the actual effect transaction',
     const owner = await fresh(),
       profile = await draft(owner);
     // Trusted fixture changes membership state to model an already-committed revocation.
-    await observer.query(
-      "update org.memberships set status='disabled' where organization_id=$1 and id=$2",
-      [owner.organizationId, owner.context.membershipId],
+    await inFixtureTenant(observer, owner.organizationId, () =>
+      observer.query(
+        "update org.memberships set status='disabled' where organization_id=$1 and id=$2",
+        [owner.organizationId, owner.context.membershipId],
+      ),
     );
     await expect(probe(owner, profile.id)).rejects.toMatchObject({ code: 'MFA_REQUIRED' });
   });

@@ -17,7 +17,7 @@ import { pulseSignalStates } from '@ensemus/database/product';
 import { createAgentContext, withRunLookupTx } from '@ensemus/database/agent';
 import { createDelegatedContext, createServiceContext } from '@ensemus/database/service';
 import { and, eq, sql } from 'drizzle-orm';
-import { makeTwoTenants } from '../helpers/product';
+import { makeTwoTenants, proveSecondFactor } from '../helpers/product';
 import { urls } from '../helpers/stack';
 import { openAgentTestDatabase, seedAgentVersion, seedQueuedRun } from '../helpers/ai/fixtures';
 
@@ -339,6 +339,7 @@ describe('Pulse fresh viewer access and own personal state', () => {
 
   it('reads real M4 stop metadata on readable company work without copying private reason text', async () => {
     const f = await fixture();
+    await proveSecondFactor(f.a.owner);
     const version = await seedAgentVersion(app.db, f.a.owner.context);
     const runId = await seedQueuedRun(app.db, f.a.owner.context, {
       workUnitId: f.work.id,

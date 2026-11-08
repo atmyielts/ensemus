@@ -11,6 +11,7 @@ const EMPTY_BINDINGS = {
   'app.agent_scope_protocol': '',
   'app.knowledge_model_protocol': '',
   'app.model_job_id': '',
+  'objects.soft_delete_record_id': '',
   'app.interactive_session_id': '',
   'app.invitation_token_hash': '',
   'app.webhook_token_hash': '',

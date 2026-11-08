@@ -159,17 +159,17 @@ async function readProjection(
       updatedAt: workUnits.updatedAt,
       projectId: sql<
         string | null
-      >`case when knowledge.structured_record_readable('project',${workUnits.projectId},${context.membershipId}::uuid) then ${workUnits.projectId} else null end`,
+      >`case when knowledge.structured_record_readable('project',"work"."work_units"."project_id",${context.membershipId}::uuid) then "work"."work_units"."project_id" else null end`,
       clientId: sql<
         string | null
       >`(select case when knowledge.structured_record_readable('project',p.id,${context.membershipId}::uuid)
       and knowledge.structured_record_readable('client',p.client_id,${context.membershipId}::uuid) then p.client_id else null end
-      from work.projects p where p.organization_id=${workUnits.organizationId} and p.id=${workUnits.projectId})`,
-      ownerDisabled: sql<boolean>`exists(select 1 from org.memberships owner where owner.organization_id=${workUnits.organizationId}
-      and owner.id=${workUnits.ownerMembershipId} and owner.status='disabled')`,
+      from work.projects p where p.organization_id="work"."work_units"."organization_id" and p.id="work"."work_units"."project_id")`,
+      ownerDisabled: sql<boolean>`exists(select 1 from org.memberships owner where owner.organization_id="work"."work_units"."organization_id"
+      and owner.id="work"."work_units"."owner_membership_id" and owner.status='disabled')`,
       blockedByPrerequisite: sql<boolean>`exists(select 1 from work.work_dependencies d join work.work_units prerequisite
       on prerequisite.organization_id=d.organization_id and prerequisite.id=d.prerequisite_id
-      where d.organization_id=${workUnits.organizationId} and d.dependent_id=${workUnits.id}
+      where d.organization_id="work"."work_units"."organization_id" and d.dependent_id="work"."work_units"."id"
         and prerequisite.status<>'completed' and knowledge.can_read_work(prerequisite.id,${context.membershipId}::uuid))`,
     })
     .from(workUnits)

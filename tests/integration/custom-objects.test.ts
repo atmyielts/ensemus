@@ -1,7 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { setMemberRole, disableMember } from '@ensemus/application';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { openAppDatabase, withTenantTx } from '@ensemus/database';
+import { openAppDatabase, resolveTenantContext, withTenantTx } from '@ensemus/database';
+import { openAgentDatabase } from '@ensemus/database/agent';
 import { createServiceContext } from '@ensemus/database/service';
 import { objectRecords } from '@ensemus/database/product';
 import { eq, sql } from 'drizzle-orm';
@@ -189,6 +190,71 @@ describe('custom objects through real tenant roles', () => {
         sql`select 1 from platform.tombstones where target_type='object_record' and target_id=${r.id}::uuid`,
       );
       expect(proof.rows).toHaveLength(1);
+      // The fixed mutation does not make deleted bodies or their derived index visible, even if
+      // an app-role caller copies its private selector. The selector is not an application grant.
+      await tx.execute(sql`select set_config('objects.soft_delete_record_id',${r.id},true)`);
+      expect(await tx.select().from(objectRecords).where(eq(objectRecords.id, r.id))).toEqual([]);
+      expect(
+        (await tx.execute(sql`select 1 from objects.record_values where record_id=${r.id}::uuid`))
+          .rows,
+      ).toEqual([]);
+    });
+  });
+
+  it('requires current native ownership and tenant authority for the fixed deletion effect', async () => {
+    const t = await type();
+    const r = await createObjectRecord(database.db, tenants.a.member.context, {
+      typeId: t.id,
+      displayName: 'Owned private record',
+      attributes: { name: 'private' },
+      classification: 'restricted',
+    });
+    const plain = await resolveTenantContext(
+      database.db,
+      tenants.a.member.userId,
+      tenants.a.organizationId,
+    );
+    await expect(
+      deleteObjectRecord(database.db, plain, { recordId: r.id, expectedVersion: r.version }),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    for (const context of [
+      tenants.a.admin.context,
+      tenants.b.owner.context,
+      createServiceContext(tenants.a.organizationId),
+      plain,
+    ]) {
+      await expect(
+        withTenantTx(database.db, context, (tx) =>
+          tx.execute(sql`select objects.soft_delete_record(${r.id}::uuid,${r.version}::integer)`),
+        ),
+      ).rejects.toThrow();
+    }
+    const agent = openAgentDatabase(urls.agent(), { max: 1 });
+    try {
+      await expect(
+        withTenantTx(agent.db, tenants.a.member.context, async (tx) => {
+          await tx.execute(sql`set local role ensemus_app`);
+          await tx.execute(
+            sql`select objects.soft_delete_record(${r.id}::uuid,${r.version}::integer)`,
+          );
+        }),
+      ).rejects.toThrow();
+    } finally {
+      await agent.close();
+    }
+    expect((await getObjectRecord(database.db, tenants.a.member.context, r.id)).version).toBe(
+      r.version,
+    );
+    await withTenantTx(database.db, tenants.a.member.context, async (tx) => {
+      await tx.execute(sql`select objects.soft_delete_record(${r.id}::uuid,${r.version}::integer)`);
+      expect(
+        (
+          await tx.execute<{ selector: string }>(
+            sql`select current_setting('objects.soft_delete_record_id',true) as selector`,
+          )
+        ).rows[0]?.selector,
+      ).toBe('');
+      expect(await tx.select().from(objectRecords).where(eq(objectRecords.id, r.id))).toEqual([]);
     });
   });
 

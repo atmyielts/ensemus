@@ -200,6 +200,21 @@ export function workspaceNavigation(input: {
                     exact: true,
                   },
                   {
+                    href: `${base}/studio/agents`,
+                    label: 'Assistant drafts',
+                    icon: 'arrow' as const,
+                  },
+                  {
+                    href: `${base}/studio/workflows`,
+                    label: 'Workflow drafts',
+                    icon: 'arrow' as const,
+                  },
+                  {
+                    href: `${base}/studio/reviews`,
+                    label: 'Publication reviews',
+                    icon: 'approvals' as const,
+                  },
+                  {
                     href: `${base}/settings/agents`,
                     label: 'Assistant versions',
                     icon: 'arrow' as const,

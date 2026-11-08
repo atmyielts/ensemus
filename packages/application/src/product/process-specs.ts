@@ -292,7 +292,7 @@ export async function createProcessDraftInTx(
     })
     .returning({ id: processDrafts.id });
   if (!row) throw new Error('Insert returned no row');
-  await auditAction(tx, context, 'process_draft.created', `process_draft:${row.id}`, 'pack');
+  await auditAction(tx, context, 'process_draft.created', `process_draft:${row.id}`, 'PACK');
   return { id: row.id };
 }
 
@@ -444,7 +444,7 @@ export async function updateProcessDraft(
           context,
           'publish_review.cancelled',
           `publish_review:${review.id}`,
-          'draft_changed',
+          'DRAFT_CHANGED',
         );
       }
     }
@@ -475,7 +475,7 @@ export async function updateProcessDraft(
         context,
         'process_draft.updated',
         `process_draft:${row.id}`,
-        compiled.ok ? 'compiles' : 'does_not_compile',
+        compiled.ok ? 'COMPILES' : 'DOES_NOT_COMPILE',
       );
     }
     return toDraftView(saved, compiled.issues, compiled.specSha256);

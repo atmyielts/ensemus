@@ -231,6 +231,95 @@ CREATE FUNCTION objects.guard_record_write() RETURNS trigger LANGUAGE plpgsql AS
  END $$;
 REVOKE ALL ON FUNCTION objects.guard_record_write() FROM PUBLIC;
 CREATE TRIGGER aa_object_record_authority BEFORE INSERT OR UPDATE ON objects.records FOR EACH ROW EXECUTE FUNCTION objects.guard_record_write();
+-- A normal UPDATE must keep the restrictive SELECT policy true for its new row. Deletion makes
+-- that policy false by design. Use one fixed effect rather than exposing deleted bodies through
+-- a caller-set GUC. Only the non-BYPASSRLS function owner can use these exact-target policies.
+CREATE POLICY object_delete_read ON objects.records FOR SELECT TO ensemus_migrator USING(
+ session_user='ensemus_app' AND app.current_actor_type()='user' AND organization_id=app.current_organization_id()
+ AND id::text=current_setting('objects.soft_delete_record_id',true));
+CREATE POLICY object_delete_write ON objects.records FOR UPDATE TO ensemus_migrator USING(
+ session_user='ensemus_app' AND app.current_actor_type()='user' AND organization_id=app.current_organization_id()
+ AND id::text=current_setting('objects.soft_delete_record_id',true)) WITH CHECK(
+ session_user='ensemus_app' AND app.current_actor_type()='user' AND organization_id=app.current_organization_id()
+ AND id::text=current_setting('objects.soft_delete_record_id',true) AND deleted_at IS NOT NULL);
+CREATE POLICY object_delete_person ON org.memberships FOR SELECT TO ensemus_migrator USING(
+ session_user='ensemus_app' AND app.current_actor_type()='user' AND organization_id=app.current_organization_id()
+ AND id=app.current_membership_id() AND user_id=app.current_user_id()
+ AND nullif(current_setting('objects.soft_delete_record_id',true),'') IS NOT NULL);
+CREATE POLICY object_delete_person_lock ON org.memberships FOR UPDATE TO ensemus_migrator USING(
+ session_user='ensemus_app' AND app.current_actor_type()='user' AND organization_id=app.current_organization_id()
+ AND id=app.current_membership_id() AND user_id=app.current_user_id()
+ AND nullif(current_setting('objects.soft_delete_record_id',true),'') IS NOT NULL) WITH CHECK(false);
+CREATE POLICY object_delete_policy ON org.security_policies FOR SELECT TO ensemus_migrator USING(
+ session_user='ensemus_app' AND app.current_actor_type()='user' AND organization_id=app.current_organization_id()
+ AND nullif(current_setting('objects.soft_delete_record_id',true),'') IS NOT NULL);
+CREATE POLICY object_delete_policy_lock ON org.security_policies FOR UPDATE TO ensemus_migrator USING(
+ session_user='ensemus_app' AND app.current_actor_type()='user' AND organization_id=app.current_organization_id()
+ AND nullif(current_setting('objects.soft_delete_record_id',true),'') IS NOT NULL) WITH CHECK(false);
+CREATE POLICY object_delete_sso ON org.sso_connections FOR SELECT TO ensemus_migrator USING(
+ session_user='ensemus_app' AND app.current_actor_type()='user' AND organization_id=app.current_organization_id()
+ AND nullif(current_setting('objects.soft_delete_record_id',true),'') IS NOT NULL);
+CREATE POLICY object_delete_type ON objects.types FOR SELECT TO ensemus_migrator USING(
+ session_user='ensemus_app' AND app.current_actor_type()='user' AND organization_id=app.current_organization_id()
+ AND EXISTS(SELECT 1 FROM knowledge.structured_record_catalog c WHERE c.organization_id=objects.types.organization_id
+ AND c.record_kind='object_record' AND c.record_id::text=current_setting('objects.soft_delete_record_id',true)
+ AND c.parent_record_id=objects.types.id AND c.alive));
+CREATE POLICY object_delete_type_lock ON objects.types FOR UPDATE TO ensemus_migrator USING(
+ session_user='ensemus_app' AND app.current_actor_type()='user' AND organization_id=app.current_organization_id()
+ AND EXISTS(SELECT 1 FROM knowledge.structured_record_catalog c WHERE c.organization_id=objects.types.organization_id
+ AND c.record_kind='object_record' AND c.record_id::text=current_setting('objects.soft_delete_record_id',true)
+ AND c.parent_record_id=objects.types.id AND c.alive)) WITH CHECK(false);
+-- The existing record trigger reads the exact retained version while the fixed effect runs.
+CREATE POLICY object_delete_shape ON objects.type_versions FOR SELECT TO ensemus_migrator USING(
+ session_user='ensemus_app' AND app.current_actor_type()='user' AND organization_id=app.current_organization_id()
+ AND EXISTS(SELECT 1 FROM knowledge.structured_record_catalog c WHERE c.organization_id=objects.type_versions.organization_id
+ AND c.record_kind='object_record' AND c.record_id::text=current_setting('objects.soft_delete_record_id',true)
+ AND c.parent_record_id=objects.type_versions.type_id AND c.alive));
+CREATE FUNCTION objects.soft_delete_record(p_id uuid,p_expected integer) RETURNS void
+ LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
+DECLARE previous text:=current_setting('objects.soft_delete_record_id',true);person org.memberships%ROWTYPE;
+ record_row objects.records%ROWTYPE;parent_type uuid;enforcement text;changed integer;
+BEGIN
+ IF current_user<>'ensemus_migrator' OR session_user<>'ensemus_app'
+ OR app.current_actor_type() IS DISTINCT FROM 'user' OR app.current_organization_id() IS NULL
+ OR p_id IS NULL OR p_expected IS NULL OR p_expected<1 THEN
+ RAISE EXCEPTION 'OBJECT_DELETE_DENIED' USING ERRCODE='42501';END IF;
+ PERFORM set_config('objects.soft_delete_record_id',p_id::text,true);
+ BEGIN
+   PERFORM pg_advisory_xact_lock(hashtextextended('interactive_policy:'||app.current_organization_id()::text,0));
+   SELECT * INTO person FROM org.memberships WHERE organization_id=app.current_organization_id()
+   AND id=app.current_membership_id() AND user_id=app.current_user_id() AND status='active' FOR SHARE;
+   IF person.id IS NULL OR person.role NOT IN ('owner','admin','member') THEN
+   RAISE EXCEPTION 'OBJECT_DELETE_DENIED' USING ERRCODE='42501';END IF;
+   SELECT sso_enforcement INTO enforcement FROM org.security_policies WHERE organization_id=person.organization_id FOR SHARE;
+   IF enforcement='required' AND person.role<>'owner' AND EXISTS(SELECT 1 FROM org.sso_connections
+   WHERE organization_id=person.organization_id AND state='active') AND NOT identity.lock_required_sso_effect(
+   person.organization_id,person.id,person.user_id,app.current_interactive_session_id()) THEN
+   RAISE EXCEPTION 'SSO_REQUIRED' USING ERRCODE='EN410';END IF;
+   IF NOT identity.lock_studio_session(person.user_id,app.current_interactive_session_id()) THEN
+   RAISE EXCEPTION 'OBJECT_DELETE_DENIED' USING ERRCODE='42501';END IF;
+   SELECT parent_record_id INTO parent_type FROM knowledge.structured_record_catalog
+   WHERE organization_id=person.organization_id AND record_kind='object_record' AND record_id=p_id AND alive;
+   IF parent_type IS NULL THEN RAISE EXCEPTION 'OBJECT_DELETE_DENIED' USING ERRCODE='42501';END IF;
+   PERFORM 1 FROM objects.types WHERE organization_id=person.organization_id AND id=parent_type FOR SHARE NOWAIT;
+   IF NOT FOUND THEN RAISE EXCEPTION 'OBJECT_DELETE_DENIED' USING ERRCODE='42501';END IF;
+   SELECT * INTO record_row FROM objects.records WHERE organization_id=person.organization_id AND id=p_id AND deleted_at IS NULL FOR UPDATE NOWAIT;
+   IF record_row.id IS NULL OR NOT coalesce(objects.record_readable(p_id,person.id),false)
+   OR NOT (record_row.owner_membership_id=person.id OR person.role IN ('owner','admin')) THEN
+   RAISE EXCEPTION 'OBJECT_DELETE_DENIED' USING ERRCODE='42501';END IF;
+   IF record_row.version<>p_expected THEN RAISE EXCEPTION 'OBJECT_VERSION_CONFLICT' USING ERRCODE='EN407';END IF;
+   UPDATE objects.records SET deleted_at=clock_timestamp(),updated_at=clock_timestamp(),version=version+1
+   WHERE organization_id=person.organization_id AND id=p_id AND version=p_expected AND deleted_at IS NULL;
+   GET DIAGNOSTICS changed=ROW_COUNT;
+   IF changed<>1 THEN RAISE EXCEPTION 'OBJECT_VERSION_CONFLICT' USING ERRCODE='EN407';END IF;
+ EXCEPTION WHEN OTHERS THEN
+   PERFORM set_config('objects.soft_delete_record_id',coalesce(previous,''),true);RAISE;
+ END;
+ PERFORM set_config('objects.soft_delete_record_id',coalesce(previous,''),true);
+END $$;
+REVOKE ALL ON FUNCTION objects.soft_delete_record(uuid,integer) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION objects.soft_delete_record(uuid,integer) TO ensemus_app;
+--> statement-breakpoint
 -- Raising a type is the only privileged cascade, preserves bodies/owners, and invalidates optimistic edits.
 CREATE OR REPLACE FUNCTION objects.check_type_change() RETURNS trigger LANGUAGE plpgsql AS $$
  BEGIN
@@ -332,15 +421,15 @@ REVOKE ALL ON FUNCTION objects.guard_type_insert() FROM PUBLIC;
 CREATE TRIGGER aa_object_type_insert BEFORE INSERT ON objects.types FOR EACH ROW EXECUTE FUNCTION objects.guard_type_insert();
 CREATE TRIGGER object_shape_insert_authority BEFORE INSERT ON objects.type_versions FOR EACH ROW EXECUTE FUNCTION objects.guard_type_insert();
 CREATE FUNCTION objects.guard_migration_progress() RETURNS trigger LANGUAGE plpgsql AS $$
- DECLARE m objects.migrations%ROWTYPE; r objects.records%ROWTYPE; fields jsonb;
+ DECLARE m objects.migrations%ROWTYPE; record_row objects.records%ROWTYPE; fields jsonb;
  BEGIN
  IF NEW.organization_id IS DISTINCT FROM app.current_organization_id() THEN RAISE EXCEPTION 'OBJECT_MIGRATION_DENIED' USING ERRCODE='42501'; END IF;
  IF TG_RELID='objects.migration_results'::regclass THEN
  IF app.current_actor_type()<>'service' THEN RAISE EXCEPTION 'OBJECT_MIGRATION_DENIED' USING ERRCODE='42501'; END IF;
  SELECT * INTO m FROM objects.migrations WHERE organization_id=NEW.organization_id AND id=NEW.migration_id FOR UPDATE;
- SELECT * INTO r FROM objects.records WHERE organization_id=NEW.organization_id AND id=NEW.record_id FOR UPDATE;
+ SELECT * INTO record_row FROM objects.records WHERE organization_id=NEW.organization_id AND id=NEW.record_id FOR UPDATE;
  SELECT v.fields INTO fields FROM objects.type_versions v WHERE v.organization_id=m.organization_id AND v.type_id=m.type_id AND v.version_number=m.to_version_number;
- IF m.id IS NULL OR r.id IS NULL OR r.type_id<>m.type_id OR m.status<>'running' OR (NEW.outcome='migrated' AND (r.type_version_number<>m.to_version_number OR NOT objects.attributes_valid(fields,r.attributes) OR NEW.error_code IS NOT NULL)) OR (NEW.outcome='failed' AND (r.type_version_number>=m.to_version_number OR objects.attributes_valid(fields,r.attributes) OR NEW.error_code IS DISTINCT FROM 'OBJECT_RECORD_INVALID')) THEN RAISE EXCEPTION 'OBJECT_MIGRATION_RESULT_INVALID' USING ERRCODE='42501'; END IF;
+ IF m.id IS NULL OR record_row.id IS NULL OR record_row.type_id<>m.type_id OR m.status<>'running' OR (NEW.outcome='migrated' AND (record_row.type_version_number<>m.to_version_number OR NOT objects.attributes_valid(fields,record_row.attributes) OR NEW.error_code IS NOT NULL)) OR (NEW.outcome='failed' AND (record_row.type_version_number>=m.to_version_number OR objects.attributes_valid(fields,record_row.attributes) OR NEW.error_code IS DISTINCT FROM 'OBJECT_RECORD_INVALID')) THEN RAISE EXCEPTION 'OBJECT_MIGRATION_RESULT_INVALID' USING ERRCODE='42501'; END IF;
  ELSIF TG_OP='INSERT' THEN
  IF NOT objects.active_person(true) OR NEW.requested_by_membership_id<>app.current_membership_id() OR NEW.to_version_number<>(SELECT current_version_number FROM objects.types WHERE organization_id=NEW.organization_id AND id=NEW.type_id) OR NEW.from_version_number<>NEW.to_version_number-1 THEN RAISE EXCEPTION 'OBJECT_MIGRATION_DENIED' USING ERRCODE='42501'; END IF;
  ELSE

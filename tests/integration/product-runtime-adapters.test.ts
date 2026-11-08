@@ -2,7 +2,14 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { and, eq, sql } from 'drizzle-orm';
-import { AppError, createWorkUnit, getWorkUnit, setOwner, unassign } from '@ensemus/application';
+import {
+  AppError,
+  createWorkUnit,
+  getWorkUnit,
+  setOwner,
+  unassign,
+  setMemberRole,
+} from '@ensemus/application';
 import {
   agentSpecSha256,
   pinAgentVersion,
@@ -17,7 +24,6 @@ import {
   agentDefinitions,
   agentPublications,
   agentRuns,
-  memberships,
   openAppDatabase,
   runControls,
   withTenantTx,
@@ -122,12 +128,8 @@ describe('real product runtime adapters', () => {
       delegated = await createDelegatedContext(app.db, f.organizationId, f.owner.membershipId);
     for (const context of [service, delegated])
       await expect(ports().agentRuns.listMine(context, {})).rejects.toEqual(refused('FORBIDDEN'));
-    await withTenantTx(app.db, f.owner, (tx) =>
-      tx
-        .update(memberships)
-        .set({ role: 'member' })
-        .where(eq(memberships.id, f.owner.membershipId)),
-    );
+    await setMemberRole(app.db, f.owner, { membershipId: f.member.membershipId, role: 'owner' });
+    await setMemberRole(app.db, f.owner, { membershipId: f.owner.membershipId, role: 'member' });
     await expect(ports().agentRegistry.orgLimits(f.owner)).rejects.toEqual(refused('FORBIDDEN'));
     await expect(ports().agentRegistry.list(f.owner)).rejects.toEqual(refused('FORBIDDEN'));
   });
