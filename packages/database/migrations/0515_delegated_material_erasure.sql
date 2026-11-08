@@ -588,10 +588,7 @@ CREATE POLICY material_delete_source_lock ON knowledge.sources FOR UPDATE TO ens
 CREATE POLICY material_delete_job_read ON knowledge.purge_jobs FOR SELECT TO ensemus_migrator USING(lifecycle.material_delete_scope(organization_id,source_id,NULL));
 CREATE POLICY material_delete_job_lock ON knowledge.purge_jobs FOR UPDATE TO ensemus_migrator USING(lifecycle.material_delete_scope(organization_id,source_id,NULL)) WITH CHECK(false);
 GRANT SELECT(organization_id,id,run_id) ON ai.execution_steps TO ensemus_migrator;
-GRANT SELECT(organization_id,id,source_id) ON knowledge.chunks TO ensemus_migrator;
 CREATE POLICY material_delete_step_metadata ON ai.execution_steps FOR SELECT TO ensemus_migrator
-  USING(lifecycle.material_delete_scope(organization_id,NULL,NULL) AND id::text=current_setting('lifecycle.material_delete_row',true));
-CREATE POLICY material_delete_chunk_metadata ON knowledge.chunks FOR SELECT TO ensemus_migrator
   USING(lifecycle.material_delete_scope(organization_id,NULL,NULL) AND id::text=current_setting('lifecycle.material_delete_row',true));
 CREATE POLICY material_delete_checkpoint_read ON ai.run_input_checkpoints FOR SELECT TO ensemus_migrator USING(lifecycle.material_delete_scope(organization_id,NULL,run_id));
 CREATE POLICY material_delete_checkpoint_lock ON ai.run_input_checkpoints FOR UPDATE TO ensemus_migrator USING(lifecycle.material_delete_scope(organization_id,NULL,run_id)) WITH CHECK(false);
@@ -628,10 +625,7 @@ BEGIN
   ELSIF TG_RELID='knowledge.chunks'::regclass THEN target_source:=OLD.source_id;
   ELSIF TG_RELID='knowledge.fact_evidence'::regclass THEN target_source:=OLD.source_id;
   ELSIF TG_RELID='knowledge.object_writers'::regclass THEN target_source:=OLD.source_id;
-  ELSIF TG_RELID='knowledge.embeddings'::regclass THEN
-    PERFORM set_config('lifecycle.material_delete_row',OLD.chunk_id::text,true);
-    SELECT actual.source_id INTO target_source FROM knowledge.chunks actual WHERE actual.organization_id=tenant AND actual.id=OLD.chunk_id;
-    IF NOT FOUND THEN RAISE EXCEPTION 'MATERIAL_DELETE_SOURCE_UNKNOWN' USING ERRCODE='EN119';END IF;
+  ELSIF TG_RELID='knowledge.embeddings'::regclass THEN target_source:=OLD.source_id;
   END IF;
   IF target_source IS NOT NULL THEN
     PERFORM set_config('lifecycle.material_delete_source',target_source::text,true);
