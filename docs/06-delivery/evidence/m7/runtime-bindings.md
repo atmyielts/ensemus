@@ -115,6 +115,35 @@ excluded in the unpublished /3 inventory; frozen /1 and /2 are unchanged. The ar
 reruns are still pending. Storage tests use an explicit private double and establish no real-provider
 physical deletion or hold acceptance.
 
+### Latest reruns and remaining limits
+
+The explicit /3 exclusions repair passed the actual **27/27 archive custody cases**, including native
+session/ACL/classification changes, real driver lock barriers, unknown put refusal, restore proof loss
+and source-purge backstops. The storage/lifecycle double is deliberate; this is not real-provider
+deletion/hold acceptance.
+
+The compiler Work-read fix alone revealed a second real transaction-local admission gap:
+`verifiedFactsCurrent` indirectly reads Work through fact subject RLS in its own transaction.
+`b702265` remints scope for compiler Work transactions; `45dede5` makes the shared Knowledge
+person-admission helper explicitly admit actual agent contexts in each transaction. Generic
+`withTenantTx` continues to clear the marker. The actual model-input/fact suite now passes **10/10**,
+including direct agent Work SELECT remaining hidden both before and after compilation.
+
+The subsequent complete unit run first passed 5,050/failed one obsolete Sovereign-route count. The
+new download route is now explicitly included in that contract assertion; its focused 60 checks
+passed. The complete post-helper rerun then passed **5,051/5,051**, with **two explicit skips**, in
+195 files/129.18 seconds (`.local-m7-unit-final-55.log`). Scoped formatting/lint and contract generation
+passed, followed by database/application/tests/actual worker and actual Next route generation/web
+types. The later native HTTP archive-download success/denial test is authored and statically checked;
+it remains unrun until a rebuilt stack gate. It does not obtain an aggregate coverage exception.
+
+Native workflow authoring (`d55f507`, formatted in `f1ab06e`) supports actual add/edit/remove,
+fork/join connections, incomplete graph diagnostics, rehearsal and named current-readable review.
+Four browser journeys remain authored/unrun. A visual canvas, process execution HTTP/UI, complete
+durable process/step authority, real inherited-input child proof, actual hold/delete/writer lifecycle,
+restore/offboarding composition, full DB regression and all new rendered/provider/hosted acceptance
+remain open. Legacy child gates remain closed; missing lifecycle does not certify successful cleanup.
+
 The sections below describe earlier source work and its historical checks, not newer acceptance.
 
 ## Earlier SQL and checks

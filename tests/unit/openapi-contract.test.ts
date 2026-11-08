@@ -416,7 +416,13 @@ describe('what the Sovereign routes answer with', () => {
     const sovereign = operations().filter(({ path }) =>
       /\/(license|advisories|exports|imports|imported-people)/.test(path),
     );
-    expect(sovereign).toHaveLength(11);
+    expect(sovereign).toHaveLength(12);
+    expect(sovereign).toContainEqual(
+      expect.objectContaining({
+        method: 'GET',
+        path: '/organizations/{organization_id}/imports/{import_id}/files/{source_artifact_id}/download',
+      }),
+    );
     for (const { method, path } of sovereign) {
       const { responses } = spec.paths[path]?.[method.toLowerCase()] as {
         responses: Record<string, unknown>;

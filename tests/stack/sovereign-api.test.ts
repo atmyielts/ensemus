@@ -4,7 +4,11 @@
 // WRITTEN AND NOT YET RUN. It needs the stack, the migrations stitched into the journal, every M6 slice merged,
 // and a generated test trust root mounted into the web service (see trustRootForTheStack below). It counts
 // as unverified until the owner runs it.
-import { createPrivateKey, createPublicKey, randomUUID } from 'node:crypto';
+import { createHash, createPrivateKey, createPublicKey, randomUUID } from 'node:crypto';
+import { openAppDatabase } from '@ensemus/database';
+import { createServiceContext } from '@ensemus/database/service';
+import { runOrganizationImport, SOURCE_PORTABILITY_SECTIONS } from '@ensemus/application';
+import { S3ObjectStore } from '@ensemus/storage';
 import { readFileSync } from 'node:fs';
 import { join as joinPath } from 'node:path';
 import {
@@ -23,7 +27,8 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { components } from '../../packages/contracts/generated/openapi';
 import { contractProblems, operationName, operations } from '../helpers/openapi';
 import { BASE, createOrganization, join, type Person, signUp, submit } from '../helpers/forms';
-import { repoRoot, urls } from '../helpers/stack';
+import { repoRoot, urls, secret } from '../helpers/stack';
+import { buildArchive } from '../integration/fixtures/archive-builder';
 
 type ApiError = components['schemas']['Error'];
 type LicenseStatus = components['schemas']['LicenseStatus'];
@@ -124,6 +129,7 @@ async function makeAdmin(owner: Person, organization: string, person: Person) {
 const aRecipient = () => {
   const { publicKey, privateKey } = generateRecipientKeyPair();
   return {
+    publicKey,
     publicKeyBase64: exportRecipientPublicKey(publicKey),
     privateKeyPem: privateKey.export({ type: 'pkcs8', format: 'pem' }).toString(),
     keyId: recipientKeyId(publicKey),
@@ -166,6 +172,7 @@ describe('the Sovereign API', () => {
       ['GET', `exports/${organization}/archive`],
       ['POST', 'imports'],
       ['GET', `imports/${organization}`],
+      ['GET', `imports/${organization}/files/${organization}/download`],
       ['GET', 'imported-people'],
       ['POST', `imported-people/${organization}/link`, { membership_id: organization }],
     ];
@@ -503,6 +510,80 @@ describe('the Sovereign API', () => {
         'INVALID_INPUT',
       );
     });
+  });
+
+  it('downloads only a real verified inert archive file through the native HTTP boundary', async () => {
+    const custodian = await signUp('Generated HTTP archive custodian'),
+      company = await createOrganization(custodian, `Generated archive ${randomUUID()}`);
+    const requested = await call(custodian, 'POST', api(company, 'imports'));
+    expect(requested.status).toBe(201);
+    const importId = (requested.json as OrganizationImport).id,
+      sourceArtifactId = randomUUID();
+    const path = api(company, `imports/${importId}/files/${sourceArtifactId}/download`);
+    expectError(await call(custodian, 'GET', path), 404);
+    const bytes = Buffer.from(
+      'GENERATED HTTP archive bytes, retained without trusted original lineage.',
+    );
+    const recipient = aRecipient(),
+      archive = buildArchive(recipient, {
+        pages: [
+          {
+            section: 'artifacts',
+            recordKind: 'artifact',
+            records: [
+              {
+                kind: 'artifact',
+                id: sourceArtifactId,
+                name: 'Generated archived note.txt',
+                mime_type: 'text/plain',
+                size_bytes: bytes.length,
+                sha256: createHash('sha256').update(bytes).digest('hex'),
+                classification: 'internal',
+                created_by_membership_id: randomUUID(),
+                created_at: '2026-11-08T00:00:00.000Z',
+              },
+            ],
+          },
+        ],
+        files: { [sourceArtifactId]: bytes },
+      });
+    const app = openAppDatabase(urls.app()),
+      store = new S3ObjectStore({
+        endpoint: `http://127.0.0.1:${process.env.ENSEMUS_TEST_OBJECTS_PORT ?? '58333'}`,
+        bucket: 'ensemus',
+        accessKey: secret('objects_access_key'),
+        secretKey: secret('objects_secret_key'),
+        maxAttempts: 1,
+      });
+    try {
+      // The operator/parser runs in the test driver. No customer-facing HTTP route performs import work.
+      const imported = await runOrganizationImport(
+        app.db,
+        createServiceContext(company),
+        {
+          importId,
+          archive: archive.reader,
+          recipientPrivateKeyPem: recipient.privateKeyPem,
+        },
+        { sections: SOURCE_PORTABILITY_SECTIONS, store, ledger: store },
+      );
+      expect(imported).toMatchObject({
+        status: 'completed_with_warnings',
+        warningCounts: { FILES_AWAIT_REVIEW: 1 },
+      });
+      const downloaded = await call(custodian, 'GET', path);
+      expect(downloaded.status).toBe(200);
+      expect(downloaded.text).toBe(bytes.toString());
+      expect(downloaded.headers.get('content-type')).toBe('application/octet-stream');
+      expect(downloaded.headers.get('content-length')).toBe(String(bytes.length));
+      expect(downloaded.headers.get('content-disposition')).toMatch(/^attachment;/);
+      expect(downloaded.headers.get('cache-control')).toContain('no-store');
+      expect(downloaded.headers.get('x-content-type-options')).toBe('nosniff');
+      expectError(await call(rival, 'GET', path), 404);
+    } finally {
+      store.close();
+      await app.close();
+    }
   });
 
   it('has validated a real answer from every Sovereign route it could reach here', () => {
