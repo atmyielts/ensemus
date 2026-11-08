@@ -31,8 +31,10 @@ corrected duplicate portability inventory entries, activated exactly 25 existing
 OpenAPI after checking actual exports, updated permitted account navigation assertions, taught the
 vendor-code boundary walk to follow actual Node export patterns, and repaired canonical-ID input
 boundaries. Affected root rerun passed **175** with two explicit skips; the ID source branch passed
-38 focused cases. A new full current-source run is still required. Source/branch counts are not
-additive, and none of these tests establishes current built HTTP/browser or deployment acceptance.
+38 focused cases. The full joined rerun at `27ada85` subsequently passed **5,477 cases in 237 files**,
+with **two explicit skips**, and every workspace typecheck passed with concurrency one. Source/branch
+counts are not additive. The production web build at that checkpoint also passed. These results do
+not establish complete current HTTP/browser, provider or deployment acceptance.
 
 0417, 0419 and 0510 remain unregistered and unqualified. The final 0999 eraser installer remains
 unregistered until every contributing schema and real closure proof has been reviewed. Its unknown

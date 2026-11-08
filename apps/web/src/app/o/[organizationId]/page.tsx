@@ -85,7 +85,7 @@ export default async function HomePage({
         <section className="card" aria-labelledby="mine-heading">
           <h2 id="mine-heading">Your work</h2>
           {work.length === 0 ? (
-            <Empty action={<Link href={`${base}/work/new`}>Describe an outcome</Link>}>
+            <Empty action={<Link href={`${base}/compose`}>Describe an outcome</Link>}>
               You are not on any open work. Start by describing the outcome you want.
             </Empty>
           ) : (
