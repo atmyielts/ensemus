@@ -127,7 +127,18 @@ export async function guardSamlRequest(
     if (xml.includes('\0') || /<!\s*(?:DOCTYPE|ENTITY)\b/i.test(xml)) return refused();
     const snapshot = envelope(xml, body);
     if (!snapshot) return refused();
-    return { request: new Request(request, { body: new Uint8Array(body) }), envelope: snapshot };
+    // Next's Request may come from a different fetch implementation. Passing that object to
+    // Node's constructor can access incompatible private slots. Replay only public request data;
+    // retain every header (including correlation cookies/origin), the exact bytes and cancellation.
+    return {
+      request: new Request(request.url, {
+        method: request.method,
+        headers: Array.from(request.headers.entries()),
+        body: new Uint8Array(body),
+        signal: request.signal,
+      }),
+      envelope: snapshot,
+    };
   } catch {
     return refused();
   } finally {
