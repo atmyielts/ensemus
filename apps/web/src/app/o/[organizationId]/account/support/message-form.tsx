@@ -69,10 +69,10 @@ export function SupportMessageForm({
           defaultValue={state.values.body}
           aria-describedby="support-message-help"
         />
-        <small id="support-message-help">
-          Do not paste secrets, credentials or unnecessary personal information.
-        </small>
       </label>
+      <small id="support-message-help">
+        Do not paste secrets, credentials or unnecessary personal information.
+      </small>
       <div>
         <SubmitButton working={ticket ? 'Adding reply' : 'Opening ticket'}>
           {ticket ? 'Add reply' : 'Open support ticket'}

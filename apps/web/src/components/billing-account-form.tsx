@@ -82,8 +82,8 @@ export function BillingAccountForm({
           defaultValue={v.countryCode}
           aria-describedby="billing-country-help"
         />
-        <small id="billing-country-help">Use the two-letter uppercase country code.</small>
       </label>
+      <small id="billing-country-help">Use the two-letter uppercase country code.</small>
       <label>
         Region code <small>Optional</small>
         <input name="regionCode" maxLength={16} pattern="[A-Z0-9-]*" defaultValue={v.regionCode} />

@@ -1,6 +1,5 @@
-import Link from 'next/link';
 import { headers } from 'next/headers';
-import { BackLink, PageHead } from '@/components/ui';
+import { ActionLink, BackLink, PageHead } from '@/components/ui';
 import { CodeFields, FactorError } from '@/components/security/code-fields';
 import { EnrollmentForm } from '@/components/security/enrollment-form';
 import { SubmitButton } from '@/components/submit-button';
@@ -45,9 +44,9 @@ export default async function AccountEnrollmentPage({
         {enrolled ? (
           <>
             <p>Your authenticator app is already set up.</p>
-            <Link className="button" href={accountStepUpPath(organizationId, next)}>
+            <ActionLink href={accountStepUpPath(organizationId, next)}>
               Confirm your identity
-            </Link>
+            </ActionLink>
           </>
         ) : (
           <>
@@ -76,7 +75,9 @@ export default async function AccountEnrollmentPage({
           </>
         )}
         <p>
-          <Link href={next}>Back to your account request</Link>
+          <ActionLink variant="secondary" href={next}>
+            Back to your account request
+          </ActionLink>
         </p>
       </section>
     </>

@@ -1,6 +1,5 @@
-import Link from 'next/link';
 import { headers } from 'next/headers';
-import { BackLink, PageHead } from '@/components/ui';
+import { ActionLink, BackLink, PageHead } from '@/components/ui';
 import { FactorError } from '@/components/security/code-fields';
 import { IdentityConfirmationForm } from '@/components/security/identity-confirmation-form';
 import { accountEnrollmentPath, safeAccountStepUpReturn } from '@/lib/step-up';
@@ -50,13 +49,15 @@ export default async function AccountConfirmPage({
               Add an authenticator app before making this change. Setup remains available while
               service is paused.
             </p>
-            <Link className="button" href={accountEnrollmentPath(organizationId, next)}>
+            <ActionLink href={accountEnrollmentPath(organizationId, next)}>
               Set up authenticator app
-            </Link>
+            </ActionLink>
           </>
         )}
         <p>
-          <Link href={next}>Back to your account request</Link>
+          <ActionLink variant="secondary" href={next}>
+            Back to your account request
+          </ActionLink>
         </p>
       </section>
     </>

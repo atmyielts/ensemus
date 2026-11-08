@@ -748,6 +748,17 @@ dd {
   overflow-wrap: anywhere;
   min-width: 0;
 }
+dl.details {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 14rem), 1fr));
+  gap: var(--space-4);
+}
+dl.details > div {
+  min-width: 0;
+}
+dl.details dt {
+  margin-bottom: var(--space-1);
+  font-size: var(--text-small);
+}
 /* A work's vital signs in one strip, each with its label above it. */
 dl.facts {
   display: flex;
@@ -892,6 +903,8 @@ input[type='file']::file-selector-button:hover {
 .check {
   display: flex;
   align-items: flex-start;
+  min-height: var(--control-height);
+  padding-block: var(--space-2);
   gap: 0.5rem;
   font-weight: 400;
 }

@@ -63,7 +63,7 @@ export default async function LegalHoldsPage({
                         <input type="hidden" name="organizationId" value={organizationId} />
                         <input type="hidden" name="holdId" value={hold.id} />
                         <input type="hidden" name="version" value={hold.version} />
-                        <AccountReasonSelect forAction="release_hold"/>
+                        <AccountReasonSelect forAction="release_hold" />
                       </>
                     }
                   />

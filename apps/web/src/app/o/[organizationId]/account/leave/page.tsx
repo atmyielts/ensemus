@@ -123,7 +123,7 @@ export default async function LeavePage({
                 <>
                   <input type="hidden" name="organizationId" value={organizationId} />
                   <input type="hidden" name="version" value={offboarding.version} />
-                  <AccountReasonSelect forAction="cancel_offboarding"/>
+                  <AccountReasonSelect forAction="cancel_offboarding" />
                 </>
               }
             />

@@ -7,7 +7,20 @@ import { WorkflowIssues } from './workflow-overview';
 import { useWorkflowEditor } from './workflow-editor-state';
 import { RemoveWorkflowConnection } from './workflow-connection-form';
 import styles from './workflow-map.module.css';
-const nodeName = (node: MapNode) => `Point ${node.index + 1}: ${node.label}`;
+const pointLabel = (node: MapNode) =>
+  node.label.trim().replace(/\s+/gu, ' ') || 'Unnamed saved point';
+const nodeName = (node: MapNode) => `Point ${node.index + 1}: ${pointLabel(node)}`;
+// Preserve actual word boundaries in SVG text without inserting spaces into wrapped long words.
+function labelLines(node: MapNode) {
+  const label = pointLabel(node);
+  let cursor = 0;
+  return node.lines.map((line) => {
+    cursor += line.length;
+    const space = label[cursor] === ' ';
+    if (space) cursor++;
+    return `${line}${space ? ' ' : ''}`;
+  });
+}
 function kindName(node: MapNode) {
   return node.kind !== null && Object.hasOwn(WORKFLOW_KIND_NAMES, node.kind)
     ? WORKFLOW_KIND_NAMES[node.kind as keyof typeof WORKFLOW_KIND_NAMES]
@@ -178,10 +191,7 @@ export function WorkflowMap({
                       className={`${styles.edge}${edge.cyclic ? ` ${styles.loop}` : ''}`}
                       markerEnd={`url(#${edge.cyclic ? loopArrow : arrow})`}
                     >
-                      <title>
-                        {edgeName(picture, edge.from)} to {edgeName(picture, edge.to)}
-                        {edge.cyclic ? ' — loop needs review' : ''}
-                      </title>
+                      <title>{`${edgeName(picture, edge.from)} to ${edgeName(picture, edge.to)}${edge.cyclic ? ' — loop needs review' : ''}`}</title>
                     </path>
                   ))}
               </g>
@@ -208,16 +218,14 @@ export function WorkflowMap({
                         width={node.width}
                         height={node.height}
                       />
-                      <title>
-                        {nodeName(node)}. {kindName(node)}. {caption}.
-                      </title>
+                      <title>{`${nodeName(node)}. ${kindName(node)}. ${caption}.`}</title>
                       <text className={styles.small} x={node.x + 16} y={node.y + 23}>
-                        Point {node.index + 1}
+                        {`Point ${node.index + 1} `}
                       </text>
                       <text className={styles.label} x={node.x + 16} y={node.y + 46}>
-                        {node.lines.map((line, index) => (
+                        {labelLines(node).map((line, index) => (
                           <tspan x={node.x + 16} dy={index === 0 ? 0 : 22} key={index}>
-                            {line}
+                            {`${line}${index === node.lines.length - 1 ? ' ' : ''}`}
                           </tspan>
                         ))}
                       </text>
@@ -226,7 +234,7 @@ export function WorkflowMap({
                         x={node.x + 16}
                         y={node.y + node.lines.length * 22 + 48}
                       >
-                        {kindName(node)}
+                        {`${kindName(node)} `}
                       </text>
                       <text
                         className={`${styles.small}${review ? ` ${styles.reviewLabel}` : ''}`}
@@ -241,7 +249,7 @@ export function WorkflowMap({
                     <g
                       key={node.index}
                       data-workflow-point={node.index}
-                      aria-label={nodeName(node)}
+                      aria-label={`${nodeName(node)}. ${kindName(node)}. ${caption}.`}
                     >
                       {contents}
                     </g>
@@ -251,7 +259,7 @@ export function WorkflowMap({
                       data-workflow-point={node.index}
                       href={targetHref(node)}
                       className={`${styles.pointLink}${selected === node.editTarget ? ` ${styles.selected}` : ''}`}
-                      aria-label={`Edit ${nodeName(node)}. ${kindName(node)}.${review ? ' Needs review.' : ''}`}
+                      aria-label={`Edit ${nodeName(node)}. ${kindName(node)}. ${caption}.`}
                       aria-current={selected === node.editTarget ? 'location' : undefined}
                       onClick={(event) => choose(event, node.editTarget)}
                     >

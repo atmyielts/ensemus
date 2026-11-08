@@ -16,9 +16,17 @@ export function AccountActionNotice({
       <ErrorNotice code={code} />
       {code === 'VERSION_CONFLICT' && (
         <div className="notice" role="status">
-          <p>Your entered details are still here and have not been saved. Trying again uses the same original version.</p>
-          <p>To use the latest saved details, reload and discard this draft. Copy anything you want to keep before choosing to reload.</p>
-          <ReloadLink href={safeAccountStepUpReturn(organizationId, returnTo)}>Reload and discard my draft</ReloadLink>
+          <p>
+            Your entered details are still here and have not been saved. Trying again uses the same
+            original version.
+          </p>
+          <p>
+            To use the latest saved details, reload and discard this draft. Copy anything you want
+            to keep before choosing to reload.
+          </p>
+          <ReloadLink href={safeAccountStepUpReturn(organizationId, returnTo)}>
+            Reload and discard my draft
+          </ReloadLink>
         </div>
       )}
       {code === 'MFA_REQUIRED' && (
