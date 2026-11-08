@@ -59,10 +59,10 @@ export-expiry upkeep call. Only that double was corrected; its focused **five te
 full rerun is still owed. Application/tests and actual Next typegen/web types passed before the last
 screen recovery; later edits require their own checks.
 
-Twenty new migrations are now registered (53 total), in dependency order rather than filename order:
+Before the actual PostgreSQL follow-up, twenty new migrations were registered (53 total), in dependency order rather than filename order:
 0216, 0300–0303, 0400–0407, 0410, 0411, 0412, 0409, 0408, 0413, 0414. Isolated Drizzle generation
-includes 145 tables, but the final checked-in snapshot and actual database metadata audit are pending.
-**These new migrations have not yet passed the fresh database gate.** 0412 now also checks exact
+included 145 tables; the later checked-in snapshot and database audit are recorded below.
+At that point those migrations had not passed the fresh database gate. 0412 also checks exact
 released catalog workflow bodies, an actual approved review for graph publication, and native process
 start authority. New real-role tests are authored, not executed.
 
@@ -96,6 +96,24 @@ screen recovery; web no-emit found one read-model optional-field typing mismatch
 the actual snapshot reader's type. Its web rerun passed. Later schema/fixture edits still require their
 joined source checks. No full database regression, new browser/Temporal run, actual provider,
 restoration, physical lifecycle, hosted or independent acceptance is claimed.
+
+### Custody/attempt-receipt join
+
+`f63dee6` and `d6265b9` join inert archive custody and its independent source-purge proof guard;
+`304b69d` joins exact pre-network main-attempt receipts and compiler fact-hash receipts. These
+do not reopen the legacy child-run gates: real inherited read authority and copied-sink erasure are
+still unfinished. 0415/0416 were registered after the verified prerequisites and **all 55 migrations
+applied**. The **149-table** modeled constraint audit again reports **zero missing/name mismatches**;
+the new snapshot is chained to 0414.
+
+The seven-file real-role run passed **42** and failed **28** (70 total). The five Studio/outcome/setup
+files now pass **all 33 cases** together. Main attempt receipts pass nine of ten; the fact/compiler case
+found a real missing transaction-local scope admission before a Work read, being repaired without
+weakening RLS. All 27 archive tests failed at the strict inventory completeness guard before their
+effects: the three new 0416 relations had not yet been declared excluded. They are now explicitly
+excluded in the unpublished /3 inventory; frozen /1 and /2 are unchanged. The archive and compiler
+reruns are still pending. Storage tests use an explicit private double and establish no real-provider
+physical deletion or hold acceptance.
 
 The sections below describe earlier source work and its historical checks, not newer acceptance.
 

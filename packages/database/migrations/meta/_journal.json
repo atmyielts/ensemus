@@ -372,6 +372,20 @@
       "when": 1794010184907,
       "tag": "0414_agent_scope_protocol",
       "breakpoints": true
+    },
+    {
+      "idx": 53,
+      "version": "7",
+      "when": 1794010184908,
+      "tag": "0415_archive_file_quarantine",
+      "breakpoints": true
+    },
+    {
+      "idx": 54,
+      "version": "7",
+      "when": 1794010184909,
+      "tag": "0416_delegated_input_receipts",
+      "breakpoints": true
     }
   ]
 }
