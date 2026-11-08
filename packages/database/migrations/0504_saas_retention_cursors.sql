@@ -27,3 +27,8 @@ GRANT SELECT,INSERT,UPDATE,DELETE ON lifecycle.retention_cursors TO ensemus_app;
 --> statement-breakpoint
 -- Supports raw-file expiry keysets without an offset scan. There is no configured retention duration.
 CREATE INDEX artifacts_retention_expiry ON work.artifacts(organization_id,classification,created_at,id);
+--> statement-breakpoint
+-- Canonical modeled constraint identities; referential actions and validation stay unchanged.
+ALTER TABLE "lifecycle"."retention_cursors" RENAME CONSTRAINT "retention_cursors_organization_id_fkey" TO "retention_cursors_organization_id_organizations_id_fk";
+--> statement-breakpoint
+ALTER TABLE lifecycle.retention_cursors RENAME CONSTRAINT retention_cursors_classification_check TO retention_cursors_classification;

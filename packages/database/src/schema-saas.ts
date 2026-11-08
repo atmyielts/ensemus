@@ -428,7 +428,7 @@ export const creditAccounts = billingSchema.table('credit_accounts', {
   organizationId: uuid()
     .primaryKey()
     .references(() => organizations.id),
-  balanceMicrocredits: bigint({ mode: 'bigint' }).notNull().default(0n),
+  balanceMicrocredits: bigint({ mode: 'bigint' }).notNull().default(sql`0`),
   /** How far M4's ledger has been read, in the port's own terms. Losing it only repeats safe work. */
   usageCursor: text(),
   version: version(),
@@ -519,9 +519,9 @@ export const invoices = billingSchema.table(
     kind: text().notNull(),
     status: text().notNull().default('draft'),
     currency: text().notNull(),
-    subtotalMicros: micros().notNull().default(0n),
-    taxMicros: micros().notNull().default(0n),
-    totalMicros: micros().notNull().default(0n),
+    subtotalMicros: micros().notNull().default(sql`0`),
+    taxMicros: micros().notNull().default(sql`0`),
+    totalMicros: micros().notNull().default(sql`0`),
     subscriptionId: uuid(),
     billingPeriodId: uuid(),
     topUpId: uuid(),

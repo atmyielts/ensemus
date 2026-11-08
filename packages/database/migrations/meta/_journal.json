@@ -400,6 +400,69 @@
       "when": 1794010184911,
       "tag": "0420_process_wake_metadata",
       "breakpoints": true
+    },
+    {
+      "idx": 57,
+      "version": "7",
+      "when": 1794010184912,
+      "tag": "0500_saas_tables",
+      "breakpoints": true
+    },
+    {
+      "idx": 58,
+      "version": "7",
+      "when": 1794010184913,
+      "tag": "0501_saas_security",
+      "breakpoints": true
+    },
+    {
+      "idx": 59,
+      "version": "7",
+      "when": 1794010184914,
+      "tag": "0503_saas_plan_precision",
+      "breakpoints": true
+    },
+    {
+      "idx": 60,
+      "version": "7",
+      "when": 1794010184915,
+      "tag": "0504_saas_retention_cursors",
+      "breakpoints": true
+    },
+    {
+      "idx": 61,
+      "version": "7",
+      "when": 1794010184916,
+      "tag": "0505_saas_erasure_metadata",
+      "breakpoints": true
+    },
+    {
+      "idx": 62,
+      "version": "7",
+      "when": 1794010184917,
+      "tag": "0506_saas_public_projections",
+      "breakpoints": true
+    },
+    {
+      "idx": 63,
+      "version": "7",
+      "when": 1794010184918,
+      "tag": "0507_saas_support_erasure_fence",
+      "breakpoints": true
+    },
+    {
+      "idx": 64,
+      "version": "7",
+      "when": 1794010184919,
+      "tag": "0508_object_deletion_authority",
+      "breakpoints": true
+    },
+    {
+      "idx": 65,
+      "version": "7",
+      "when": 1794010184920,
+      "tag": "0509_saas_private_reads",
+      "breakpoints": true
     }
   ]
 }

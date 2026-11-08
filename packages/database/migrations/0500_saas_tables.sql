@@ -744,3 +744,70 @@ CREATE TABLE "operations"."vulnerability_reports" (
 	CONSTRAINT "vulnerability_reports_severity" CHECK ("operations"."vulnerability_reports"."severity" IS NULL OR "operations"."vulnerability_reports"."severity" in ('critical','high','medium','low')),
 	CONSTRAINT "vulnerability_reports_state" CHECK ("operations"."vulnerability_reports"."state" in ('received','triaged','fixing','fixed','disclosed','rejected'))
 );
+--> statement-breakpoint
+-- Canonical modeled constraint identities; referential actions and validation stay unchanged.
+ALTER TABLE "billing"."billing_accounts" RENAME CONSTRAINT "billing_accounts_organization_id_fkey" TO "billing_accounts_organization_id_organizations_id_fk";
+--> statement-breakpoint
+ALTER TABLE "billing"."billing_periods" RENAME CONSTRAINT "billing_periods_plan_version_id_fkey" TO "billing_periods_plan_version_id_plan_versions_id_fk";
+--> statement-breakpoint
+ALTER TABLE "billing"."billing_periods" RENAME CONSTRAINT "billing_periods_rate_card_id_fkey" TO "billing_periods_rate_card_id_rate_cards_id_fk";
+--> statement-breakpoint
+ALTER TABLE "support"."break_glass_requests" RENAME CONSTRAINT "break_glass_requests_organization_id_fkey" TO "break_glass_requests_organization_id_organizations_id_fk";
+--> statement-breakpoint
+ALTER TABLE "billing"."collection_cases" RENAME CONSTRAINT "collection_cases_collection_policy_id_fkey" TO "collection_cases_collection_policy_id_collection_policies_id_fk";
+--> statement-breakpoint
+ALTER TABLE "billing"."credit_accounts" RENAME CONSTRAINT "credit_accounts_organization_id_fkey" TO "credit_accounts_organization_id_organizations_id_fk";
+--> statement-breakpoint
+ALTER TABLE "billing"."credit_ledger" RENAME CONSTRAINT "credit_ledger_organization_id_fkey" TO "credit_ledger_organization_id_organizations_id_fk";
+--> statement-breakpoint
+ALTER TABLE "billing"."credit_ledger" RENAME CONSTRAINT "credit_ledger_rate_card_id_fkey" TO "credit_ledger_rate_card_id_rate_cards_id_fk";
+--> statement-breakpoint
+ALTER TABLE "operations"."incident_updates" RENAME CONSTRAINT "incident_updates_incident_id_fkey" TO "incident_updates_incident_id_incidents_id_fk";
+--> statement-breakpoint
+ALTER TABLE "billing"."invoices" RENAME CONSTRAINT "invoices_organization_id_fkey" TO "invoices_organization_id_organizations_id_fk";
+--> statement-breakpoint
+ALTER TABLE "billing"."invoices" RENAME CONSTRAINT "invoices_plan_version_id_fkey" TO "invoices_plan_version_id_plan_versions_id_fk";
+--> statement-breakpoint
+ALTER TABLE "billing"."invoices" RENAME CONSTRAINT "invoices_rate_card_id_fkey" TO "invoices_rate_card_id_rate_cards_id_fk";
+--> statement-breakpoint
+ALTER TABLE "billing"."invoices" RENAME CONSTRAINT "invoices_tax_treatment_id_fkey" TO "invoices_tax_treatment_id_tax_treatments_id_fk";
+--> statement-breakpoint
+ALTER TABLE "lifecycle"."legal_holds" RENAME CONSTRAINT "legal_holds_organization_id_fkey" TO "legal_holds_organization_id_organizations_id_fk";
+--> statement-breakpoint
+ALTER TABLE "lifecycle"."offboardings" RENAME CONSTRAINT "offboardings_organization_id_fkey" TO "offboardings_organization_id_organizations_id_fk";
+--> statement-breakpoint
+ALTER TABLE "billing"."payment_events" RENAME CONSTRAINT "payment_events_organization_id_fkey" TO "payment_events_organization_id_organizations_id_fk";
+--> statement-breakpoint
+ALTER TABLE "billing"."payment_webhook_events" RENAME CONSTRAINT "payment_webhook_events_organization_id_fkey" TO "payment_webhook_events_organization_id_organizations_id_fk";
+--> statement-breakpoint
+ALTER TABLE "billing"."plan_versions" RENAME CONSTRAINT "plan_versions_plan_id_fkey" TO "plan_versions_plan_id_plans_id_fk";
+--> statement-breakpoint
+ALTER TABLE "billing"."plan_versions" RENAME CONSTRAINT "plan_versions_rate_card_id_fkey" TO "plan_versions_rate_card_id_rate_cards_id_fk";
+--> statement-breakpoint
+ALTER TABLE "billing"."rate_card_lines" RENAME CONSTRAINT "rate_card_lines_rate_card_id_fkey" TO "rate_card_lines_rate_card_id_rate_cards_id_fk";
+--> statement-breakpoint
+ALTER TABLE "lifecycle"."retention_rules" RENAME CONSTRAINT "retention_rules_organization_id_fkey" TO "retention_rules_organization_id_organizations_id_fk";
+--> statement-breakpoint
+ALTER TABLE "lifecycle"."retention_runs" RENAME CONSTRAINT "retention_runs_organization_id_fkey" TO "retention_runs_organization_id_organizations_id_fk";
+--> statement-breakpoint
+ALTER TABLE "billing"."standing_changes" RENAME CONSTRAINT "standing_changes_organization_id_fkey" TO "standing_changes_organization_id_organizations_id_fk";
+--> statement-breakpoint
+ALTER TABLE "billing"."standing_changes" RENAME CONSTRAINT "standing_changes_collection_policy_id_fkey" TO "standing_changes_collection_policy_id_collection_policies_id_fk";
+--> statement-breakpoint
+ALTER TABLE "billing"."subscription_changes" RENAME CONSTRAINT "subscription_changes_from_plan_version_id_fkey" TO "subscription_changes_from_plan_version_id_plan_versions_id_fk";
+--> statement-breakpoint
+ALTER TABLE "billing"."subscription_changes" RENAME CONSTRAINT "subscription_changes_to_plan_version_id_fkey" TO "subscription_changes_to_plan_version_id_plan_versions_id_fk";
+--> statement-breakpoint
+ALTER TABLE "billing"."subscriptions" RENAME CONSTRAINT "subscriptions_organization_id_fkey" TO "subscriptions_organization_id_organizations_id_fk";
+--> statement-breakpoint
+ALTER TABLE "billing"."subscriptions" RENAME CONSTRAINT "subscriptions_plan_version_id_fkey" TO "subscriptions_plan_version_id_plan_versions_id_fk";
+--> statement-breakpoint
+ALTER TABLE "billing"."subscriptions" RENAME CONSTRAINT "subscriptions_collection_policy_id_fkey" TO "subscriptions_collection_policy_id_collection_policies_id_fk";
+--> statement-breakpoint
+ALTER TABLE "support"."tickets" RENAME CONSTRAINT "tickets_organization_id_fkey" TO "tickets_organization_id_organizations_id_fk";
+--> statement-breakpoint
+ALTER TABLE "billing"."top_up_offers" RENAME CONSTRAINT "top_up_offers_rate_card_id_fkey" TO "top_up_offers_rate_card_id_rate_cards_id_fk";
+--> statement-breakpoint
+ALTER TABLE "billing"."top_ups" RENAME CONSTRAINT "top_ups_organization_id_fkey" TO "top_ups_organization_id_organizations_id_fk";
+--> statement-breakpoint
+ALTER TABLE "billing"."top_ups" RENAME CONSTRAINT "top_ups_offer_id_fkey" TO "top_ups_offer_id_top_up_offers_id_fk";
