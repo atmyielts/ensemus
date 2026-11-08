@@ -79,6 +79,7 @@ import { ModelCallFailed, type ModelCallMetadata } from '@ensemus/knowledge/port
 import { deterministicVector } from '@ensemus/knowledge/testing';
 import { createKnowledgeModelJobFallbackActivities } from '@ensemus/workflows/knowledge-model-job-fallback-activities';
 import { pgCode } from '../../packages/application/src/errors';
+import { loadAgentReadScopeInTx } from '../../packages/application/src/ai/read-scope';
 import { seedSearchableSource, sha256 } from '../helpers/knowledge';
 import {
   seedQualifiedKnowledgeRoute,
@@ -112,6 +113,14 @@ const codeOf = async (use: () => Promise<unknown>) => {
   } catch (error) {
     return pgCode(error);
   }
+};
+const isPgRefusal = (error: unknown, code: string, message: string) => {
+  let current = error;
+  for (let depth = 0; depth < 8 && current && typeof current === 'object'; depth++) {
+    if ('code' in current && current.code === code && 'message' in current && current.message === message) return true;
+    current = 'cause' in current ? current.cause : null;
+  }
+  return false;
 };
 
 describe('bounded Knowledge model jobs and principal-bound result receipts (0216)', () => {
@@ -545,16 +554,21 @@ describe('bounded Knowledge model jobs and principal-bound result receipts (0216
         await ledger.reserve(tx, f.context, { ...request, amountMicros: 2 });
       }),
     ).rejects.toMatchObject({ code: 'INVALID_STATE' });
-    expect(
-      await codeOf(() =>
-        withTenantTx(agent.db, f.context, (tx) =>
-          tx
+    await expect(
+        withTenantTx(agent.db, f.context, async (tx) => {
+          // Admit actual read scope, but never stamp the main-model writer protocol. This isolates
+          // 0414's specific earlier runtime backstop as further before-body protocols are joined.
+          await loadAgentReadScopeInTx(tx, f.context);
+          await tx
             .update(executionSteps)
             .set({ attempt: f.main.attempt + 1 })
-            .where(eq(executionSteps.id, f.main.stepId)),
-        ),
-      ),
-    ).toBe('EN120');
+            .where(eq(executionSteps.id, f.main.stepId));
+        }),
+    ).rejects.toSatisfy((error: unknown) => isPgRefusal(error, 'EN119', 'MAIN_MODEL_RUNTIME_REQUIRED'));
+    const [untouched] = await withTenantTx(agent.db, f.context, (tx) => tx
+      .select({ attempt: executionSteps.attempt, state: executionSteps.state }).from(executionSteps)
+      .where(eq(executionSteps.id, f.main.stepId)));
+    expect(untouched).toEqual({ attempt: f.main.attempt, state: 'in_flight' });
     const resumed = await createTurnStore(agent.db).beginTurn(f.context, {
       runId: f.runId,
       stepNumber: 1,
