@@ -3,6 +3,7 @@
 import {
   AppError,
   auditRefusal,
+  canonicalId,
   isAuditedRefusal,
   refusalCode,
   refusalFromDatabase,
@@ -26,6 +27,7 @@ const text = (form: FormData, key: string) => {
   const value = form.get(key);
   return typeof value === 'string' ? value : '';
 };
+const idOf = (form: FormData, key: string) => canonicalId(text(form, key));
 const nullable = (form: FormData, key: string) => text(form, key).trim() || null;
 const version = (form: FormData) => {
   const wire = text(form, 'version');
@@ -53,7 +55,7 @@ export async function saveBillingAccountFormAction(
   _previous: BillingAccountFormState,
   form: FormData,
 ): Promise<BillingAccountFormState> {
-  const organizationId = text(form, 'organizationId');
+  const organizationId = idOf(form, 'organizationId');
   const tenant = await requireAccountTenant(organizationId);
   const values = {
     billingName: text(form, 'billingName'),
@@ -84,7 +86,7 @@ async function subscriptionForm(
   form: FormData,
   kind: 'start' | 'change' | 'cancel' | 'withdraw',
 ): Promise<never> {
-  const organizationId = text(form, 'organizationId');
+  const organizationId = idOf(form, 'organizationId');
   const tenant = await requireAccountTenant(organizationId);
   const back = `/o/${organizationId}/account/billing`;
   let next = back;
@@ -92,13 +94,13 @@ async function subscriptionForm(
     if (!loadSaasConfig().billingEnabled) throw new AppError('BILLING_NOT_ENABLED');
     if (kind === 'start') {
       const result = await startSubscriptionOnce(tenant.database, tenant.context, {
-        planVersionId: text(form, 'planVersionId'),
+        planVersionId: idOf(form, 'planVersionId'),
         requestKey: text(form, 'requestKey'),
       });
       if (result.kind === 'conflict') throw new AppError('VERSION_CONFLICT');
     } else if (kind === 'change') {
       const result = await changePlan(tenant.database, tenant.context, {
-        toPlanVersionId: text(form, 'planVersionId'),
+        toPlanVersionId: idOf(form, 'planVersionId'),
         expectedVersion: version(form),
       });
       next = `${back}?changed=${result.effective}`;

@@ -2,6 +2,7 @@
 import {
   AppError,
   auditRefusal,
+  canonicalId,
   isAuditedRefusal,
   refusalCode,
   refusalFromDatabase,
@@ -20,6 +21,7 @@ const text = (form: FormData, key: string) => {
   const value = form.get(key);
   return typeof value === 'string' ? value : '';
 };
+const idOf = (form: FormData, key: string) => canonicalId(text(form, key));
 function version(form: FormData) {
   const value = text(form, 'version');
   if (!/^[1-9]\d{0,9}$/.test(value)) throw new AppError('INVALID_INPUT');
@@ -44,7 +46,7 @@ export async function openTicketFormAction(
   _previous: SupportFormState,
   form: FormData,
 ): Promise<SupportFormState> {
-  const organizationId = text(form, 'organizationId'),
+  const organizationId = idOf(form, 'organizationId'),
     tenant = await requireAccountTenant(organizationId),
     values = {
       subject: text(form, 'subject'),
@@ -65,9 +67,9 @@ export async function replyTicketFormAction(
   _previous: SupportFormState,
   form: FormData,
 ): Promise<SupportFormState> {
-  const organizationId = text(form, 'organizationId'),
+  const organizationId = idOf(form, 'organizationId'),
     tenant = await requireAccountTenant(organizationId),
-    ticketId = text(form, 'ticketId'),
+    ticketId = idOf(form, 'ticketId'),
     values = { subject: '', category: 'other', body: text(form, 'body') };
   try {
     const result = await replyToTicket(tenant.database, tenant.context, {
@@ -82,9 +84,9 @@ export async function replyTicketFormAction(
   }
 }
 export async function closeTicketAction(form: FormData): Promise<never> {
-  const organizationId = text(form, 'organizationId'),
+  const organizationId = idOf(form, 'organizationId'),
     tenant = await requireAccountTenant(organizationId),
-    ticketId = text(form, 'ticketId'),
+    ticketId = idOf(form, 'ticketId'),
     back = `/o/${organizationId}/account/support/${ticketId}`;
   let target = back;
   try {
@@ -100,13 +102,13 @@ export async function closeTicketAction(form: FormData): Promise<never> {
   redirect(target);
 }
 export async function decideBreakGlassAction(form: FormData): Promise<never> {
-  const organizationId = text(form, 'organizationId'),
+  const organizationId = idOf(form, 'organizationId'),
     tenant = await requireAccountTenant(organizationId),
     back = `/o/${organizationId}/account/break-glass`;
   let target = back;
   try {
     if (text(form, 'confirm') !== 'yes') throw new AppError('INVALID_INPUT');
-    const requestId = text(form, 'requestId'),
+    const requestId = idOf(form, 'requestId'),
       expectedVersion = version(form),
       decision = text(form, 'decision');
     if (decision === 'revoke')

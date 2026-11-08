@@ -23,6 +23,7 @@ import {
 import { eq, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { AppError } from '../errors';
+import { idSchema } from '../ids';
 
 export type OperatorDb = EnsemusDrizzle;
 const reference = z
@@ -72,12 +73,12 @@ export const incidentInputSchemas = {
     startedAt: z.date(),
   }),
   roles: z
-    .strictObject({ ...actor, incidentId: z.uuid(), ...roleFields })
+    .strictObject({ ...actor, incidentId: idSchema, ...roleFields })
     .refine((input) =>
       Object.keys(roleFields).some((key) => input[key as keyof typeof roleFields] !== undefined),
     ),
   update: z.strictObject({
-    incidentId: z.uuid(),
+    incidentId: idSchema,
     state: z.enum(INCIDENT_STATES),
     publicMessage: publicText(2000),
     authorRef: reference,
@@ -85,7 +86,7 @@ export const incidentInputSchemas = {
     origin: z.enum(INCIDENT_ORIGINS).optional(),
   }),
   resolve: z.strictObject({
-    incidentId: z.uuid(),
+    incidentId: idSchema,
     authorRef: reference,
     postmortemRef: reference.nullable(),
     message: publicText(2000),
@@ -111,7 +112,7 @@ export const incidentInputSchemas = {
   }),
   move: z.strictObject({
     ...actor,
-    reportId: z.uuid(),
+    reportId: idSchema,
     state: z.enum(VULNERABILITY_STATES),
     severity: z.enum(['critical', 'high', 'medium', 'low']).optional(),
     fixedInRef: reference.optional(),

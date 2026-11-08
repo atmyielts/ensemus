@@ -2,6 +2,7 @@
 import {
   AppError,
   auditRefusal,
+  canonicalId,
   isAuditedRefusal,
   refusalCode,
   refusalFromDatabase,
@@ -21,9 +22,10 @@ const text = (form: FormData, key: string) => {
   const value = form.get(key);
   return typeof value === 'string' ? value : '';
 };
+const idOf = (form: FormData, key: string) => canonicalId(text(form, key));
 async function paymentAction(form: FormData, kind: 'request' | 'resolve'): Promise<never> {
-  const organizationId = text(form, 'organizationId'),
-    invoiceId = text(form, 'invoiceId');
+  const organizationId = idOf(form, 'organizationId'),
+    invoiceId = idOf(form, 'invoiceId');
   const tenant = await requireAccountTenant(organizationId);
   let target = `/o/${organizationId}/account/invoices/${invoiceId}/pay`;
   try {
@@ -44,7 +46,7 @@ async function paymentAction(form: FormData, kind: 'request' | 'resolve'): Promi
       if (!Number.isSafeInteger(expectedVersion) || expectedVersion < 1)
         throw new AppError('INVALID_INPUT');
       await resolveUnknownPayment(tenant.database, tenant.context, {
-        paymentId: text(form, 'paymentId'),
+        paymentId: idOf(form, 'paymentId'),
         expectedVersion,
         resolution: 'confirmed_not_charged',
       });

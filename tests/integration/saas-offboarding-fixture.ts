@@ -6,10 +6,12 @@ import {
   setTransitionEnd,
 } from '@ensemus/application/saas/offboarding';
 import type { OffboardingPorts } from '@ensemus/application/saas/ports';
+import { createOffboardingAgentHaltPort } from '@ensemus/application/saas/offboarding-agent-port';
 import { createServiceContext } from '@ensemus/database/service';
 import {
   domainEvents,
   getOrganization,
+  interactiveSessionOf,
   type AppDatabase,
   type TenantContext,
 } from '@ensemus/database';
@@ -30,10 +32,7 @@ export function offboardingPorts(): OffboardingPorts {
         throw new Error('TEST_BROAD_RELEASE_FORBIDDEN');
       },
     },
-    offboardingAgents: {
-      haltOffboardingAgents: async () => undefined,
-      releaseOffboardingAgents: async () => undefined,
-    },
+    offboardingAgents: createOffboardingAgentHaltPort(),
     exports: { latestExport: async () => null },
     windDowns: [],
   };
@@ -43,7 +42,8 @@ export async function readyToErase(
   owner: TenantContext,
   ports = offboardingPorts(),
 ) {
-  owner = await nativeSovereignContext(database, owner.userId, owner.organizationId);
+  if (!interactiveSessionOf(owner))
+    owner = await nativeSovereignContext(database, owner.userId, owner.organizationId);
   const organization = await getOrganization(database, owner);
   if (!organization) throw new Error('TEST_ORGANIZATION_MISSING');
   const service = createServiceContext(owner.organizationId),

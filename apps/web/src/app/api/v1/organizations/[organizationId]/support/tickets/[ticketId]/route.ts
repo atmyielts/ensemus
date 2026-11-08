@@ -1,10 +1,10 @@
+import { idSchema } from '@ensemus/application';
 import { getTicket } from '@ensemus/application/saas/support';
-import { z } from 'zod';
 import { apiRoute, etag, organizationParams } from '@/server/api';
 import { ticketDto } from '../../dto';
 export const dynamic = 'force-dynamic';
 export const GET = apiRoute(
-  organizationParams.extend({ ticketId: z.uuid() }),
+  organizationParams.extend({ ticketId: idSchema }),
   async ({ database, context, params }) => {
     const row = await getTicket(database, context, params.ticketId);
     return Response.json(

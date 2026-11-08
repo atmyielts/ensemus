@@ -1,10 +1,10 @@
+import { idSchema } from '@ensemus/application';
 import { replyToTicket } from '@ensemus/application/saas/support';
 import { replyTicketSchema } from '@ensemus/contracts/saas';
-import { z } from 'zod';
 import { apiRoute, etag, organizationParams, readIfMatch, readJson } from '@/server/api';
 export const dynamic = 'force-dynamic';
 export const POST = apiRoute(
-  organizationParams.extend({ ticketId: z.uuid() }),
+  organizationParams.extend({ ticketId: idSchema }),
   async ({ request, database, context, params }) => {
     const body = await readJson(request, replyTicketSchema),
       result = await replyToTicket(database, context, {

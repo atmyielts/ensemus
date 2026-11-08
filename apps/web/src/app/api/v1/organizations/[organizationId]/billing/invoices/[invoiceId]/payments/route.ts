@@ -1,13 +1,12 @@
-import { AppError } from '@ensemus/application';
+import { AppError, idSchema } from '@ensemus/application';
 import { requestInvoicePaymentOnce } from '@ensemus/application/saas/payments';
 import { loadSaasConfig } from '@ensemus/config';
 import { can } from '@ensemus/domain/policy';
-import { z } from 'zod';
 import { apiRoute, idempotencyKeyReused, organizationParams } from '@/server/api';
 
 export const dynamic = 'force-dynamic';
 export const POST = apiRoute(
-  organizationParams.extend({ invoiceId: z.uuid() }),
+  organizationParams.extend({ invoiceId: idSchema }),
   async ({ request, database, context, params }) => {
     if (context.actorType !== 'user' || !can(context.role, 'billing.manage'))
       throw new AppError('NOT_FOUND');
