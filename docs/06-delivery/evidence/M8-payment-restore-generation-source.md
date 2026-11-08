@@ -2,6 +2,8 @@
 
 Source-only follow-up on separate `codex/m8-payment-restore-binding`, based on preserved2316ffc. The checked payment5d530fd, platform join2316ffc and incomplete prepaid7901732 branches remain preserved. No source check, SQL/database, install, build, browser, provider, migration registration or activation ran in this authoring pass.0512 remains unregistered/unapplied. Cloud refusal and the unconfigured provider registry remain unchanged.
 
+Subsequent semantic self-review found that the shared latest lookup generation alone did not bind a retained returned result. The separate source-only [exact lookup operation follow-up](M8-payment-lookup-operation-source.md) supersedes that lookup settlement claim with a database operation ID and a one-use native outcome token. Neither checkpoint is qualified by SQL/runtime evidence yet.
+
 ## Fixed boundaries
 
 0422's actual contract is `app.current_auth_restore_generation() RETURNS uuid`. It grants only fixed metadata EXECUTE to app/agent/secrets/migrator, PUBLIC revoked, and raises EN422 while missing/pending even for migrator. The payment identity SQL attester used explicit p_org/private selectors and did not necessarily reach `app.current_organization_id`; its new direct generation read closes that gap. The original-OID tenant guard also protects the other native/routing paths. Direct broker secret metadata/read/rotation scopes now call the strict helper before scope/rows; payment wrappers compare the observed generation before their direct scope or attestation call, with the actual fixed SQL checking independently again.

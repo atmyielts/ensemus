@@ -54,6 +54,7 @@ import { creditPaidTopUpInTx } from './top-ups';
 import type { AgentHaltPort } from './ports';
 import { setTenantStandingInTx } from './standing';
 import { randomUUID } from 'node:crypto';
+import { canonicalJson } from '@ensemus/domain/approval';
 import type {
   ChargeRequest,
   ChargeResult,
@@ -794,6 +795,8 @@ export async function finishPaymentReconcile(
     attemptId: string;
     result: PaymentLookupResult;
     lookup: ProcessorManifest['lookup'];
+    /** One-use native broker token, kept inside the Activity and consumed with the exact effect. */
+    nativeLookupToken?: string;
   },
   agents?: AgentHaltPort,
 ): Promise<'succeeded' | 'failed' | 'cancelled' | 'retry' | 'unknown'> {
@@ -829,9 +832,18 @@ export async function finishPaymentReconcile(
       return payment.status as 'succeeded' | 'failed' | 'cancelled';
     if (payment.status === 'ready') return 'retry';
     if (attempt.outcome !== 'indeterminate') throw new AppError('INVALID_STATE');
+    const consumeNativeLookup = async () => {
+      if (!input.nativeLookupToken || !/^[0-9a-f]{64}$/.test(input.nativeLookupToken))
+        throw new AppError('PREREQUISITES_INCOMPLETE');
+      const consumed = await tx.execute<{ consumed: boolean }>(sql`select billing.consume_payment_lookup(
+        ${id}::uuid,${input.nativeLookupToken},${canonicalJson(result)}) as consumed`);
+      if (consumed.rows.length !== 1 || consumed.rows[0]?.consumed !== true)
+        throw new AppError('PREREQUISITES_INCOMPLETE');
+    };
     if (result.found === 'succeeded') {
       if (payment.processorPaymentRef && payment.processorPaymentRef !== result.processorPaymentRef)
         throw new AppError('INVALID_INPUT');
+      await consumeNativeLookup();
       await tx
         .update(paymentAttempts)
         .set({
@@ -854,13 +866,14 @@ export async function finishPaymentReconcile(
     }
     const decision = decideAfterLookup(result, input.lookup);
     if (payment.status === 'unknown' && decision.status === 'ready') return 'unknown';
+    if (result.found === 'declined' || decision.status === 'ready') await consumeNativeLookup();
     const exhausted = decision.status === 'ready' && attempt.attemptNo >= MAX_PAYMENT_ATTEMPTS;
     const status = exhausted ? 'failed' : decision.status;
     const code = exhausted ? 'ATTEMPTS_EXHAUSTED' : decision.code;
     if (decision.status === 'ready')
       await tx
         .update(paymentAttempts)
-        .set({ outcome: 'not_sent', outcomeCode: decision.code, finishedAt: new Date() })
+        .set({ outcome: 'not_sent', outcomeCode: decision.code, processorPaymentRef: null, finishedAt: new Date() })
         .where(eq(paymentAttempts.id, id));
     if (result.found === 'declined')
       await tx

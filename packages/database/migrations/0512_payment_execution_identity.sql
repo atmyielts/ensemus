@@ -66,6 +66,14 @@ ALTER TABLE billing.payment_attempts ADD COLUMN transport_started_at timestamptz
 ALTER TABLE billing.payment_attempts ADD COLUMN transport_restore_generation uuid;
 ALTER TABLE billing.payment_attempts ADD COLUMN lookup_started_at timestamptz;
 ALTER TABLE billing.payment_attempts ADD COLUMN lookup_restore_generation uuid;
+ALTER TABLE billing.payment_attempts ADD COLUMN lookup_operation_id uuid;
+ALTER TABLE billing.payment_attempts ADD COLUMN lookup_outcome_token_sha256 text;
+ALTER TABLE billing.payment_attempts ADD COLUMN lookup_outcome_fact_sha256 text;
+ALTER TABLE billing.payment_attempts ADD COLUMN lookup_outcome_expires_at timestamptz;
+ALTER TABLE billing.payment_attempts ADD COLUMN lookup_outcome_consumed_xid text;
+ALTER TABLE billing.payment_attempts ADD CONSTRAINT payment_lookup_outcome_hashes CHECK(
+ (lookup_outcome_token_sha256 IS NULL OR lookup_outcome_token_sha256 ~ '^[0-9a-f]{64}$') AND
+ (lookup_outcome_fact_sha256 IS NULL OR lookup_outcome_fact_sha256 ~ '^[0-9a-f]{64}$'));
 ALTER TABLE billing.payment_attempts ADD CONSTRAINT payment_attempt_execution
  FOREIGN KEY(organization_id,payment_id,execution_binding_id) REFERENCES billing.payment_execution_bindings(organization_id,payment_id,id);
 ALTER TABLE billing.payment_webhook_events ADD COLUMN source_delivery_id uuid,ADD COLUMN source_endpoint_id uuid,
@@ -380,8 +388,8 @@ GRANT EXECUTE ON FUNCTION billing.finish_payment_customer(uuid,uuid,uuid,text) T
 
 CREATE FUNCTION billing.admit_payment_transport(p_payment uuid,p_billing_org uuid,p_connection uuid,p_processor text,p_adapter text,p_origin text,p_authority text,
  p_phase text,p_binding uuid,p_identity text,p_binding_sha text,p_attempt uuid,p_customer_token uuid,p_restore uuid)
- RETURNS boolean LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
-DECLARE prior text:=current_setting('billing.payment_org',true);org_id uuid:=app.current_organization_id();actual record;b record;attempt record;
+ RETURNS TABLE("restoreGeneration" uuid,"lookupOperationId" uuid) LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
+DECLARE prior text:=current_setting('billing.payment_org',true);org_id uuid:=app.current_organization_id();actual record;b record;attempt record;operation uuid;
 BEGIN
  IF p_restore IS DISTINCT FROM app.current_auth_restore_generation() THEN
   RAISE EXCEPTION 'PAYMENT_RESTORE_GENERATION_CHANGED' USING ERRCODE='EN422';END IF;
@@ -406,7 +414,7 @@ BEGIN
    IF b.customer_state NOT IN('sending','unknown') OR b.customer_token IS DISTINCT FROM p_customer_token OR p_customer_token IS NULL THEN
     RAISE EXCEPTION 'PAYMENT_EXECUTION_UNCONFIRMED' USING ERRCODE='EN850';END IF;
   ELSE
-   SELECT x.id,x.transport_started_at INTO attempt FROM billing.payment_attempts x WHERE x.organization_id=org_id AND x.payment_id=p_payment
+   SELECT x.id,x.transport_started_at,x.outcome INTO attempt FROM billing.payment_attempts x WHERE x.organization_id=org_id AND x.payment_id=p_payment
     AND x.id=p_attempt AND x.execution_binding_id=b.id FOR UPDATE NOWAIT;
    IF attempt.id IS NULL THEN RAISE EXCEPTION 'PAYMENT_EXECUTION_UNCONFIRMED' USING ERRCODE='EN850';END IF;
    IF p_phase='charge' THEN
@@ -415,16 +423,112 @@ BEGIN
      RAISE EXCEPTION 'PAYMENT_ATTEMPT_ALREADY_DISPATCHED' USING ERRCODE='EN850';END IF;
     UPDATE billing.payment_attempts SET transport_started_at=clock_timestamp(),transport_restore_generation=p_restore WHERE organization_id=org_id AND id=attempt.id;
    ELSIF p_phase='lookup' THEN
-    UPDATE billing.payment_attempts SET lookup_started_at=coalesce(lookup_started_at,clock_timestamp()),lookup_restore_generation=p_restore WHERE organization_id=org_id AND id=attempt.id;
+    IF attempt.outcome IS DISTINCT FROM 'indeterminate' THEN
+     RAISE EXCEPTION 'PAYMENT_LOOKUP_OPERATION_REQUIRED' USING ERRCODE='EN850';END IF;
+    operation:=gen_random_uuid();
+    UPDATE billing.payment_attempts SET lookup_started_at=coalesce(lookup_started_at,clock_timestamp()),lookup_restore_generation=p_restore,
+     lookup_operation_id=operation,lookup_outcome_token_sha256=NULL,lookup_outcome_fact_sha256=NULL,
+     lookup_outcome_expires_at=NULL,lookup_outcome_consumed_xid=NULL WHERE organization_id=org_id AND id=attempt.id;
    END IF;
   END IF;
  END IF;
- PERFORM set_config('billing.payment_org',coalesce(prior,''),true);RETURN true;
+ RETURN QUERY SELECT p_restore,operation;
+ PERFORM set_config('billing.payment_org',coalesce(prior,''),true);
 EXCEPTION WHEN OTHERS THEN PERFORM set_config('billing.payment_org',coalesce(prior,''),true);RAISE;
 END $$;
 REVOKE ALL ON FUNCTION billing.admit_payment_transport(uuid,uuid,uuid,text,text,text,text,text,uuid,text,text,uuid,uuid,uuid) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION billing.admit_payment_transport(uuid,uuid,uuid,text,text,text,text,text,uuid,text,text,uuid,uuid,uuid) TO ensemus_app;
 --> statement-breakpoint
+
+-- Exact small canonical fact encoding shared with canonicalJson in the trusted native adapter.
+-- This validates a claim's shape; only the actual secrets-role native broker may attest its origin.
+CREATE FUNCTION billing.payment_lookup_fact_sha256(p_canonical text) RETURNS text LANGUAGE plpgsql
+ SET search_path=pg_catalog AS $$
+DECLARE data jsonb;keys text[];encoded text;kind text;ref text;
+BEGIN
+ IF p_canonical IS NULL OR octet_length(p_canonical)>4096 THEN
+  RAISE EXCEPTION 'PAYMENT_LOOKUP_FACT_REQUIRED' USING ERRCODE='EN850';END IF;
+ data:=p_canonical::jsonb;kind:=data->>'found';
+ IF jsonb_typeof(data) IS DISTINCT FROM 'object' THEN RAISE EXCEPTION 'PAYMENT_LOOKUP_FACT_REQUIRED' USING ERRCODE='EN850';END IF;
+ SELECT array_agg(k ORDER BY k) INTO keys FROM jsonb_object_keys(data) k;
+ IF kind='not_found' AND keys=ARRAY['found']::text[] THEN encoded:='{"found":"not_found"}';
+ ELSIF kind IN('succeeded','declined') AND keys=ARRAY['found','processorPaymentRef']::text[] THEN
+  IF jsonb_typeof(data->'processorPaymentRef') NOT IN('string','null') THEN RAISE EXCEPTION 'PAYMENT_LOOKUP_FACT_REQUIRED' USING ERRCODE='EN850';END IF;
+  ref:=data->>'processorPaymentRef';
+  IF (kind='succeeded' AND ref IS NULL) OR(ref IS NOT NULL AND(length(ref)<1 OR length(ref)>256 OR ref ~ '[[:cntrl:]]')) THEN
+   RAISE EXCEPTION 'PAYMENT_LOOKUP_FACT_REQUIRED' USING ERRCODE='EN850';END IF;
+  encoded:='{"found":'||to_json(kind)::text||',"processorPaymentRef":'||coalesce(to_json(ref)::text,'null')||'}';
+ ELSE RAISE EXCEPTION 'PAYMENT_LOOKUP_FACT_REQUIRED' USING ERRCODE='EN850';END IF;
+ IF p_canonical IS DISTINCT FROM encoded THEN RAISE EXCEPTION 'PAYMENT_LOOKUP_FACT_REQUIRED' USING ERRCODE='EN850';END IF;
+ RETURN encode(public.digest(convert_to(encoded,'UTF8'),'sha256'),'hex');
+EXCEPTION WHEN invalid_text_representation THEN RAISE EXCEPTION 'PAYMENT_LOOKUP_FACT_REQUIRED' USING ERRCODE='EN850';
+END $$;
+REVOKE ALL ON FUNCTION billing.payment_lookup_fact_sha256(text) FROM PUBLIC;
+
+CREATE FUNCTION billing.attest_payment_lookup(p_org uuid,p_payment uuid,p_attempt uuid,p_binding uuid,p_operation uuid,
+ p_restore uuid,p_authority text,p_request_sha256 text,p_canonical text)
+ RETURNS TABLE(token text,"expiresAt" timestamptz) LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
+DECLARE prior text:=current_setting('billing.payment_org',true);a record;b record;opaque text;expires timestamptz;fact text;
+BEGIN
+ IF p_restore IS DISTINCT FROM app.current_auth_restore_generation() THEN RAISE EXCEPTION 'PAYMENT_RESTORE_GENERATION_CHANGED' USING ERRCODE='EN422';END IF;
+ IF session_user<>'ensemus_secrets' OR p_org IS NULL OR p_payment IS NULL OR p_attempt IS NULL OR p_binding IS NULL OR p_operation IS NULL THEN
+  RAISE EXCEPTION 'PAYMENT_NATIVE_LOOKUP_REQUIRED' USING ERRCODE='42501';END IF;
+ fact:=billing.payment_lookup_fact_sha256(p_canonical);
+ PERFORM set_config('billing.payment_org',p_org::text,true);
+ SELECT x.* INTO a FROM billing.payment_attempts x WHERE x.organization_id=p_org AND x.id=p_attempt AND x.payment_id=p_payment FOR UPDATE NOWAIT;
+ SELECT x.* INTO b FROM billing.payment_execution_bindings x WHERE x.organization_id=p_org AND x.id=p_binding AND x.payment_id=p_payment;
+ IF a.id IS NULL OR b.id IS NULL OR a.execution_binding_id IS DISTINCT FROM b.id OR b.authority_sha256 IS DISTINCT FROM p_authority
+  OR a.lookup_operation_id IS DISTINCT FROM p_operation OR a.lookup_restore_generation IS DISTINCT FROM p_restore
+  OR a.lookup_started_at IS NULL OR a.outcome IS DISTINCT FROM 'indeterminate'
+  OR a.lookup_outcome_token_sha256 IS NOT NULL OR a.lookup_outcome_consumed_xid IS NOT NULL
+  OR p_request_sha256 IS DISTINCT FROM encode(public.digest(convert_to(a.idempotency_key,'UTF8'),'sha256'),'hex') THEN
+  RAISE EXCEPTION 'PAYMENT_NATIVE_LOOKUP_REQUIRED' USING ERRCODE='EN850';END IF;
+ opaque:=encode(public.gen_random_bytes(32),'hex');expires:=clock_timestamp()+interval '60 seconds';
+ UPDATE billing.payment_attempts SET lookup_outcome_token_sha256=encode(public.digest(opaque,'sha256'),'hex'),
+  lookup_outcome_fact_sha256=fact,lookup_outcome_expires_at=expires WHERE organization_id=p_org AND id=p_attempt;
+ RETURN QUERY SELECT opaque,expires;
+ PERFORM set_config('billing.payment_org',coalesce(prior,''),true);
+EXCEPTION WHEN OTHERS THEN PERFORM set_config('billing.payment_org',coalesce(prior,''),true);RAISE;
+END $$;
+REVOKE ALL ON FUNCTION billing.attest_payment_lookup(uuid,uuid,uuid,uuid,uuid,uuid,text,text,text) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION billing.attest_payment_lookup(uuid,uuid,uuid,uuid,uuid,uuid,text,text,text) TO ensemus_secrets;
+
+CREATE FUNCTION billing.consume_payment_lookup(p_attempt uuid,p_token text,p_canonical text) RETURNS boolean
+ LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
+DECLARE prior text:=current_setting('billing.payment_org',true);org_id uuid:=app.current_organization_id();a record;fact text;
+BEGIN
+ IF session_user<>'ensemus_app' OR app.current_actor_type() IS DISTINCT FROM 'service' OR org_id IS NULL OR p_token IS NULL OR p_token!~'^[0-9a-f]{64}$' THEN
+  RAISE EXCEPTION 'PAYMENT_NATIVE_LOOKUP_REQUIRED' USING ERRCODE='EN850';END IF;
+ fact:=billing.payment_lookup_fact_sha256(p_canonical);
+ PERFORM set_config('billing.payment_org',org_id::text,true);
+ SELECT x.* INTO a FROM billing.payment_attempts x WHERE x.organization_id=org_id AND x.id=p_attempt FOR UPDATE NOWAIT;
+ IF a.id IS NULL OR a.lookup_operation_id IS NULL OR a.lookup_outcome_consumed_xid IS NOT NULL
+  OR a.outcome IS DISTINCT FROM 'indeterminate' OR a.lookup_outcome_expires_at IS NULL OR a.lookup_outcome_expires_at<=clock_timestamp()
+  OR a.lookup_outcome_token_sha256 IS DISTINCT FROM encode(public.digest(p_token,'sha256'),'hex')
+  OR a.lookup_outcome_fact_sha256 IS DISTINCT FROM fact THEN RAISE EXCEPTION 'PAYMENT_NATIVE_LOOKUP_REQUIRED' USING ERRCODE='EN850';END IF;
+ IF a.lookup_restore_generation IS DISTINCT FROM app.current_auth_restore_generation() THEN
+  RAISE EXCEPTION 'PAYMENT_RESTORE_GENERATION_CHANGED' USING ERRCODE='EN422';END IF;
+ UPDATE billing.payment_attempts SET lookup_outcome_consumed_xid=pg_current_xact_id()::text WHERE organization_id=org_id AND id=p_attempt;
+ PERFORM set_config('billing.payment_org',coalesce(prior,''),true);RETURN true;
+EXCEPTION WHEN OTHERS THEN PERFORM set_config('billing.payment_org',coalesce(prior,''),true);RAISE;
+END $$;
+REVOKE ALL ON FUNCTION billing.consume_payment_lookup(uuid,text,text) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION billing.consume_payment_lookup(uuid,text,text) TO ensemus_app;
+--> statement-breakpoint
+
+CREATE FUNCTION billing.payment_lookup_effect_sha256(p_outcome text,p_code text,p_ref text) RETURNS text
+ LANGUAGE plpgsql SET search_path=pg_catalog AS $$
+DECLARE fact text;
+BEGIN
+ IF p_outcome='succeeded' AND p_code='FOUND_BY_LOOKUP' THEN
+  fact:='{"found":"succeeded","processorPaymentRef":'||coalesce(to_json(p_ref)::text,'null')||'}';
+ ELSIF p_outcome='declined' AND p_code='REFUSED_BY_LOOKUP' THEN
+  fact:='{"found":"declined","processorPaymentRef":'||coalesce(to_json(p_ref)::text,'null')||'}';
+ ELSIF p_outcome='not_sent' AND p_code='NOT_FOUND_BY_LOOKUP' AND p_ref IS NULL THEN fact:='{"found":"not_found"}';
+ ELSE RAISE EXCEPTION 'PAYMENT_LOOKUP_FACT_REQUIRED' USING ERRCODE='EN850';END IF;
+ RETURN billing.payment_lookup_fact_sha256(fact);
+END $$;
+REVOKE ALL ON FUNCTION billing.payment_lookup_effect_sha256(text,text,text) FROM PUBLIC;
 
 CREATE FUNCTION billing.check_payment_execution_attempt() RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
 DECLARE prior text:=current_setting('billing.payment_org',true);b record;actual record;
@@ -432,6 +536,12 @@ BEGIN
  IF TG_RELID<>'billing.payment_attempts'::regclass OR TG_OP NOT IN('INSERT','UPDATE') THEN
   RAISE EXCEPTION 'PAYMENT_EXECUTION_UNCONFIRMED' USING ERRCODE='EN850';END IF;
  IF TG_OP='UPDATE' THEN
+  IF NEW.outcome_code IN('FOUND_BY_LOOKUP','REFUSED_BY_LOOKUP','NOT_FOUND_BY_LOOKUP')
+   AND ROW(NEW.outcome,NEW.outcome_code,NEW.processor_payment_ref) IS DISTINCT FROM ROW(OLD.outcome,OLD.outcome_code,OLD.processor_payment_ref) THEN
+   IF NEW.lookup_operation_id IS NULL OR NEW.lookup_outcome_consumed_xid IS DISTINCT FROM pg_current_xact_id()::text
+    OR NEW.lookup_outcome_fact_sha256 IS DISTINCT FROM billing.payment_lookup_effect_sha256(NEW.outcome,NEW.outcome_code,NEW.processor_payment_ref) THEN
+    RAISE EXCEPTION 'PAYMENT_NATIVE_LOOKUP_REQUIRED' USING ERRCODE='EN850';END IF;
+  END IF;
   IF NEW.execution_binding_id IS NOT NULL AND NEW.outcome IN('succeeded','declined') AND NEW.transport_started_at IS NULL AND NEW.lookup_started_at IS NULL THEN
    RAISE EXCEPTION 'PAYMENT_TRANSPORT_UNCONFIRMED' USING ERRCODE='EN850';END IF;
   IF NEW.execution_binding_id IS NOT NULL AND NEW.outcome IN('succeeded','declined','not_sent') AND ROW(NEW.outcome,NEW.outcome_code,NEW.processor_payment_ref) IS DISTINCT FROM ROW(OLD.outcome,OLD.outcome_code,OLD.processor_payment_ref) THEN
@@ -449,7 +559,9 @@ BEGIN
  END IF;
  IF session_user<>'ensemus_app' OR app.current_actor_type() IS DISTINCT FROM 'service'
   OR NEW.organization_id IS DISTINCT FROM app.current_organization_id() OR NEW.execution_binding_id IS NULL OR NEW.transport_started_at IS NOT NULL OR NEW.lookup_started_at IS NOT NULL
-  OR NEW.transport_restore_generation IS NOT NULL OR NEW.lookup_restore_generation IS NOT NULL THEN
+  OR NEW.transport_restore_generation IS NOT NULL OR NEW.lookup_restore_generation IS NOT NULL OR NEW.lookup_operation_id IS NOT NULL
+  OR NEW.lookup_outcome_token_sha256 IS NOT NULL OR NEW.lookup_outcome_fact_sha256 IS NOT NULL
+  OR NEW.lookup_outcome_expires_at IS NOT NULL OR NEW.lookup_outcome_consumed_xid IS NOT NULL THEN
   RAISE EXCEPTION 'PAYMENT_NATIVE_IDENTITY_REQUIRED' USING ERRCODE='EN850';END IF;
  PERFORM set_config('billing.payment_org',NEW.organization_id::text,true);
  SELECT x.* INTO b FROM billing.payment_execution_bindings x
@@ -469,6 +581,28 @@ EXCEPTION WHEN OTHERS THEN PERFORM set_config('billing.payment_org',coalesce(pri
 END $$;
 REVOKE ALL ON FUNCTION billing.check_payment_execution_attempt() FROM PUBLIC;
 CREATE TRIGGER payment_attempt_execution_guard BEFORE INSERT OR UPDATE ON billing.payment_attempts FOR EACH ROW EXECUTE FUNCTION billing.check_payment_execution_attempt();
+
+-- Consuming a token without its exact financial effect cannot commit. Rollback restores the token.
+CREATE FUNCTION billing.confirm_payment_lookup_effect() RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
+DECLARE prior text:=current_setting('billing.payment_org',true);a record;
+BEGIN
+ IF TG_RELID<>'billing.payment_attempts'::regclass OR TG_OP<>'UPDATE' THEN RAISE EXCEPTION 'INVALID_PAYMENT_LOOKUP_TARGET' USING ERRCODE='42501';END IF;
+ IF NEW.lookup_outcome_consumed_xid IS NOT DISTINCT FROM OLD.lookup_outcome_consumed_xid THEN RETURN NULL;END IF;
+ IF NEW.lookup_outcome_consumed_xid IS NULL OR NEW.lookup_outcome_consumed_xid IS DISTINCT FROM pg_current_xact_id()::text THEN
+  RAISE EXCEPTION 'PAYMENT_NATIVE_LOOKUP_REQUIRED' USING ERRCODE='EN850';END IF;
+ PERFORM set_config('billing.payment_org',NEW.organization_id::text,true);
+ SELECT x.* INTO a FROM billing.payment_attempts x WHERE x.organization_id=NEW.organization_id AND x.id=NEW.id;
+ IF a.id IS NULL OR a.lookup_operation_id IS DISTINCT FROM NEW.lookup_operation_id
+  OR a.lookup_outcome_consumed_xid IS DISTINCT FROM pg_current_xact_id()::text
+  OR a.lookup_restore_generation IS DISTINCT FROM app.current_auth_restore_generation()
+  OR a.lookup_outcome_fact_sha256 IS DISTINCT FROM billing.payment_lookup_effect_sha256(a.outcome,a.outcome_code,a.processor_payment_ref) THEN
+  RAISE EXCEPTION 'PAYMENT_NATIVE_LOOKUP_REQUIRED' USING ERRCODE='EN850';END IF;
+ PERFORM set_config('billing.payment_org',coalesce(prior,''),true);RETURN NULL;
+EXCEPTION WHEN OTHERS THEN PERFORM set_config('billing.payment_org',coalesce(prior,''),true);RAISE;
+END $$;
+REVOKE ALL ON FUNCTION billing.confirm_payment_lookup_effect() FROM PUBLIC;
+CREATE CONSTRAINT TRIGGER payment_lookup_outcome_effect AFTER UPDATE ON billing.payment_attempts
+ DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION billing.confirm_payment_lookup_effect();
 
 CREATE FUNCTION billing.keep_payment_identity() RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog AS $$
 BEGIN
@@ -759,7 +893,10 @@ BEGIN
  IF TG_RELID<>'billing.payment_attempts'::regclass OR TG_OP<>'UPDATE' THEN RAISE EXCEPTION 'PAYMENT_TRANSPORT_UNCONFIRMED' USING ERRCODE='EN850';END IF;
  IF NEW.execution_binding_id IS DISTINCT FROM OLD.execution_binding_id OR(
   (NEW.transport_started_at IS DISTINCT FROM OLD.transport_started_at OR NEW.lookup_started_at IS DISTINCT FROM OLD.lookup_started_at
-   OR NEW.transport_restore_generation IS DISTINCT FROM OLD.transport_restore_generation OR NEW.lookup_restore_generation IS DISTINCT FROM OLD.lookup_restore_generation)
+   OR NEW.transport_restore_generation IS DISTINCT FROM OLD.transport_restore_generation OR NEW.lookup_restore_generation IS DISTINCT FROM OLD.lookup_restore_generation
+   OR NEW.lookup_operation_id IS DISTINCT FROM OLD.lookup_operation_id
+   OR NEW.lookup_outcome_token_sha256 IS DISTINCT FROM OLD.lookup_outcome_token_sha256 OR NEW.lookup_outcome_fact_sha256 IS DISTINCT FROM OLD.lookup_outcome_fact_sha256
+   OR NEW.lookup_outcome_expires_at IS DISTINCT FROM OLD.lookup_outcome_expires_at OR NEW.lookup_outcome_consumed_xid IS DISTINCT FROM OLD.lookup_outcome_consumed_xid)
    AND current_user<>'ensemus_migrator') THEN
   RAISE EXCEPTION 'PAYMENT_TRANSPORT_UNCONFIRMED' USING ERRCODE='EN850';END IF;
  RETURN NEW;

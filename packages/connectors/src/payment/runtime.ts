@@ -11,7 +11,29 @@ import {
 import { createHash } from 'node:crypto';
 import { canonicalJson } from '@ensemus/domain/approval';
 import { SEND_DEADLINE_MS } from '../runtime/actions';
-import { isPaymentTransportReceipt } from './gateway';
+import { isPaymentTransportReceipt, type PaymentTransportReceipt } from './gateway';
+
+const lookupOutcomes = new WeakSet<object>();
+const lookupResults = new WeakMap<object, VerifiedPaymentLookupOutcome>();
+/** Native adapter parsing is trusted. This brand proves its exact bounded exchange/admission,
+ * not an independently verified provider signature. It never crosses Temporal serialization. */
+export type VerifiedPaymentLookupOutcome = Readonly<{
+  organizationId: string;
+  paymentId: string;
+  attemptId: string;
+  executionBindingId: string;
+  lookupOperationId: string;
+  restoreGeneration: string;
+  authoritySha256: string;
+  requestKeySha256: string;
+  factCanonical: string;
+  responseSha256: string;
+  verifiedAtEpochMs: number;
+}>;
+export const isVerifiedPaymentLookupOutcome = (value: unknown): value is VerifiedPaymentLookupOutcome =>
+  typeof value === 'object' && value !== null && lookupOutcomes.has(value);
+export const getVerifiedPaymentLookupOutcome = (result: PaymentLookupResult): VerifiedPaymentLookupOutcome | null =>
+  lookupResults.get(result) ?? null;
 
 const identityProofs = new WeakSet<object>();
 export type VerifiedPaymentExecutionIdentity = Readonly<{
@@ -39,6 +61,8 @@ function trackedPaymentCall(
 ) {
   let requests = 0;
   let receipts = 0;
+  let observed: PaymentTransportReceipt | null = null;
+  let observedAt = 0;
   const wrapped: ProcessorCallContext = {
     signal: context.signal,
     withCredential: context.withCredential.bind(context),
@@ -56,10 +80,13 @@ function trackedPaymentCall(
       )
         throw new Error('PAYMENT_TRANSPORT_UNCONFIRMED');
       receipts += 1;
+      observed = receipt;
+      observedAt = Date.now();
       return response;
     },
   };
-  return { context: wrapped, confirmed: () => requests === 1 && receipts === 1 };
+  return { context: wrapped, confirmed: () => requests === 1 && receipts === 1,
+    receipt: () => requests === 1 && receipts === 1 ? observed : null, observedAt: () => observedAt };
 }
 
 export async function runBoundCustomerRegistration(
@@ -115,7 +142,24 @@ export async function runBoundPaymentLookup(
 ): Promise<PaymentLookupResult> {
   const tracked = trackedPaymentCall(context, authoritySha256, 'lookup');
   const answer = await runPaymentLookup(processor, tracked.context, key);
-  return tracked.confirmed() ? answer : { found: 'cannot_answer' };
+  const receipt = tracked.receipt();
+  if (!receipt || !receipt.lookupOperationId || !receipt.attemptId || !receipt.executionBindingId)
+    return { found: 'cannot_answer' };
+  const result = Object.freeze({ ...answer });
+  if (result.found !== 'cannot_answer' && (result.found !== 'not_found' || processor.manifest.lookup === 'authoritative')) {
+    const proof = Object.freeze({
+      organizationId: receipt.organizationId, paymentId: receipt.paymentId,
+      attemptId: receipt.attemptId, executionBindingId: receipt.executionBindingId,
+      lookupOperationId: receipt.lookupOperationId, restoreGeneration: receipt.restoreGeneration,
+      authoritySha256: receipt.authoritySha256,
+      requestKeySha256: createHash('sha256').update(key).digest('hex'),
+      factCanonical: canonicalJson(result), responseSha256: receipt.responseSha256,
+      verifiedAtEpochMs: tracked.observedAt(),
+    });
+    lookupOutcomes.add(proof);
+    lookupResults.set(result, proof);
+  }
+  return result;
 }
 
 /** The native verifier must actually use its credential and read-only gateway; a declaration is insufficient. */

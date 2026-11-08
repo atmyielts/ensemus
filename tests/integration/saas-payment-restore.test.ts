@@ -8,7 +8,8 @@ import { openAppDatabase, paymentWebhookEvents, withTenantTx } from '@ensemus/da
 import { openSecretsDatabase } from '@ensemus/database/secrets';
 import { pgCode } from '@ensemus/application';
 import { bindPaymentExecution } from '@ensemus/application/saas/payment-execution';
-import { runBoundCharge } from '@ensemus/connectors/payment';
+import { beginPaymentReconcile, finishPaymentReconcile } from '@ensemus/application/saas/payments';
+import { runBoundCharge, runBoundPaymentLookup, getVerifiedPaymentLookupOutcome } from '@ensemus/connectors/payment';
 import { hashCustomerRef, type PaymentEventFact } from '@ensemus/saas/payment';
 import type { VerifiedPaymentWebhook } from '@ensemus/workflows/webhook-activities';
 import { nativePaymentFixture } from '../helpers/native-payment';
@@ -64,6 +65,13 @@ describe.runIf(enabled)('payment proofs refuse the real pending restore barrier'
       const nativeWebhook = observed.at(-1);
       if (!nativeWebhook) throw new Error('TEST_EXPECTED_ACTUAL_NATIVE_VERIFICATION');
       const identityToken = await f.refresh();
+      await bindPaymentExecution(app.db, f.who.service, { paymentId: f.payment.paymentId, token: identityToken.token });
+      await beginPaymentReconcile(app.db, f.who.service, { paymentId: f.payment.paymentId, code: 'PROCESSOR_ERROR' });
+      const lookup = await runBoundPaymentLookup(f.processor, f.call('lookup', { attemptId: attempt.attemptId }),
+        attempt.charge.idempotencyKey, q.authority.authoritySha256);
+      const lookupProof = getVerifiedPaymentLookupOutcome(lookup);
+      if (!lookupProof) throw new Error('TEST_EXPECTED_ACTUAL_NATIVE_LOOKUP');
+      const lookupToken = await f.attestLookupResult(lookup);
       const before = f.server.requests.length;
       // This is an actual privileged closure intent, not proof that a backup/provider was restored.
       // It opens no authority. No post-begin positive case is claimed without the real external-review ack.
@@ -82,6 +90,10 @@ describe.runIf(enabled)('payment proofs refuse the real pending restore barrier'
         .rejects.toSatisfy((error: unknown) => pgCode(error) === 'EN422');
       await expect(f.attestWebhook(nativeWebhook)).rejects.toThrow('PAYMENT_WEBHOOK_VERIFICATION_UNAVAILABLE');
       await expect(webhook.apply(pending)).rejects.toSatisfy((error: unknown) => pgCode(error) === 'EN422');
+      await expect(f.attestLookup(lookupProof)).rejects.toSatisfy((error: unknown) => pgCode(error) === 'EN422');
+      await expect(finishPaymentReconcile(app.db, f.who.service, { attemptId: attempt.attemptId,
+        result: lookup, lookup: 'authoritative', nativeLookupToken: lookupToken.token }))
+        .rejects.toSatisfy((error: unknown) => pgCode(error) === 'EN422');
       expect(f.server.requests).toHaveLength(before);
       // Actual migrator maintenance may inspect these fixed content-free receipts while native
       // admission stays closed. This read does not create a ready proof or a financial effect.

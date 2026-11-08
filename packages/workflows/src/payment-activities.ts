@@ -34,6 +34,8 @@ import {
 import { createServiceContext } from '@ensemus/database/service';
 import {
   identifyPaymentExecution,
+  getVerifiedPaymentLookupOutcome,
+  type VerifiedPaymentLookupOutcome,
   type VerifiedPaymentExecutionIdentity,
   runBoundCharge,
   runBoundCustomerRegistration,
@@ -72,6 +74,7 @@ export type PaymentActivityOptions = {
     authority: PaymentConnectionAuthority;
     proof: VerifiedPaymentExecutionIdentity;
   }) => Promise<{ token: string; expiresAt: Date }>;
+  attestLookup?: (proof: VerifiedPaymentLookupOutcome) => Promise<{ token: string; expiresAt: Date }>;
 };
 const ctx = (input: { organizationId: string }) => createServiceContext(input.organizationId);
 async function outcomeAfterNoReconcile(
@@ -338,6 +341,18 @@ export function createPaymentConnectorActivities(
         prepared.idempotencyKey,
         native.authority.authoritySha256,
       );
+      const proof = getVerifiedPaymentLookupOutcome(result);
+      if (!proof && (result.found === 'succeeded' || result.found === 'declined' ||
+        (result.found === 'not_found' && native.processor.manifest.lookup === 'authoritative'))) return 'retry';
+      let nativeLookupToken: string | undefined;
+      if (proof) {
+        if (!options.attestLookup) return 'retry';
+        try {
+          const token = await options.attestLookup(proof);
+          if (!(token.expiresAt instanceof Date) || token.expiresAt.getTime() <= Date.now()) return 'retry';
+          nativeLookupToken = token.token;
+        } catch { return 'retry'; }
+      }
       return finishPaymentReconcile(
         deps.database,
         context,
@@ -345,6 +360,7 @@ export function createPaymentConnectorActivities(
           attemptId: prepared.attemptId,
           result,
           lookup: native.processor.manifest.lookup,
+          ...(nativeLookupToken ? { nativeLookupToken } : {}),
         },
         options.agents,
       );

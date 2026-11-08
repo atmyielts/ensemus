@@ -22,6 +22,7 @@ import {
   createPaymentConnector,
   createPaymentHttpGateway,
   identifyPaymentExecution,
+  getVerifiedPaymentLookupOutcome,
   runBoundCustomerRegistration,
   SECRET_PURPOSE_PAYMENT_PROCESSOR,
   type VerifiedPaymentExecutionIdentity,
@@ -36,10 +37,12 @@ import {
   type PaymentExecutionIdentity,
   type PaymentGatewayBinding,
   type PaymentProcessor,
+  type PaymentLookupResult,
   type ProcessorCallContext,
 } from '@ensemus/saas/payment';
 import { createPaymentIdentityAttester } from '../../workers/workflow/src/payment-identity';
 import { createPaymentWebhookAttester } from '../../workers/workflow/src/payment-webhook-attester';
+import { createPaymentLookupAttester } from '../../workers/workflow/src/payment-lookup-attester';
 import { paymentFixture, paymentTenant } from '../integration/saas-payment-fixture';
 import { fakeJson, fakeProvider } from './fake-provider';
 import { proveSecondFactor } from './product';
@@ -345,6 +348,12 @@ export async function nativePaymentFixture(
       register,
       call,
       attestWebhook: createPaymentWebhookAttester(secretsDb.db),
+      attestLookup: createPaymentLookupAttester(secretsDb.db),
+      attestLookupResult: async (result: PaymentLookupResult) => {
+        const proof = getVerifiedPaymentLookupOutcome(result);
+        if (!proof) throw new Error('TEST_EXPECTED_ACTUAL_NATIVE_LOOKUP');
+        return createPaymentLookupAttester(secretsDb.db)(proof);
+      },
       get currentIdentity() {
         return identity;
       },

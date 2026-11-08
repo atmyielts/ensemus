@@ -1,7 +1,7 @@
 // No provider I/O here. The broker's native proof token is consumed under fresh, exact SQL authority.
 import type { AppDatabase, TenantContext } from '@ensemus/database';
 import { withAccountTx } from '@ensemus/database/account';
-import type { PaymentConnectionAuthority, PaymentGatewayBinding } from '@ensemus/saas/payment';
+import type { PaymentConnectionAuthority, PaymentGatewayBinding, PaymentTransportAdmission } from '@ensemus/saas/payment';
 import { sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { AppError } from '../errors';
@@ -134,22 +134,21 @@ export async function assertPaymentTransport(
   database: AppDatabase,
   context: TenantContext,
   binding: PaymentGatewayBinding,
-): Promise<void> {
+): Promise<PaymentTransportAdmission> {
   service(context);
   if (identifier(binding.organizationId) !== context.organizationId)
     throw new AppError('NOT_FOUND');
   const authority = paymentAuthoritySchema.safeParse(binding.authority);
   if (!authority.success) throw new AppError('INVALID_INPUT');
-  await withAccountTx(database, context, async (tx) => {
+  return withAccountTx(database, context, async (tx) => {
     const a = authority.data,
       execution = binding.executionBinding;
     const result =
-      await tx.execute(sql`select billing.admit_payment_transport(${identifier(binding.paymentId)}::uuid,
+      await tx.execute(sql`select * from billing.admit_payment_transport(${identifier(binding.paymentId)}::uuid,
       ${a.billingOrganizationId}::uuid,${a.connectionId}::uuid,${a.processor},${a.adapterVersion},${a.apiOrigin},${a.authoritySha256},
       ${binding.phase},${execution?.id ?? null}::uuid,${execution?.identitySha256 ?? null},${execution?.bindingSha256 ?? null},
-      ${binding.attemptId ?? null}::uuid,${binding.customerToken ?? null}::uuid,${a.restoreGeneration}::uuid) as admitted`);
-    if (result.rows.length !== 1 || result.rows[0]?.admitted !== true)
-      throw new AppError('PREREQUISITES_INCOMPLETE');
+      ${binding.attemptId ?? null}::uuid,${binding.customerToken ?? null}::uuid,${a.restoreGeneration}::uuid)`);
+    return one(result.rows, z.strictObject({ restoreGeneration: idSchema, lookupOperationId: idSchema.nullable() }));
   });
 }
 

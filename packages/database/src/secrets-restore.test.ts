@@ -4,7 +4,7 @@ import { PgDialect } from 'drizzle-orm/pg-core';
 import type { SQL } from 'drizzle-orm';
 import { describe, expect, it, vi } from 'vitest';
 import type { EnsemusDrizzle } from './connection';
-import { attestNativePaymentIdentity, attestNativePaymentWebhook, readSealedSecret } from './secrets';
+import { attestNativePaymentIdentity, attestNativePaymentWebhook, attestNativePaymentLookup, readSealedSecret } from './secrets';
 
 function database(generation: string | null) {
   const queries: string[] = [];
@@ -36,6 +36,14 @@ const webhook = () => ({
   processor: 'test_scripted', adapterVersion: '1.0.0', providerEventId: randomUUID(), bodySha256: 'a'.repeat(64), requestDigest: 'b'.repeat(64),
   headersSha256: 'c'.repeat(64), factSha256: 'd'.repeat(64), accountNamespaceSha256: null, executionIdentitySha256: null, restoreGeneration: randomUUID(),
 });
+const lookup = () => ({
+  organizationId: randomUUID(), paymentId: randomUUID(), attemptId: randomUUID(), executionBindingId: randomUUID(),
+  lookupOperationId: randomUUID(), restoreGeneration: randomUUID(), authoritySha256: 'a'.repeat(64),
+  requestKeySha256: 'b'.repeat(64), factCanonical: '{"found":"not_found"}',
+});
+const attest = (kind: 'identity' | 'webhook' | 'lookup', db: EnsemusDrizzle) => kind === 'identity'
+  ? attestNativePaymentIdentity(db, identity()) : kind === 'webhook'
+    ? attestNativePaymentWebhook(db, webhook()) : attestNativePaymentLookup(db, lookup());
 describe('native secret/payment restore admission ordering', () => {
   it('denies a pending restore before selecting a sealed secret or establishing a tenant scope', async () => {
     const d = database(null);
@@ -44,20 +52,16 @@ describe('native secret/payment restore admission ordering', () => {
     expect(d.queries).toHaveLength(1);
     expect(d.queries[0]).toContain('app.current_auth_restore_generation()');
   });
-  it.each(['identity', 'webhook'] as const)('denies cached %s evidence before direct tenant scope or token mint', async kind => {
+  it.each(['identity', 'webhook', 'lookup'] as const)('denies cached %s evidence before direct tenant scope or token mint', async kind => {
     const d = database(randomUUID());
-    await expect(kind === 'identity'
-      ? attestNativePaymentIdentity(d.db, identity())
-      : attestNativePaymentWebhook(d.db, webhook())).rejects.toThrow('PAYMENT_RESTORE_GENERATION_CHANGED');
+    await expect(attest(kind, d.db)).rejects.toThrow('PAYMENT_RESTORE_GENERATION_CHANGED');
     expect(d.queries).toHaveLength(1);
     expect(d.queries[0]).toContain('app.current_auth_restore_generation()');
     expect(d.select).not.toHaveBeenCalled();
   });
-  it.each(['identity', 'webhook'] as const)('denies %s attestation while restore is pending', async kind => {
+  it.each(['identity', 'webhook', 'lookup'] as const)('denies %s attestation while restore is pending', async kind => {
     const d = database(null);
-    await expect(kind === 'identity'
-      ? attestNativePaymentIdentity(d.db, identity())
-      : attestNativePaymentWebhook(d.db, webhook())).rejects.toMatchObject({ code: 'EN422' });
+    await expect(attest(kind, d.db)).rejects.toMatchObject({ code: 'EN422' });
     expect(d.queries).toHaveLength(1);
   });
 });

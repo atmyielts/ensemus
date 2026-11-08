@@ -895,6 +895,11 @@ export const paymentAttempts = billingSchema.table(
     transportRestoreGeneration: uuid(),
     lookupStartedAt: when(),
     lookupRestoreGeneration: uuid(),
+    lookupOperationId: uuid(),
+    lookupOutcomeTokenSha256: text(),
+    lookupOutcomeFactSha256: text(),
+    lookupOutcomeExpiresAt: when(),
+    lookupOutcomeConsumedXid: text(),
     recordedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
     outcome: text(),
     outcomeCode: text(),
@@ -923,6 +928,7 @@ export const paymentAttempts = billingSchema.table(
       sql`${t.outcome} in ('succeeded','declined','not_sent','indeterminate')`,
     ),
     check('payment_attempts_no_range', sql`${t.attemptNo} between 1 and 5`),
+      check('payment_lookup_outcome_hashes', sql`(${t.lookupOutcomeTokenSha256} is null or ${t.lookupOutcomeTokenSha256} ~ '^[0-9a-f]{64}$') and (${t.lookupOutcomeFactSha256} is null or ${t.lookupOutcomeFactSha256} ~ '^[0-9a-f]{64}$')`),
   ],
 );
 

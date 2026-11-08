@@ -249,11 +249,12 @@ describe('payment attempts preserve uncertain native transport under actual role
         q.authority.authoritySha256,
       );
       expect(lookup.found).toBe('succeeded');
+      const lookupToken = await f.attestLookupResult(lookup);
       expect(
         await finishPaymentReconcile(
           database.db,
           f.who.service,
-          { attemptId: attempt.attemptId, result: lookup, lookup: 'authoritative' },
+          { attemptId: attempt.attemptId, result: lookup, lookup: 'authoritative', nativeLookupToken: lookupToken.token },
           paymentAgents,
         ),
       ).toBe('succeeded');
@@ -309,11 +310,13 @@ describe('payment attempts preserve uncertain native transport under actual role
         q.authority.authoritySha256,
       );
       expect(lookup).toEqual({ found: 'not_found' });
+      const lookupToken = await f.attestLookupResult(lookup);
       expect(
         await finishPaymentReconcile(database.db, f.who.service, {
           attemptId: second.attemptId,
           result: lookup,
           lookup: 'authoritative',
+          nativeLookupToken: lookupToken.token,
         }),
       ).toBe('retry');
       expect(await f.beginAttempt()).toMatchObject({ kind: 'attempt', charge: { attemptNo: 3 } });

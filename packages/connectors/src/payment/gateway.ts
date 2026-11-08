@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import type { ConnectorNetwork } from '../index';
 import { exchangeHttpOverRelay } from '../runtime/provider-http';
-import type { PaymentGatewayBinding, ProcessorCallContext } from '@ensemus/saas/payment';
+import type { PaymentGatewayBinding, PaymentTransportAdmission, ProcessorCallContext } from '@ensemus/saas/payment';
 import { isVerifiedPaymentExecutionIdentity } from './runtime';
 
 const receipts = new WeakSet<object>();
@@ -9,6 +9,11 @@ export type PaymentTransportReceipt = Readonly<{
   origin: string;
   authoritySha256: string;
   restoreGeneration: string;
+  organizationId: string;
+  paymentId: string;
+  attemptId: string | null;
+  executionBindingId: string | null;
+  lookupOperationId: string | null;
   phase: PaymentGatewayBinding['phase'];
   responseSha256: string;
   status: number;
@@ -23,7 +28,7 @@ export function createPaymentHttpGateway(deps: {
   processor: string;
   adapterVersion: string;
   /** The real SQL authority/admission adapter. It must commit before transport and cannot be omitted. */
-  assertAuthority(binding: PaymentGatewayBinding): Promise<void>;
+  assertAuthority(binding: PaymentGatewayBinding): Promise<PaymentTransportAdmission>;
   /** Local synthetic TLS fixtures only. Production composition never supplies a custom CA. */
   testCa?: Buffer;
 }) {
@@ -99,7 +104,14 @@ export function createPaymentHttpGateway(deps: {
       )
         throw new Error('PAYMENT_NATIVE_IDENTITY_REQUIRED');
     }
-    await deps.assertAuthority(admitted);
+    const admission = await deps.assertAuthority(admitted);
+    if (!admission || admission.restoreGeneration !== authority.restoreGeneration ||
+      (admitted.phase === 'lookup' && (!admitted.attemptId || !admitted.executionBinding ||
+        typeof admission.lookupOperationId !== 'string' ||
+        !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(admission.lookupOperationId))) ||
+      (admitted.phase !== 'lookup' && admission.lookupOperationId !== null))
+      throw new Error('PAYMENT_TRANSPORT_UNCONFIRMED');
+    const lookupOperationId = admission.lookupOperationId;
     const response = await exchangeHttpOverRelay(
       deps.network,
       origin.hostname,
@@ -118,6 +130,11 @@ export function createPaymentHttpGateway(deps: {
       origin: deps.apiOrigin,
       authoritySha256: authority.authoritySha256,
       restoreGeneration: authority.restoreGeneration,
+      organizationId: admitted.organizationId,
+      paymentId: admitted.paymentId,
+      attemptId: admitted.attemptId ?? null,
+      executionBindingId: admitted.executionBinding?.id ?? null,
+      lookupOperationId,
       phase: admitted.phase,
       responseSha256: createHash('sha256').update(response.body).digest('hex'),
       status: response.status,

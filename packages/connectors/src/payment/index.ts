@@ -14,6 +14,9 @@ export {
   identifyPaymentExecution,
   isVerifiedPaymentExecutionIdentity,
   type VerifiedPaymentExecutionIdentity,
+  getVerifiedPaymentLookupOutcome,
+  isVerifiedPaymentLookupOutcome,
+  type VerifiedPaymentLookupOutcome,
 } from './runtime';
 export {
   createPaymentHttpGateway,

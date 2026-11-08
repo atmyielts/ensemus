@@ -12,6 +12,7 @@ import type { PaymentProcessor } from '@ensemus/saas/payment';
 import type { PaymentConnectorDeps } from '@ensemus/workflows/saas-deps';
 import type { PaymentActivityOptions } from '@ensemus/workflows/payment-activities';
 import { createPaymentIdentityAttester } from './payment-identity';
+import { createPaymentLookupAttester } from './payment-lookup-attester';
 
 export type SelectedNativePayment = Readonly<{
   processor: PaymentProcessor;
@@ -27,6 +28,7 @@ export function createPaymentRuntimeOptions(
   const options: PaymentActivityOptions = {
     agents: createStandingAgentHaltPort(),
     attestIdentity: createPaymentIdentityAttester(broker),
+    attestLookup: createPaymentLookupAttester(broker),
   };
   if (!native) return options;
   const name = native.processor.manifest.processor;

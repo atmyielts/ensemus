@@ -166,6 +166,11 @@ export type PaymentGatewayBinding = Readonly<{
   attemptId?: string;
   customerToken?: string;
 }>;
+/** Fixed SQL admission metadata. The private gateway receipt proves which admitted operation ran. */
+export type PaymentTransportAdmission = Readonly<{
+  restoreGeneration: string;
+  lookupOperationId: string | null;
+}>;
 
 /** A bounded canonical public identity. Validation is not authentication; the native verifier supplies it. */
 export function paymentExecutionIdentity(
