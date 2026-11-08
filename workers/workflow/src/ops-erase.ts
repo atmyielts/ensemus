@@ -15,12 +15,13 @@ import {
 } from '@ensemus/application/saas/offboarding';
 import type { OffboardingAgentHaltPort } from '@ensemus/application/saas/ports';
 import { createOffboardingAgentHaltPort } from '@ensemus/application/saas/offboarding-agent-port';
+import { sealDelegatedErasureInTx } from '@ensemus/application/knowledge/delegated-erasure';
 import {
   createTenantObjectErasure,
   type ErasureObjectStore,
 } from '@ensemus/application/saas/tenant-object-erasure';
 import { readSecret } from '@ensemus/config';
-import { openAppDatabase } from '@ensemus/database';
+import { openAppDatabase, withTenantTx } from '@ensemus/database';
 import { createServiceContext } from '@ensemus/database/service';
 import { eraseTenantRows, listErasableTables, openEraserDatabase } from '@ensemus/database/eraser';
 import { S3ObjectStore } from '@ensemus/storage';
@@ -174,6 +175,19 @@ export async function eraseCommand(
         organizationId: input.organizationId,
         reasonCode: 'BLOB_PURGE_PENDING',
         count: pending.blobsPending + physical.objectsRemaining,
+      });
+      return 1;
+    }
+    // Persist the genuine current-generation material witness before deleting its supporting rows.
+    // A crash can then resume metadata cleanup from that same witness; absence is never a new seal.
+    const sealed = await withTenantTx(app.db, context, (tx) =>
+      sealDelegatedErasureInTx(tx, context, input),
+    );
+    if (!sealed) {
+      writeReport({ state: 'pending', reasonCode: 'MATERIAL_PURGE_PENDING' });
+      log.warn('erasure.pending', {
+        organizationId: input.organizationId,
+        reasonCode: 'MATERIAL_PURGE_PENDING',
       });
       return 1;
     }

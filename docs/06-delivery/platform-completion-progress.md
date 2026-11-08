@@ -29,6 +29,16 @@ Dirty scratch test configs and `zz-*` files are preserved in the snapshots and a
 
 ## Current verified observations
 
+The later [combined source checkpoint](evidence/M8-combined-source-checkpoint.md) passed **5,742
+unit tests with two skips across259files** and all workspace types at `be90f8a`. It includes the new
+delegated-material, auth-restore and native-payment source joins. Subsequent bounded restore and
+operator-erasure follow-ups have their own focused source evidence. Eight unregistered SQL files
+compiled in an actual rollback-only trial; final0999 refused the unreviewed table inventory. The
+candidate transaction contained214 tables and rolled back to198. These results do not update the
+earlier registered84-case database or57-case browser checkpoint above, and no production acceptance
+is claimed. Typed-record recovery, raw-source authority, prepaid inference, genuine restore and
+provider/release/independent acceptance remain open.
+
 - M3's branch forked before recent M2 integrity, proxy, ID, ledger and test-gate fixes. Integration preserves those fixes.
 - The SMTP reader previously bounded only the partial-line string. Fragmented multiline and queued complete replies could grow without bound. Two regression tests failed before the fix; four parser tests and the existing connector tests now pass. The fix bounds aggregate unread bytes and releases budget on consumption; independent internal review found no further issue.
 - The first merged unit run exposed skipped ID normalization in new forms/services. Existing regression tests caught it; the merged suite subsequently passed **826 unit tests**. Further gate-coverage and API regressions are being added, so this is a checkpoint count, not the final result.

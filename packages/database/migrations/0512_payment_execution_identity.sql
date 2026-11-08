@@ -6,6 +6,24 @@ DO $$ BEGIN
   RAISE EXCEPTION 'PAYMENT_RESTORE_GUARD_REQUIRED' USING ERRCODE='EN422';END IF;
 END $$;
 --> statement-breakpoint
+-- The actual database owner can install PostgreSQL's trusted crypto extension on both a fresh
+-- install and an upgrade. Require extension-owned functions in the fixed schema; a same-named
+-- application function or an extension installed elsewhere is not a cryptographic substitute.
+CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA public;
+DO $$
+DECLARE expected text;
+BEGIN
+ FOREACH expected IN ARRAY ARRAY['public.digest(bytea,text)','public.digest(text,text)','public.gen_random_bytes(integer)'] LOOP
+  IF NOT EXISTS(SELECT 1 FROM pg_depend d JOIN pg_extension e ON e.oid=d.refobjid
+    JOIN pg_namespace n ON n.oid=e.extnamespace
+    WHERE d.classid='pg_proc'::regclass AND d.objid=to_regprocedure(expected)
+      AND d.refclassid='pg_extension'::regclass AND d.deptype='e'
+      AND e.extname='pgcrypto' AND n.nspname='public') THEN
+   RAISE EXCEPTION 'PAYMENT_NATIVE_CRYPTO_REQUIRED' USING ERRCODE='55000';
+  END IF;
+ END LOOP;
+END $$;
+--> statement-breakpoint
 CREATE TABLE billing.payment_identity_attestations (
  organization_id uuid NOT NULL,id uuid NOT NULL DEFAULT gen_random_uuid(),payment_id uuid NOT NULL,
  token_sha256 text NOT NULL UNIQUE,billing_organization_id uuid NOT NULL,connection_id uuid NOT NULL,

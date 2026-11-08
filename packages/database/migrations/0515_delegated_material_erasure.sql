@@ -1,37 +1,8 @@
--- Unregistered source: requires coherent0417/0419/0508/0510/0514. Restore rotates the protected
+-- Unregistered source: requires early0517 anchor and coherent0417/0419/0508/0510/0514. Restore rotates the protected
 -- root anchor AFTER PostgreSQL restore/schema readiness and BEFORE objects/reapply/readers start.
 -- A UUID is a current trusted restore admission, not a user credential or historical input proof.
 ALTER TABLE ai.run_input_checkpoints ADD CONSTRAINT run_input_restore_proof CHECK(purged_restore_generation IS NULL
   OR(payloads_purged_at IS NOT NULL AND purged_fence_generation=1 AND fence_generation=1 AND fenced_at IS NOT NULL));
-ALTER TABLE org.organizations ADD COLUMN material_restore_generation uuid NOT NULL DEFAULT gen_random_uuid();
-CREATE FUNCTION sovereign.guard_material_restore_generation() RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog AS $$
-BEGIN
-  IF TG_RELID<>'org.organizations'::regclass OR TG_OP NOT IN('INSERT','UPDATE') THEN
-    RAISE EXCEPTION 'MATERIAL_RESTORE_GENERATION_TARGET' USING ERRCODE='42501';END IF;
-  IF TG_OP='INSERT' THEN NEW.material_restore_generation:=gen_random_uuid();RETURN NEW;END IF;
-  IF NEW.material_restore_generation IS DISTINCT FROM OLD.material_restore_generation THEN
-    IF current_user<>'ensemus_migrator' OR session_user<>'ensemus_migrator' OR app.current_actor_type() IS DISTINCT FROM 'service'
-      OR NEW.id IS DISTINCT FROM OLD.id OR OLD.id IS DISTINCT FROM app.current_organization_id()
-      OR current_setting('sovereign.material_restore_mode',true) IS DISTINCT FROM 'row'
-      OR current_setting('sovereign.material_restore_org',true) IS DISTINCT FROM OLD.id::text
-      OR current_setting('sovereign.material_restore_generation',true) IS DISTINCT FROM NEW.material_restore_generation::text THEN
-      RAISE EXCEPTION 'MATERIAL_RESTORE_GENERATION_IMMUTABLE' USING ERRCODE='42501';END IF;
-  END IF;
-  RETURN NEW;
-END $$;
-REVOKE ALL ON FUNCTION sovereign.guard_material_restore_generation() FROM PUBLIC;
-CREATE TRIGGER organizations_material_restore_generation BEFORE INSERT OR UPDATE ON org.organizations FOR EACH ROW EXECUTE FUNCTION sovereign.guard_material_restore_generation();
-CREATE POLICY material_restore_native_scan ON org.organizations FOR SELECT TO ensemus_migrator
-  USING(current_user='ensemus_migrator' AND session_user='ensemus_migrator' AND current_setting('sovereign.material_restore_mode',true)='scan');
-CREATE POLICY material_restore_native_read ON org.organizations FOR SELECT TO ensemus_migrator
-  USING(current_user='ensemus_migrator' AND session_user='ensemus_migrator' AND current_setting('sovereign.material_restore_mode',true)='row'
-    AND id=app.current_organization_id() AND id::text=current_setting('sovereign.material_restore_org',true));
-CREATE POLICY material_restore_native_write ON org.organizations FOR UPDATE TO ensemus_migrator
-  USING(current_user='ensemus_migrator' AND session_user='ensemus_migrator' AND current_setting('sovereign.material_restore_mode',true)='row'
-    AND id=app.current_organization_id() AND id::text=current_setting('sovereign.material_restore_org',true))
-  WITH CHECK(current_user='ensemus_migrator' AND session_user='ensemus_migrator' AND current_setting('sovereign.material_restore_mode',true)='row'
-    AND id=app.current_organization_id() AND id::text=current_setting('sovereign.material_restore_org',true)
-    AND material_restore_generation::text=current_setting('sovereign.material_restore_generation',true));
 CREATE POLICY material_restore_purge_read ON knowledge.purge_jobs FOR SELECT TO ensemus_migrator
   USING(current_user='ensemus_migrator' AND session_user='ensemus_migrator' AND current_setting('sovereign.material_restore_mode',true)='row'
     AND organization_id=app.current_organization_id() AND organization_id::text=current_setting('sovereign.material_restore_org',true));

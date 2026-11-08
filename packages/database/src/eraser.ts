@@ -3,7 +3,7 @@
 // `erasing` with no hold active (ADR-032 D7). Owned by the offboarding slice. See docs/06-delivery/m8-slices.md.
 import { openDatabase, type EnsemusDrizzle } from './connection';
 import { sql } from 'drizzle-orm';
-import type { Tx } from './tenant';
+import { AppDatabase, createServiceContext, withTenantTx, type Tx } from './tenant';
 
 const tableName = (value: string) => {
   const parts = value.split('.');
@@ -19,8 +19,9 @@ const number = (value: unknown) => {
   return result;
 };
 async function assertRole(tx: Tx) {
-  const result = await tx.execute(sql`select current_user as role`);
-  if (result.rows[0]?.role !== 'ensemus_eraser') throw new Error('ERASURE_ROLE_REQUIRED');
+  const result = await tx.execute(sql`select current_user as role,session_user as login`);
+  if (result.rows[0]?.role !== 'ensemus_eraser' || result.rows[0]?.login !== 'ensemus_eraser')
+    throw new Error('ERASURE_ROLE_REQUIRED');
 }
 async function assertOpen(tx: Tx, organizationId: string) {
   await assertRole(tx);
@@ -63,9 +64,10 @@ export async function listErasableTables(db: EnsemusDrizzle): Promise<readonly s
 }
 
 /**
- * Deletes one tenant's rows, table by table, each in its own transaction binding that tenant, and passes over
- * the list again until nothing moves, since foreign keys order them. A table it cannot empty counts as left
- * over, and is reported rather than forced. Counting is from the role's own view, after deleting.
+ * Deletes one tenant's rows under the native service control binding. Most tables have independent
+ * transactions; the exact reciprocal delegated-proof FK group must commit together. Repeated passes
+ * resolve remaining FK order without disabling any constraint or proof guard. A blocked group rolls
+ * back in full and is counted again under current authority, including a deferred COMMIT failure.
  */
 export async function eraseTenantRows(
   db: EnsemusDrizzle,
@@ -81,31 +83,64 @@ export async function eraseTenantRows(
     result = new Map<string, ErasedTable>(
       tables.map((tableRef) => [tableRef, { tableRef, rowsRemoved: 0, rowsLeft: 0 }]),
     );
+  const reciprocal = [
+    'ai.delegated_input_refs',
+    'ai.delegated_input_receipts',
+    'ai.delegated_work_births',
+  ];
+  const present = reciprocal.filter((table) => tables.includes(table));
+  if (present.length !== 0 && present.length !== reciprocal.length)
+    throw new Error('ERASURE_PROOF_GROUP_INCOMPLETE');
+  const groups = tables.filter((table) => !reciprocal.includes(table)).map((table) => [table]);
+  if (present.length) groups.unshift(reciprocal);
+  // Reuse the canonical transaction binding so pooled/session selectors are explicitly cleared.
+  // This grants no body access; assertRole and SQL erasure/restore/seal checks still own authority.
+  const scoped = new AppDatabase(db),
+    context = createServiceContext(organizationId);
+  const bound = <T>(fn: (tx: Tx) => Promise<T>) => withTenantTx(scoped, context, fn);
   for (;;) {
     let moved = 0;
-    for (const table of tables) {
-      const page = await db.transaction(async (tx) => {
-        await tx.execute(sql`select set_config('app.organization_id',${organizationId},true)`);
-        await assertOpen(tx, organizationId);
-        let removed = 0;
-        try {
-          removed = await tx.transaction(async (save) => {
-            const deletion = await save.execute(
+    for (const group of groups) {
+      let pages: { table: string; removed: number; left: number }[];
+      try {
+        pages = await bound(async (tx) => {
+          await assertOpen(tx, organizationId);
+          const removals = new Map<string, number>();
+          for (const table of group) {
+            const deletion = await tx.execute(
               sql`delete from ${tableName(table)} where organization_id=${organizationId}::uuid`,
             );
-            return number(deletion.rowCount);
-          });
-        } catch (error) {
-          if (codeOf(error) !== '23503') throw error;
-        }
-        // RLS may hide everything when a hold appears. Check the authority again before trusting a zero.
-        await assertOpen(tx, organizationId);
-        return { removed, left: await countRows(tx, table, organizationId) };
-      });
-      const row = result.get(table)!;
-      row.rowsRemoved += page.removed;
-      row.rowsLeft = page.left;
-      moved += page.removed;
+            removals.set(table, number(deletion.rowCount));
+          }
+          // RLS can hide rows after a hold. Recheck before accepting any count as zero.
+          await assertOpen(tx, organizationId);
+          return Promise.all(
+            group.map(async (table) => ({
+              table,
+              removed: removals.get(table)!,
+              left: await countRows(tx, table, organizationId),
+            })),
+          );
+        });
+      } catch (error) {
+        if (codeOf(error) !== '23503') throw error;
+        pages = await bound(async (tx) => {
+          await assertOpen(tx, organizationId);
+          return Promise.all(
+            group.map(async (table) => ({
+              table,
+              removed: 0,
+              left: await countRows(tx, table, organizationId),
+            })),
+          );
+        });
+      }
+      for (const page of pages) {
+        const row = result.get(page.table)!;
+        row.rowsRemoved += page.removed;
+        row.rowsLeft = page.left;
+        moved += page.removed;
+      }
     }
     if (!moved) break;
   }
