@@ -15,6 +15,7 @@ import { fuseRanks } from '@ensemus/knowledge/fusion';
 import { and, eq, sql, type SQL } from 'drizzle-orm';
 import { AppError } from '../errors';
 import { idSchema } from '../ids';
+import { loadAgentReadScopeInTx } from '../ai/read-scope';
 
 /** A passage with everything a citation shows: freshness, its class, and the way back to the source. */
 export type RetrievedPassage = {
@@ -162,6 +163,16 @@ export async function requireSearchPerson(tx: Tx, context: TenantContext): Promi
     .where(and(eq(memberships.id, context.membershipId), eq(memberships.status, 'active')))
     .for('share');
   if (!member) throw new AppError('FORBIDDEN');
+  // Fact subject/source policies may consult scoped Work authority in this transaction. A scope
+  // projection loaded by a previous transaction is neither inherited nor sufficient admission.
+  if (context.actorType === 'agent') {
+    if (!context.agentRunId) throw new AppError('FORBIDDEN');
+    await loadAgentReadScopeInTx(tx, {
+      ...context,
+      actorType: 'agent',
+      agentRunId: context.agentRunId,
+    });
+  }
 }
 
 export function searchQuery(query: string, max = MAX_QUESTION_CHARS): string {
