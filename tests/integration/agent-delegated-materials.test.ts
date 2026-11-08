@@ -13,7 +13,7 @@ import {
 } from '@ensemus/application';
 import { createChildRun } from '@ensemus/application/ai-delegation';
 import { createContextSource } from '@ensemus/application/ai-context-source';
-import { completeTurn, claimQueuedRun, createTurnStore } from '@ensemus/application/ai-runs';
+import { completeTurn, claimQueuedRun, createTurnStore, finishRun } from '@ensemus/application/ai-runs';
 import {
   admitMainModelDispatchInTx,
   receiveMainInputSnapshotInTx,
@@ -26,6 +26,7 @@ import {
   delegatedInputReceipts,
   delegatedWorkBirths,
   mainInputSnapshots,
+  sourceRunClosures,
   openAppDatabase,
   withTenantTx,
   workUnits,
@@ -47,6 +48,7 @@ import {
   type AiTenant,
 } from '../helpers/ai/fixtures';
 import { urls } from '../helpers/stack';
+import { seedSearchableSource } from '../helpers/knowledge';
 
 const hash = (value: string) => createHash('sha256').update(value).digest('hex');
 const noObjects: ObjectStore = {
@@ -335,6 +337,39 @@ describe('delegated material birth evidence (0419)', () => {
           redactionScopeKind: 'work_unit', redactionScopeId: f.work.id })
         .where(eq(delegatedInputReceipts.childRunId, f.runId))))
         .rejects.toSatisfy((error: unknown) => pgCode(error) === '42501');
+  });
+
+  it('cannot stamp a purge-time control witness as app/interactive agent or against an active unrelated source', async () => {
+    const f = await fixture(), source = await seedSearchableSource(app.db, a.owner, {
+      passages: ['Generated unrelated closure fixture.'], grants: [{ kind: 'organization' }],
+    });
+    const [run] = await withTenantTx(agent.db, f.context, (tx) => tx.select({ version: agentRuns.version })
+      .from(agentRuns).where(eq(agentRuns.id, f.runId)));
+    if (!run) throw new Error('TEST_RUN_MISSING');
+    const stamp = { organizationId: a.organizationId, sourceId: source.sourceId, sourceVersion: 1,
+      runId: f.runId, terminalVersion: run.version, fenceGeneration: 1, terminalStatus: 'cancelled' };
+    for (const context of [a.owner, createServiceContext(a.organizationId)])
+      await expect(withTenantTx(app.db, context, (tx) => tx.insert(sourceRunClosures).values(stamp)))
+        .rejects.toSatisfy((error: unknown) => pgCode(error) === '42501');
+    await expect(withTenantTx(agent.db, f.context, (tx) => tx.insert(sourceRunClosures).values(stamp)))
+      .rejects.toSatisfy((error: unknown) => pgCode(error) === '42501');
+    await expect(withTenantTx(agent.db, createServiceContext(a.organizationId), (tx) => tx.insert(sourceRunClosures).values(stamp)))
+      .rejects.toSatisfy((error: unknown) => pgCode(error) === 'EN119');
+    expect(await withTenantTx(app.db, a.owner, (tx) => tx.select().from(sourceRunClosures)
+      .where(eq(sourceRunClosures.runId, f.runId)))).toEqual([]);
+  });
+
+  it('keeps actual terminal material authority closed while later metadata versions remain writable', async () => {
+    const f = await fixture();
+    await finishRun(agent.db, f.context, { agentRunId: f.runId, status: 'cancelled', stopCode: 'STOPPED_BY_PERSON' });
+    await expect(withTenantTx(agent.db, f.context, (tx) => tx.update(agentRuns).set({ status: 'running' })
+      .where(eq(agentRuns.id, f.runId)))).rejects.toSatisfy((error: unknown) => pgCode(error) === 'EN119');
+    const [metadata] = await withTenantTx(agent.db, f.context, (tx) => tx.update(agentRuns)
+      .set({ version: sql`${agentRuns.version}+1` }).where(eq(agentRuns.id, f.runId))
+      .returning({ status: agentRuns.status, version: agentRuns.version }));
+    expect(metadata?.status).toBe('cancelled');
+    await expect(createContextSource({ database: agent.db, readObject: async () => { throw new Error('TEST_UNEXPECTED_BYTES'); } })
+      .loadWork(f.context, f.work.id)).rejects.toThrow();
   });
 
   it('refuses direct app/agent witness and receipt inserts even with the actual proposal IDs', async () => {

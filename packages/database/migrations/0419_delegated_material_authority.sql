@@ -1671,3 +1671,71 @@ CREATE OR REPLACE FUNCTION ai.source_input_runs(p_source uuid) RETURNS SETOF uui
       OR EXISTS(SELECT 1 FROM jsonb_array_elements(CASE WHEN frozen_ref->>'kind'='inherited_influence' THEN frozen_ref->'influenceRefs' ELSE '[]'::jsonb END) influence
         WHERE influence->>'sourceId'=p_source::text OR(influence->>'kind'='source' AND influence->>'id'=p_source::text)))
 $$;
+--> statement-breakpoint
+-- Purge-time control witnesses only. Actual read-time checkpoints and historical authority are
+-- separate. No financial/provider settlement or earlier source-version observation is asserted.
+CREATE TABLE ai.source_run_closures (
+  organization_id uuid NOT NULL,source_id uuid NOT NULL,source_version integer NOT NULL,run_id uuid NOT NULL,
+  terminal_version bigint NOT NULL,fence_generation integer NOT NULL,terminal_status text NOT NULL,closed_at timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT source_run_closures_pk PRIMARY KEY(organization_id,source_id,source_version,run_id,terminal_version,fence_generation),
+  CONSTRAINT source_run_closures_source_fk FOREIGN KEY(organization_id,source_id) REFERENCES knowledge.sources(organization_id,id),
+  CONSTRAINT source_run_closures_run_fk FOREIGN KEY(organization_id,run_id) REFERENCES ai.agent_runs(organization_id,id),
+  CONSTRAINT source_run_closures_checkpoint_fk FOREIGN KEY(organization_id,run_id) REFERENCES ai.run_input_checkpoints(organization_id,run_id),
+  CONSTRAINT source_run_closures_control CHECK(source_version>0 AND terminal_version>0 AND fence_generation=1
+    AND terminal_status IN('completed','failed','cancelled','budget_exhausted','policy_denied','timed_out','outcome_unverified'))
+);
+CREATE INDEX source_run_closures_run_idx ON ai.source_run_closures(organization_id,run_id);
+ALTER TABLE ai.source_run_closures ENABLE ROW LEVEL SECURITY;
+ALTER TABLE ai.source_run_closures FORCE ROW LEVEL SECURITY;
+CREATE POLICY source_run_closure_metadata ON ai.source_run_closures FOR SELECT TO ensemus_app USING(organization_id=app.current_organization_id());
+CREATE POLICY source_run_closure_append ON ai.source_run_closures FOR INSERT TO ensemus_agent WITH CHECK(organization_id=app.current_organization_id()
+  AND current_user='ensemus_agent' AND session_user='ensemus_agent' AND app.current_actor_type()='service');
+GRANT SELECT ON ai.source_run_closures TO ensemus_app;
+GRANT INSERT ON ai.source_run_closures TO ensemus_agent;
+CREATE TRIGGER source_run_closures_keep BEFORE UPDATE OR DELETE OR TRUNCATE ON ai.source_run_closures FOR EACH STATEMENT EXECUTE FUNCTION app.reject_change();
+CREATE FUNCTION ai.guard_source_run_closure() RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog AS $$
+DECLARE source record;run record;checkpoint record;
+BEGIN
+  IF TG_RELID<>'ai.source_run_closures'::regclass OR TG_OP<>'INSERT' OR current_user<>'ensemus_agent' OR session_user<>'ensemus_agent'
+    OR app.current_actor_type() IS DISTINCT FROM 'service' OR NEW.organization_id IS DISTINCT FROM app.current_organization_id() THEN
+    RAISE EXCEPTION 'SOURCE_CONTROL_CLOSURE_TARGET' USING ERRCODE='42501';END IF;
+  SELECT stored.state,stored.version INTO source FROM knowledge.sources stored WHERE stored.organization_id=NEW.organization_id AND stored.id=NEW.source_id FOR SHARE NOWAIT;
+  IF NOT FOUND OR source.state NOT IN('revoked','deleted') OR source.version IS DISTINCT FROM NEW.source_version
+    OR NEW.run_id NOT IN(SELECT ai.source_input_runs(NEW.source_id)) THEN
+    RAISE EXCEPTION 'SOURCE_CONTROL_CLOSURE_STALE' USING ERRCODE='EN119';END IF;
+  SELECT stored.fenced_at,stored.fence_generation,stored.payloads_purged_at,stored.purged_fence_generation INTO checkpoint FROM ai.run_input_checkpoints stored
+    WHERE stored.organization_id=NEW.organization_id AND stored.run_id=NEW.run_id FOR SHARE NOWAIT;
+  IF NOT FOUND OR checkpoint.fenced_at IS NULL OR checkpoint.fence_generation IS DISTINCT FROM NEW.fence_generation
+    OR checkpoint.payloads_purged_at IS NULL OR checkpoint.purged_fence_generation IS DISTINCT FROM NEW.fence_generation THEN
+    RAISE EXCEPTION 'SOURCE_CONTROL_FENCE_UNCONFIRMED' USING ERRCODE='EN119';END IF;
+  SELECT stored.status,stored.version INTO run FROM ai.agent_runs stored WHERE stored.organization_id=NEW.organization_id AND stored.id=NEW.run_id FOR SHARE NOWAIT;
+  IF NOT FOUND OR run.status IS DISTINCT FROM NEW.terminal_status OR run.version IS DISTINCT FROM NEW.terminal_version
+    OR run.status NOT IN('completed','failed','cancelled','budget_exhausted','policy_denied','timed_out','outcome_unverified') THEN
+    RAISE EXCEPTION 'SOURCE_CONTROL_TERMINAL_UNCONFIRMED' USING ERRCODE='EN119';END IF;
+  NEW.closed_at:=clock_timestamp();RETURN NEW;
+END $$;
+REVOKE ALL ON FUNCTION ai.guard_source_run_closure() FROM PUBLIC;
+CREATE TRIGGER source_run_closure_guard BEFORE INSERT ON ai.source_run_closures FOR EACH ROW EXECUTE FUNCTION ai.guard_source_run_closure();
+CREATE FUNCTION ai.guard_fenced_terminal_revival() RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog AS $$
+BEGIN
+  IF TG_RELID<>'ai.agent_runs'::regclass OR TG_OP<>'UPDATE' THEN RAISE EXCEPTION 'TERMINAL_FENCE_TARGET' USING ERRCODE='42501';END IF;
+  IF OLD.status IN('completed','failed','cancelled','budget_exhausted','policy_denied','timed_out','outcome_unverified')
+    AND NEW.status NOT IN('completed','failed','cancelled','budget_exhausted','policy_denied','timed_out','outcome_unverified') THEN
+    RAISE EXCEPTION 'TERMINAL_RUN_PERMANENTLY_FENCED' USING ERRCODE='EN119';END IF;
+  RETURN NEW;
+END $$;
+REVOKE ALL ON FUNCTION ai.guard_fenced_terminal_revival() FROM PUBLIC;
+CREATE TRIGGER fenced_terminal_run_no_revival BEFORE UPDATE ON ai.agent_runs FOR EACH ROW EXECUTE FUNCTION ai.guard_fenced_terminal_revival();
+CREATE FUNCTION ai.source_run_closure_remaining(p_source uuid,p_version integer) RETURNS integer LANGUAGE sql STABLE SET search_path=pg_catalog AS $$
+  SELECT CASE WHEN NOT EXISTS(SELECT 1 FROM knowledge.sources source WHERE source.organization_id=app.current_organization_id()
+    AND source.id=p_source AND source.state IN('revoked','deleted') AND source.version=p_version) THEN 1 ELSE(
+    SELECT count(*)::integer FROM ai.source_input_runs(p_source) actual(run_id) LEFT JOIN ai.agent_runs run ON run.organization_id=app.current_organization_id() AND run.id=actual.run_id
+      LEFT JOIN ai.run_input_checkpoints checkpoint ON checkpoint.organization_id=app.current_organization_id() AND checkpoint.run_id=actual.run_id
+    WHERE run.id IS NULL OR checkpoint.run_id IS NULL OR checkpoint.fenced_at IS NULL OR checkpoint.payloads_purged_at IS NULL
+      OR checkpoint.purged_fence_generation IS DISTINCT FROM checkpoint.fence_generation
+      OR run.status NOT IN('completed','failed','cancelled','budget_exhausted','policy_denied','timed_out','outcome_unverified')
+      OR NOT EXISTS(SELECT 1 FROM ai.source_run_closures closure WHERE closure.organization_id=app.current_organization_id() AND closure.source_id=p_source AND closure.source_version=p_version
+        AND closure.run_id=actual.run_id AND closure.fence_generation=checkpoint.fence_generation AND closure.terminal_version<=run.version)) END
+$$;
+REVOKE ALL ON FUNCTION ai.source_run_closure_remaining(uuid,integer) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION ai.source_run_closure_remaining(uuid,integer) TO ensemus_app;

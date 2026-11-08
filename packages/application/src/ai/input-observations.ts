@@ -81,6 +81,10 @@ export async function assertRunInputsOpen(tx: Tx, context: AgentContext) {
 /** Acquire before touching payload rows. Purge takes this fence first, then deletes payloads too. */
 export async function lockRunInputsForContent(tx: Tx, context: AgentContext) {
   own(context);
+  // Load the actual original source/catalog closure before the checkpoint lock. The second check
+  // below closes a fence committed while that first proof was being acquired; neither grants body
+  // access to terminal reconciliation, which uses the separate metadata-only proposal path.
+  await assertRunInputsOpen(tx, context);
   await tx
     .select({ id: runInputCheckpoints.runId })
     .from(runInputCheckpoints)
