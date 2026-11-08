@@ -18,6 +18,7 @@ import {
   executionSteps,
   externalActions,
   memberships,
+  modelProposalInputs,
   organizations,
   runControls,
   runInputCheckpoints,
@@ -80,6 +81,8 @@ export type StoredProposal = {
    * gone or no longer matches `payloadHash`, which the gateway's parse then refuses.
    */
   args: unknown;
+  /** Exact frozen original model attempt, absent for legacy/scripted proposals. */
+  inputSnapshotId?: string | null;
 };
 
 /**
@@ -191,7 +194,7 @@ export async function storeProposal(
     stepNumber: number;
     toolId: string;
     args: unknown;
-    originatingModel?: { stepId: string; attempt: number };
+    originatingModel?: { stepId: string; attempt: number; inputSnapshotId?: string };
   },
 ): Promise<{ proposalId: string }> {
   assertOwnRun(context, input.runId);
@@ -249,6 +252,14 @@ export async function storeProposal(
       });
       return { proposalId: id };
     }
+    if (input.originatingModel?.inputSnapshotId)
+      await tx
+        .insert(modelProposalInputs)
+        .values({
+          organizationId: context.organizationId,
+          proposalId: id,
+          snapshotId: input.originatingModel.inputSnapshotId,
+        });
     await tx.insert(stepPayloads).values({
       organizationId: context.organizationId,
       stepId: step.id,
@@ -296,6 +307,10 @@ async function loadProposalInTx(
     rows.find((row) => row.kind === 'model_turn');
   if (!found) return null;
   const { proposal } = found;
+  const [origin] = await tx
+    .select({ snapshotId: modelProposalInputs.snapshotId })
+    .from(modelProposalInputs)
+    .where(eq(modelProposalInputs.proposalId, proposal.id));
   const [payload] = includeArguments
     ? await tx
         .select({ content: stepPayloads.content })
@@ -315,6 +330,7 @@ async function loadProposalInTx(
     approvalId: proposal.approvalId,
     externalActionId: proposal.externalActionId,
     args: argsFrom(payload, proposal.payloadHash),
+    inputSnapshotId: origin?.snapshotId ?? null,
   };
 }
 

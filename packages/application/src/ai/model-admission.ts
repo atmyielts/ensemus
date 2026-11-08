@@ -4,6 +4,7 @@ import {
   agentRuns,
   executionSteps,
   memberships,
+  mainInputSnapshots,
   modelProfiles,
   withTenantTx,
   type AgentContext,
@@ -22,6 +23,7 @@ import { toRoutableProfile } from './model-profiles';
 import { loadTenantPolicyBundleInTx } from './egress-log';
 import { decideEgress } from '@ensemus/policy';
 import { loadAgentReadScopeInTx } from './read-scope';
+import { idSchema } from '../ids';
 
 const classes = ['public', 'internal', 'confidential', 'restricted'] as const;
 const knownClass = (value: unknown): value is AiClassification =>
@@ -46,6 +48,7 @@ export async function bindModelResultWriteInTx(
   context: AgentContext,
   input: { stepId: string; attempt: number; classification: AiClassification; stepNumber?: number },
 ) {
+  await tx.execute(sql`select set_config('app.knowledge_model_protocol','',true)`);
   if (!Number.isSafeInteger(input.attempt) || input.attempt < 1)
     throw new AppError('POLICY_DENIED');
   const floor = await currentRunInputClassInTx(tx, context);
@@ -88,7 +91,144 @@ export type MainModelAdmission = {
   ceiling: { inputTokens: number; outputTokens: number };
   costMicros: number;
   priorUsage: { inputTokens: number; outputTokens: number; costMicros: number };
+  /** Issued by the actual gateway, never compiler/model/tool args. Unique writer claim per invocation. */
+  snapshot?: {
+    id: string;
+    writerToken: string;
+    requestHash: string;
+    phase: 'prepare' | 'dispatch';
+  };
 };
+
+async function admitMainInputSnapshotInTx(
+  tx: Tx,
+  context: AgentContext,
+  input: MainModelAdmission,
+) {
+  const snapshot = input.snapshot;
+  if (
+    !snapshot ||
+    !idSchema.safeParse(snapshot.id).success ||
+    !idSchema.safeParse(snapshot.writerToken).success ||
+    !/^[0-9a-f]{64}$/.test(snapshot.requestHash)
+  )
+    return false;
+  if (snapshot.phase === 'prepare') {
+    const current = await tx.execute<{
+      inventory: unknown;
+      hash: string;
+    }>(sql`with current_inputs as(select ai.current_main_input_inventory(${context.agentRunId}::uuid) inventory)
+      select inventory,encode(sha256(convert_to(inventory::text,'UTF8')),'hex') hash from current_inputs`);
+    const proof = current.rows[0];
+    if (
+      !proof ||
+      !Array.isArray(proof.inventory) ||
+      proof.inventory.length < 1 ||
+      proof.inventory.length > 1000
+    )
+      return false;
+    const [created] = await tx
+      .insert(mainInputSnapshots)
+      .values({
+        organizationId: context.organizationId,
+        id: snapshot.id,
+        runId: input.runId,
+        stepId: input.stepId,
+        attempt: input.attempt,
+        reservationAttempt: input.reservationAttempt,
+        writerToken: snapshot.writerToken,
+        requestHash: snapshot.requestHash,
+        profileId: input.profileId,
+        profileVersion: input.profileVersion,
+        viewerMembershipId: context.membershipId,
+        inputInventory: proof.inventory,
+        inventorySha256: proof.hash,
+      })
+      .onConflictDoNothing()
+      .returning({ id: mainInputSnapshots.id });
+    // Never let a duplicate invocation borrow another invocation's hold and then release it.
+    return created?.id === snapshot.id;
+  }
+  if (snapshot.phase !== 'dispatch') return false;
+  const [claimed] = await tx
+    .update(mainInputSnapshots)
+    .set({ state: 'dispatched' })
+    .where(
+      and(
+        eq(mainInputSnapshots.id, snapshot.id),
+        eq(mainInputSnapshots.runId, input.runId),
+        eq(mainInputSnapshots.stepId, input.stepId),
+        eq(mainInputSnapshots.attempt, input.attempt),
+        eq(mainInputSnapshots.reservationAttempt, input.reservationAttempt),
+        eq(mainInputSnapshots.writerToken, snapshot.writerToken),
+        eq(mainInputSnapshots.requestHash, snapshot.requestHash),
+        eq(mainInputSnapshots.profileId, input.profileId),
+        eq(mainInputSnapshots.profileVersion, input.profileVersion),
+        eq(mainInputSnapshots.state, 'prepared'),
+      ),
+    )
+    .returning({ id: mainInputSnapshots.id });
+  return claimed?.id === snapshot.id;
+}
+
+/** Records only the hash of an already validated adapter response after canonical usage settlement.
+ * No unconfirmed network attempt or stale original attempt can become delegation authority. */
+export async function receiveMainInputSnapshotInTx(
+  tx: Tx,
+  context: AgentContext,
+  input: {
+    snapshotId: string;
+    writerToken: string;
+    kind: 'final' | 'tool_call';
+    toolId: string | null;
+    payloadHash: string;
+  },
+) {
+  if (
+    !idSchema.safeParse(input.snapshotId).success ||
+    !idSchema.safeParse(input.writerToken).success ||
+    !/^[0-9a-f]{64}$/.test(input.payloadHash)
+  )
+    throw new AppError('POLICY_DENIED');
+  const [snapshot] = await tx
+    .select()
+    .from(mainInputSnapshots)
+    .where(
+      and(
+        eq(mainInputSnapshots.id, input.snapshotId),
+        eq(mainInputSnapshots.runId, context.agentRunId),
+        eq(mainInputSnapshots.writerToken, input.writerToken),
+        eq(mainInputSnapshots.state, 'dispatched'),
+      ),
+    );
+  const [run] = await tx
+    .select({ classification: agentRuns.effectiveClassification })
+    .from(agentRuns)
+    .where(eq(agentRuns.id, context.agentRunId));
+  if (!snapshot || !run || !knownClass(run.classification)) throw new AppError('POLICY_DENIED');
+  await bindModelResultWriteInTx(tx, context, {
+    stepId: snapshot.stepId,
+    attempt: snapshot.attempt,
+    classification: run.classification,
+  });
+  const [received] = await tx
+    .update(mainInputSnapshots)
+    .set({
+      state: 'response_received',
+      resultKind: input.kind,
+      resultToolId: input.toolId,
+      resultPayloadHash: input.payloadHash,
+    })
+    .where(
+      and(
+        eq(mainInputSnapshots.id, snapshot.id),
+        eq(mainInputSnapshots.writerToken, input.writerToken),
+        eq(mainInputSnapshots.state, 'dispatched'),
+      ),
+    )
+    .returning({ id: mainInputSnapshots.id });
+  if (!received) throw new AppError('POLICY_DENIED');
+}
 /** Must run inside the very reservation transaction, after current body locks and before money moves. */
 export async function admitMainModelInTx(
   tx: Tx,
@@ -220,5 +360,8 @@ export async function admitMainModelDispatchInTx(
     bundle: await loadTenantPolicyBundleInTx(tx, context),
     now: new Date(),
   });
-  return decision.decision === 'allow' ? null : refuse(decision.reasonCode);
+  if (decision.decision !== 'allow') return refuse(decision.reasonCode);
+  return (await admitMainInputSnapshotInTx(tx, context, input))
+    ? null
+    : refuse('POLICY_UNREADABLE');
 }

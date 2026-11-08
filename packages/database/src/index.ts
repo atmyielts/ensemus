@@ -49,6 +49,7 @@ export * from './schema-integrations';
 export * from './schema-ai';
 export * from './schema-ai-inputs';
 export * from './schema-ai-child-inputs';
+export * from './schema-ai-main-inputs';
 export * from './schema-model-jobs';
 export * from './schema-knowledge';
 export * from './schema-artifact-provenance';

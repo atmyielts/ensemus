@@ -490,7 +490,11 @@ export function createAgentActivities(deps: AgentActivityDeps): AgentActivities 
               stepNumber: input.stepNumber,
               toolId: outcome.toolCall.toolId,
               args: outcome.toolCall.args,
-              originatingModel: { stepId: start.stepId, attempt: start.attempt },
+              originatingModel: {
+                stepId: start.stepId,
+                attempt: start.attempt,
+                ...(outcome.inputSnapshotId ? { inputSnapshotId: outcome.inputSnapshotId } : {}),
+              },
             });
           } else if (final === 'final_output' || final === 'tool_proposed') {
             final = 'invalid_output';
