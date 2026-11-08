@@ -796,7 +796,7 @@ export async function finishPaymentReconcile(
     lookup: ProcessorManifest['lookup'];
   },
   agents?: AgentHaltPort,
-): Promise<'succeeded' | 'failed' | 'retry' | 'unknown'> {
+): Promise<'succeeded' | 'failed' | 'cancelled' | 'retry' | 'unknown'> {
   service(context);
   const id = idOf(input.attemptId);
   const result = input.result;
@@ -826,7 +826,7 @@ export async function finishPaymentReconcile(
       .for('update');
     if (!attempt) throw new AppError('NOT_FOUND');
     if (['succeeded', 'failed', 'cancelled'].includes(payment.status))
-      return payment.status === 'cancelled' ? 'failed' : (payment.status as 'succeeded' | 'failed');
+      return payment.status as 'succeeded' | 'failed' | 'cancelled';
     if (payment.status === 'ready') return 'retry';
     if (attempt.outcome !== 'indeterminate') throw new AppError('INVALID_STATE');
     if (result.found === 'succeeded') {

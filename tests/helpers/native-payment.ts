@@ -5,7 +5,7 @@ import { interactiveSessionOf, type AppDatabase } from '@ensemus/database';
 import { createServiceContext } from '@ensemus/database/service';
 import type { openSecretsDatabase } from '@ensemus/database/secrets';
 import { createConnection, createWebhookEndpoint } from '@ensemus/application';
-import { requestInvoicePayment, beginPaymentAttempt } from '@ensemus/application/saas/payments';
+import { requestInvoicePayment, requestInvoicePaymentOnce, beginPaymentAttempt } from '@ensemus/application/saas/payments';
 import {
   preflightPaymentExecution,
   bindPaymentExecution,
@@ -37,7 +37,7 @@ import {
 import { createPaymentIdentityAttester } from '../../workers/workflow/src/payment-identity';
 import { createPaymentWebhookAttester } from '../../workers/workflow/src/payment-webhook-attester';
 import { paymentFixture, paymentTenant } from '../integration/saas-payment-fixture';
-import { fakeProvider } from './fake-provider';
+import { fakeJson, fakeProvider } from './fake-provider';
 import { proveSecondFactor } from './product';
 import { secret } from './stack';
 
@@ -45,9 +45,10 @@ export async function nativePaymentFixture(
   database: AppDatabase,
   auth: pg.Client,
   secretsDb: ReturnType<typeof openSecretsDatabase>,
+  options: { operator?: Awaited<ReturnType<typeof paymentTenant>>; requestKey?: string; lookup?: 'none' | 'authoritative' } = {},
 ) {
   const who = await paymentFixture(database, auth, { legacyCustomer: false });
-  const operator = await paymentTenant(database, auth);
+  const operator = options.operator ?? await paymentTenant(database, auth);
   for (const owner of [who.owner, operator])
     await proveSecondFactor({
       userId: owner.userId,
@@ -77,33 +78,48 @@ export async function nativePaymentFixture(
   };
   const customerRef = `generated-customer:${randomUUID()}`,
     processorPaymentRef = `generated-payment:${randomUUID()}`;
+  // This fictional wire contract is explicit test behavior, not a real processor's compatibility claim.
+  type ChargeMode = 'success' | 'not_sent' | 'drop_before_accept' | 'drop_after_accept';
+  let nextCharge: ChargeMode = 'success';
+  const charges = new Map<string, string>();
   const server = await fakeProvider((request, socket) => {
     const authorized = request.headers.authorization === `Bearer ${generatedCredential}`;
-    const body = Buffer.from(
-      JSON.stringify(
-        request.path === '/identity'
-          ? identity
-          : request.path === '/customer'
-            ? { customerRef }
-            : { processorPaymentRef },
-      ),
-    );
-    socket.end(
-      Buffer.concat([
-        Buffer.from(
-          `HTTP/1.1 ${authorized ? '200 OK' : '403 Forbidden'}\r\nContent-Length: ${body.length}\r\n\r\n`,
-        ),
-        body,
-      ]),
-    );
+    if (!authorized) return fakeJson(socket, 403, { code: 'REFUSED' });
+    if (request.method === 'GET' && request.path === '/identity')
+      return fakeJson(socket, 200, identity);
+    if (request.method === 'POST' && request.path === '/customer')
+      return fakeJson(socket, 200, { customerRef });
+    if (request.method === 'POST' && request.path === '/charge') {
+      const value = JSON.parse(request.body.toString('utf8')) as { idempotencyKey: string };
+      if (typeof value.idempotencyKey !== 'string' || value.idempotencyKey.length > 256)
+        return fakeJson(socket, 400, { code: 'INVALID' });
+      if (charges.has(value.idempotencyKey))
+        return fakeJson(socket, 200, { processorPaymentRef: charges.get(value.idempotencyKey) });
+      const mode = nextCharge;
+      nextCharge = 'success';
+      if (mode === 'not_sent') return fakeJson(socket, 429, { code: 'NOT_ACCEPTED' });
+      if (mode === 'drop_before_accept') return socket.destroy();
+      charges.set(value.idempotencyKey, charges.get(value.idempotencyKey) ?? processorPaymentRef);
+      if (mode === 'drop_after_accept') return socket.destroy();
+      return fakeJson(socket, 200, { processorPaymentRef: charges.get(value.idempotencyKey) });
+    }
+    if (request.method === 'GET' && request.path.startsWith('/lookup?key=')) {
+      const key = new URL(request.path, apiOrigin).searchParams.get('key') ?? '';
+      const found = charges.get(key);
+      return found
+        ? fakeJson(socket, 200, { processorPaymentRef: found })
+        : fakeJson(socket, 404, { code: 'AUTHORITATIVE_ABSENCE' });
+    }
+    return fakeJson(socket, 404, { code: 'UNKNOWN_ROUTE' });
   });
   try {
-    const request = (context: ProcessorCallContext, method: 'GET' | 'POST', path: string) =>
+    const request = (context: ProcessorCallContext, method: 'GET' | 'POST', path: string, body?: unknown) =>
       context.withCredential((bytes) =>
         context.request({
           method,
           path,
           headers: { authorization: `Bearer ${bytes.toString('utf8')}` },
+          ...(body === undefined ? {} : { body: Buffer.from(JSON.stringify(body)) }),
           timeoutMs: 5000,
         }),
       );
@@ -112,7 +128,7 @@ export async function nativePaymentFixture(
         processor: 'test_scripted',
         version: '1.0.0',
         nativeIdempotency: true,
-        lookup: 'authoritative',
+        lookup: options.lookup ?? 'authoritative',
         webhookScheme: 'ensemus_hmac_sha256_v1',
       },
       async identifyExecution(context) {
@@ -130,8 +146,11 @@ export async function nativePaymentFixture(
         if (response.status !== 200) throw new Error('TEST_PROVIDER_REFUSED');
         return JSON.parse(Buffer.from(response.body).toString('utf8')) as { customerRef: string };
       },
-      async charge(context) {
-        const response = await request(context, 'POST', '/charge');
+      async charge(context, input) {
+        const response = await request(context, 'POST', '/charge', {
+          ...input, amountMicros: input.amountMicros.toString(),
+        });
+        if (response.status === 429) return { outcome: 'not_sent', code: 'RATE_LIMITED', retryable: true };
         if (response.status !== 200) return { outcome: 'indeterminate', code: 'PROCESSOR_ERROR' };
         const value = JSON.parse(Buffer.from(response.body).toString('utf8')) as {
           processorPaymentRef: string;
@@ -142,8 +161,9 @@ export async function nativePaymentFixture(
           processorPaymentRef: value.processorPaymentRef,
         };
       },
-      async lookup(context) {
-        const response = await request(context, 'GET', '/lookup');
+      async lookup(context, key) {
+        const response = await request(context, 'GET', `/lookup?key=${encodeURIComponent(key)}`);
+        if (response.status === 404) return { found: 'not_found' };
         if (response.status !== 200) return { found: 'cannot_answer' };
         const value = JSON.parse(Buffer.from(response.body).toString('utf8')) as {
           processorPaymentRef: string;
@@ -174,10 +194,11 @@ export async function nativePaymentFixture(
       signingSecretId: signing.secretRef,
       signatureScheme: 'ensemus_hmac_sha256_v1',
     });
-    const payment = await requestInvoicePayment(database, who.owner, {
-      invoiceId: who.invoice.id,
-      processor: 'test_scripted',
-    });
+    const paymentInput = { invoiceId: who.invoice.id, processor: 'test_scripted' };
+    const payment = options.requestKey
+      ? await requestInvoicePaymentOnce(database, who.owner, { ...paymentInput, requestKey: options.requestKey })
+      : await requestInvoicePayment(database, who.owner, paymentInput);
+    if ('kind' in payment && payment.kind === 'conflict') throw new Error('TEST_PAYMENT_REQUEST_CONFLICT');
     const broker = new SecretBroker(
       secretsDb.db,
       new FileKeyProvider([secret('sealing_private_key.pem')]),
@@ -293,6 +314,8 @@ export async function nativePaymentFixture(
       connection,
       endpoint,
       payment,
+      charges,
+      nextCharge: (mode: ChargeMode) => { nextCharge = mode; },
       server,
       broker,
       attest,

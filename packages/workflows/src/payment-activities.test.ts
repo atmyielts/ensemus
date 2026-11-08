@@ -189,6 +189,26 @@ beforeEach(() => {
   vi.mocked(finishPaymentReconcile).mockResolvedValue('succeeded');
 });
 describe('payment Activity original-authority control', () => {
+  it('returns an actual cancellation while billing is disabled without qualifying or dispatching', async () => {
+    vi.mocked(getPaymentExecution).mockResolvedValue({ ...execution, status: 'cancelled' });
+    const d = deps();
+    d.billingEnabled = false;
+    expect(await createPaymentConnectorActivities(d, options()).reconcilePaymentStep(paymentInput))
+      .toBe('cancelled');
+    expect(readPaymentExecutionBinding).not.toHaveBeenCalled();
+    expect(identifyPaymentExecution).not.toHaveBeenCalled();
+    expect(beginPaymentReconcile).not.toHaveBeenCalled();
+    expect(runBoundPaymentLookup).not.toHaveBeenCalled();
+  });
+  it('returns the cancelled database receipt when the connector never answers', async () => {
+    vi.mocked(getPaymentExecution).mockResolvedValue({ ...execution, status: 'cancelled' });
+    const d = deps();
+    d.billingEnabled = false;
+    expect(await createPaymentPlatformActivities(d).concludePaymentWithoutAnswerStep(paymentInput))
+      .toBe('cancelled');
+    expect(finishPaymentReconcile).not.toHaveBeenCalled();
+    expect(runBoundCharge).not.toHaveBeenCalled();
+  });
   it.each([false, undefined])(
     'billing disabled (%j) reaches no new database effect or transport',
     async (billingEnabled) => {

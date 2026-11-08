@@ -80,7 +80,7 @@ async function outcomeAfterNoReconcile(
 ): Promise<PaymentReconcileStep> {
   const execution = await getPaymentExecution(deps.database, ctx(input), input);
   if (['ready', 'sending', 'reconciling'].includes(execution.status)) return 'retry';
-  if (execution.status === 'cancelled') return 'failed';
+  if (execution.status === 'cancelled') return 'cancelled';
   if (['succeeded', 'failed', 'unknown'].includes(execution.status))
     return execution.status as 'succeeded' | 'failed' | 'unknown';
   throw new AppError('INVALID_STATE');
@@ -316,7 +316,7 @@ export function createPaymentConnectorActivities(
       const execution = await getPaymentExecution(deps.database, context, {
         paymentId: value.paymentId,
       });
-      if (execution.status === 'cancelled') return 'failed';
+      if (execution.status === 'cancelled') return 'cancelled';
       if (['succeeded', 'failed', 'unknown'].includes(execution.status))
         return execution.status as 'succeeded' | 'failed' | 'unknown';
       const existing = await readPaymentExecutionBinding(deps.database, context, {
