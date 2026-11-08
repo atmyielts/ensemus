@@ -128,7 +128,10 @@ export const organizations = orgSchema.table(
   },
   (t) => [
     check('organizations_mode_check', sql`${t.commercialMode} in ('cloud','byom','sovereign')`),
-    check('organizations_lifecycle_check', sql`${t.lifecycle} in ('active','suspended','deleted')`),
+    check(
+      'organizations_lifecycle_check',
+      sql`${t.lifecycle} in ('active','read_only','suspended','offboarding','deleted')`,
+    ),
   ],
 );
 

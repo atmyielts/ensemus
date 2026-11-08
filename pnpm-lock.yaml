@@ -92,6 +92,9 @@ importers:
       "@ensemus/sovereign":
         specifier: workspace:*
         version: link:../../packages/sovereign
+      "@ensemus/saas":
+        specifier: workspace:*
+        version: link:../../packages/saas
     devDependencies:
       "@types/react":
         specifier: 19.3.0
@@ -148,6 +151,9 @@ importers:
       "@ensemus/sovereign":
         specifier: workspace:*
         version: link:../sovereign
+      "@ensemus/saas":
+        specifier: workspace:*
+        version: link:../saas
   packages/auth:
     dependencies:
       "@ensemus/database":
@@ -195,6 +201,9 @@ importers:
       zod:
         specifier: 4.6.7
         version: 4.6.7
+      "@ensemus/saas":
+        specifier: workspace:*
+        version: link:../saas
   packages/contracts:
     dependencies:
       zod:
@@ -336,6 +345,9 @@ importers:
       "@ensemus/knowledge":
         specifier: workspace:*
         version: link:../knowledge
+      "@ensemus/saas":
+        specifier: workspace:*
+        version: link:../saas
   tests:
     dependencies:
       "@ensemus/agent-runtime":
@@ -410,6 +422,12 @@ importers:
       "@ensemus/sovereign":
         specifier: workspace:*
         version: link:../packages/sovereign
+      "@ensemus/config":
+        specifier: workspace:*
+        version: link:../packages/config
+      "@ensemus/saas":
+        specifier: workspace:*
+        version: link:../packages/saas
     devDependencies:
       "@types/pg":
         specifier: 8.23.1
@@ -521,6 +539,9 @@ importers:
       "@ensemus/sovereign":
         specifier: workspace:*
         version: link:../../packages/sovereign
+      "@ensemus/saas":
+        specifier: workspace:*
+        version: link:../../packages/saas
   packages/knowledge:
     dependencies:
       "@ensemus/domain":
@@ -539,6 +560,11 @@ importers:
       zod:
         specifier: 4.6.7
         version: 4.6.7
+  packages/saas:
+    dependencies:
+      "@ensemus/domain":
+        specifier: workspace:*
+        version: link:../domain
 packages:
   "@ai-sdk/anthropic@4.0.87":
     resolution:

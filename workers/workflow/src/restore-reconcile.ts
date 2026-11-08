@@ -7,7 +7,7 @@ import { S3ObjectStore } from '@ensemus/storage';
 import { errorCode } from '@ensemus/telemetry';
 import { workflowIdFor } from '@ensemus/workflows/schemas';
 import { Client } from '@temporalio/client';
-import { RESTORE_CONTRIBUTORS } from './restore-contributors';
+import { createLifecycleRestoreContributors } from './restore-contributors';
 import { createRunProbe, log, restoreReconcileCommand } from './restore-reconcile-command';
 import { openDispatcherConnection } from './temporal-connection';
 
@@ -40,7 +40,7 @@ async function main() {
         client.workflow.getHandle(workflowIdFor(input), input.runId).describe(),
       ),
     ),
-    contributors: RESTORE_CONTRIBUTORS,
+    contributors: createLifecycleRestoreContributors(store),
   });
   await close();
   await dispatcher.close();

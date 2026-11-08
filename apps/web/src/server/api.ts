@@ -14,6 +14,7 @@ import {
   isAuditedRefusal,
   proposeExternalAction,
   refusalCode,
+  refusalFromDatabase,
   requestHash,
   reviseExternalAction,
   retryExternalAction,
@@ -32,6 +33,7 @@ import type {
   ReviseEmailActionBody,
 } from '@ensemus/contracts/external-actions';
 import { assertTenantSignIn } from '@ensemus/application/sso';
+import { assertServing, type AccountSurface } from '@ensemus/application/saas/standing';
 import type { components } from '@ensemus/contracts/openapi';
 import {
   resolveInteractiveTenantContext,
@@ -149,6 +151,9 @@ function toErrorResponse(error: unknown, requestId: string) {
     const missing = new AppError('NOT_FOUND');
     return errorResponse(HTTP_STATUS.NOT_FOUND, requestId, missing.code, missing.message);
   }
+  const refused = refusalFromDatabase(error);
+  if (refused)
+    return errorResponse(HTTP_STATUS[refused.code], requestId, refused.code, refused.message);
   apiLog.error('api.failed', { requestId, errorCode: errorCode(error) });
   return errorResponse(500, requestId, 'INTERNAL_ERROR', 'Something went wrong on our side.');
 }
@@ -201,6 +206,7 @@ async function recordRefusal(
 export function apiRoute<S extends z.ZodType<{ organizationId: string }>>(
   paramsSchema: S,
   handler: (scope: ApiScope<z.output<S>>) => Promise<Response>,
+  surface: AccountSurface = 'core',
 ) {
   return async (request: Request, route: { params: Promise<Record<string, string>> }) => {
     const requestId = randomUUID();
@@ -224,6 +230,7 @@ export function apiRoute<S extends z.ZodType<{ organizationId: string }>>(
       // After the membership check, so nobody outside the tenant can learn it is being restored.
       await getRestoreGate().assertServing(context);
       await assertTenantSignIn(app, context, { sessionId: session.session.id });
+      assertServing(context, surface);
       response = await handler({
         request,
         requestId,

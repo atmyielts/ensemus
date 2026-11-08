@@ -30,6 +30,7 @@ export {
   type AgentContext,
   type AppDatabase,
   type TenantContext,
+  type TenantServing,
   type Tx,
   type WebhookEndpointRow,
 } from './tenant';
@@ -55,3 +56,4 @@ export * from './schema-knowledge';
 export * from './schema-artifact-provenance';
 export * from './schema-client-access';
 export * from './schema-sovereign';
+export * from './schema-saas';

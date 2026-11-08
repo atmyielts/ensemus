@@ -17,7 +17,8 @@
     "./experience": "./src/experience.ts",
     "./identity-admin": "./src/identity-admin.ts",
     "./sovereign": "./src/sovereign.ts",
-    "./portability-records": "./src/portability-records.ts"
+    "./portability-records": "./src/portability-records.ts",
+    "./saas": "./src/saas.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

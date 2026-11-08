@@ -58,6 +58,18 @@ import {
   knowledgeModelJobInputSchema,
   knowledgeModelJobWorkflowIdFor,
 } from '@ensemus/workflows/knowledge-model-job-schemas';
+import {
+  AGGREGATE_OFFBOARDING,
+  AGGREGATE_PAYMENT,
+  AGGREGATE_PAYMENT_WEBHOOK_EVENT,
+  OFFBOARDING_REQUESTED,
+  OFFBOARDING_RESUMED,
+  PAYMENT_EVENT_RECEIVED,
+  PAYMENT_REQUESTED,
+  RETENTION_RULE_SET,
+  SUBSCRIPTION_STARTED,
+  TENANT_SCHEDULES_ENDED,
+} from '@ensemus/saas/events';
 import { S3ObjectStore } from '@ensemus/storage';
 import { createLogger, errorCode } from '@ensemus/telemetry';
 import { AesGcmPayloadCodec } from '@ensemus/workflows/codec';
@@ -84,6 +96,18 @@ import {
   simulationWorkflowIdFor,
 } from '@ensemus/workflows/product-schemas';
 import {
+  BILLING_SWEEP_INTERVAL,
+  billingScheduleIdFor,
+  offboardingInputSchema,
+  offboardingWorkflowIdFor,
+  paymentEventInputSchema,
+  paymentEventWorkflowIdFor,
+  paymentInputSchema,
+  paymentWorkflowIdFor,
+  RETENTION_SWEEP_INTERVAL,
+  retentionScheduleIdFor,
+} from '@ensemus/workflows/saas-schemas';
+import {
   connectorRevokeWorkflowIdFor,
   connectorSyncInputSchema,
   connectorSyncWorkflowIdFor,
@@ -101,6 +125,7 @@ import {
 } from '@ensemus/workflows/schemas';
 import {
   Client,
+  ScheduleNotFoundError,
   ScheduleOverlapPolicy,
   WorkflowExecutionAlreadyStartedError,
   WorkflowNotFoundError,
@@ -183,6 +208,47 @@ async function main() {
       });
     } catch (error) {
       if (!(error instanceof ScheduleAlreadyRunning)) throw error;
+    }
+  };
+
+  /** A per-tenant schedule, carrying only the organization ID. Finding it there already is success. */
+  const ensureTenantSchedule = async (
+    organizationId: string,
+    scheduleId: string,
+    workflowType: string,
+    every: typeof BILLING_SWEEP_INTERVAL | typeof RETENTION_SWEEP_INTERVAL,
+  ) => {
+    const scheduleInput: TenantInput = { organizationId };
+    try {
+      await client.schedule.create({
+        scheduleId,
+        spec: { intervals: [{ every }] },
+        policies: { overlap: ScheduleOverlapPolicy.SKIP },
+        action: {
+          type: 'startWorkflow',
+          workflowType,
+          args: [scheduleInput],
+          taskQueue: PLATFORM_TASK_QUEUE,
+        },
+      });
+    } catch (error) {
+      if (!(error instanceof ScheduleAlreadyRunning)) throw error;
+    }
+  };
+
+  /** A tenant that is leaving stops being swept. Finding a schedule already gone is success. */
+  const endTenantSchedules = async (organizationId: string) => {
+    for (const scheduleId of [
+      reminderScheduleIdFor(organizationId),
+      knowledgeSweepScheduleIdFor(organizationId),
+      billingScheduleIdFor(organizationId),
+      retentionScheduleIdFor(organizationId),
+    ]) {
+      try {
+        await client.schedule.getHandle(scheduleId).delete();
+      } catch (error) {
+        if (!(error instanceof ScheduleNotFoundError)) throw error;
+      }
     }
   };
 
@@ -503,6 +569,73 @@ async function main() {
           }),
           workflowIdFor: clientOnboardingWorkflowIdFor,
         });
+        return;
+
+      // M8 (ADR-032). Charging belongs to one run, ever, as an external action does (ADR-027 D2).
+      case SUBSCRIPTION_STARTED:
+        await ensureTenantSchedule(
+          event.organizationId,
+          billingScheduleIdFor(event.organizationId),
+          'billingCycleWorkflow',
+          BILLING_SWEEP_INTERVAL,
+        );
+        return;
+
+      case RETENTION_RULE_SET:
+        await ensureTenantSchedule(
+          event.organizationId,
+          retentionScheduleIdFor(event.organizationId),
+          'retentionSweepWorkflow',
+          RETENTION_SWEEP_INTERVAL,
+        );
+        return;
+
+      case PAYMENT_REQUESTED:
+        if (event.aggregateType !== AGGREGATE_PAYMENT) return;
+        await startOnce('paymentWorkflow', {
+          input: paymentInputSchema.parse({
+            organizationId: event.organizationId,
+            paymentId: event.aggregateId,
+          }),
+          workflowIdFor: paymentWorkflowIdFor,
+        });
+        return;
+
+      case PAYMENT_EVENT_RECEIVED:
+        if (event.aggregateType !== AGGREGATE_PAYMENT_WEBHOOK_EVENT) return;
+        await startOnce('paymentEventWorkflow', {
+          input: paymentEventInputSchema.parse({
+            organizationId: event.organizationId,
+            paymentWebhookEventId: event.aggregateId,
+          }),
+          workflowIdFor: paymentEventWorkflowIdFor,
+        });
+        return;
+
+      // Run again each time something moves it on. An open run covers it, and it reads what to do from the
+      // row, so a repeat of this event does nothing that was not going to happen.
+      case OFFBOARDING_REQUESTED:
+      case OFFBOARDING_RESUMED: {
+        if (event.aggregateType !== AGGREGATE_OFFBOARDING) return;
+        const offboardingInput = offboardingInputSchema.parse({
+          organizationId: event.organizationId,
+          offboardingId: event.aggregateId,
+        });
+        try {
+          await client.workflow.start('tenantOffboardingWorkflow', {
+            args: [offboardingInput],
+            taskQueue: PLATFORM_TASK_QUEUE,
+            workflowId: offboardingWorkflowIdFor(offboardingInput),
+            workflowIdReusePolicy: 'ALLOW_DUPLICATE',
+          });
+        } catch (error) {
+          if (!(error instanceof WorkflowExecutionAlreadyStartedError)) throw error;
+        }
+        return;
+      }
+
+      case TENANT_SCHEDULES_ENDED:
+        await endTenantSchedules(event.organizationId);
         return;
 
       default:

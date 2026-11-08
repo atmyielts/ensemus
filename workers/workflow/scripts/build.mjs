@@ -33,6 +33,7 @@ await build({
     'src/organization-import.ts',
     'src/restore-reconcile.ts',
     'src/diagnostics-export.ts',
+    'src/ops.ts',
   ].map((e) => path.join(root, e)),
   outdir: dist,
   bundle: true,

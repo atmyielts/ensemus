@@ -64,7 +64,8 @@
     "./process-specs": "./src/product/process-specs.ts",
     "./process-runs": "./src/product/process-runs.ts",
     "./custom-objects": "./src/product/custom-objects.ts",
-    "./packs": "./src/product/packs.ts"
+    "./packs": "./src/product/packs.ts",
+    "./saas/*": "./src/saas/*.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"
@@ -78,6 +79,7 @@
     "zod": "4.6.7",
     "@ensemus/knowledge": "workspace:*",
     "@ensemus/packs": "workspace:*",
-    "@ensemus/sovereign": "workspace:*"
+    "@ensemus/sovereign": "workspace:*",
+    "@ensemus/saas": "workspace:*"
   }
 }

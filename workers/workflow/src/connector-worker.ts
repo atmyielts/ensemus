@@ -4,7 +4,7 @@
 import { writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { readSecret } from '@ensemus/config';
+import { loadSaasConfig, readSecret } from '@ensemus/config';
 import { createEmailConnector } from '@ensemus/connectors/email';
 import { createInboundConnector } from '@ensemus/connectors/inbound';
 import { createConnectorRegistry, createGatewayNetwork } from '@ensemus/connectors/runtime';
@@ -16,7 +16,9 @@ import { AesGcmPayloadCodec } from '@ensemus/workflows/codec';
 import { createConnectorSyncActivities } from '@ensemus/workflows/connector-sync-activities';
 import { CONNECTOR_TASK_QUEUE } from '@ensemus/workflows/constants';
 import { createExternalActionConnectorActivities } from '@ensemus/workflows/external-action-activities';
+import { createPaymentConnectorActivities } from '@ensemus/workflows/payment-activities';
 import { createTemporalLogger } from '@ensemus/workflows/safe-logger';
+import { createTaxActivities } from '@ensemus/workflows/tax-activities';
 import { createWebhookActivities } from '@ensemus/workflows/webhook-activities';
 import { NativeConnection, Runtime, Worker } from '@temporalio/worker';
 
@@ -50,6 +52,16 @@ async function main() {
     secrets,
     network: createGatewayNetwork(process.env.ENSEMUS_EGRESS_GATEWAY ?? 'egress-gateway:2525'),
   };
+  // M8 (ADR-032 D4). Nothing here until the owner chooses a processor and a tax provider, and both have been
+  // through outside security review. So a charge is refused, and `get` answering null is what says why.
+  const saas = loadSaasConfig();
+  const paymentDeps = {
+    ...deps,
+    processors: { get: () => null },
+    billingOrganizationId: saas.billingOrganizationId,
+    billingConnectionId: saas.billingConnectionId,
+    tax: null,
+  };
   const worker = await Worker.create({
     connection,
     namespace: process.env.TEMPORAL_NAMESPACE ?? 'default',
@@ -58,6 +70,8 @@ async function main() {
       ...createExternalActionConnectorActivities(deps),
       ...createWebhookActivities(deps),
       ...createConnectorSyncActivities(deps),
+      ...createPaymentConnectorActivities(paymentDeps),
+      ...createTaxActivities(paymentDeps),
     },
     dataConverter: {
       payloadCodecs: [new AesGcmPayloadCodec(readSecret('TEMPORAL_CODEC_KEY'))],
