@@ -5,7 +5,12 @@ import { SubmitButton } from '@/components/submit-button';
 import { CodeFields, FactorError } from '@/components/security/code-fields';
 import { EnrollmentForm, RecoveryCodeForm } from '@/components/security/enrollment-form';
 import styles from '@/components/security/security.module.css';
-import { disableSecondFactorAction, finishEnrollmentAction } from '@/server/security-actions';
+import {
+  disableSecondFactorAction,
+  finishEnrollmentAction,
+  enableSecondFactorAction,
+  regenerateRecoveryCodesAction,
+} from '@/server/security-actions';
 import { getRuntime } from '@/server/runtime';
 import { requireTenant } from '@/server/tenant';
 export const metadata = { title: 'Authenticator app | Ensemus' };
@@ -37,7 +42,10 @@ export default async function SecondFactorPage({
           <section className={styles.section}>
             <h2>Recovery codes</h2>
             <p>If your saved codes are missing, replace them with a new private set.</p>
-            <RecoveryCodeForm organizationId={organizationId} />
+            <RecoveryCodeForm
+              organizationId={organizationId}
+              regenerateAction={regenerateRecoveryCodesAction.bind(null, organizationId)}
+            />
           </section>
           <section className={styles.section}>
             <h2>Turn off two-step sign-in</h2>
@@ -66,7 +74,11 @@ export default async function SecondFactorPage({
         <>
           <section className={styles.section}>
             <h2>Set up your app</h2>
-            <EnrollmentForm organizationId={organizationId} />
+            <EnrollmentForm
+              organizationId={organizationId}
+              enableAction={enableSecondFactorAction.bind(null, organizationId)}
+              finishAction={finishEnrollmentAction.bind(null, organizationId)}
+            />
           </section>
           <details className={styles.section}>
             <summary>Already saved a setup key?</summary>

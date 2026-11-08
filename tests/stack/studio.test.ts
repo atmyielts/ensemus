@@ -6,6 +6,8 @@ import {
   BASE,
   PASSWORD,
   assembled,
+  formsIn,
+  post,
   createOrganization,
   join,
   signUp,
@@ -127,18 +129,17 @@ describe('Studio actual HTTP contracts and synthetic rehearsal', () => {
       prepared = await submit(security, owner.jar, /Set up authenticator app/, {
         password: PASSWORD,
       }),
-      uri = /href="(otpauth:\/\/[^"]+)"/
-        .exec(assembled(await prepared.text()))?.[1]
-        ?.replaceAll('&amp;', '&');
+      setupHtml = assembled(await prepared.text()),
+      uri = /href="(otpauth:\/\/[^"]+)"/.exec(setupHtml)?.[1]?.replaceAll('&amp;', '&');
     if (!uri) throw new Error('TEST_STUDIO_NATIVE_MFA_SETUP_MISSING');
-    expect(
-      (
-        await submit(security, owner.jar, /Finish setup/, {
-          kind: 'totp',
-          code: totpFromUri(uri, Date.now() - 30000),
-        })
-      ).status,
-    ).toBe(303);
+    const confirmation = formsIn(setupHtml).filter((form) => /Confirm and turn on/.test(form.html));
+    expect(confirmation).toHaveLength(1);
+    const confirmed = await post(security, owner.jar, confirmation[0]!, {
+      kind: 'totp',
+      code: totpFromUri(uri, Date.now() - 30000),
+    });
+    expect(confirmed.status).toBe(303);
+    expect(confirmed.headers.get('location')).toBe(`/o/${org}/security?notice=enrolled`);
     const process = await call(
         owner,
         'POST',

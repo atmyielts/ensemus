@@ -7,6 +7,7 @@ import {
   assembled,
   createOrganization,
   formOn,
+  formsIn,
   post,
   read,
   signUp,
@@ -36,7 +37,9 @@ async function enrolled() {
     uri = setupUri(html),
     backupCodes = codes(html);
   expect(backupCodes).toHaveLength(10);
-  const confirmed = await submit(path, person.jar, /Finish setup/, {
+  const confirmation = formsIn(html).filter((form) => /Confirm and turn on/.test(form.html));
+  expect(confirmation).toHaveLength(1);
+  const confirmed = await post(path, person.jar, confirmation[0]!, {
     kind: 'totp',
     code: totpFromUri(uri, Date.now() - 30000),
   });
