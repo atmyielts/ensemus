@@ -3,7 +3,7 @@
 import { and, asc, eq, inArray, lte, sql } from 'drizzle-orm';
 import { openDatabase, type EnsemusDrizzle } from './connection';
 import { domainEvents, outboxEvents } from './schema';
-import {assertRestoreAdmission,isRestoreAdmissionDenied} from './restore-authority';
+import { assertRestoreAdmission, isRestoreAdmissionDenied } from './restore-authority';
 
 export type DispatchableEvent = {
   organizationId: string;
@@ -213,7 +213,7 @@ export async function dispatchDueEvents(
       options.onEvent?.();
     } catch (error) {
       // Restore is neither a failed event nor a reason to consume its retry budget.
-      if(isRestoreAdmissionDenied(error))throw error;
+      if (isRestoreAdmissionDenied(error)) throw error;
       options.onEvent?.(error);
       const failure = classify(error);
       if (failure === 'outage' || failure === 'partial_outage') {

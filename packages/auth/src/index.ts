@@ -32,7 +32,7 @@ import { createOperatorOidcFlow, type OidcTrust } from './oidc-primary';
 import { createIdpChallenges } from './idp-challenge';
 import { createSamlBrowserFlow } from './saml-browser-flow';
 import { createSamlSelfLinkPlugin } from './saml-self-link';
-import {createAuthRestoreAdmission} from './restore-admission';
+import { createAuthRestoreAdmission } from './restore-admission';
 import { SAML_BROWSER_COOKIE, samlBrowserCookieValue } from './saml-browser-binding';
 
 export type OidcProvider = {
@@ -141,7 +141,7 @@ export function createAuth(options: AuthOptions) {
     },
   );
   const build = (allowSignup: boolean, privateFactorManagement = false) => {
-    const native=betterAuth({
+    const native = betterAuth({
       appName: 'Ensemus',
       baseURL: options.baseURL,
       secret: options.secret,
@@ -185,7 +185,7 @@ export function createAuth(options: AuthOptions) {
         defaultCookieAttributes: { httpOnly: true, sameSite: 'lax' },
       },
       plugins: [
-        createAuthRestoreAdmission(db,options.secret),
+        createAuthRestoreAdmission(db, options.secret),
         ...(options.oidc && !privateFactorManagement
           ? [
               genericOAuth({
@@ -231,7 +231,7 @@ export function createAuth(options: AuthOptions) {
     });
     // This eager native initialization may refuse before a request arrives. Handle that owned
     // promise locally; consumers still await the original rejection and admission never falls back.
-    void native.$context.catch(()=>undefined);
+    void native.$context.catch(() => undefined);
     return native;
   };
   const core = build(options.allowSignup);
@@ -257,10 +257,14 @@ export function createAuth(options: AuthOptions) {
           ),
         );
       } catch (error) {
-        if(isRestoreAdmissionDenied(error))return Response.json(
-          {code:'RESTORE_PENDING',message:'This installation is waiting for restore review.'},
-          {status:503,headers:{'cache-control':'no-store'}},
-        );
+        if (isRestoreAdmissionDenied(error))
+          return Response.json(
+            {
+              code: 'RESTORE_PENDING',
+              message: 'This installation is waiting for restore review.',
+            },
+            { status: 503, headers: { 'cache-control': 'no-store' } },
+          );
         if (
           /\/api\/auth\/(?:callback\/|sso\/saml2\/sp\/acs\/)/.test(new URL(request.url).pathname)
         ) {
@@ -317,11 +321,11 @@ export function createAuth(options: AuthOptions) {
       }),
     );
     const data =
-      (response.status === 200 || response.status === 503)
+      response.status === 200 || response.status === 503
         ? ((await response
             .clone()
             .json()
-            .catch(() => null)) as { twoFactorRedirect?: unknown;code?:unknown } | null)
+            .catch(() => null)) as { twoFactorRedirect?: unknown; code?: unknown } | null)
         : null;
     return {
       outcome: response.ok
@@ -330,8 +334,9 @@ export function createAuth(options: AuthOptions) {
           : 'accepted'
         : response.status === TOO_MANY_REQUESTS
           ? 'rate_limited'
-          : response.status === 503 && data?.code==='RESTORE_PENDING' ? 'restore_pending'
-          : 'refused',
+          : response.status === 503 && data?.code === 'RESTORE_PENDING'
+            ? 'restore_pending'
+            : 'refused',
       status: response.status,
       setCookie: response.ok ? response.headers.get('set-cookie') : null,
     };
@@ -393,9 +398,12 @@ export function createAuth(options: AuthOptions) {
 
   /** The sole interactive-context admission: the actual native verifier owns the cookie/session. */
   async function readInteractiveSession(headers: Headers) {
-    const current = await auth.api.getSession({ headers, query: { disableCookieCache: true } }).catch((error:unknown)=>{
-      if(isRestoreAdmissionDenied(error))throw new RestoreAdmissionDenied();throw error;
-    });
+    const current = await auth.api
+      .getSession({ headers, query: { disableCookieCache: true } })
+      .catch((error: unknown) => {
+        if (isRestoreAdmissionDenied(error)) throw new RestoreAdmissionDenied();
+        throw error;
+      });
     if (!current || current.session.userId !== current.user.id) return null;
     const expiresAt =
       current.session.expiresAt instanceof Date

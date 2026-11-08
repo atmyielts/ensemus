@@ -1,10 +1,11 @@
 # Native authentication and authorization after trusted full restore
 
-Source inventory from root checkpoint `1239488`, 2026-11-08. This is a design input, **not an
-implemented restore gate, executed restore, provider revalidation or new permission grant**. The
-checked SAML/self-link work is preserved in separate commits. Shared SQL/ports await root review.
+Initial inventory from root checkpoint 1239488, 2026-11-08. Later sections record the staged source
+and its bounded checks. This is **not an executed/qualified restore gate, provider revalidation or
+permission grant**. The checked SAML/self-link work is preserved separately. Shared SQL remains
+unregistered and awaits independent review/composed database qualification.
 
-## What exists
+## Baseline inspected before 0422
 
 `infrastructure/scripts/sovereign-restore.mjs` verifies the encrypted backup, stops a named set of
 services, restores the three full PostgreSQL dumps, writes object bytes, and prints a reconciliation
@@ -190,3 +191,39 @@ The invoker authority-change trigger uses only the granted admission assertion f
 roles. Only the actual migrator branch reads the private backup/review control body. This avoids
 requiring a new private-body EXECUTE grant for ordinary admitted membership/account mutations;
 existing authority/RLS guards still run. This source correction awaits the same actual-role gate.
+
+## Bounded source gate (2026-11-08)
+
+The serialized gate started at frozen e07e6c0 against integration base 1239488. Exact source results:
+
+- Direct pinned Prettier write/check and scoped ESLint with max-warnings 0 passed for the changed
+  supported source/config files. Docs, SQL migrations and the lockfile are ignored by the repository's
+  formatter; this is not SQL parsing/validation.
+- The first pnpm PowerShell formatter invocation collapsed the path array into one argument and
+  reported no matching file; it changed none. The direct pinned Node entry succeeded.
+- Initial focused Vitest gate: 147 tests passed in eight files, with two collection failures. The own
+  native-library test was placed under tests/, which has no direct Better Auth dependency; it moved
+  to packages/auth/src/restore-admission.test.ts, where that dependency is declared. The isolated
+  fixture uses the existing fixtureCookies helper instead of an undeclared direct import.
+- The second collection failure was an inherited missing link for already pinned
+  @authenio/samlify-node-xmllint. Authorized
+  pnpm.cmd install --offline --frozen-lockfile --ignore-scripts --filter @ensemus/worker
+  --filter @ensemus/tests completed: two cached packages reused/added, ZERO downloaded,
+  resolution skipped. The lock diff is exactly the three-line worker-to-existing-auth workspace edge;
+  no external version/resolution or lock formatting changes.
+- The two failed collections then passed 42/42. The complete exact focused gate passed
+  **189/189 tests in ten files**, maxWorkers=1 and no-file-parallelism. Selected runs emitted no
+  warnings. The set comprises restore admission/operator/order, request replay, browser correlation,
+  self-link, SSO, MFA, IdP bridge and OIDC-primary units. It does not execute a restored DB or provider.
+- Database, auth, workflow-worker, tests, browser-tests and web types ran SEQUENTIALLY and passed.
+  Web ran actual next typegen then tsc. Initial auth types found an unknown Response.json assertion;
+  it was fixed and rerun. Initial tests types found describe.sequential unavailable in pinned Vitest5;
+  the opt-in profile uses default declaration order with one worker/nonparallel files, was scoped
+  formatted/linted and passed the rerun. No test was disabled and no cooldown was shortened.
+
+The slot was explicitly released immediately after the final web type check. No active process,
+Docker, database, SQL apply, restore, build, actual browser, real account/key/provider operation or
+activation ran in this gate. The new isolated role profile is typechecked/authored only. The 15-minute
+positive acknowledgment, same-generation role/race/cleanup checks, actual encrypted backup/object
+restore, provider-account authority, remote in-flight-effect reconciliation, and independent restore
+drill remain open. Root must preserve its newer MFA native-alphabet fixes at semantic join.

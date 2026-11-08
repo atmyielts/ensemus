@@ -333,12 +333,14 @@ const saasBoundarySelectors = [
 export default tseslint.config(
   {
     files: ['**/*.{ts,tsx}'],
-    ignores: ['packages/database/**','tests/**','workers/workflow/src/auth-restore.ts'],
+    ignores: ['packages/database/**', 'tests/**', 'workers/workflow/src/auth-restore.ts'],
     rules: {
-      'no-restricted-syntax': ['error',
+      'no-restricted-syntax': [
+        'error',
         {
           selector: 'ImportDeclaration[source.value="@ensemus/database/auth-restore-operator"]',
-          message: 'Restore admission is an offline migrator command, never a product/runtime capability.',
+          message:
+            'Restore admission is an offline migrator command, never a product/runtime capability.',
         },
         {
           selector: 'ImportDeclaration[source.value="@ensemus/auth/restore"]',

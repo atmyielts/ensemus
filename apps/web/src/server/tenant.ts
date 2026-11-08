@@ -1,7 +1,11 @@
 import 'server-only';
 import { AppError, auditTenantRefusal } from '@ensemus/application';
 import { assertTenantSignIn } from '@ensemus/application/sso';
-import { resolveInteractiveTenantContext, TenantAccessDenied,isRestoreAdmissionDenied } from '@ensemus/database';
+import {
+  resolveInteractiveTenantContext,
+  TenantAccessDenied,
+  isRestoreAdmissionDenied,
+} from '@ensemus/database';
 import { assertServing, type AccountSurface } from '@ensemus/application/saas/standing';
 import { errorCode } from '@ensemus/telemetry';
 import { notFound, redirect } from 'next/navigation';
@@ -32,7 +36,7 @@ const resolveFor = async (
     assertServing(context, surface);
     return { actor, context, database: app };
   } catch (error) {
-    if(isRestoreAdmissionDenied(error))redirect('/restoring');
+    if (isRestoreAdmissionDenied(error)) redirect('/restoring');
     if (error instanceof TenantAccessDenied) {
       await recordTenantRefusal(actor.userId, organizationId);
       notFound();

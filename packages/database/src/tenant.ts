@@ -8,7 +8,7 @@ import {
   type VerifiedInteractiveIdentity,
 } from './interactive-identity';
 import { billingAccounts } from './schema-saas';
-import {assertRestoreAdmission} from './restore-authority';
+import { assertRestoreAdmission } from './restore-authority';
 
 const brand: unique symbol = Symbol('TenantContext');
 

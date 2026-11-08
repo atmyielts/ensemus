@@ -66,7 +66,8 @@ The reverse order would make different gaps, and worse ones. Objects taken befor
 
 Do this with every reader/worker stopped, including overlay replicas, and keep the connector worker
 stopped throughout. The 0422/0515 auth/material restore additions below are **unregistered,
-unchecked source**. Previous backup/restore evidence does not qualify them; do not use this revised
+runtime-unqualified source**; 0422 has focused unit/static checks only. Previous backup/restore
+evidence does not qualify them; do not use this revised
 procedure until the composed migrations, native-role gate and actual isolated drill pass.
 
 1. **Check that the ledger is still there.** It is what stands between an old database and everything deleted since. If the store you are restoring into is the one that was running, it is. If you are restoring into a new store, copy `tombstone-ledger/` from the old store at its newest state, if any of it survives, before going further. **If the ledger is lost with the store, deletions made after this backup cannot be put back**, and those files return. Tell the people affected.

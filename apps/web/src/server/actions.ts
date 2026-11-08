@@ -3,7 +3,7 @@
 import { idSchema } from '@ensemus/application';
 import type { CredentialForm } from '@ensemus/auth';
 import { organizationNameSchema } from '@ensemus/contracts';
-import { createOrganization,isRestoreAdmissionDenied } from '@ensemus/database';
+import { createOrganization, isRestoreAdmissionDenied } from '@ensemus/database';
 import { errorCode } from '@ensemus/telemetry';
 import { parseSetCookieHeader, toCookieOptions } from 'better-auth/cookies';
 import { cookies, headers } from 'next/headers';
@@ -36,7 +36,11 @@ async function submitForm(form: CredentialForm, event: string): Promise<string |
       return outcome === 'two_factor' ? 'two_factor' : null;
     }
     log.info(event, { errorCode: `HTTP_${status}` });
-    return outcome === 'rate_limited' ? 'rate' : outcome === 'restore_pending' ? 'restore' : 'invalid';
+    return outcome === 'rate_limited'
+      ? 'rate'
+      : outcome === 'restore_pending'
+        ? 'restore'
+        : 'invalid';
   } catch (error) {
     log.info(event, { errorCode: errorCode(error) });
     return 'invalid';
@@ -53,7 +57,7 @@ export async function signInAction(form: FormData) {
     'auth.sign_in_failed',
   );
   if (error === 'two_factor') redirect(withReturnPath('/sign-in/two-factor', next));
-  if(error==='restore')redirect('/restoring');
+  if (error === 'restore') redirect('/restoring');
   redirect(error ? withReturnPath(`/sign-in?error=${error}`, next) : (next ?? '/'));
 }
 
@@ -72,7 +76,7 @@ export async function signUpAction(form: FormData) {
     },
     'auth.sign_up_failed',
   );
-  if(error==='restore')redirect('/restoring');
+  if (error === 'restore') redirect('/restoring');
   redirect(error ? withReturnPath(`/sign-up?error=${error}`, next) : (next ?? '/'));
 }
 
@@ -91,7 +95,10 @@ export async function completeSetupAction(form: FormData) {
       password: field(form, 'password'),
     },
     await headers(),
-  ).catch((error:unknown)=>{if(isRestoreAdmissionDenied(error))redirect('/restoring');throw error;});
+  ).catch((error: unknown) => {
+    if (isRestoreAdmissionDenied(error)) redirect('/restoring');
+    throw error;
+  });
   redirect(
     outcome === 'created'
       ? (next ?? '/')
