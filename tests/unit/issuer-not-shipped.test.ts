@@ -4,6 +4,7 @@
 // route, relative imports and other packages included. So a private key has no way in, however it is spelt.
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
+import { createRequire } from 'node:module';
 import ts from 'typescript';
 import { describe, expect, it } from 'vitest';
 import { repoRoot } from '../helpers/stack';
@@ -14,26 +15,6 @@ const VENDOR_ONLY = [
   'packages/sovereign/src/issuer-cli.ts',
   'packages/sovereign/src/testing.ts',
 ];
-
-function packageExports() {
-  const found = new Map<string, string>();
-  for (const parent of ['packages', 'apps', 'workers']) {
-    const folder = join(repoRoot, parent);
-    for (const name of readdirSync(folder)) {
-      const manifest = join(folder, name, 'package.json');
-      if (!existsSync(manifest)) continue;
-      const { name: packageName, exports } = JSON.parse(readFileSync(manifest, 'utf8')) as {
-        name: string;
-        exports?: Record<string, string>;
-      };
-      for (const [subpath, target] of Object.entries(exports ?? {})) {
-        found.set(packageName + subpath.slice(1), resolve(folder, name, target));
-      }
-    }
-  }
-  return found;
-}
-const exportsMap = packageExports();
 
 function asFile(base: string): string | null {
   if (existsSync(base) && statSync(base).isFile()) return base;
@@ -54,10 +35,13 @@ function resolveImport(specifier: string, from: string): string | null {
     return asFile(join(repoRoot, 'apps/web/src', specifier.slice(2)));
   }
   if (!specifier.startsWith('@ensemus/')) return null;
-  const target = exportsMap.get(specifier);
-  // A name no package exports cannot build. Failing here beats a walk that silently stops short.
-  if (!target) throw new Error(`Nothing exports ${specifier}, imported by ${from}`);
-  return target;
+  // Follow actual Node package exports, including subpath patterns. A literal-only map silently
+  // disagrees with valid wildcard exports; a missing real export must still fail this boundary check.
+  try {
+    return createRequire(from).resolve(specifier);
+  } catch (cause) {
+    throw new Error(`Nothing exports ${specifier}, imported by ${from}`, { cause });
+  }
 }
 
 /** Every file reachable from these, with the route to each, so a failure says how it got there. */

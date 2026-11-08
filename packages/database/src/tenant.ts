@@ -104,6 +104,12 @@ export class AppDatabase {
         'app.process_step_key': '',
         'app.payment_customer_hash': '',
         'lifecycle.erasure_count_org': '',
+        'billing.entitlement_org': '',
+        'sovereign.archive_source_proof': '',
+        'lifecycle.delegated_hold_org': '',
+        'lifecycle.delegated_hold_run': '',
+        'lifecycle.delegated_hold_source': '',
+        'lifecycle.delegated_hold_job': '',
         ...bindings,
       })) {
         await tx.execute(sql`select set_config(${name}, ${value}, true)`);

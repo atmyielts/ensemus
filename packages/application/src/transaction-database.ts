@@ -27,6 +27,14 @@ const EMPTY_BINDINGS = {
   'app.portability_import_id': '',
   'app.portability_part_path': '',
   'app.portability_part_sha256': '',
+  'app.payment_customer_hash': '',
+  'lifecycle.erasure_count_org': '',
+  'billing.entitlement_org': '',
+  'sovereign.archive_source_proof': '',
+  'lifecycle.delegated_hold_org': '',
+  'lifecycle.delegated_hold_run': '',
+  'lifecycle.delegated_hold_source': '',
+  'lifecycle.delegated_hold_job': '',
 };
 
 /** Join an existing transaction through real savepoints. Successful SET LOCAL statements survive

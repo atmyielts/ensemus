@@ -14,8 +14,13 @@ const navigation = (role: string) => workspaceNavigation({ base, role, unread: 3
 describe('working workspace navigation', () => {
   it('groups routine work, the builder and administration without future or dead destinations', () => {
     const groups = navigation('owner');
-    expect(groups.map((group) => group.label)).toEqual(['Workspace', 'Build', 'Organization']);
-    expect(groups.flatMap((group) => group.items)).toHaveLength(11);
+    expect(groups.map((group) => group.label)).toEqual([
+      'Workspace',
+      'Build',
+      'Organization',
+      'Account',
+    ]);
+    expect(groups.flatMap((group) => group.items)).toHaveLength(12);
     const items = groups.flatMap((group) =>
       group.items.flatMap((item) => [item, ...(item.children ?? [])]),
     );
@@ -46,14 +51,18 @@ describe('working workspace navigation', () => {
   it.each(['owner', 'admin'])(
     '%s sees the actual permitted builder and administration destinations',
     (role) => {
-      expect(navigation(role).at(-1)?.items[0]?.label).toBe('Administration');
+      expect(
+        navigation(role).find((group) => group.label === 'Organization')?.items[0]?.label,
+      ).toBe('Administration');
       expect(visibleSettings(role).map((item) => item.path)).toContain('settings/budgets');
     },
   );
 
   it('does not advertise privileged pages to members or unknown roles', () => {
     for (const role of ['member', 'not-a-role']) {
-      expect(navigation(role).map((group) => group.label)).toEqual(['Workspace']);
+      expect(navigation(role).map((group) => group.label)).toEqual(
+        role === 'member' ? ['Workspace', 'Account'] : ['Workspace'],
+      );
       expect(visibleSettings(role)).toEqual([]);
       expect(
         navigation(role)
@@ -85,6 +94,9 @@ describe('working workspace navigation', () => {
     ['/knowledge/facts/a', 'Knowledge'],
     ['/search', 'Knowledge'],
     ['/onboarding/a', 'Clients and projects'],
+    ['/account', 'Account and support'],
+    ['/account/support/a', 'Account and support'],
+    ['/account/invoices/a', 'Account and support'],
   ])('retains the correct section for %s', (path, label) => {
     const groups = navigation('owner');
     expect(currentNavigation(groups, `${base}${path}`)?.label).toBe(label);

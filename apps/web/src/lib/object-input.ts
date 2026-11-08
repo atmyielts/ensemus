@@ -28,7 +28,9 @@ export function objectFieldsInput(fields: readonly ObjectFieldBody[]): ObjectFie
 export const objectText = (form: FormData, key: string) =>
   typeof form.get(key) === 'string' ? String(form.get(key)) : '';
 export function objectFormValues(form: FormData) {
-  const values: Record<string, string> = Object.create(null) as Record<string, string>;
+  // React's action response rejects null-prototype objects. Every retained key below has a fixed
+  // safe name or a field/attribute prefix, so none can replace a plain object's prototype.
+  const values: Record<string, string> = {};
   let bytes = 0;
   const retained =
     /^(organizationId|typeId|recordId|version|requestKey|displayName|slug|classification|fieldRows|relationRows|field_\d{1,2}_(key|label|kind|required|indexed|options|maxLength)|relation_\d{1,2}_(key|label|toTypeSlug|cardinality)|attribute_[a-z][a-z0-9_]{0,62})$/;

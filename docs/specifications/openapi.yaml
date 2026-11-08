@@ -6213,7 +6213,6 @@ paths:
     parameters:
       - $ref: '#/components/parameters/OrganizationID'
     get:
-      x-ensemus-status: planned
       tags: [ commercial ]
       summary: This organization's billing overview, in any standing
       responses:
@@ -6230,7 +6229,6 @@ paths:
     parameters:
       - $ref: '#/components/parameters/OrganizationID'
     put:
-      x-ensemus-status: planned
       tags: [ commercial ]
       summary: Save who pays. Creating sends no If-Match, and changing one needs the version that was seen
       requestBody:
@@ -6259,7 +6257,6 @@ paths:
     parameters:
       - $ref: '#/components/parameters/OrganizationID'
     get:
-      x-ensemus-status: planned
       tags: [ commercial ]
       summary: Approved plans for this organization's mode. Empty until the owner approves one.
       responses:
@@ -6281,7 +6278,6 @@ paths:
     parameters:
       - $ref: '#/components/parameters/OrganizationID'
     post:
-      x-ensemus-status: planned
       tags: [ commercial ]
       summary: Start a subscription on an approved plan
       parameters: [ { $ref: '#/components/parameters/IdempotencyKey' } ]
@@ -6311,7 +6307,6 @@ paths:
         '500': { $ref: '#/components/responses/InternalError' }
         '503': { $ref: '#/components/responses/RestorePending' }
     patch:
-      x-ensemus-status: planned
       tags: [ commercial ]
       summary: Change plan. Never removes data, and anything over the new limits goes read-only.
       parameters: [ { $ref: '#/components/parameters/IfMatch' } ]
@@ -6346,7 +6341,6 @@ paths:
     parameters:
       - $ref: '#/components/parameters/OrganizationID'
     get:
-      x-ensemus-status: planned
       tags: [ commercial ]
       summary: This organization's invoices
       parameters:
@@ -6375,7 +6369,6 @@ paths:
       - $ref: '#/components/parameters/OrganizationID'
       - $ref: '#/components/parameters/InvoiceID'
     get:
-      x-ensemus-status: planned
       tags: [ commercial ]
       summary: One invoice and its lines
       responses:
@@ -6395,7 +6388,6 @@ paths:
       - $ref: '#/components/parameters/OrganizationID'
       - $ref: '#/components/parameters/InvoiceID'
     post:
-      x-ensemus-status: planned
       tags: [ commercial ]
       summary: Ask to charge this invoice. A live payment is returned and no second one is made.
       parameters: [ { $ref: '#/components/parameters/IdempotencyKey' } ]
@@ -6421,7 +6413,6 @@ paths:
     parameters:
       - $ref: '#/components/parameters/OrganizationID'
     get:
-      x-ensemus-status: planned
       tags: [ commercial ]
       summary: Remaining AI credits and what used them. Null for BYOM, whose provider bills it directly.
       responses:
@@ -6438,7 +6429,6 @@ paths:
     parameters:
       - $ref: '#/components/parameters/OrganizationID'
     get:
-      x-ensemus-status: planned
       tags: [ commercial ]
       summary: What can be bought now, each with the exact quote a request has to echo
       responses:
@@ -6457,7 +6447,6 @@ paths:
         '500': { $ref: '#/components/responses/InternalError' }
         '503': { $ref: '#/components/responses/RestorePending' }
     post:
-      x-ensemus-status: planned
       tags: [ commercial ]
       summary: Buy exactly the quote that was shown. A changed price buys nothing.
       requestBody:
@@ -6490,7 +6479,6 @@ paths:
     parameters:
       - $ref: '#/components/parameters/OrganizationID'
     get:
-      x-ensemus-status: planned
       tags: [ commercial ]
       summary: Current retention rules. A category with none is never swept.
       responses:
@@ -6509,7 +6497,6 @@ paths:
         '500': { $ref: '#/components/responses/InternalError' }
         '503': { $ref: '#/components/responses/RestorePending' }
     post:
-      x-ensemus-status: planned
       tags: [ commercial ]
       summary: Set one rule, with the sign-off it rests on. It supersedes what was there.
       requestBody:
@@ -6535,7 +6522,6 @@ paths:
     parameters:
       - $ref: '#/components/parameters/OrganizationID'
     get:
-      x-ensemus-status: planned
       tags: [ commercial ]
       summary: Legal holds. Someone who may not manage them gets not found.
       responses:
@@ -6554,7 +6540,6 @@ paths:
         '500': { $ref: '#/components/responses/InternalError' }
         '503': { $ref: '#/components/responses/RestorePending' }
     post:
-      x-ensemus-status: planned
       tags: [ commercial ]
       summary: Place a hold. Anything in its scope survives every deletion request until it is released.
       requestBody:
@@ -6582,7 +6567,6 @@ paths:
       - $ref: '#/components/parameters/OrganizationID'
       - $ref: '#/components/parameters/LegalHoldID'
     post:
-      x-ensemus-status: planned
       tags: [ commercial ]
       summary: Release a hold, with a reason. It stays released.
       parameters: [ { $ref: '#/components/parameters/IfMatch' } ]
@@ -6606,7 +6590,6 @@ paths:
     parameters:
       - $ref: '#/components/parameters/OrganizationID'
     get:
-      x-ensemus-status: planned
       tags: [ commercial ]
       summary: Where this organization's offboarding stands, and its report when there is one
       responses:
@@ -6628,7 +6611,6 @@ paths:
         '500': { $ref: '#/components/responses/InternalError' }
         '503': { $ref: '#/components/responses/RestorePending' }
     post:
-      x-ensemus-status: planned
       tags: [ commercial ]
       summary: Ask to leave, by typing this organization's exact name. Nothing is erased by this.
       requestBody:
@@ -6659,7 +6641,6 @@ paths:
     parameters:
       - $ref: '#/components/parameters/OrganizationID'
     post:
-      x-ensemus-status: planned
       tags: [ commercial ]
       summary: Stay after all. Only before erasure starts.
       parameters: [ { $ref: '#/components/parameters/IfMatch' } ]
@@ -6683,7 +6664,6 @@ paths:
     parameters:
       - $ref: '#/components/parameters/OrganizationID'
     get:
-      x-ensemus-status: planned
       tags: [ commercial ]
       summary: Support tickets this person can see
       responses:
@@ -6702,7 +6682,6 @@ paths:
         '500': { $ref: '#/components/responses/InternalError' }
         '503': { $ref: '#/components/responses/RestorePending' }
     post:
-      x-ensemus-status: planned
       tags: [ commercial ]
       summary: Ask for help. Support reads what is written here, and nothing else of this organization's.
       requestBody:
@@ -6733,7 +6712,6 @@ paths:
       - $ref: '#/components/parameters/OrganizationID'
       - $ref: '#/components/parameters/TicketID'
     get:
-      x-ensemus-status: planned
       tags: [ commercial ]
       summary: One ticket and its messages
       responses:
@@ -6753,7 +6731,6 @@ paths:
       - $ref: '#/components/parameters/OrganizationID'
       - $ref: '#/components/parameters/TicketID'
     post:
-      x-ensemus-status: planned
       tags: [ commercial ]
       summary: Reply to a ticket
       parameters: [ { $ref: '#/components/parameters/IfMatch' } ]
@@ -6783,7 +6760,6 @@ paths:
     parameters:
       - $ref: '#/components/parameters/OrganizationID'
     get:
-      x-ensemus-status: planned
       tags: [ commercial ]
       summary: Requests for support access to content. The default is none.
       responses:
@@ -6806,7 +6782,6 @@ paths:
       - $ref: '#/components/parameters/OrganizationID'
       - $ref: '#/components/parameters/BreakGlassID'
     post:
-      x-ensemus-status: planned
       tags: [ commercial ]
       summary: Agree to or refuse a request. Agreeing still grants no read path in this release.
       parameters: [ { $ref: '#/components/parameters/IfMatch' } ]

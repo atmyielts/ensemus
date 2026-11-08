@@ -7584,6 +7584,1223 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/organizations/{organization_id}/billing": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+            };
+            cookie?: never;
+        };
+        /** This organization's billing overview, in any standing */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Standing, billing account and subscription. Holds no credential and no processor text. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["BillingOverview"];
+                    };
+                };
+                401: components["responses"]["Unauthorized"];
+                404: components["responses"]["NotFound"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/organizations/{organization_id}/billing/account": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /** Save who pays. Creating sends no If-Match, and changing one needs the version that was seen */
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["SaveBillingAccount"];
+                };
+            };
+            responses: {
+                /** @description Saved */
+                200: {
+                    headers: {
+                        ETag: components["headers"]["ETag"];
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["SavedVersion"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                409: components["responses"]["Conflict"];
+                413: components["responses"]["PayloadTooLarge"];
+                415: components["responses"]["UnsupportedMediaType"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/organizations/{organization_id}/billing/plans": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+            };
+            cookie?: never;
+        };
+        /** Approved plans for this organization's mode. Empty until the owner approves one. */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Approved plan versions */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            items: components["schemas"]["PlanVersion"][];
+                        };
+                    };
+                };
+                401: components["responses"]["Unauthorized"];
+                404: components["responses"]["NotFound"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/organizations/{organization_id}/billing/subscription": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Start a subscription on an approved plan */
+        post: {
+            parameters: {
+                query?: never;
+                header: {
+                    "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                };
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["PlanChoice"];
+                };
+            };
+            responses: {
+                /** @description Started */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** Format: uuid */
+                            subscription_id: string;
+                        };
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                409: components["responses"]["Conflict"];
+                413: components["responses"]["PayloadTooLarge"];
+                415: components["responses"]["UnsupportedMediaType"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Change plan. Never removes data, and anything over the new limits goes read-only. */
+        patch: {
+            parameters: {
+                query?: never;
+                header: {
+                    /** @description The version last read, as sent in the ETag response header. Weak tags, lists and * are refused. */
+                    "If-Match": components["parameters"]["IfMatch"];
+                };
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["PlanChoice"];
+                };
+            };
+            responses: {
+                /** @description Changed, now or at the period's end */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            effective: "now" | "period_end";
+                            excess: {
+                                [key: string]: number;
+                            };
+                        };
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                409: components["responses"]["Conflict"];
+                413: components["responses"]["PayloadTooLarge"];
+                415: components["responses"]["UnsupportedMediaType"];
+                428: components["responses"]["PreconditionRequired"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        trace?: never;
+    };
+    "/organizations/{organization_id}/billing/invoices": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+            };
+            cookie?: never;
+        };
+        /** This organization's invoices */
+        get: {
+            parameters: {
+                query?: {
+                    cursor?: string;
+                };
+                header?: never;
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description One page */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            items: components["schemas"]["InvoiceSummary"][];
+                            next_cursor: string | null;
+                        };
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                404: components["responses"]["NotFound"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/organizations/{organization_id}/billing/invoices/{invoice_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+                invoice_id: components["parameters"]["InvoiceID"];
+            };
+            cookie?: never;
+        };
+        /** One invoice and its lines */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                    invoice_id: components["parameters"]["InvoiceID"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The invoice */
+                200: {
+                    headers: {
+                        ETag: components["headers"]["ETag"];
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["InvoiceDetail"];
+                    };
+                };
+                401: components["responses"]["Unauthorized"];
+                404: components["responses"]["NotFound"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/organizations/{organization_id}/billing/invoices/{invoice_id}/payments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+                invoice_id: components["parameters"]["InvoiceID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Ask to charge this invoice. A live payment is returned and no second one is made. */
+        post: {
+            parameters: {
+                query?: never;
+                header: {
+                    "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                };
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                    invoice_id: components["parameters"]["InvoiceID"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Asked. Charging happens in a worker, and this says nothing about whether it worked. */
+                202: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** Format: uuid */
+                            payment_id: string;
+                            status: components["schemas"]["PaymentStatus"];
+                        };
+                    };
+                };
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                409: components["responses"]["Conflict"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/organizations/{organization_id}/billing/credits": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+            };
+            cookie?: never;
+        };
+        /** Remaining AI credits and what used them. Null for BYOM, whose provider bills it directly. */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The balance */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["CreditSummary"];
+                    };
+                };
+                401: components["responses"]["Unauthorized"];
+                404: components["responses"]["NotFound"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/organizations/{organization_id}/billing/top-ups": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+            };
+            cookie?: never;
+        };
+        /** What can be bought now, each with the exact quote a request has to echo */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Offers on the current card */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            offers: components["schemas"]["TopUpOffer"][];
+                        };
+                    };
+                };
+                401: components["responses"]["Unauthorized"];
+                404: components["responses"]["NotFound"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        put?: never;
+        /** Buy exactly the quote that was shown. A changed price buys nothing. */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["RequestTopUp"];
+                };
+            };
+            responses: {
+                /** @description Requested. Credits arrive only after payment succeeds. */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** Format: uuid */
+                            top_up_id: string;
+                            /** Format: uuid */
+                            invoice_id: string;
+                        };
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                409: components["responses"]["Conflict"];
+                413: components["responses"]["PayloadTooLarge"];
+                415: components["responses"]["UnsupportedMediaType"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/organizations/{organization_id}/retention-rules": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+            };
+            cookie?: never;
+        };
+        /** Current retention rules. A category with none is never swept. */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Current rules */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            items: components["schemas"]["RetentionRule"][];
+                        };
+                    };
+                };
+                401: components["responses"]["Unauthorized"];
+                404: components["responses"]["NotFound"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        put?: never;
+        /** Set one rule, with the sign-off it rests on. It supersedes what was there. */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["SetRetentionRule"];
+                };
+            };
+            responses: {
+                /** @description Set */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["RetentionRule"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                413: components["responses"]["PayloadTooLarge"];
+                415: components["responses"]["UnsupportedMediaType"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/organizations/{organization_id}/legal-holds": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+            };
+            cookie?: never;
+        };
+        /** Legal holds. Someone who may not manage them gets not found. */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Every hold, active and released */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            items: components["schemas"]["LegalHold"][];
+                        };
+                    };
+                };
+                401: components["responses"]["Unauthorized"];
+                404: components["responses"]["NotFound"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        put?: never;
+        /** Place a hold. Anything in its scope survives every deletion request until it is released. */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["PlaceLegalHold"];
+                };
+            };
+            responses: {
+                /** @description Placed */
+                201: {
+                    headers: {
+                        ETag: components["headers"]["ETag"];
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["LegalHold"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                404: components["responses"]["NotFound"];
+                413: components["responses"]["PayloadTooLarge"];
+                415: components["responses"]["UnsupportedMediaType"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/organizations/{organization_id}/legal-holds/{legal_hold_id}/release": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+                legal_hold_id: components["parameters"]["LegalHoldID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Release a hold, with a reason. It stays released. */
+        post: {
+            parameters: {
+                query?: never;
+                header: {
+                    /** @description The version last read, as sent in the ETag response header. Weak tags, lists and * are refused. */
+                    "If-Match": components["parameters"]["IfMatch"];
+                };
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                    legal_hold_id: components["parameters"]["LegalHoldID"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["ReasonCode"];
+                };
+            };
+            responses: {
+                /** @description Released */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                404: components["responses"]["NotFound"];
+                409: components["responses"]["Conflict"];
+                413: components["responses"]["PayloadTooLarge"];
+                415: components["responses"]["UnsupportedMediaType"];
+                428: components["responses"]["PreconditionRequired"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/organizations/{organization_id}/offboarding": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+            };
+            cookie?: never;
+        };
+        /** Where this organization's offboarding stands, and its report when there is one */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The offboarding, or null */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            offboarding: components["schemas"]["Offboarding"] | null;
+                        };
+                    };
+                };
+                401: components["responses"]["Unauthorized"];
+                404: components["responses"]["NotFound"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        put?: never;
+        /** Ask to leave, by typing this organization's exact name. Nothing is erased by this. */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["RequestOffboarding"];
+                };
+            };
+            responses: {
+                /** @description Started */
+                202: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** Format: uuid */
+                            offboarding_id: string;
+                        };
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                404: components["responses"]["NotFound"];
+                409: components["responses"]["Conflict"];
+                413: components["responses"]["PayloadTooLarge"];
+                415: components["responses"]["UnsupportedMediaType"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/organizations/{organization_id}/offboarding/cancellation": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Stay after all. Only before erasure starts. */
+        post: {
+            parameters: {
+                query?: never;
+                header: {
+                    /** @description The version last read, as sent in the ETag response header. Weak tags, lists and * are refused. */
+                    "If-Match": components["parameters"]["IfMatch"];
+                };
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["ReasonCode"];
+                };
+            };
+            responses: {
+                /** @description Cancelled */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                404: components["responses"]["NotFound"];
+                409: components["responses"]["Conflict"];
+                413: components["responses"]["PayloadTooLarge"];
+                415: components["responses"]["UnsupportedMediaType"];
+                428: components["responses"]["PreconditionRequired"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/organizations/{organization_id}/support/tickets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+            };
+            cookie?: never;
+        };
+        /** Support tickets this person can see */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Tickets */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            items: components["schemas"]["TicketSummary"][];
+                        };
+                    };
+                };
+                401: components["responses"]["Unauthorized"];
+                404: components["responses"]["NotFound"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        put?: never;
+        /** Ask for help. Support reads what is written here, and nothing else of this organization's. */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["OpenTicket"];
+                };
+            };
+            responses: {
+                /** @description Opened */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** Format: uuid */
+                            ticket_id: string;
+                        };
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                404: components["responses"]["NotFound"];
+                413: components["responses"]["PayloadTooLarge"];
+                415: components["responses"]["UnsupportedMediaType"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/organizations/{organization_id}/support/tickets/{ticket_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+                ticket_id: components["parameters"]["TicketID"];
+            };
+            cookie?: never;
+        };
+        /** One ticket and its messages */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                    ticket_id: components["parameters"]["TicketID"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The ticket */
+                200: {
+                    headers: {
+                        ETag: components["headers"]["ETag"];
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["TicketDetail"];
+                    };
+                };
+                401: components["responses"]["Unauthorized"];
+                404: components["responses"]["NotFound"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/organizations/{organization_id}/support/tickets/{ticket_id}/messages": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+                ticket_id: components["parameters"]["TicketID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Reply to a ticket */
+        post: {
+            parameters: {
+                query?: never;
+                header: {
+                    /** @description The version last read, as sent in the ETag response header. Weak tags, lists and * are refused. */
+                    "If-Match": components["parameters"]["IfMatch"];
+                };
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                    ticket_id: components["parameters"]["TicketID"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["ReplyTicket"];
+                };
+            };
+            responses: {
+                /** @description Added */
+                200: {
+                    headers: {
+                        ETag: components["headers"]["ETag"];
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["SavedVersion"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                404: components["responses"]["NotFound"];
+                409: components["responses"]["Conflict"];
+                413: components["responses"]["PayloadTooLarge"];
+                415: components["responses"]["UnsupportedMediaType"];
+                428: components["responses"]["PreconditionRequired"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/organizations/{organization_id}/support/break-glass": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+            };
+            cookie?: never;
+        };
+        /** Requests for support access to content. The default is none. */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Requests */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            items: components["schemas"]["BreakGlassRequest"][];
+                        };
+                    };
+                };
+                401: components["responses"]["Unauthorized"];
+                404: components["responses"]["NotFound"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/organizations/{organization_id}/support/break-glass/{break_glass_id}/decision": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+                break_glass_id: components["parameters"]["BreakGlassID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Agree to or refuse a request. Agreeing still grants no read path in this release. */
+        post: {
+            parameters: {
+                query?: never;
+                header: {
+                    /** @description The version last read, as sent in the ETag response header. Weak tags, lists and * are refused. */
+                    "If-Match": components["parameters"]["IfMatch"];
+                };
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                    break_glass_id: components["parameters"]["BreakGlassID"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["DecideBreakGlass"];
+                };
+            };
+            responses: {
+                /** @description Decided */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["BreakGlassRequest"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                404: components["responses"]["NotFound"];
+                409: components["responses"]["Conflict"];
+                413: components["responses"]["PayloadTooLarge"];
+                415: components["responses"]["UnsupportedMediaType"];
+                428: components["responses"]["PreconditionRequired"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -9113,6 +10330,281 @@ export interface components {
             /** Format: uuid */
             membership_id: string;
         };
+        /** @description Whole millionths of a currency's main unit or of a credit, as digits, because JSON numbers cannot hold every value. */
+        MicrosAmount: string;
+        SavedVersion: {
+            version: number;
+        };
+        ReasonCode: {
+            reason_code: string;
+        };
+        BillingAccount: {
+            billing_name: string;
+            billing_email: string;
+            country_code: string;
+            region_code: string;
+            postal_code: string | null;
+            tax_id: string | null;
+            version: number;
+        };
+        SaveBillingAccount: {
+            billing_name: string;
+            /** Format: email */
+            billing_email: string;
+            country_code: string;
+            region_code: string;
+            postal_code: string | null;
+            tax_id: string | null;
+        };
+        BillingOverview: {
+            /** @enum {string} */
+            lifecycle: "active" | "read_only" | "suspended" | "offboarding";
+            billing_enabled: boolean;
+            account: components["schemas"]["BillingAccount"] | null;
+            subscription: components["schemas"]["Subscription"] | null;
+        };
+        Subscription: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            plan_version_id: string;
+            /** @enum {string} */
+            status: "active" | "past_due" | "canceled";
+            /** Format: date-time */
+            current_period_start: string;
+            /** Format: date-time */
+            current_period_end: string;
+            cancel_at_period_end: boolean;
+            version: number;
+        };
+        PlanVersion: {
+            /** Format: uuid */
+            plan_version_id: string;
+            plan_code: string;
+            display_name: string;
+            currency: string;
+            /** @enum {string} */
+            billing_interval: "month" | "year";
+            payment_terms_days: number;
+            platform_fee_micros: components["schemas"]["MicrosAmount"];
+            included_microcredits: components["schemas"]["MicrosAmount"] | null;
+            /** @enum {string|null} */
+            overage_policy: "pause" | "explicit_top_up" | null;
+            features: string[];
+            max_active_members: number | null;
+        };
+        PlanChoice: {
+            /** Format: uuid */
+            plan_version_id: string;
+        };
+        /** @enum {string} */
+        InvoiceStatus: "draft" | "open" | "paid" | "void" | "uncollectible";
+        /** @enum {string} */
+        PaymentStatus: "ready" | "sending" | "reconciling" | "succeeded" | "failed" | "unknown" | "cancelled";
+        InvoiceSummary: {
+            /** Format: uuid */
+            id: string;
+            invoice_number: number | null;
+            /** @enum {string} */
+            kind: "subscription" | "top_up";
+            status: components["schemas"]["InvoiceStatus"];
+            currency: string;
+            total_micros: components["schemas"]["MicrosAmount"];
+            /** Format: date-time */
+            issued_at: string | null;
+            /** Format: date-time */
+            due_at: string | null;
+            /** Format: date-time */
+            paid_at: string | null;
+        };
+        InvoiceDetail: {
+            /** Format: uuid */
+            id: string;
+            invoice_number: number | null;
+            /** @enum {string} */
+            kind: "subscription" | "top_up";
+            status: components["schemas"]["InvoiceStatus"];
+            currency: string;
+            subtotal_micros: components["schemas"]["MicrosAmount"];
+            tax_micros: components["schemas"]["MicrosAmount"];
+            total_micros: components["schemas"]["MicrosAmount"];
+            minor_unit_exponent: number | null;
+            /** Format: date-time */
+            issued_at: string | null;
+            /** Format: date-time */
+            due_at: string | null;
+            /** Format: date-time */
+            paid_at: string | null;
+            version: number;
+            lines: {
+                line_no: number;
+                /** @enum {string} */
+                kind: "platform_fee" | "usage" | "top_up" | "tax" | "rounding";
+                meter: string | null;
+                quantity: components["schemas"]["MicrosAmount"] | null;
+                unit: string | null;
+                unit_price_micros: components["schemas"]["MicrosAmount"] | null;
+                amount_micros: components["schemas"]["MicrosAmount"];
+            }[];
+        };
+        CreditSummary: {
+            balance_microcredits: components["schemas"]["MicrosAmount"] | null;
+            included_microcredits: components["schemas"]["MicrosAmount"] | null;
+            /** @enum {string|null} */
+            overage_policy: "pause" | "explicit_top_up" | null;
+            recent: {
+                /** @enum {string} */
+                kind: "allocation" | "top_up" | "consumption" | "expiry" | "correction";
+                amount_microcredits: components["schemas"]["MicrosAmount"];
+                /** Format: date-time */
+                occurred_at: string;
+            }[];
+        };
+        TopUpOffer: {
+            /** Format: uuid */
+            offer_id: string;
+            microcredits: components["schemas"]["MicrosAmount"];
+            price_micros: components["schemas"]["MicrosAmount"];
+            currency: string;
+            quote_hash: string;
+        };
+        RequestTopUp: {
+            /** Format: uuid */
+            offer_id: string;
+            quote_hash: string;
+            request_key: string;
+        };
+        RetentionRule: {
+            /** Format: uuid */
+            id: string;
+            data_category: string;
+            /** @enum {string} */
+            classification: "*" | "public" | "internal" | "confidential" | "restricted";
+            retain_days: number | null;
+            basis_ref: string;
+            /** Format: date-time */
+            created_at: string;
+        };
+        SetRetentionRule: {
+            /** @enum {string} */
+            data_category: "transaction_records" | "work_unit_history" | "raw_files" | "search_indexes" | "derived_embeddings" | "model_outputs" | "operational_traces" | "audit_logs" | "temporary_debug_captures";
+            /** @enum {string} */
+            classification: "*" | "public" | "internal" | "confidential" | "restricted";
+            retain_days: number | null;
+            basis_ref: string;
+        };
+        HoldScope: {
+            /** @enum {string} */
+            type: "organization" | "client" | "project" | "work_unit" | "artifact";
+            /** Format: uuid */
+            id: string | null;
+        };
+        LegalHold: {
+            /** Format: uuid */
+            id: string;
+            matter_ref: string;
+            /** @enum {string} */
+            status: "active" | "released";
+            scopes: components["schemas"]["HoldScope"][];
+            /** Format: date-time */
+            placed_at: string;
+            /** Format: date-time */
+            released_at: string | null;
+            release_reason_code: string | null;
+            version: number;
+        };
+        PlaceLegalHold: {
+            matter_ref: string;
+            scopes: components["schemas"]["HoldScope"][];
+        };
+        RequestOffboarding: {
+            confirm_name: string;
+        };
+        Offboarding: {
+            /** Format: uuid */
+            id: string;
+            /** @enum {string} */
+            state: "requested" | "export_offered" | "in_transition" | "winding_down" | "ready_for_erasure" | "erasing" | "verified" | "reported" | "cancelled";
+            /** Format: date-time */
+            export_offered_at: string | null;
+            export_ref: string | null;
+            /** Format: date-time */
+            transition_ends_at: string | null;
+            active_holds: number;
+            unsettled_actions: number;
+            /** @description Counts and codes with no content. */
+            report: Record<string, never> | null;
+            version: number;
+        };
+        TicketSummary: {
+            /** Format: uuid */
+            id: string;
+            subject: string;
+            /** @enum {string} */
+            category: "account" | "billing" | "incident" | "security" | "other";
+            /** @enum {string} */
+            status: "open" | "waiting_on_customer" | "waiting_on_support" | "resolved" | "closed";
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+            version: number;
+        };
+        TicketDetail: {
+            /** Format: uuid */
+            id: string;
+            subject: string;
+            /** @enum {string} */
+            category: "account" | "billing" | "incident" | "security" | "other";
+            /** @enum {string} */
+            status: "open" | "waiting_on_customer" | "waiting_on_support" | "resolved" | "closed";
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+            version: number;
+            messages: {
+                /** Format: uuid */
+                id: string;
+                /** @enum {string} */
+                author_kind: "customer" | "support";
+                body: string;
+                /** Format: date-time */
+                created_at: string;
+            }[];
+        };
+        OpenTicket: {
+            subject: string;
+            /** @enum {string} */
+            category: "account" | "billing" | "incident" | "security" | "other";
+            body: string;
+        };
+        ReplyTicket: {
+            body: string;
+        };
+        BreakGlassRequest: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            ticket_id: string;
+            reason_code: string;
+            /** @enum {string} */
+            scope_type: "work_unit" | "artifact" | "client" | "project";
+            /** Format: uuid */
+            scope_id: string;
+            requested_minutes: number;
+            /** @enum {string} */
+            state: "requested" | "authorized" | "denied" | "revoked" | "expired";
+            operator_authorized: boolean;
+            customer_authorized: boolean;
+            /** Format: date-time */
+            expires_at: string | null;
+            version: number;
+        };
+        DecideBreakGlass: {
+            /** @enum {string} */
+            decision: "authorize" | "deny";
+        };
     };
     responses: {
         /** @description Malformed path, query, header or body. details.fields names the fields, never their values. */
@@ -9228,6 +10720,10 @@ export interface components {
         SourceID: string;
         ExportID: string;
         ImportID: string;
+        InvoiceID: string;
+        LegalHoldID: string;
+        TicketID: string;
+        BreakGlassID: string;
     };
     requestBodies: never;
     headers: {

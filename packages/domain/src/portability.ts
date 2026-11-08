@@ -283,8 +283,6 @@ export const PORTABILITY_INVENTORY = [
   inventory('lifecycle.object_deletion_claims', 'history', 'operational_excluded'),
   inventory('ai.run_authority_checkpoints', 'history', 'operational_excluded'),
   inventory('ai.run_read_authorities', 'history', 'operational_excluded'),
-  inventory('studio.process_run_intents', 'history', 'operational_excluded'),
-  inventory('studio.process_step_births', 'history', 'operational_excluded'),
   inventory('experience.onboarding_completions', 'policy', 'operational_excluded'),
   inventory('experience.outcome_work_births', 'policy', 'operational_excluded'),
 ] as const;

@@ -79,7 +79,11 @@ describe('native custom object inputs', () => {
     form.set('displayName', 'Own draft');
     form.set('$ACTION_REF_0', 'opaque-action');
     form.set('role', 'owner');
-    expect(objectFormValues(form)).toEqual({ displayName: 'Own draft' });
+    form.set('__proto__', 'untrusted');
+    form.set('constructor', 'untrusted');
+    const values = objectFormValues(form);
+    expect(values).toEqual({ displayName: 'Own draft' });
+    expect(Object.getPrototypeOf(values)).toBe(Object.prototype);
   });
   it('generates native-editor keys without changing explicit keys or weakening the strict parser', () => {
     const form = new FormData();
