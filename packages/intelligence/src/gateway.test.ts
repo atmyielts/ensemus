@@ -1024,7 +1024,16 @@ describe('the ledger (FD-6, FD-12)', () => {
       expect.objectContaining({
         idempotencyKey: `model:${step.runId}:3:1`,
         status: 'estimated',
-        costMicros: 590,
+        meter: 'model_input_tokens',
+        quantity: 190,
+        costMicros: 190,
+      }),
+      expect.objectContaining({
+        idempotencyKey: `model:${step.runId}:3:1:output`,
+        status: 'estimated',
+        meter: 'model_output_tokens',
+        quantity: 200,
+        costMicros: 400,
       }),
     ]);
   });
@@ -1039,7 +1048,8 @@ describe('the ledger (FD-6, FD-12)', () => {
       usage: { costMicros: 590 },
     });
     expect(harness.ledger.entries).toEqual([
-      expect.objectContaining({ status: 'estimated', costMicros: 590 }),
+      expect.objectContaining({ meter: 'model_input_tokens', status: 'estimated', quantity: 190, costMicros: 190 }),
+      expect.objectContaining({ meter: 'model_output_tokens', status: 'estimated', quantity: 200, costMicros: 400 }),
     ]);
     expect(harness.ledger.released).toEqual([]);
   });
@@ -1325,6 +1335,7 @@ describe('an allowed fallback (FD-9)', () => {
     expect(new Set(keys).size).toBe(keys.length);
     expect(keys).toEqual([
       `model:${step.runId}:3:1`,
+      `model:${step.runId}:3:1:output`,
       `model:${step.runId}:3:${1 + FALLBACK_ATTEMPT_STRIDE}`,
       `model:${step.runId}:3:${1 + FALLBACK_ATTEMPT_STRIDE}:output`,
     ]);

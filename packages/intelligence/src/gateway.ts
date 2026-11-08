@@ -554,9 +554,9 @@ export function createInferenceGateway(deps: GatewayDeps): InferenceGateway {
             await release();
             return;
           }
-          const cost = measured
-            ? costOf(tokens, rateCard)
-            : { inputMicros: reservedMicros, outputMicros: 0, totalMicros: reservedMicros };
+          // An estimate still retains BOTH admitted token ceilings and their pinned USD rates.
+          // Putting all estimated USD on input used to hide the output meter from credit accounting.
+          const cost = costOf(tokens, rateCard);
           const key = modelLedgerKey(step.runId, step.stepNumber, callAttempt);
           const row = {
             rateCardId: rateCard.id,
@@ -586,7 +586,7 @@ export function createInferenceGateway(deps: GatewayDeps): InferenceGateway {
               quantity: tokens.inputTokens,
               costMicros: cost.inputMicros,
             });
-            if (measured && tokens.outputTokens > 0) {
+            if (tokens.outputTokens > 0) {
               await deps.ledger.record(tx, context, {
                 ...row,
                 idempotencyKey: `${key}:output`,

@@ -2,6 +2,32 @@
 // ever bought on anyone's behalf. Owned by the credits slice. See docs/06-delivery/m8-slices.md.
 import { createHash } from 'node:crypto';
 import type { Microcredits, Micros } from './money';
+import { priceUsage, type PricingRefusal, type RateCardFacts } from './catalog';
+
+/** Exact input AND output capacity at an explicitly approved credit card. No USD conversion or
+ * observed-usage claim: callers retain this ceiling for an answer whose usage is unknown. */
+export function priceModelCreditCeiling(
+  card: RateCardFacts | null,
+  at: Date,
+  ceiling: { inputTokens: number; outputTokens: number },
+):
+  | { ok: true; inputMicrocredits: bigint; outputMicrocredits: bigint; totalMicrocredits: bigint }
+  | { ok: false; code: PricingRefusal | 'INVALID_MODEL_CEILING' | 'CREDIT_AMOUNT_UNREPRESENTABLE' } {
+  if (![ceiling.inputTokens, ceiling.outputTokens].every(value => Number.isSafeInteger(value) && value >= 0))
+    return { ok: false, code: 'INVALID_MODEL_CEILING' };
+  const priced = priceUsage(card, [
+    { meter: 'model_input_tokens', unit: 'token', quantity: BigInt(ceiling.inputTokens) },
+    { meter: 'model_output_tokens', unit: 'token', quantity: BigInt(ceiling.outputTokens) },
+  ], at);
+  if (!priced.ok) return priced;
+  const inputMicrocredits = priced.meters[0]!.microcredits;
+  const outputMicrocredits = priced.meters[1]!.microcredits;
+  const totalMicrocredits = inputMicrocredits + outputMicrocredits;
+  if ([...priced.meters.map(value => value.microcreditsPerUnit), inputMicrocredits, outputMicrocredits, totalMicrocredits]
+    .some(value => value < 0n || value > 9223372036854775807n))
+    return { ok: false, code: 'CREDIT_AMOUNT_UNREPRESENTABLE' };
+  return { ok: true, inputMicrocredits, outputMicrocredits, totalMicrocredits };
+}
 
 export const CREDIT_KINDS = [
   'allocation',
