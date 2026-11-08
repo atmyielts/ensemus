@@ -1,11 +1,58 @@
 // A request to a store that has stopped answering must end, or an Activity that timed out would still
 // be uploading while its retry runs.
+import { createHash } from 'node:crypto';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { MAX_ATTEMPTS, REQUEST_TIMEOUT_MS, S3ObjectStore } from './index';
 
 const ACTIVITY_TIMEOUT_MS = 2 * 60 * 1000;
+
+// Generated local protocol fixture only. These observations do not qualify a real S3 provider.
+describe('a future native raw PUT owns exactly one mutation transport', () => {
+  let server: Server;
+  let endpoint: string;
+  let requests: { body: Buffer; md5: string | undefined }[];
+  let mode: 'written' | 'server_error' | 'no_etag' | 'disconnect';
+  const stores: S3ObjectStore[] = [];
+  beforeAll(async () => {
+    server = createServer(async (request, response) => {
+      const chunks: Buffer[] = [];
+      for await (const chunk of request) chunks.push(Buffer.from(chunk as Uint8Array));
+      requests.push({ body: Buffer.concat(chunks), md5: request.headers['content-md5'] });
+      if (mode === 'disconnect') { request.socket.destroy(); return; }
+      response.statusCode = mode === 'server_error' ? 503 : 200;
+      if (mode === 'written') response.setHeader('ETag', '"generated-test-etag"');
+      response.end(mode === 'server_error' ? '<Error><Code>SlowDown</Code></Error>' : '');
+    });
+    await new Promise<void>(ready => server.listen(0, '127.0.0.1', ready));
+    endpoint = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  });
+  beforeEach(() => { requests = []; mode = 'written'; });
+  afterEach(() => { for (const store of stores.splice(0)) store.close(); });
+  afterAll(async () => { server.closeAllConnections(); await new Promise<void>(closed => server.close(() => closed())); });
+  const makeStore = () => {
+    const store = new S3ObjectStore({ endpoint, bucket: 'b', accessKey: 'generated-k', secretKey: 'generated-s', maxAttempts: 5, requestTimeoutMs: 500 });
+    stores.push(store); return store;
+  };
+  it('copies exact bytes and sends their Content-MD5 before observing a known success', async () => {
+    const body = Buffer.from('generated raw bytes'), expected = Buffer.from(body);
+    const pending = makeStore().putSingleAttempt('raw', body, 'text/plain');
+    body.fill(0);
+    await expect(pending).resolves.toEqual({ transport: 'written' });
+    expect(requests).toEqual([{ body: expected, md5: createHash('md5').update(expected).digest('base64') }]);
+  });
+  it.each(['server_error', 'disconnect'] as const)('retains %s as UNKNOWN without an SDK retry despite maxAttempts5', async failure => {
+    mode = failure;
+    await expect(makeStore().putSingleAttempt('raw', Buffer.from('x'), 'text/plain')).resolves.toEqual({ transport: 'unknown' });
+    expect(requests).toHaveLength(1);
+  });
+  it('refuses to qualify an otherwise successful response with no native ETag', async () => {
+    mode = 'no_etag';
+    await expect(makeStore().putSingleAttempt('raw', Buffer.from('x'), 'text/plain')).resolves.toEqual({ transport: 'unknown' });
+    expect(requests).toHaveLength(1);
+  });
+});
 
 describe('a store that accepts a request and never answers', () => {
   let server: Server;

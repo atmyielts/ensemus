@@ -31,6 +31,7 @@ import { emit } from '../events';
 import { idSchema } from '../ids';
 import type { RunTranscriptPurge, DerivedArtifactPurge, DelegatedWorkPurge } from './ports';
 import { recoverObjectWrites } from './object-writes';
+import { rawKnowledgeObjects, rawSourceMaterialCompleteInTx } from './raw-objects';
 
 const PAGE = 100;
 const checkedId = (value: string) => {
@@ -293,16 +294,19 @@ async function proofValid(tx: Tx, context: TenantContext, source: Source, job: J
 }
 async function fail(database: AppDatabase, context: TenantContext, sourceId: string, code: string) {
   return withTenantTx(database, context, async (tx) => {
-    await lockSource(tx, sourceId);
+    const source = await lockSource(tx, sourceId);
     const job = await jobFor(tx, sourceId);
-    if (job.state === 'completed' && !code.startsWith('ARTIFACT')) return outcome(job);
+    if (job.state === 'completed' && !code.startsWith('ARTIFACT') && !code.startsWith('RAW_')) {
+      if (await rawSourceMaterialCompleteInTx(tx, { sourceId, sourceVersion: source.version, purgeJobId: job.id })) return outcome(job);
+      code = 'RAW_SOURCE_UNCONFIRMED';
+    }
     const [updated] = await tx
       .update(knowledgePurgeJobs)
       .set({
         state: 'failed',
         lastAttemptAt: new Date(),
         lastErrorCode: code,
-        ...(code.startsWith('ARTIFACT')
+        ...(code.startsWith('ARTIFACT') || code.startsWith('RAW_')
           ? {
               artifactsCheckedAt: null,
               nextRetryAt:
@@ -352,7 +356,12 @@ export async function purgeRunTranscriptsForSource(
       if (source.state === 'active') throw new AppError('INVALID_STATE');
       return { source, job: await jobFor(tx, sourceId) };
     });
-    if (initial.job.state === 'completed') return { removed: 0 };
+    if (initial.job.state === 'completed') {
+      if (await withTenantTx(database, context, tx => rawSourceMaterialCompleteInTx(tx, {
+        sourceId, sourceVersion: initial.source.version, purgeJobId: initial.job.id,
+      }))) return { removed: 0 };
+      await fail(database, context, sourceId, 'RAW_SOURCE_UNCONFIRMED');
+    }
     if (!deps.transcripts.fenceUsing) throw new Error('TRANSCRIPT_FENCE_UNAVAILABLE');
     const fingerprint = createHash('sha256');
     let after: string | null = null,
@@ -454,6 +463,7 @@ export async function runSourcePurge(
       const workProof = deps?.delegatedWorks
         ? await deps.delegatedWorks.confirmInTx(tx, context, { sourceId })
         : null;
+      const rawProof = await rawSourceMaterialCompleteInTx(tx, { sourceId, sourceVersion: source.version, purgeJobId: job.id });
       if (
         !active.length &&
         (await proofValid(tx, context, source, job)) &&
@@ -461,7 +471,8 @@ export async function runSourcePurge(
         workProof?.confirmed === true &&
         workProof.remaining === 0 &&
         workProof.controlsRemaining === 0 &&
-        workProof.unproven === 0
+        workProof.unproven === 0 &&
+        rawProof
       ) {
         const [fresh] = await tx
           .update(knowledgePurgeJobs)
@@ -476,7 +487,7 @@ export async function runSourcePurge(
           state: 'failed',
           completedAt: null,
           artifactsCheckedAt: null,
-          lastErrorCode: 'ARTIFACT_PURGE_UNCONFIRMED',
+          lastErrorCode: rawProof ? 'ARTIFACT_PURGE_UNCONFIRMED' : 'RAW_SOURCE_UNCONFIRMED',
           nextRetryAt:
             job.nextRetryAt ?? (job.retryRequests < 8 ? new Date(Date.now() + 15 * 60_000) : null),
         })
@@ -512,6 +523,15 @@ export async function runSourcePurge(
   });
   if (start) return start;
   try {
+    // Inventory capture is bounded and metadata-only. Native closure prevents new ordinary births;
+    // legacy/restored/missing inventory remains unconfirmed, never an inferred empty source.
+    if (!store.rawKnowledge) throw new Error('RAW_SOURCE_UNCONFIRMED');
+    const raw = rawKnowledgeObjects(store);
+    const identity = await withTenantTx(database, context, async tx => {
+      const source = await lockSource(tx, sourceId), job = await jobFor(tx, sourceId);
+      return { sourceId, sourceVersion: source.version, purgeJobId: job.id };
+    });
+    while ((await raw.captureSource(context, identity)).more) { /* Each25-row page commits its own native digest/cursor. */ }
     const derived = deps?.derivedArtifacts;
     if (!derived) return fail(database, context, sourceId, 'ARTIFACT_PURGE_UNCONFIRMED');
     const works = deps?.delegatedWorks;
@@ -658,27 +678,10 @@ export async function runSourcePurge(
         const key = document.key ?? expectedKey;
         // A damaged/restored row must never turn this source's cleanup into an arbitrary object delete.
         if (key !== expectedKey) throw new Error('OBJECT_KEY_INVALID');
-        // Retain the row until absence is verified, so a crash after DELETE retries the same key.
-        try {
-          if (await store.exists(key)) {
-            await withTenantTx(database, context, async (tx) => {
-              await lockSource(tx, sourceId);
-              await tx
-                .update(knowledgeDocuments)
-                .set({ objectPurgeObserved: true })
-                .where(
-                  and(
-                    eq(knowledgeDocuments.id, document.id),
-                    eq(knowledgeDocuments.sourceId, sourceId),
-                  ),
-                );
-            });
-            await store.delete(key);
-          }
-          if (await store.exists(key)) throw new Error('STORE_UNAVAILABLE');
-        } catch {
-          throw new Error('STORE_UNAVAILABLE');
-        }
+        // Exactly one admitted destructive operation; known-terminal retries probe only capability-
+        // backed absence. A prior observed flag/HEAD/legacy settled row cannot qualify this call.
+        const erased = await raw.erase(context, { documentId: document.id });
+        if (erased.state !== 'purged') throw new Error(erased.state === 'held' ? 'RAW_OBJECT_HELD' : 'RAW_OBJECT_UNCONFIRMED');
         await withTenantTx(database, context, async (tx) => {
           const source = await lockSource(tx, sourceId);
           await assertMaterialHoldFree(tx, source, (await jobFor(tx, sourceId)).id, 'projection');
@@ -729,6 +732,8 @@ export async function runSourcePurge(
         currentWorks.unproven !== 0
       )
         throw new Error('DELEGATED_WORK_PURGE_UNCONFIRMED');
+      if (!await rawSourceMaterialCompleteInTx(tx, { sourceId, sourceVersion: source.version, purgeJobId: job.id }))
+        throw new Error('RAW_SOURCE_UNCONFIRMED');
       if (job.state === 'completed') return outcome(job);
       const [updated] = await tx
         .update(knowledgePurgeJobs)
@@ -756,7 +761,9 @@ export async function runSourcePurge(
       database,
       context,
       sourceId,
-      error instanceof AppError &&
+      error instanceof Error && ['RAW_SOURCE_UNCONFIRMED','RAW_OBJECT_UNCONFIRMED','RAW_OBJECT_HELD'].includes(error.message)
+        ? error.message
+        : error instanceof AppError &&
         (error.code === 'POLICY_DENIED' || error.code === 'CAPABILITY_UNAVAILABLE')
         ? 'SOURCE_MATERIAL_HOLD_UNCONFIRMED'
         : error instanceof Error && error.message === 'STORE_UNAVAILABLE'
@@ -806,8 +813,9 @@ export async function sourcePurgeWorkerState(
 ): Promise<{ state: PurgeState; chunks: number }> {
   requireService(context);
   return withTenantTx(database, context, async (tx) => {
-    const job = await jobFor(tx, checkedId(input.sourceId));
-    return { state: job.state as PurgeState, chunks: job.chunksRemoved };
+    const source = await lockSource(tx, checkedId(input.sourceId)), job = await jobFor(tx, source.id);
+    const complete = job.state !== 'completed' || await rawSourceMaterialCompleteInTx(tx, { sourceId: source.id, sourceVersion: source.version, purgeJobId: job.id });
+    return { state: complete ? job.state as PurgeState : 'failed', chunks: job.chunksRemoved };
   });
 }
 
@@ -867,9 +875,10 @@ export async function getPurgeStatus(
       job.delegatedWorkRestoreGeneration !== null &&
       job.delegatedWorkRestoreGeneration === generation &&
       job.transcriptRestoreGeneration === generation;
+    const rawProof = await rawSourceMaterialCompleteInTx(tx, { sourceId, sourceVersion: source.version, purgeJobId: job.id }, true);
     const state =
       recordedState === 'completed' &&
-      (!job.transcriptsCheckedAt || !job.artifactsCheckedAt || !workProof)
+      (!job.transcriptsCheckedAt || !job.artifactsCheckedAt || !workProof || !rawProof)
         ? 'failed'
         : recordedState;
     return {
@@ -888,7 +897,9 @@ export async function getPurgeStatus(
       priorCompletedAt: job.priorCompletedAt,
       lastErrorCode:
         state !== recordedState
-          ? !workProof
+          ? !rawProof
+            ? 'RAW_SOURCE_UNCONFIRMED'
+            : !workProof
             ? 'DELEGATED_WORK_PURGE_UNCONFIRMED'
             : 'ARTIFACT_PURGE_UNCONFIRMED'
           : job.lastErrorCode,
