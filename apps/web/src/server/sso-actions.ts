@@ -82,6 +82,57 @@ export async function startSsoSignInAction(form: FormData) {
   }
   redirect(target ?? '/sign-in/sso?error=refused');
 }
+/** Distinct native endpoint: ordinary Continue never silently connects an existing local account. */
+export async function startSsoSelfLinkAction(form: FormData) {
+  const next = safeReturnPath(field(form, 'next')),
+    failure = next
+      ? `/sign-in/sso?error=connect&next=${encodeURIComponent(next)}`
+      : '/sign-in/sso?error=connect';
+  if (field(form, 'consent') !== 'yes' || field(form, 'password').length > 128) redirect(failure);
+  const { auth, config } = getRuntime(),
+    incoming = await headers(),
+    forwarded = new Headers({
+      'content-type': 'application/json',
+      origin: new URL(config.publicUrl).origin,
+    });
+  for (const key of ['cookie', 'x-forwarded-for', 'user-agent']) {
+    const value = incoming.get(key);
+    if (value) forwarded.set(key, value);
+  }
+  const callback = new URL('/sso/complete', config.publicUrl);
+  if (next) callback.searchParams.set('next', next);
+  let target: string | null = null;
+  try {
+    // The native router supplies authoritative session lookup, origin enforcement and its rate limit.
+    const response = await auth.handler(
+      new Request(new URL('/api/auth/sso/link-self', config.publicUrl), {
+        method: 'POST',
+        headers: forwarded,
+        body: JSON.stringify({
+          password: field(form, 'password'),
+          callbackURL: callback.href,
+          consent: 'connect',
+        }),
+      }),
+    );
+    if (response.status === 429) redirect('/sign-in/sso?error=rate');
+    if (response.ok) {
+      const result = (await response.json()) as { url?: unknown };
+      if (typeof result.url === 'string') {
+        const url = new URL(result.url);
+        if (url.protocol === 'https:' && !url.username && !url.password) {
+          const jar = await cookies();
+          for (const [key, value] of parseSetCookieHeader(response.headers.get('set-cookie') ?? ''))
+            jar.set(key, value.value, toCookieOptions(value));
+          target = url.href;
+        }
+      }
+    }
+  } catch (error) {
+    if (error instanceof Error && 'digest' in error) throw error;
+  }
+  redirect(target ?? failure);
+}
 export async function createSsoConnectionAction(id: string, form: FormData) {
   const { database, context, actor } = await requireTenant(id);
   try {
