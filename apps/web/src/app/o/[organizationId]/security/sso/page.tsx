@@ -8,6 +8,7 @@ import { TokenForm } from '@/components/security-sso/token-form';
 import styles from '@/components/security/security.module.css';
 import {
   createSsoConnectionAction,
+  issueScimTokenAction,
   updateSsoConnectionAction,
   replaceSsoMetadataAction,
   revokeScimTokenAction,
@@ -261,7 +262,9 @@ export default async function SsoSettings({
             <input readOnly value={new URL('/api/scim/v2', origin).href} />
           </label>
           {connection.ready && connection.state === 'active' ? (
-            <TokenForm organizationId={organizationId} connectionId={connection.id} />
+            <TokenForm
+              issueAction={issueScimTokenAction.bind(null, organizationId, connection.id)}
+            />
           ) : (
             <p className="muted">
               Activate the reviewed connection before creating a provisioning token.

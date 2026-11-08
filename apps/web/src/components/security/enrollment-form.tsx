@@ -1,11 +1,6 @@
 'use client';
 import { useActionState } from 'react';
 import { SubmitButton } from '@/components/submit-button';
-import {
-  enableSecondFactorAction,
-  finishEnrollmentAction,
-  regenerateRecoveryCodesAction,
-} from '@/server/security-actions';
 import { CodeFields, FactorError } from './code-fields';
 import type { SecretState } from './security-types';
 import styles from './security.module.css';
@@ -29,9 +24,20 @@ function RecoveryCodes({ codes }: { codes: readonly string[] }) {
     </section>
   );
 }
-export function EnrollmentForm({ organizationId }: { organizationId: string }) {
+type SecretAction = (previous: SecretState, form: FormData) => Promise<SecretState>;
+// Bind tenant arguments in the ServerPage. A fresh client-render .bind() Promise makes native
+// postback signature matching suspend forever in the pinned Fizz renderer.
+export function EnrollmentForm({
+  organizationId,
+  enableAction,
+  finishAction,
+}: {
+  organizationId: string;
+  enableAction: SecretAction;
+  finishAction: (form: FormData) => Promise<void>;
+}) {
   const [state, action] = useActionState(
-    enableSecondFactorAction.bind(null, organizationId),
+    enableAction,
     INITIAL,
     `/o/${organizationId}/security/two-factor`,
   );
@@ -53,7 +59,7 @@ export function EnrollmentForm({ organizationId }: { organizationId: string }) {
       <section>
         <h2>Confirm the app is ready</h2>
         <p>Two-step sign-in stays off until you enter a current app code.</p>
-        <form className="fields" action={finishEnrollmentAction.bind(null, organizationId)}>
+        <form className="fields" action={finishAction}>
           <CodeFields backup={false} />
           <div>
             <SubmitButton working="Checking">Confirm and turn on</SubmitButton>
@@ -78,9 +84,15 @@ export function EnrollmentForm({ organizationId }: { organizationId: string }) {
     </form>
   );
 }
-export function RecoveryCodeForm({ organizationId }: { organizationId: string }) {
+export function RecoveryCodeForm({
+  organizationId,
+  regenerateAction,
+}: {
+  organizationId: string;
+  regenerateAction: SecretAction;
+}) {
   const [state, action] = useActionState(
-    regenerateRecoveryCodesAction.bind(null, organizationId),
+    regenerateAction,
     INITIAL,
     `/o/${organizationId}/security/two-factor`,
   );

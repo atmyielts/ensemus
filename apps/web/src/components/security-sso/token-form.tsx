@@ -1,20 +1,15 @@
 'use client';
 import { useActionState } from 'react';
 import { SubmitButton } from '@/components/submit-button';
-import { issueScimTokenAction } from '@/server/sso-actions';
 export type TokenState =
   { status: 'empty' } | { status: 'ready'; token: string } | { status: 'error' };
+// The server parent supplies a stable, already-bound native action reference.
 export function TokenForm({
-  organizationId,
-  connectionId,
+  issueAction,
 }: {
-  organizationId: string;
-  connectionId: string;
+  issueAction: (previous: TokenState, form: FormData) => Promise<TokenState>;
 }) {
-  const [state, action] = useActionState(
-    issueScimTokenAction.bind(null, organizationId, connectionId),
-    { status: 'empty' } as TokenState,
-  );
+  const [state, action] = useActionState(issueAction, { status: 'empty' } as TokenState);
   return (
     <form className="fields" action={action}>
       {state.status === 'error' && (
