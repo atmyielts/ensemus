@@ -22,8 +22,8 @@ export function SpecSummary({ snapshot, sourceNames = {} }: {
       evidence_check: 'Evidence check',
     };
     const approverName = {
-      process_owner: 'The responsible workflow owner',
-      starter_manager: 'The initiating person’s manager',
+      process_owner: 'The workflow publisher or an eligible organization administrator',
+      starter_manager: 'Manager approval is unavailable here; no manager relationship is recorded',
       named_reviewer: 'The named reviewer for the run',
     };
     const evidenceName = {

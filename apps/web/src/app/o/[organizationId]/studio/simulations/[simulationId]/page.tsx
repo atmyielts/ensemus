@@ -24,7 +24,7 @@ export default async function SimulationPage({ params }: {
     parent = `${base}/agents/${current.id}`; parentLabel = 'Assistant draft'; currentHash = current.specSha256;
   } else if (run.subjectKind === 'process_draft' && run.subjectId) {
     try { const current = await studioRead(getProcessDraft(database, context, webProductPorts(), run.subjectId));
-    parent = base; parentLabel = 'Automation Studio'; currentHash = current.specSha256;
+    parent = `${base}/workflows/${current.id}`; parentLabel = 'Workflow draft'; currentHash = current.specSha256;
     if (current.issues.length) currentUnavailable=true;
     else if (currentHash === run.subjectSha256) for (const node of current.graph.nodes) stepLabels[node.id] = node.label; }
     catch(error){if(error instanceof AppError&&['CAPABILITY_UNAVAILABLE','GRAPH_INVALID','DRAFT_INVALID'].includes(error.code))currentUnavailable=true;else throw error;}

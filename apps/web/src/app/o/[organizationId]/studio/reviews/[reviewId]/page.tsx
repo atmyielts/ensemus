@@ -50,7 +50,7 @@ export default async function PublishReviewPage({ params, searchParams }: {
       for (const source of choices.sources) sourceNames[source.id] = source.title;
     }
   }
-  const subjectPath = review.subjectKind === 'agent_draft' ? `${base}/agents/${review.subjectId}` : base;
+  const subjectPath = review.subjectKind === 'agent_draft' ? `${base}/agents/${review.subjectId}` : `${base}/workflows/${review.subjectId}`;
   return <OneActionAtATime>
     <BackLink href={`${base}/reviews`}>Publication reviews</BackLink>
     <PageHead title={snapshot.name ?? 'Frozen definition review'} description="Read the exact requested snapshot. Your decision never substitutes a later edit." />
@@ -60,7 +60,7 @@ export default async function PublishReviewPage({ params, searchParams }: {
       <dl className="details">
         <div><dt>Definition</dt><dd>{snapshot.name ?? 'No historical display name was recorded'}</dd></div>
         <div><dt>Responsible person</dt><dd>{owner?.name ?? 'The historical responsible person is no longer listed'}{owner && owner.status !== 'active' ? ' (currently inactive)' : ''}</dd></div>
-        <div><dt>Source revision</dt><dd>{snapshot.sourceVersion}</dd></div>
+        <div><dt>Rehearsed source revision</dt><dd>{snapshot.sourceVersion}</dd></div>
         <div><dt>Requested by</dt><dd>{requester?.name ?? 'The requesting person is no longer listed'}</dd></div>
         <div><dt>Requested</dt><dd>{formatDateTime(review.createdAt)}</dd></div>
         <div><dt>Named reviewer</dt><dd>{review.reviewerMembershipId ? namedReviewer ? namedReviewer.name + (namedReviewer.status === 'active' ? '' : ' (currently inactive)') : 'The named reviewer is no longer listed' : review.riskLevel === 'elevated' ? 'Any eligible person other than the requester' : 'Any eligible organization reviewer'}</dd></div>
@@ -71,7 +71,7 @@ export default async function PublishReviewPage({ params, searchParams }: {
       {!current && <p className="notice">Current draft readiness is unavailable or invalid. This verified frozen snapshot remains readable as history; approval and publication are unavailable until the current draft can be checked.</p>}
       {current && !currentMatches && <p className="notice">The current draft no longer matches this frozen name, owner or definition hash, is archived or has compilation issues. The snapshot remains readable as history. It cannot be approved or published as the current draft.</p>}
       {owner?.status !== 'active' && <p className="notice">The frozen responsible person is not currently active. Resolve responsibility on the draft before moving it forward.</p>}
-      <p><Link href={subjectPath}>{review.subjectKind === 'agent_draft' ? 'Read the current draft' : 'Automation Studio'}</Link> · <Link href={`${base}/simulations/${review.simulationRunId}`}>Read the bound rehearsal</Link></p>
+      <p><Link href={subjectPath}>Read the current draft</Link> · <Link href={`${base}/simulations/${review.simulationRunId}`}>Read the bound rehearsal</Link></p>
     </section>
     <section className="card fields" aria-labelledby="frozen-definition"><h2 id="frozen-definition">Frozen definition</h2><SpecSummary snapshot={snapshot} sourceNames={sourceNames} /></section>
     {review.decisionReason && <section className="card fields"><h2>Recorded decision reason</h2><p>{review.decisionReason}</p></section>}
