@@ -2,7 +2,16 @@
 // The isolated M5 branch has no SaaS model. SQL additionally declares the exact composite FK to
 // lifecycle.offboardings; root must model that FK against its real schema-saas.ts at composition.
 import { sql } from 'drizzle-orm';
-import { bigint, check, foreignKey, pgSchema, primaryKey, text, timestamp, uuid } from 'drizzle-orm/pg-core';
+import {
+  bigint,
+  check,
+  foreignKey,
+  pgSchema,
+  primaryKey,
+  text,
+  timestamp,
+  uuid,
+} from 'drizzle-orm/pg-core';
 import { organizations } from './schema';
 
 export const delegatedErasureReceipts = pgSchema('lifecycle').table(
@@ -18,7 +27,9 @@ export const delegatedErasureReceipts = pgSchema('lifecycle').table(
     runCount: bigint({ mode: 'bigint' }).notNull(),
     childCount: bigint({ mode: 'bigint' }).notNull(),
     sourceCount: bigint({ mode: 'bigint' }).notNull(),
-    sealedAt: timestamp({ withTimezone: true }).notNull().default(sql`clock_timestamp()`),
+    sealedAt: timestamp({ withTimezone: true })
+      .notNull()
+      .default(sql`clock_timestamp()`),
   },
   (t) => [
     primaryKey({
@@ -26,9 +37,9 @@ export const delegatedErasureReceipts = pgSchema('lifecycle').table(
       columns: [t.organizationId, t.offboardingId, t.materialRestoreGeneration],
     }),
     foreignKey({
-      name:'delegated_erasure_receipts_org_fk',
-      columns:[t.organizationId],
-      foreignColumns:[organizations.id],
+      name: 'delegated_erasure_receipts_org_fk',
+      columns: [t.organizationId],
+      foreignColumns: [organizations.id],
     }),
     check('delegated_erasure_receipts_hash', sql`${t.proofSha256} ~ '^[0-9a-f]{64}$'`),
     check(

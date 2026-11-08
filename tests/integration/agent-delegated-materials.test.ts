@@ -588,39 +588,105 @@ describe('delegated material birth evidence (0419)', () => {
   });
 
   it('keeps actual source-consumer private rows while held, with its permanent fence committed', async () => {
-    const source=await seedSearchableSource(app.db,a.owner,{passages:['heldclosure is genuine compiler material.'],grants:[{kind:'organization'}]});
-    const f=await fixture(['work.read','data.internal.read',`knowledge.${source.sourceId}.read`]);
-    const compiled=await compileEvidence(agent.db,f.context,{
-      model:createScriptedModelPort({route:()=>({decision:'deny',reasonCode:'NO_APPROVED_MODEL',policyVersion:'generated-lexical-only'})}),
-      authorizeAgentContext:async()=>true,
-    },{purpose:'agent_turn',question:'heldclosure',queryClassification:'internal',workUnitId:f.work.id,runId:f.runId,
-      sourceIds:[source.sourceId],budgetTokens:1000,signal:AbortSignal.timeout(10000)});
-    if(!compiled.ok) throw new Error(`TEST_COMPILE_REFUSED:${compiled.code}`);
-    await revokeSource(app.db,a.owner,{sourceId:source.sourceId,expectedVersion:1,reason:'Actual source held after closure.'});
-    const service=createServiceContext(a.organizationId),holdId=randomUUID();
-    const privateCount=()=>withTenantTx(agent.db,service,async tx=>(await tx.execute<{count:number}>(
-      sql`select count(*)::integer count from ai.step_payloads payload join ai.execution_steps step
+    const source = await seedSearchableSource(app.db, a.owner, {
+      passages: ['heldclosure is genuine compiler material.'],
+      grants: [{ kind: 'organization' }],
+    });
+    const f = await fixture([
+      'work.read',
+      'data.internal.read',
+      `knowledge.${source.sourceId}.read`,
+    ]);
+    const compiled = await compileEvidence(
+      agent.db,
+      f.context,
+      {
+        model: createScriptedModelPort({
+          route: () => ({
+            decision: 'deny',
+            reasonCode: 'NO_APPROVED_MODEL',
+            policyVersion: 'generated-lexical-only',
+          }),
+        }),
+        authorizeAgentContext: async () => true,
+      },
+      {
+        purpose: 'agent_turn',
+        question: 'heldclosure',
+        queryClassification: 'internal',
+        workUnitId: f.work.id,
+        runId: f.runId,
+        sourceIds: [source.sourceId],
+        budgetTokens: 1000,
+        signal: AbortSignal.timeout(10000),
+      },
+    );
+    if (!compiled.ok) throw new Error(`TEST_COMPILE_REFUSED:${compiled.code}`);
+    await revokeSource(app.db, a.owner, {
+      sourceId: source.sourceId,
+      expectedVersion: 1,
+      reason: 'Actual source held after closure.',
+    });
+    const service = createServiceContext(a.organizationId),
+      holdId = randomUUID();
+    const privateCount = () =>
+      withTenantTx(
+        agent.db,
+        service,
+        async (tx) =>
+          (
+            await tx.execute<{ count: number }>(
+              sql`select count(*)::integer count from ai.step_payloads payload join ai.execution_steps step
         on step.organization_id=payload.organization_id and step.id=payload.step_id
-        where step.organization_id=${a.organizationId}::uuid and step.run_id=${f.runId}::uuid`)).rows[0]!.count);
-    const before=await privateCount();expect(before).toBeGreaterThan(0);
-    await withTenantTx(app.db,a.owner,async tx=>{
+        where step.organization_id=${a.organizationId}::uuid and step.run_id=${f.runId}::uuid`,
+            )
+          ).rows[0]!.count,
+      );
+    const before = await privateCount();
+    expect(before).toBeGreaterThan(0);
+    await withTenantTx(app.db, a.owner, async (tx) => {
       await tx.execute(sql`insert into lifecycle.legal_holds(organization_id,id,matter_ref,placed_by_membership_id)
         values(${a.organizationId}::uuid,${holdId}::uuid,${randomUUID()},${a.owner.membershipId}::uuid)`);
       await tx.execute(sql`insert into lifecycle.legal_hold_scopes(organization_id,hold_id,scope_type)
         values(${a.organizationId}::uuid,${holdId}::uuid,'organization')`);
     });
     try {
-      await expect(purgeRunTranscriptsForSource(agent.db,service,{transcripts:createRunTranscriptPurge()},{sourceId:source.sourceId}))
-        .rejects.toMatchObject({code:'POLICY_DENIED'});
+      await expect(
+        purgeRunTranscriptsForSource(
+          agent.db,
+          service,
+          { transcripts: createRunTranscriptPurge() },
+          { sourceId: source.sourceId },
+        ),
+      ).rejects.toMatchObject({ code: 'POLICY_DENIED' });
       expect(await privateCount()).toBe(before);
-      const [checkpoint]=await withTenantTx(app.db,a.owner,tx=>tx.select({fencedAt:runInputCheckpoints.fencedAt,purgedAt:runInputCheckpoints.payloadsPurgedAt})
-        .from(runInputCheckpoints).where(eq(runInputCheckpoints.runId,f.runId)));
-      expect(checkpoint?.fencedAt).toBeInstanceOf(Date);expect(checkpoint?.purgedAt).toBeNull();
+      const [checkpoint] = await withTenantTx(app.db, a.owner, (tx) =>
+        tx
+          .select({
+            fencedAt: runInputCheckpoints.fencedAt,
+            purgedAt: runInputCheckpoints.payloadsPurgedAt,
+          })
+          .from(runInputCheckpoints)
+          .where(eq(runInputCheckpoints.runId, f.runId)),
+      );
+      expect(checkpoint?.fencedAt).toBeInstanceOf(Date);
+      expect(checkpoint?.purgedAt).toBeNull();
     } finally {
-      await withTenantTx(app.db,a.owner,tx=>tx.execute(sql`update lifecycle.legal_holds set status='released',released_by_membership_id=${a.owner.membershipId}::uuid,
-        released_at=now(),release_reason_code='TEST_RELEASE',version=version+1 where organization_id=${a.organizationId}::uuid and id=${holdId}::uuid`));
+      await withTenantTx(app.db, a.owner, (tx) =>
+        tx.execute(sql`update lifecycle.legal_holds set status='released',released_by_membership_id=${a.owner.membershipId}::uuid,
+        released_at=now(),release_reason_code='TEST_RELEASE',version=version+1 where organization_id=${a.organizationId}::uuid and id=${holdId}::uuid`),
+      );
     }
-    expect((await purgeRunTranscriptsForSource(agent.db,service,{transcripts:createRunTranscriptPurge()},{sourceId:source.sourceId})).removed).toBeGreaterThan(0);
+    expect(
+      (
+        await purgeRunTranscriptsForSource(
+          agent.db,
+          service,
+          { transcripts: createRunTranscriptPurge() },
+          { sourceId: source.sourceId },
+        )
+      ).removed,
+    ).toBeGreaterThan(0);
     expect(await privateCount()).toBe(0);
   });
 
@@ -976,35 +1042,54 @@ describe('delegated material birth evidence (0419)', () => {
     });
     const service = createServiceContext(a.organizationId),
       purger = recordAdapter();
-    const privateCount = () => withTenantTx(agent.db, service, async (tx) => (
-      await tx.execute<{ count: number }>(sql`select count(*)::integer count from ai.step_payloads payload
+    const privateCount = () =>
+      withTenantTx(
+        agent.db,
+        service,
+        async (tx) =>
+          (
+            await tx.execute<{
+              count: number;
+            }>(sql`select count(*)::integer count from ai.step_payloads payload
         join ai.execution_steps step on step.organization_id=payload.organization_id and step.id=payload.step_id
         where step.organization_id=${a.organizationId}::uuid and step.run_id in(${f.runId}::uuid,${f.childRunId}::uuid)`)
-    ).rows[0]!.count);
+          ).rows[0]!.count,
+      );
     try {
-    const before = await privateCount();
-    expect(before).toBeGreaterThan(0);
-    const held = await purger.purgeRecord(service, { kind: 'work_unit', id: f.input.id, limit: 25 });
-    expect(held).toMatchObject({ confirmed: false, removed: 0, remaining: 1 });
-    expect(held.controlsRemaining).toBeGreaterThan(0);
-    expect(await privateCount()).toBe(before);
-    const [checkpoint] = await withTenantTx(app.db,a.owner,tx=>tx.select({ fencedAt:runInputCheckpoints.fencedAt,purgedAt:runInputCheckpoints.payloadsPurgedAt })
-      .from(runInputCheckpoints).where(eq(runInputCheckpoints.runId,f.runId)));
-    expect(checkpoint?.fencedAt).toBeInstanceOf(Date);
-    expect(checkpoint?.purgedAt).toBeNull();
-    const [pending] = await withTenantTx(app.db, a.owner, (tx) =>
-      tx
-        .select()
-        .from(delegatedInputReceipts)
-        .where(eq(delegatedInputReceipts.childRunId, f.childRunId)),
-    );
-    expect(pending?.redactedAt).toBeNull();
-    expect(pending?.dispositionSha256).toBeNull();
+      const before = await privateCount();
+      expect(before).toBeGreaterThan(0);
+      const held = await purger.purgeRecord(service, {
+        kind: 'work_unit',
+        id: f.input.id,
+        limit: 25,
+      });
+      expect(held).toMatchObject({ confirmed: false, removed: 0, remaining: 1 });
+      expect(held.controlsRemaining).toBeGreaterThan(0);
+      expect(await privateCount()).toBe(before);
+      const [checkpoint] = await withTenantTx(app.db, a.owner, (tx) =>
+        tx
+          .select({
+            fencedAt: runInputCheckpoints.fencedAt,
+            purgedAt: runInputCheckpoints.payloadsPurgedAt,
+          })
+          .from(runInputCheckpoints)
+          .where(eq(runInputCheckpoints.runId, f.runId)),
+      );
+      expect(checkpoint?.fencedAt).toBeInstanceOf(Date);
+      expect(checkpoint?.purgedAt).toBeNull();
+      const [pending] = await withTenantTx(app.db, a.owner, (tx) =>
+        tx
+          .select()
+          .from(delegatedInputReceipts)
+          .where(eq(delegatedInputReceipts.childRunId, f.childRunId)),
+      );
+      expect(pending?.redactedAt).toBeNull();
+      expect(pending?.dispositionSha256).toBeNull();
     } finally {
-    await withTenantTx(app.db, a.owner, (tx) =>
-      tx.execute(sql`update lifecycle.legal_holds set status='released',released_by_membership_id=${a.owner.membershipId}::uuid,
+      await withTenantTx(app.db, a.owner, (tx) =>
+        tx.execute(sql`update lifecycle.legal_holds set status='released',released_by_membership_id=${a.owner.membershipId}::uuid,
       released_at=now(),release_reason_code='TEST_RELEASE',version=version+1 where organization_id=${a.organizationId}::uuid and id=${holdId}::uuid`),
-    );
+      );
     }
     expect(
       await purger.purgeRecord(service, { kind: 'work_unit', id: f.input.id, limit: 25 }),

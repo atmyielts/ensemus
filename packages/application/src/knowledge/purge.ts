@@ -757,15 +757,15 @@ export async function runSourcePurge(
       context,
       sourceId,
       error instanceof AppError &&
-      (error.code === 'POLICY_DENIED' || error.code === 'CAPABILITY_UNAVAILABLE')
+        (error.code === 'POLICY_DENIED' || error.code === 'CAPABILITY_UNAVAILABLE')
         ? 'SOURCE_MATERIAL_HOLD_UNCONFIRMED'
         : error instanceof Error && error.message === 'STORE_UNAVAILABLE'
-        ? 'STORE_UNAVAILABLE'
-        : error instanceof Error && error.message === 'ARTIFACT_PURGE_UNCONFIRMED'
-          ? 'ARTIFACT_PURGE_UNCONFIRMED'
-          : error instanceof Error && error.message === 'TRANSCRIPT_PURGE_UNCONFIRMED'
-            ? 'TRANSCRIPT_PURGE_UNCONFIRMED'
-            : 'PURGE_FAILED',
+          ? 'STORE_UNAVAILABLE'
+          : error instanceof Error && error.message === 'ARTIFACT_PURGE_UNCONFIRMED'
+            ? 'ARTIFACT_PURGE_UNCONFIRMED'
+            : error instanceof Error && error.message === 'TRANSCRIPT_PURGE_UNCONFIRMED'
+              ? 'TRANSCRIPT_PURGE_UNCONFIRMED'
+              : 'PURGE_FAILED',
     );
   }
 }
