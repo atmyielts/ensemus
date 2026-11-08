@@ -80,7 +80,9 @@ export default async function OrganizationLayout({
               >
                 {actor.name}
               </Link>
-              <span className="account-email">{actor.email}</span>
+              <span className="account-email" title={actor.email}>
+                {actor.email}
+              </span>
             </div>
             <form action={signOutAction}>
               <SubmitButton className="link" working="Signing out">
