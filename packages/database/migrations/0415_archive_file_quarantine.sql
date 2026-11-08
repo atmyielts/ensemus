@@ -63,6 +63,88 @@ CREATE POLICY archive_named_work_assignment ON knowledge.structured_work_assignm
 CREATE POLICY archive_named_client_reader ON work.client_readers FOR SELECT TO ensemus_migrator
  USING(organization_id=app.current_organization_id() AND membership_id=nullif(current_setting('sovereign.archive_viewer',true),'')::uuid);
 --> statement-breakpoint
+-- Private metadata predicate: a missing timestamp/boolean never becomes a physical receipt.
+CREATE FUNCTION sovereign.archive_file_has_physical_proof(p_file sovereign.imported_archive_files) RETURNS boolean
+ LANGUAGE sql IMMUTABLE SET search_path=pg_catalog AS $$
+ SELECT coalesce((p_file).state='purged' AND (p_file).held=false AND (p_file).closed_at IS NOT NULL
+   AND (p_file).physical_purged_at IS NOT NULL AND (p_file).physical_purged_at>=(p_file).closed_at
+   AND(((p_file).write_state='settled' AND (p_file).write_finished_at IS NOT NULL
+      AND (p_file).write_finished_at<=(p_file).physical_purged_at)
+     OR((p_file).write_state='fenced' AND (p_file).write_fenced_at IS NOT NULL
+      AND (p_file).write_fenced_at<=(p_file).physical_purged_at)),false)
+$$;
+REVOKE ALL ON FUNCTION sovereign.archive_file_has_physical_proof(sovereign.imported_archive_files) FROM PUBLIC;
+-- A runtime optional port is not the completion boundary. Keep this independent of0414's distinct
+-- unproven-child guard: zero archive files cannot certify copied child Work material.
+CREATE FUNCTION sovereign.guard_source_purge_archive_proof() RETURNS trigger
+ LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
+BEGIN
+ IF TG_RELID<>'knowledge.purge_jobs'::regclass OR TG_OP NOT IN('INSERT','UPDATE') THEN
+  RAISE EXCEPTION 'ARCHIVE_FILE_PURGE_TARGET_INVALID' USING ERRCODE='42501';END IF;
+ IF NEW.state='completed' AND(NEW.organization_id IS DISTINCT FROM app.current_organization_id()
+   OR EXISTS(SELECT 1 FROM sovereign.imported_archive_files f WHERE f.organization_id=NEW.organization_id
+     AND NOT sovereign.archive_file_has_physical_proof(f))) THEN
+  RAISE EXCEPTION 'ARCHIVE_FILE_PURGE_UNCONFIRMED' USING ERRCODE='EN415';END IF;
+ RETURN NEW;
+END $$;
+REVOKE ALL ON FUNCTION sovereign.guard_source_purge_archive_proof() FROM PUBLIC;
+CREATE TRIGGER source_purge_archive_proof BEFORE INSERT OR UPDATE ON knowledge.purge_jobs FOR EACH ROW EXECUTE FUNCTION sovereign.guard_source_purge_archive_proof();
+-- Only this fixed trigger reopens an old completion. It changes no transcript/projection counters,
+-- actor bindings or historical proof timestamp; failed state + NULL completion invalidate the claim.
+CREATE POLICY archive_purge_job_fixed_read ON knowledge.purge_jobs FOR SELECT TO ensemus_migrator
+ USING(organization_id=app.current_organization_id() AND current_setting('sovereign.archive_source_proof',true)='v1');
+CREATE POLICY archive_purge_job_fixed_lock ON knowledge.purge_jobs FOR UPDATE TO ensemus_migrator
+ USING(organization_id=app.current_organization_id() AND current_setting('sovereign.archive_source_proof',true)='v1')
+ WITH CHECK(organization_id=app.current_organization_id() AND current_setting('sovereign.archive_source_proof',true)='v1' AND state='failed'
+   AND completed_at IS NULL AND last_error_code='ARTIFACT_PURGE_UNCONFIRMED');
+CREATE FUNCTION sovereign.invalidate_archive_source_completions() RETURNS integer
+ LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
+DECLARE previous_scope text;changed integer:=0;
+BEGIN
+ IF app.current_organization_id() IS NULL THEN RAISE EXCEPTION 'ARCHIVE_FILE_PROOF_TENANT_REQUIRED' USING ERRCODE='42501';END IF;
+ IF NOT EXISTS(SELECT 1 FROM sovereign.imported_archive_files f WHERE f.organization_id=app.current_organization_id()
+   AND NOT sovereign.archive_file_has_physical_proof(f)) THEN RETURN 0;END IF;
+ previous_scope:=current_setting('sovereign.archive_source_proof',true);
+ PERFORM set_config('sovereign.archive_source_proof','v1',true);
+ BEGIN
+  -- Lock even a currently non-completed job. Otherwise a concurrent completion can be invisible to
+  -- UPDATE WHERE state='completed' and commit after this function scanned its old running row.
+  -- Completion reads archive metadata without row locks, so this header->job order has no inverse.
+  PERFORM j.id FROM knowledge.purge_jobs j WHERE j.organization_id=app.current_organization_id() ORDER BY j.id FOR UPDATE;
+  UPDATE knowledge.purge_jobs j SET state='failed',completed_at=NULL,last_error_code='ARTIFACT_PURGE_UNCONFIRMED'
+    WHERE j.organization_id=app.current_organization_id() AND j.state='completed';
+  GET DIAGNOSTICS changed=ROW_COUNT;
+ EXCEPTION WHEN OTHERS THEN PERFORM set_config('sovereign.archive_source_proof',coalesce(previous_scope,''),true);RAISE;END;
+ PERFORM set_config('sovereign.archive_source_proof',coalesce(previous_scope,''),true);RETURN changed;
+END $$;
+REVOKE ALL ON FUNCTION sovereign.invalidate_archive_source_completions() FROM PUBLIC;
+CREATE FUNCTION sovereign.reconcile_archive_source_proofs() RETURNS integer
+ LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
+BEGIN
+ IF session_user<>'ensemus_app' OR NOT knowledge.is_service_actor() THEN
+  RAISE EXCEPTION 'ARCHIVE_FILE_RESTORE_REQUIRED' USING ERRCODE='EN415';END IF;
+ -- PostgreSQL restore may predate a header transition. Recovery rechecks the retained inventory,
+ -- not only update-trigger events, before the root restore gate can reopen ordinary serving.
+ RETURN sovereign.invalidate_archive_source_completions();
+END $$;
+REVOKE ALL ON FUNCTION sovereign.reconcile_archive_source_proofs() FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION sovereign.reconcile_archive_source_proofs() TO ensemus_app;
+CREATE FUNCTION sovereign.invalidate_source_purge_archive_proof() RETURNS trigger
+ LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
+BEGIN
+ IF TG_RELID<>'sovereign.imported_archive_files'::regclass OR TG_OP NOT IN('INSERT','UPDATE')
+   OR NEW.organization_id IS DISTINCT FROM app.current_organization_id() THEN
+  RAISE EXCEPTION 'ARCHIVE_FILE_PROOF_TARGET_INVALID' USING ERRCODE='42501';END IF;
+ IF sovereign.archive_file_has_physical_proof(NEW::sovereign.imported_archive_files) THEN RETURN NEW;END IF;
+ IF TG_OP='UPDATE' THEN
+  IF NOT sovereign.archive_file_has_physical_proof(OLD::sovereign.imported_archive_files) THEN RETURN NEW;END IF;
+ END IF;
+ PERFORM sovereign.invalidate_archive_source_completions();
+ RETURN NEW;
+END $$;
+REVOKE ALL ON FUNCTION sovereign.invalidate_source_purge_archive_proof() FROM PUBLIC;
+CREATE TRIGGER archive_file_proof_lost AFTER INSERT OR UPDATE ON sovereign.imported_archive_files FOR EACH ROW EXECUTE FUNCTION sovereign.invalidate_source_purge_archive_proof();
+--> statement-breakpoint
 CREATE FUNCTION sovereign.archive_source_admission_barrier() RETURNS trigger
  LANGUAGE plpgsql SET search_path=pg_catalog AS $$
 DECLARE tenant uuid;
@@ -317,10 +399,10 @@ BEGIN
    RAISE EXCEPTION 'ARCHIVE_FILE_SOURCE_NOT_CLOSED' USING ERRCODE='EN415';END IF;
  -- Called outside any caller-held source transaction. The root tenant erasure adapter validates its
  -- actual erasure intent before using the NULL-source inventory. This function only closes serving.
- UPDATE sovereign.imported_archive_files f SET state='closing',closed_at=coalesce(f.closed_at,clock_timestamp())
-  WHERE f.organization_id=app.current_organization_id() AND f.physical_purged_at IS NULL;
+ UPDATE sovereign.imported_archive_files f SET state='closing',closed_at=coalesce(f.closed_at,clock_timestamp()),physical_purged_at=NULL
+  WHERE f.organization_id=app.current_organization_id() AND NOT sovereign.archive_file_has_physical_proof(f);
  RETURN QUERY SELECT f.import_id,f.source_artifact_id,f.object_key,f.binary_sha256,f.write_token,f.write_state,f.state
-  FROM sovereign.imported_archive_files f WHERE f.organization_id=app.current_organization_id() AND f.physical_purged_at IS NULL
+  FROM sovereign.imported_archive_files f WHERE f.organization_id=app.current_organization_id() AND NOT sovereign.archive_file_has_physical_proof(f)
   ORDER BY f.held,f.import_id,f.source_artifact_id LIMIT p_limit;
 END $$;
 REVOKE ALL ON FUNCTION sovereign.archive_file_inventory(uuid,integer) FROM PUBLIC;
@@ -342,8 +424,9 @@ CREATE FUNCTION sovereign.archive_file_counts() RETURNS TABLE(removed integer,re
  LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
 BEGIN
  IF session_user<>'ensemus_app' OR NOT knowledge.is_service_actor() THEN RAISE EXCEPTION 'ARCHIVE_FILE_CLEANUP_REQUIRED' USING ERRCODE='EN415';END IF;
- RETURN QUERY SELECT count(*)FILTER(WHERE f.physical_purged_at IS NOT NULL)::integer,
-   count(*)FILTER(WHERE f.physical_purged_at IS NULL)::integer,count(*)FILTER(WHERE f.held AND f.physical_purged_at IS NULL)::integer
+ RETURN QUERY SELECT count(*)FILTER(WHERE sovereign.archive_file_has_physical_proof(f))::integer,
+   count(*)FILTER(WHERE NOT sovereign.archive_file_has_physical_proof(f))::integer,
+   count(*)FILTER(WHERE f.held AND NOT sovereign.archive_file_has_physical_proof(f))::integer
    FROM sovereign.imported_archive_files f WHERE f.organization_id=app.current_organization_id();
 END $$;
 REVOKE ALL ON FUNCTION sovereign.archive_file_counts() FROM PUBLIC;
@@ -355,13 +438,13 @@ BEGIN
  IF session_user<>'ensemus_app' OR(app.current_actor_type() IS DISTINCT FROM 'user' AND NOT knowledge.is_service_actor()) THEN
   RAISE EXCEPTION 'ARCHIVE_FILE_INVENTORY_REQUIRED' USING ERRCODE='EN415';END IF;
  SELECT EXISTS(SELECT 1 FROM sovereign.imported_archive_files f WHERE f.organization_id=app.current_organization_id()
-  AND f.physical_purged_at IS NULL AND(p_current_import IS NULL OR f.import_id<>p_current_import))::integer INTO n;RETURN n;
+  AND NOT sovereign.archive_file_has_physical_proof(f) AND(p_current_import IS NULL OR f.import_id<>p_current_import))::integer INTO n;RETURN n;
 END $$;
 REVOKE ALL ON FUNCTION sovereign.archive_file_target_conflicts(uuid) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION sovereign.archive_file_target_conflicts(uuid) TO ensemus_app;
 CREATE FUNCTION sovereign.archive_file_cleanup_receipt(p_import uuid,p_source uuid,p_token uuid,p_quiescent boolean,p_absent boolean,p_held boolean) RETURNS boolean
  LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
-DECLARE file sovereign.imported_archive_files%ROWTYPE;
+DECLARE file sovereign.imported_archive_files%ROWTYPE;proof_at timestamptz;
 BEGIN
  IF session_user<>'ensemus_app' OR NOT knowledge.is_service_actor() THEN RAISE EXCEPTION 'ARCHIVE_FILE_CLEANUP_REQUIRED' USING ERRCODE='EN415';END IF;
  SELECT * INTO file FROM sovereign.imported_archive_files f WHERE f.organization_id=app.current_organization_id() AND f.import_id=p_import AND f.source_artifact_id=p_source FOR UPDATE;
@@ -370,9 +453,10 @@ BEGIN
  IF p_held IS DISTINCT FROM false OR p_quiescent IS DISTINCT FROM true OR p_absent IS DISTINCT FROM true THEN RETURN false;END IF;
  -- These two facts are supplied only after the actual hold-aware lifecycle adapter and independent
  -- ObjectStore absence check. SQL pins identity/state; it does not pretend to inspect S3 itself.
+ proof_at:=clock_timestamp();
  UPDATE sovereign.imported_archive_files f SET state='purged',write_state=CASE WHEN f.write_state='active' THEN 'fenced' ELSE f.write_state END,
-   write_fenced_at=CASE WHEN f.write_state='active' THEN clock_timestamp() ELSE f.write_fenced_at END,
-   physical_purged_at=clock_timestamp(),held=false WHERE f.organization_id=file.organization_id AND f.import_id=p_import AND f.source_artifact_id=p_source;
+   write_fenced_at=CASE WHEN f.write_state='active' THEN proof_at ELSE f.write_fenced_at END,
+   physical_purged_at=proof_at,held=false WHERE f.organization_id=file.organization_id AND f.import_id=p_import AND f.source_artifact_id=p_source;
  RETURN true;
 END $$;
 REVOKE ALL ON FUNCTION sovereign.archive_file_cleanup_receipt(uuid,uuid,uuid,boolean,boolean,boolean) FROM PUBLIC;
@@ -383,6 +467,9 @@ BEGIN
  IF TG_RELID<>'sovereign.imported_archive_files'::regclass OR TG_OP<>'DELETE' OR current_user<>'ensemus_eraser'
    OR OLD.organization_id IS DISTINCT FROM app.current_organization_id() OR OLD.physical_purged_at IS NULL
    OR OLD.state<>'purged' OR OLD.write_state NOT IN('settled','fenced') OR OLD.closed_at IS NULL OR OLD.held
+   OR OLD.physical_purged_at<OLD.closed_at
+   OR(OLD.write_state='settled' AND(OLD.write_finished_at IS NULL OR OLD.write_finished_at>OLD.physical_purged_at))
+   OR(OLD.write_state='fenced' AND(OLD.write_fenced_at IS NULL OR OLD.write_fenced_at>OLD.physical_purged_at))
    OR lifecycle.erasure_open(OLD.organization_id) IS DISTINCT FROM true THEN
    RAISE EXCEPTION 'ARCHIVE_FILE_PHYSICAL_PROOF_REQUIRED' USING ERRCODE='42501';END IF;
  RETURN OLD;
@@ -421,7 +508,8 @@ CREATE FUNCTION sovereign.archive_file_restore_counts() RETURNS TABLE(checked in
  LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
 BEGIN
  IF session_user<>'ensemus_app' OR NOT knowledge.is_service_actor() THEN RAISE EXCEPTION 'ARCHIVE_FILE_RESTORE_REQUIRED' USING ERRCODE='EN415';END IF;
- RETURN QUERY SELECT count(*)::integer,count(*)FILTER(WHERE f.state IN('writing','unknown','closing') OR f.held)::integer
+ RETURN QUERY SELECT count(*)::integer,count(*)FILTER(WHERE f.state IN('writing','unknown','closing') OR f.held
+   OR(f.state='purged' AND NOT sovereign.archive_file_has_physical_proof(f)))::integer
    FROM sovereign.imported_archive_files f WHERE f.organization_id=app.current_organization_id();
 END $$;
 REVOKE ALL ON FUNCTION sovereign.archive_file_restore_counts() FROM PUBLIC;

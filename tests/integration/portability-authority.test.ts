@@ -590,8 +590,8 @@ describe('native admitted portability authority', () => {
         ownerMembershipId: p.context.membershipId,
       };
     await withTenantTx(app.db, p.context, (tx) =>
-      tx.execute(sql`insert into studio.agent_drafts(organization_id,id,name,owner_membership_id,classification,answers,created_by_membership_id)
-   values(${p.context.organizationId}::uuid,${id}::uuid,'Generated private draft',${p.context.membershipId}::uuid,'internal',${JSON.stringify(answers)}::jsonb,${p.context.membershipId}::uuid)`),
+      tx.execute(sql`insert into studio.agent_drafts(organization_id,id,name,owner_membership_id,answers,created_by_membership_id)
+   values(${p.context.organizationId}::uuid,${id}::uuid,'Generated private draft',${p.context.membershipId}::uuid,${JSON.stringify(answers)}::jsonb,${p.context.membershipId}::uuid)`),
     );
     const worker = createServiceContext(p.context.organizationId),
       recipient = testRecipient(),

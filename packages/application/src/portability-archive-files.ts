@@ -364,6 +364,12 @@ export function createArchiveQuarantineRecovery(
       let checked = 0,
         changed = 0,
         needsAttention = 0;
+      const [sourceProofs] = await withTenantTx(database, context, tx => queryRows<{ changed: number }>(
+        tx, sql`select sovereign.reconcile_archive_source_proofs() as changed`,
+      ));
+      if (!sourceProofs || !Number.isSafeInteger(sourceProofs.changed) || sourceProofs.changed < 0)
+        throw new Error('RESTORE_METADATA_UNAVAILABLE');
+      changed += sourceProofs.changed;
       let after: { importId: string; sourceArtifactId: string } | null = null;
       for (;;) {
         const page = await withTenantTx(database, context, (tx) =>
