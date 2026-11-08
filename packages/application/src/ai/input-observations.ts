@@ -184,6 +184,7 @@ export function inventoryFromObservations(input: {
     if (
       !['work_unit', 'project', 'client', 'artifact'].includes(row.kind) ||
       !idSchema.safeParse(row.id).success ||
+      !['public', 'internal', 'confidential', 'restricted'].includes(row.classification) ||
       !/^[0-9a-f]{64}$/.test(row.sha256)
     )
       return null;
@@ -202,7 +203,7 @@ export function inventoryFromObservations(input: {
         (row): row is ObservedInput & { kind: 'work_unit' | 'project' | 'client' } =>
           row.kind !== 'artifact',
       )
-      .map(({ kind, id, sha256 }) => ({ kind, id, sha256 })),
+      .map(({ kind, id, sha256, classification }) => ({ kind, id, sha256, classification })),
   };
 }
 

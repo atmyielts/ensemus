@@ -76,6 +76,7 @@ import {
   onApprovalClosedInTx,
 } from './external-actions';
 import { idFromRequest } from './request-id';
+import { heldReviewArtifactIdsInTx } from './work-review-control';
 
 // An outside system's receipt is only offered to a tenant with a connection that could produce one, which
 // createWorkUnit checks. Otherwise the criterion could never be met and the work could never finish.
@@ -574,6 +575,8 @@ function artifactEvidenceFor(workId: SQL | typeof workArtifacts.workUnitId) {
 
 /** The review a Work Unit would need right now: its current text and its current files. */
 export async function currentReviewAction(tx: Tx, work: WorkRow) {
+  const controlled = await heldReviewArtifactIdsInTx(tx, work);
+  if (controlled !== null) return workReviewAction(work, controlled);
   const files = await fileFacts(tx, work.id);
   return workReviewAction(
     work,

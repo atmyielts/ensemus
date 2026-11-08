@@ -423,7 +423,13 @@ describe('exact main attempt inputs and accepted proposal origin (0416)', () => 
     expect(await f.admit('prepare')).toBeNull();
     expect((await f.rows())[0]?.inputInventory).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ kind: 'fact', id: fact.factId, sha256: expectedHash }),
+        expect.objectContaining({
+          kind: 'fact',
+          id: fact.factId,
+          sha256: expectedHash,
+          packageId: compiled.packageId,
+          subjectRef: fact.subjectRef,
+        }),
         expect.objectContaining({
           kind: 'chunk',
           id: source.chunkIds[0],

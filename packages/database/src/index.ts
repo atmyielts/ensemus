@@ -52,6 +52,7 @@ export * from './schema-ai-child-inputs';
 export * from './schema-ai-main-inputs';
 export * from './schema-ai-read-authority';
 export * from './schema-ai-delegated-inputs';
+export * from './schema-artifact-authority';
 export * from './schema-model-jobs';
 export * from './schema-knowledge';
 export * from './schema-artifact-provenance';

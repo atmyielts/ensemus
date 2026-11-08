@@ -792,30 +792,43 @@ describe('tool gateway, as the real roles', () => {
         },
         approvals: {
           ...approvals,
-          request: (...args) => { requested += 1; return approvals.request(...args); },
+          request: (...args) => {
+            requested += 1;
+            return approvals.request(...args);
+          },
         },
         halt: createHaltCheck(),
         store,
       });
-      expect(await ask(gateway, run, 'email.send', {
-        connection_id: connectionId, email: testEmailPayload(),
-      })).toMatchObject({ outcome: 'needs_approval' });
+      expect(
+        await ask(gateway, run, 'email.send', {
+          connection_id: connectionId,
+          email: testEmailPayload(),
+        }),
+      ).toMatchObject({ outcome: 'needs_approval' });
       const beforePayloads = await payloadsOf(a.organizationId, run.runId);
       await moveRun(a.organizationId, run.runId, 'cancelled');
-      store.loadProposal = async () => { throw new Error('TEST_CLOSED_PAYLOAD_READ'); };
+      store.loadProposal = async () => {
+        throw new Error('TEST_CLOSED_PAYLOAD_READ');
+      };
       expect(await gateway.handle(run.agentContext, run.ref(1))).toMatchObject({ outcome: 'done' });
       expect(await gateway.handle(run.agentContext, run.ref(1))).toMatchObject({ outcome: 'done' });
       expect(requested).toBe(1);
       expect(reads).toBe(1);
       await store.withTx(run.agentContext, async (tx) => {
-        expect(await store.readRun(tx, run.agentContext, run.runId, { lock: true }))
-          .toMatchObject({ status: 'cancelled', inputsOpen: false, workStopped: true });
-        expect(await tx.select({ id: workUnits.id }).from(workUnits).where(eq(workUnits.id, unit)))
-          .toEqual([]);
+        expect(await store.readRun(tx, run.agentContext, run.runId, { lock: true })).toMatchObject({
+          status: 'cancelled',
+          inputsOpen: false,
+          workStopped: true,
+        });
+        expect(
+          await tx.select({ id: workUnits.id }).from(workUnits).where(eq(workUnits.id, unit)),
+        ).toEqual([]);
       });
       expect(await payloadsOf(a.organizationId, run.runId)).toEqual(beforePayloads);
       const [proposal] = await withTenantTx(app.db, a.owner, (tx) =>
-        tx.select().from(toolProposals).where(eq(toolProposals.runId, run.runId)));
+        tx.select().from(toolProposals).where(eq(toolProposals.runId, run.runId)),
+      );
       expect(proposal).toMatchObject({ status: 'done', externalActionId: seeded.id });
     });
 

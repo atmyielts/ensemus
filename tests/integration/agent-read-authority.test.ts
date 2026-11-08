@@ -125,7 +125,11 @@ describe('actual read-time authority and rolling admission (0417)', () => {
   const toolStore = () =>
     createToolStepStore({
       database: agent.db,
-      objects: { put: async () => { throw new Error('TEST_UNEXPECTED_PUT'); } },
+      objects: {
+        put: async () => {
+          throw new Error('TEST_UNEXPECTED_PUT');
+        },
+      },
     });
   it('remints the actual scoped tool transaction before its Work inspection and clears it at the transaction boundary', async () => {
     const f = await running(owner, ['work.read', 'data.public.read']);
@@ -136,75 +140,107 @@ describe('actual read-time authority and rolling admission (0417)', () => {
         current_setting('app.agent_authority_protocol',true) authority`);
       expect(before.rows[0]).toEqual({ scope: '', authority: '' });
       expect(await store.readRun(tx, f.context, f.runId, { lock: true })).toMatchObject({
-        status: 'running', inputsOpen: true, workStopped: false,
+        status: 'running',
+        inputsOpen: true,
+        workStopped: false,
       });
       const admitted = await tx.execute<{ scope: string; authority: string }>(sql`select
         current_setting('app.agent_scope_protocol',true) scope,
         current_setting('app.agent_authority_protocol',true) authority`);
       expect(admitted.rows[0]).toEqual({
-        scope: `scoped-v1:${f.runId}`, authority: `authority-v1:${f.runId}`,
+        scope: `scoped-v1:${f.runId}`,
+        authority: `authority-v1:${f.runId}`,
       });
-      expect(await tx.select({ id: workUnits.id }).from(workUnits).where(eq(workUnits.id, f.work.id)))
-        .toEqual([{ id: f.work.id }]);
+      expect(
+        await tx.select({ id: workUnits.id }).from(workUnits).where(eq(workUnits.id, f.work.id)),
+      ).toEqual([{ id: f.work.id }]);
     });
     await store.withTx(f.context, async (tx) => {
-      expect(await tx.select({ id: workUnits.id }).from(workUnits).where(eq(workUnits.id, f.work.id)))
-        .toEqual([]);
+      expect(
+        await tx.select({ id: workUnits.id }).from(workUnits).where(eq(workUnits.id, f.work.id)),
+      ).toEqual([]);
     });
   });
   it('returns metadata-only tool facts after a current class exceeds its immutable ceiling, without leaving admission behind', async () => {
     const f = await running(owner, ['work.read', 'data.public.read']);
-    await withTenantTx(app.db, owner, (tx) => tx.update(workUnits)
-      .set({ classification: 'confidential' }).where(eq(workUnits.id, f.work.id)));
+    await withTenantTx(app.db, owner, (tx) =>
+      tx
+        .update(workUnits)
+        .set({ classification: 'confidential' })
+        .where(eq(workUnits.id, f.work.id)),
+    );
     const store = toolStore();
     await store.withTx(f.context, async (tx) => {
       expect(await store.readRun(tx, f.context, f.runId, { lock: true })).toMatchObject({
-        status: 'running', inputsOpen: false, workStopped: true, allow: null, deny: null,
+        status: 'running',
+        inputsOpen: false,
+        workStopped: true,
+        allow: null,
+        deny: null,
       });
       const state = await tx.execute<{ scope: string; authority: string }>(sql`select
         current_setting('app.agent_scope_protocol',true) scope,
         current_setting('app.agent_authority_protocol',true) authority`);
       expect(state.rows[0]).toEqual({ scope: '', authority: '' });
-      expect(await tx.select({ id: workUnits.id }).from(workUnits).where(eq(workUnits.id, f.work.id)))
-        .toEqual([]);
+      expect(
+        await tx.select({ id: workUnits.id }).from(workUnits).where(eq(workUnits.id, f.work.id)),
+      ).toEqual([]);
     });
   });
   it('keeps terminal tool reconciliation metadata-only even after an earlier admission in the same transaction', async () => {
     const f = await running(owner, ['work.read', 'data.public.read']);
-    await finishRun(agent.db, f.context, { agentRunId: f.runId, status: 'cancelled', stopCode: 'STOPPED_BY_PERSON' });
+    await finishRun(agent.db, f.context, {
+      agentRunId: f.runId,
+      status: 'cancelled',
+      stopCode: 'STOPPED_BY_PERSON',
+    });
     const store = toolStore();
     await store.withTx(f.context, async (tx) => {
       // A previous nested operation cannot lend its version markers to terminal reconciliation.
       await tx.execute(sql`select set_config('app.agent_scope_protocol',${`scoped-v1:${f.runId}`},true),
         set_config('app.agent_authority_protocol',${`authority-v1:${f.runId}`},true)`);
       expect(await store.readRun(tx, f.context, f.runId, { lock: true })).toMatchObject({
-        status: 'cancelled', inputsOpen: false, workStopped: true, allow: null, deny: null,
+        status: 'cancelled',
+        inputsOpen: false,
+        workStopped: true,
+        allow: null,
+        deny: null,
       });
       const state = await tx.execute<{ scope: string; authority: string }>(sql`select
         current_setting('app.agent_scope_protocol',true) scope,
         current_setting('app.agent_authority_protocol',true) authority`);
       expect(state.rows[0]).toEqual({ scope: '', authority: '' });
       // A successful metadata result must leave this Tx usable, without exposing the terminal Work.
-      expect(await tx.select({ id: workUnits.id }).from(workUnits).where(eq(workUnits.id, f.work.id)))
-        .toEqual([]);
+      expect(
+        await tx.select({ id: workUnits.id }).from(workUnits).where(eq(workUnits.id, f.work.id)),
+      ).toEqual([]);
     });
   });
   it('propagates the actual NOWAIT lock error rather than continuing in an aborted tool transaction', async () => {
     const f = await running(owner, ['work.read', 'data.public.read']);
     let signalLocked!: () => void;
     let release!: () => void;
-    const locked = new Promise<void>((resolve) => { signalLocked = resolve; });
-    const released = new Promise<void>((resolve) => { release = resolve; });
+    const locked = new Promise<void>((resolve) => {
+      signalLocked = resolve;
+    });
+    const released = new Promise<void>((resolve) => {
+      release = resolve;
+    });
     const driver = withTenantTx(agent.db, f.context, async (tx) => {
-      await tx.select({ id: agentRuns.id }).from(agentRuns).where(eq(agentRuns.id, f.runId)).for('update');
+      await tx
+        .select({ id: agentRuns.id })
+        .from(agentRuns)
+        .where(eq(agentRuns.id, f.runId))
+        .for('update');
       signalLocked();
       await released;
     });
     try {
       await locked;
       const store = toolStore();
-      await expect(store.withTx(f.context, (tx) => store.readRun(tx, f.context, f.runId, { lock: true })))
-        .rejects.toSatisfy((error: unknown) => pgCode(error) === '55P03');
+      await expect(
+        store.withTx(f.context, (tx) => store.readRun(tx, f.context, f.runId, { lock: true })),
+      ).rejects.toSatisfy((error: unknown) => pgCode(error) === '55P03');
     } finally {
       release();
       await driver;

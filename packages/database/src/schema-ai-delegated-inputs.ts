@@ -15,7 +15,7 @@ import {
   type AnyPgColumn,
 } from 'drizzle-orm/pg-core';
 import { aiSchema, agentRuns, executionSteps, toolProposals } from './schema-ai';
-import { mainInputSnapshots } from './schema-ai-main-inputs';
+import { evidencePackageFacts, mainInputSnapshots } from './schema-ai-main-inputs';
 import { workUnits } from './schema-work';
 
 // Explicit tuple breaks the inference cycle for the two reciprocal birth FKs. SQL makes the
@@ -207,6 +207,7 @@ export const delegatedInputRefs = aiSchema.table(
     sourceId: uuid(),
     documentId: uuid(),
     proofKind: text().notNull(),
+    factPackageId: uuid(),
   },
   (t) => [
     primaryKey({
@@ -218,8 +219,21 @@ export const delegatedInputRefs = aiSchema.table(
       columns: [t.organizationId, t.childRunId],
       foreignColumns: [delegatedInputReceipts.organizationId, delegatedInputReceipts.childRunId],
     }),
+    foreignKey({
+      name: 'delegated_input_refs_fact_receipt_fk',
+      columns: [t.organizationId, t.factPackageId, t.refId],
+      foreignColumns: [
+        evidencePackageFacts.organizationId,
+        evidencePackageFacts.packageId,
+        evidencePackageFacts.factId,
+      ],
+    }),
     index('delegated_input_refs_target_idx').on(t.organizationId, t.refKind, t.refId, t.childRunId),
     index('delegated_input_refs_source_idx').on(t.organizationId, t.sourceId, t.childRunId),
+    check(
+      'delegated_input_refs_fact_origin',
+      sql`(${t.refKind}='fact')=(${t.factPackageId} is not null)`,
+    ),
     check(
       'delegated_input_refs_shape',
       sql`${t.proofKeySha256} ~ '^[0-9a-f]{64}$' and (${t.contentSha256} is null or ${t.contentSha256} ~ '^[0-9a-f]{64}$') and ${t.refKind} in('work_unit','project','client','object_record','artifact','chunk','document','source','fact','evidence_package','model_call') and ${t.classification} in('public','internal','confidential','restricted') and ${t.proofKind} in('actual_content','read_authority','current_authority','model_metadata')`,

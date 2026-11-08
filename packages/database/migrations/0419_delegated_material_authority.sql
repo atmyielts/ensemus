@@ -72,9 +72,11 @@ CREATE TABLE ai.delegated_input_receipts (
 CREATE INDEX delegated_input_receipts_parent_idx ON ai.delegated_input_receipts(organization_id,parent_run_id,child_run_id);
 CREATE TABLE ai.delegated_input_refs (
   organization_id uuid NOT NULL,child_run_id uuid NOT NULL,proof_key_sha256 text NOT NULL,ref_kind text NOT NULL,
-  ref_id uuid NOT NULL,content_sha256 text,classification text NOT NULL,source_id uuid,document_id uuid,proof_kind text NOT NULL,
+  ref_id uuid NOT NULL,content_sha256 text,classification text NOT NULL,source_id uuid,document_id uuid,proof_kind text NOT NULL,fact_package_id uuid,
   CONSTRAINT delegated_input_refs_pk PRIMARY KEY(organization_id,child_run_id,proof_key_sha256),
   CONSTRAINT delegated_input_refs_receipt_fk FOREIGN KEY(organization_id,child_run_id) REFERENCES ai.delegated_input_receipts(organization_id,child_run_id),
+  CONSTRAINT delegated_input_refs_fact_receipt_fk FOREIGN KEY(organization_id,fact_package_id,ref_id) REFERENCES knowledge.evidence_package_facts(organization_id,package_id,fact_id),
+  CONSTRAINT delegated_input_refs_fact_origin CHECK((ref_kind='fact')=(fact_package_id IS NOT NULL)),
   CONSTRAINT delegated_input_refs_shape CHECK(proof_key_sha256 ~ '^[0-9a-f]{64}$' AND(content_sha256 IS NULL OR content_sha256 ~ '^[0-9a-f]{64}$')
     AND ref_kind IN('work_unit','project','client','object_record','artifact','chunk','document','source','fact','evidence_package','model_call')
     AND classification IN('public','internal','confidential','restricted') AND proof_kind IN('actual_content','read_authority','current_authority','model_metadata'))
@@ -123,7 +125,7 @@ CREATE TRIGGER delegated_work_birth_keep BEFORE UPDATE OR DELETE OR TRUNCATE ON 
 -- This normalizes only the supplied ACTUAL frozen server inventory; it grants no body/read/birth
 -- capability. Authority-only entries retain NULL content hashes. Metadata identities are separate.
 CREATE FUNCTION ai.delegated_frozen_refs(p_inventory jsonb)
-RETURNS TABLE(proof_key_sha256 text,ref_kind text,ref_id uuid,content_sha256 text,classification text,source_id uuid,document_id uuid,proof_kind text)
+RETURNS TABLE(proof_key_sha256 text,ref_kind text,ref_id uuid,content_sha256 text,classification text,source_id uuid,document_id uuid,proof_kind text,fact_package_id uuid)
 LANGUAGE plpgsql STABLE SET search_path=pg_catalog AS $$
 DECLARE flat jsonb;r jsonb;
 BEGIN
@@ -140,11 +142,12 @@ BEGIN
   WITH entries AS(
     SELECT jsonb_build_object('kind',CASE WHEN e->>'kind' LIKE 'authority_%' THEN substr(e->>'kind',11) ELSE e->>'kind' END,
       'id',e->>'id','sha256',e->>'sha256','classification',e->>'classification','sourceId',e->>'sourceId','documentId',e->>'documentId',
+      'factPackageId',CASE WHEN e->>'kind'='fact' THEN e->>'packageId' END,
       'proofKind',CASE WHEN e->>'kind'='model_call' THEN 'model_metadata' WHEN e->>'kind'='source' OR e->>'kind' LIKE 'authority_%' THEN 'current_authority' ELSE 'actual_content' END) entry
       FROM jsonb_array_elements(p_inventory) e WHERE e->>'kind' NOT IN('read_authority','inherited_influence')
     UNION SELECT jsonb_build_object('kind',a->>'kind','id',a->>'id','sha256',NULL,'classification',a->>'classification',
       'sourceId',CASE WHEN a->>'kind'='source' THEN a->>'id' ELSE NULL END,
-      'documentId',CASE WHEN a->>'kind'='document' THEN a->>'id' ELSE NULL END,'proofKind','read_authority')
+      'documentId',CASE WHEN a->>'kind'='document' THEN a->>'id' ELSE NULL END,'proofKind','read_authority','factPackageId',NULL)
       FROM jsonb_array_elements(p_inventory) e CROSS JOIN LATERAL jsonb_array_elements(
         CASE WHEN e->>'kind'='read_authority' AND jsonb_typeof(e->'authorityInventory')='array' THEN e->'authorityInventory' ELSE '[]'::jsonb END) a
     UNION SELECT inherited FROM jsonb_array_elements(p_inventory) e CROSS JOIN LATERAL jsonb_array_elements(
@@ -161,12 +164,15 @@ BEGIN
       OR(r->>'proofKind' IN('actual_content','model_metadata') AND r->>'sha256' IS NULL)
       OR r->>'proofKind' IS NULL OR r->>'proofKind' NOT IN('actual_content','read_authority','current_authority','model_metadata')
       OR(r->>'proofKind'='read_authority' AND r->>'sha256' IS NOT NULL)
+      OR((r->>'kind'='fact') IS DISTINCT FROM(r->>'factPackageId' IS NOT NULL))
+      OR(r->>'factPackageId' IS NOT NULL AND r->>'factPackageId' !~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')
       OR(r->>'sourceId' IS NOT NULL AND r->>'sourceId' !~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')
       OR(r->>'documentId' IS NOT NULL AND r->>'documentId' !~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$') THEN
       RAISE EXCEPTION 'DELEGATION_FROZEN_INPUT_INVALID' USING ERRCODE='EN119';END IF;
     proof_key_sha256:=encode(sha256(convert_to(r::text,'UTF8')),'hex');
     ref_kind:=r->>'kind';ref_id:=(r->>'id')::uuid;content_sha256:=r->>'sha256';classification:=r->>'classification';
     source_id:=(r->>'sourceId')::uuid;document_id:=(r->>'documentId')::uuid;proof_kind:=r->>'proofKind';
+    fact_package_id:=(r->>'factPackageId')::uuid;
     RETURN NEXT;
   END LOOP;
 END $$;
@@ -241,7 +247,9 @@ BEGIN
   IF p_viewer IS NULL OR NOT EXISTS(SELECT 1 FROM org.memberships viewer WHERE viewer.organization_id=app.current_organization_id()
     AND viewer.id=p_viewer AND viewer.status='active') THEN RETURN NULL;END IF;
   IF p_kind IN('work_unit','project','client','object_record') THEN
-    IF NOT knowledge.structured_record_readable(p_kind,p_id,p_viewer) THEN RETURN NULL;END IF;
+    IF p_kind='work_unit' THEN
+      IF NOT knowledge.work_own_scope_readable_0419(p_id,p_viewer) THEN RETURN NULL;END IF;
+    ELSIF NOT knowledge.structured_record_readable(p_kind,p_id,p_viewer) THEN RETURN NULL;END IF;
     current_class:=knowledge.structured_record_class(p_kind,p_id);
   ELSIF p_kind='artifact' THEN
     SELECT catalog.classification INTO current_class FROM knowledge.artifact_acl_catalog catalog
@@ -306,7 +314,7 @@ GRANT EXECUTE ON FUNCTION ai.frozen_ref_current_class(text,uuid,text,uuid,uuid,u
 -- control/checkpoint/run locks stay with the existing body->run kernel and its final birth guard.
 CREATE FUNCTION ai.lock_frozen_input_refs(p_inventory jsonb,p_viewer uuid) RETURNS text
 LANGUAGE plpgsql SET search_path=pg_catalog AS $$
-DECLARE frozen record;observed text;floor_rank integer:=0;
+DECLARE frozen record;observed text;floor_rank integer:=0;result_class text;
 BEGIN
   FOR frozen IN SELECT source_row.id FROM knowledge.sources source_row WHERE source_row.organization_id=app.current_organization_id()
     AND source_row.id IN(SELECT input.ref_id FROM ai.delegated_frozen_refs(p_inventory) input WHERE input.ref_kind='source'
@@ -324,15 +332,19 @@ BEGIN
     ORDER BY ordered.ref_kind COLLATE "C",ordered.ref_id LOOP
     IF NOT knowledge.lock_structured_record(frozen.ref_kind,frozen.ref_id) THEN RETURN NULL;END IF;
   END LOOP;
-  FOR frozen IN SELECT fact_row.id FROM knowledge.facts fact_row WHERE fact_row.organization_id=app.current_organization_id()
-    AND fact_row.id IN(SELECT input.ref_id FROM ai.delegated_frozen_refs(p_inventory) input WHERE input.ref_kind='fact')
-    ORDER BY fact_row.id FOR SHARE NOWAIT LOOP NULL;END LOOP;
   FOR frozen IN SELECT input.* FROM ai.delegated_frozen_refs(p_inventory) input LOOP
-    observed:=ai.frozen_ref_current_class(frozen.ref_kind,frozen.ref_id,frozen.content_sha256,frozen.source_id,frozen.document_id,p_viewer);
+    IF frozen.ref_kind='fact' THEN
+      IF NOT knowledge.fact_authority_receipt_live(frozen.fact_package_id,frozen.ref_id,frozen.content_sha256,'restricted') THEN RETURN NULL;END IF;
+      SELECT original.classification INTO observed FROM knowledge.evidence_package_facts original
+        WHERE original.organization_id=app.current_organization_id() AND original.package_id=frozen.fact_package_id
+          AND original.fact_id=frozen.ref_id AND original.content_sha256=frozen.content_sha256;
+    ELSE observed:=ai.frozen_ref_current_class(frozen.ref_kind,frozen.ref_id,frozen.content_sha256,frozen.source_id,frozen.document_id,p_viewer);END IF;
     IF observed IS NULL THEN RETURN NULL;END IF;
     floor_rank:=greatest(floor_rank,knowledge.class_rank(observed),knowledge.class_rank(frozen.classification));
   END LOOP;
-  RETURN CASE floor_rank WHEN 3 THEN 'restricted' WHEN 2 THEN 'confidential' WHEN 1 THEN 'internal' ELSE 'public' END;
+  result_class:=CASE floor_rank WHEN 3 THEN 'restricted' WHEN 2 THEN 'confidential' WHEN 1 THEN 'internal' ELSE 'public' END;
+  IF NOT knowledge.retained_input_scope_readable(p_inventory,p_viewer,result_class) THEN RETURN NULL;END IF;
+  RETURN result_class;
 EXCEPTION WHEN lock_not_available THEN
   RAISE EXCEPTION 'DELEGATION_INPUT_BUSY' USING ERRCODE='55P03';
 END $$;
@@ -509,8 +521,8 @@ BEGIN
   ELSE
     SELECT * INTO receipt FROM ai.delegated_input_receipts WHERE organization_id=NEW.organization_id AND child_run_id=NEW.child_run_id;
     IF NOT FOUND OR NOT EXISTS(SELECT 1 FROM ai.delegated_frozen_refs(receipt.input_inventory) frozen
-      WHERE ROW(NEW.proof_key_sha256,NEW.ref_kind,NEW.ref_id,NEW.content_sha256,NEW.classification,NEW.source_id,NEW.document_id,NEW.proof_kind)
-        IS NOT DISTINCT FROM ROW(frozen.proof_key_sha256,frozen.ref_kind,frozen.ref_id,frozen.content_sha256,frozen.classification,frozen.source_id,frozen.document_id,frozen.proof_kind)) THEN
+      WHERE ROW(NEW.proof_key_sha256,NEW.ref_kind,NEW.ref_id,NEW.content_sha256,NEW.classification,NEW.source_id,NEW.document_id,NEW.proof_kind,NEW.fact_package_id)
+        IS NOT DISTINCT FROM ROW(frozen.proof_key_sha256,frozen.ref_kind,frozen.ref_id,frozen.content_sha256,frozen.classification,frozen.source_id,frozen.document_id,frozen.proof_kind,frozen.fact_package_id)) THEN
       RAISE EXCEPTION 'DELEGATED_BIRTH_REF_MISMATCH' USING ERRCODE='EN119';END IF;
   END IF;
   RETURN NEW;
@@ -533,7 +545,7 @@ BEGIN
       WHERE parent.organization_id=NEW.organization_id AND parent.child_run_id=NEW.parent_run_id AND parent.redacted_at IS NULL),
     NEW.work_unit_id,birth.proposal_id,birth.snapshot_id,birth.original_step_id,birth.original_attempt,birth.tool_step_number,
     birth.request_sha256,birth.proposal_payload_sha256,birth.birth_content_sha256,birth.input_inventory,birth.inventory_sha256,NEW.effective_classification,NEW.created_at);
-  INSERT INTO ai.delegated_input_refs(organization_id,child_run_id,proof_key_sha256,ref_kind,ref_id,content_sha256,classification,source_id,document_id,proof_kind)
+  INSERT INTO ai.delegated_input_refs(organization_id,child_run_id,proof_key_sha256,ref_kind,ref_id,content_sha256,classification,source_id,document_id,proof_kind,fact_package_id)
     SELECT NEW.organization_id,NEW.id,frozen.* FROM ai.delegated_frozen_refs(birth.input_inventory) frozen;
   RETURN NEW;
 END $$;
@@ -663,7 +675,11 @@ BEGIN
     FROM ai.run_read_authorities a WHERE a.organization_id=app.current_organization_id() AND a.run_id=p_run;
   IF receipt_count>1000 OR receipt_bytes>1048576 THEN RAISE EXCEPTION 'MAIN_READ_AUTHORITY_LIMIT' USING ERRCODE='EN119';END IF;
   WITH entries AS(
-    SELECT value entry FROM jsonb_array_elements(ai.main_input_base_inventory_0417(p_run))
+    SELECT value entry FROM jsonb_array_elements(ai.main_input_base_inventory_0417(p_run)) WHERE value->>'kind'<>'fact'
+    UNION SELECT jsonb_build_object('kind','fact','id',fact.fact_id,'sha256',fact.content_sha256,'classification',fact.classification,
+      'packageId',fact.package_id,'subjectRef',fact.subject_ref)
+      FROM knowledge.evidence_package_facts fact WHERE fact.organization_id=app.current_organization_id()
+        AND fact.package_id IN(SELECT(entry->>'id')::uuid FROM jsonb_array_elements(ai.main_input_base_inventory_0417(p_run)) entry WHERE entry->>'kind'='evidence_package')
     UNION SELECT jsonb_build_object('kind','source','id',split_part(fact.subject_ref,':',2)::uuid,'sha256',NULL,
       'classification',fact.classification,'sourceId',split_part(fact.subject_ref,':',2)::uuid,'documentId',NULL::uuid)
       FROM knowledge.evidence_package_facts fact WHERE fact.organization_id=app.current_organization_id() AND fact.subject_ref LIKE 'knowledge_source:%'
@@ -680,7 +696,7 @@ BEGIN
     UNION SELECT jsonb_build_object('kind','inherited_influence','id',receipt.child_run_id,'sha256',receipt.inventory_sha256,
       'classification',receipt.classification,'workUnitId',receipt.child_work_unit_id,'birthContentSha256',receipt.birth_content_sha256,
       'influenceRefs',(SELECT jsonb_agg(jsonb_build_object('kind',ref.ref_kind,'id',ref.ref_id,'sha256',ref.content_sha256,
-        'classification',ref.classification,'sourceId',ref.source_id,'documentId',ref.document_id,'proofKind',ref.proof_kind)
+        'classification',ref.classification,'sourceId',ref.source_id,'documentId',ref.document_id,'proofKind',ref.proof_kind,'factPackageId',ref.fact_package_id)
         ORDER BY ref.proof_key_sha256 COLLATE "C") FROM ai.delegated_input_refs ref
           WHERE ref.organization_id=receipt.organization_id AND ref.child_run_id=receipt.child_run_id))
       FROM ai.delegated_input_receipts receipt WHERE receipt.organization_id=app.current_organization_id()
@@ -814,3 +830,577 @@ CREATE POLICY derived_company_source_scope ON work.artifacts AS RESTRICTIVE FOR 
       OR ai.run_authority_read_admitted(nullif(current_setting('app.agent_run_id',true),'')::uuid))
     AND ai.prospective_input_scope_allows('artifact',artifacts.id,NULL,nullif(current_setting('app.agent_run_id',true),'')::uuid)
     ELSE true END);
+--> statement-breakpoint
+-- A generated file retains its own genuine pre-put prefix. The proof is not reconstructed later
+-- from current Work parents or a now-empty run, and its exact writer identity cannot be replaced.
+CREATE TABLE knowledge.artifact_authority_receipts (
+  organization_id uuid NOT NULL,artifact_id uuid NOT NULL,work_unit_id uuid NOT NULL,run_id uuid,viewer_membership_id uuid,
+  protocol_version text NOT NULL,write_id uuid NOT NULL,generation bigint NOT NULL,artifact_sha256 text NOT NULL,
+  classification text NOT NULL,input_inventory jsonb NOT NULL,inventory_sha256 text NOT NULL,captured_at timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT artifact_authority_receipts_pk PRIMARY KEY(organization_id,artifact_id),
+  CONSTRAINT artifact_authority_receipts_artifact_fk FOREIGN KEY(organization_id,artifact_id) REFERENCES knowledge.artifact_lineage(organization_id,artifact_id),
+  CONSTRAINT artifact_authority_receipts_work_fk FOREIGN KEY(organization_id,work_unit_id) REFERENCES work.work_units(organization_id,id),
+  CONSTRAINT artifact_authority_receipts_run_fk FOREIGN KEY(organization_id,run_id) REFERENCES ai.agent_runs(organization_id,id),
+  CONSTRAINT artifact_authority_receipts_protocol CHECK((protocol_version='authority-v1' AND run_id IS NOT NULL AND viewer_membership_id IS NOT NULL)
+    OR(protocol_version='system-template-v1' AND run_id IS NULL AND viewer_membership_id IS NULL)),
+  CONSTRAINT artifact_authority_receipts_identity CHECK(generation>0 AND artifact_sha256 ~ '^[0-9a-f]{64}$' AND inventory_sha256 ~ '^[0-9a-f]{64}$' AND classification IN('public','internal','confidential','restricted')),
+  CONSTRAINT artifact_authority_receipts_inventory CHECK(jsonb_typeof(input_inventory)='array' AND jsonb_array_length(input_inventory) BETWEEN 1 AND 1000 AND octet_length(input_inventory::text)<=1048576)
+);
+CREATE TABLE knowledge.artifact_authority_refs (
+  organization_id uuid NOT NULL,artifact_id uuid NOT NULL,proof_key_sha256 text NOT NULL,ref_kind text NOT NULL,ref_id uuid NOT NULL,
+  content_sha256 text,classification text NOT NULL,source_id uuid,document_id uuid,proof_kind text NOT NULL,fact_package_id uuid,
+  CONSTRAINT artifact_authority_refs_pk PRIMARY KEY(organization_id,artifact_id,proof_key_sha256),
+  CONSTRAINT artifact_authority_refs_receipt_fk FOREIGN KEY(organization_id,artifact_id) REFERENCES knowledge.artifact_authority_receipts(organization_id,artifact_id),
+  CONSTRAINT artifact_authority_refs_fact_receipt_fk FOREIGN KEY(organization_id,fact_package_id,ref_id) REFERENCES knowledge.evidence_package_facts(organization_id,package_id,fact_id),
+  CONSTRAINT artifact_authority_refs_fact_origin CHECK((ref_kind='fact')=(fact_package_id IS NOT NULL)),
+  CONSTRAINT artifact_authority_refs_shape CHECK(proof_key_sha256 ~ '^[0-9a-f]{64}$' AND(content_sha256 IS NULL OR content_sha256 ~ '^[0-9a-f]{64}$')
+    AND ref_kind IN('work_unit','project','client','object_record','artifact','chunk','document','source','fact','evidence_package','model_call')
+    AND classification IN('public','internal','confidential','restricted') AND proof_kind IN('actual_content','read_authority','current_authority','model_metadata')
+    AND(proof_kind NOT IN('actual_content','model_metadata') OR content_sha256 IS NOT NULL) AND(proof_kind<>'read_authority' OR content_sha256 IS NULL))
+);
+CREATE INDEX artifact_authority_refs_source_idx ON knowledge.artifact_authority_refs(organization_id,source_id,artifact_id);
+CREATE INDEX artifact_authority_refs_target_idx ON knowledge.artifact_authority_refs(organization_id,ref_kind,ref_id,artifact_id);
+ALTER TABLE knowledge.artifact_authority_receipts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE knowledge.artifact_authority_receipts FORCE ROW LEVEL SECURITY;
+ALTER TABLE knowledge.artifact_authority_refs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE knowledge.artifact_authority_refs FORCE ROW LEVEL SECURITY;
+CREATE POLICY artifact_authority_metadata ON knowledge.artifact_authority_receipts FOR SELECT TO ensemus_app USING(organization_id=app.current_organization_id());
+CREATE POLICY artifact_authority_ref_metadata ON knowledge.artifact_authority_refs FOR SELECT TO ensemus_app USING(organization_id=app.current_organization_id());
+GRANT SELECT ON knowledge.artifact_authority_receipts,knowledge.artifact_authority_refs TO ensemus_app;
+CREATE TRIGGER artifact_authority_receipt_keep BEFORE UPDATE OR DELETE OR TRUNCATE ON knowledge.artifact_authority_receipts FOR EACH STATEMENT EXECUTE FUNCTION app.reject_change();
+CREATE TRIGGER artifact_authority_refs_keep BEFORE UPDATE OR DELETE OR TRUNCATE ON knowledge.artifact_authority_refs FOR EACH STATEMENT EXECUTE FUNCTION app.reject_change();
+--> statement-breakpoint
+-- Pure tenant metadata/normalization helpers; app already reads these catalogs. No body, marker or
+-- read capability is added. Actual system output uses a distinct known-template protocol below.
+GRANT EXECUTE ON FUNCTION ai.delegated_frozen_refs(jsonb),ai.structured_read_authorities(text,uuid),ai.current_read_authority_inventory(text,uuid,uuid) TO ensemus_app;
+CREATE FUNCTION knowledge.known_checklist_authority(p_artifact uuid) RETURNS jsonb
+LANGUAGE plpgsql STABLE SET search_path=pg_catalog AS $$
+DECLARE header knowledge.artifact_lineage;body_work record;criterion jsonb;rendered text;criteria_lines text;criteria_json text;
+  record_hash text;authority jsonb;authority_hash text;protection text;
+BEGIN
+  IF current_user<>'ensemus_app' OR session_user<>'ensemus_app' OR NOT knowledge.is_service_actor() THEN RETURN NULL;END IF;
+  SELECT * INTO header FROM knowledge.artifact_lineage actual WHERE actual.organization_id=app.current_organization_id() AND actual.artifact_id=p_artifact;
+  IF NOT FOUND OR header.execution_kind<>'system' OR header.executor_ref<>'ensemus/completion-checklist/v1'
+    OR header.execution_id IS NULL OR header.work_unit_id IS NULL THEN RETURN NULL;END IF;
+  -- Existing caller RLS applies. A service cannot use this function to obtain arbitrary Work bodies;
+  -- only the exact enum/ID template digest leaves it. Unproven child Work remains unavailable.
+  SELECT work.id,work.completion_criteria INTO body_work FROM work.work_units work
+    WHERE work.organization_id=header.organization_id AND work.id=header.work_unit_id AND work.status='running' AND work.run_id=header.execution_id::text;
+  IF NOT FOUND OR jsonb_typeof(body_work.completion_criteria) IS DISTINCT FROM 'array' THEN RETURN NULL;END IF;
+  IF jsonb_array_length(body_work.completion_criteria)>1000 THEN RETURN NULL;END IF;
+  FOR criterion IN SELECT value FROM jsonb_array_elements(body_work.completion_criteria) LOOP
+    IF jsonb_typeof(criterion) IS DISTINCT FROM 'object' OR criterion->>'kind' IS NULL
+      OR criterion->>'kind' NOT IN('artifact_exists','reviewer_approved','external_receipt')
+      OR criterion IS DISTINCT FROM jsonb_build_object('kind',criterion->>'kind') THEN RETURN NULL;END IF;
+  END LOOP;
+  SELECT string_agg('- [ ] '||CASE value->>'kind'
+      WHEN 'artifact_exists' THEN 'Someone attaches the file that shows the result.'
+      WHEN 'reviewer_approved' THEN 'A reviewer approves this work as it stands.'
+      WHEN 'external_receipt' THEN 'The outside system confirms it happened.' END,E'\n' ORDER BY ordinal),
+    string_agg('{"kind":'||to_json(value->>'kind')::text||'}',',' ORDER BY ordinal)
+    INTO criteria_lines,criteria_json FROM jsonb_array_elements(body_work.completion_criteria) WITH ORDINALITY entries(value,ordinal);
+  rendered:='# Completion checklist'||E'\n\n'
+    ||'Ensemus wrote this list. It has not checked any of this, and this file is not evidence.'||E'\n'
+    ||'A person decides when this work is done.'||E'\n\nWork: '||body_work.id::text||E'\n\n'
+    ||coalesce(criteria_lines,'- [ ] The accountable owner confirms the outcome. No evidence was asked for.')||E'\n';
+  IF header.artifact_sha256 IS DISTINCT FROM encode(sha256(convert_to(rendered,'UTF8')),'hex') OR header.size_bytes<>octet_length(rendered) THEN RETURN NULL;END IF;
+  record_hash:=encode(sha256(convert_to('{"completionCriteria":['||coalesce(criteria_json,'')||'],"id":'||to_json(body_work.id::text)::text||'}','UTF8')),'hex');
+  IF EXISTS(SELECT 1 FROM knowledge.artifact_lineage_inputs input WHERE input.organization_id=header.organization_id AND input.artifact_id=header.artifact_id)
+    OR EXISTS(SELECT 1 FROM knowledge.artifact_lineage_packages package WHERE package.organization_id=header.organization_id AND package.artifact_id=header.artifact_id)
+    OR EXISTS(SELECT 1 FROM knowledge.artifact_lineage_sources source WHERE source.organization_id=header.organization_id AND source.artifact_id=header.artifact_id) THEN RETURN NULL;END IF;
+  protection:=knowledge.structured_record_class('work_unit',header.work_unit_id);
+  authority:=ai.current_read_authority_inventory('work_unit',header.work_unit_id,NULL);
+  IF protection IS NULL OR authority IS NULL OR jsonb_array_length(authority) NOT BETWEEN 1 AND 1000 THEN RETURN NULL;END IF;
+  authority_hash:=encode(sha256(convert_to(authority::text,'UTF8')),'hex');
+  RETURN jsonb_build_array(jsonb_build_object('kind','work_unit','id',header.work_unit_id,'sha256',record_hash,'classification',protection),
+    jsonb_build_object('kind','read_authority','id',header.work_unit_id,'sha256',authority_hash,'classification',protection,
+      'inputKind','work_unit','inputSha256',record_hash,'authorityInventory',authority));
+END $$;
+REVOKE ALL ON FUNCTION knowledge.known_checklist_authority(uuid) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION knowledge.known_checklist_authority(uuid) TO ensemus_app;
+CREATE FUNCTION knowledge.current_artifact_authority_inventory(p_artifact uuid) RETURNS jsonb
+LANGUAGE plpgsql STABLE SET search_path=pg_catalog AS $$
+DECLARE header knowledge.artifact_lineage;inventory jsonb;
+BEGIN
+  SELECT * INTO header FROM knowledge.artifact_lineage actual WHERE actual.organization_id=app.current_organization_id() AND actual.artifact_id=p_artifact;
+  IF NOT FOUND OR header.state<>'pending' OR header.write_state<>'active' OR NOT header.inventory_complete OR NOT header.structured_inventory_complete
+    OR header.physical_purged_at IS NOT NULL OR header.held THEN RETURN NULL;END IF;
+  IF header.execution_kind='agent_run' THEN
+    IF current_user<>'ensemus_agent' OR session_user<>'ensemus_agent' OR app.current_actor_type() IS DISTINCT FROM 'agent'
+      OR header.execution_id::text IS DISTINCT FROM current_setting('app.agent_run_id',true) OR header.viewer_membership_id IS DISTINCT FROM app.current_membership_id()
+      OR ai.run_authority_protocol_version(header.execution_id) IS DISTINCT FROM 'authority-v1' OR NOT ai.run_authority_read_admitted(header.execution_id)
+      OR NOT ai.run_authority_ready(header.execution_id,header.viewer_membership_id) OR NOT EXISTS(SELECT 1 FROM ai.agent_runs run
+        WHERE run.organization_id=header.organization_id AND run.id=header.execution_id AND run.work_unit_id=header.work_unit_id AND run.initiator_membership_id=header.viewer_membership_id) THEN RETURN NULL;END IF;
+    inventory:=ai.current_main_input_inventory(header.execution_id);
+    IF NOT EXISTS(SELECT 1 FROM jsonb_array_elements(inventory) input WHERE input->>'kind'='read_authority'
+      AND input->>'inputKind'='work_unit' AND input->>'id'=header.work_unit_id::text) THEN RETURN NULL;END IF;
+  ELSIF header.execution_kind='system' THEN inventory:=knowledge.known_checklist_authority(p_artifact);
+  ELSE RETURN NULL;END IF;
+  IF inventory IS NULL OR jsonb_array_length(inventory) NOT BETWEEN 1 AND 1000 OR octet_length(inventory::text)>1048576 THEN RETURN NULL;END IF;
+  IF EXISTS(SELECT 1 FROM ai.delegated_frozen_refs(inventory) ref WHERE knowledge.class_rank(ref.classification)>knowledge.class_rank(header.classification)) THEN RETURN NULL;END IF;
+  RETURN inventory;
+END $$;
+REVOKE ALL ON FUNCTION knowledge.current_artifact_authority_inventory(uuid) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION knowledge.current_artifact_authority_inventory(uuid) TO ensemus_app;
+--> statement-breakpoint
+CREATE POLICY artifact_authority_actual_append ON knowledge.artifact_authority_receipts FOR INSERT TO ensemus_app
+  WITH CHECK(organization_id=app.current_organization_id() AND pg_trigger_depth()=1 AND app.current_actor_type() IN('agent','service'));
+CREATE POLICY artifact_authority_ref_actual_append ON knowledge.artifact_authority_refs FOR INSERT TO ensemus_app
+  WITH CHECK(organization_id=app.current_organization_id() AND pg_trigger_depth()=1 AND app.current_actor_type() IN('agent','service'));
+GRANT INSERT ON knowledge.artifact_authority_receipts,knowledge.artifact_authority_refs TO ensemus_app;
+CREATE FUNCTION knowledge.guard_artifact_authority_append() RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog AS $$
+DECLARE header knowledge.artifact_lineage;receipt knowledge.artifact_authority_receipts;inventory jsonb;current_class text;ref record;
+BEGIN
+  IF TG_RELID NOT IN('knowledge.artifact_authority_receipts'::regclass,'knowledge.artifact_authority_refs'::regclass) OR TG_OP<>'INSERT'
+    OR NEW.organization_id IS DISTINCT FROM app.current_organization_id() OR pg_trigger_depth()<>2 THEN
+    RAISE EXCEPTION 'ARTIFACT_AUTHORITY_APPEND_DENIED' USING ERRCODE='42501';END IF;
+  IF TG_RELID='knowledge.artifact_authority_receipts'::regclass THEN
+    SELECT * INTO header FROM knowledge.artifact_lineage actual WHERE actual.organization_id=NEW.organization_id AND actual.artifact_id=NEW.artifact_id;
+    inventory:=knowledge.current_artifact_authority_inventory(NEW.artifact_id);
+    IF header.artifact_id IS NULL OR inventory IS NULL OR ROW(NEW.work_unit_id,NEW.run_id,NEW.viewer_membership_id,NEW.protocol_version,
+      NEW.write_id,NEW.generation,NEW.artifact_sha256,NEW.classification,NEW.input_inventory,NEW.inventory_sha256)
+      IS DISTINCT FROM ROW(header.work_unit_id,CASE WHEN header.execution_kind='agent_run' THEN header.execution_id END,header.viewer_membership_id,
+      CASE WHEN header.execution_kind='agent_run' THEN 'authority-v1' ELSE 'system-template-v1' END,
+      header.write_id,header.generation,header.artifact_sha256,header.classification,inventory,encode(sha256(convert_to(inventory::text,'UTF8')),'hex')) THEN
+      RAISE EXCEPTION 'ARTIFACT_AUTHORITY_INPUT_UNPROVEN' USING ERRCODE='EN119';END IF;
+    IF NEW.protocol_version='authority-v1' THEN
+      current_class:=ai.lock_frozen_input_refs(inventory,header.viewer_membership_id);
+      IF current_class IS NULL OR knowledge.class_rank(current_class)>knowledge.class_rank(header.classification) THEN
+        RAISE EXCEPTION 'ARTIFACT_AUTHORITY_INPUT_UNPROVEN' USING ERRCODE='EN119';END IF;
+    ELSE
+      FOR ref IN SELECT frozen.* FROM ai.delegated_frozen_refs(inventory) frozen LOOP
+        IF ref.ref_kind NOT IN('work_unit','project','client') OR NOT knowledge.lock_structured_record(ref.ref_kind,ref.ref_id)
+          OR knowledge.structured_record_class(ref.ref_kind,ref.ref_id) IS NULL
+          OR knowledge.class_rank(knowledge.structured_record_class(ref.ref_kind,ref.ref_id))>knowledge.class_rank(header.classification) THEN
+          RAISE EXCEPTION 'ARTIFACT_TEMPLATE_INPUT_UNPROVEN' USING ERRCODE='EN119';END IF;
+      END LOOP;
+    END IF;
+    NEW.captured_at:=clock_timestamp();
+  ELSE
+    SELECT * INTO receipt FROM knowledge.artifact_authority_receipts actual WHERE actual.organization_id=NEW.organization_id AND actual.artifact_id=NEW.artifact_id;
+    IF NOT FOUND OR NOT EXISTS(SELECT 1 FROM ai.delegated_frozen_refs(receipt.input_inventory) frozen
+      WHERE ROW(NEW.proof_key_sha256,NEW.ref_kind,NEW.ref_id,NEW.content_sha256,NEW.classification,NEW.source_id,NEW.document_id,NEW.proof_kind,NEW.fact_package_id)
+        IS NOT DISTINCT FROM ROW(frozen.proof_key_sha256,frozen.ref_kind,frozen.ref_id,frozen.content_sha256,frozen.classification,frozen.source_id,frozen.document_id,frozen.proof_kind,frozen.fact_package_id)) THEN
+      RAISE EXCEPTION 'ARTIFACT_AUTHORITY_REF_UNPROVEN' USING ERRCODE='EN119';END IF;
+  END IF;
+  RETURN NEW;
+END $$;
+REVOKE ALL ON FUNCTION knowledge.guard_artifact_authority_append() FROM PUBLIC;
+CREATE TRIGGER artifact_authority_receipt_append BEFORE INSERT ON knowledge.artifact_authority_receipts FOR EACH ROW EXECUTE FUNCTION knowledge.guard_artifact_authority_append();
+CREATE TRIGGER artifact_authority_ref_append BEFORE INSERT ON knowledge.artifact_authority_refs FOR EACH ROW EXECUTE FUNCTION knowledge.guard_artifact_authority_append();
+CREATE FUNCTION knowledge.capture_artifact_authority_birth() RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog AS $$
+DECLARE inventory jsonb;
+BEGIN
+  IF TG_RELID<>'knowledge.artifact_lineage'::regclass OR TG_OP<>'INSERT' OR NEW.organization_id IS DISTINCT FROM app.current_organization_id() THEN
+    RAISE EXCEPTION 'ARTIFACT_AUTHORITY_BIRTH_TARGET' USING ERRCODE='42501';END IF;
+  IF NEW.execution_kind='manual' THEN RETURN NEW;END IF;
+  inventory:=knowledge.current_artifact_authority_inventory(NEW.artifact_id);
+  IF inventory IS NULL THEN RAISE EXCEPTION 'ARTIFACT_AUTHORITY_INPUT_UNPROVEN' USING ERRCODE='EN119';END IF;
+  INSERT INTO knowledge.artifact_authority_receipts(organization_id,artifact_id,work_unit_id,run_id,viewer_membership_id,protocol_version,
+    write_id,generation,artifact_sha256,classification,input_inventory,inventory_sha256)
+  VALUES(NEW.organization_id,NEW.artifact_id,NEW.work_unit_id,CASE WHEN NEW.execution_kind='agent_run' THEN NEW.execution_id END,
+    NEW.viewer_membership_id,CASE WHEN NEW.execution_kind='agent_run' THEN 'authority-v1' ELSE 'system-template-v1' END,
+    NEW.write_id,NEW.generation,NEW.artifact_sha256,NEW.classification,inventory,encode(sha256(convert_to(inventory::text,'UTF8')),'hex'));
+  INSERT INTO knowledge.artifact_authority_refs(organization_id,artifact_id,proof_key_sha256,ref_kind,ref_id,content_sha256,classification,source_id,document_id,proof_kind,fact_package_id)
+    SELECT NEW.organization_id,NEW.artifact_id,frozen.* FROM ai.delegated_frozen_refs(inventory) frozen;
+  RETURN NEW;
+END $$;
+REVOKE ALL ON FUNCTION knowledge.capture_artifact_authority_birth() FROM PUBLIC;
+CREATE TRIGGER zz_artifact_authority_actual_birth AFTER INSERT ON knowledge.artifact_lineage FOR EACH ROW EXECUTE FUNCTION knowledge.capture_artifact_authority_birth();
+CREATE FUNCTION knowledge.artifact_authority_complete(p_artifact uuid) RETURNS boolean LANGUAGE sql STABLE SET search_path=pg_catalog AS $$
+  SELECT coalesce(EXISTS(SELECT 1 FROM knowledge.artifact_authority_receipts receipt JOIN knowledge.artifact_lineage header
+    ON header.organization_id=receipt.organization_id AND header.artifact_id=receipt.artifact_id
+    WHERE receipt.organization_id=app.current_organization_id() AND receipt.artifact_id=p_artifact
+      AND ROW(receipt.work_unit_id,receipt.run_id,receipt.viewer_membership_id,receipt.write_id,receipt.generation,receipt.artifact_sha256,receipt.classification)
+        IS NOT DISTINCT FROM ROW(header.work_unit_id,CASE WHEN header.execution_kind='agent_run' THEN header.execution_id END,header.viewer_membership_id,
+          header.write_id,header.generation,header.artifact_sha256,header.classification)
+      AND((header.execution_kind='agent_run' AND receipt.protocol_version='authority-v1') OR(header.execution_kind='system' AND receipt.protocol_version='system-template-v1'))
+      AND receipt.inventory_sha256=encode(sha256(convert_to(receipt.input_inventory::text,'UTF8')),'hex')
+      AND NOT EXISTS(SELECT proof_key_sha256,ref_kind,ref_id,content_sha256,classification,source_id,document_id,proof_kind,fact_package_id FROM ai.delegated_frozen_refs(receipt.input_inventory)
+        EXCEPT SELECT ref.proof_key_sha256,ref.ref_kind,ref.ref_id,ref.content_sha256,ref.classification,ref.source_id,ref.document_id,ref.proof_kind,ref.fact_package_id
+          FROM knowledge.artifact_authority_refs ref WHERE ref.organization_id=receipt.organization_id AND ref.artifact_id=receipt.artifact_id)
+      AND NOT EXISTS(SELECT ref.proof_key_sha256,ref.ref_kind,ref.ref_id,ref.content_sha256,ref.classification,ref.source_id,ref.document_id,ref.proof_kind,ref.fact_package_id
+          FROM knowledge.artifact_authority_refs ref WHERE ref.organization_id=receipt.organization_id AND ref.artifact_id=receipt.artifact_id
+        EXCEPT SELECT proof_key_sha256,ref_kind,ref_id,content_sha256,classification,source_id,document_id,proof_kind,fact_package_id FROM ai.delegated_frozen_refs(receipt.input_inventory))),false)
+$$;
+REVOKE ALL ON FUNCTION knowledge.artifact_authority_complete(uuid) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION knowledge.artifact_authority_complete(uuid) TO ensemus_app;
+CREATE FUNCTION knowledge.require_artifact_authority_complete() RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog AS $$
+BEGIN
+  IF TG_RELID<>'knowledge.artifact_lineage'::regclass OR TG_OP<>'INSERT' THEN RAISE EXCEPTION 'ARTIFACT_AUTHORITY_COMPLETENESS_TARGET' USING ERRCODE='42501';END IF;
+  IF NEW.execution_kind IN('agent_run','system') AND NOT knowledge.artifact_authority_complete(NEW.artifact_id) THEN
+    RAISE EXCEPTION 'ARTIFACT_AUTHORITY_INCOMPLETE' USING ERRCODE='EN119';END IF;
+  RETURN NEW;
+END $$;
+REVOKE ALL ON FUNCTION knowledge.require_artifact_authority_complete() FROM PUBLIC;
+CREATE CONSTRAINT TRIGGER artifact_authority_complete_at_birth AFTER INSERT ON knowledge.artifact_lineage DEFERRABLE INITIALLY DEFERRED
+  FOR EACH ROW EXECUTE FUNCTION knowledge.require_artifact_authority_complete();
+--> statement-breakpoint
+-- Internal exact-row metadata seam: selecting facts as the caller would invoke subject Work body
+-- RLS and recurse into this same retained-input closure. No claim or new caller table grant.
+CREATE POLICY fact_authority_exact_metadata ON knowledge.facts FOR SELECT TO ensemus_migrator
+  USING(organization_id=app.current_organization_id()
+    AND organization_id=nullif(current_setting('knowledge.fact_authority_org',true),'')::uuid
+    AND id=nullif(current_setting('knowledge.fact_authority_fact',true),'')::uuid);
+CREATE POLICY fact_receipt_authority_exact_metadata ON knowledge.evidence_package_facts FOR SELECT TO ensemus_migrator
+  USING(organization_id=app.current_organization_id()
+    AND organization_id=nullif(current_setting('knowledge.fact_authority_org',true),'')::uuid
+    AND fact_id=nullif(current_setting('knowledge.fact_authority_fact',true),'')::uuid
+    AND package_id=nullif(current_setting('knowledge.fact_authority_package',true),'')::uuid);
+CREATE FUNCTION knowledge.fact_authority_metadata(p_fact uuid)
+RETURNS TABLE(id uuid,subject_ref text,classification text) LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
+DECLARE previous_org text:=current_setting('knowledge.fact_authority_org',true);previous_fact text:=current_setting('knowledge.fact_authority_fact',true);
+BEGIN
+  IF current_user<>'ensemus_migrator' OR app.current_organization_id() IS NULL OR p_fact IS NULL THEN
+    RAISE EXCEPTION 'FACT_AUTHORITY_METADATA_TARGET' USING ERRCODE='42501';END IF;
+  BEGIN
+    PERFORM set_config('knowledge.fact_authority_org',app.current_organization_id()::text,true);
+    PERFORM set_config('knowledge.fact_authority_fact',p_fact::text,true);
+    RETURN QUERY SELECT fact.id,fact.subject_ref,fact.classification FROM knowledge.facts fact
+      WHERE fact.organization_id=app.current_organization_id() AND fact.id=p_fact;
+  EXCEPTION WHEN OTHERS THEN
+    PERFORM set_config('knowledge.fact_authority_org',coalesce(previous_org,''),true);
+    PERFORM set_config('knowledge.fact_authority_fact',coalesce(previous_fact,''),true);
+    RAISE;
+  END;
+  PERFORM set_config('knowledge.fact_authority_org',coalesce(previous_org,''),true);
+  PERFORM set_config('knowledge.fact_authority_fact',coalesce(previous_fact,''),true);
+END $$;
+REVOKE ALL ON FUNCTION knowledge.fact_authority_metadata(uuid) FROM PUBLIC;
+-- Intentionally NO app/agent/dispatcher EXECUTE. Only this fixed definer boolean can call the
+-- getter as its owner; the named viewer and original source/subject ACL stay with the closure.
+CREATE FUNCTION knowledge.fact_authority_receipt_live(p_package uuid,p_fact uuid,p_claim_hash text,p_protection text)
+RETURNS boolean LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
+DECLARE previous_org text:=current_setting('knowledge.fact_authority_org',true);
+  previous_fact text:=current_setting('knowledge.fact_authority_fact',true);
+  previous_package text:=current_setting('knowledge.fact_authority_package',true);
+  receipt knowledge.evidence_package_facts;live_fact record;matches boolean:=false;
+BEGIN
+  IF current_user<>'ensemus_migrator' OR app.current_organization_id() IS NULL OR p_package IS NULL OR p_fact IS NULL THEN RETURN false;END IF;
+  BEGIN
+    PERFORM set_config('knowledge.fact_authority_org',app.current_organization_id()::text,true);
+    PERFORM set_config('knowledge.fact_authority_fact',p_fact::text,true);
+    PERFORM set_config('knowledge.fact_authority_package',p_package::text,true);
+    IF p_claim_hash IS NULL OR p_claim_hash !~ '^[0-9a-f]{64}$' OR p_protection IS NULL OR p_protection NOT IN('public','internal','confidential','restricted') THEN
+      RAISE EXCEPTION 'FACT_AUTHORITY_RECEIPT_TARGET' USING ERRCODE='42501';END IF;
+    SELECT * INTO receipt FROM knowledge.evidence_package_facts actual WHERE actual.organization_id=app.current_organization_id()
+      AND actual.package_id=p_package AND actual.fact_id=p_fact AND actual.content_sha256=p_claim_hash AND actual.subject_ref IS NOT NULL;
+    IF FOUND THEN
+      SELECT * INTO live_fact FROM knowledge.fact_authority_metadata(p_fact);
+      matches:=FOUND AND live_fact.id=p_fact AND live_fact.subject_ref=receipt.subject_ref
+        AND knowledge.class_rank(live_fact.classification)<=knowledge.class_rank(p_protection)
+        AND knowledge.class_rank(receipt.classification)<=knowledge.class_rank(p_protection);
+    END IF;
+  EXCEPTION WHEN OTHERS THEN
+    PERFORM set_config('knowledge.fact_authority_org',coalesce(previous_org,''),true);
+    PERFORM set_config('knowledge.fact_authority_fact',coalesce(previous_fact,''),true);
+    PERFORM set_config('knowledge.fact_authority_package',coalesce(previous_package,''),true);
+    RAISE;
+  END;
+  PERFORM set_config('knowledge.fact_authority_org',coalesce(previous_org,''),true);
+  PERFORM set_config('knowledge.fact_authority_fact',coalesce(previous_fact,''),true);
+  PERFORM set_config('knowledge.fact_authority_package',coalesce(previous_package,''),true);
+  RETURN coalesce(matches,false);
+END $$;
+REVOKE ALL ON FUNCTION knowledge.fact_authority_receipt_live(uuid,uuid,text,text) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION knowledge.fact_authority_receipt_live(uuid,uuid,text,text) TO ensemus_app;
+--> statement-breakpoint
+-- Internal own-Work permission without recursing into inherited bodies. The public predicate adds
+-- the full graph below. Ordinary Work keeps 0411's exact owner/admin/assignment + parent rules;
+-- a derived Work's independent birth protection cannot be weakened by lowering its raw label.
+CREATE FUNCTION knowledge.work_own_scope_readable_0419(p_work uuid,p_viewer uuid) RETURNS boolean LANGUAGE sql STABLE SET search_path=pg_catalog AS $$
+  SELECT EXISTS(SELECT 1 FROM knowledge.structured_record_catalog own JOIN org.memberships viewer
+    ON viewer.organization_id=own.organization_id AND viewer.id=p_viewer AND viewer.status='active'
+    CROSS JOIN LATERAL(SELECT greatest(knowledge.class_rank(own.classification),coalesce((SELECT max(knowledge.class_rank(receipt.classification))
+      FROM ai.delegated_input_receipts receipt WHERE receipt.organization_id=own.organization_id AND receipt.child_work_unit_id=own.record_id),0)) own_rank) protection
+    WHERE own.organization_id=app.current_organization_id() AND own.record_kind='work_unit' AND own.record_id=p_work AND own.alive
+      AND NOT EXISTS(SELECT 1 FROM platform.tombstones tomb WHERE tomb.organization_id=own.organization_id AND tomb.target_type='work_unit' AND tomb.target_id=own.record_id)
+      AND(protection.own_rank<=1 OR own.owner_membership_id=p_viewer OR(protection.own_rank=2 AND viewer.role IN('owner','admin'))
+        OR EXISTS(SELECT 1 FROM knowledge.structured_work_assignments assignment WHERE assignment.organization_id=own.organization_id
+          AND assignment.work_unit_id=own.record_id AND assignment.membership_id=p_viewer))
+      AND(own.parent_record_id IS NULL OR knowledge.structured_record_readable('project',own.parent_record_id,p_viewer)))
+$$;
+REVOKE ALL ON FUNCTION knowledge.work_own_scope_readable_0419(uuid,uuid) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION knowledge.work_own_scope_readable_0419(uuid,uuid) TO ensemus_app;
+-- This material floor is separate from own-record ACL: a private current parent still uses its
+-- actual named-reader rules, while copied Work material retains its independently pinned birth
+-- protection after a raw-label lowering. Missing/dead Work never becomes a class-only permission.
+CREATE FUNCTION knowledge.work_material_class_0419(p_work uuid) RETURNS text LANGUAGE sql STABLE SET search_path=pg_catalog AS $$
+  SELECT CASE WHEN current_class.classification IS NULL THEN NULL ELSE CASE greatest(knowledge.class_rank(current_class.classification),
+    coalesce((SELECT max(knowledge.class_rank(receipt.classification)) FROM ai.delegated_input_receipts receipt
+      WHERE receipt.organization_id=app.current_organization_id() AND receipt.child_work_unit_id=p_work),0))
+    WHEN 3 THEN 'restricted' WHEN 2 THEN 'confidential' WHEN 1 THEN 'internal' ELSE 'public' END END
+  FROM(SELECT knowledge.work_scope_class(p_work) classification) current_class
+$$;
+REVOKE ALL ON FUNCTION knowledge.work_material_class_0419(uuid) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION knowledge.work_material_class_0419(uuid) TO ensemus_app;
+CREATE FUNCTION knowledge.retained_scope_node(p_kind text,p_id uuid,p_hash text,p_historical_class text,p_source uuid,p_document uuid,p_package uuid,p_cap integer)
+RETURNS jsonb LANGUAGE sql IMMUTABLE SET search_path=pg_catalog AS $$
+  SELECT jsonb_build_object('kind',p_kind,'id',p_id,'sha256',p_hash,'historicalClass',p_historical_class,
+    'sourceId',p_source,'documentId',p_document,'packageId',p_package,'cap',p_cap)
+$$;
+REVOKE ALL ON FUNCTION knowledge.retained_scope_node(text,uuid,text,text,uuid,uuid,uuid,integer) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION knowledge.retained_scope_node(text,uuid,text,text,uuid,uuid,uuid,integer) TO ensemus_app;
+
+-- Least fixed point over a bounded AND/OR graph. A file needs one genuinely readable Work link,
+-- while every actual frozen input is required. Cycles do not authorize themselves. Fixed 1000-bit
+-- masks bound memory even for flattened ancestor DAGs; no recursive body-RLS or mutable GUC memo.
+CREATE FUNCTION knowledge.retained_input_scope_readable(p_inventory jsonb,p_viewer uuid,p_protection text) RETURNS boolean
+LANGUAGE plpgsql STABLE SET search_path=pg_catalog AS $$
+DECLARE zero_mask bit(1000):=repeat('0',1000)::bit(1000);roots bit(1000):=repeat('0',1000)::bit(1000);
+  base_mask bit(1000):=repeat('0',1000)::bit(1000);solution bit(1000):=repeat('0',1000)::bit(1000);
+  alternative_required bit(1000):=repeat('0',1000)::bit(1000);
+  and_masks bit(1000)[]:=ARRAY[]::bit(1000)[];or_masks bit(1000)[]:=ARRAY[]::bit(1000)[];
+  nodes jsonb:='[]'::jsonb;positions jsonb:='{}'::jsonb;children jsonb;entry jsonb;node jsonb;child jsonb;seed record;
+  node_key text;child_key text;position integer;child_position integer;node_count integer:=0;cursor_position integer:=0;
+  kind text;target uuid;expected_hash text;historical_class text;cap integer;live_class text;allowed boolean;changed boolean;
+  node_source_id uuid;node_document_id uuid;node_package_id uuid;viewer_role text;catalog knowledge.artifact_acl_catalog;
+  header knowledge.artifact_lineage;receipt ai.delegated_input_receipts;fact_receipt knowledge.evidence_package_facts;
+  record_ref record;link record;links_seen integer;loop_number integer;body_protection integer;edges_seen integer;
+BEGIN
+  IF p_viewer IS NULL OR p_protection IS NULL OR p_protection NOT IN('public','internal','confidential','restricted') THEN RETURN false;END IF;
+  SELECT viewer.role INTO viewer_role FROM org.memberships viewer WHERE viewer.organization_id=app.current_organization_id() AND viewer.id=p_viewer AND viewer.status='active';
+  IF NOT FOUND THEN RETURN false;END IF;
+  FOR seed IN SELECT ref.* FROM ai.delegated_frozen_refs(p_inventory) ref LOOP
+    entry:=knowledge.retained_scope_node(seed.ref_kind,seed.ref_id,seed.content_sha256,seed.classification,seed.source_id,seed.document_id,seed.fact_package_id,knowledge.class_rank(p_protection));
+    node_key:=encode(sha256(convert_to(entry::text,'UTF8')),'hex');
+    IF NOT(positions?node_key) THEN
+      IF node_count>=1000 THEN RETURN false;END IF;
+      positions:=jsonb_set(positions,ARRAY[node_key],to_jsonb(node_count));nodes:=nodes||jsonb_build_array(entry);
+      and_masks:=array_append(and_masks,zero_mask);or_masks:=array_append(or_masks,zero_mask);node_count:=node_count+1;
+    END IF;
+    roots:=set_bit(roots,(positions->>node_key)::integer,1);
+  END LOOP;
+  IF node_count=0 THEN RETURN false;END IF;
+  WHILE cursor_position<node_count LOOP
+    position:=cursor_position;cursor_position:=cursor_position+1;node:=nodes->position;
+    kind:=node->>'kind';target:=(node->>'id')::uuid;expected_hash:=node->>'sha256';historical_class:=node->>'historicalClass';
+    node_source_id:=(node->>'sourceId')::uuid;node_document_id:=(node->>'documentId')::uuid;node_package_id:=(node->>'packageId')::uuid;cap:=(node->>'cap')::integer;
+    allowed:=cap BETWEEN 0 AND 3 AND(historical_class IS NULL OR knowledge.class_rank(historical_class)<=cap);children:='[]'::jsonb;
+    IF kind='work_unit' THEN
+      live_class:=knowledge.work_material_class_0419(target);
+      allowed:=allowed AND live_class IS NOT NULL AND knowledge.class_rank(live_class)<=cap AND knowledge.work_own_scope_readable_0419(target,p_viewer)
+        AND NOT EXISTS(SELECT 1 FROM ai.unproven_child_work_inputs unknown_input WHERE unknown_input.organization_id=app.current_organization_id() AND unknown_input.work_unit_id=target)
+        AND NOT EXISTS(SELECT 1 FROM ai.agent_runs child_run WHERE child_run.organization_id=app.current_organization_id() AND child_run.work_unit_id=target AND child_run.parent_run_id IS NOT NULL
+          AND NOT EXISTS(SELECT 1 FROM ai.delegated_input_receipts actual WHERE actual.organization_id=child_run.organization_id AND actual.child_run_id=child_run.id))
+        AND NOT EXISTS(SELECT 1 FROM ai.delegated_work_births witness WHERE witness.organization_id=app.current_organization_id() AND witness.work_unit_id=target
+          AND NOT EXISTS(SELECT 1 FROM ai.delegated_input_receipts actual WHERE actual.organization_id=witness.organization_id AND actual.child_run_id=witness.child_run_id));
+      IF allowed THEN
+        body_protection:=least(cap,knowledge.class_rank(live_class));
+        FOR receipt IN SELECT actual.* FROM ai.delegated_input_receipts actual WHERE actual.organization_id=app.current_organization_id() AND actual.child_work_unit_id=target LOOP
+          IF receipt.redacted_at IS NOT NULL OR NOT EXISTS(SELECT 1 FROM ai.delegated_work_births witness WHERE witness.organization_id=receipt.organization_id
+            AND ROW(witness.work_unit_id,witness.child_run_id,witness.parent_run_id,witness.proposal_id,witness.snapshot_id,witness.birth_content_sha256,witness.classification)
+              =ROW(receipt.child_work_unit_id,receipt.child_run_id,receipt.parent_run_id,receipt.proposal_id,receipt.snapshot_id,receipt.birth_content_sha256,receipt.classification)) THEN allowed:=false;EXIT;END IF;
+          FOR record_ref IN SELECT ref.* FROM ai.delegated_input_refs ref WHERE ref.organization_id=receipt.organization_id AND ref.child_run_id=receipt.child_run_id LOOP
+            children:=children||jsonb_build_array(jsonb_build_object('alternative',false,'node',knowledge.retained_scope_node(record_ref.ref_kind,record_ref.ref_id,
+              record_ref.content_sha256,record_ref.classification,record_ref.source_id,record_ref.document_id,record_ref.fact_package_id,body_protection)));
+          END LOOP;
+          IF NOT EXISTS(SELECT 1 FROM ai.delegated_input_refs ref WHERE ref.organization_id=receipt.organization_id AND ref.child_run_id=receipt.child_run_id) THEN allowed:=false;EXIT;END IF;
+        END LOOP;
+      END IF;
+    ELSIF kind='artifact' THEN
+      SELECT * INTO catalog FROM knowledge.artifact_acl_catalog actual WHERE actual.organization_id=app.current_organization_id() AND actual.artifact_id=target;
+      allowed:=allowed AND FOUND AND catalog.alive AND(expected_hash IS NULL OR catalog.sha256=expected_hash)
+        AND knowledge.class_rank(catalog.classification)<=cap AND catalog.provenance_state NOT IN('pending','blocked')
+        AND NOT EXISTS(SELECT 1 FROM platform.tombstones tomb WHERE tomb.organization_id=app.current_organization_id() AND tomb.target_type='artifact' AND tomb.target_id=target);
+      SELECT * INTO header FROM knowledge.artifact_lineage actual WHERE actual.organization_id=app.current_organization_id() AND actual.artifact_id=target;
+      IF FOUND THEN
+        allowed:=allowed AND header.inventory_complete AND header.state='bound' AND header.write_state='settled' AND header.physical_purged_at IS NULL
+          AND header.artifact_sha256=catalog.sha256;
+        IF header.execution_kind IN('agent_run','system') THEN
+          allowed:=allowed AND header.structured_inventory_complete AND knowledge.artifact_authority_complete(target);
+          IF allowed THEN
+          FOR record_ref IN SELECT ref.* FROM knowledge.artifact_authority_refs ref WHERE ref.organization_id=app.current_organization_id() AND ref.artifact_id=target LOOP
+            children:=children||jsonb_build_array(jsonb_build_object('alternative',false,'node',knowledge.retained_scope_node(record_ref.ref_kind,record_ref.ref_id,
+              record_ref.content_sha256,record_ref.classification,record_ref.source_id,record_ref.document_id,record_ref.fact_package_id,least(cap,knowledge.class_rank(catalog.classification)))));
+          END LOOP;
+          END IF;
+        ELSIF header.execution_kind<>'manual' THEN allowed:=false;END IF;
+      ELSIF catalog.provenance_state='bound' THEN allowed:=false;END IF;
+      IF catalog.classification IN('confidential','restricted') THEN
+        allowed:=allowed AND((catalog.classification='confidential' AND viewer_role IN('owner','admin')) OR EXISTS(
+          SELECT 1 FROM knowledge.artifact_work_links linked JOIN knowledge.structured_record_catalog work_meta
+            ON work_meta.organization_id=linked.organization_id AND work_meta.record_kind='work_unit' AND work_meta.record_id=linked.work_unit_id AND work_meta.alive
+          WHERE linked.organization_id=app.current_organization_id() AND linked.artifact_id=target AND(work_meta.owner_membership_id=p_viewer
+            OR EXISTS(SELECT 1 FROM knowledge.structured_work_assignments assignment WHERE assignment.organization_id=work_meta.organization_id
+              AND assignment.work_unit_id=work_meta.record_id AND assignment.membership_id=p_viewer))));
+      END IF;
+      IF allowed THEN
+      alternative_required:=set_bit(alternative_required,position,1);links_seen:=0;
+      FOR link IN SELECT linked.work_unit_id FROM knowledge.artifact_work_links linked WHERE linked.organization_id=app.current_organization_id() AND linked.artifact_id=target
+        ORDER BY linked.work_unit_id LIMIT 1001 LOOP
+        links_seen:=links_seen+1;IF links_seen>1000 THEN RETURN false;END IF;
+        live_class:=knowledge.work_material_class_0419(link.work_unit_id);
+        IF live_class IS NOT NULL THEN children:=children||jsonb_build_array(jsonb_build_object('alternative',true,
+          'node',knowledge.retained_scope_node('work_unit',link.work_unit_id,NULL,NULL,NULL,NULL,NULL,knowledge.class_rank(live_class))));END IF;
+      END LOOP;
+      body_protection:=least(cap,knowledge.class_rank(catalog.classification));
+      FOR record_ref IN SELECT input.input_artifact_id id,input.input_sha256 hash FROM knowledge.artifact_lineage_inputs input
+        WHERE input.organization_id=app.current_organization_id() AND input.artifact_id=target LOOP
+        children:=children||jsonb_build_array(jsonb_build_object('alternative',false,'node',knowledge.retained_scope_node('artifact',record_ref.id,record_ref.hash,NULL,NULL,NULL,NULL,body_protection)));
+      END LOOP;
+      FOR record_ref IN SELECT record.* FROM knowledge.artifact_required_records(target) record LOOP
+        children:=children||jsonb_build_array(jsonb_build_object('alternative',false,'node',knowledge.retained_scope_node(record_ref.record_kind,record_ref.record_id,
+          record_ref.record_sha256,record_ref.classification,NULL,NULL,NULL,body_protection)));
+      END LOOP;
+      FOR record_ref IN SELECT knowledge.artifact_required_sources(target) id LOOP
+        children:=children||jsonb_build_array(jsonb_build_object('alternative',false,'node',knowledge.retained_scope_node('source',record_ref.id,NULL,NULL,record_ref.id,NULL,NULL,body_protection)));
+      END LOOP;
+      END IF;
+    ELSIF kind='fact' THEN
+      SELECT * INTO fact_receipt FROM knowledge.evidence_package_facts actual WHERE actual.organization_id=app.current_organization_id()
+        AND actual.package_id=node_package_id AND actual.fact_id=target AND actual.content_sha256=expected_hash AND actual.subject_ref IS NOT NULL;
+      allowed:=allowed AND FOUND AND knowledge.fact_authority_receipt_live(node_package_id,target,expected_hash,CASE cap WHEN 3 THEN 'restricted' WHEN 2 THEN 'confidential' WHEN 1 THEN 'internal' ELSE 'public' END);
+      IF allowed THEN
+        IF split_part(fact_receipt.subject_ref,':',1) IN('work_unit','project','client') THEN
+          children:=children||jsonb_build_array(jsonb_build_object('alternative',false,'node',knowledge.retained_scope_node(split_part(fact_receipt.subject_ref,':',1),
+            split_part(fact_receipt.subject_ref,':',2)::uuid,NULL,NULL,NULL,NULL,NULL,cap)));
+        ELSIF split_part(fact_receipt.subject_ref,':',1)='knowledge_source' THEN
+          children:=children||jsonb_build_array(jsonb_build_object('alternative',false,'node',knowledge.retained_scope_node('source',split_part(fact_receipt.subject_ref,':',2)::uuid,
+            NULL,NULL,split_part(fact_receipt.subject_ref,':',2)::uuid,NULL,NULL,cap)));
+        ELSIF split_part(fact_receipt.subject_ref,':',1)='membership' THEN
+          allowed:=EXISTS(SELECT 1 FROM org.memberships subject_member WHERE subject_member.organization_id=app.current_organization_id() AND subject_member.id=split_part(fact_receipt.subject_ref,':',2)::uuid);
+        ELSIF split_part(fact_receipt.subject_ref,':',1)='team' THEN
+          allowed:=EXISTS(SELECT 1 FROM org.teams subject_team WHERE subject_team.organization_id=app.current_organization_id() AND subject_team.id=split_part(fact_receipt.subject_ref,':',2)::uuid);
+        ELSE allowed:=false;END IF;
+        edges_seen:=0;
+        FOR record_ref IN SELECT item.* FROM knowledge.evidence_items item WHERE item.organization_id=app.current_organization_id() AND item.package_id=node_package_id ORDER BY item.ordinal LIMIT 1001 LOOP
+          edges_seen:=edges_seen+1;IF edges_seen>1000 THEN RETURN false;END IF;
+          children:=children||jsonb_build_array(jsonb_build_object('alternative',false,'node',knowledge.retained_scope_node('chunk',record_ref.chunk_id,record_ref.content_sha256,
+            record_ref.classification,record_ref.source_id,record_ref.document_id,NULL,cap)));
+        END LOOP;
+        IF NOT EXISTS(SELECT 1 FROM knowledge.evidence_items item WHERE item.organization_id=app.current_organization_id() AND item.package_id=node_package_id) THEN allowed:=false;END IF;
+      END IF;
+    ELSE
+      live_class:=ai.frozen_ref_current_class(kind,target,expected_hash,node_source_id,node_document_id,p_viewer);
+      allowed:=allowed AND live_class IS NOT NULL AND knowledge.class_rank(live_class)<=cap;
+    END IF;
+    IF allowed THEN base_mask:=set_bit(base_mask,position,1);END IF;
+    FOR entry IN SELECT value FROM jsonb_array_elements(children) LOOP
+      child:=entry->'node';child_key:=encode(sha256(convert_to(child::text,'UTF8')),'hex');
+      IF NOT(positions?child_key) THEN
+        IF node_count>=1000 THEN RETURN false;END IF;
+        positions:=jsonb_set(positions,ARRAY[child_key],to_jsonb(node_count));nodes:=nodes||jsonb_build_array(child);
+        and_masks:=array_append(and_masks,zero_mask);or_masks:=array_append(or_masks,zero_mask);node_count:=node_count+1;
+      END IF;
+      child_position:=(positions->>child_key)::integer;
+      IF(entry->>'alternative')::boolean THEN or_masks[position+1]:=set_bit(or_masks[position+1],child_position,1);
+      ELSE and_masks[position+1]:=set_bit(and_masks[position+1],child_position,1);END IF;
+    END LOOP;
+  END LOOP;
+  FOR loop_number IN 1..node_count LOOP
+    changed:=false;
+    FOR position IN 0..node_count-1 LOOP
+      IF get_bit(solution,position)=0 AND get_bit(base_mask,position)=1 AND(and_masks[position+1]&solution)=and_masks[position+1]
+        AND(get_bit(alternative_required,position)=0 OR(or_masks[position+1]&solution)<>zero_mask) THEN
+        solution:=set_bit(solution,position,1);changed:=true;
+      END IF;
+    END LOOP;
+    EXIT WHEN NOT changed;
+  END LOOP;
+  RETURN(roots&solution)=roots;
+EXCEPTION WHEN SQLSTATE 'EN119' THEN RETURN false;
+END $$;
+REVOKE ALL ON FUNCTION knowledge.retained_input_scope_readable(jsonb,uuid,text) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION knowledge.retained_input_scope_readable(jsonb,uuid,text) TO ensemus_app;
+--> statement-breakpoint
+-- Fixed entry points always build the complete graph from retained actual proof. Callers cannot
+-- submit a success flag, visited map, alternative Work or shorter input list for body serving.
+CREATE OR REPLACE FUNCTION ai.delegated_receipt_readable(p_child uuid,p_viewer uuid,p_protection text) RETURNS boolean
+LANGUAGE sql STABLE SET search_path=pg_catalog AS $$
+  SELECT coalesce(EXISTS(SELECT 1 FROM ai.delegated_input_receipts receipt WHERE receipt.organization_id=app.current_organization_id()
+    AND receipt.child_run_id=p_child AND receipt.redacted_at IS NULL AND knowledge.class_rank(receipt.classification)<=knowledge.class_rank(p_protection)
+    AND EXISTS(SELECT 1 FROM ai.delegated_work_births witness WHERE witness.organization_id=receipt.organization_id
+      AND ROW(witness.work_unit_id,witness.child_run_id,witness.parent_run_id,witness.proposal_id,witness.snapshot_id,witness.birth_content_sha256,witness.classification)
+        =ROW(receipt.child_work_unit_id,receipt.child_run_id,receipt.parent_run_id,receipt.proposal_id,receipt.snapshot_id,receipt.birth_content_sha256,receipt.classification))
+    AND knowledge.retained_input_scope_readable(receipt.input_inventory,p_viewer,p_protection)),false)
+$$;
+CREATE OR REPLACE FUNCTION knowledge.work_scope_readable(p_work uuid,p_viewer uuid) RETURNS boolean LANGUAGE sql STABLE SET search_path=pg_catalog AS $$
+  SELECT knowledge.work_own_scope_readable_0419(p_work,p_viewer) AND knowledge.inherited_work_inputs_readable(p_work,p_viewer)
+$$;
+CREATE OR REPLACE FUNCTION knowledge.artifact_readable(p_artifact uuid,p_viewer uuid) RETURNS boolean
+LANGUAGE plpgsql STABLE SET search_path=pg_catalog AS $$
+DECLARE catalog knowledge.artifact_acl_catalog;
+BEGIN
+  SELECT * INTO catalog FROM knowledge.artifact_acl_catalog actual WHERE actual.organization_id=app.current_organization_id() AND actual.artifact_id=p_artifact AND actual.alive;
+  IF NOT FOUND THEN RETURN false;END IF;
+  IF p_viewer IS NULL THEN
+    -- Preserve only the existing ordinary human-file service ACL. Generated bytes always need a
+    -- named viewer; M2 review/hash uses the separate exact control metadata projection.
+    RETURN knowledge.is_service_actor() AND catalog.provenance_state='ordinary' AND catalog.classification IN('public','internal')
+      AND NOT EXISTS(SELECT 1 FROM knowledge.artifact_lineage header WHERE header.organization_id=catalog.organization_id AND header.artifact_id=catalog.artifact_id)
+      AND NOT EXISTS(SELECT 1 FROM knowledge.artifact_required_sources(p_artifact))
+      AND NOT EXISTS(SELECT 1 FROM platform.tombstones tomb WHERE tomb.organization_id=catalog.organization_id AND tomb.target_type='artifact' AND tomb.target_id=catalog.artifact_id)
+      AND EXISTS(SELECT 1 FROM knowledge.artifact_work_links linked WHERE linked.organization_id=catalog.organization_id AND linked.artifact_id=catalog.artifact_id);
+  END IF;
+  RETURN knowledge.retained_input_scope_readable(jsonb_build_array(jsonb_build_object('kind','artifact','id',p_artifact,'sha256',catalog.sha256,
+    'classification',catalog.classification)),p_viewer,catalog.classification);
+END $$;
+--> statement-breakpoint
+CREATE OR REPLACE FUNCTION knowledge.artifact_required_sources(p_artifact uuid) RETURNS SETOF uuid LANGUAGE sql STABLE SET search_path=pg_catalog AS $$
+  WITH nodes AS(SELECT p_artifact id UNION SELECT input.input_artifact_id FROM knowledge.artifact_lineage_inputs input
+    WHERE input.organization_id=app.current_organization_id() AND input.artifact_id=p_artifact)
+  SELECT source.source_id FROM knowledge.artifact_lineage_sources source JOIN nodes node ON node.id=source.artifact_id
+    WHERE source.organization_id=app.current_organization_id()
+  UNION SELECT item.source_id FROM knowledge.evidence_items item JOIN knowledge.artifact_lineage_packages package
+    ON package.organization_id=item.organization_id AND package.package_id=item.package_id JOIN nodes node ON node.id=package.artifact_id
+    WHERE item.organization_id=app.current_organization_id()
+  UNION SELECT citation.source_id FROM knowledge.artifact_citations citation JOIN nodes node ON node.id=citation.artifact_id
+    WHERE citation.organization_id=app.current_organization_id()
+  UNION SELECT ref.source_id FROM knowledge.artifact_authority_refs ref JOIN nodes node ON node.id=ref.artifact_id
+    WHERE ref.organization_id=app.current_organization_id() AND ref.source_id IS NOT NULL
+  UNION SELECT ref.ref_id FROM knowledge.artifact_authority_refs ref JOIN nodes node ON node.id=ref.artifact_id
+    WHERE ref.organization_id=app.current_organization_id() AND ref.ref_kind='source'
+$$;
+--> statement-breakpoint
+-- M2 consumes review IDs/hash, never generated object bytes. Only a native keyless app-service
+-- control call for the exact held Work/run/requester/version can inspect these candidate IDs.
+CREATE POLICY held_review_control_work_read ON work.work_units FOR SELECT TO ensemus_migrator
+  USING(organization_id=app.current_organization_id() AND organization_id=nullif(current_setting('work.review_control_org',true),'')::uuid
+    AND id=nullif(current_setting('work.review_control_work',true),'')::uuid AND app.current_actor_type()='service' AND session_user='ensemus_app');
+CREATE POLICY held_review_control_work_lock ON work.work_units FOR UPDATE TO ensemus_migrator
+  USING(organization_id=app.current_organization_id() AND organization_id=nullif(current_setting('work.review_control_org',true),'')::uuid
+    AND id=nullif(current_setting('work.review_control_work',true),'')::uuid AND app.current_actor_type()='service' AND session_user='ensemus_app') WITH CHECK(false);
+CREATE POLICY held_review_control_approval_read ON work.approvals FOR SELECT TO ensemus_migrator
+  USING(organization_id=app.current_organization_id() AND organization_id=nullif(current_setting('work.review_control_org',true),'')::uuid
+    AND work_unit_id=nullif(current_setting('work.review_control_work',true),'')::uuid AND app.current_actor_type()='service' AND session_user='ensemus_app');
+CREATE FUNCTION work.held_review_artifact_ids(p_work uuid,p_version bigint,p_run text,p_requester uuid)
+RETURNS TABLE(id uuid) LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
+DECLARE previous_org text:=current_setting('work.review_control_org',true);previous_work text:=current_setting('work.review_control_work',true);
+  actual record;review_runs bigint;
+BEGIN
+  IF current_user<>'ensemus_migrator' OR session_user<>'ensemus_app' OR app.current_actor_type() IS DISTINCT FROM 'service'
+    OR app.current_organization_id() IS NULL OR p_work IS NULL OR p_requester IS NULL OR p_version IS NULL THEN
+    RAISE EXCEPTION 'HELD_REVIEW_CONTROL_TARGET' USING ERRCODE='42501';END IF;
+  BEGIN
+    PERFORM set_config('work.review_control_org',app.current_organization_id()::text,true);
+    PERFORM set_config('work.review_control_work',p_work::text,true);
+    SELECT work.id,work.version,work.status,work.run_id,work.run_requested_by_membership_id,work.execution_plan INTO actual
+      FROM work.work_units work WHERE work.organization_id=app.current_organization_id() AND work.id=p_work FOR SHARE NOWAIT;
+    IF NOT FOUND OR actual.version<>p_version OR actual.execution_plan IS DISTINCT FROM 'checklist'
+      OR actual.run_requested_by_membership_id IS DISTINCT FROM p_requester THEN
+      RAISE EXCEPTION 'HELD_REVIEW_CONTROL_STALE' USING ERRCODE='42501';END IF;
+    IF actual.status IN('running','awaiting_approval') THEN
+      IF p_run IS NULL OR actual.run_id IS DISTINCT FROM p_run THEN RAISE EXCEPTION 'HELD_REVIEW_CONTROL_STALE' USING ERRCODE='42501';END IF;
+    ELSIF actual.status='verifying' AND actual.run_id IS NULL AND p_run IS NULL THEN
+      -- The shared kernel releases run_id before checking stale reviews. Only its actual retained
+      -- current M2 review may carry that released control identity; never guess by time/order.
+      SELECT count(DISTINCT approval.run_id) INTO review_runs FROM work.approvals approval WHERE approval.organization_id=app.current_organization_id()
+        AND approval.work_unit_id=p_work AND approval.tool_name='work.review' AND approval.status IN('pending','approved')
+        AND approval.requested_by_membership_id=p_requester AND approval.run_id IS NOT NULL;
+      IF review_runs<>1 THEN RAISE EXCEPTION 'HELD_REVIEW_CONTROL_STALE' USING ERRCODE='42501';END IF;
+    ELSE RAISE EXCEPTION 'HELD_REVIEW_CONTROL_STALE' USING ERRCODE='42501';END IF;
+    RETURN QUERY SELECT catalog.artifact_id FROM knowledge.artifact_work_links linked JOIN knowledge.artifact_acl_catalog catalog
+      ON catalog.organization_id=linked.organization_id AND catalog.artifact_id=linked.artifact_id
+      WHERE linked.organization_id=app.current_organization_id() AND linked.work_unit_id=p_work AND catalog.alive
+      ORDER BY catalog.artifact_id LIMIT 1001;
+  EXCEPTION WHEN OTHERS THEN
+    PERFORM set_config('work.review_control_org',coalesce(previous_org,''),true);
+    PERFORM set_config('work.review_control_work',coalesce(previous_work,''),true);
+    RAISE;
+  END;
+  PERFORM set_config('work.review_control_org',coalesce(previous_org,''),true);
+  PERFORM set_config('work.review_control_work',coalesce(previous_work,''),true);
+END $$;
+REVOKE ALL ON FUNCTION work.held_review_artifact_ids(uuid,bigint,text,uuid) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION work.held_review_artifact_ids(uuid,bigint,text,uuid) TO ensemus_app;

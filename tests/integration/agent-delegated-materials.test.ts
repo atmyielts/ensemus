@@ -1,6 +1,7 @@
 // Actual app/agent roles and real admission/usage/proposal/step services. No provider or invented
 // observations. 0419 remains disabled until serving + positive disposition compose; SQL unrun.
 import { createHash, randomUUID } from 'node:crypto';
+import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { and, eq, sql } from 'drizzle-orm';
 import {
@@ -455,5 +456,53 @@ describe('delegated material birth evidence (0419)', () => {
           .where(eq(delegatedWorkBirths.workUnitId, f.childWorkId)),
       ),
     ).toEqual([]);
+  });
+
+  it('keeps exact fact metadata private to its owner-only seam for actual app and agent logins', async () => {
+    const f = await fixture();
+    await expect(
+      withTenantTx(app.db, a.owner, (tx) =>
+        tx.execute(sql`select * from knowledge.fact_authority_metadata(${randomUUID()}::uuid)`),
+      ),
+    ).rejects.toSatisfy((error: unknown) => pgCode(error) === '42501');
+    await expect(
+      withTenantTx(agent.db, f.context, (tx) =>
+        tx.execute(sql`select * from knowledge.fact_authority_metadata(${randomUUID()}::uuid)`),
+      ),
+    ).rejects.toSatisfy((error: unknown) => pgCode(error) === '42501');
+    const dispatcher = new pg.Client({ connectionString: urls.dispatcher() });
+    await dispatcher.connect();
+    try {
+      await expect(
+        dispatcher.query('select * from knowledge.fact_authority_metadata($1)', [randomUUID()]),
+      ).rejects.toMatchObject({ code: '42501' });
+    } finally {
+      await dispatcher.end();
+    }
+  });
+
+  it('the boolean fact seam refuses missing proof and restores exact private selectors on success/error', async () => {
+    const prior = { org: b.organizationId, fact: randomUUID(), package: randomUUID() };
+    await withTenantTx(app.db, a.owner, async (tx) => {
+      await tx.execute(sql`select set_config('knowledge.fact_authority_org',${prior.org},true),
+        set_config('knowledge.fact_authority_fact',${prior.fact},true),set_config('knowledge.fact_authority_package',${prior.package},true)`);
+      const result = await tx.execute<{
+        allowed: boolean;
+      }>(sql`select knowledge.fact_authority_receipt_live(
+        ${randomUUID()}::uuid,${randomUUID()}::uuid,${'a'.repeat(64)},'internal') allowed`);
+      expect(result.rows).toEqual([{ allowed: false }]);
+      const selectors = () =>
+        tx.execute<{ org: string; fact: string; package: string }>(sql`select
+        current_setting('knowledge.fact_authority_org',true) org,current_setting('knowledge.fact_authority_fact',true) fact,
+        current_setting('knowledge.fact_authority_package',true) package`);
+      expect((await selectors()).rows).toEqual([prior]);
+      await expect(
+        tx.transaction((savepoint) =>
+          savepoint.execute(sql`select knowledge.fact_authority_receipt_live(
+        ${randomUUID()}::uuid,${randomUUID()}::uuid,${'b'.repeat(64)},'invalid-protection')`),
+        ),
+      ).rejects.toSatisfy((error: unknown) => pgCode(error) === '42501');
+      expect((await selectors()).rows).toEqual([prior]);
+    });
   });
 });
