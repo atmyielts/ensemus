@@ -32,6 +32,12 @@ export async function lockReadAuthorityBeforeBody(
   context: AgentContext,
   input: { kind: string; id: string; authorizationWorkUnitId?: string },
 ) {
+  const inherited = await tx.execute<{
+    allowed: boolean;
+  }>(sql`select ai.lock_prospective_input_scope(
+    ${input.kind},${input.id}::uuid,${input.authorizationWorkUnitId ?? null}::uuid) allowed`);
+  if (context.actorType !== 'agent' || inherited.rows[0]?.allowed !== true)
+    throw new AppError('NOT_FOUND');
   const result = await tx.execute<{ locked: boolean }>(sql`select ai.lock_read_authority(
     ${input.kind},${input.id}::uuid,${input.authorizationWorkUnitId ?? null}::uuid) locked`);
   if (context.actorType !== 'agent' || result.rows[0]?.locked !== true)

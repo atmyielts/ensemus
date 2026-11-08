@@ -504,6 +504,7 @@ export async function compileEvidence(
   // digest and the retained fact receipt; no later lookup reconstructs a historical claim read.
   const factReceipts = facts.map((fact) => ({
     factId: fact.id,
+    subjectRef: fact.subjectRef,
     contentSha256: digest(
       JSON.stringify({ subjectRef: fact.subjectRef, predicate: fact.predicate, claim: fact.claim }),
     ),
@@ -519,7 +520,16 @@ export async function compileEvidence(
     await requireSearchPerson(tx, context);
     if (agentContext) await loadAgentReadScopeInTx(tx, agentContext);
     if (selection.items.length) {
-      const sourceIds = [...new Set(selection.items.map((item) => item.sourceId))].sort();
+      const sourceIds = [
+        ...new Set([
+          ...selection.items.map((item) => item.sourceId),
+          ...factReceipts.flatMap((fact) =>
+            fact.subjectRef.startsWith('knowledge_source:')
+              ? [fact.subjectRef.slice('knowledge_source:'.length)]
+              : [],
+          ),
+        ]),
+      ].sort();
       // Closing a source takes the same row lock. Its purge cannot finish, then discover that a
       // previously read passage published a new run provenance row after the source had closed.
       await tx.execute(

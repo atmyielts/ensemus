@@ -114,6 +114,8 @@ export const evidencePackageFacts = pgSchema('knowledge').table(
     organizationId: uuid().notNull(),
     packageId: uuid().notNull(),
     factId: uuid().notNull(),
+    // NULL only on legacy receipts; never reconstructed from a later mutable/deleted fact row.
+    subjectRef: text(),
     contentSha256: text().notNull(),
     classification: text().notNull(),
   },
@@ -128,6 +130,10 @@ export const evidencePackageFacts = pgSchema('knowledge').table(
       foreignColumns: [knowledgeEvidencePackages.organizationId, knowledgeEvidencePackages.id],
     }),
     check('evidence_package_facts_hash', sql`${t.contentSha256} ~ '^[0-9a-f]{64}$'`),
+    check(
+      'evidence_package_facts_subject',
+      sql`${t.subjectRef} is null or ${t.subjectRef} ~ '^(client|project|membership|team|work_unit|knowledge_source):[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'`,
+    ),
     check(
       'evidence_package_facts_class',
       sql`${t.classification} in('public','internal','confidential','restricted')`,

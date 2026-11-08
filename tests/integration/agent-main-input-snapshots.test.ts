@@ -416,6 +416,7 @@ describe('exact main attempt inputs and accepted proposal origin (0416)', () => 
     );
     expect(receipt).toMatchObject({
       factId: proposed.factId,
+      subjectRef: fact.subjectRef,
       contentSha256: expectedHash,
       classification: 'internal',
     });

@@ -662,7 +662,11 @@ async function subjectRecord(
     );
   }
   if (subject.type === 'client') {
-    const [row] = await tx.select().from(clients).where(eq(clients.id, subject.id)).for('share');
+    const [row] = await tx
+      .select()
+      .from(clients)
+      .where(eq(clients.id, subject.id))
+      .for('share', context.actorType === 'agent' ? { noWait: true } : undefined);
     // 0209's central client RLS includes the creator and explicitly named readers, even for restricted.
     if (!row) throw new AppError('NOT_FOUND');
     observations?.push({
@@ -674,7 +678,11 @@ async function subjectRecord(
     return { name: row.displayName, classification: row.classification as Classification };
   }
   if (subject.type === 'project') {
-    const [row] = await tx.select().from(projects).where(eq(projects.id, subject.id)).for('share');
+    const [row] = await tx
+      .select()
+      .from(projects)
+      .where(eq(projects.id, subject.id))
+      .for('share', context.actorType === 'agent' ? { noWait: true } : undefined);
     if (!row) throw new AppError('NOT_FOUND');
     const parent = row.clientId
       ? await subjectRecord(
@@ -703,7 +711,7 @@ async function subjectRecord(
       .select({ classification: workUnits.classification })
       .from(workUnits)
       .where(and(eq(workUnits.id, subject.id), allowed))
-      .for('share');
+      .for('share', context.actorType === 'agent' ? { noWait: true } : undefined);
     if (!row) throw new AppError('NOT_FOUND');
     const effectiveClass = await workInputClassInTx(
       tx,

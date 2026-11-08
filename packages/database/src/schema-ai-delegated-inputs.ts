@@ -12,10 +12,31 @@ import {
   timestamp,
   unique,
   uuid,
+  type AnyPgColumn,
 } from 'drizzle-orm/pg-core';
 import { aiSchema, agentRuns, executionSteps, toolProposals } from './schema-ai';
 import { mainInputSnapshots } from './schema-ai-main-inputs';
 import { workUnits } from './schema-work';
+
+// Explicit tuple breaks the inference cycle for the two reciprocal birth FKs. SQL makes the
+// witness -> receipt edge DEFERRABLE INITIALLY DEFERRED; Drizzle has no deferrability builder.
+function birthWitnessIdentity(): [
+  AnyPgColumn,
+  AnyPgColumn,
+  AnyPgColumn,
+  AnyPgColumn,
+  AnyPgColumn,
+  AnyPgColumn,
+] {
+  return [
+    delegatedWorkBirths.organizationId,
+    delegatedWorkBirths.workUnitId,
+    delegatedWorkBirths.childRunId,
+    delegatedWorkBirths.proposalId,
+    delegatedWorkBirths.snapshotId,
+    delegatedWorkBirths.birthContentSha256,
+  ];
+}
 
 export const delegatedInputReceipts = aiSchema.table(
   'delegated_input_receipts',
@@ -23,6 +44,7 @@ export const delegatedInputReceipts = aiSchema.table(
     organizationId: uuid().notNull(),
     childRunId: uuid().notNull(),
     parentRunId: uuid().notNull(),
+    parentReceiptRunId: uuid(),
     childWorkUnitId: uuid().notNull(),
     proposalId: uuid().notNull(),
     snapshotId: uuid().notNull(),
@@ -57,6 +79,11 @@ export const delegatedInputReceipts = aiSchema.table(
       foreignColumns: [agentRuns.organizationId, agentRuns.id],
     }),
     foreignKey({
+      name: 'delegated_input_receipts_parent_receipt_fk',
+      columns: [t.organizationId, t.parentReceiptRunId],
+      foreignColumns: [t.organizationId, t.childRunId],
+    }),
+    foreignKey({
       name: 'delegated_input_receipts_work_fk',
       columns: [t.organizationId, t.childWorkUnitId],
       foreignColumns: [workUnits.organizationId, workUnits.id],
@@ -76,10 +103,26 @@ export const delegatedInputReceipts = aiSchema.table(
       columns: [t.organizationId, t.originalStepId],
       foreignColumns: [executionSteps.organizationId, executionSteps.id],
     }),
+    foreignKey({
+      name: 'delegated_input_receipts_insert_witness_fk',
+      columns: [
+        t.organizationId,
+        t.childWorkUnitId,
+        t.childRunId,
+        t.proposalId,
+        t.snapshotId,
+        t.birthContentSha256,
+      ],
+      foreignColumns: birthWitnessIdentity(),
+    }),
     index('delegated_input_receipts_parent_idx').on(t.organizationId, t.parentRunId, t.childRunId),
     check(
       'delegated_input_receipts_identity',
       sql`${t.childRunId}<>${t.parentRunId} and ${t.originalAttempt}>0 and ${t.toolStepNumber}>0`,
+    ),
+    check(
+      'delegated_input_receipts_parent_proof',
+      sql`${t.parentReceiptRunId} is null or ${t.parentReceiptRunId}=${t.parentRunId}`,
     ),
     check(
       'delegated_input_receipts_hashes',
@@ -96,6 +139,55 @@ export const delegatedInputReceipts = aiSchema.table(
     check(
       'delegated_input_receipts_disposition',
       sql`(${t.redactedAt} is null and ${t.redactedVersion} is null and ${t.dispositionSha256} is null) or (${t.redactedAt} is not null and ${t.redactedVersion} is not null and ${t.redactedVersion}>0 and ${t.dispositionSha256} is not null and ${t.dispositionSha256} ~ '^[0-9a-f]{64}$')`,
+    ),
+  ],
+);
+
+/** Only the actual Work AFTER INSERT trigger can append; reciprocal deferred FK prevents an
+ * abandoned copied Work or a reusable preparation token from committing. No UPDATE witness. */
+export const delegatedWorkBirths = aiSchema.table(
+  'delegated_work_births',
+  {
+    organizationId: uuid().notNull(),
+    workUnitId: uuid().notNull(),
+    childRunId: uuid().notNull(),
+    parentRunId: uuid().notNull(),
+    parentWorkUnitId: uuid().notNull(),
+    proposalId: uuid().notNull(),
+    snapshotId: uuid().notNull(),
+    birthContentSha256: text().notNull(),
+    classification: text().notNull(),
+    insertedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    primaryKey({ name: 'delegated_work_births_pk', columns: [t.organizationId, t.workUnitId] }),
+    unique('delegated_work_births_identity_key').on(
+      t.organizationId,
+      t.workUnitId,
+      t.childRunId,
+      t.proposalId,
+      t.snapshotId,
+      t.birthContentSha256,
+    ),
+    foreignKey({
+      name: 'delegated_work_births_work_fk',
+      columns: [t.organizationId, t.workUnitId],
+      foreignColumns: [workUnits.organizationId, workUnits.id],
+    }),
+    foreignKey({
+      name: 'delegated_work_births_parent_fk',
+      columns: [t.organizationId, t.parentRunId],
+      foreignColumns: [agentRuns.organizationId, agentRuns.id],
+    }),
+    foreignKey({
+      name: 'delegated_work_births_receipt_fk',
+      columns: [t.organizationId, t.childRunId],
+      foreignColumns: [delegatedInputReceipts.organizationId, delegatedInputReceipts.childRunId],
+    }),
+    check('delegated_work_births_hash', sql`${t.birthContentSha256} ~ '^[0-9a-f]{64}$'`),
+    check(
+      'delegated_work_births_class',
+      sql`${t.classification} in('public','internal','confidential','restricted')`,
     ),
   ],
 );
