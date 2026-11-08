@@ -267,13 +267,24 @@ describe('bounded Knowledge model jobs and principal-bound result receipts (0216
 
   async function knowledgeAgentVersion(sourceId?: string | null) {
     if (sourceId === null) return seedAgentVersion(app.db, a.owner);
-    const declaredSourceId = sourceId ?? (await seedSearchableSource(app.db, a.owner, {
-      passages: ['Generated explicitly declared Knowledge source.'],
-      grants: [{ kind: 'membership', membershipId: a.owner.membershipId }],
-    })).sourceId;
-    return seedAgentVersion(app.db, a.owner, testAgentSpec({
-      context: { allowed_scopes: ['data.restricted.read', `knowledge.${declaredSourceId}.read`], memory_write_policy: 'none' },
-    }));
+    const declaredSourceId =
+      sourceId ??
+      (
+        await seedSearchableSource(app.db, a.owner, {
+          passages: ['Generated explicitly declared Knowledge source.'],
+          grants: [{ kind: 'membership', membershipId: a.owner.membershipId }],
+        })
+      ).sourceId;
+    return seedAgentVersion(
+      app.db,
+      a.owner,
+      testAgentSpec({
+        context: {
+          allowed_scopes: ['data.restricted.read', `knowledge.${declaredSourceId}.read`],
+          memory_write_policy: 'none',
+        },
+      }),
+    );
   }
   async function actualAuxiliaryRun(
     limits: { maxCostMicros?: number; maxTotalTokens?: number } = {},
@@ -378,15 +389,25 @@ describe('bounded Knowledge model jobs and principal-bound result receipts (0216
   );
   it('refuses auxiliary spending without an explicit immutable Knowledge source scope, even with workload approval', async () => {
     const f = await actualAuxiliaryRun({}, undefined, null);
-    await expect(f.calls.prepare(f.principal, f.input)).rejects.toMatchObject({ code: 'EGRESS_DENIED' });
-    expect(await withTenantTx(app.db, a.owner, (tx) => tx.select().from(modelCallAttempts).where(eq(modelCallAttempts.runId, f.runId)))).toEqual([]);
-    expect(await withTenantTx(app.db, a.owner, (tx) => tx.select().from(budgetReservations).where(eq(budgetReservations.runId, f.runId)))).toEqual([]);
+    await expect(f.calls.prepare(f.principal, f.input)).rejects.toMatchObject({
+      code: 'EGRESS_DENIED',
+    });
+    expect(
+      await withTenantTx(app.db, a.owner, (tx) =>
+        tx.select().from(modelCallAttempts).where(eq(modelCallAttempts.runId, f.runId)),
+      ),
+    ).toEqual([]);
+    expect(
+      await withTenantTx(app.db, a.owner, (tx) =>
+        tx.select().from(budgetReservations).where(eq(budgetReservations.runId, f.runId)),
+      ),
+    ).toEqual([]);
   });
   it('rechecks the current class of a discarded earlier input document, independently of its source class', async () => {
     const source = await seedSearchableSource(app.db, a.owner, {
-        passages: ['Generated earlier candidate'],
-        grants: [{ kind: 'membership', membershipId: a.owner.membershipId }],
-      });
+      passages: ['Generated earlier candidate'],
+      grants: [{ kind: 'membership', membershipId: a.owner.membershipId }],
+    });
     const f = await actualAuxiliaryRun({}, undefined, source.sourceId);
     const [chunk] = await withTenantTx(app.db, a.owner, (tx) =>
       tx.select().from(knowledgeChunks).where(eq(knowledgeChunks.id, source.chunkIds[0]!)),

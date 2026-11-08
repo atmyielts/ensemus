@@ -445,6 +445,11 @@ export async function setPulseSignalState(
           set: { state: input.state, until, updatedAt: projection.facts.now },
         });
     }
-    await auditAction(tx, actor, 'pulse_signal.state_changed', `pulse_signal:${key}`);
+    await auditAction(
+      tx,
+      actor,
+      'pulse_signal.state_changed',
+      `pulse_signal_${parsed.kind}:${parsed.id}`,
+    );
   });
 }

@@ -46,8 +46,19 @@ describe('explicit Knowledge model authority', () => {
     ).toBe(false);
   });
   it('compares all six bounds on real job/approval rows without interpreting metadata as a limit', () => {
-    const job = { ...bounds, id: 'generated-job', requesterMembershipId: 'generated-requester', state: 'prepared', deadlineAt: new Date('2099-01-01T00:00:00Z') };
-    const approval = { ...bounds, id: 'generated-approval', kind: 'query', approvedByMembershipId: 'generated-approver' };
+    const job = {
+      ...bounds,
+      id: 'generated-job',
+      requesterMembershipId: 'generated-requester',
+      state: 'prepared',
+      deadlineAt: new Date('2099-01-01T00:00:00Z'),
+    };
+    const approval = {
+      ...bounds,
+      id: 'generated-approval',
+      kind: 'query',
+      approvedByMembershipId: 'generated-approver',
+    };
     expect(modelBoundsWithin(job, approval)).toBe(true);
     for (const key of Object.keys(bounds) as (keyof ModelJobBounds)[])
       expect(modelBoundsWithin({ ...job, [key]: bounds[key] + 1 }, approval), key).toBe(false);

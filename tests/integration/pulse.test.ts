@@ -303,6 +303,7 @@ describe('Pulse fresh viewer access and own personal state', () => {
       signalKey: f.key,
       state: 'dismissed',
     });
+    await proveSecondFactor(f.a.owner);
     const version = await seedAgentVersion(app.db, f.a.owner.context);
     const runId = await seedQueuedRun(app.db, f.a.owner.context, {
       workUnitId: f.work.id,
