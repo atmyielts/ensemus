@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { PageHead } from '@/components/ui';
-import { SubmitButton } from '@/components/submit-button';
-import { CodeFields, FactorError } from '@/components/security/code-fields';
+import { FactorError } from '@/components/security/code-fields';
+import { IdentityConfirmationForm } from '@/components/security/identity-confirmation-form';
 import { safeStepUpReturn } from '@/lib/step-up';
 import { confirmIdentityAction } from '@/server/security-actions';
 import { requireTenant } from '@/server/tenant';
@@ -30,17 +30,15 @@ export default async function ConfirmIdentityPage({
         description="This change needs a recent code from your authenticator app or a saved recovery code."
       />
       <section className="sheet">
-        <FactorError code={query.error} />
         {enrolled ? (
-          <form className="fields" action={confirmIdentityAction.bind(null, organizationId)}>
-            <input type="hidden" name="next" value={next} />
-            <CodeFields />
-            <div>
-              <SubmitButton working="Confirming">Confirm and continue</SubmitButton>
-            </div>
-          </form>
+          <IdentityConfirmationForm
+            action={confirmIdentityAction.bind(null, organizationId)}
+            next={next}
+            error={query.error}
+          />
         ) : (
           <>
+            <FactorError code={query.error} />
             <p>Add an authenticator app before making this change.</p>
             <Link className="button" href={`/o/${organizationId}/security/two-factor`}>
               Set up authenticator app

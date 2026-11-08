@@ -2,7 +2,7 @@
 import { useActionState } from 'react';
 import { DATA_CATEGORIES } from '@ensemus/saas/lifecycle';
 import { setRetentionRuleFormAction } from '@/server/lifecycle-actions';
-import { ErrorNotice } from '@/components/ui';
+import { AccountActionNotice } from '@/components/account-action-notice';
 import { SubmitButton } from '@/components/submit-button';
 export type RetentionRuleFormState = {
   values: { dataCategory: string; classification: string; retainDays: string; basisRef: string };
@@ -19,7 +19,11 @@ export function RetentionRuleForm({ organizationId }: { organizationId: string }
   return (
     <form className="fields form-width" action={action}>
       <input type="hidden" name="organizationId" value={organizationId} />
-      <ErrorNotice code={state.code} />
+      <AccountActionNotice
+        code={state.code}
+        organizationId={organizationId}
+        returnTo={`/o/${organizationId}/account/retention`}
+      />
       {state.saved && (
         <p className="notice good" role="status">
           Retention rule saved. It replaces the previous rule for this category and classification.

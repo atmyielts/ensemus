@@ -17,3 +17,32 @@ export function stepUpPath(organizationId: string, next: string): string {
   const back = safeStepUpReturn(organizationId, next);
   return `/o/${organizationId}/security/confirm?next=${encodeURIComponent(back)}`;
 }
+
+// Account recovery must never turn a paused account action into a core/import destination.
+const ACCOUNT_PAGES = new Set([
+  'billing',
+  'credits',
+  'invoices',
+  'exports',
+  'support',
+  'leave',
+  'retention',
+  'legal-holds',
+  'break-glass',
+]);
+const ACCOUNT_RECORD =
+  /^(?:support\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|invoices\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?:\/pay)?)$/;
+export function safeAccountStepUpReturn(organizationId: string, value: unknown): string {
+  const account = `/o/${organizationId}/account`;
+  if (typeof value !== 'string') return account;
+  if (value === account) return account;
+  if (!value.startsWith(`${account}/`)) return account;
+  const page = value.slice(account.length + 1);
+  return ACCOUNT_PAGES.has(page) || ACCOUNT_RECORD.test(page) ? value : account;
+}
+export function accountStepUpPath(organizationId: string, next: string): string {
+  return `/o/${organizationId}/account/confirm?next=${encodeURIComponent(safeAccountStepUpReturn(organizationId, next))}`;
+}
+export function accountEnrollmentPath(organizationId: string, next: string): string {
+  return `/o/${organizationId}/account/two-factor?next=${encodeURIComponent(safeAccountStepUpReturn(organizationId, next))}`;
+}

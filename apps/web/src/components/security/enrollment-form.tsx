@@ -31,15 +31,17 @@ export function EnrollmentForm({
   organizationId,
   enableAction,
   finishAction,
+  permalink,
 }: {
   organizationId: string;
   enableAction: SecretAction;
   finishAction: (form: FormData) => Promise<void>;
+  permalink?: string;
 }) {
   const [state, action] = useActionState(
     enableAction,
     INITIAL,
-    `/o/${organizationId}/security/two-factor`,
+    permalink ?? `/o/${organizationId}/security/two-factor`,
   );
   return state.status === 'ready' ? (
     <div className={styles.flow}>

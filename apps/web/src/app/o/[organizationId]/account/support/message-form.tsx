@@ -2,7 +2,7 @@
 import { useActionState } from 'react';
 import { TICKET_CATEGORIES } from '@ensemus/saas/support';
 import { openTicketFormAction, replyTicketFormAction } from '@/server/support-actions';
-import { ErrorNotice } from '@/components/ui';
+import { AccountActionNotice } from '@/components/account-action-notice';
 import { SubmitButton } from '@/components/submit-button';
 export type SupportFormState = {
   values: { subject: string; category: string; body: string };
@@ -31,7 +31,11 @@ export function SupportMessageForm({
           <input type="hidden" name="version" value={state.version ?? ticket.version} />
         </>
       )}
-      <ErrorNotice code={state.code} />
+      <AccountActionNotice
+        code={state.code}
+        organizationId={organizationId}
+        returnTo={`/o/${organizationId}/account/support${ticket ? `/${ticket.id}` : ''}`}
+      />
       {state.sent && (
         <p className="notice good" role="status">
           Reply added.
