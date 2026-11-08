@@ -1,7 +1,10 @@
 import type { ReactNode } from 'react';
 import './globals.css';
 
-export const metadata = { title: 'Ensemus' };
+export const metadata = {
+  title: 'Ensemus',
+  icons: { icon: { url: '/icon.svg', type: 'image/svg+xml' } },
+};
 
 // Every page depends on who is signed in, so nothing is cached or prerendered.
 export const dynamic = 'force-dynamic';
