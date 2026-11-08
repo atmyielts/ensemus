@@ -3951,205 +3951,233 @@ paths:
         "503":
           $ref: "#/components/responses/RestorePending"
   /organizations/{organization_id}/process-specs:
-    parameters:
-      - $ref: "#/components/parameters/OrganizationID"
-    get:
-      x-ensemus-status: planned
-      tags:
-        - studio
-      summary: List immutable process specs
-      responses:
-        "200":
-          description: Done
-          content:
-            application/json:
-              schema:
-                type: object
-                required:
-                  - items
-                properties:
-                  items:
-                    type: array
-                    items:
-                      $ref: "#/components/schemas/ProcessSpec"
-                  next:
-                    type:
-                      - string
-                      - "null"
-        "400":
-          $ref: "#/components/responses/BadRequest"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "404":
-          $ref: "#/components/responses/NotFound"
-        "409":
-          $ref: "#/components/responses/Conflict"
-        "500":
-          $ref: "#/components/responses/InternalError"
-        "503":
-          $ref: "#/components/responses/RestorePending"
+    {
+      'parameters': [{ '$ref': '#/components/parameters/OrganizationID' }],
+      'get':
+        {
+          'tags': ['studio'],
+          'summary': 'List up to 200 current readable immutable process versions',
+          'description': 'The current native author and restricted publisher policy apply before LIMIT. limited=true means the 200-row cap was reached; no exhaustive history or cursor is claimed.',
+          'responses':
+            {
+              '200':
+                {
+                  'description': 'Current committed records',
+                  'content':
+                    {
+                      'application/json':
+                        { 'schema': { '$ref': '#/components/schemas/ProcessSpecList' } },
+                    },
+                },
+              '400': { '$ref': '#/components/responses/BadRequest' },
+              '401': { '$ref': '#/components/responses/Unauthorized' },
+              '403': { '$ref': '#/components/responses/Forbidden' },
+              '404': { '$ref': '#/components/responses/NotFound' },
+              '409': { '$ref': '#/components/responses/Conflict' },
+              '422': { '$ref': '#/components/responses/Validation' },
+              '500': { '$ref': '#/components/responses/InternalError' },
+              '503': { '$ref': '#/components/responses/RestorePending' },
+            },
+        },
+    }
   /organizations/{organization_id}/process-runs:
-    parameters:
-      - $ref: "#/components/parameters/OrganizationID"
-    get:
-      x-ensemus-status: planned
-      tags:
-        - studio
-      summary: List process runs the viewer can read
-      responses:
-        "200":
-          description: Done
-          content:
-            application/json:
-              schema:
-                type: object
-                required:
-                  - items
-                properties:
-                  items:
-                    type: array
-                    items:
-                      $ref: "#/components/schemas/ProcessRun"
-                  next:
-                    type:
-                      - string
-                      - "null"
-        "400":
-          $ref: "#/components/responses/BadRequest"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "404":
-          $ref: "#/components/responses/NotFound"
-        "409":
-          $ref: "#/components/responses/Conflict"
-        "500":
-          $ref: "#/components/responses/InternalError"
-        "503":
-          $ref: "#/components/responses/RestorePending"
-    post:
-      x-ensemus-status: planned
-      tags:
-        - studio
-      summary: Start a process on a new Work Unit
-      description: The body is checked against startProcessRunSchema in @ensemus/contracts.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              additionalProperties: true
-      responses:
-        "202":
-          description: Done
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ProcessRun"
-        "400":
-          $ref: "#/components/responses/BadRequest"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "404":
-          $ref: "#/components/responses/NotFound"
-        "409":
-          $ref: "#/components/responses/Conflict"
-        "413":
-          $ref: "#/components/responses/PayloadTooLarge"
-        "415":
-          $ref: "#/components/responses/UnsupportedMediaType"
-        "422":
-          $ref: "#/components/responses/Validation"
-        "500":
-          $ref: "#/components/responses/InternalError"
-        "503":
-          $ref: "#/components/responses/RestorePending"
+    {
+      'parameters': [{ '$ref': '#/components/parameters/OrganizationID' }],
+      'get':
+        {
+          'tags': ['studio'],
+          'summary': 'List real workflow runs whose root Work is currently readable',
+          'parameters':
+            [
+              {
+                'name': 'status',
+                'in': 'query',
+                'schema':
+                  {
+                    'type': 'string',
+                    'enum': ['queued', 'running', 'waiting', 'completed', 'failed', 'cancelled'],
+                  },
+              },
+              {
+                'name': 'after',
+                'in': 'query',
+                'description': 'Opaque timestamp/ID cursor returned by this endpoint.',
+                'schema': { 'type': 'string', 'minLength': 1, 'maxLength': 1024 },
+              },
+            ],
+          'responses':
+            {
+              '200':
+                {
+                  'description': 'Current committed records',
+                  'content':
+                    {
+                      'application/json':
+                        { 'schema': { '$ref': '#/components/schemas/ProcessRunList' } },
+                    },
+                },
+              '400': { '$ref': '#/components/responses/BadRequest' },
+              '401': { '$ref': '#/components/responses/Unauthorized' },
+              '403': { '$ref': '#/components/responses/Forbidden' },
+              '404': { '$ref': '#/components/responses/NotFound' },
+              '409': { '$ref': '#/components/responses/Conflict' },
+              '422': { '$ref': '#/components/responses/Validation' },
+              '500': { '$ref': '#/components/responses/InternalError' },
+              '503': { '$ref': '#/components/responses/RestorePending' },
+            },
+        },
+      'post':
+        {
+          'tags': ['studio'],
+          'summary': 'Request a real workflow on new Work, atomically with its durable intent',
+          'parameters': [{ '$ref': '#/components/parameters/IdempotencyKey' }],
+          'requestBody':
+            {
+              'required': true,
+              'content':
+                {
+                  'application/json':
+                    { 'schema': { '$ref': '#/components/schemas/StartProcessRun' } },
+                },
+            },
+          'description': 'Fresh native start authority, exact immutable spec and complete step inventory are checked. Execution occurs only on the background worker. Request identity is replayed through current record access.',
+          'responses':
+            {
+              '202':
+                {
+                  'description': 'Current committed records',
+                  'content':
+                    {
+                      'application/json':
+                        { 'schema': { '$ref': '#/components/schemas/ProcessRun' } },
+                    },
+                  'headers':
+                    {
+                      'ETag':
+                        {
+                          'description': 'The current version for If-Match.',
+                          'schema': { 'type': 'string' },
+                        },
+                    },
+                },
+              '400': { '$ref': '#/components/responses/BadRequest' },
+              '401': { '$ref': '#/components/responses/Unauthorized' },
+              '403': { '$ref': '#/components/responses/Forbidden' },
+              '404': { '$ref': '#/components/responses/NotFound' },
+              '409': { '$ref': '#/components/responses/Conflict' },
+              '422': { '$ref': '#/components/responses/Validation' },
+              '500': { '$ref': '#/components/responses/InternalError' },
+              '503': { '$ref': '#/components/responses/RestorePending' },
+              '413': { '$ref': '#/components/responses/PayloadTooLarge' },
+              '415': { '$ref': '#/components/responses/UnsupportedMediaType' },
+            },
+        },
+    }
   /organizations/{organization_id}/process-runs/{process_run_id}:
-    parameters:
-      - $ref: "#/components/parameters/OrganizationID"
-      - name: process_run_id
-        in: path
-        required: true
-        schema:
-          type: string
-          format: uuid
-    get:
-      x-ensemus-status: planned
-      tags:
-        - studio
-      summary: Read a run with each step and its measured cost
-      responses:
-        "200":
-          description: Done
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ProcessRun"
-        "400":
-          $ref: "#/components/responses/BadRequest"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "404":
-          $ref: "#/components/responses/NotFound"
-        "409":
-          $ref: "#/components/responses/Conflict"
-        "500":
-          $ref: "#/components/responses/InternalError"
-        "503":
-          $ref: "#/components/responses/RestorePending"
+    {
+      'parameters':
+        [
+          { '$ref': '#/components/parameters/OrganizationID' },
+          {
+            'name': 'process_run_id',
+            'in': 'path',
+            'required': true,
+            'schema': { 'type': 'string', 'format': 'uuid' },
+          },
+        ],
+      'get':
+        {
+          'tags': ['studio'],
+          'summary': 'Read actual workflow progress, references and available measured cost',
+          'responses':
+            {
+              '200':
+                {
+                  'description': 'Current committed records',
+                  'content':
+                    {
+                      'application/json':
+                        { 'schema': { '$ref': '#/components/schemas/ProcessRun' } },
+                    },
+                },
+              '400': { '$ref': '#/components/responses/BadRequest' },
+              '401': { '$ref': '#/components/responses/Unauthorized' },
+              '403': { '$ref': '#/components/responses/Forbidden' },
+              '404': { '$ref': '#/components/responses/NotFound' },
+              '409': { '$ref': '#/components/responses/Conflict' },
+              '422': { '$ref': '#/components/responses/Validation' },
+              '500': { '$ref': '#/components/responses/InternalError' },
+              '503': { '$ref': '#/components/responses/RestorePending' },
+            },
+        },
+    }
   /organizations/{organization_id}/process-runs/{process_run_id}/stop:
-    parameters:
-      - $ref: "#/components/parameters/OrganizationID"
-      - name: process_run_id
-        in: path
-        required: true
-        schema:
-          type: string
-          format: uuid
-    post:
-      x-ensemus-status: planned
-      tags:
-        - studio
-      summary: Stop a run. Committed before anything is told
-      parameters:
-        - $ref: "#/components/parameters/IfMatch"
-      responses:
-        "202":
-          description: Done
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ProcessRun"
-        "400":
-          $ref: "#/components/responses/BadRequest"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "404":
-          $ref: "#/components/responses/NotFound"
-        "409":
-          $ref: "#/components/responses/Conflict"
-        "413":
-          $ref: "#/components/responses/PayloadTooLarge"
-        "415":
-          $ref: "#/components/responses/UnsupportedMediaType"
-        "422":
-          $ref: "#/components/responses/Validation"
-        "428":
-          $ref: "#/components/responses/PreconditionRequired"
-        "500":
-          $ref: "#/components/responses/InternalError"
-        "503":
-          $ref: "#/components/responses/RestorePending"
+    {
+      'parameters':
+        [
+          { '$ref': '#/components/parameters/OrganizationID' },
+          {
+            'name': 'process_run_id',
+            'in': 'path',
+            'required': true,
+            'schema': { 'type': 'string', 'format': 'uuid' },
+          },
+        ],
+      'post':
+        {
+          'tags': ['studio'],
+          'summary': 'Record a fresh native manager stop request before signalling the worker',
+          'parameters':
+            [
+              { '$ref': '#/components/parameters/IdempotencyKey' },
+              { '$ref': '#/components/parameters/IfMatch' },
+            ],
+          'requestBody':
+            {
+              'required': true,
+              'content':
+                {
+                  'application/json':
+                    {
+                      'schema':
+                        { 'type': 'object', 'additionalProperties': false, 'maxProperties': 0 },
+                    },
+                },
+            },
+          'description': 'The actual current root manager may stop. This never recalls an in-flight outside action or converts uncertain delivery into failure.',
+          'responses':
+            {
+              '202':
+                {
+                  'description': 'Current committed records',
+                  'content':
+                    {
+                      'application/json':
+                        { 'schema': { '$ref': '#/components/schemas/ProcessRun' } },
+                    },
+                  'headers':
+                    {
+                      'ETag':
+                        {
+                          'description': 'The current version for If-Match.',
+                          'schema': { 'type': 'string' },
+                        },
+                    },
+                },
+              '400': { '$ref': '#/components/responses/BadRequest' },
+              '401': { '$ref': '#/components/responses/Unauthorized' },
+              '403': { '$ref': '#/components/responses/Forbidden' },
+              '404': { '$ref': '#/components/responses/NotFound' },
+              '409': { '$ref': '#/components/responses/Conflict' },
+              '422': { '$ref': '#/components/responses/Validation' },
+              '500': { '$ref': '#/components/responses/InternalError' },
+              '503': { '$ref': '#/components/responses/RestorePending' },
+              '413': { '$ref': '#/components/responses/PayloadTooLarge' },
+              '415': { '$ref': '#/components/responses/UnsupportedMediaType' },
+              '428': { '$ref': '#/components/responses/PreconditionRequired' },
+            },
+        },
+    }
   /organizations/{organization_id}/object-types:
     {
       'parameters': [{ '$ref': '#/components/parameters/OrganizationID' }],
@@ -9215,101 +9243,257 @@ components:
         created_at:
           type: string
           format: date-time
+    StartProcessRun:
+      {
+        'type': 'object',
+        'additionalProperties': false,
+        'required': ['spec_id', 'title'],
+        'properties':
+          {
+            'spec_id': { 'type': 'string', 'format': 'uuid' },
+            'title': { 'type': 'string', 'minLength': 1, 'maxLength': 200 },
+            'due_at': { 'type': 'string', 'format': 'date-time' },
+          },
+      }
+    ProcessSpecStep:
+      {
+        'type': 'object',
+        'additionalProperties': false,
+        'required': ['key', 'kind', 'after', 'labelCode', 'label'],
+        'properties':
+          {
+            'key': { 'type': 'string', 'pattern': '^[a-zA-Z0-9_-]{1,64}$' },
+            'kind':
+              {
+                'type': 'string',
+                'enum':
+                  [
+                    'work_item',
+                    'agent_task',
+                    'human_approval',
+                    'external_action',
+                    'evidence_check',
+                  ],
+              },
+            'after':
+              {
+                'type': 'array',
+                'maxItems': 64,
+                'items': { 'type': 'string', 'pattern': '^[a-zA-Z0-9_-]{1,64}$' },
+              },
+            'labelCode': { 'type': ['string', 'null'], 'maxLength': 128 },
+            'label': { 'type': 'string', 'minLength': 1, 'maxLength': 120 },
+            'agentDefinitionId': { 'type': 'string', 'format': 'uuid' },
+            'toolId': { 'type': 'string', 'pattern': '^[a-z][a-z0-9_.-]{1,63}$' },
+            'approverRole':
+              { 'type': 'string', 'enum': ['process_owner', 'starter_manager', 'named_reviewer'] },
+            'evidence':
+              {
+                'type': 'string',
+                'enum': ['artifact_attached', 'external_receipt', 'reviewer_approved'],
+              },
+          },
+      }
     ProcessSpec:
-      type: object
-      required:
-        - id
-        - process_key
-        - version_number
-        - spec_sha256
-      properties:
-        id:
-          type: string
-          format: uuid
-        process_key:
-          type: string
-        version_number:
-          type: integer
-        name:
-          type: string
-        classification:
-          type: string
-          enum:
-            - public
-            - internal
-            - confidential
-            - restricted
-        spec:
-          type: object
-          additionalProperties: true
-        spec_sha256:
-          type: string
-        source:
-          type: string
-          enum:
-            - graph
-            - bundled
-            - pack
-        source_ref:
-          type:
-            - string
-            - "null"
-        published_at:
-          type: string
-          format: date-time
+      {
+        'type': 'object',
+        'additionalProperties': false,
+        'required':
+          [
+            'id',
+            'process_key',
+            'version_number',
+            'name',
+            'classification',
+            'spec',
+            'spec_sha256',
+            'source',
+            'source_ref',
+            'published_at',
+          ],
+        'properties':
+          {
+            'id': { 'type': 'string', 'format': 'uuid' },
+            'process_key': { 'type': 'string', 'pattern': '^[a-z][a-z0-9_.-]{1,63}$' },
+            'version_number': { 'type': 'integer', 'minimum': 1, 'maximum': 9007199254740991 },
+            'name': { 'type': 'string', 'minLength': 1, 'maxLength': 120 },
+            'classification':
+              { 'type': 'string', 'enum': ['public', 'internal', 'confidential', 'restricted'] },
+            'spec':
+              {
+                'type': 'object',
+                'additionalProperties': false,
+                'required': ['schemaVersion', 'classification', 'steps'],
+                'properties':
+                  {
+                    'schemaVersion': { 'type': 'integer', 'const': 1 },
+                    'classification':
+                      {
+                        'type': 'string',
+                        'enum': ['public', 'internal', 'confidential', 'restricted'],
+                      },
+                    'steps':
+                      {
+                        'type': 'array',
+                        'maxItems': 64,
+                        'items': { '$ref': '#/components/schemas/ProcessSpecStep' },
+                      },
+                  },
+              },
+            'spec_sha256': { 'type': 'string', 'pattern': '^[0-9a-f]{64}$' },
+            'source': { 'type': 'string', 'enum': ['graph', 'bundled', 'pack'] },
+            'source_ref': { 'type': ['string', 'null'], 'maxLength': 256 },
+            'published_at': { 'type': 'string', 'format': 'date-time' },
+          },
+      }
+    ProcessRunStep:
+      {
+        'type': 'object',
+        'additionalProperties': false,
+        'required':
+          [
+            'key',
+            'label',
+            'after',
+            'kind',
+            'tool_id',
+            'status',
+            'stop_code',
+            'work_unit_id',
+            'approval_id',
+            'external_action_id',
+            'agent_run_id',
+          ],
+        'properties':
+          {
+            'key': { 'type': 'string', 'pattern': '^[a-zA-Z0-9_-]{1,64}$' },
+            'label': { 'type': 'string', 'minLength': 1, 'maxLength': 120 },
+            'after':
+              {
+                'type': 'array',
+                'maxItems': 64,
+                'items': { 'type': 'string', 'pattern': '^[a-zA-Z0-9_-]{1,64}$' },
+              },
+            'kind':
+              {
+                'type': 'string',
+                'enum':
+                  [
+                    'work_item',
+                    'agent_task',
+                    'human_approval',
+                    'external_action',
+                    'evidence_check',
+                  ],
+              },
+            'tool_id': { 'type': ['string', 'null'], 'pattern': '^[a-z][a-z0-9_.-]{1,63}$' },
+            'status':
+              {
+                'type': 'string',
+                'enum': ['pending', 'ready', 'waiting', 'done', 'failed', 'skipped'],
+              },
+            'stop_code': { 'type': ['string', 'null'], 'pattern': '^[A-Z][A-Z0-9_]{1,63}$' },
+            'work_unit_id':
+              { 'anyOf': [{ 'type': 'string', 'format': 'uuid' }, { 'type': 'null' }] },
+            'approval_id':
+              { 'anyOf': [{ 'type': 'string', 'format': 'uuid' }, { 'type': 'null' }] },
+            'external_action_id':
+              { 'anyOf': [{ 'type': 'string', 'format': 'uuid' }, { 'type': 'null' }] },
+            'agent_run_id':
+              { 'anyOf': [{ 'type': 'string', 'format': 'uuid' }, { 'type': 'null' }] },
+          },
+      }
+    ProcessRunCost:
+      {
+        'type': 'object',
+        'additionalProperties': false,
+        'required': ['cost_micros', 'is_estimate'],
+        'properties':
+          {
+            'cost_micros': { 'type': 'integer', 'minimum': 0, 'maximum': 9007199254740991 },
+            'is_estimate': { 'type': 'boolean' },
+          },
+      }
     ProcessRun:
-      type: object
-      required:
-        - id
-        - status
-        - root_work_unit_id
-        - steps
-        - version
-      properties:
-        id:
-          type: string
-          format: uuid
-        spec_id:
-          type: string
-          format: uuid
-        process_name:
-          type: string
-        root_work_unit_id:
-          type: string
-          format: uuid
-        status:
-          type: string
-          enum:
-            - queued
-            - running
-            - waiting
-            - completed
-            - failed
-            - cancelled
-        stop_code:
-          type:
-            - string
-            - "null"
-        steps:
-          type: array
-          items:
-            type: object
-            additionalProperties: true
-        cost:
-          type:
-            - object
-            - "null"
-          additionalProperties: true
-        version:
-          type: integer
-        created_at:
-          type: string
-          format: date-time
-        finished_at:
-          type:
-            - string
-            - "null"
-          format: date-time
+      {
+        'type': 'object',
+        'additionalProperties': false,
+        'required':
+          [
+            'id',
+            'spec_id',
+            'title',
+            'process_name',
+            'root_work_unit_id',
+            'status',
+            'stop_code',
+            'steps',
+            'cost',
+            'can_manage',
+            'version',
+            'created_at',
+            'finished_at',
+          ],
+        'properties':
+          {
+            'id': { 'type': 'string', 'format': 'uuid' },
+            'spec_id': { 'type': 'string', 'format': 'uuid' },
+            'title': { 'type': 'string', 'minLength': 1, 'maxLength': 200 },
+            'process_name': { 'type': 'string', 'minLength': 1, 'maxLength': 120 },
+            'root_work_unit_id': { 'type': 'string', 'format': 'uuid' },
+            'status':
+              {
+                'type': 'string',
+                'enum': ['queued', 'running', 'waiting', 'completed', 'failed', 'cancelled'],
+              },
+            'stop_code': { 'type': ['string', 'null'], 'pattern': '^[A-Z][A-Z0-9_]{1,63}$' },
+            'steps':
+              {
+                'type': 'array',
+                'minItems': 1,
+                'maxItems': 64,
+                'items': { '$ref': '#/components/schemas/ProcessRunStep' },
+              },
+            'cost':
+              { 'anyOf': [{ '$ref': '#/components/schemas/ProcessRunCost' }, { 'type': 'null' }] },
+            'can_manage': { 'type': 'boolean' },
+            'version': { 'type': 'integer', 'minimum': 1, 'maximum': 9007199254740991 },
+            'created_at': { 'type': 'string', 'format': 'date-time' },
+            'finished_at': { 'type': ['string', 'null'], 'format': 'date-time' },
+          },
+      }
+    ProcessRunList:
+      {
+        'type': 'object',
+        'additionalProperties': false,
+        'required': ['items', 'next'],
+        'properties':
+          {
+            'items':
+              {
+                'type': 'array',
+                'maxItems': 50,
+                'items': { '$ref': '#/components/schemas/ProcessRun' },
+              },
+            'next': { 'type': ['string', 'null'], 'maxLength': 1024 },
+          },
+      }
+    ProcessSpecList:
+      {
+        'type': 'object',
+        'additionalProperties': false,
+        'required': ['items', 'limited'],
+        'properties':
+          {
+            'items':
+              {
+                'type': 'array',
+                'maxItems': 200,
+                'items': { '$ref': '#/components/schemas/ProcessSpec' },
+              },
+            'limited': { 'type': 'boolean' },
+          },
+      }
     ObjectField:
       {
         'type': 'object',
