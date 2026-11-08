@@ -14,6 +14,23 @@ function ports(): PaymentStepPorts {
   };
 }
 describe('payment recovery ordering', () => {
+  it('preserves a cancelled receipt during billing-disabled reconciliation', async () => {
+    const p = ports();
+    vi.mocked(p.charge).mockResolvedValue({ step: 'reconcile' });
+    vi.mocked(p.reconcile).mockResolvedValue('cancelled');
+    expect(await runPayment(p)).toBe('cancelled');
+    expect(p.charge).toHaveBeenCalledTimes(1);
+    expect(p.sleep).not.toHaveBeenCalled();
+  });
+  it('preserves cancellation when reconciliation loses its answer', async () => {
+    const p = ports();
+    vi.mocked(p.charge).mockResolvedValue({ step: 'reconcile' });
+    vi.mocked(p.reconcile).mockRejectedValue(new Error('worker lost'));
+    vi.mocked(p.concludeWithoutAnswer).mockResolvedValue('cancelled');
+    expect(await runPayment(p)).toBe('cancelled');
+    expect(p.charge).toHaveBeenCalledTimes(1);
+    expect(p.sleep).not.toHaveBeenCalled();
+  });
   it('ends immediately on an unknown outcome', async () => {
     const p = ports();
     vi.mocked(p.charge).mockResolvedValue({ step: 'unknown' });

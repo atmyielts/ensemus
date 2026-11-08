@@ -57,3 +57,82 @@ export function revokeSecret(db: EnsemusDrizzle, organizationId: string, secretI
     tx.update(sealedSecrets).set({ revokedAt: new Date() }).where(eq(sealedSecrets.id, secretId)),
   );
 }
+
+/** Fixed payment metadata calls for the native broker. The worker verifies its process-local native
+ * proof before calling these; SQL still verifies the actual secrets login and original live binding.
+ * This layer accepts no raw body, header, config, credential or arbitrary SQL. */
+export type PaymentIdentityAttestationInput = {
+  organizationId: string;
+  paymentId: string;
+  billingOrganizationId: string;
+  connectionId: string;
+  processor: string;
+  adapterVersion: string;
+  apiOrigin: string;
+  authoritySha256: string;
+  identitySha256: string;
+  accountNamespaceSha256: string;
+  readReceiptSha256: string;
+};
+export type PaymentWebhookAttestationInput = {
+  organizationId: string;
+  deliveryId: string;
+  rowVersion: string;
+  endpointId: string;
+  connectionId: string;
+  signingSecretId: string;
+  processor: string;
+  adapterVersion: string;
+  providerEventId: string;
+  bodySha256: string;
+  requestDigest: string;
+  headersSha256: string;
+  factSha256: string;
+  accountNamespaceSha256: string | null;
+  executionIdentitySha256: string | null;
+};
+type PaymentAttestation = { token: string; expiresAt: Date };
+const paymentAttestation = (rows: PaymentAttestation[]): PaymentAttestation => {
+  const row = rows[0];
+  if (
+    rows.length !== 1 ||
+    !row ||
+    !/^[0-9a-f]{64}$/.test(row.token) ||
+    !(row.expiresAt instanceof Date) ||
+    !Number.isFinite(row.expiresAt.getTime())
+  )
+    throw new Error('PAYMENT_ATTESTATION_UNAVAILABLE');
+  return { token: row.token, expiresAt: row.expiresAt };
+};
+
+export function attestNativePaymentIdentity(
+  db: EnsemusDrizzle,
+  input: PaymentIdentityAttestationInput,
+): Promise<PaymentAttestation> {
+  return db.transaction(async (tx) => {
+    await tx.execute(
+      sql`select set_config('app.organization_id',${input.billingOrganizationId},true)`,
+    );
+    const result =
+      await tx.execute<PaymentAttestation>(sql`select * from billing.attest_payment_identity(
+      ${input.organizationId}::uuid,${input.paymentId}::uuid,${input.billingOrganizationId}::uuid,${input.connectionId}::uuid,
+      ${input.processor},${input.adapterVersion},${input.apiOrigin},${input.authoritySha256},${input.identitySha256},
+      ${input.accountNamespaceSha256},${input.readReceiptSha256})`);
+    return paymentAttestation(result.rows);
+  });
+}
+
+export function attestNativePaymentWebhook(
+  db: EnsemusDrizzle,
+  input: PaymentWebhookAttestationInput,
+): Promise<PaymentAttestation> {
+  return db.transaction(async (tx) => {
+    await tx.execute(sql`select set_config('app.organization_id',${input.organizationId},true)`);
+    const result =
+      await tx.execute<PaymentAttestation>(sql`select * from billing.attest_payment_webhook(
+      ${input.deliveryId}::uuid,${input.rowVersion},${input.endpointId}::uuid,${input.connectionId}::uuid,${input.signingSecretId}::uuid,
+      ${input.processor},${input.adapterVersion},${input.providerEventId},${input.bodySha256},${input.requestDigest},${input.headersSha256},
+      ${input.factSha256},${input.accountNamespaceSha256},${input.executionIdentitySha256})`);
+    return paymentAttestation(result.rows);
+  });
+}
