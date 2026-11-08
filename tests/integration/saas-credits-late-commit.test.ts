@@ -56,8 +56,8 @@ describe('exact late-commit credit reconciliation through the runtime usage port
       });
       const insert = (
         id: string,
-      ) => sql`insert into platform.usage_ledger(organization_id,id,idempotency_key,meter,quantity,unit,billing_period,commercial_mode,work_unit_id,run_id,status,billable)
-        values (${organizationId},${id},${'test-usage:' + id},'model_input_tokens',1,'unit',to_char(now(),'YYYY-MM'),'cloud',${work.id},${runId},'final',true)`;
+      ) => sql`insert into platform.usage_ledger(organization_id,id,idempotency_key,meter,quantity,unit,cost_micros,billing_period,commercial_mode,work_unit_id,run_id,status,billable)
+        values (${organizationId},${id},${'test-usage:' + id},'model_input_tokens',1,'unit',0,to_char(now(),'YYYY-MM'),'cloud',${work.id},${runId},'final',true)`;
       older = withTenantTx(agent.db, context, async (tx) => {
         await tx.execute(insert(firstId));
         observedOlder();
@@ -72,11 +72,13 @@ describe('exact late-commit credit reconciliation through the runtime usage port
       ]);
       await withTenantTx(agent.db, context, (tx) => tx.execute(insert(secondId)));
       const usage = createSaasPorts({}).usage;
-      expect((await consumeUsage(app.db, service, usage, { limit: 1 })).entries).toBe(1);
+      expect(await consumeUsage(app.db, service, usage, { limit: 1 }))
+        .toMatchObject({ entries: 1, microcredits: card.microcreditsPerUnit });
       if (!releaseOlder) throw new Error('TEST_OLDER_BARRIER_MISSING');
       releaseOlder();
       await older;
-      expect((await consumeUsage(app.db, service, usage, { limit: 1 })).entries).toBe(1);
+      expect(await consumeUsage(app.db, service, usage, { limit: 1 }))
+        .toMatchObject({ entries: 1, microcredits: card.microcreditsPerUnit });
       expect((await consumeUsage(app.db, service, usage, { limit: 1 })).entries).toBe(0);
       const rows = await withTenantTx(app.db, service, (tx) =>
         tx.execute(

@@ -3,6 +3,7 @@
 import { createWorkUnit, disableMember } from '@ensemus/application';
 import { engageKillSwitch, createHaltCheck } from '@ensemus/application/ai-halt';
 import { setTenantStandingInTx } from '@ensemus/application/saas/standing';
+import { getSecurityPolicy, updateSecurityPolicy } from '@ensemus/application/security-policy';
 import { startSubscription } from '@ensemus/application/saas/subscriptions';
 import {
   cancelOffboarding,
@@ -12,8 +13,10 @@ import {
 import { createEntitlements } from '@ensemus/commercial';
 import {
   killSwitches,
+  interactiveSessionOf,
   openAppDatabase,
   organizations,
+  resolveTenantContext,
   standingChanges,
   withTenantTx,
 } from '@ensemus/database';
@@ -69,6 +72,60 @@ afterAll(async () => {
 });
 
 describe('standing-owned M4 stops and real entitlement composition', () => {
+  it('retains required human MFA while permitting only the actual service standing transition', async () => {
+    const tenant = await seedAiTenant(app.db);
+    const policy = await getSecurityPolicy(app.db, tenant.owner);
+    const nativeSession = interactiveSessionOf(tenant.owner);
+    if (!nativeSession) throw new Error('TEST_NATIVE_SESSION_MISSING');
+    await updateSecurityPolicy(app.db, tenant.owner, { sessionId: nativeSession.sessionId }, {
+      expectedVersion: policy.version, mfaForAdministration: true,
+      mfaMaxAgeSeconds: policy.mfaMaxAgeSeconds, ssoEnforcement: policy.ssoEnforcement,
+    });
+    const plain = await resolveTenantContext(app.db, tenant.owner.userId, tenant.organizationId);
+    await expect(withAccountTx(app.db, plain, (tx) => tx.update(organizations)
+      .set({ name: 'Unproved rename' }).where(eq(organizations.id, tenant.organizationId))))
+      .rejects.toMatchObject({ cause: { code: 'EN405' } });
+    await withAccountTx(app.db, tenant.owner, (tx) => tx.update(organizations)
+      .set({ name: 'Native MFA rename' }).where(eq(organizations.id, tenant.organizationId)));
+    expect(await move(tenant, 'read_only', 'TEST_REQUIRED_MFA_STANDING')).toBe('changed');
+    expect((await stops(tenant)).filter((row) => row.reason === 'TENANT_STANDING')).toHaveLength(1);
+  });
+
+  it('cannot use a genuine standing birth to change organization fields beside lifecycle', async () => {
+    const tenant = await seedAiTenant(app.db), service = createServiceContext(tenant.organizationId);
+    await expect(withAccountTx(app.db, service, async (tx) => {
+      await tx.insert(standingChanges).values({ organizationId: tenant.organizationId,
+        fromLifecycle: 'active', toLifecycle: 'suspended', reasonCode: 'TEST_NO_RENAME',
+        actorType: 'operator', actorRef: 'test@example.invalid' });
+      expect((await tx.execute(sql`select lifecycle.service_standing_birth(${tenant.organizationId}::uuid,'active','suspended') as allowed`)).rows)
+        .toEqual([{ allowed: true }]);
+      await tx.update(organizations).set({ lifecycle: 'suspended', name: 'Service must not rename' })
+        .where(eq(organizations.id, tenant.organizationId));
+    })).rejects.toMatchObject({ cause: { code: 'EN405' } });
+    expect(await stops(tenant)).toEqual([]);
+    expect(await withTenantTx(app.db, tenant.owner, (tx) => tx.select({ name: organizations.name, lifecycle: organizations.lifecycle }).from(organizations)))
+      .toEqual([{ name: 'Same Name Ltd', lifecycle: 'active' }]);
+  });
+
+  it('does not turn a forged selector or an actual agent SET ROLE app into standing birth authority', async () => {
+    const tenant = await seedAiTenant(app.db);
+    await withRunLookupTx(agent.db, tenant.organizationId, async (tx) => {
+      await tx.execute(sql`set local role ensemus_app`);
+      await tx.execute(sql`select set_config('app.actor_type','service',true),set_config('lifecycle.standing_org',${tenant.organizationId},true)`);
+      expect((await tx.execute(sql`select lifecycle.service_standing_birth(${tenant.organizationId}::uuid,'active','read_only') as allowed`)).rows)
+        .toEqual([{ allowed: false }]);
+    });
+    const service = createServiceContext(tenant.organizationId);
+    await withAccountTx(app.db, service, async (tx) => {
+      await tx.execute(sql`select set_config('lifecycle.standing_org','prior-scope',true)`);
+      expect((await tx.execute(sql`select lifecycle.service_standing_birth(${tenant.organizationId}::uuid,'active','read_only') as allowed`)).rows)
+        .toEqual([{ allowed: false }]);
+      expect((await tx.execute(sql`select current_setting('lifecycle.standing_org',true) as scope`)).rows)
+        .toEqual([{ scope: 'prior-scope' }]);
+    });
+    expect(await stops(tenant)).toEqual([]);
+  });
+
   it('commits one stop for concurrent/repeated standing changes and SQL receipt replay', async () => {
     const tenant = await seedAiTenant(app.db);
     const results = await Promise.all([
