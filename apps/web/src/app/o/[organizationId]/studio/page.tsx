@@ -52,6 +52,12 @@ export default async function StudioPage({
                 icon: 'work',
               },
               {
+                href: `${base}/studio/runs`,
+                label: 'Workflow runs',
+                description: 'Start approved workflows and follow their progress.',
+                icon: 'arrow',
+              },
+              {
                 href: `${base}/studio/reviews`,
                 label: 'Publication reviews',
                 description: 'Review rehearsed changes and publish an approved version.',

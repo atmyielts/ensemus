@@ -1,7 +1,7 @@
 //0418 actual-role regression source. No execution evidence until the joined migration gate runs.
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { eq, sql } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import {
   memberships,
   openAppDatabase,
@@ -12,6 +12,11 @@ import {
 } from '@ensemus/database';
 import { createServiceContext, createDelegatedContext } from '@ensemus/database/service';
 import { processRuns, processRunSteps } from '@ensemus/database/product';
+import {
+  openDispatcherDatabase,
+  processWakeTargets,
+  type DispatchableEvent,
+} from '@ensemus/database/dispatcher';
 import {
   startProcessRun,
   advanceProcessRun,
@@ -37,6 +42,9 @@ import { withProcessBirth } from '../../packages/application/src/product/process
 import { pgCode } from '../../packages/application/src/errors';
 import { makeTwoTenants, proveSecondFactor } from '../helpers/product';
 import { urls } from '../helpers/stack';
+import { testAgentSpec } from '../helpers/ai/fixtures';
+import { agentSpecV1Schema } from '@ensemus/contracts/ai';
+import { agentSpecSha256, publishAgentVersion } from '@ensemus/application/ai-agents';
 
 describe('workflow execution has actual native intent, birth and completion authority', () => {
   let app: ReturnType<typeof openAppDatabase>;
@@ -46,10 +54,33 @@ describe('workflow execution has actual native intent, birth and completion auth
   afterAll(async () => {
     await app?.close();
   });
-  async function fixture(mode: 'work' | 'approval' = 'work') {
+  async function fixture(mode: 'work' | 'approval' | 'agent' = 'work') {
     const { a, b } = await makeTwoTenants(app.db),
       ports = createRuntimeProductPorts(app.db);
     await proveSecondFactor(a.admin);
+    let agentVersion: { definitionId: string; versionId: string } | null = null;
+    if (mode === 'agent') {
+      const spec = agentSpecV1Schema.parse(
+        testAgentSpec({ id: 'generated-process-stop-agent', version: 1 }),
+      );
+      const published = await publishAgentVersion(app.db, a.admin.context, {
+        spec,
+        policyVersion: 'default',
+        evaluationReport: {
+          report_version: 1,
+          spec_sha256: agentSpecSha256(spec),
+          policy_version: 'default',
+          suite_ref: spec.evaluation.suite_ref,
+          dataset_version: 'generated-stop-race-1',
+          model_label: 'scripted',
+          pass_rate: 1,
+          cases: 1,
+          passed: true,
+          scripted_model: true,
+        },
+      });
+      agentVersion = { definitionId: published.definition_id, versionId: published.id };
+    }
     let draft = await createProcessDraft(app.db, a.admin.context, {
       name: 'Generated two-person work',
       classification: 'internal',
@@ -63,7 +94,9 @@ describe('workflow execution has actual native intent, birth and completion auth
           { id: 'start', kind: 'start', label: 'Start', x: 0, y: 0 },
           {
             id: 'first',
-            kind: mode === 'work' ? 'work_item' : 'human_approval',
+            kind:
+              mode === 'agent' ? 'agent_task' : mode === 'work' ? 'work_item' : 'human_approval',
+            ...(agentVersion ? { agentDefinitionId: agentVersion.definitionId } : {}),
             ...(mode === 'approval' ? { approverRole: 'process_owner' as const } : {}),
             label: 'Check the first task',
             x: 100,
@@ -71,7 +104,7 @@ describe('workflow execution has actual native intent, birth and completion auth
           },
           {
             id: 'second',
-            kind: mode === 'work' ? 'work_item' : 'evidence_check',
+            kind: mode === 'approval' ? 'evidence_check' : 'work_item',
             ...(mode === 'approval' ? { evidence: 'reviewer_approved' as const } : {}),
             label: 'Check the second task',
             x: 200,
@@ -98,23 +131,186 @@ describe('workflow execution has actual native intent, birth and completion auth
       subjectId: draft.id,
       simulationRunId: simulation.id,
     });
-    review = await decidePublishReview(app.db, a.admin.context, null, {
-      reviewId: review.id,
-      expectedVersion: review.version,
-      decision: 'approved',
-    });
-    const { publishedRef: specId } = await publishApproved(app.db, a.admin.context, ports, null, {
-      reviewId: review.id,
-      expectedVersion: review.version,
-    });
+    const reviewer = mode === 'agent' ? a.owner : a.admin;
+    if (mode === 'agent') await proveSecondFactor(reviewer);
+    review = await decidePublishReview(
+      app.db,
+      reviewer.context,
+      { sessionId: reviewer.sessionId },
+      {
+        reviewId: review.id,
+        expectedVersion: review.version,
+        decision: 'approved',
+      },
+    );
+    const { publishedRef: specId } = await publishApproved(
+      app.db,
+      a.admin.context,
+      ports,
+      { sessionId: a.admin.sessionId },
+      {
+        reviewId: review.id,
+        expectedVersion: review.version,
+      },
+    );
     const run = await startProcessRun(app.db, a.admin.context, {
       specId,
       title: 'Generated actual workflow',
       requestKey: randomUUID(),
     });
-    return { a, b, ports, specId, run, service: createServiceContext(a.organizationId) };
+    return {
+      a,
+      b,
+      ports,
+      specId,
+      run,
+      agentVersion,
+      service: createServiceContext(a.organizationId),
+    };
   }
   const refusal = (operation: Promise<unknown>) => operation.then(() => null, pgCode);
+  it('refuses delayed real M4 admission after a native stop has committed', async () => {
+    const f = await fixture('agent');
+    let entered!: () => void, release!: () => void;
+    const atAdmission = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const resume = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const delayed = {
+      agentRuns: {
+        ...f.ports.agentRuns,
+        start: async (...args: Parameters<typeof f.ports.agentRuns.start>) => {
+          entered();
+          await resume;
+          return f.ports.agentRuns.start(...args);
+        },
+      },
+    };
+    const advancing = advanceProcessRun(app.db, f.service, delayed, {
+      runId: f.run.id,
+      temporalRunId: 'generated-stop-race',
+    });
+    try {
+      await Promise.race([
+        atAdmission,
+        advancing.then(async () => {
+          const stopped = await getProcessRun(app.db, f.a.admin.context, f.ports, f.run.id);
+          throw new Error(
+            `TEST_ADMISSION_NOT_REACHED:${JSON.stringify({ status: stopped.status, code: stopped.stopCode, steps: stopped.steps.map((step) => ({ key: step.key, status: step.status, code: step.stopCode })) })}`,
+          );
+        }),
+      ]);
+      const current = await getProcessRun(app.db, f.a.admin.context, f.ports, f.run.id);
+      await requestStopProcessRun(app.db, f.a.admin.context, {
+        runId: f.run.id,
+        expectedVersion: current.version,
+      });
+      const delegated = await createDelegatedContext(
+        app.db,
+        f.a.organizationId,
+        f.a.admin.context.membershipId,
+      );
+      const direct = await withTenantTx(app.db, delegated, (tx) =>
+        tx
+          .update(processRunSteps)
+          .set({ agentRunId: randomUUID(), status: 'waiting' })
+          .where(and(eq(processRunSteps.runId, f.run.id), eq(processRunSteps.stepKey, 'first'))),
+      ).then(
+        () => null,
+        (error) => error,
+      );
+      // The SQL guard must stop at the freshly stopped parent, before even considering a new run
+      // reference. A missing/foreign run failure would not prove that independent stop predicate.
+      expect(direct).toMatchObject({
+        cause: { code: 'EN406', message: 'PROCESS_BIND_PARENT_CHANGED' },
+      });
+    } finally {
+      release();
+    }
+    await advancing;
+    const counts = await withTenantTx(app.db, f.a.admin.context, (tx) =>
+      tx.execute<{ runs: number; bound: number }>(sql`select
+      (select count(*)::int from ai.agent_runs a join studio.process_run_steps x on x.organization_id=a.organization_id and x.work_unit_id=a.work_unit_id where x.run_id=${f.run.id}::uuid) as runs,
+      (select count(*)::int from studio.process_run_steps where run_id=${f.run.id}::uuid and agent_run_id is not null) as bound`),
+    );
+    expect(counts.rows[0]).toEqual({ runs: 0, bound: 0 });
+  });
+  it('maps only actual event headers to current process IDs without granting the dispatcher bodies', async () => {
+    const f = await fixture();
+    await transitionWorkUnit(app.db, f.a.admin.context, {
+      id: f.run.rootWorkUnitId,
+      expectedVersion: 1,
+      to: 'ready',
+    });
+    const headers = await withTenantTx(app.db, f.a.admin.context, (tx) =>
+      tx.execute<{ id: string; event_type: string }>(sql`
+      select id,event_type from platform.domain_events where aggregate_type='work_unit' and aggregate_id=${f.run.rootWorkUnitId}::uuid
+      and event_type in('work.created','work.transitioned')`),
+    );
+    const changed = headers.rows.find((header) => header.event_type === 'work.transitioned');
+    const created = headers.rows.find((header) => header.event_type === 'work.created');
+    if (!changed || !created) throw new Error('TEST_PROCESS_EVENT_MISSING');
+    const event: DispatchableEvent = {
+      organizationId: f.a.organizationId,
+      eventId: changed.id,
+      eventType: 'work.transitioned',
+      aggregateType: 'work_unit',
+      aggregateId: f.run.rootWorkUnitId,
+      occurredAt: new Date(),
+      attempts: 0,
+    };
+    const dispatcher = openDispatcherDatabase(urls.dispatcher());
+    try {
+      expect(await processWakeTargets(dispatcher.db, event)).toEqual([f.run.id]);
+      expect(await processWakeTargets(dispatcher.db, event)).toEqual([f.run.id]);
+      expect(
+        await processWakeTargets(dispatcher.db, { ...event, organizationId: f.b.organizationId }),
+      ).toEqual([]);
+      expect(await processWakeTargets(dispatcher.db, { ...event, eventId: randomUUID() })).toEqual(
+        [],
+      );
+      expect(
+        (
+          await dispatcher.db.execute(
+            sql`select * from studio.process_wake_targets(${f.a.organizationId}::uuid,${created.id}::uuid)`,
+          )
+        ).rows,
+      ).toEqual([]);
+      for (const statement of [
+        sql`select spec from studio.process_specs`,
+        sql`select title from work.work_units`,
+        sql`select payload from platform.domain_events`,
+      ]) {
+        await expect(dispatcher.db.execute(statement)).rejects.toThrow();
+      }
+      await dispatcher.db.transaction(async (tx) => {
+        await tx.execute(
+          sql`select set_config('studio.process_wake_organization_id','previous-scope',true),set_config('studio.process_wake_event_id','previous-event',true)`,
+        );
+        await tx.execute(
+          sql`select * from studio.process_wake_targets(${f.a.organizationId}::uuid,${changed.id}::uuid)`,
+        );
+        expect(
+          (
+            await tx.execute<{ organization: string; event: string }>(
+              sql`select current_setting('studio.process_wake_organization_id',true) as organization,current_setting('studio.process_wake_event_id',true) as event`,
+            )
+          ).rows[0],
+        ).toEqual({ organization: 'previous-scope', event: 'previous-event' });
+      });
+    } finally {
+      await dispatcher.close();
+    }
+    await expect(
+      withTenantTx(app.db, f.a.admin.context, (tx) =>
+        tx.execute(
+          sql`select * from studio.process_wake_targets(${f.a.organizationId}::uuid,${changed.id}::uuid)`,
+        ),
+      ),
+    ).rejects.toThrow();
+  });
   async function confirm(f: Awaited<ReturnType<typeof fixture>>, id: string) {
     for (let count = 0; count < 4; count++) {
       const work = await getWorkUnit(app.db, f.a.admin.context, id);

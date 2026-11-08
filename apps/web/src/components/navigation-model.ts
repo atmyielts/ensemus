@@ -8,6 +8,7 @@ export type NavigationIcon =
   | 'work'
   | 'approvals'
   | 'knowledge'
+  | 'records'
   | 'people'
   | 'clients'
   | 'inbox'
@@ -39,6 +40,14 @@ export type SettingsDestination = {
 };
 
 export const SETTINGS_DESTINATIONS: readonly SettingsDestination[] = [
+  {
+    path: 'get-started',
+    label: 'Company setup',
+    description: 'Follow the steps to prepare your workspace and rehearse your first workflow.',
+    icon: 'home',
+    any: [],
+    productAny: ['onboarding.manage'],
+  },
   {
     path: 'license',
     label: 'License and support',
@@ -134,8 +143,32 @@ export function workspaceNavigation(input: {
     {
       label: 'Workspace',
       items: [
-        { href: base, label: 'Home', exact: true, icon: 'home' },
-        { href: `${base}/work`, label: 'Work', icon: 'work' },
+        {
+          href: base,
+          label: 'Home',
+          exact: true,
+          icon: 'home',
+          ...(isRole(role)
+            ? {
+                matches: [`${base}/pulse`],
+                children: [
+                  { href: base, label: 'Overview', icon: 'home' as const, exact: true },
+                  { href: `${base}/pulse`, label: 'Company Pulse', icon: 'usage' as const },
+                ],
+              }
+            : {}),
+        },
+        {
+          href: `${base}/work`,
+          label: 'Work',
+          icon: 'work',
+          matches: [`${base}/compose`, `${base}/studio/runs`],
+          children: [
+            { href: `${base}/work`, label: 'All work', icon: 'work' },
+            { href: `${base}/compose`, label: 'Outcome drafts', icon: 'arrow' },
+            { href: `${base}/studio/runs`, label: 'Workflow runs', icon: 'arrow' },
+          ],
+        },
         {
           href: `${base}/approvals`,
           label: 'Approvals',
@@ -176,6 +209,7 @@ export function workspaceNavigation(input: {
         icon: 'knowledge',
         matches: [`${base}/search`],
       },
+      { href: `${base}/objects`, label: 'Custom records', icon: 'records' },
       { href: `${base}/assistants`, label: 'Assistants', icon: 'studio' },
     );
   if (can(role, 'agent.publish') || can(role, 'agent.run'))
@@ -186,6 +220,7 @@ export function workspaceNavigation(input: {
           href: `${base}/studio`,
           label: 'Automation Studio',
           icon: 'studio',
+          excludes: [`${base}/studio/runs`],
           matches: [
             `${base}/settings/agents`,
             ...(canProduct(role, 'pack.manage') ? [`${base}/packs`] : []),
@@ -234,7 +269,13 @@ export function workspaceNavigation(input: {
           href: `${base}/settings`,
           label: 'Administration',
           icon: 'settings',
-          matches: [`${base}/connections`, `${base}/security`, `${base}/license`, `${base}/data`],
+          matches: [
+            `${base}/connections`,
+            `${base}/security`,
+            `${base}/license`,
+            `${base}/data`,
+            `${base}/get-started`,
+          ],
           excludes: [`${base}/settings/agents`],
         },
       ],

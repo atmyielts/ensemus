@@ -206,6 +206,8 @@ export const PORTABILITY_INVENTORY = [
   inventory('studio.publish_reviews', 'agents', 'operational_excluded'),
   inventory('studio.process_runs', 'agents', 'operational_excluded'),
   inventory('studio.process_run_steps', 'agents', 'operational_excluded'),
+  inventory('studio.process_run_intents', 'agents', 'operational_excluded'),
+  inventory('studio.process_step_births', 'agents', 'operational_excluded'),
   inventory('objects.types', 'custom-objects', 'quarantined'),
   inventory('objects.type_versions', 'custom-objects', 'quarantined'),
   inventory('objects.records', 'custom-objects', 'quarantined'),

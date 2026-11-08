@@ -10,6 +10,7 @@ import {
   eventBacklog,
   listOrganizationIds,
   openDispatcherDatabase,
+  processWakeTargets,
   type DispatchableEvent,
 } from '@ensemus/database/dispatcher';
 import {
@@ -203,6 +204,26 @@ async function main() {
   };
 
   const deliver = async (event: DispatchableEvent) => {
+    // Existing committed outcomes wake their exact process, including manual owner confirmation.
+    // Duplicate delivery is harmless; every Activity rechecks current authority and real receipts.
+    for (const processRunId of await processWakeTargets(db, event)) {
+      try {
+        await client.workflow
+          .getHandle(
+            processRunWorkflowIdFor(
+              processRunInputSchema.parse({
+                organizationId: event.organizationId,
+                processRunId,
+              }),
+            ),
+          )
+          .signal(PROCESS_RUN_WAKE_SIGNAL);
+      } catch (error) {
+        // A process not started yet reads committed state on its first Activity. A finished one
+        // stays finished. The durable timer still covers a signal that arrives between checks.
+        if (!(error instanceof WorkflowNotFoundError)) throw error;
+      }
+    }
     const input: WorkInput | null =
       event.aggregateType === 'work_unit'
         ? workInputSchema.parse({

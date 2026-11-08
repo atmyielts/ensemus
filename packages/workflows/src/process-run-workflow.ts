@@ -8,6 +8,7 @@ import {
   continueAsNew,
   defineSignal,
   isCancellation,
+  patched,
   proxyActivities,
   setHandler,
   workflowInfo,
@@ -43,7 +44,11 @@ export async function processRunWorkflow(input: ProcessRunInput): Promise<Proces
   setHandler(wake, () => {
     woken = true;
   });
+  // Older histories retain their original timer decisions. New runs keep a real wake received
+  // while the Activity is in flight, instead of clearing it immediately before waiting.
+  const keepActivityWake = patched('process-wake-during-advance-v1');
   for (;;) {
+    if (keepActivityWake) woken = false;
     let step;
     try {
       step = await advanceRun({ ...input, temporalRunId: workflowInfo().runId });
@@ -54,7 +59,7 @@ export async function processRunWorkflow(input: ProcessRunInput): Promise<Proces
       return 'failed';
     }
     if (step.next === 'finished') return step.status;
-    woken = false;
+    if (!keepActivityWake) woken = false;
     await condition(() => woken, CHECK_AGAIN);
     if (workflowInfo().continueAsNewSuggested)
       await continueAsNew<typeof processRunWorkflow>(input);

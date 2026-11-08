@@ -18,6 +18,37 @@ export function openDispatcherDatabase(url: string) {
   return openDatabase(url, { max: 2 });
 }
 
+/** A wake only schedules a fresh database decision. The fixed dispatcher-only SQL function checks
+ * the real persisted event and actual protected process birth, and returns IDs without body grants. */
+export async function processWakeTargets(
+  db: EnsemusDrizzle,
+  event: DispatchableEvent,
+): Promise<string[]> {
+  const relevant =
+    event.aggregateType === 'work_unit'
+      ? [
+          'work.transitioned',
+          'approval.resolved',
+          'work.artifact_added',
+          'work.artifact_deleted',
+        ].includes(event.eventType)
+      : event.aggregateType === 'agent_run'
+        ? event.eventType === 'agent_run.finished'
+        : event.aggregateType === 'external_action' &&
+          [
+            'external_action.sent',
+            'external_action.failed',
+            'external_action.unknown',
+            'external_action.cancelled',
+            'external_action.resolved',
+          ].includes(event.eventType);
+  if (!relevant) return [];
+  const result = await db.execute<{ process_run_id: string }>(
+    sql`select process_run_id from studio.process_wake_targets(${event.organizationId}::uuid,${event.eventId}::uuid)`,
+  );
+  return result.rows.map((row) => row.process_run_id);
+}
+
 const MAX_ATTEMPTS = 12;
 /** At the backoff's 5-minute cap, about a day before an event that keeps failing this way goes dead. */
 const AMBIGUOUS_MAX_ATTEMPTS = 288;

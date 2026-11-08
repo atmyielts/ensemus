@@ -8,23 +8,43 @@ DO $$ BEGIN
 END $$;
 ALTER TABLE studio.process_runs FORCE ROW LEVEL SECURITY;
 --> statement-breakpoint
-CREATE TABLE studio.process_run_intents(
- organization_id uuid NOT NULL REFERENCES org.organizations(id),run_id uuid NOT NULL,
- spec_id uuid NOT NULL,root_work_unit_id uuid NOT NULL,started_by_membership_id uuid NOT NULL,
- spec_sha256 text NOT NULL CHECK(spec_sha256~'^[0-9a-f]{64}$'),birth_nonce uuid NOT NULL DEFAULT gen_random_uuid(),
- created_at timestamptz NOT NULL DEFAULT now(),PRIMARY KEY(organization_id,run_id),UNIQUE(organization_id,root_work_unit_id),
- FOREIGN KEY(organization_id,run_id) REFERENCES studio.process_runs(organization_id,id) DEFERRABLE INITIALLY DEFERRED,
- FOREIGN KEY(organization_id,spec_id) REFERENCES studio.process_specs(organization_id,id),
- FOREIGN KEY(organization_id,root_work_unit_id) REFERENCES work.work_units(organization_id,id),
- FOREIGN KEY(organization_id,started_by_membership_id) REFERENCES org.memberships(organization_id,id));
-CREATE TABLE studio.process_step_births(
- organization_id uuid NOT NULL REFERENCES org.organizations(id),run_id uuid NOT NULL,step_key text NOT NULL,
- work_unit_id uuid NOT NULL,started_by_membership_id uuid NOT NULL,spec_sha256 text NOT NULL CHECK(spec_sha256~'^[0-9a-f]{64}$'),
- birth_nonce uuid NOT NULL DEFAULT gen_random_uuid(),created_at timestamptz NOT NULL DEFAULT now(),
- PRIMARY KEY(organization_id,run_id,step_key),UNIQUE(organization_id,work_unit_id),
- FOREIGN KEY(organization_id,run_id) REFERENCES studio.process_run_intents(organization_id,run_id),
- FOREIGN KEY(organization_id,work_unit_id) REFERENCES work.work_units(organization_id,id),
- FOREIGN KEY(organization_id,started_by_membership_id) REFERENCES org.memberships(organization_id,id));
+CREATE TABLE "studio"."process_run_intents" (
+	"organization_id" uuid NOT NULL,
+	"run_id" uuid NOT NULL,
+	"spec_id" uuid NOT NULL,
+	"root_work_unit_id" uuid NOT NULL,
+	"started_by_membership_id" uuid NOT NULL,
+	"spec_sha256" text NOT NULL,
+	"birth_nonce" uuid DEFAULT gen_random_uuid() NOT NULL,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "process_run_intents_organization_id_run_id_pk" PRIMARY KEY("organization_id","run_id"),
+	CONSTRAINT "process_run_intents_organizationId_rootWorkUnitId_unique" UNIQUE("organization_id","root_work_unit_id"),
+	CONSTRAINT "process_run_intents_sha" CHECK ("studio"."process_run_intents"."spec_sha256"~'^[0-9a-f]{64}$')
+);
+--> statement-breakpoint
+CREATE TABLE "studio"."process_step_births" (
+	"organization_id" uuid NOT NULL,
+	"run_id" uuid NOT NULL,
+	"step_key" text NOT NULL,
+	"work_unit_id" uuid NOT NULL,
+	"started_by_membership_id" uuid NOT NULL,
+	"spec_sha256" text NOT NULL,
+	"birth_nonce" uuid DEFAULT gen_random_uuid() NOT NULL,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "process_step_births_organization_id_run_id_step_key_pk" PRIMARY KEY("organization_id","run_id","step_key"),
+	CONSTRAINT "process_step_births_organizationId_workUnitId_unique" UNIQUE("organization_id","work_unit_id"),
+	CONSTRAINT "process_step_births_sha" CHECK ("studio"."process_step_births"."spec_sha256"~'^[0-9a-f]{64}$')
+);
+--> statement-breakpoint
+ALTER TABLE "studio"."process_run_intents" ADD CONSTRAINT "process_run_intents_organization_id_organizations_id_fk" FOREIGN KEY ("organization_id") REFERENCES "org"."organizations"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "studio"."process_run_intents" ADD CONSTRAINT "process_run_intents_organization_id_run_id_process_runs_organization_id_id_fk" FOREIGN KEY ("organization_id","run_id") REFERENCES "studio"."process_runs"("organization_id","id") ON DELETE no action ON UPDATE no action DEFERRABLE INITIALLY DEFERRED;--> statement-breakpoint
+ALTER TABLE "studio"."process_run_intents" ADD CONSTRAINT "process_run_intents_organization_id_spec_id_process_specs_organization_id_id_fk" FOREIGN KEY ("organization_id","spec_id") REFERENCES "studio"."process_specs"("organization_id","id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "studio"."process_run_intents" ADD CONSTRAINT "process_run_intents_organization_id_root_work_unit_id_work_units_organization_id_id_fk" FOREIGN KEY ("organization_id","root_work_unit_id") REFERENCES "work"."work_units"("organization_id","id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "studio"."process_run_intents" ADD CONSTRAINT "process_run_intents_organization_id_started_by_membership_id_memberships_organization_id_id_fk" FOREIGN KEY ("organization_id","started_by_membership_id") REFERENCES "org"."memberships"("organization_id","id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "studio"."process_step_births" ADD CONSTRAINT "process_step_births_organization_id_organizations_id_fk" FOREIGN KEY ("organization_id") REFERENCES "org"."organizations"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "studio"."process_step_births" ADD CONSTRAINT "process_step_births_organization_id_run_id_process_run_intents_organization_id_run_id_fk" FOREIGN KEY ("organization_id","run_id") REFERENCES "studio"."process_run_intents"("organization_id","run_id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "studio"."process_step_births" ADD CONSTRAINT "process_step_births_organization_id_work_unit_id_work_units_organization_id_id_fk" FOREIGN KEY ("organization_id","work_unit_id") REFERENCES "work"."work_units"("organization_id","id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "studio"."process_step_births" ADD CONSTRAINT "process_step_births_organization_id_started_by_membership_id_memberships_organization_id_id_fk" FOREIGN KEY ("organization_id","started_by_membership_id") REFERENCES "org"."memberships"("organization_id","id") ON DELETE no action ON UPDATE no action;
 ALTER TABLE studio.process_run_intents ENABLE ROW LEVEL SECURITY;
 ALTER TABLE studio.process_run_intents FORCE ROW LEVEL SECURITY;
 ALTER TABLE studio.process_step_births ENABLE ROW LEVEL SECURITY;
@@ -358,6 +378,7 @@ BEGIN
  ELSIF app.current_actor_type()='delegated' THEN
    -- 0406 independently binds the actual queued M4 run, version/publication, Work and starter.
    IF NEW.agent_run_id IS NULL OR OLD.agent_run_id IS NOT NULL OR NEW.status<>'waiting' OR choice->>'kind'<>'agent_task'
+   OR r.stop_code='STOP_REQUESTED'
    OR r.started_by_membership_id IS DISTINCT FROM app.current_membership_id()
    OR ROW(NEW.work_unit_id,NEW.approval_id,NEW.external_action_id,NEW.artifact_id) IS DISTINCT FROM ROW(OLD.work_unit_id,OLD.approval_id,OLD.external_action_id,OLD.artifact_id)
    THEN RAISE EXCEPTION 'PROCESS_AGENT_BIND_DENIED' USING ERRCODE='EN418';END IF;

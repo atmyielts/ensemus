@@ -117,7 +117,13 @@ const codeOf = async (use: () => Promise<unknown>) => {
 const isPgRefusal = (error: unknown, code: string, message: string) => {
   let current = error;
   for (let depth = 0; depth < 8 && current && typeof current === 'object'; depth++) {
-    if ('code' in current && current.code === code && 'message' in current && current.message === message) return true;
+    if (
+      'code' in current &&
+      current.code === code &&
+      'message' in current &&
+      current.message === message
+    )
+      return true;
     current = 'cause' in current ? current.cause : null;
   }
   return false;
@@ -155,7 +161,13 @@ describe('bounded Knowledge model jobs and principal-bound result receipts (0216
       requestKey: randomUUID(),
     });
   }
-  async function fixture(options: { beforeSend?: () => Promise<void>; failure?: boolean; classification?: 'internal' | 'restricted' } = {}) {
+  async function fixture(
+    options: {
+      beforeSend?: () => Promise<void>;
+      failure?: boolean;
+      classification?: 'internal' | 'restricted';
+    } = {},
+  ) {
     const approved = await approval(),
       query = `Generated query ${randomUUID()}`;
     const input = {
@@ -576,19 +588,24 @@ describe('bounded Knowledge model jobs and principal-bound result receipts (0216
       }),
     ).rejects.toMatchObject({ code: 'INVALID_STATE' });
     await expect(
-        withTenantTx(agent.db, f.context, async (tx) => {
-          // Admit actual read scope, but never stamp the main-model writer protocol. This isolates
-          // 0414's specific earlier runtime backstop as further before-body protocols are joined.
-          await loadAgentReadScopeInTx(tx, f.context);
-          await tx
-            .update(executionSteps)
-            .set({ attempt: f.main.attempt + 1 })
-            .where(eq(executionSteps.id, f.main.stepId));
-        }),
-    ).rejects.toSatisfy((error: unknown) => isPgRefusal(error, 'EN119', 'MAIN_MODEL_RUNTIME_REQUIRED'));
-    const [untouched] = await withTenantTx(agent.db, f.context, (tx) => tx
-      .select({ attempt: executionSteps.attempt, state: executionSteps.state }).from(executionSteps)
-      .where(eq(executionSteps.id, f.main.stepId)));
+      withTenantTx(agent.db, f.context, async (tx) => {
+        // Admit actual read scope, but never stamp the main-model writer protocol. This isolates
+        // 0414's specific earlier runtime backstop as further before-body protocols are joined.
+        await loadAgentReadScopeInTx(tx, f.context);
+        await tx
+          .update(executionSteps)
+          .set({ attempt: f.main.attempt + 1 })
+          .where(eq(executionSteps.id, f.main.stepId));
+      }),
+    ).rejects.toSatisfy((error: unknown) =>
+      isPgRefusal(error, 'EN119', 'MAIN_MODEL_RUNTIME_REQUIRED'),
+    );
+    const [untouched] = await withTenantTx(agent.db, f.context, (tx) =>
+      tx
+        .select({ attempt: executionSteps.attempt, state: executionSteps.state })
+        .from(executionSteps)
+        .where(eq(executionSteps.id, f.main.stepId)),
+    );
     expect(untouched).toEqual({ attempt: f.main.attempt, state: 'in_flight' });
     const resumed = await createTurnStore(agent.db).beginTurn(f.context, {
       runId: f.runId,
@@ -1010,18 +1027,27 @@ describe('bounded Knowledge model jobs and principal-bound result receipts (0216
     });
     // Unassigning INTERNAL Work does not revoke its organization-wide read right. This case uses
     // the actual restricted named-person boundary and the same sufficient result protection.
-    const access = await withTenantTx(agent.db, f.requester, (tx) => tx.execute<{ readable: boolean }>(
-      sql`select knowledge.structured_record_readable('work_unit',${work.id}::uuid,${a.member.membershipId}::uuid) readable`,
-    ));
+    const access = await withTenantTx(agent.db, f.requester, (tx) =>
+      tx.execute<{ readable: boolean }>(
+        sql`select knowledge.structured_record_readable('work_unit',${work.id}::uuid,${a.member.membershipId}::uuid) readable`,
+      ),
+    );
     expect(access.rows[0]?.readable).toBe(false);
     await expect(f.calls.assertResultFresh(f.principal, output.usage.callId!)).rejects.toThrow();
     await expect(
-      evidence(f.requester, null, (tx, id) =>
-        f.bound.acceptResultInTx(tx, output.usage, { kind: 'evidence', id }),
+      evidence(
+        f.requester,
+        null,
+        (tx, id) => f.bound.acceptResultInTx(tx, output.usage, { kind: 'evidence', id }),
         'restricted',
       ),
     ).rejects.toThrow();
-    expect(await attempt(f.jobId)).toMatchObject({ state: 'response_received', status: 'final', costMicros: 1, resultId: null });
+    expect(await attempt(f.jobId)).toMatchObject({
+      state: 'response_received',
+      status: 'final',
+      costMicros: 1,
+      resultId: null,
+    });
   });
   it('never resends an unconfirmed paid attempt and settles its reserved ceiling exactly once', async () => {
     const f = await fixture({ failure: true });

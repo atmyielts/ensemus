@@ -31,3 +31,18 @@ Source gate results (2026-11-08):
 - No SQL apply, integration/stack/replay/browser execution, build, provider call or Docker operation ran. No migration journal/snapshot was changed. Actual Temporal completion wake and all kind-specific races still need joined runtime gates.
 
 Parent owns the separate 0420 dispatcher metadata wake mapper. The existing durable five-minute timer remains a fallback; immediate real Work/approval/agent/external-action wake qualification is not claimed by this authority checkpoint. Final SQL review also replaced a generic-record CASE with relation-specific IF branches so each trigger references only columns that exist on its actual table. SQL remains unrun.
+
+## Joined local qualification, 2026-11-08
+
+The original source-only statements above describe the author checkpoint. Root subsequently applied
+57 migrations to its own fresh synthetic database, audited the actual constraint names for all 151
+modeled tables (zero missing/renamed), and passed all 15 process/dispatcher-role cases. The wider joined
+product group passed 170 cases in 14 files; the model group separately passed 25 cases. Source helpers
+use an actual published assistant and native MFA/session proof. A genuine delayed M4 port call after
+committed native stop is refused before a new run is born, and a direct delegated binding independently
+fails at the stopped-parent SQL guard. The real event-header mapper passes repeated delivery, foreign
+tenant, missing/irrelevant header, no private-body grants and saved scope restoration checks.
+
+The patched wake-during-Activity logic passes two mocked workflow branches. These tests do not prove
+actual Temporal delivery or replay. Built HTTP/browser journeys, providers and production acceptance
+remain open. No 0417/0419 inherited-input or M8 lifecycle source has been qualified by these results.

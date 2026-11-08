@@ -386,6 +386,20 @@
       "when": 1794010184909,
       "tag": "0416_delegated_input_receipts",
       "breakpoints": true
+    },
+    {
+      "idx": 55,
+      "version": "7",
+      "when": 1794010184910,
+      "tag": "0418_process_run_authority",
+      "breakpoints": true
+    },
+    {
+      "idx": 56,
+      "version": "7",
+      "when": 1794010184911,
+      "tag": "0420_process_wake_metadata",
+      "breakpoints": true
     }
   ]
 }

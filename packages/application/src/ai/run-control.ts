@@ -562,6 +562,9 @@ export async function requestProcessAgentRun(
         throw new AppError('VERSION_CONFLICT');
       return { runId: bound.id };
     }
+    // A native stop may commit after the worker's earlier recheck. This actual process lock
+    // fences new M4 birth/binding; exact already-bound identity replay above has no new effect.
+    if (process.stopCode === 'STOP_REQUESTED') throw new AppError('INVALID_STATE');
     const [version] = await tx
       .select({ definition: agentVersions.definitionId })
       .from(agentVersions)

@@ -5,6 +5,7 @@ const PATHS: Record<NavigationIcon, string[]> = {
   work: ['M9 5V3h6v2', 'M4 5h16v15H4z', 'M4 10h16', 'M10 10v3h4v-3'],
   approvals: ['M8 3h8v4H8z', 'M8 5H5v16h14V5h-3', 'm8 14 3 3 5-6'],
   knowledge: ['M12 5C9 3 5 3 2 4v15c3-1 7-1 10 1 3-2 7-2 10-1V4c-3-1-7-1-10 1Z', 'M12 5v15'],
+  records: ['M4 3h16v18H4z', 'M4 9h16M4 15h16M9 3v18'],
   people: [
     'M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z',
     'M2 21v-3a5 5 0 0 1 5-5h4a5 5 0 0 1 5 5v3',

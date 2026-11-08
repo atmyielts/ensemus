@@ -19,7 +19,7 @@ BEGIN
     RAISE EXCEPTION 'PROCESS_BIND_NOT_ALLOWED' USING ERRCODE='42501'; END IF;
   SELECT * INTO process FROM studio.process_runs WHERE organization_id=NEW.organization_id AND id=NEW.run_id FOR UPDATE NOWAIT;
   IF NOT FOUND OR process.started_by_membership_id IS DISTINCT FROM app.current_membership_id()
-    OR process.status NOT IN ('running','waiting') THEN
+    OR process.status NOT IN ('running','waiting') OR process.stop_code='STOP_REQUESTED' THEN
     RAISE EXCEPTION 'PROCESS_BIND_PARENT_CHANGED' USING ERRCODE='EN406'; END IF;
   SELECT role INTO actor_role FROM org.memberships WHERE organization_id=NEW.organization_id
     AND id=process.started_by_membership_id AND user_id=app.current_user_id() AND status='active' FOR SHARE NOWAIT;

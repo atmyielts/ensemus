@@ -15,7 +15,7 @@ describe('working workspace navigation', () => {
   it('groups routine work, the builder and administration without future or dead destinations', () => {
     const groups = navigation('owner');
     expect(groups.map((group) => group.label)).toEqual(['Workspace', 'Build', 'Organization']);
-    expect(groups.flatMap((group) => group.items)).toHaveLength(10);
+    expect(groups.flatMap((group) => group.items)).toHaveLength(11);
     const items = groups.flatMap((group) =>
       group.items.flatMap((item) => [item, ...(item.children ?? [])]),
     );
@@ -27,9 +27,6 @@ describe('working workspace navigation', () => {
       );
       expect(existsSync(fileURLToPath(page)), item.href).toBe(true);
       expect(item.href).not.toBe(`${base}/agents`);
-      expect(
-        ['pulse', 'compose', 'objects', 'get-started'].map((path) => `${base}/${path}`),
-      ).not.toContain(item.href);
     }
     for (const item of visibleSettings('owner')) {
       expect(
@@ -68,9 +65,16 @@ describe('working workspace navigation', () => {
 
   it.each([
     ['/work/a/run', 'Work'],
+    ['/compose/a', 'Work'],
+    ['/pulse/work_overdue:a', 'Home'],
+    ['/objects/types/a/records/b', 'Custom records'],
+    ['/get-started', 'Administration'],
     ['/approvals/a', 'Approvals'],
     ['/external-actions/a', 'Approvals'],
     ['/studio', 'Automation Studio'],
+    ['/studio/runs', 'Work'],
+    ['/studio/runs/a', 'Work'],
+    ['/studio/runs/new', 'Work'],
     ['/settings/agents', 'Automation Studio'],
     ['/packs/installations/a', 'Automation Studio'],
     ['/assistants/a', 'Assistants'],
