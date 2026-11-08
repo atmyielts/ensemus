@@ -6,6 +6,8 @@ import {
   BASE,
   PASSWORD,
   assembled,
+  formsIn,
+  post,
   createOrganization,
   submit,
   bringIn,
@@ -40,11 +42,21 @@ export async function ssoStackFixture() {
     html = assembled(await setup.text());
   const uri = /href="(otpauth:\/\/[^"]+)"/.exec(html)?.[1]?.replaceAll('&amp;', '&');
   if (!uri || setup.status !== 200) throw new Error('GENERATED_SSO_OWNER_FACTOR_NOT_PREPARED');
-  const confirmed = await submit(factorPath, owner.jar, /Finish setup/, {
-    kind: 'totp',
-    code: totpFromUri(uri, Date.now() - 30000),
+  // Enrollment state exists only in this POST response. A fresh GET deliberately has no setup
+  // material or confirmation action; submitting by fetching the page again loses the native state.
+  const confirmations = formsIn(html).filter((form) => /Confirm and turn on/.test(form.html));
+  if (confirmations.length !== 1) throw new Error('GENERATED_SSO_OWNER_CONFIRMATION_FORM_MISSING');
+  const confirmed = await post(factorPath, owner.jar, confirmations[0]!, {
+    code: totpFromUri(uri),
   });
-  if (confirmed.status !== 303) throw new Error('GENERATED_SSO_OWNER_FACTOR_NOT_CONFIRMED');
+  const target = new URL(confirmed.headers.get('location') ?? '/missing', BASE);
+  if (
+    confirmed.status !== 303 ||
+    target.origin !== new URL(BASE).origin ||
+    target.pathname !== `/o/${organization}/security` ||
+    target.searchParams.get('notice') !== 'enrolled'
+  )
+    throw new Error('GENERATED_SSO_OWNER_FACTOR_NOT_CONFIRMED');
   const path = `/o/${organization}/security/sso`,
     created = await submit(path, owner.jar, /Save connection for review/, {
       displayName: 'Generated company identity provider',
