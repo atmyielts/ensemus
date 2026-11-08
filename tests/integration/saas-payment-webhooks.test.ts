@@ -6,6 +6,7 @@ import {
   applyVerifiedDelivery,
   createWebhookEndpoint,
   ingestWebhookDelivery,
+  loadStoredDelivery,
   type WebhookEffectHandlers,
 } from '@ensemus/application';
 import { routePaymentEvent } from '@ensemus/application/saas/payment-events';
@@ -35,12 +36,14 @@ import { storeSecret } from '@ensemus/secrets/seal';
 import {
   createWebhookActivities,
   createWebhookEffectHandlers,
+  createWebhookVerifier,
 } from '@ensemus/workflows/webhook-activities';
 import type { ConnectorActivityDeps } from '@ensemus/workflows/connector-deps';
 import { and, eq, inArray, notInArray } from 'drizzle-orm';
 import { seedConnection } from '../helpers/integrations';
 import { makeTwoTenants, proveSecondFactor } from '../helpers/product';
 import { secret, urls } from '../helpers/stack';
+import { createPaymentWebhookAttester } from '../../workers/workflow/src/payment-webhook-attester';
 
 describe('verified processor callbacks commit the real M8 receipt with the M3 inbox', () => {
   const app = openAppDatabase(urls.app()),
@@ -97,6 +100,7 @@ describe('verified processor callbacks commit the real M8 receipt with the M3 in
     });
     const deps: ConnectorActivityDeps = {
       database: app.db,
+      attestPaymentWebhook: createPaymentWebhookAttester(secretsDb.db),
       registry: createConnectorRegistry([createPaymentConnector(processor)]),
       secrets: new SecretBroker(
         secretsDb.db,
@@ -293,6 +297,15 @@ describe('verified processor callbacks commit the real M8 receipt with the M3 in
   it('rejects effect/envelope event ID mismatch in dispatch before any real effect or sync', async () => {
     const f = await fixture(),
       deliveryId = await f.post();
+    const stored = await loadStoredDelivery(app.db, f.service, { deliveryId });
+    if (!stored) throw new Error('TEST_EXPECTED_REAL_STORED_DELIVERY');
+    const verdict = await createWebhookVerifier(f.deps).verify(
+      f.owner.organizationId,
+      stored,
+      stored.receivedAtMs,
+    );
+    if (!verdict.ok || !verdict.paymentVerificationToken)
+      throw new Error('TEST_EXPECTED_NATIVE_VERIFICATION');
     expect(
       await applyVerifiedDelivery(
         app.db,
@@ -300,6 +313,7 @@ describe('verified processor callbacks commit the real M8 receipt with the M3 in
         {
           deliveryId,
           providerEventId: f.fact.providerEventId,
+          paymentVerificationToken: verdict.paymentVerificationToken,
           effects: [{ kind: 'payment_event', event: { ...f.fact, providerEventId: randomUUID() } }],
         },
         createWebhookEffectHandlers(undefined, f.deps.paymentWebhook),
@@ -337,6 +351,7 @@ describe('verified processor callbacks commit the real M8 receipt with the M3 in
 
   it('uses the actual stored endpoint envelope rather than a caller-provided connection', async () => {
     const f = await fixture();
+    const deliveryId = await f.post();
     await expect(
       withTenantTx(app.db, f.service, (tx) =>
         createWebhookEffectHandlers(undefined, f.deps.paymentWebhook).recordPaymentEvent(
@@ -344,6 +359,7 @@ describe('verified processor callbacks commit the real M8 receipt with the M3 in
           f.service,
           { kind: 'payment_event', event: f.fact },
           {
+            deliveryId,
             endpointId: f.endpoint.endpointId,
             connectionId: randomUUID(),
             providerEventId: f.fact.providerEventId,

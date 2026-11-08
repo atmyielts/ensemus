@@ -29,7 +29,7 @@ export type ChargeStep =
   | { step: 'retry'; afterMs: number }
   | { step: 'reconcile' };
 export type InterruptedPaymentStep = 'nothing_sent' | 'attempt_open' | 'settled';
-export type PaymentReconcileStep = 'succeeded' | 'failed' | 'retry' | 'unknown';
+export type PaymentReconcileStep = 'succeeded' | 'failed' | 'cancelled' | 'retry' | 'unknown';
 
 /** `organizationId` here is the operator's own organization, where the event was verified and held. */
 export const paymentEventInputSchema = z.strictObject({
