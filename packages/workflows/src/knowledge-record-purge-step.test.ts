@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
-import { retryRecordPurge, recordPurgeRetryDelayMs, RECORD_PURGE_PASSES_PER_HISTORY, runRecordPurge } from './knowledge-record-purge-step';
+import {
+  retryRecordPurge,
+  recordPurgeRetryDelayMs,
+  RECORD_PURGE_PASSES_PER_HISTORY,
+  runRecordPurge,
+} from './knowledge-record-purge-step';
 const proof = { confirmed: true, removed: 2, remaining: 0, controlsRemaining: 0, unproven: 0 };
 describe('bounded typed-record material purge', () => {
   it('preserves separate actual Work and file counts after the final proof', async () => {
@@ -94,25 +99,57 @@ describe('bounded typed-record material purge', () => {
 });
 
 describe('durable typed-record proof retries', () => {
-  const unconfirmed = { state: 'unconfirmed' as const, work: { ...proof, confirmed: false }, filesRemoved: null, filesRemaining: null, filesHeld: null };
-  const completed = { state: 'completed' as const, work: proof, filesRemoved: 0, filesRemaining: 0, filesHeld: 0 };
+  const unconfirmed = {
+    state: 'unconfirmed' as const,
+    work: { ...proof, confirmed: false },
+    filesRemoved: null,
+    filesRemaining: null,
+    filesHeld: null,
+  };
+  const completed = {
+    state: 'completed' as const,
+    work: proof,
+    filesRemoved: 0,
+    filesRemaining: 0,
+    filesHeld: 0,
+  };
   it('rechecks failed, held and late-writer passes before accepting only a fresh completed proof', async () => {
-    const pass = vi.fn().mockRejectedValueOnce(new Error('TEST_LOST_ACTIVITY_RESPONSE')).mockResolvedValueOnce(unconfirmed).mockResolvedValueOnce({ ...unconfirmed, filesHeld: 1 }).mockResolvedValueOnce(completed);
+    const pass = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('TEST_LOST_ACTIVITY_RESPONSE'))
+      .mockResolvedValueOnce(unconfirmed)
+      .mockResolvedValueOnce({ ...unconfirmed, filesHeld: 1 })
+      .mockResolvedValueOnce(completed);
     const delay = vi.fn(async (_milliseconds: number) => undefined);
-    expect(await retryRecordPurge({ pass, delay })).toEqual({ state: 'completed', result: completed });
+    expect(await retryRecordPurge({ pass, delay })).toEqual({
+      state: 'completed',
+      result: completed,
+    });
     expect(pass).toHaveBeenCalledTimes(4);
-    expect(delay.mock.calls.map(([value]) => value)).toEqual([60_000,120_000,240_000]);
+    expect(delay.mock.calls.map(([value]) => value)).toEqual([60_000, 120_000, 240_000]);
   });
   it('bounds each history and carries the backoff instead of resetting it after continue-as-new', async () => {
-    const delay = vi.fn(async (_milliseconds: number) => undefined), pass = vi.fn(async () => unconfirmed);
-    expect(await retryRecordPurge({ pass, delay }, 10)).toEqual({ state: 'retry', retryAttempt: 10 });
+    const delay = vi.fn(async (_milliseconds: number) => undefined),
+      pass = vi.fn(async () => unconfirmed);
+    expect(await retryRecordPurge({ pass, delay }, 10)).toEqual({
+      state: 'retry',
+      retryAttempt: 10,
+    });
     expect(pass).toHaveBeenCalledTimes(RECORD_PURGE_PASSES_PER_HISTORY);
     expect(delay).toHaveBeenCalledTimes(RECORD_PURGE_PASSES_PER_HISTORY);
     expect(delay.mock.calls.every(([value]) => value === 60 * 60_000)).toBe(true);
   });
   it('propagates cancellation/timer failure rather than spinning or manufacturing a final result', async () => {
-    const failure = new Error('TEST_WORKFLOW_CANCELLED'), pass = vi.fn(async () => unconfirmed);
-    await expect(retryRecordPurge({ pass, delay: async () => { throw failure; } })).rejects.toBe(failure);
+    const failure = new Error('TEST_WORKFLOW_CANCELLED'),
+      pass = vi.fn(async () => unconfirmed);
+    await expect(
+      retryRecordPurge({
+        pass,
+        delay: async () => {
+          throw failure;
+        },
+      }),
+    ).rejects.toBe(failure);
     expect(pass).toHaveBeenCalledTimes(1);
   });
   it('caps the durable interval at one hour', () => {

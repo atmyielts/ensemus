@@ -16,12 +16,14 @@ export const recordPurgeRetryDelayMs = (attempt: number) =>
 
 /** A hold, unknown writer or unavailable dependency remains visible debt. Timers retry fresh proof,
  * while a new history bounds replay size. No exception text or private result crosses that boundary. */
-export async function retryRecordPurge(ports: {
-  pass(): Promise<RecordPurgeResult>;
-  delay(milliseconds: number): Promise<void>;
-}, retryAttempt = 0): Promise<
-  | { state: 'completed'; result: RecordPurgeResult }
-  | { state: 'retry'; retryAttempt: number }
+export async function retryRecordPurge(
+  ports: {
+    pass(): Promise<RecordPurgeResult>;
+    delay(milliseconds: number): Promise<void>;
+  },
+  retryAttempt = 0,
+): Promise<
+  { state: 'completed'; result: RecordPurgeResult } | { state: 'retry'; retryAttempt: number }
 > {
   let attempt = retryAttempt;
   for (let pass = 0; pass < RECORD_PURGE_PASSES_PER_HISTORY; pass++) {

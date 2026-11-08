@@ -70,15 +70,23 @@ export async function recordPurgeTargetForEvent(
   db: EnsemusDrizzle,
   event: DispatchableEvent,
 ): Promise<RecordPurgeTarget | null> {
-  if (event.eventType !== 'knowledge.record_purge_requested' || !recordKinds.has(event.aggregateType))
+  if (
+    event.eventType !== 'knowledge.record_purge_requested' ||
+    !recordKinds.has(event.aggregateType)
+  )
     return null;
   await assertRestoreAdmission(db);
-  const result = await db.execute<RecordPurgeTarget>(sql`select organization_id "organizationId",record_kind kind,record_id id
+  const result =
+    await db.execute<RecordPurgeTarget>(sql`select organization_id "organizationId",record_kind kind,record_id id
     from knowledge.record_purge_event_target(${event.organizationId}::uuid,${event.eventId}::uuid)`);
   if (result.rows.length === 0) return null;
   if (result.rows.length !== 1) throw new Error('RECORD_PURGE_METADATA_INVALID');
   const target = recordTarget(result.rows[0]!);
-  if (target.organizationId !== event.organizationId || target.kind !== event.aggregateType || target.id !== event.aggregateId)
+  if (
+    target.organizationId !== event.organizationId ||
+    target.kind !== event.aggregateType ||
+    target.id !== event.aggregateId
+  )
     throw new Error('RECORD_PURGE_METADATA_INVALID');
   return target;
 }
@@ -94,7 +102,8 @@ export async function closedRecordPurgeTargets(
     throw new Error('RECORD_PURGE_PAGE_INVALID');
   if (after) recordTarget(after);
   await assertRestoreAdmission(db);
-  const result = await db.execute<RecordPurgeTarget>(sql`select organization_id "organizationId",record_kind kind,record_id id
+  const result =
+    await db.execute<RecordPurgeTarget>(sql`select organization_id "organizationId",record_kind kind,record_id id
     from knowledge.closed_record_purge_targets(${after?.organizationId ?? null}::uuid,${after?.kind ?? null},${after?.id ?? null}::uuid,${limit + 1}::integer)`);
   if (result.rows.length > limit + 1) throw new Error('RECORD_PURGE_METADATA_INVALID');
   const rows = result.rows.map(recordTarget);

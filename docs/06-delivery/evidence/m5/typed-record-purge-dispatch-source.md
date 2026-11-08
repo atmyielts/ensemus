@@ -62,5 +62,30 @@ dispatcher body/write denials, invalid cursors and scope restoration. It is **un
 full registered joined schema, actual roles and current admitted restore controller.
 
 No format/lint/unit/type/SQL/integration/replay/build/browser/restore/install command has run for this
-initial source checkpoint. Parent authorized the next bounded source gate separately; results must be
-recorded in a later checkpoint. Performance under populated closure inventories remains unmeasured.
+initial source checkpoint `28c1683`. Performance under populated closure inventories remains unmeasured.
+
+## Bounded source gate after28c1683
+
+All results below are from this checkout after the parent explicitly granted its exclusive source
+slot. First attempt passed; no diagnostic failures, reruns, warnings or package installation.
+
+- Pinned `node node_modules/prettier/bin/prettier.cjs --write` on the changed TypeScript paths:
+  passed. Markdown follows the repository's existing formatter ignore. SQL was inspected as source,
+  not parsed/applied by PostgreSQL.
+- Pinned `node node_modules/eslint/bin/eslint.js --max-warnings 0` on all12 changed TypeScript
+  paths: passed.
+- `node node_modules/vitest/vitest.mjs run --project unit --maxWorkers=1 --no-file-parallelism`
+  with exactly `packages/database/src/record-purge-dispatch.test.ts`,
+  `packages/workflows/src/knowledge-record-purge-step.test.ts`,
+  `packages/workflows/src/knowledge-record-purge-workflow.test.ts`,
+  `packages/workflows/src/knowledge-purge-step.test.ts`,
+  `workers/workflow/src/record-purge-dispatch.test.ts`,
+  `workers/workflow/src/dispatch-errors.test.ts`: **53 passed across6 files**.
+- Sequential `node node_modules/typescript/bin/tsc -p <scope>/tsconfig.json --noEmit`:
+  `packages/database`, `packages/domain`, `packages/workflows`, `workers/workflow`, `tests`:
+  **all five passed**.
+
+The slot was explicitly released immediately after the last typecheck. Migration0423 remains
+unregistered/unapplied. The new integration cases, actual least-privilege SQL behavior, real Temporal
+replay/continue-as-new, cross-queue execution, populated performance and actual provider/object/restore
+qualification remain open. These protocol doubles/SDK seams do not prove any of those gates.

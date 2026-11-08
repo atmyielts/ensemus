@@ -138,7 +138,12 @@ import {
 import { classifyDeliveryError, needsOnlyTheStore } from './dispatch-errors';
 import { openDispatcherConnection } from './temporal-connection';
 import { createLedgerWriter } from './tombstone-ledger';
-import { startCanonicalRecordPurge, reconcileRecordPurges, RECORD_PURGE_RECONCILE_INTERVAL_MS, RECORD_PURGE_RECONCILE_PAGE_MS } from './record-purge-dispatch';
+import {
+  startCanonicalRecordPurge,
+  reconcileRecordPurges,
+  RECORD_PURGE_RECONCILE_INTERVAL_MS,
+  RECORD_PURGE_RECONCILE_PAGE_MS,
+} from './record-purge-dispatch';
 
 const log = createLogger('dispatcher');
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -274,12 +279,19 @@ async function main() {
     }
   };
 
-  const startRecordPurge = (target: RecordPurgeTarget) => startCanonicalRecordPurge(target, {
-    start: (input, workflowId) => connection.withDeadline(Date.now() + CALL_DEADLINE_MS, () => client.workflow.start('knowledgeRecordPurgeWorkflow', {
-      args: [input], taskQueue: PLATFORM_TASK_QUEUE, workflowId, workflowIdReusePolicy: 'ALLOW_DUPLICATE',
-    })),
-    alreadyRunning: (error) => error instanceof WorkflowExecutionAlreadyStartedError,
-  });
+  const startRecordPurge = (target: RecordPurgeTarget) =>
+    startCanonicalRecordPurge(target, {
+      start: (input, workflowId) =>
+        connection.withDeadline(Date.now() + CALL_DEADLINE_MS, () =>
+          client.workflow.start('knowledgeRecordPurgeWorkflow', {
+            args: [input],
+            taskQueue: PLATFORM_TASK_QUEUE,
+            workflowId,
+            workflowIdReusePolicy: 'ALLOW_DUPLICATE',
+          }),
+        ),
+      alreadyRunning: (error) => error instanceof WorkflowExecutionAlreadyStartedError,
+    });
 
   const deliver = async (event: DispatchableEvent) => {
     // Existing committed outcomes wake their exact process, including manual owner confirmation.
@@ -699,13 +711,20 @@ async function main() {
     if (Date.now() >= nextRecordPurgeReconcileAt) {
       nextRecordPurgeReconcileAt = Date.now() + RECORD_PURGE_RECONCILE_PAGE_MS;
       try {
-        const result = await reconcileRecordPurges({
-          list: (after) => closedRecordPurgeTargets(db, after),
-          start: async (target) => { beat(); await startRecordPurge(target); },
-          shouldStop: () => !running,
-        }, recordPurgeCursor);
+        const result = await reconcileRecordPurges(
+          {
+            list: (after) => closedRecordPurgeTargets(db, after),
+            start: async (target) => {
+              beat();
+              await startRecordPurge(target);
+            },
+            shouldStop: () => !running,
+          },
+          recordPurgeCursor,
+        );
         recordPurgeCursor = result.next;
-        if (result.next === null) nextRecordPurgeReconcileAt = Date.now() + RECORD_PURGE_RECONCILE_INTERVAL_MS;
+        if (result.next === null)
+          nextRecordPurgeReconcileAt = Date.now() + RECORD_PURGE_RECONCILE_INTERVAL_MS;
         if (result.failed) log.warn('record_purge.reconcile_failed', { count: result.failed });
       } catch (error) {
         log.warn('record_purge.reconcile_unavailable', { errorCode: errorCode(error) });
