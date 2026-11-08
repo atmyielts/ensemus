@@ -578,7 +578,7 @@ DECLARE c ai.model_call_attempts%ROWTYPE;r record;b record;card record;expected_
 BEGIN
   IF TG_OP<>'INSERT' OR TG_RELID NOT IN('platform.usage_ledger'::regclass,'platform.budget_reservations'::regclass) THEN RAISE EXCEPTION 'MODEL_MONEY_TARGET' USING ERRCODE='42501';END IF;
   IF NEW.model_call_id IS NULL THEN
-    IF TG_RELID='platform.budget_reservations'::regclass AND EXISTS(SELECT 1 FROM ai.model_call_attempts c WHERE c.organization_id=NEW.organization_id and c.run_id=NEW.run_id) THEN
+    IF TG_RELID='platform.budget_reservations'::regclass AND EXISTS(SELECT 1 FROM ai.model_call_attempts prior_call WHERE prior_call.organization_id=NEW.organization_id and prior_call.run_id=NEW.run_id) THEN
       IF NEW.organization_id IS DISTINCT FROM app.current_organization_id() OR NOT ai.main_reservation_admitted(NEW.run_id,NEW.step_id,NEW.attempt,NEW.amount_micros) THEN
         RAISE EXCEPTION 'MAIN_MODEL_ADMISSION_REQUIRED' USING ERRCODE='EN120';END IF;
     END IF;

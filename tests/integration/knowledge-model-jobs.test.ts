@@ -146,7 +146,7 @@ describe('bounded Knowledge model jobs and principal-bound result receipts (0216
       requestKey: randomUUID(),
     });
   }
-  async function fixture(options: { beforeSend?: () => Promise<void>; failure?: boolean } = {}) {
+  async function fixture(options: { beforeSend?: () => Promise<void>; failure?: boolean; classification?: 'internal' | 'restricted' } = {}) {
     const approved = await approval(),
       query = `Generated query ${randomUUID()}`;
     const input = {
@@ -155,7 +155,7 @@ describe('bounded Knowledge model jobs and principal-bound result receipts (0216
       approvalId: approved.approvalId,
       requestKey: randomUUID(),
       bounds,
-      classification: 'internal' as const,
+      classification: options.classification ?? 'internal',
       query,
     };
     const request = await requestKnowledgeModelJob(app.db, a.member, input);
@@ -207,7 +207,7 @@ describe('bounded Knowledge model jobs and principal-bound result receipts (0216
     const route = await bound.model.route({
       organizationId: a.organizationId,
       purpose: 'embed',
-      classification: 'internal',
+      classification: input.classification,
     });
     if (route.decision !== 'allow') throw new Error(`TEST_ROUTE_REFUSED:${route.reasonCode}`);
     const metadata: ModelCallMetadata = { operationKey: operationKey([query]), inputs: [] };
@@ -232,6 +232,7 @@ describe('bounded Knowledge model jobs and principal-bound result receipts (0216
     context: TenantContext,
     runId: string | null,
     use: (tx: Tx, packageId: string) => Promise<void>,
+    classification: 'internal' | 'restricted' = 'internal',
   ) {
     const packageId = randomUUID();
     await withTenantTx(agent.db, context, async (tx) => {
@@ -246,7 +247,7 @@ describe('bounded Knowledge model jobs and principal-bound result receipts (0216
         policyVersion: 'generated-test-policy',
         budgetTokens: 500,
         usedTokens: 0,
-        strongestClassification: 'internal',
+        strongestClassification: classification,
         packageSha256: sha256(packageId),
       });
       await use(tx, packageId);
@@ -963,12 +964,13 @@ describe('bounded Knowledge model jobs and principal-bound result receipts (0216
     const work = await createWorkUnit(app.db, a.owner, {
       title: 'Generated delegated Work',
       objective: 'First actual read.',
+      classification: 'restricted',
     });
     await assignContributor(app.db, a.owner, {
       id: work.id,
       membershipId: a.member.membershipId,
     });
-    const f = await fixture(),
+    const f = await fixture({ classification: 'restricted' }),
       metadata: ModelCallMetadata = {
         ...f.metadata,
         inputs: [
@@ -976,7 +978,7 @@ describe('bounded Knowledge model jobs and principal-bound result receipts (0216
             kind: 'work_unit',
             id: work.id,
             sha256: workInputHash(work),
-            classification: 'internal',
+            classification: 'restricted',
           },
         ],
       };
@@ -992,11 +994,20 @@ describe('bounded Knowledge model jobs and principal-bound result receipts (0216
       id: work.id,
       membershipId: a.member.membershipId,
     });
+    // Unassigning INTERNAL Work does not revoke its organization-wide read right. This case uses
+    // the actual restricted named-person boundary and the same sufficient result protection.
+    const access = await withTenantTx(agent.db, f.requester, (tx) => tx.execute<{ readable: boolean }>(
+      sql`select knowledge.structured_record_readable('work_unit',${work.id}::uuid,${a.member.membershipId}::uuid) readable`,
+    ));
+    expect(access.rows[0]?.readable).toBe(false);
+    await expect(f.calls.assertResultFresh(f.principal, output.usage.callId!)).rejects.toThrow();
     await expect(
       evidence(f.requester, null, (tx, id) =>
         f.bound.acceptResultInTx(tx, output.usage, { kind: 'evidence', id }),
+        'restricted',
       ),
     ).rejects.toThrow();
+    expect(await attempt(f.jobId)).toMatchObject({ state: 'response_received', status: 'final', costMicros: 1, resultId: null });
   });
   it('never resends an unconfirmed paid attempt and settles its reserved ceiling exactly once', async () => {
     const f = await fixture({ failure: true });
