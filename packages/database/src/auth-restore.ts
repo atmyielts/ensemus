@@ -96,7 +96,9 @@ export async function invalidateRestoredAuthentication(
     // Same transaction/control-first order. The fixed helper owns strong table-lock authority,
     // not native auth's intentionally column-only setup-token grant. No relation/body argument.
     // NOWAIT and the private guard refuse a stale/changing inventory before crypto or mutation.
-    await tx.execute(sql`select identity.lock_auth_restore_native_inventory(${input.generation}::uuid)`);
+    await tx.execute(
+      sql`select identity.lock_auth_restore_native_inventory(${input.generation}::uuid)`,
+    );
     const existing = body.phase === 'invalidated' ? parseProof(body.invalidation) : null;
     let cursor: string | undefined,
       sets = 0;

@@ -287,3 +287,28 @@ issue was found in the reviewed combined path. Initial-install seed remains expl
 pending guards remain; the ready UUID has no migrator bypass; final 0999 extension adds no data
 privilege. This is not a SQL approval. These fixes/cases are source-only and UNRUN until a separate
 allowed gate. No SQL, database, restore, build, browser, provider or new credential operation ran.
+
+### Bounded follow-up source gate
+
+The next authorized serialized source gate started at frozen 1d6bc45, with only the six owned
+follow-up paths in scope. Prettier write and ESLint max-warnings 0 passed on the four supported TS
+files. SQL/docs remain repository-ignored by the formatter; no SQL parser or database ran.
+
+The exact focused set passed **196/196 tests in eleven files**, maxWorkers=1 and
+no-file-parallelism. It includes the five new lock-only protocol refusal cases and root's preserved
+two native-MFA alphabet regressions alongside the previous restore/operator/order/native-SAML/MFA
+boundaries. Database, auth, tests, browser-tests and actual workflow-worker tsc scopes then passed
+SEQUENTIALLY. The first attempt had no test/type/lint failure and selected runs emitted no warning.
+No install, dependency repair or new version/resolution occurred.
+
+The slot was explicitly released immediately after worker types completed, before evidence/Git
+work. The real-role strong-lock/Account/eraser source cases are typechecked but **UNRUN**.
+There was no SQL/database, restore, build, actual browser, provider, credential or activation run.
+The two fixes need independent SQL review and actual-role migration qualification; the earlier
+source checks do not certify those PostgreSQL behaviors.
+
+The source review used PostgreSQL 17's primary implementation:
+[LockTableAclCheck](https://raw.githubusercontent.com/postgres/postgres/REL_17_STABLE/src/backend/commands/lockcmds.c),
+[regclassin](https://raw.githubusercontent.com/postgres/postgres/REL_17_STABLE/src/backend/utils/adt/regproc.c)
+and [LookupExplicitNamespace](https://raw.githubusercontent.com/postgres/postgres/REL_17_STABLE/src/backend/catalog/namespace.c).
+No live database was queried to derive the findings.
