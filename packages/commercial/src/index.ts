@@ -78,6 +78,10 @@ export function createEntitlements(
   return {
     async check(context, feature) {
       const result = await hosted.check(context, feature);
+      // Current balance is diagnostic, not atomic dispatch authority. No actual M8 prepaid hold
+      // implementation is bound yet; neither a mode flag nor this compatibility check can replace it.
+      if (result.ok && result.commercialMode === 'cloud')
+        return { ok: false, code: 'ENTITLEMENT_DENIED' };
       return result.ok && result.commercialMode === 'sovereign'
         ? sovereign.check(context, feature)
         : result;

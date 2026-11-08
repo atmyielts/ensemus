@@ -282,11 +282,11 @@ describe('standing-owned M4 stops and real entitlement composition', () => {
             })
           : await seedPlan({ mode: 'byom', features: ['agent.run', 'model.call'] });
       await startSubscription(app.db, tenant.owner, plan);
-      expect(await checker.check(tenant.member, 'model.call')).toEqual({
-        ok: true,
-        billable: commercialMode === 'cloud',
-        commercialMode,
-      });
+      expect(await checker.check(tenant.member, 'model.call')).toEqual(
+        commercialMode === 'cloud'
+          ? { ok: false, code: 'ENTITLEMENT_DENIED' }
+          : { ok: true, billable: false, commercialMode },
+      );
       expect(
         await createEntitlements(app.db, { billingEnabled: false }).check(
           tenant.owner,
