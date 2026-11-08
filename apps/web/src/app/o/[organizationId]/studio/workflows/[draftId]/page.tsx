@@ -19,6 +19,8 @@ import {
 import { OneActionAtATime } from '@/components/one-action-at-a-time';
 import { SubmitButton } from '@/components/submit-button';
 import { WorkflowIssues, WorkflowOverview } from '@/components/studio/workflow-overview';
+import { WorkflowMap } from '@/components/studio/workflow-map';
+import { layoutWorkflowGraph } from '@/lib/graph-layout';
 import { workflowChoiceData, workflowNeedsIndependentReview } from '@/lib/process-studio-present';
 import { rehearseWorkflowAction, reviewWorkflowAction } from '@/server/process-studio-actions';
 import { requireStudio, studioRead } from '@/server/studio-pages';
@@ -163,7 +165,18 @@ export default async function WorkflowPage({
             The outside-action catalog is unavailable. No outside-action readiness is assumed.
           </p>
         )}
-        <WorkflowOverview graph={draft.graph} choices={choices} />
+        <WorkflowMap
+          draft={draft}
+          layout={layoutWorkflowGraph(draft.graph)}
+          id="saved-workflow-map"
+          editHref={`${path}/edit`}
+          readOnly={draft.status === 'archived'}
+          organizationId={organizationId}
+        />
+        <details>
+          <summary>Point requirements and saved choices</summary>
+          <WorkflowOverview graph={draft.graph} choices={choices} />
+        </details>
         <details>
           <summary>Snapshot identity</summary>
           <dl className="details">

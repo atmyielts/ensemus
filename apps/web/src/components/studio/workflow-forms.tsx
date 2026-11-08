@@ -14,6 +14,7 @@ import {
 } from '@/server/process-studio-actions';
 import { ErrorNotice } from '../ui';
 import { SubmitButton } from '../submit-button';
+import { useWorkflowFields } from './workflow-editor-state';
 
 export function WorkflowDetailsForm({
   organizationId,
@@ -29,22 +30,35 @@ export function WorkflowDetailsForm({
       {},
     ),
     prefix = useId(),
-    notice = useRef<HTMLDivElement>(null);
+    notice = useRef<HTMLDivElement>(null),
+    kept = useWorkflowFields({
+      draftId: draft?.id,
+      key: 'details',
+      version: draft?.version,
+      state,
+    });
   useEffect(() => {
-    if (state.code) notice.current?.focus();
-  }, [state]);
-  const value = (key: string, initial = '') => state.values?.[key]?.[0] ?? initial;
+    if (kept.code) notice.current?.focus();
+  }, [kept.code]);
+  const value = (key: string, initial = '') => kept.values?.[key]?.[0] ?? initial;
   return (
-    <form action={action} className="card fields form-width" key={state.revision ?? 0}>
+    <form
+      ref={kept.form}
+      onChangeCapture={kept.onChange}
+      onSubmitCapture={kept.onSubmit}
+      action={action}
+      className="card fields form-width"
+      key={state.revision ?? 0}
+    >
       <div ref={notice} tabIndex={-1}>
-        <ErrorNotice code={state.code} />
+        <ErrorNotice code={kept.code} />
       </div>
       <input type="hidden" name="organizationId" value={organizationId} />
       <input type="hidden" name="requestKey" value={value('requestKey', requestKey)} />
       {draft && (
         <>
           <input type="hidden" name="draftId" value={draft.id} />
-          <input type="hidden" name="version" value={draft.version} />
+          <input type="hidden" name="version" value={kept.version ?? draft.version} />
         </>
       )}
       <label htmlFor={`${prefix}-name`}>Workflow name</label>
@@ -108,11 +122,12 @@ export function WorkflowPointForm({
   const [state, action] = useActionState<WorkflowFormState, FormData>(saveWorkflowPointAction, {}),
     prefix = useId(),
     notice = useRef<HTMLDivElement>(null),
-    nodeId = node?.id ?? newNodeId;
+    kept = useWorkflowFields({ draftId, key: node ? `point:${node.id}` : 'new', version, state });
   useEffect(() => {
-    if (state.code) notice.current?.focus();
-  }, [state]);
-  const value = (key: string, initial = '') => state.values?.[key]?.[0] ?? initial;
+    if (kept.code) notice.current?.focus();
+  }, [kept.code]);
+  const value = (key: string, initial = '') => kept.values?.[key]?.[0] ?? initial;
+  const nodeId = value('nodeId', node?.id ?? newNodeId);
   if (!nodeId) throw new Error('WORKFLOW_POINT_INTENT_MISSING');
   const ends = graph.nodes.filter((n) => n.kind === 'end').map((n) => n.id),
     starts = graph.nodes.filter((n) => n.kind === 'start').map((n) => n.id);
@@ -121,21 +136,30 @@ export function WorkflowPointForm({
     : graph.edges.filter((e) => ends.includes(e.to)).map((e) => e.from);
   const initialPrevious = node ? before : before.length ? before : starts;
   const initialNext = node ? graph.edges.filter((e) => e.from === node.id).map((e) => e.to) : ends;
-  const previous = state.values ? (state.values.previous ?? []) : initialPrevious,
-    next = state.values ? (state.values.next ?? []) : initialNext;
+  const previous = kept.values ? (kept.values.previous ?? []) : initialPrevious,
+    next = kept.values ? (kept.values.next ?? []) : initialNext;
   const previousChoices = workflowConnections(graph, nodeId, previous),
     nextChoices = workflowConnections(graph, nodeId, next);
   const selectedAgent = value('agentDefinitionId', node?.agentDefinitionId ?? ''),
     selectedTool = value('toolId', node?.toolId ?? ''),
-    selectedApprover = value('approverRole', node?.approverRole ?? '');
+    selectedApprover = value('approverRole', node?.approverRole ?? ''),
+    selectedKind = value('kind', node?.kind ?? 'work_item'),
+    selectedEvidence = value('evidence', node?.evidence ?? '');
   return (
-    <form action={action} className="fields" key={state.revision ?? 0}>
+    <form
+      ref={kept.form}
+      onChangeCapture={kept.onChange}
+      onSubmitCapture={kept.onSubmit}
+      action={action}
+      className="fields"
+      key={state.revision ?? 0}
+    >
       <div ref={notice} tabIndex={-1}>
-        <ErrorNotice code={state.code} />
+        <ErrorNotice code={kept.code} />
       </div>
       <input type="hidden" name="organizationId" value={organizationId} />
       <input type="hidden" name="draftId" value={draftId} />
-      <input type="hidden" name="version" value={version} />
+      <input type="hidden" name="version" value={kept.version ?? version} />
       <input type="hidden" name="requestKey" value={value('requestKey', requestKey)} />
       <input type="hidden" name="mode" value={node ? 'update' : 'add'} />
       <input type="hidden" name="nodeId" value={nodeId} />
@@ -151,9 +175,14 @@ export function WorkflowPointForm({
       <select
         id={`${prefix}-kind`}
         name="kind"
-        defaultValue={value('kind', node?.kind ?? 'work_item')}
+        defaultValue={selectedKind}
         aria-describedby={`${prefix}-kind-help`}
       >
+        {selectedKind && !Object.hasOwn(WORKFLOW_KIND_NAMES, selectedKind) && (
+          <option value={selectedKind}>
+            Saved point type is unavailable here — value retained
+          </option>
+        )}
         {Object.entries(WORKFLOW_KIND_NAMES).map(([kind, label]) => (
           <option value={kind} key={kind}>
             {label}
@@ -228,6 +257,15 @@ export function WorkflowPointForm({
           defaultValue={selectedApprover}
           aria-describedby={`${prefix}-approver-help`}
         >
+          {selectedApprover &&
+            !Object.hasOwn(
+              { process_owner: true, named_reviewer: true, starter_manager: true },
+              selectedApprover,
+            ) && (
+              <option value={selectedApprover}>
+                Saved approval rule is unavailable here — value retained
+              </option>
+            )}
           <option value="">Choose how an eligible person is found</option>
           <option value="process_owner">
             Workflow publisher, or an eligible organization administrator
@@ -245,11 +283,16 @@ export function WorkflowPointForm({
           here.
         </p>
         <label htmlFor={`${prefix}-evidence`}>For an evidence point: what must exist?</label>
-        <select
-          id={`${prefix}-evidence`}
-          name="evidence"
-          defaultValue={value('evidence', node?.evidence ?? '')}
-        >
+        <select id={`${prefix}-evidence`} name="evidence" defaultValue={selectedEvidence}>
+          {selectedEvidence &&
+            !Object.hasOwn(
+              { artifact_attached: true, external_receipt: true, reviewer_approved: true },
+              selectedEvidence,
+            ) && (
+              <option value={selectedEvidence}>
+                Saved evidence rule is unavailable here — value retained
+              </option>
+            )}
           <option value="">Choose required evidence</option>
           <option value="artifact_attached">A file attached to the work</option>
           <option value="external_receipt">A verified outside-action receipt</option>
@@ -305,7 +348,7 @@ export function WorkflowPointForm({
               type="checkbox"
               name="replaceDirect"
               value="yes"
-              defaultChecked={state.values ? value('replaceDirect') === 'yes' : true}
+              defaultChecked={kept.values ? value('replaceDirect') === 'yes' : true}
             />
             Insert between those points: replace their direct connections. Uncheck to keep an
             additional parallel path.

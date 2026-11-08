@@ -24,6 +24,7 @@ import {
   applyWorkflowPoint,
   removeWorkflowPoint,
   workflowFormValues,
+  removeWorkflowConnection,
   type WorkflowFormState,
 } from '@/lib/process-studio-input';
 import { workflowChoiceData, workflowNeedsIndependentReview } from '@/lib/process-studio-present';
@@ -31,6 +32,7 @@ import { requireStudio } from './studio-pages';
 import { webProductPorts } from './product-ports';
 import { studioOnce } from './studio-api';
 import { getRuntime } from './runtime';
+import { layoutWorkflowGraph, type GraphLayout } from '@/lib/graph-layout';
 
 type Tenant = Awaited<ReturnType<typeof requireStudio>>;
 async function failure(error: unknown, org: string, path: string) {
@@ -277,4 +279,74 @@ export async function reviewWorkflowAction(form: FormData) {
     await getPublishReview(database, context, id);
     return `reviews/${id}`;
   });
+}
+
+export type WorkflowConnectionState = {
+  code?: string;
+  revision?: number;
+  receipt?: {
+    draft: Awaited<ReturnType<typeof getProcessDraft>>;
+    layout: GraphLayout;
+    fromVersion: number;
+    edge: { index: number; from: string; to: string };
+  };
+};
+/** The actual response updates the map, while other open forms stay in place. No router refresh. */
+export async function removeWorkflowConnectionAction(
+  previous: WorkflowConnectionState,
+  form: FormData,
+): Promise<WorkflowConnectionState> {
+  const org = workflowIdentifier(form, 'organizationId'),
+    { database, context } = await requireStudio(org),
+    draftId = workflowIdentifier(form, 'draftId'),
+    back = `/o/${org}/studio/workflows/${draftId}/edit`;
+  try {
+    if (workflowText(form, 'confirmed') !== 'yes') throw new AppError('INVALID_INPUT');
+    const expectedVersion = workflowVersion(form),
+      rawIndex = workflowText(form, 'edgeIndex'),
+      from = workflowText(form, 'from'),
+      to = workflowText(form, 'to'),
+      key = workflowText(form, 'requestKey');
+    if (
+      !/^(0|[1-9]\d{0,2})$/.test(rawIndex) ||
+      Number(rawIndex) > 127 ||
+      !/^[-A-Za-z0-9_]{1,64}$/.test(from) ||
+      !/^[-A-Za-z0-9_]{1,64}$/.test(to) ||
+      !/^[A-Za-z0-9:._-]{8,128}$/.test(key)
+    )
+      throw new AppError('INVALID_INPUT');
+    const edge = { index: Number(rawIndex), from, to },
+      input = { draftId, expectedVersion, edge };
+    // Replays also require an actual fresh authorized source read; a stored identity is not authority.
+    await getProcessDraft(database, context, webProductPorts(), draftId);
+    const id = await studioOnce(
+      database,
+      context,
+      key,
+      'workflow.orphan-connection.remove',
+      input,
+      async (db) => {
+        const current = await getProcessDraft(database, context, webProductPorts(), draftId);
+        if (current.version !== expectedVersion) throw new AppError('VERSION_CONFLICT');
+        return updateProcessDraft(db, context, webProductPorts(), {
+          draftId,
+          expectedVersion,
+          graph: removeWorkflowConnection(current.graph, edge),
+        });
+      },
+      200,
+    );
+    const draft = await getProcessDraft(database, context, webProductPorts(), id);
+    return {
+      revision: (previous.revision ?? 0) + 1,
+      receipt: {
+        draft,
+        layout: layoutWorkflowGraph(draft.graph),
+        fromVersion: expectedVersion,
+        edge,
+      },
+    };
+  } catch (error) {
+    return { code: await failure(error, org, back), revision: (previous.revision ?? 0) + 1 };
+  }
 }

@@ -103,15 +103,27 @@ export function applyWorkflowPoint(
   change: WorkflowPointChange,
   mode: 'add' | 'update',
 ): ProcessGraph {
-  const original = graphValue(graph),
-    held = original.nodes.find((n) => n.id === change.node.id);
+  if (!Array.isArray(graph.nodes) || !Array.isArray(graph.edges))
+    throw new AppError('INVALID_INPUT');
+  const matches = graph.nodes.filter((n) => n?.id === change.node.id),
+    held = matches[0];
   if (mode === 'add' && held) throw new AppError('VERSION_CONFLICT');
   if (mode === 'update' && !held) throw new AppError('NOT_FOUND');
-  if (mode === 'update' && original.nodes.filter((n) => n.id === change.node.id).length !== 1)
-    throw new AppError('INVALID_STATE');
+  if (mode === 'update' && matches.length !== 1) throw new AppError('INVALID_STATE');
   const previous = new Set(change.previous),
-    next = new Set(change.next);
-  let edges = original.edges.filter(
+    next = new Set(change.next),
+    node = { ...change.node, x: held?.x ?? graph.nodes.length * 160, y: held?.y ?? 120 };
+  let nodes: ProcessGraphNode[];
+  if (held) nodes = graph.nodes.map((n) => (n.id === held.id ? node : n));
+  else {
+    nodes = [...graph.nodes];
+    const firstNext = nodes.findIndex((n) => next.has(n.id));
+    nodes.splice(firstNext < 0 ? nodes.length : firstNext, 0, node);
+  }
+  // Replace the explicitly selected legacy choice before strict validation. A different unsupported
+  // point still refuses the save. Validation never supplies defaults or rewrites unrelated entries.
+  graphValue({ ...graph, nodes });
+  let edges = graph.edges.filter(
     (e) => mode === 'add' || (e.from !== change.node.id && e.to !== change.node.id),
   );
   if (mode === 'add' && change.replaceDirect)
@@ -120,19 +132,9 @@ export function applyWorkflowPoint(
     ...change.previous.map((from) => ({ from, to: change.node.id })),
     ...change.next.map((to) => ({ from: change.node.id, to })),
   );
-  const distinct = new Map(edges.map((e) => [`${e.from}>${e.to}`, e]));
-  edges = [...distinct.values()].sort((a, b) =>
-    a.from < b.from ? -1 : a.from > b.from ? 1 : a.to < b.to ? -1 : a.to > b.to ? 1 : 0,
-  );
-  const node = { ...change.node, x: held?.x ?? original.nodes.length * 160, y: held?.y ?? 120 };
-  let nodes: ProcessGraphNode[];
-  if (held) nodes = original.nodes.map((n) => (n.id === held.id ? node : n));
-  else {
-    nodes = [...original.nodes];
-    const firstNext = nodes.findIndex((n) => next.has(n.id));
-    nodes.splice(firstNext < 0 ? nodes.length : firstNext, 0, node);
-  }
-  return graphValue({ schemaVersion: 1, nodes, edges });
+  const candidate = { ...graph, nodes, edges };
+  graphValue(candidate);
+  return candidate;
 }
 export function removeWorkflowPoint(graph: ProcessGraph, nodeId: string): ProcessGraph {
   const original = graphValue(graph),
@@ -150,7 +152,7 @@ export function workflowFormValues(form: FormData) {
   for (const [key, value] of form) {
     if (
       typeof value !== 'string' ||
-      !/^(requestKey|name|classification|nodeId|kind|label|agentDefinitionId|toolId|approverRole|evidence|previous|next|replaceDirect)$/.test(
+      !/^(requestKey|version|name|classification|nodeId|kind|label|agentDefinitionId|toolId|approverRole|evidence|previous|next|replaceDirect)$/.test(
         key,
       )
     )
@@ -160,4 +162,28 @@ export function workflowFormValues(form: FormData) {
     (values[key] ??= []).push(value);
   }
   return values;
+}
+
+/** Remove only the specifically reviewed orphan. Never normalize or deduplicate unrelated edges. */
+export function removeWorkflowConnection(
+  graph: ProcessGraph,
+  input: { index: number; from: string; to: string },
+): ProcessGraph {
+  const original = graphValue(graph),
+    edge = original.edges[input.index];
+  if (
+    !Number.isInteger(input.index) ||
+    input.index < 0 ||
+    input.index >= original.edges.length ||
+    !edge ||
+    edge.from !== input.from ||
+    edge.to !== input.to
+  )
+    throw new AppError('VERSION_CONFLICT');
+  if (original.nodes.some((node) => node.id === edge.from || node.id === edge.to))
+    throw new AppError('INVALID_INPUT');
+  return graphValue({
+    ...original,
+    edges: original.edges.filter((_, index) => index !== input.index),
+  });
 }
