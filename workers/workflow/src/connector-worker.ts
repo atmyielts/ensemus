@@ -76,15 +76,18 @@ async function main() {
         ...deps,
         attestPaymentWebhook: createPaymentWebhookAttester(secretsDb.db),
         paymentWebhook: {
-                billingOrganizationId: saas.billingOrganizationId,
-                billingConnectionId: saas.billingConnectionId,
-                processor: saas.paymentProcessor,
+          billingOrganizationId: saas.billingOrganizationId,
+          billingConnectionId: saas.billingConnectionId,
+          processor: saas.paymentProcessor,
         },
       }),
       ...createConnectorSyncActivities(deps),
       // No native processor is selected. The composition supplies real standing/broker ports while
       // dispatch stays unavailable; it never fills origin/merchant identity from manifest or empty config.
-      ...createPaymentConnectorActivities(paymentDeps, createPaymentRuntimeOptions(paymentDeps, secretsDb.db)),
+      ...createPaymentConnectorActivities(
+        paymentDeps,
+        createPaymentRuntimeOptions(paymentDeps, secretsDb.db),
+      ),
       ...createTaxActivities(paymentDeps),
     },
     dataConverter: {

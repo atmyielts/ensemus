@@ -122,10 +122,15 @@ async function main() {
         agents: ports.agents,
         billingEnabled,
       }),
-      ...createPaymentPlatformActivities({ database: db }, {
-        agents: ports.agents,
-        ...(saas.billingOrganizationId ? { routing: { billingOrganizationId: saas.billingOrganizationId } } : {}),
-      }),
+      ...createPaymentPlatformActivities(
+        { database: db },
+        {
+          agents: ports.agents,
+          ...(saas.billingOrganizationId
+            ? { routing: { billingOrganizationId: saas.billingOrganizationId } }
+            : {}),
+        },
+      ),
       ...createRetentionActivities({ database: db, sources: ports.retentionSources }),
       ...createOffboardingActivities({ database: db, ports: ports.offboarding }),
     },

@@ -741,7 +741,12 @@ export async function beginPaymentReconcile(
   database: AppDatabase,
   context: TenantContext,
   input: { paymentId: string; code: PaymentCode },
-): Promise<{ attemptId: string; idempotencyKey: string; processor: string; executionBindingId: string | null } | null> {
+): Promise<{
+  attemptId: string;
+  idempotencyKey: string;
+  processor: string;
+  executionBindingId: string | null;
+} | null> {
   service(context);
   const id = idOf(input.paymentId);
   if (!PAYMENT_CODES.includes(input.code)) throw new AppError('INVALID_INPUT');

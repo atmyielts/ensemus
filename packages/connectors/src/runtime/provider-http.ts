@@ -80,7 +80,6 @@ export function createProviderHttpClient(options: ProviderHttpOptions): Provider
         network,
         target.hostname,
         {
-          route: 'ms_graph',
           method: 'GET',
           path: target.pathname + target.search,
           timeoutMs: request.timeoutMs,

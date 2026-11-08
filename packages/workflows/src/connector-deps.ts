@@ -18,5 +18,7 @@ export type ConnectorActivityDeps = {
     processor: string | null;
   };
   /** Native secrets-role adapter only. The proof can be made only after actual signature/body parsing. */
-  attestPaymentWebhook?: (proof: VerifiedPaymentWebhook) => Promise<{ token: string; expiresAt: Date }>;
+  attestPaymentWebhook?: (
+    proof: VerifiedPaymentWebhook,
+  ) => Promise<{ token: string; expiresAt: Date }>;
 };

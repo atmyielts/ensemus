@@ -29,15 +29,25 @@ export async function paymentTenant(database: AppDatabase, auth: pg.Client) {
   });
   return nativeSovereignContext(database, userId, org.organizationId);
 }
-export async function paymentFixture(database: AppDatabase, auth: pg.Client, options: { legacyCustomer?: boolean } = {}) {
+export async function paymentFixture(
+  database: AppDatabase,
+  auth: pg.Client,
+  options: { legacyCustomer?: boolean } = {},
+) {
   const owner = await paymentTenant(database, auth),
     service = createServiceContext(owner.organizationId),
     customerRef = `test-customer:${randomUUID()}`;
-  await seedBillingAccount(database, owner, options.legacyCustomer === false ? {} : {
-    processor: 'test_scripted',
-    processorCustomerRef: customerRef,
-    customerRefHash: hashCustomerRef('test_scripted', customerRef),
-  });
+  await seedBillingAccount(
+    database,
+    owner,
+    options.legacyCustomer === false
+      ? {}
+      : {
+          processor: 'test_scripted',
+          processorCustomerRef: customerRef,
+          customerRefHash: hashCustomerRef('test_scripted', customerRef),
+        },
+  );
   const plan = await seedPlan({ mode: 'byom' });
   const startsAt = new Date(Date.now() - 40 * 86400000);
   const subscription = await startSubscription(database, service, {

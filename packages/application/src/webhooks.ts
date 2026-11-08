@@ -477,25 +477,41 @@ export async function applyVerifiedDelivery(
         });
       }
 
-      const inbox = (save: Tx) => save.insert(inboxEvents).values({
-          organizationId: context.organizationId,
-          consumerId: webhookInboxConsumer(delivery.endpointId),
-          eventId: webhookInboxEventId(delivery.endpointId, input.providerEventId),
-        })
-        .onConflictDoNothing()
-        .returning({ eventId: inboxEvents.eventId });
+      const inbox = (save: Tx) =>
+        save
+          .insert(inboxEvents)
+          .values({
+            organizationId: context.organizationId,
+            consumerId: webhookInboxConsumer(delivery.endpointId),
+            eventId: webhookInboxEventId(delivery.endpointId, input.providerEventId),
+          })
+          .onConflictDoNothing()
+          .returning({ eventId: inboxEvents.eventId });
       const payment = input.effects.some((effect) => effect.kind === 'payment_event');
-      if (payment && (input.effects.length !== 1 || !input.paymentVerificationToken || !/^[0-9a-f]{64}$/.test(input.paymentVerificationToken)))
+      if (
+        payment &&
+        (input.effects.length !== 1 ||
+          !input.paymentVerificationToken ||
+          !/^[0-9a-f]{64}$/.test(input.paymentVerificationToken))
+      )
         throw new AppError('PREREQUISITES_INCOMPLETE');
       // Only the real payment inbox INSERT sees this opaque native token. A savepoint restores the
       // selector after any failure; success restores it before other effects. It is not an authority GUC.
-      const first = payment ? await tx.transaction(async (save) => {
-        const previous = await save.execute<{ value: string | null }>(sql`select current_setting('billing.payment_webhook_token',true) as value`);
-        await save.execute(sql`select set_config('billing.payment_webhook_token',${input.paymentVerificationToken!},true)`);
-        const inserted = await inbox(save);
-        await save.execute(sql`select set_config('billing.payment_webhook_token',${previous.rows[0]?.value ?? ''},true)`);
-        return inserted;
-      }) : await inbox(tx);
+      const first = payment
+        ? await tx.transaction(async (save) => {
+            const previous = await save.execute<{ value: string | null }>(
+              sql`select current_setting('billing.payment_webhook_token',true) as value`,
+            );
+            await save.execute(
+              sql`select set_config('billing.payment_webhook_token',${input.paymentVerificationToken!},true)`,
+            );
+            const inserted = await inbox(save);
+            await save.execute(
+              sql`select set_config('billing.payment_webhook_token',${previous.rows[0]?.value ?? ''},true)`,
+            );
+            return inserted;
+          })
+        : await inbox(tx);
       if (first.length === 0) {
         return finishDelivery(tx, context, delivery, {
           state: 'duplicate',
@@ -530,7 +546,9 @@ export async function applyVerifiedDelivery(
                 endpointId: delivery.endpointId,
                 connectionId: endpoint.connectionId,
                 providerEventId: input.providerEventId,
-                ...(input.paymentVerificationToken ? { paymentVerificationToken: input.paymentVerificationToken } : {}),
+                ...(input.paymentVerificationToken
+                  ? { paymentVerificationToken: input.paymentVerificationToken }
+                  : {}),
               }),
             );
           } else throw new AppError('INVALID_INPUT');

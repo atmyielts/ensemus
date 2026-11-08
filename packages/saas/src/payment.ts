@@ -110,9 +110,9 @@ export type ProcessorCallContext = {
     headers: Readonly<Record<string, string>>;
     body?: Uint8Array;
     timeoutMs: number;
-      /** The gateway must bound the response before buffering it. */
-      maxResponseBytes?: number;
-    }): Promise<{ status: number; body: Uint8Array; transportReceipt?: unknown }>;
+    /** The gateway must bound the response before buffering it. */
+    maxResponseBytes?: number;
+  }): Promise<{ status: number; body: Uint8Array; transportReceipt?: unknown }>;
   signal: AbortSignal;
 };
 
@@ -154,7 +154,12 @@ export type PaymentGatewayBinding = Readonly<{
   paymentId: string;
   authority: PaymentConnectionAuthority;
   phase: 'identity' | 'customer' | 'customer_lookup' | 'charge' | 'lookup';
-  executionBinding?: Readonly<{ id: string; identitySha256: string; accountNamespaceSha256: string; bindingSha256: string }>;
+  executionBinding?: Readonly<{
+    id: string;
+    identitySha256: string;
+    accountNamespaceSha256: string;
+    bindingSha256: string;
+  }>;
   identityProof?: unknown;
   attemptId?: string;
   customerToken?: string;
@@ -167,28 +172,53 @@ export function paymentExecutionIdentity(
 ): { identity: PaymentExecutionIdentity; sha256: string; accountNamespaceSha256: string } | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const v = value as Record<string, unknown>;
-  if (Object.keys(v).sort().join(',') !== 'adapterVersion,apiOrigins,environment,merchantAccountSha256,processor,version'
-    || v.version !== 'ensemus.payment-execution/v1' || v.processor !== manifest.processor
-    || v.adapterVersion !== manifest.version || typeof v.environment !== 'string'
-    || !/^[a-z][a-z0-9_-]{0,31}$/.test(v.environment) || typeof v.merchantAccountSha256 !== 'string'
-    || !/^[0-9a-f]{64}$/.test(v.merchantAccountSha256) || !Array.isArray(v.apiOrigins)
-    || v.apiOrigins.length < 1 || v.apiOrigins.length > 8 || new Set(v.apiOrigins).size !== v.apiOrigins.length) return null;
+  if (
+    Object.keys(v).sort().join(',') !==
+      'adapterVersion,apiOrigins,environment,merchantAccountSha256,processor,version' ||
+    v.version !== 'ensemus.payment-execution/v1' ||
+    v.processor !== manifest.processor ||
+    v.adapterVersion !== manifest.version ||
+    typeof v.environment !== 'string' ||
+    !/^[a-z][a-z0-9_-]{0,31}$/.test(v.environment) ||
+    typeof v.merchantAccountSha256 !== 'string' ||
+    !/^[0-9a-f]{64}$/.test(v.merchantAccountSha256) ||
+    !Array.isArray(v.apiOrigins) ||
+    v.apiOrigins.length < 1 ||
+    v.apiOrigins.length > 8 ||
+    new Set(v.apiOrigins).size !== v.apiOrigins.length
+  )
+    return null;
   for (const origin of v.apiOrigins) {
     try {
       if (typeof origin !== 'string' || origin.length > 2048) return null;
       const url = new URL(origin);
-      if (url.protocol !== 'https:' || url.origin !== origin || url.username || url.password) return null;
-    } catch { return null; }
+      if (url.protocol !== 'https:' || url.origin !== origin || url.username || url.password)
+        return null;
+    } catch {
+      return null;
+    }
   }
   const identity: PaymentExecutionIdentity = {
-    version: 'ensemus.payment-execution/v1', processor: manifest.processor, adapterVersion: manifest.version,
-    environment: v.environment, merchantAccountSha256: v.merchantAccountSha256,
-    apiOrigins: [...v.apiOrigins as string[]].sort(),
+    version: 'ensemus.payment-execution/v1',
+    processor: manifest.processor,
+    adapterVersion: manifest.version,
+    environment: v.environment,
+    merchantAccountSha256: v.merchantAccountSha256,
+    apiOrigins: [...(v.apiOrigins as string[])].sort(),
   };
-  return { identity, sha256: createHash('sha256').update(canonicalJson(identity)).digest('hex'),
+  return {
+    identity,
+    sha256: createHash('sha256').update(canonicalJson(identity)).digest('hex'),
     // Merchant/environment namespace survives credential, connection, adapter and API-origin rotation.
-    accountNamespaceSha256: createHash('sha256').update(canonicalJson({ processor: identity.processor,
-      environment: identity.environment, merchantAccountSha256: identity.merchantAccountSha256 })).digest('hex'),
+    accountNamespaceSha256: createHash('sha256')
+      .update(
+        canonicalJson({
+          processor: identity.processor,
+          environment: identity.environment,
+          merchantAccountSha256: identity.merchantAccountSha256,
+        }),
+      )
+      .digest('hex'),
   };
 }
 
@@ -222,7 +252,9 @@ export interface PaymentProcessor {
   /** Only adapters whose signed payload identifies the authenticated merchant/environment may implement
    * this. A missing/unsupported observation is retained unmatched; it must not echo configured identity. */
   interpretExecutionWebhook?(
-    providerEventId: string, body: Uint8Array, signedAtSeconds: number,
+    providerEventId: string,
+    body: Uint8Array,
+    signedAtSeconds: number,
   ): { event: PaymentEventFact; identity: PaymentExecutionIdentity } | null;
 }
 
@@ -235,14 +267,39 @@ export type { PaymentEventKind, PaymentEventFact };
 
 /** A bounded whitelist, not an adapter's arbitrary response object. This exact UTF-8 text is pinned by
  * native webhook verification and consumed by SQL; it is never logged or sent through Temporal. */
-export function paymentWebhookFactCanonical(event: PaymentEventFact, observed: {
-  accountNamespaceSha256: string | null; executionIdentitySha256: string | null;
-}): string {
-  const { processor, providerEventId, kind, customerRefHash, processorPaymentRef, paymentId,
-    amountMicros, currency, occurredAtSeconds } = event;
-  return canonicalJson({ event: { processor, providerEventId, kind, customerRefHash, processorPaymentRef,
-    paymentId: paymentId?.toLowerCase() ?? null, amountMicros: amountMicros === null ? null : BigInt(amountMicros).toString(), currency, occurredAtSeconds },
-    accountNamespaceSha256: observed.accountNamespaceSha256, executionIdentitySha256: observed.executionIdentitySha256 });
+export function paymentWebhookFactCanonical(
+  event: PaymentEventFact,
+  observed: {
+    accountNamespaceSha256: string | null;
+    executionIdentitySha256: string | null;
+  },
+): string {
+  const {
+    processor,
+    providerEventId,
+    kind,
+    customerRefHash,
+    processorPaymentRef,
+    paymentId,
+    amountMicros,
+    currency,
+    occurredAtSeconds,
+  } = event;
+  return canonicalJson({
+    event: {
+      processor,
+      providerEventId,
+      kind,
+      customerRefHash,
+      processorPaymentRef,
+      paymentId: paymentId?.toLowerCase() ?? null,
+      amountMicros: amountMicros === null ? null : BigInt(amountMicros).toString(),
+      currency,
+      occurredAtSeconds,
+    },
+    accountNamespaceSha256: observed.accountNamespaceSha256,
+    executionIdentitySha256: observed.executionIdentitySha256,
+  });
 }
 
 /** What is stored and looked up. A processor's customer reference is not secret, and this keeps it exact. */

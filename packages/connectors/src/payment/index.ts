@@ -6,10 +6,20 @@ import type { Connector } from '../index';
 import { MalformedWebhook } from '../index';
 import { PAYMENT_EVENT_KINDS, SIGNATURE_SCHEMES } from '@ensemus/domain/webhook';
 export {
-  runCharge, runPaymentLookup, runBoundCharge, runBoundCustomerRegistration, runBoundPaymentLookup, identifyPaymentExecution, isVerifiedPaymentExecutionIdentity,
+  runCharge,
+  runPaymentLookup,
+  runBoundCharge,
+  runBoundCustomerRegistration,
+  runBoundPaymentLookup,
+  identifyPaymentExecution,
+  isVerifiedPaymentExecutionIdentity,
   type VerifiedPaymentExecutionIdentity,
 } from './runtime';
-export { createPaymentHttpGateway, isPaymentTransportReceipt, type PaymentTransportReceipt } from './gateway';
+export {
+  createPaymentHttpGateway,
+  isPaymentTransportReceipt,
+  type PaymentTransportReceipt,
+} from './gateway';
 
 export const PAYMENT_CONNECTOR_PREFIX = 'payment_';
 export const SECRET_PURPOSE_PAYMENT_PROCESSOR = 'connector.payment_processor';
@@ -50,15 +60,19 @@ export function createPaymentConnector(processor: PaymentProcessor): Connector<u
       interpret(_context, webhook) {
         try {
           const observed = processor.interpretExecutionWebhook?.(
-            webhook.providerEventId, webhook.body, webhook.signedAtSeconds,
-          );
-          const identity = observed ? paymentExecutionIdentity(observed.identity, info) : null;
-          if (observed && !identity) throw new MalformedWebhook();
-          const event = observed?.event ?? processor.interpretWebhook(
             webhook.providerEventId,
             webhook.body,
             webhook.signedAtSeconds,
           );
+          const identity = observed ? paymentExecutionIdentity(observed.identity, info) : null;
+          if (observed && !identity) throw new MalformedWebhook();
+          const event =
+            observed?.event ??
+            processor.interpretWebhook(
+              webhook.providerEventId,
+              webhook.body,
+              webhook.signedAtSeconds,
+            );
           if (event === null) return [];
           if (
             event.processor !== info.processor ||
@@ -80,9 +94,18 @@ export function createPaymentConnector(processor: PaymentProcessor): Connector<u
                 /[\r\n\0]/.test(event.processorPaymentRef)))
           )
             throw new MalformedWebhook();
-          return [{ kind: 'payment_event', event,
-            ...(identity ? { executionIdentitySha256: identity.sha256, accountNamespaceSha256: identity.accountNamespaceSha256 } : {}),
-          }];
+          return [
+            {
+              kind: 'payment_event',
+              event,
+              ...(identity
+                ? {
+                    executionIdentitySha256: identity.sha256,
+                    accountNamespaceSha256: identity.accountNamespaceSha256,
+                  }
+                : {}),
+            },
+          ];
         } catch {
           throw new MalformedWebhook();
         }

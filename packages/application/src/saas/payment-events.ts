@@ -13,7 +13,11 @@ import {
   type Tx,
 } from '@ensemus/database';
 import { withAccountTx } from '@ensemus/database/account';
-import { withVerifiedPaymentEventTx, verifiedPaymentEventRoute, type VerifiedPaymentEventRoute } from '@ensemus/database/payment-routing';
+import {
+  withVerifiedPaymentEventTx,
+  verifiedPaymentEventRoute,
+  type VerifiedPaymentEventRoute,
+} from '@ensemus/database/payment-routing';
 import { PAYMENT_EVENT_KINDS } from '@ensemus/domain/webhook';
 import {
   AGGREGATE_INVOICE,
@@ -50,7 +54,18 @@ export type PaymentWebhookBinding = {
   verificationToken?: string | null;
 };
 export type PaymentRoutingBinding = { billingOrganizationId: string };
-type PaymentWebhookCapture = { verificationId:string; eventId:string; replay:boolean; qualified:boolean; connectionVersion: string | null; credentialSecretId: string | null; configSha256: string | null; identitySha256: string | null; accountNamespaceSha256: string | null; bindingSha256: string | null };
+type PaymentWebhookCapture = {
+  verificationId: string;
+  eventId: string;
+  replay: boolean;
+  qualified: boolean;
+  connectionVersion: string | null;
+  credentialSecretId: string | null;
+  configSha256: string | null;
+  identitySha256: string | null;
+  accountNamespaceSha256: string | null;
+  bindingSha256: string | null;
+};
 const ref = (value: unknown): value is string =>
   typeof value === 'string' && value.length > 0 && value.length <= 256 && !/[\r\n\0]/.test(value);
 const requireService = (context: TenantContext) => {
@@ -107,36 +122,70 @@ export async function recordPaymentEventInTx(
     binding.processor !== event.processor
   )
     throw new AppError('NOT_FOUND');
-  if (!binding.deliveryId || !binding.endpointId || !binding.verificationToken || !/^[0-9a-f]{64}$/.test(binding.verificationToken))
+  if (
+    !binding.deliveryId ||
+    !binding.endpointId ||
+    !binding.verificationToken ||
+    !/^[0-9a-f]{64}$/.test(binding.verificationToken)
+  )
     throw new AppError('PREREQUISITES_INCOMPLETE');
-  if (!idSchema.safeParse(binding.deliveryId).success || !idSchema.safeParse(binding.endpointId).success
-    || ((binding.observedExecutionIdentitySha256 == null) !== (binding.observedAccountNamespaceSha256 == null))
-    || [binding.observedExecutionIdentitySha256,binding.observedAccountNamespaceSha256].some((value) => value != null && !/^[0-9a-f]{64}$/.test(value)))
+  if (
+    !idSchema.safeParse(binding.deliveryId).success ||
+    !idSchema.safeParse(binding.endpointId).success ||
+    (binding.observedExecutionIdentitySha256 == null) !==
+      (binding.observedAccountNamespaceSha256 == null) ||
+    [binding.observedExecutionIdentitySha256, binding.observedAccountNamespaceSha256].some(
+      (value) => value != null && !/^[0-9a-f]{64}$/.test(value),
+    )
+  )
     throw new AppError('INVALID_INPUT');
-  const eventId=randomUUID();
-  const canonical=paymentWebhookFactCanonical(event,{executionIdentitySha256:binding.observedExecutionIdentitySha256 ?? null,
-    accountNamespaceSha256:binding.observedAccountNamespaceSha256 ?? null});
-  if (Buffer.byteLength(canonical,'utf8')>4096) throw new AppError('INVALID_INPUT');
+  const eventId = randomUUID();
+  const canonical = paymentWebhookFactCanonical(event, {
+    executionIdentitySha256: binding.observedExecutionIdentitySha256 ?? null,
+    accountNamespaceSha256: binding.observedAccountNamespaceSha256 ?? null,
+  });
+  if (Buffer.byteLength(canonical, 'utf8') > 4096) throw new AppError('INVALID_INPUT');
   let proof: PaymentWebhookCapture;
   try {
-    const consumed=await tx.execute<PaymentWebhookCapture>(sql`select * from billing.consume_payment_webhook(${binding.verificationToken},${eventId}::uuid,
+    const consumed =
+      await tx.execute<PaymentWebhookCapture>(sql`select * from billing.consume_payment_webhook(${binding.verificationToken},${eventId}::uuid,
       ${binding.deliveryId}::uuid,${binding.endpointId}::uuid,${binding.connectionId}::uuid,${canonical})`);
-    const candidate=consumed.rows[0];
-    if (consumed.rows.length!==1 || !candidate || !idSchema.safeParse(candidate.verificationId).success || !idSchema.safeParse(candidate.eventId).success
-      || typeof candidate.qualified!=='boolean' || typeof candidate.replay!=='boolean' || (!candidate.replay && candidate.eventId!==eventId))
+    const candidate = consumed.rows[0];
+    if (
+      consumed.rows.length !== 1 ||
+      !candidate ||
+      !idSchema.safeParse(candidate.verificationId).success ||
+      !idSchema.safeParse(candidate.eventId).success ||
+      typeof candidate.qualified !== 'boolean' ||
+      typeof candidate.replay !== 'boolean' ||
+      (!candidate.replay && candidate.eventId !== eventId)
+    )
       throw new Error('PAYMENT_WEBHOOK_VERIFICATION_UNAVAILABLE');
-    proof=candidate;
-    if (proof.qualified && (!proof.connectionVersion || !/^[1-9][0-9]*$/.test(proof.connectionVersion) || BigInt(proof.connectionVersion)>9223372036854775807n
-      || !idSchema.safeParse(proof.credentialSecretId).success
-      || [proof.configSha256,proof.identitySha256,proof.accountNamespaceSha256,proof.bindingSha256].some((value) => typeof value!=='string' || !/^[0-9a-f]{64}$/.test(value))))
+    proof = candidate;
+    if (
+      proof.qualified &&
+      (!proof.connectionVersion ||
+        !/^[1-9][0-9]*$/.test(proof.connectionVersion) ||
+        BigInt(proof.connectionVersion) > 9223372036854775807n ||
+        !idSchema.safeParse(proof.credentialSecretId).success ||
+        [
+          proof.configSha256,
+          proof.identitySha256,
+          proof.accountNamespaceSha256,
+          proof.bindingSha256,
+        ].some((value) => typeof value !== 'string' || !/^[0-9a-f]{64}$/.test(value)))
+    )
       throw new Error('PAYMENT_WEBHOOK_VERIFICATION_UNAVAILABLE');
-  } catch { throw new Error('PAYMENT_WEBHOOK_VERIFICATION_UNAVAILABLE'); }
+  } catch {
+    throw new Error('PAYMENT_WEBHOOK_VERIFICATION_UNAVAILABLE');
+  }
   if (proof.replay) return;
   const [row] = await tx
     .insert(paymentWebhookEvents)
     .values({
       organizationId: context.organizationId,
-      id:eventId, verificationId:proof.verificationId,
+      id: eventId,
+      verificationId: proof.verificationId,
       processor: event.processor,
       providerEventId: event.providerEventId,
       sourceDeliveryId: binding.deliveryId ?? null,
@@ -159,13 +208,13 @@ export async function recordPaymentEventInTx(
     .returning({ id: paymentWebhookEvents.id });
   if (!row) throw new Error('PAYMENT_WEBHOOK_VERIFICATION_UNAVAILABLE');
   await emit(tx, context, {
-      eventType: PAYMENT_EVENT_RECEIVED,
-      aggregateType: AGGREGATE_PAYMENT_WEBHOOK_EVENT,
-      aggregateId: row.id,
-      aggregateVersion: 1,
-      classification: 'internal',
-      payload: { payment_webhook_event_id: row.id },
-    });
+    eventType: PAYMENT_EVENT_RECEIVED,
+    aggregateType: AGGREGATE_PAYMENT_WEBHOOK_EVENT,
+    aggregateId: row.id,
+    aggregateVersion: 1,
+    classification: 'internal',
+    payload: { payment_webhook_event_id: row.id },
+  });
 }
 
 export type RouteOutcome = 'applied' | 'unmatched' | 'ignored' | 'already_done';
@@ -267,8 +316,12 @@ export async function applyPaymentFactInTx(
 ): Promise<'applied' | 'already_applied' | 'no_matching_payment'> {
   requireService(context);
   validate(fact);
-  const proof = verifiedPaymentEventRoute(source, tx, { organizationId: context.organizationId, processor: fact.processor,
-    providerEventId: fact.providerEventId, customerRefHash: fact.customerRefHash });
+  const proof = verifiedPaymentEventRoute(source, tx, {
+    organizationId: context.organizationId,
+    processor: fact.processor,
+    providerEventId: fact.providerEventId,
+    customerRefHash: fact.customerRefHash,
+  });
   if (!proof) return 'no_matching_payment';
   // Serialize all financial mutations before choosing a payment or accepting evidence for it.
   const [org] = await tx
@@ -284,12 +337,21 @@ export async function applyPaymentFactInTx(
   if (
     !account ||
     account.processor !== fact.processor ||
-    account.customerRefHash !== fact.customerRefHash || account.id !== proof.accountId
-    || account.processorAccountNamespaceSha256 !== proof.accountNamespaceSha256
+    account.customerRefHash !== fact.customerRefHash ||
+    account.id !== proof.accountId ||
+    account.processorAccountNamespaceSha256 !== proof.accountNamespaceSha256
   )
     return 'no_matching_payment';
-  const [legacy] = await tx.select({ id: paymentEvents.id }).from(paymentEvents).where(and(
-    eq(paymentEvents.processor,fact.processor),eq(paymentEvents.providerEventId,fact.providerEventId),isNull(paymentEvents.accountNamespaceSha256)));
+  const [legacy] = await tx
+    .select({ id: paymentEvents.id })
+    .from(paymentEvents)
+    .where(
+      and(
+        eq(paymentEvents.processor, fact.processor),
+        eq(paymentEvents.providerEventId, fact.providerEventId),
+        isNull(paymentEvents.accountNamespaceSha256),
+      ),
+    );
   if (legacy) return 'no_matching_payment';
   const [prior] = await tx
     .select({ id: paymentEvents.id })
@@ -321,7 +383,8 @@ export async function applyPaymentFactInTx(
           .for('update')
       : [];
   const payment = candidates[0];
-  if (!payment || candidates.length !== 1 || payment.id !== proof.paymentId) return 'no_matching_payment';
+  if (!payment || candidates.length !== 1 || payment.id !== proof.paymentId)
+    return 'no_matching_payment';
   if (
     payment.processorPaymentRef &&
     fact.processorPaymentRef &&

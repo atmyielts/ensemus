@@ -61,7 +61,12 @@ export type StoredDelivery = {
 };
 
 export type DeliveryVerdict =
-  | { ok: true; providerEventId: string; effects: readonly WebhookEffect[]; paymentVerificationToken?: string }
+  | {
+      ok: true;
+      providerEventId: string;
+      effects: readonly WebhookEffect[];
+      paymentVerificationToken?: string;
+    }
   | { ok: false; code: WebhookRejectCode };
 
 /** Checks a signature and interprets the body. The connector worker implements this. */
@@ -90,7 +95,13 @@ export interface WebhookEffectHandlers {
     context: TenantContext,
     effect: Extract<WebhookEffect, { kind: 'payment_event' }>,
     /** Actual stored endpoint/inbox identity, never a body's claimed routing fields. */
-    source: Readonly<{ deliveryId: string; endpointId: string; connectionId: string; providerEventId: string; paymentVerificationToken?: string }>,
+    source: Readonly<{
+      deliveryId: string;
+      endpointId: string;
+      connectionId: string;
+      providerEventId: string;
+      paymentVerificationToken?: string;
+    }>,
   ): Promise<void>;
 }
 

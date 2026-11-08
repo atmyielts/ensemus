@@ -339,6 +339,7 @@ describe('verified processor callbacks commit the real M8 receipt with the M3 in
 
   it('uses the actual stored endpoint envelope rather than a caller-provided connection', async () => {
     const f = await fixture();
+    const deliveryId = await f.post();
     await expect(
       withTenantTx(app.db, f.service, (tx) =>
         createWebhookEffectHandlers(undefined, f.deps.paymentWebhook).recordPaymentEvent(
@@ -346,6 +347,7 @@ describe('verified processor callbacks commit the real M8 receipt with the M3 in
           f.service,
           { kind: 'payment_event', event: f.fact },
           {
+            deliveryId,
             endpointId: f.endpoint.endpointId,
             connectionId: randomUUID(),
             providerEventId: f.fact.providerEventId,
