@@ -49,7 +49,7 @@ export default async function EditWorkflowPage({
           <BackLink href={base}>{draft.name}</BackLink>
           <PageHead
             title="Edit workflow"
-            description="Each form saves only its named change. Save one point at a time; current version checks protect edits in other tabs."
+            description="Save one section at a time. If someone changes this workflow, review their latest changes before saving."
           />
           <ErrorNotice code={query.error} />
           {query.saved === '1' && (

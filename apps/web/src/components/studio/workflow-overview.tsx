@@ -40,8 +40,8 @@ export function WorkflowIssues({
     </>
   ) : (
     <p>
-      The current graph passes the available compiler checks. This checks definition structure and
-      offered references, not live model or provider qualification.
+      The saved steps and connections pass the available checks. Rehearse the workflow and review
+      its results before requesting publication.
     </p>
   );
 }

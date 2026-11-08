@@ -28,10 +28,16 @@ desktop/mobile workflow captures are `output/playwright/m8-workflow-current-desk
 `output/playwright/m8-workflow-current-mobile.png`; the separate rendered review had zero console
 errors/warnings. That owned CLI browser was then closed.
 
+After qualification, the host preview server stopped and the saved-ID/exclusive-volume cleanup
+removed exactly the two `ensemus-m8-ui-gate` containers, its two data volumes and its network. A
+post-check found zero remaining project containers/volumes. No image or unrelated resource was
+removed. The separate synthetic PostgreSQL project remains for the next integration stage.
+
 This is selected local interface/authentication qualification. Complete platform journeys, actual
 Temporal execution/wake/replay, inherited material lifecycle, restore, provider-backed operations,
 independent accessibility/usability and release/hosted acceptance remain open. The workflow check
-description still uses compiler/provider terminology; plain business copy remains a polish task.
+description used compiler/provider terminology in these captures. A later source-only copy follow-up
+replaces it with saved-step/rehearsal guidance; it is not included in the pictured build/checkpoint.
 
 ## Earlier bounded checks
 
