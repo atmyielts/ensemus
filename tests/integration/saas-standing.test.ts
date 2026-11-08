@@ -126,7 +126,7 @@ describe('standing and trusted provisioning', () => {
     );
     expect(counts.rows[0]).toMatchObject({ changes: 1, events: 1, notices: 1 });
     const refusalRows = () => withTenantTx(database.db, service, (tx) => tx.execute(
-      sql`select count(*)::int as n from platform.audit_events where action='access.refused.web' and safe_reason='TENANT_READ_ONLY'`,
+      sql`select count(*)::int as n from governance.audit_events where action='access.refused.web' and safe_reason='TENANT_READ_ONLY'`,
     ));
     const refusalRowsBefore = (await refusalRows()).rows;
     let refusal: unknown;
