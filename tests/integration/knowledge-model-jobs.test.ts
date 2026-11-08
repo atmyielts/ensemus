@@ -726,41 +726,80 @@ describe('bounded Knowledge model jobs and principal-bound result receipts (0216
   it('pins approved metadata as real model workers without granting nonhuman or foreign revocation', async () => {
     const f = await fixture();
     const actualRun = await actualAuxiliaryRun();
-    for (const context of [f.requester, actualRun.context, createServiceContext(a.organizationId)]) {
-      expect(await withTenantTx(agent.db, context, (tx) => tx
-        .select({ id: modelWorkloadApprovals.id })
-        .from(modelWorkloadApprovals)
-        .where(eq(modelWorkloadApprovals.id, f.approvalId))
-        .for('share', { noWait: true }))).toEqual([{ id: f.approvalId }]);
-      expect(await codeOf(() => withTenantTx(agent.db, context, (tx) => tx
-        .update(modelWorkloadApprovals).set({ revokedAt: new Date() })
-        .where(eq(modelWorkloadApprovals.id, f.approvalId))))).toBe('42501');
+    for (const context of [
+      f.requester,
+      actualRun.context,
+      createServiceContext(a.organizationId),
+    ]) {
+      expect(
+        await withTenantTx(agent.db, context, (tx) =>
+          tx
+            .select({ id: modelWorkloadApprovals.id })
+            .from(modelWorkloadApprovals)
+            .where(eq(modelWorkloadApprovals.id, f.approvalId))
+            .for('share', { noWait: true }),
+        ),
+      ).toEqual([{ id: f.approvalId }]);
+      expect(
+        await codeOf(() =>
+          withTenantTx(agent.db, context, (tx) =>
+            tx
+              .update(modelWorkloadApprovals)
+              .set({ revokedAt: new Date() })
+              .where(eq(modelWorkloadApprovals.id, f.approvalId)),
+          ),
+        ),
+      ).toBe('42501');
     }
     const foreign = await createDelegatedContext(agent.db, b.organizationId, b.member.membershipId);
-    expect(await withTenantTx(agent.db, foreign, (tx) => tx
-      .select({ id: modelWorkloadApprovals.id }).from(modelWorkloadApprovals)
-      .where(eq(modelWorkloadApprovals.id, f.approvalId)).for('share', { noWait: true }))).toEqual([]);
-    expect(await withTenantTx(agent.db, foreign, (tx) => tx
-      .update(modelWorkloadApprovals).set({ revokedAt: new Date() })
-      .where(eq(modelWorkloadApprovals.id, f.approvalId)).returning({ id: modelWorkloadApprovals.id }))).toEqual([]);
-    expect(await codeOf(() => withTenantTx(agent.db, createServiceContext(a.organizationId), async (tx) => {
-      // Role membership and mutable actor settings cannot turn the actual agent login into app authority.
-      await tx.execute(sql`set local role ensemus_app`);
-      await tx.execute(sql`select set_config('app.actor_type','user',true),
+    expect(
+      await withTenantTx(agent.db, foreign, (tx) =>
+        tx
+          .select({ id: modelWorkloadApprovals.id })
+          .from(modelWorkloadApprovals)
+          .where(eq(modelWorkloadApprovals.id, f.approvalId))
+          .for('share', { noWait: true }),
+      ),
+    ).toEqual([]);
+    expect(
+      await withTenantTx(agent.db, foreign, (tx) =>
+        tx
+          .update(modelWorkloadApprovals)
+          .set({ revokedAt: new Date() })
+          .where(eq(modelWorkloadApprovals.id, f.approvalId))
+          .returning({ id: modelWorkloadApprovals.id }),
+      ),
+    ).toEqual([]);
+    expect(
+      await codeOf(() =>
+        withTenantTx(agent.db, createServiceContext(a.organizationId), async (tx) => {
+          // Role membership and mutable actor settings cannot turn the actual agent login into app authority.
+          await tx.execute(sql`set local role ensemus_app`);
+          await tx.execute(sql`select set_config('app.actor_type','user',true),
         set_config('app.user_id',${a.owner.userId},true),set_config('app.membership_id',${a.owner.membershipId},true)`);
-      await tx.update(modelWorkloadApprovals).set({ revokedAt: new Date() })
-        .where(eq(modelWorkloadApprovals.id, f.approvalId));
-    }))).toBe('42501');
-    const [unchanged] = await withTenantTx(app.db, a.owner, (tx) => tx
-      .select({ revokedAt: modelWorkloadApprovals.revokedAt }).from(modelWorkloadApprovals)
-      .where(eq(modelWorkloadApprovals.id, f.approvalId)));
+          await tx
+            .update(modelWorkloadApprovals)
+            .set({ revokedAt: new Date() })
+            .where(eq(modelWorkloadApprovals.id, f.approvalId));
+        }),
+      ),
+    ).toBe('42501');
+    const [unchanged] = await withTenantTx(app.db, a.owner, (tx) =>
+      tx
+        .select({ revokedAt: modelWorkloadApprovals.revokedAt })
+        .from(modelWorkloadApprovals)
+        .where(eq(modelWorkloadApprovals.id, f.approvalId)),
+    );
     expect(unchanged?.revokedAt).toBeNull();
     // Conservative stopping deliberately does not require a new MFA proof or native session stamp.
     const plainOwner = await resolveTenantContext(app.db, a.owner.userId, a.organizationId);
     await revokeModelWorkload(app.db, plainOwner, f.approvalId);
-    const [revoked] = await withTenantTx(app.db, a.owner, (tx) => tx
-      .select({ revokedAt: modelWorkloadApprovals.revokedAt }).from(modelWorkloadApprovals)
-      .where(eq(modelWorkloadApprovals.id, f.approvalId)));
+    const [revoked] = await withTenantTx(app.db, a.owner, (tx) =>
+      tx
+        .select({ revokedAt: modelWorkloadApprovals.revokedAt })
+        .from(modelWorkloadApprovals)
+        .where(eq(modelWorkloadApprovals.id, f.approvalId)),
+    );
     expect(revoked?.revokedAt).toBeInstanceOf(Date);
   });
   it('charges actual usage once, and accepts only an actual domain result in its publication transaction', async () => {
