@@ -14,6 +14,19 @@ const valid = {
 const tx = (rows: unknown[]) => ({ execute: async () => ({ rows }) }) as unknown as Tx;
 
 describe('the bounded standing metadata result', () => {
+  it('maps only the fixed native person refusal to the application authorization result', async () => {
+    const denied = new Error('TEST_WRAPPED', { cause: { code: '42501', message: 'ENTITLEMENT_METADATA_PERSON' } });
+    const database = { execute: async () => { throw denied; } } as unknown as Tx;
+    await expect(loadEntitlementMetadataInTx(database, context)).rejects.toMatchObject({ code: 'NOT_FOUND' });
+  });
+  it.each([
+    { code: '42501', message: 'permission denied for function current_entitlement_metadata' },
+    { code: '08006', message: 'TEST_CONNECTION_LOST' },
+  ])('does not hide an infrastructure/grant failure as missing licensing: %j', async (cause) => {
+    const failure = new Error('TEST_WRAPPED', { cause });
+    const database = { execute: async () => { throw failure; } } as unknown as Tx;
+    await expect(loadEntitlementMetadataInTx(database, context)).rejects.toBe(failure);
+  });
   it('keeps a real overdrawn balance and exposes only the five reviewed fields', async () => {
     const result = await loadEntitlementMetadataInTx(tx([valid]), context);
     expect(result).toEqual({ ...valid, balanceMicrocredits: -5n });
