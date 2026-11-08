@@ -24,6 +24,7 @@ import { and, asc, eq, inArray, lte, ne, sql } from 'drizzle-orm';
 import { AppError } from './errors';
 import { eraseTombstonedArtifact } from './saas/object-deletion';
 import { emit } from './events';
+import type { RawKnowledgeObjectPort } from './knowledge/raw-objects';
 import { idFromRequest } from './request-id';
 import { closeOutdatedReviews, loadChangeable, loadReadable, type WorkRow } from './work';
 import {
@@ -33,6 +34,8 @@ import {
 
 /** Where bytes live. An S3 adapter implements this, and tests can check calls against it. */
 export interface ObjectStore {
+  /** Installed only by the actual native raw storage composition; absence refuses mutation. */
+  rawKnowledge?: RawKnowledgeObjectPort;
   put(key: string, body: Buffer, mimeType: string): Promise<void>;
   /** Native raw Knowledge protocol only: exactly one mutation transport. Rejection/timeout is
    * unknown, never evidence that the key is absent or that a second PUT is safe. */

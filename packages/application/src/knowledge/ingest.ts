@@ -34,6 +34,7 @@ import { AppError, pgCode } from '../errors';
 import { emit } from '../events';
 import { idSchema } from '../ids';
 import { beginObjectWrite, recoverObjectWrites, settleObjectWrite } from './object-writes';
+import { rawKnowledgeObjects } from './raw-objects';
 import type { KnowledgeCode } from '@ensemus/domain/knowledge';
 import type { ContentScanPort, MalwareScanPort } from '@ensemus/knowledge/ports';
 import type { ParsedDocument } from '@ensemus/knowledge/parsing';
@@ -159,9 +160,9 @@ export async function ingestDocument(
   const key = doc.objectKey ?? knowledgeObjectKey(context.organizationId, documentId);
   const closed = async (): Promise<IngestStep> => {
     // A late store write must not resurrect bytes after a concurrent purge has already finished.
-    await store.delete(key);
-    if (await store.exists(key)) throw new Error('STORE_UNAVAILABLE');
     if (writer) await withTenantTx(database, context, (tx) => settleObjectWrite(tx, writer));
+    const result = await rawKnowledgeObjects(store).erase(context, { documentId });
+    if (result.state !== 'purged') throw new Error('STORE_UNAVAILABLE');
     return { outcome: 'closed', code: 'SOURCE_CLOSED', chunks: 0 };
   };
   if (source.state !== 'active' || doc.state === 'purged') return closed();
@@ -172,7 +173,8 @@ export async function ingestDocument(
   try {
     if (staging) {
       body = staging.body;
-      await store.put(key, body, doc.mediaType);
+      if (!writer) throw new AppError('PREREQUISITES_INCOMPLETE');
+      await rawKnowledgeObjects(store).put(context, writer, body, doc.mediaType);
       const live = await withTenantTx(database, context, async (tx) => {
         const [current] = await tx
           .select()

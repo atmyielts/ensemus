@@ -7,10 +7,10 @@ import {
   type TenantContext,
   type Tx,
 } from '@ensemus/database';
-import { knowledgeObjectKey } from '@ensemus/domain/knowledge';
 import { and, eq } from 'drizzle-orm';
 import type { ObjectStore } from '../artifacts';
 import { AppError } from '../errors';
+import { assertRawWriteQuiescentInTx, rawKnowledgeObjects } from './raw-objects';
 
 export type ObjectWrite = {
   documentId: string;
@@ -76,6 +76,7 @@ export async function settleObjectWrite(tx: Tx, write: ObjectWrite) {
     .from(knowledgeSources)
     .where(eq(knowledgeSources.id, write.sourceId))
     .for('update');
+  await assertRawWriteQuiescentInTx(tx, write);
   const rows = await tx
     .update(knowledgeObjectWriters)
     .set({ state: 'settled' })
@@ -99,7 +100,6 @@ export async function recoverObjectWrites(
   sourceId?: string,
 ) {
   if (context.actorType !== 'service') throw new AppError('FORBIDDEN');
-  if (!store.fenceKnowledgeWrite) return;
   const rows = await withTenantTx(database, context, (tx) =>
     tx
       .select()
@@ -114,28 +114,13 @@ export async function recoverObjectWrites(
       .limit(50),
   );
   for (const write of rows) {
-    const key = knowledgeObjectKey(context.organizationId, write.documentId);
     try {
-      if (
-        !(
-          await store.fenceKnowledgeWrite({
-            key,
-            writeId: write.writeId,
-            generation: write.generation,
-          })
-        ).quiescent
-      )
-        continue;
       const [source] = await withTenantTx(database, context, (tx) =>
         tx
           .select({ state: knowledgeSources.state })
           .from(knowledgeSources)
           .where(eq(knowledgeSources.id, write.sourceId)),
       );
-      if (!source || source.state !== 'active') {
-        if (await store.exists(key)) await store.delete(key);
-        if (await store.exists(key)) continue;
-      }
       await withTenantTx(database, context, async (tx) => {
         await tx
           .select({ id: knowledgeSources.id })
@@ -154,8 +139,13 @@ export async function recoverObjectWrites(
         )
           await settleObjectWrite(tx, write);
       });
+      if (!source || source.state !== 'active') {
+        const result = await rawKnowledgeObjects(store).erase(context, { documentId: write.documentId });
+        if (result.state !== 'purged') continue;
+      }
     } catch {
-      /* An unknown writer stays active, keeping completion honest. */
+      /* An unknown/legacy writer stays unresolved. A legacy fence Boolean, cancellation, TTL or
+       * HEAD never becomes the new protocol's provider/operation quiescence certificate. */
     }
   }
 }

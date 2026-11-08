@@ -7,6 +7,7 @@ import { loadSaasConfig, readSecret } from '@ensemus/config';
 import { loadSovereignConfig } from '@ensemus/config/sovereign';
 import { openAppDatabase } from '@ensemus/database';
 import { S3ObjectStore } from '@ensemus/storage';
+import { withRawKnowledgeObjects } from '@ensemus/application/knowledge/raw-objects';
 import { createLogger, errorCode } from '@ensemus/telemetry';
 import { createActivities, type WorkflowProbe } from '@ensemus/workflows/activities';
 import { createBillingActivities } from '@ensemus/workflows/billing-activities';
@@ -46,12 +47,13 @@ async function main() {
     address: process.env.TEMPORAL_ADDRESS ?? 'temporal:7233',
   });
   const { db, close } = openAppDatabase(readSecret('DATABASE_URL_APP'));
-  const store = new S3ObjectStore({
+  const nativeStore = new S3ObjectStore({
     endpoint: process.env.OBJECT_STORAGE_ENDPOINT ?? 'http://objects:8333',
     bucket: process.env.OBJECT_STORAGE_BUCKET ?? 'ensemus',
     accessKey: readSecret('OBJECT_STORAGE_ACCESS_KEY'),
     secretKey: readSecret('OBJECT_STORAGE_SECRET_KEY'),
   });
+  const store = withRawKnowledgeObjects({ database: db, store: nativeStore });
   const generatedObjects = new S3ObjectStore({
     endpoint: process.env.OBJECT_STORAGE_ENDPOINT ?? 'http://objects:8333',
     bucket: process.env.OBJECT_STORAGE_BUCKET ?? 'ensemus',

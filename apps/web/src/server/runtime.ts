@@ -1,5 +1,6 @@
 import 'server-only';
 import { createRestoreGate } from '@ensemus/application';
+import { withRawKnowledgeObjects } from '@ensemus/application/knowledge/raw-objects';
 import {
   authorizeSsoIdentity,
   completeSsoSignIn,
@@ -56,16 +57,20 @@ function build() {
 
 let runtime: ReturnType<typeof build> | undefined;
 
-let store: S3ObjectStore | undefined;
-
-/** Object storage for artifacts. Bytes only ever pass through permission-checked services. */
-export function getStore() {
-  store ??= new S3ObjectStore({
+function buildStore() {
+  const native = new S3ObjectStore({
     endpoint: process.env.OBJECT_STORAGE_ENDPOINT ?? 'http://objects:8333',
     bucket: process.env.OBJECT_STORAGE_BUCKET ?? 'ensemus',
     accessKey: readSecret('OBJECT_STORAGE_ACCESS_KEY'),
     secretKey: readSecret('OBJECT_STORAGE_SECRET_KEY'),
   });
+  return withRawKnowledgeObjects({ database: getRuntime().app, store: native });
+}
+let store: ReturnType<typeof buildStore> | undefined;
+
+/** Object storage for artifacts. Bytes only ever pass through permission-checked services. */
+export function getStore() {
+  store ??= buildStore();
   return store;
 }
 

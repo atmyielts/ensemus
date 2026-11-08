@@ -41,6 +41,7 @@
     "./knowledge/facts": "./src/knowledge/facts.ts",
     "./knowledge/graph": "./src/knowledge/graph.ts",
     "./knowledge/purge": "./src/knowledge/purge.ts",
+    "./knowledge/raw-objects": "./src/knowledge/raw-objects.ts",
     "./knowledge/purge-composition": "./src/knowledge/purge-composition.ts",
     "./knowledge/delegated-work-purge": "./src/knowledge/delegated-work-purge.ts",
     "./knowledge/delegated-record-purge": "./src/knowledge/delegated-record-purge.ts",
