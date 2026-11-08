@@ -922,11 +922,24 @@ export const knowledgePurgeJobs = knowledgeSchema.table(
     transcriptsRemoved: integer().notNull().default(0),
     derivedArtifactsRemoved: integer().notNull().default(0),
     derivedArtifactsHeld: integer().notNull().default(0),
+    /** Actual Work body redactions, separate from file/header removals. NULL means unconfirmed. */
+    delegatedWorkRemoved: integer().notNull().default(0),
+    delegatedWorkRemaining: integer(),
+    delegatedWorkUnknown: integer(),
+    delegatedWorkControlsRemaining: integer(),
+    delegatedWorkCheckedAt: timestamp({ withTimezone: true }),
+    delegatedWorkSourceVersion: bigint({ mode: 'number' }),
+    delegatedWorkReceiptsSha256: text(),
+    delegatedWorkRestoreGeneration: uuid(),
+    delegatedWorkCursorSourceVersion: bigint({ mode: 'number' }),
+    delegatedWorkAfterRun: uuid(),
+    delegatedWorkAfterChild: uuid(),
     artifactsCheckedAt: timestamp({ withTimezone: true }),
     /** Proof is written only after M4 durably fences all source-using runs and verifies zero payloads. */
     transcriptsCheckedAt: timestamp({ withTimezone: true }),
     transcriptSourceVersion: bigint({ mode: 'number' }),
     transcriptRunsSha256: text(),
+    transcriptRestoreGeneration: uuid(),
     attempts: integer().notNull().default(0),
     /** Scheduled workflow restart requests, independent of projection Activity attempts. */
     retryRequests: integer().notNull().default(0),
@@ -935,6 +948,8 @@ export const knowledgePurgeJobs = knowledgeSchema.table(
     lastErrorCode: text(),
     requestedAt: createdAt(),
     completedAt: timestamp({ withTimezone: true }),
+    /** Original certificate time retained when 0419 requires its Work/control requalification. */
+    priorCompletedAt: timestamp({ withTimezone: true }),
   },
   (t) => [
     primaryKey({ columns: [t.organizationId, t.id] }),
@@ -957,6 +972,24 @@ export const knowledgePurgeJobs = knowledgeSchema.table(
       sql`(${t.state} = 'completed') = (${t.completedAt} is not null)`,
     ),
     check('knowledge_purge_retry_requests', sql`${t.retryRequests}>=0`),
+    check(
+      'knowledge_purge_delegated_work_counts',
+      sql`${t.delegatedWorkRemoved}>=0 and (${t.delegatedWorkRemaining} is null or ${t.delegatedWorkRemaining}>=0)
+      and (${t.delegatedWorkUnknown} is null or ${t.delegatedWorkUnknown}>=0) and (${t.delegatedWorkControlsRemaining} is null or ${t.delegatedWorkControlsRemaining}>=0)`,
+    ),
+    check(
+      'knowledge_purge_delegated_work_proof',
+      sql`(${t.delegatedWorkCheckedAt} is null and ${t.delegatedWorkSourceVersion} is null and ${t.delegatedWorkReceiptsSha256} is null)
+      or (${t.delegatedWorkCheckedAt} is not null and ${t.delegatedWorkSourceVersion} is not null and ${t.delegatedWorkSourceVersion}>0
+        and ${t.delegatedWorkReceiptsSha256} is not null and ${t.delegatedWorkReceiptsSha256} ~ '^[0-9a-f]{64}$'
+        and ${t.delegatedWorkRemaining} is not null and ${t.delegatedWorkRemaining}=0 and ${t.delegatedWorkUnknown} is not null and ${t.delegatedWorkUnknown}=0
+        and ${t.delegatedWorkControlsRemaining} is not null and ${t.delegatedWorkControlsRemaining}=0)`,
+    ),
+    check(
+      'knowledge_purge_delegated_work_cursor',
+      sql`(${t.delegatedWorkCursorSourceVersion} is null and ${t.delegatedWorkAfterRun} is null and ${t.delegatedWorkAfterChild} is null)
+      or (${t.delegatedWorkCursorSourceVersion} is not null and ${t.delegatedWorkCursorSourceVersion}>0)`,
+    ),
     check(
       'knowledge_purge_transcript_proof',
       sql`${t.transcriptsRemoved}>=0 and ((${t.transcriptsCheckedAt} is null and ${t.transcriptSourceVersion} is null and ${t.transcriptRunsSha256} is null) or (${t.transcriptsCheckedAt} is not null and ${t.transcriptSourceVersion}>0 and ${t.transcriptRunsSha256} ~ '^[0-9a-f]{64}$'))`,

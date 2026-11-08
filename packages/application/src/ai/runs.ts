@@ -47,11 +47,21 @@ import { and, desc, eq, inArray, lte, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { AppError } from '../errors';
 import { emit } from '../events';
-import { applyTransition, closeOutdatedReviews, failRun, loadChangeable } from '../work';
+import {
+  applyTransition,
+  closeOutdatedReviews,
+  failRun,
+  loadChangeable,
+  releaseTerminalWorkInTx,
+} from '../work';
 import type { HaltCheck, TurnStart, TurnStore } from './ports';
 import { assertRunInputsOpen, lockRunInputsForContent, workInputClassInTx } from './input-ledger';
 import { assertWithinAgentCeiling, loadAgentReadScopeInTx } from './read-scope';
 import { bindModelResultWriteInTx } from './model-admission';
+import {
+  loadTerminalWorkControlInTx,
+  releaseTerminalWorkForLookupInTx,
+} from './terminal-work-control';
 
 export type ClaimedRun = {
   agentRunId: string;
@@ -953,6 +963,9 @@ export async function finishRun(
     if (!run) throw new AppError('NOT_FOUND');
     if (isTerminalAgentRun(run.status as AgentRunStatus)) {
       await clearRunLeftovers(tx, run.id, { keepLost: false });
+      // An older bundle may have fenced/ended this run while terminal body RLS correctly hid its
+      // Work. Retry only the exact conservative metadata effect, never a new model/tool attempt.
+      await releaseWork(tx, context, run, run.status as AgentRunStatus);
       return;
     }
     const ended = await moveRun(tx, run, input.status, input.stopCode);
@@ -989,6 +1002,12 @@ async function releaseWork(
   status: AgentRunStatus,
 ): Promise<void> {
   if (!run.temporalRunId) return;
+  const terminalControl = await loadTerminalWorkControlInTx(tx, context, run.id);
+  if (terminalControl.kind === 'control') {
+    await releaseTerminalWorkInTx(tx, context, terminalControl.control);
+    return;
+  }
+  if (terminalControl.kind === 'unowned') return;
   let work: Awaited<ReturnType<typeof loadChangeable>>;
   try {
     work = await loadChangeable(tx, context, run.workUnitId);
@@ -1008,8 +1027,8 @@ async function releaseWork(
 
 /**
  * The initiator has gone, so no agent context can be made for this run, and every service needs one. This
- * does only what needs none: the run's own row and leftovers. A hold that may have reached a provider stays
- * held, so the budget over-counts. The Work Unit is left to the upkeep sweep, once the workflow has closed.
+ * preserves conservative holds and uses only the fixed terminal metadata control for new-protocol
+ * Work. No inactive person is cast back into an AgentContext or given body-serving authority.
  */
 export async function closeRunWithoutContext(
   database: AppDatabase,
@@ -1028,6 +1047,7 @@ export async function closeRunWithoutContext(
       await auditRun(tx, input.organizationId, ended, 'ai.run_finished', 'deny', input.stopCode);
     }
     await clearRunLeftovers(tx, run.id, { keepLost: true });
+    await releaseTerminalWorkForLookupInTx(tx, input.organizationId, run.id);
   });
 }
 

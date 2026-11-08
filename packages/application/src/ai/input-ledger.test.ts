@@ -41,11 +41,15 @@ describe('durable exhaustive input inventory', () => {
       workUnitId: workId,
       observations: [
         work,
-        { ...work, sha256: 'b'.repeat(64) },
+        { ...work, sha256: 'b'.repeat(64), classification: 'restricted' },
         { kind: 'artifact', id: artifactId, sha256: hash, classification: 'restricted' },
       ],
     });
     expect(proof?.recordInputs).toHaveLength(2);
+    expect(proof?.recordInputs).toEqual([
+      expect.objectContaining({ sha256: hash, classification: 'internal' }),
+      expect.objectContaining({ sha256: 'b'.repeat(64), classification: 'restricted' }),
+    ]);
     expect(proof?.artifactInputs).toEqual([{ artifactId, sha256: hash }]);
   });
   it('refuses conflicting immutable file hashes, malformed observations and an unbounded run', () => {

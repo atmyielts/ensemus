@@ -23,6 +23,8 @@ const bindings = [
   'app.agent_run_id',
   'app.agent_input_protocol',
   'app.agent_scope_protocol',
+  'app.agent_authority_protocol',
+  'app.terminal_work_control_run',
   'app.knowledge_model_protocol',
   'app.model_job_id',
   'app.interactive_session_id',
@@ -87,6 +89,8 @@ export function bindKnowledgeModelReceipts(
         'app.agent_run_id': principal.kind === 'agent_run' ? principal.step.runId : '',
         'app.agent_input_protocol': principal.kind === 'agent_run' ? 'v1' : '',
         'app.agent_scope_protocol': '',
+        'app.agent_authority_protocol': '',
+        'app.terminal_work_control_run': '',
         'app.interactive_session_id': '',
       };
       for (const [name, value] of Object.entries(temporary))

@@ -51,9 +51,12 @@ export type GeneratedArtifactWrite = {
   classification: Classification;
 };
 export type StructuredArtifactInput = {
-  kind: 'work_unit' | 'project' | 'client';
+  kind: 'work_unit' | 'project' | 'client' | 'object_record';
   id: string;
   sha256: string;
+  /** Actual read-time protection from the trusted ledger. Optional for old port compatibility;
+   * new generated authority independently requires the pinned captured classes. */
+  classification?: Classification;
 };
 export interface ArtifactInputInventory {
   /** Must validate the actual run/template/executor, current writer authority and every artifact read
@@ -161,7 +164,7 @@ export function normalizeStructuredInputs(
     if (
       !value ||
       typeof value !== 'object' ||
-      !['work_unit', 'project', 'client'].includes(value.kind)
+      !['work_unit', 'project', 'client', 'object_record'].includes(value.kind)
     )
       throw new AppError('INVALID_INPUT');
     const row: StructuredArtifactInput = {
@@ -169,7 +172,18 @@ export function normalizeStructuredInputs(
       id: checkedId(value.id),
       sha256: checkedHash(value.sha256),
     };
-    records.set(`${row.kind}:${row.id}:${row.sha256}`, row);
+    const captured = value.classification;
+    if (
+      captured !== undefined &&
+      !['public', 'internal', 'confidential', 'restricted'].includes(captured)
+    )
+      throw new AppError('INVALID_INPUT');
+    const key = `${row.kind}:${row.id}:${row.sha256}`,
+      previous = records.get(key);
+    const classes: Classification[] = [];
+    if (previous?.classification) classes.push(previous.classification);
+    if (captured !== undefined) classes.push(captured);
+    records.set(key, classes.length ? { ...row, classification: strongestClass(classes) } : row);
   }
   if (![...records.values()].some((row) => row.kind === 'work_unit' && row.id === target))
     throw new AppError('INVALID_STATE');
@@ -198,9 +212,12 @@ async function structuredInventory(
 ): Promise<readonly StructuredSnapshot[]> {
   const records = new Map<
     string,
-    StructuredArtifactInput & { classification: Classification | null }
+    Omit<StructuredArtifactInput, 'classification'> & { classification: Classification | null }
   >();
-  const add = (record: StructuredArtifactInput, classification: Classification | null) => {
+  const add = (
+    record: Pick<StructuredArtifactInput, 'kind' | 'id' | 'sha256'>,
+    classification: Classification | null,
+  ) => {
     const key = `${recordKey(record)}:${record.sha256}`,
       existing = records.get(key);
     const classes = [
@@ -213,8 +230,8 @@ async function structuredInventory(
     });
     if (records.size > MAX_INPUTS) throw new AppError('INVALID_INPUT');
   };
-  // Direct read classes are resolved from current metadata below; inherited classes remain pinned.
-  for (const record of direct) add(record, null);
+  // Actual direct and inherited captured classes stay pinned; fresh metadata can only raise them.
+  for (const record of direct) add(record, record.classification ?? null);
   if (inputIds.length) {
     const inherited = await tx
       .selectDistinct({
@@ -392,6 +409,10 @@ async function currentInventory(
   )
     throw new AppError('INVALID_STATE');
   const directRecords = normalizeStructuredInputs(proof.recordInputs, workUnitId);
+  // Optional is legacy wire compatibility, never a current-class lookup that repairs missing
+  // historical protection. Every new generated write supplies its actual captured classes.
+  if (directRecords.some((record) => record.classification === undefined))
+    throw new AppError('INVALID_STATE');
   await loadReadable(tx, context, workUnitId);
   const viewer = proof.viewerMembershipId === null ? null : checkedId(proof.viewerMembershipId);
   if (input.execution.kind === 'agent_run') {
@@ -975,12 +996,12 @@ export function createDerivedArtifactPurge(deps: DerivedArtifactPurgeDeps): Stru
     return { remaining: Number(result.rows[0]?.remaining ?? 1) };
   };
   const recordInput = (input: { kind: StructuredArtifactInput['kind']; id: string }) => {
-    if (!['work_unit', 'project', 'client'].includes(input.kind))
+    if (!['work_unit', 'project', 'client', 'object_record'].includes(input.kind))
       throw new AppError('INVALID_INPUT');
     return { kind: input.kind, id: checkedId(input.id) };
   };
   const recordAffected = (input: { kind: StructuredArtifactInput['kind']; id: string }) =>
-    sql`((${artifactLineage.executionKind} in ('agent_run','system') and not ${artifactLineage.structuredInventoryComplete}) or exists(select 1 from knowledge.artifact_required_records(${artifactLineage.artifactId}) r where r.record_kind=${input.kind} and r.record_id=${input.id}::uuid))`;
+    sql`((${artifactLineage.executionKind} in ('agent_run','system') and not ${artifactLineage.structuredInventoryComplete}) or knowledge.artifact_depends_on_record(${artifactLineage.artifactId},${input.kind},${input.id}::uuid))`;
   const confirmRecord = async (
     tx: Tx,
     input: { kind: StructuredArtifactInput['kind']; id: string },

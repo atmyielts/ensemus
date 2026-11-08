@@ -67,22 +67,24 @@ export function createChecklistInputInventory(): ArtifactInputInventory {
         ) !== input.artifactSha256
       )
         return { known: false };
+      const classification = await workInputClassInTx(
+        tx,
+        work.id,
+        work.classification as 'public' | 'internal' | 'confidential' | 'restricted',
+      );
       return {
         known: true,
         execution: input.execution,
         workUnitId: work.id,
         viewerMembershipId: null,
-        classification: await workInputClassInTx(
-          tx,
-          work.id,
-          work.classification as 'public' | 'internal' | 'confidential' | 'restricted',
-        ),
+        classification,
         noKnowledge: true,
         artifactInputs: [],
         recordInputs: [
           {
             kind: 'work_unit',
             id: work.id,
+            classification,
             sha256: hash(
               canonicalJson({ id: work.id, completionCriteria: work.completionCriteria }),
             ),
@@ -121,6 +123,7 @@ export async function produceCompletionChecklist(
           eq(artifactWorkLinks.workUnitId, work.id),
           eq(artifactLineage.workUnitId, work.id),
           eq(artifactLineage.executionKind, 'system'),
+          eq(artifactLineage.executionId, input.runId),
           eq(artifactLineage.executorRef, CHECKLIST_TEMPLATE),
           eq(artifactAclCatalog.alive, true),
         ),

@@ -9274,6 +9274,14 @@ export interface components {
                 blobs: number;
                 transcripts: number;
                 artifacts: number;
+                /** @description Actual retained delegated Work body redactions, separate from file removals. */
+                work_units: number;
+                /** @description Current undisposed source-associated Work bodies; null means unconfirmed. */
+                work_units_remaining: number | null;
+                /** @description Current source run control closures awaiting actual proof; not financial settlement. */
+                work_control_proofs_remaining: number | null;
+                /** @description Retained legacy delegated Work with unknown inputs in this tenant; no source association is inferred. */
+                unproven_work_units: number | null;
             };
             /** Format: date-time */
             requested_at: string;

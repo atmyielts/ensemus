@@ -21,8 +21,30 @@ export async function currentRunCompanyClassInTx(
   knowledgeSourceIds: string[];
 }> {
   if (context.actorType !== 'agent') throw new AppError('FORBIDDEN');
+  // A queued/new root run may target an earlier delegated Work before it has read anything. Pin
+  // its actual birth inputs too; zero direct observations does not mean zero inherited influence.
+  const inheritedResult = await tx.execute<{
+    classification: string;
+    inputCount: number;
+    sourceIds: string[];
+  }>(sql`select classification,input_count "inputCount",source_ids "sourceIds"
+    from ai.lock_run_inherited_inputs(${context.agentRunId}::uuid,${context.membershipId}::uuid)`);
+  const inherited = inheritedResult.rows[0];
+  if (
+    !inherited ||
+    inheritedResult.rows.length !== 1 ||
+    !Number.isSafeInteger(inherited.inputCount) ||
+    inherited.inputCount < 0 ||
+    inherited.inputCount > 1000 ||
+    !Array.isArray(inherited.sourceIds) ||
+    inherited.sourceIds.length > 1000
+  )
+    throw new AppError('POLICY_DENIED');
   const inventory = sql`with observations as(
     select input_kind kind,input_id id from ai.run_input_observations where organization_id=${context.organizationId}::uuid and run_id=${context.agentRunId}::uuid
+  ), read_authorities as(
+    select i->>'kind' kind,(i->>'id')::uuid id from ai.run_read_authorities a cross join lateral jsonb_array_elements(a.authority_inventory) i
+      where a.organization_id=${context.organizationId}::uuid and a.run_id=${context.agentRunId}::uuid
   ), nodes as(
     select id from observations where kind='artifact'
     union select i.input_artifact_id from knowledge.artifact_lineage_inputs i join observations o on o.kind='artifact' and o.id=i.artifact_id where i.organization_id=${context.organizationId}::uuid
@@ -38,6 +60,7 @@ export async function currentRunCompanyClassInTx(
     union select id from call_inputs where kind='chunk'
   ), all_refs as(
     select kind,id from observations
+    union select kind,id from read_authorities
     union select 'artifact',id from nodes
     union select r.record_kind,r.record_id from observations o cross join lateral knowledge.artifact_required_records(o.id) r where o.kind='artifact'
     union select kind,id from call_inputs where kind<>'chunk'
@@ -45,6 +68,8 @@ export async function currentRunCompanyClassInTx(
     union select 'document',i.document_id from knowledge.evidence_items i join package_ids p on p.id=i.package_id where i.organization_id=${context.organizationId}::uuid
     union select 'document',ch.document_id from knowledge.chunks ch join chunk_refs r on r.id=ch.id where ch.organization_id=${context.organizationId}::uuid
     union select 'source',i.source_id from knowledge.evidence_items i join package_ids p on p.id=i.package_id where i.organization_id=${context.organizationId}::uuid
+    union select 'source',split_part(f.subject_ref,':',2)::uuid from knowledge.evidence_package_facts f join package_ids p on p.id=f.package_id
+      where f.organization_id=${context.organizationId}::uuid and f.subject_ref like 'knowledge_source:%'
     union select 'source',source_id from call_inputs where source_id is not null
     union select 'source',knowledge.artifact_required_sources(o.id) from observations o where o.kind='artifact'
   ), current_projects as(
@@ -58,7 +83,7 @@ export async function currentRunCompanyClassInTx(
       where c.organization_id=${context.organizationId}::uuid and c.record_kind='project' and c.parent_record_id is not null
   ) select kind,id from scoped_refs order by kind COLLATE "C",id limit 1001`;
   const refs = await tx.execute<Ref>(inventory);
-  if (refs.rows.length > 1000) throw new AppError('POLICY_DENIED');
+  if (refs.rows.length + inherited.inputCount > 1000) throw new AppError('POLICY_DENIED');
   const byKind = (kind: string) =>
     refs.rows.filter((ref) => ref.kind === kind).map((ref) => ref.id);
   // Sources/documents before metadata/checkpoints, matching close/purge and existing Knowledge writes.
@@ -67,6 +92,7 @@ export async function currentRunCompanyClassInTx(
     if (!knownClass(value)) throw new AppError('POLICY_DENIED');
     floor = strongestClassification(floor, value);
   };
+  add(inherited.classification);
   const ids = (values: readonly string[]) =>
     sql.join(
       values.map((value) => sql`${value}::uuid`),
@@ -77,7 +103,7 @@ export async function currentRunCompanyClassInTx(
     chunks = byKind('chunk');
   if (sources.length) {
     const result = await tx.execute<{ classification: string; readable: boolean }>(
-      sql`select s.classification,s.state='active' and s.id in(select knowledge.readable_source_ids(${context.membershipId}::uuid)) readable from knowledge.sources s where s.organization_id=${context.organizationId}::uuid and s.id in(${ids(sources)}) order by s.id ${options.lockRun ? sql`for share nowait` : sql``}`,
+      sql`select s.classification,s.state='active' and s.id in(select knowledge.readable_source_ids(${context.membershipId}::uuid)) readable from knowledge.sources s where s.organization_id=${context.organizationId}::uuid and s.id in(${ids(sources)}) order by s.id for share nowait`,
     );
     if (result.rows.length !== sources.length || result.rows.some((row) => !row.readable))
       throw new AppError('POLICY_DENIED');
@@ -85,7 +111,7 @@ export async function currentRunCompanyClassInTx(
   }
   if (documents.length) {
     const result = await tx.execute<{ classification: string }>(
-      sql`select d.classification from knowledge.documents d where d.organization_id=${context.organizationId}::uuid and d.id in(${ids(documents)}) order by d.id ${options.lockRun ? sql`for share nowait` : sql``}`,
+      sql`select d.classification from knowledge.documents d where d.organization_id=${context.organizationId}::uuid and d.id in(${ids(documents)}) order by d.id for share nowait`,
     );
     if (result.rows.length !== documents.length) throw new AppError('POLICY_DENIED');
     for (const row of result.rows) add(row.classification);
@@ -98,8 +124,7 @@ export async function currentRunCompanyClassInTx(
     for (const row of result.rows) add(row.classification);
   }
   for (const artifactId of byKind('artifact')) {
-    if (options.lockRun)
-      await tx.execute(sql`select knowledge.lock_artifact_catalog(${artifactId}::uuid)`);
+    await tx.execute(sql`select knowledge.lock_artifact_catalog(${artifactId}::uuid)`);
     const result = await tx.execute<{ classification: string; readable: boolean }>(
       sql`select a.classification,a.alive and knowledge.artifact_readable(a.artifact_id,${context.membershipId}::uuid) readable from knowledge.artifact_acl_catalog a where a.organization_id=${context.organizationId}::uuid and a.artifact_id=${artifactId}::uuid`,
     );
@@ -109,7 +134,9 @@ export async function currentRunCompanyClassInTx(
   for (const ref of refs.rows.filter(
     (ref) => !['source', 'document', 'chunk', 'artifact'].includes(ref.kind),
   )) {
-    if (options.lockRun) {
+    {
+      // Ordinary transcript/body reads need the same retained authority fence as dispatch. Only
+      // checkpoint/run serialization is optional; a fresh proof cannot race a parent revocation.
       const locked = await tx.execute<{ locked: boolean }>(
         sql`select knowledge.lock_structured_record(${ref.kind},${ref.id}::uuid) locked`,
       );
@@ -149,6 +176,7 @@ export async function currentRunCompanyClassInTx(
       union select p.id from knowledge.evidence_packages p join knowledge.artifact_lineage l on l.organization_id=p.organization_id and l.execution_kind='agent_run' and l.execution_id=p.run_id join nodes n on n.id=l.artifact_id where p.organization_id=${context.organizationId}::uuid
     ) select distinct classification from(
       select classification from ai.run_input_observations where organization_id=${context.organizationId}::uuid and run_id=${context.agentRunId}::uuid
+      union all select i->>'classification' from ai.run_read_authorities a cross join lateral jsonb_array_elements(a.authority_inventory) i where a.organization_id=${context.organizationId}::uuid and a.run_id=${context.agentRunId}::uuid
       union all select i.classification from ai.model_call_inputs i join ai.model_call_attempts c on c.organization_id=i.organization_id and c.id=i.call_id where c.organization_id=${context.organizationId}::uuid and c.run_id=${context.agentRunId}::uuid
       union all select i.classification from knowledge.evidence_items i join packages p on p.id=i.package_id where i.organization_id=${context.organizationId}::uuid
       union all select f.classification from knowledge.evidence_package_facts f join packages p on p.id=f.package_id where f.organization_id=${context.organizationId}::uuid
@@ -158,6 +186,8 @@ export async function currentRunCompanyClassInTx(
   const knowledgeSources = await tx.execute<{ id: string }>(sql`select distinct id from(
     select i.source_id id from knowledge.evidence_items i join knowledge.evidence_packages p on p.organization_id=i.organization_id and p.id=i.package_id where p.organization_id=${context.organizationId}::uuid and p.run_id=${context.agentRunId}::uuid
     union all select i.source_id id from ai.model_call_inputs i join ai.model_call_attempts c on c.organization_id=i.organization_id and c.id=i.call_id where c.organization_id=${context.organizationId}::uuid and c.run_id=${context.agentRunId}::uuid and i.kind='chunk' and i.source_id is not null
+    union all select split_part(f.subject_ref,':',2)::uuid id from knowledge.evidence_package_facts f join knowledge.evidence_packages p on p.organization_id=f.organization_id and p.id=f.package_id
+      where p.organization_id=${context.organizationId}::uuid and p.run_id=${context.agentRunId}::uuid and f.subject_ref like 'knowledge_source:%'
   ) s order by id limit 1001`);
   if (knowledgeSources.rows.length > 1000) throw new AppError('POLICY_DENIED');
   const target = await tx.execute<{ observed: boolean }>(sql`select exists(
@@ -166,8 +196,10 @@ export async function currentRunCompanyClassInTx(
   ) observed`);
   return {
     classification: floor,
-    inputCount: refs.rows.length,
+    inputCount: refs.rows.length + inherited.inputCount,
     hasTargetWork: target.rows[0]?.observed === true,
-    knowledgeSourceIds: knowledgeSources.rows.map((row) => row.id),
+    knowledgeSourceIds: [
+      ...new Set([...inherited.sourceIds, ...knowledgeSources.rows.map((row) => row.id)]),
+    ].sort(),
   };
 }

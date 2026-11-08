@@ -124,6 +124,8 @@ export const organizations = orgSchema.table(
     name: text().notNull(),
     commercialMode: text().notNull(),
     lifecycle: text().notNull().default('active'),
+    /** Protected current restore admission; portable content and org owners cannot choose it. */
+    materialRestoreGeneration: uuid().notNull().defaultRandom(),
     createdAt: createdAt(),
   },
   (t) => [

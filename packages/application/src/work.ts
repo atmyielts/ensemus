@@ -27,7 +27,10 @@ import {
   reviewCovers,
   WORK_REVIEW_TOOL,
   workReviewAction,
+  workReviewActionFromContentHash,
 } from '@ensemus/domain/approval';
+import { isTerminalWorkControl, type TerminalWorkControl } from './ai/terminal-work-control';
+import { workTitleInput } from './work-title';
 import {
   can,
   canChangeWork,
@@ -73,6 +76,11 @@ import {
   onApprovalClosedInTx,
 } from './external-actions';
 import { idFromRequest } from './request-id';
+import { heldReviewArtifactIdsInTx } from './work-review-control';
+import {
+  consumeDelegatedWorkDisposition,
+  type DelegatedWorkDisposition,
+} from './knowledge/delegated-work-redaction';
 
 // An outside system's receipt is only offered to a tenant with a connection that could produce one, which
 // createWorkUnit checks. Otherwise the criterion could never be met and the work could never finish.
@@ -81,7 +89,7 @@ const criteriaSchema = z.array(
 );
 
 export const createWorkInput = z.strictObject({
-  title: z.string().trim().min(1).max(300),
+  title: workTitleInput,
   objective: z.string().trim().max(10_000).optional(),
   projectId: idSchema.optional(),
   ownerMembershipId: idSchema.optional(),
@@ -93,12 +101,27 @@ export const createWorkInput = z.strictObject({
 });
 
 export const updateWorkInput = z.strictObject({
-  title: z.string().trim().min(1).max(300).optional(),
+  title: workTitleInput.optional(),
   objective: z.string().trim().max(10_000).optional(),
   dueAt: z.coerce.date().nullable().optional(),
 });
 
 export type WorkRow = typeof workUnits.$inferSelect;
+/** Status-only facts. No title, objective, plan text, criteria or fabricated full Work row. */
+export type WorkTransitionMetadata = Pick<
+  WorkRow,
+  | 'id'
+  | 'status'
+  | 'version'
+  | 'classification'
+  | 'ownerMembershipId'
+  | 'runId'
+  | 'runRequestedAt'
+  | 'runRequestedByMembershipId'
+>;
+type WorkTransitionPatch = Pick<WorkRow, 'status' | 'version' | 'updatedAt' | 'runId'> & {
+  runRequestedAt?: null;
+};
 
 async function isOnWork(tx: Tx, workUnitId: string, membershipId: string) {
   const rows = await tx
@@ -530,15 +553,13 @@ export async function updateWorkUnit(
       .where(and(eq(workUnits.id, id), eq(workUnits.version, expectedVersion)))
       .returning();
     if (!row) throw new AppError('VERSION_CONFLICT');
-    await emit(tx, context, {
-      eventType: 'work.updated',
-      aggregateType: 'work_unit',
-      aggregateId: id,
-      aggregateVersion: nextVersion,
-      classification: row.classification,
-      payload: { work_unit_id: id },
-    });
-    await closeOutdatedReviews(tx, context, row);
+    await recordWorkContentUpdate(
+      tx,
+      context,
+      row,
+      async () => actionHash(await currentReviewAction(tx, row)),
+      () => failRun(tx, context, row),
+    );
     return row;
   });
 }
@@ -571,6 +592,8 @@ function artifactEvidenceFor(workId: SQL | typeof workArtifacts.workUnitId) {
 
 /** The review a Work Unit would need right now: its current text and its current files. */
 export async function currentReviewAction(tx: Tx, work: WorkRow) {
+  const controlled = await heldReviewArtifactIdsInTx(tx, work);
+  if (controlled !== null) return workReviewAction(work, controlled);
   const files = await fileFacts(tx, work.id);
   return workReviewAction(
     work,
@@ -718,7 +741,7 @@ const CLOSED_WITH_THE_WORK = {
 async function closeApprovals(
   tx: Tx,
   context: TenantContext,
-  work: WorkRow,
+  work: Pick<WorkRow, 'id' | 'version' | 'classification'>,
   statuses: readonly string[],
   reason: keyof typeof CLOSED_WITH_THE_WORK,
 ) {
@@ -760,6 +783,22 @@ async function closeApprovals(
  * reviewer, so that run fails, and paused manual work stays paused for someone to ask another person.
  */
 export async function closeOutdatedReviews(tx: Tx, context: TenantContext, work: WorkRow) {
+  return closeOutdatedReviewsByHash(
+    tx,
+    context,
+    work,
+    async () => actionHash(await currentReviewAction(tx, work)),
+    () => failRun(tx, context, work),
+  );
+}
+
+async function closeOutdatedReviewsByHash(
+  tx: Tx,
+  context: TenantContext,
+  work: WorkTransitionMetadata,
+  currentHash: () => Promise<string>,
+  pause?: () => Promise<WorkTransitionMetadata>,
+) {
   const open = await tx
     .select({
       id: approvals.id,
@@ -776,7 +815,7 @@ export async function closeOutdatedReviews(tx: Tx, context: TenantContext, work:
       ),
     );
   if (open.length === 0) return;
-  const hash = actionHash(await currentReviewAction(tx, work));
+  const hash = await currentHash();
   for (const review of open) {
     if (review.hash === hash) continue;
     await tx
@@ -784,13 +823,58 @@ export async function closeOutdatedReviews(tx: Tx, context: TenantContext, work:
       .set({ status: 'cancelled', decidedAt: new Date() })
       .where(eq(approvals.id, review.id));
     const paused = review.holdsWork && work.status === 'awaiting_approval';
-    const now = paused && work.runId ? await failRun(tx, context, work) : work;
+    if (paused && work.runId && !pause) throw new AppError('INVALID_STATE');
+    const now = paused && work.runId && pause ? await pause() : work;
     await recordApprovalClosed(tx, context, now, review.id, {
       reason: 'CONTENT_CHANGED',
       kind: 'approval.outdated',
       tell: [review.requestedBy, paused ? work.ownerMembershipId : null],
     });
   }
+}
+
+/** Shared content-write effects. The ordinary path supplies its actual updated row; the privacy
+ * path below supplies only fixed-SQL metadata with a one-use genuine disposition capability. */
+async function recordWorkContentUpdate(
+  tx: Tx,
+  context: TenantContext,
+  work: WorkTransitionMetadata,
+  currentHash: () => Promise<string>,
+  pause?: () => Promise<WorkTransitionMetadata>,
+) {
+  await emit(tx, context, {
+    eventType: 'work.updated',
+    aggregateType: 'work_unit',
+    aggregateId: work.id,
+    aggregateVersion: work.version,
+    classification: work.classification,
+    payload: { work_unit_id: work.id },
+  });
+  await closeOutdatedReviewsByHash(tx, context, work, currentHash, pause);
+}
+
+/** No arbitrary metadata/hash callback is exported for privacy writes. Only the fixed native
+ * redaction RPC can issue this transaction/context-bound capability, once, after its real effect. */
+export async function recordDelegatedWorkRedactionInTx(
+  tx: Tx,
+  context: TenantContext,
+  disposition: DelegatedWorkDisposition,
+) {
+  if (!consumeDelegatedWorkDisposition(disposition, tx, context)) throw new AppError('FORBIDDEN');
+  if (disposition.current.runId !== null) throw new AppError('INVALID_STATE');
+  await recordWorkContentUpdate(tx, context, disposition.current, async () =>
+    actionHash(
+      workReviewActionFromContentHash(disposition.current.id, disposition.contentSha256, []),
+    ),
+  );
+  await appendAudit(tx, {
+    organizationId: context.organizationId,
+    ...actorOf(context),
+    action: 'ai.delegated_work_redacted',
+    targetRef: `work_unit:${disposition.current.id}`,
+    decision: 'allow',
+    safeReason: 'INPUT_PURGED',
+  });
 }
 
 /**
@@ -860,7 +944,7 @@ export async function applyTransition(
   current: WorkRow,
   to: WorkState,
   options: { reason?: string; correlationId?: string; causationId?: string; runId?: string } = {},
-) {
+): Promise<WorkRow> {
   const reason = options.reason?.trim().slice(0, MAX_REASON_LENGTH) || undefined;
   const decision = decideTransition({
     from: current.status as WorkState,
@@ -874,23 +958,62 @@ export async function applyTransition(
   });
   if (!decision.ok) throw new AppError(decision.reason);
 
+  return persistWorkTransition<WorkRow>(
+    tx,
+    context,
+    current,
+    to,
+    {
+      ...options,
+      reason,
+      hasExecutionPlan: Boolean(current.executionPlan),
+      basis:
+        to === 'completed'
+          ? completionBasis(current.completionCriteria as CompletionCriterion[])
+          : null,
+    },
+    async (patch) => {
+      const [row] = await tx
+        .update(workUnits)
+        .set(patch)
+        .where(and(eq(workUnits.id, current.id), eq(workUnits.version, current.version)))
+        .returning();
+      if (!row) throw new AppError('VERSION_CONFLICT');
+      return row;
+    },
+  );
+}
+
+/** One shared set of transition/history/review/notification/event effects for ordinary and fixed
+ * terminal control writers. The latter can return only real metadata, never a fake WorkRow. */
+async function persistWorkTransition<Row extends WorkTransitionMetadata>(
+  tx: Tx,
+  context: TenantContext,
+  current: WorkTransitionMetadata,
+  to: WorkState,
+  options: {
+    reason?: string | undefined;
+    correlationId?: string;
+    causationId?: string;
+    runId?: string;
+    hasExecutionPlan: boolean;
+    basis: 'owner_confirmed' | 'evidence' | null;
+  },
+  write: (patch: WorkTransitionPatch) => Promise<Row>,
+): Promise<Row> {
+  const reason = options.reason;
+
   const nextVersion = current.version + 1;
-  const [row] = await tx
-    .update(workUnits)
-    .set({
-      status: to,
-      version: nextVersion,
-      updatedAt: new Date(),
-      // Leaving ready answers any request to run, however it was left. A delayed event then finds
-      // nothing to act on.
-      ...(current.status === 'ready' ? { runRequestedAt: null } : {}),
-      // A run holds the work only while it is running or waiting on its own review.
-      runId:
-        to === 'running' || to === 'awaiting_approval' ? (options.runId ?? current.runId) : null,
-    })
-    .where(and(eq(workUnits.id, current.id), eq(workUnits.version, current.version)))
-    .returning();
-  if (!row) throw new AppError('VERSION_CONFLICT');
+  const row = await write({
+    status: to,
+    version: nextVersion,
+    updatedAt: new Date(),
+    // Leaving ready answers any request to run, however it was left. A delayed event then finds
+    // nothing to act on.
+    ...(current.status === 'ready' ? { runRequestedAt: null } : {}),
+    // A run holds the work only while it is running or waiting on its own review.
+    runId: to === 'running' || to === 'awaiting_approval' ? (options.runId ?? current.runId) : null,
+  });
 
   // The reason is free text, so it stays here, under the Work Unit's own access rules. It goes into
   // no event, no audit entry and nothing that travels to Temporal.
@@ -902,10 +1025,7 @@ export async function applyTransition(
     toStatus: to,
     actorMembershipId: context.actorType === 'service' ? null : context.membershipId,
     reason: reason ?? null,
-    completionBasis:
-      to === 'completed'
-        ? completionBasis(current.completionCriteria as CompletionCriterion[])
-        : null,
+    completionBasis: options.basis,
   });
 
   await emit(tx, context, {
@@ -929,7 +1049,7 @@ export async function applyTransition(
 
   // A person stopping work must also stop any workflow running it. Activities check status too, so
   // nothing further happens even if this signal is delayed.
-  if (to === 'cancelled' && context.actorType === 'user' && current.executionPlan) {
+  if (to === 'cancelled' && context.actorType === 'user' && options.hasExecutionPlan) {
     await emit(tx, context, {
       eventType: 'work.stop_requested',
       aggregateType: 'work_unit',
@@ -967,6 +1087,54 @@ export async function applyTransition(
 
   if (to === 'completed') await promoteDependents(tx, context, current.id);
   return row;
+}
+
+/** Genuine exact-run capability only. It cannot mark completed or restart arbitrary Work. */
+export async function releaseTerminalWorkInTx(
+  tx: Tx,
+  context: TenantContext,
+  control: TerminalWorkControl,
+) {
+  if (!isTerminalWorkControl(control, tx, context)) throw new AppError('FORBIDDEN');
+  const transition = async (to: 'running' | 'failed' | 'verifying') => {
+    const current = control.current;
+    // These conservative status transitions never consult completion evidence or owner-confirmed
+    // criteria. A positive completion still goes through the ordinary human kernel above.
+    const decision = decideTransition({
+      from: current.status as WorkState,
+      to,
+      incompletePrerequisites: 0,
+      criteria: [],
+      evidence: emptyEvidence,
+      actorIsAccountableOwner: false,
+    });
+    if (!decision.ok) throw new AppError(decision.reason);
+    return persistWorkTransition(
+      tx,
+      context,
+      current,
+      to,
+      { hasExecutionPlan: control.hasExecutionPlan, basis: null },
+      (patch) => control.write(patch),
+    );
+  };
+  if (control.runStatus === 'completed' || control.runStatus === 'outcome_unverified') {
+    if (control.current.status !== 'running') return;
+    const checking = await transition('verifying');
+    await closeOutdatedReviewsByHash(tx, context, checking, async () =>
+      actionHash(
+        workReviewActionFromContentHash(
+          checking.id,
+          control.contentSha256,
+          await control.visibleArtifactIds(),
+        ),
+      ),
+    );
+    return;
+  }
+  if (['ready', 'awaiting_approval', 'verifying'].includes(control.current.status))
+    await transition('running');
+  if (control.current.status === 'running') await transition('failed');
 }
 
 const emptyEvidence = { artifactCount: 0, approvedReviewCount: 0, verifiedReceiptCount: 0 };
