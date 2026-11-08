@@ -46,7 +46,11 @@ import {
   workInputClassInTx,
   type ObservedInput,
 } from '../ai/input-observations';
-import { assertWithinAgentProtection, loadAgentReadScope } from '../ai/read-scope';
+import {
+  assertWithinAgentProtection,
+  loadAgentReadScope,
+  loadAgentReadScopeInTx,
+} from '../ai/read-scope';
 
 export type CompileDeps = {
   model: KnowledgeModelPort;
@@ -157,6 +161,9 @@ export async function compileEvidence(
   const usedModelResults: ModelUsage[] = [];
   const state = await withTenantTx(database, context, async (tx) => {
     await requireSearchPerson(tx, context);
+    // Admissions are transaction-local. The earlier scope projection narrowed retrieval but cannot
+    // authorize this transaction's Work body read after withTenantTx has cleared its marker.
+    if (agentContext) await loadAgentReadScopeInTx(tx, agentContext);
     if (!workUnitId) return { classification: queryClass, subjects: [] as string[] };
     const result = await tx.execute<{
       classification: Classification;
@@ -209,6 +216,7 @@ export async function compileEvidence(
     if (!workUnitId) return;
     const result = await withTenantTx(database, context, async (tx) => {
       await requireSearchPerson(tx, context);
+      if (agentContext) await loadAgentReadScopeInTx(tx, agentContext);
       return tx.execute<{ classification: Classification }>(
         sql`select knowledge.structured_record_class('work_unit',w.id) classification from work.work_units w where w.organization_id=${context.organizationId}::uuid and w.id=${workUnitId}::uuid and knowledge.can_read_work(w.id,app.current_membership_id())`,
       );
@@ -506,6 +514,7 @@ export async function compileEvidence(
   });
   const persisted = await withTenantTx(database, context, async (tx) => {
     await requireSearchPerson(tx, context);
+    if (agentContext) await loadAgentReadScopeInTx(tx, agentContext);
     if (selection.items.length) {
       const sourceIds = [...new Set(selection.items.map((item) => item.sourceId))].sort();
       // Closing a source takes the same row lock. Its purge cannot finish, then discover that a

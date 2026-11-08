@@ -22,6 +22,7 @@ import {
   modelProposalInputs,
   openAppDatabase,
   withTenantTx,
+  workUnits,
 } from '@ensemus/database';
 import { createScriptedModelPort } from '@ensemus/knowledge/testing';
 import { pgCode } from '../../packages/application/src/errors';
@@ -365,6 +366,13 @@ describe('exact main attempt inputs and accepted proposal origin (0416)', () => 
       decision: 'verify',
       reason: 'Checked generated input.',
     });
+    // The earlier genuine context read must not leak its transaction-local authority. This is a
+    // production compiler admission regression, not permission granted to the test connection.
+    expect(
+      await withTenantTx(agent.db, f.context, (tx) =>
+        tx.select({ id: workUnits.id }).from(workUnits).where(eq(workUnits.id, f.work.id)),
+      ),
+    ).toEqual([]);
     const compiled = await compileEvidence(
       agent.db,
       f.context,
@@ -390,6 +398,11 @@ describe('exact main attempt inputs and accepted proposal origin (0416)', () => 
       },
     );
     if (!compiled.ok) throw new Error('TEST_COMPILE_REFUSED');
+    expect(
+      await withTenantTx(agent.db, f.context, (tx) =>
+        tx.select({ id: workUnits.id }).from(workUnits).where(eq(workUnits.id, f.work.id)),
+      ),
+    ).toEqual([]);
     const fact = compiled.verifiedFacts.find((value) => value.factId === proposed.factId);
     if (!fact) throw new Error('TEST_FACT_NOT_SELECTED');
     const expectedHash = hash(
