@@ -254,3 +254,36 @@ No formatter, lint, unit, type, install, SQL/database/restore, build, browser, p
 check ran for this semantic join/UTC/final-call follow-up. The 189 focused tests and six sequential
 type scopes above belong to the original 85a621d source checkpoint; they do not qualify this new
 joined tree. Independent review, composed registration and actual isolated restore gates remain open.
+
+## Combined pre-SQL review and bounded role follow-up
+
+Read-only review of root be90f8a found two concrete invocation blockers, not runtime acceptance:
+
+1. The actual auth role has SELECT and column UPDATE(used_at) on setup_tokens (0008), not table
+   UPDATE/DELETE/TRUNCATE/MAINTAIN. PostgreSQL 17 LockTableAclCheck checks the table ACL for
+   SHARE ROW EXCLUSIVE, so the invalidator's raw strong lock would fail 42501 before cleanup.
+2. The authority-change trigger was invoker, but its initial regclass target whitelist resolved both
+   org and identity schemas before the role branch. Native auth deliberately lacks org USAGE;
+   the restricted eraser lacks identity USAGE. PostgreSQL's qualified regclass resolution checks
+   schema USAGE, so normal Account writes and eraser membership deletion could fail 42501.
+
+Root approved a separate follow-up from preserved 6ced0ec. A fixed lock-only SECURITY DEFINER
+helper now accepts only one generation UUID, requires the actual auth session, locks/rechecks the
+protected control FIRST, and locks the exact native inventory with NOWAIT. It returns no body and
+accepts no relation names; only auth receives EXECUTE. The invalidator calls it inside the existing
+transaction. Setup-token CRUD grants remain unchanged. The invoker's initial target check now
+uses exact trigger-owned schema/table-name tuples with no namespace resolution; later regclass
+branches remain actual-migrator-only. No schema USAGE or body grant is broadened.
+
+The isolated profile adds genuine native signup/Account UPDATE, denied raw setup-token lock,
+positive exact-generation helper lock, wrong-generation/role denial and existing real crypto cleanup
+source cases. A separate normal integration case uses the existing offboarding/agent-halt state
+machine and actual restricted session authorization to exercise membership erasure without identity
+USAGE. Protocol-only units verify lock refusal/missing helper stops before factor reads, crypto and
+mutations; those doubles are not production defaults or role proof.
+
+No additional actionable bootstrap, original-OID, control nonrecursion/count-scope or grant-matrix
+issue was found in the reviewed combined path. Initial-install seed remains explicit; strict missing/
+pending guards remain; the ready UUID has no migrator bypass; final 0999 extension adds no data
+privilege. This is not a SQL approval. These fixes/cases are source-only and UNRUN until a separate
+allowed gate. No SQL, database, restore, build, browser, provider or new credential operation ran.
