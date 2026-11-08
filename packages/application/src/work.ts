@@ -77,6 +77,10 @@ import {
 } from './external-actions';
 import { idFromRequest } from './request-id';
 import { heldReviewArtifactIdsInTx } from './work-review-control';
+import {
+  consumeDelegatedWorkDisposition,
+  type DelegatedWorkDisposition,
+} from './knowledge/delegated-work-redaction';
 
 // An outside system's receipt is only offered to a tenant with a connection that could produce one, which
 // createWorkUnit checks. Otherwise the criterion could never be met and the work could never finish.
@@ -534,15 +538,9 @@ export async function updateWorkUnit(
       .where(and(eq(workUnits.id, id), eq(workUnits.version, expectedVersion)))
       .returning();
     if (!row) throw new AppError('VERSION_CONFLICT');
-    await emit(tx, context, {
-      eventType: 'work.updated',
-      aggregateType: 'work_unit',
-      aggregateId: id,
-      aggregateVersion: nextVersion,
-      classification: row.classification,
-      payload: { work_unit_id: id },
-    });
-    await closeOutdatedReviews(tx, context, row);
+    await recordWorkContentUpdate(tx, context, row,
+      async () => actionHash(await currentReviewAction(tx, row)),
+      () => failRun(tx, context, row));
     return row;
   });
 }
@@ -814,6 +812,41 @@ async function closeOutdatedReviewsByHash(
       tell: [review.requestedBy, paused ? work.ownerMembershipId : null],
     });
   }
+}
+
+/** Shared content-write effects. The ordinary path supplies its actual updated row; the privacy
+ * path below supplies only fixed-SQL metadata with a one-use genuine disposition capability. */
+async function recordWorkContentUpdate(
+  tx: Tx,
+  context: TenantContext,
+  work: WorkTransitionMetadata,
+  currentHash: () => Promise<string>,
+  pause?: () => Promise<WorkTransitionMetadata>,
+) {
+  await emit(tx, context, {
+    eventType: 'work.updated', aggregateType: 'work_unit', aggregateId: work.id,
+    aggregateVersion: work.version, classification: work.classification,
+    payload: { work_unit_id: work.id },
+  });
+  await closeOutdatedReviewsByHash(tx, context, work, currentHash, pause);
+}
+
+/** No arbitrary metadata/hash callback is exported for privacy writes. Only the fixed native
+ * redaction RPC can issue this transaction/context-bound capability, once, after its real effect. */
+export async function recordDelegatedWorkRedactionInTx(
+  tx: Tx,
+  context: TenantContext,
+  disposition: DelegatedWorkDisposition,
+) {
+  if (!consumeDelegatedWorkDisposition(disposition, tx, context)) throw new AppError('FORBIDDEN');
+  if (disposition.current.runId !== null) throw new AppError('INVALID_STATE');
+  await recordWorkContentUpdate(tx, context, disposition.current, async () => actionHash(
+    workReviewActionFromContentHash(disposition.current.id, disposition.contentSha256, []),
+  ));
+  await appendAudit(tx, {
+    organizationId: context.organizationId, ...actorOf(context), action: 'ai.delegated_work_redacted',
+    targetRef: `work_unit:${disposition.current.id}`, decision: 'allow', safeReason: 'INPUT_PURGED',
+  });
 }
 
 /**

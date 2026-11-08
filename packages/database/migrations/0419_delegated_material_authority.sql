@@ -50,7 +50,7 @@ CREATE TABLE ai.delegated_input_receipts (
   tool_step_number integer NOT NULL,request_sha256 text NOT NULL,proposal_payload_sha256 text NOT NULL,
   birth_content_sha256 text NOT NULL,input_inventory jsonb NOT NULL,inventory_sha256 text NOT NULL,
   classification text NOT NULL,born_at timestamptz NOT NULL DEFAULT now(),redacted_at timestamptz,
-  redacted_version bigint,disposition_sha256 text,
+  redacted_version bigint,disposition_sha256 text,redaction_scope_kind text,redaction_scope_id uuid,redaction_purge_job_id uuid,
   CONSTRAINT delegated_input_receipts_pk PRIMARY KEY(organization_id,child_run_id),
   CONSTRAINT delegated_input_receipts_proposal_key UNIQUE(organization_id,proposal_id),
   CONSTRAINT delegated_input_receipts_work_key UNIQUE(organization_id,child_work_unit_id),
@@ -66,8 +66,11 @@ CREATE TABLE ai.delegated_input_receipts (
   CONSTRAINT delegated_input_receipts_hashes CHECK(request_sha256 ~ '^[0-9a-f]{64}$' AND proposal_payload_sha256 ~ '^[0-9a-f]{64}$' AND birth_content_sha256 ~ '^[0-9a-f]{64}$' AND inventory_sha256 ~ '^[0-9a-f]{64}$'),
   CONSTRAINT delegated_input_receipts_inventory CHECK(jsonb_typeof(input_inventory)='array' AND jsonb_array_length(input_inventory) BETWEEN 1 AND 1000 AND octet_length(input_inventory::text)<=1048576),
   CONSTRAINT delegated_input_receipts_class CHECK(classification IN('public','internal','confidential','restricted')),
-  CONSTRAINT delegated_input_receipts_disposition CHECK((redacted_at IS NULL AND redacted_version IS NULL AND disposition_sha256 IS NULL)
-    OR(redacted_at IS NOT NULL AND redacted_version IS NOT NULL AND redacted_version>0 AND disposition_sha256 IS NOT NULL AND disposition_sha256 ~ '^[0-9a-f]{64}$'))
+  CONSTRAINT delegated_input_receipts_disposition CHECK((redacted_at IS NULL AND redacted_version IS NULL AND disposition_sha256 IS NULL
+      AND redaction_scope_kind IS NULL AND redaction_scope_id IS NULL AND redaction_purge_job_id IS NULL)
+    OR(redacted_at IS NOT NULL AND redacted_version IS NOT NULL AND redacted_version>0 AND disposition_sha256 IS NOT NULL AND disposition_sha256 ~ '^[0-9a-f]{64}$'
+      AND redaction_scope_kind IS NOT NULL AND redaction_scope_kind IN('knowledge_source','work_unit','project','client','object_record') AND redaction_scope_id IS NOT NULL
+      AND((redaction_scope_kind='knowledge_source' AND redaction_purge_job_id IS NOT NULL) OR(redaction_scope_kind<>'knowledge_source' AND redaction_purge_job_id IS NULL))))
 );
 CREATE INDEX delegated_input_receipts_parent_idx ON ai.delegated_input_receipts(organization_id,parent_run_id,child_run_id);
 CREATE TABLE ai.delegated_input_refs (
@@ -516,7 +519,8 @@ BEGIN
       OR NEW.parent_receipt_run_id IS DISTINCT FROM(SELECT parent.child_run_id FROM ai.delegated_input_receipts parent
         WHERE parent.organization_id=NEW.organization_id AND parent.child_run_id=NEW.parent_run_id AND parent.redacted_at IS NULL)
       OR NEW.classification IS DISTINCT FROM child.effective_classification OR NEW.born_at IS DISTINCT FROM child.created_at
-      OR NEW.redacted_at IS NOT NULL OR NEW.redacted_version IS NOT NULL OR NEW.disposition_sha256 IS NOT NULL THEN
+      OR NEW.redacted_at IS NOT NULL OR NEW.redacted_version IS NOT NULL OR NEW.disposition_sha256 IS NOT NULL
+      OR NEW.redaction_scope_kind IS NOT NULL OR NEW.redaction_scope_id IS NOT NULL OR NEW.redaction_purge_job_id IS NOT NULL THEN
       RAISE EXCEPTION 'DELEGATED_BIRTH_RECEIPT_MISMATCH' USING ERRCODE='EN119';END IF;
   ELSE
     SELECT * INTO receipt FROM ai.delegated_input_receipts WHERE organization_id=NEW.organization_id AND child_run_id=NEW.child_run_id;
@@ -1507,3 +1511,163 @@ END $$;
 REVOKE ALL ON FUNCTION ai.guard_output_authority_proof() FROM PUBLIC;
 CREATE TRIGGER run_output_00_authority_proof BEFORE INSERT OR UPDATE ON ai.run_output_writes
   FOR EACH ROW EXECUTE FUNCTION ai.guard_output_authority_proof();
+--> statement-breakpoint
+-- Native agent/service privacy effect only. This selector names one actual receipt; it is not a
+-- credential, caller-supplied hold proof or arbitrary Work target. No runtime body grant is added.
+CREATE FUNCTION ai.delegated_redaction_scope(p_org uuid,p_run uuid) RETURNS boolean LANGUAGE sql STABLE SET search_path=pg_catalog AS $$
+  SELECT coalesce(current_user='ensemus_migrator' AND session_user='ensemus_agent' AND app.current_actor_type()='service'
+    AND p_org=app.current_organization_id() AND p_run::text=current_setting('app.delegated_work_redaction_run',true),false)
+$$;
+REVOKE ALL ON FUNCTION ai.delegated_redaction_scope(uuid,uuid) FROM PUBLIC;
+CREATE POLICY delegated_redaction_receipt_read ON ai.delegated_input_receipts FOR SELECT TO ensemus_migrator
+  USING(ai.delegated_redaction_scope(organization_id,child_run_id));
+CREATE POLICY delegated_redaction_receipt_write ON ai.delegated_input_receipts FOR UPDATE TO ensemus_migrator
+  USING(ai.delegated_redaction_scope(organization_id,child_run_id)) WITH CHECK(ai.delegated_redaction_scope(organization_id,child_run_id));
+CREATE POLICY delegated_redaction_work_read ON work.work_units FOR SELECT TO ensemus_migrator
+  USING(organization_id=app.current_organization_id() AND EXISTS(SELECT 1 FROM ai.delegated_input_receipts receipt
+    WHERE receipt.organization_id=work_units.organization_id AND receipt.child_work_unit_id=work_units.id
+      AND ai.delegated_redaction_scope(receipt.organization_id,receipt.child_run_id)));
+CREATE POLICY delegated_redaction_work_write ON work.work_units FOR UPDATE TO ensemus_migrator
+  USING(organization_id=app.current_organization_id() AND EXISTS(SELECT 1 FROM ai.delegated_input_receipts receipt
+    WHERE receipt.organization_id=work_units.organization_id AND receipt.child_work_unit_id=work_units.id
+      AND ai.delegated_redaction_scope(receipt.organization_id,receipt.child_run_id)))
+  WITH CHECK(organization_id=app.current_organization_id() AND EXISTS(SELECT 1 FROM ai.delegated_input_receipts receipt
+    WHERE receipt.organization_id=work_units.organization_id AND receipt.child_work_unit_id=work_units.id
+      AND ai.delegated_redaction_scope(receipt.organization_id,receipt.child_run_id)));
+
+CREATE FUNCTION work.delegated_redaction_digest(p_child uuid,p_work uuid,p_version bigint,p_scope_kind text,p_scope_id uuid,p_job uuid)
+RETURNS text LANGUAGE sql IMMUTABLE SET search_path=pg_catalog AS $$
+  SELECT encode(sha256(convert_to(jsonb_build_object('protocol','delegated-work-redaction/v1','childRunId',p_child,'workUnitId',p_work,
+    'workVersion',p_version,'scopeKind',p_scope_kind,'scopeId',p_scope_id,'purgeJobId',p_job,
+    'bodySha256',encode(sha256(convert_to('{"objective":null,"title":"Removed because an input was deleted."}','UTF8')),'hex'))::text,'UTF8')),'hex')
+$$;
+REVOKE ALL ON FUNCTION work.delegated_redaction_digest(uuid,uuid,bigint,text,uuid,uuid) FROM PUBLIC;
+
+CREATE FUNCTION ai.guard_delegated_disposition() RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog AS $$
+DECLARE body_work record;
+BEGIN
+  IF TG_RELID<>'ai.delegated_input_receipts'::regclass OR TG_OP<>'UPDATE' OR current_user<>'ensemus_migrator'
+    OR session_user<>'ensemus_agent' OR app.current_actor_type() IS DISTINCT FROM 'service'
+    OR NOT ai.delegated_redaction_scope(NEW.organization_id,NEW.child_run_id) OR OLD.redacted_at IS NOT NULL
+    OR(to_jsonb(NEW)-ARRAY['redacted_at','redacted_version','disposition_sha256','redaction_scope_kind','redaction_scope_id','redaction_purge_job_id'])
+      IS DISTINCT FROM(to_jsonb(OLD)-ARRAY['redacted_at','redacted_version','disposition_sha256','redaction_scope_kind','redaction_scope_id','redaction_purge_job_id'])
+    OR NEW.redacted_at IS NULL OR NEW.redacted_version IS NULL OR NEW.redaction_scope_kind IS NULL OR NEW.redaction_scope_id IS NULL THEN
+    RAISE EXCEPTION 'DELEGATED_DISPOSITION_DENIED' USING ERRCODE='42501';END IF;
+  IF to_regprocedure('lifecycle.delegated_work_hold_free(uuid,uuid,text,uuid,uuid)') IS NULL THEN
+    RAISE EXCEPTION 'DELEGATED_HOLD_AUTHORITY_UNAVAILABLE' USING ERRCODE='EN119';END IF;
+  IF NOT lifecycle.delegated_work_hold_free(NEW.child_run_id,NEW.child_work_unit_id,NEW.redaction_scope_kind,NEW.redaction_scope_id,NEW.redaction_purge_job_id) THEN
+    RAISE EXCEPTION 'DELEGATED_HOLD_AUTHORITY_UNCONFIRMED' USING ERRCODE='EN119';END IF;
+  SELECT work.title,work.objective,work.version,work.run_id INTO body_work FROM work.work_units work
+    WHERE work.organization_id=NEW.organization_id AND work.id=NEW.child_work_unit_id;
+  IF NOT FOUND OR body_work.title IS DISTINCT FROM 'Removed because an input was deleted.' OR body_work.objective IS NOT NULL
+    OR body_work.version IS DISTINCT FROM NEW.redacted_version OR body_work.run_id IS NOT NULL
+    OR NEW.disposition_sha256 IS DISTINCT FROM work.delegated_redaction_digest(NEW.child_run_id,NEW.child_work_unit_id,NEW.redacted_version,
+      NEW.redaction_scope_kind,NEW.redaction_scope_id,NEW.redaction_purge_job_id) THEN
+    RAISE EXCEPTION 'DELEGATED_BODY_DISPOSITION_UNCONFIRMED' USING ERRCODE='EN119';END IF;
+  NEW.redacted_at:=clock_timestamp();
+  RETURN NEW;
+END $$;
+REVOKE ALL ON FUNCTION ai.guard_delegated_disposition() FROM PUBLIC;
+DROP TRIGGER delegated_input_receipt_keep ON ai.delegated_input_receipts;
+CREATE TRIGGER delegated_input_receipt_keep BEFORE UPDATE ON ai.delegated_input_receipts FOR EACH ROW EXECUTE FUNCTION ai.guard_delegated_disposition();
+CREATE TRIGGER delegated_input_receipt_no_delete BEFORE DELETE OR TRUNCATE ON ai.delegated_input_receipts FOR EACH STATEMENT EXECUTE FUNCTION app.reject_change();
+
+CREATE FUNCTION work.guard_delegated_redacted_body() RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog AS $$
+DECLARE receipt ai.delegated_input_receipts;
+BEGIN
+  IF TG_RELID<>'work.work_units'::regclass OR TG_OP<>'UPDATE' THEN RAISE EXCEPTION 'DELEGATED_BODY_TARGET' USING ERRCODE='42501';END IF;
+  SELECT * INTO receipt FROM ai.delegated_input_receipts actual WHERE actual.organization_id=OLD.organization_id AND actual.child_work_unit_id=OLD.id;
+  IF NOT FOUND THEN RETURN NEW;END IF;
+  IF receipt.redacted_at IS NOT NULL AND(NEW.title IS DISTINCT FROM 'Removed because an input was deleted.' OR NEW.objective IS NOT NULL) THEN
+    RAISE EXCEPTION 'DELEGATED_BODY_PERMANENTLY_REDACTED' USING ERRCODE='EN119';END IF;
+  IF current_user='ensemus_migrator' AND session_user='ensemus_agent' AND app.current_actor_type()='service'
+    AND receipt.child_run_id::text=current_setting('app.delegated_work_redaction_run',true) THEN
+    IF receipt.redacted_at IS NOT NULL OR NEW.title IS DISTINCT FROM 'Removed because an input was deleted.' OR NEW.objective IS NOT NULL
+      OR NEW.version<>OLD.version+1 OR NEW.run_id IS NOT NULL
+      OR(to_jsonb(NEW)-ARRAY['title','objective','version','updated_at']) IS DISTINCT FROM(to_jsonb(OLD)-ARRAY['title','objective','version','updated_at']) THEN
+      RAISE EXCEPTION 'DELEGATED_BODY_EFFECT_INVALID' USING ERRCODE='EN119';END IF;
+  END IF;
+  RETURN NEW;
+END $$;
+REVOKE ALL ON FUNCTION work.guard_delegated_redacted_body() FROM PUBLIC;
+CREATE TRIGGER delegated_work_redacted_body BEFORE UPDATE ON work.work_units FOR EACH ROW EXECUTE FUNCTION work.guard_delegated_redacted_body();
+
+CREATE FUNCTION work.redact_delegated_body(p_child uuid,p_work uuid,p_scope_kind text,p_scope_id uuid,p_job uuid)
+RETURNS TABLE(id uuid,status text,version bigint,classification text,"ownerMembershipId" uuid,"runId" text,"runRequestedAt" timestamptz,
+  "runRequestedByMembershipId" uuid,"contentSha256" text,"dispositionSha256" text,changed boolean)
+LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
+DECLARE previous_run text:=current_setting('app.delegated_work_redaction_run',true);receipt ai.delegated_input_receipts;actual record;did_change boolean:=false;
+BEGIN
+  IF current_user<>'ensemus_migrator' OR session_user<>'ensemus_agent' OR app.current_actor_type() IS DISTINCT FROM 'service'
+    OR app.current_organization_id() IS NULL OR p_child IS NULL OR p_work IS NULL OR p_scope_id IS NULL THEN
+    RAISE EXCEPTION 'DELEGATED_REDACTION_TARGET' USING ERRCODE='42501';END IF;
+  IF to_regprocedure('lifecycle.delegated_work_hold_free(uuid,uuid,text,uuid,uuid)') IS NULL THEN RETURN;END IF;
+  BEGIN
+    -- Actual source/catalog -> org/holds -> receipt/run/fence locks are acquired by 0510. Missing,
+    -- held or busy authority returns no metadata/result. No timing or supplied boolean is proof.
+    IF NOT lifecycle.delegated_work_hold_free(p_child,p_work,p_scope_kind,p_scope_id,p_job) THEN RETURN;END IF;
+    PERFORM set_config('app.delegated_work_redaction_run',p_child::text,true);
+    SELECT * INTO receipt FROM ai.delegated_input_receipts stored WHERE stored.organization_id=app.current_organization_id()
+      AND stored.child_run_id=p_child AND stored.child_work_unit_id=p_work FOR UPDATE NOWAIT;
+    IF NOT FOUND THEN RAISE EXCEPTION 'DELEGATED_REDACTION_UNCONFIRMED' USING ERRCODE='EN119';END IF;
+    SELECT work.id,work.status,work.version,work.classification,work.owner_membership_id,work.run_id,work.run_requested_at,work.run_requested_by_membership_id,
+      work.title='Removed because an input was deleted.' AND work.objective IS NULL body_disposed INTO actual
+      FROM work.work_units work WHERE work.organization_id=receipt.organization_id AND work.id=p_work FOR UPDATE NOWAIT;
+    IF NOT FOUND OR actual.run_id IS NOT NULL THEN RAISE EXCEPTION 'DELEGATED_WORK_STILL_HELD' USING ERRCODE='EN119';END IF;
+    IF receipt.redacted_at IS NULL THEN
+      UPDATE work.work_units work SET title='Removed because an input was deleted.',objective=NULL,version=work.version+1,updated_at=clock_timestamp()
+        WHERE work.organization_id=receipt.organization_id AND work.id=p_work AND work.version=actual.version;
+      IF NOT FOUND THEN RAISE EXCEPTION 'DELEGATED_REDACTION_UNCONFIRMED' USING ERRCODE='EN119';END IF;
+      UPDATE ai.delegated_input_receipts stored SET redacted_at=clock_timestamp(),redacted_version=actual.version+1,
+        redaction_scope_kind=p_scope_kind,redaction_scope_id=p_scope_id,redaction_purge_job_id=p_job,
+        disposition_sha256=work.delegated_redaction_digest(p_child,p_work,actual.version+1,p_scope_kind,p_scope_id,p_job)
+        WHERE stored.organization_id=receipt.organization_id AND stored.child_run_id=p_child RETURNING * INTO receipt;
+      IF NOT FOUND THEN RAISE EXCEPTION 'DELEGATED_REDACTION_UNCONFIRMED' USING ERRCODE='EN119';END IF;
+      did_change:=true;
+    ELSIF NOT actual.body_disposed OR actual.version<receipt.redacted_version OR receipt.disposition_sha256 IS DISTINCT FROM
+      work.delegated_redaction_digest(p_child,p_work,receipt.redacted_version,receipt.redaction_scope_kind,receipt.redaction_scope_id,receipt.redaction_purge_job_id) THEN
+      RAISE EXCEPTION 'DELEGATED_BODY_DISPOSITION_UNCONFIRMED' USING ERRCODE='EN119';END IF;
+    RETURN QUERY SELECT work.id,work.status,work.version,work.classification,work.owner_membership_id,work.run_id,work.run_requested_at,work.run_requested_by_membership_id,
+      encode(sha256(convert_to('{"objective":"","title":"Removed because an input was deleted."}','UTF8')),'hex'),receipt.disposition_sha256,did_change
+      FROM work.work_units work WHERE work.organization_id=receipt.organization_id AND work.id=p_work;
+  EXCEPTION WHEN OTHERS THEN
+    PERFORM set_config('app.delegated_work_redaction_run',coalesce(previous_run,''),true);RAISE;
+  END;
+  PERFORM set_config('app.delegated_work_redaction_run',coalesce(previous_run,''),true);
+  RETURN;
+END $$;
+REVOKE ALL ON FUNCTION work.redact_delegated_body(uuid,uuid,text,uuid,uuid) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION work.redact_delegated_body(uuid,uuid,text,uuid,uuid) TO ensemus_agent;
+--> statement-breakpoint
+-- Preserve the public OID and the old unknown-history/package/file branches. Actual paid compiler
+-- calls can precede evidence-package publication. Copied Work dependencies also survive reparenting
+-- and later run creation; discovery does not manufacture observations or prove physical deletion.
+CREATE OR REPLACE FUNCTION ai.source_input_runs(p_source uuid) RETURNS SETOF uuid LANGUAGE sql STABLE SET search_path=pg_catalog AS $$
+  WITH inherited_work AS(
+    SELECT receipt.child_work_unit_id id FROM ai.delegated_input_receipts receipt JOIN ai.delegated_input_refs ref
+      ON ref.organization_id=receipt.organization_id AND ref.child_run_id=receipt.child_run_id
+      WHERE receipt.organization_id=app.current_organization_id() AND((ref.ref_kind='source' AND ref.ref_id=p_source) OR ref.source_id=p_source)
+  ),package_runs AS(
+    SELECT package.run_id FROM knowledge.evidence_packages package WHERE package.organization_id=app.current_organization_id() AND package.run_id IS NOT NULL
+      AND(EXISTS(SELECT 1 FROM knowledge.evidence_items item WHERE item.organization_id=package.organization_id AND item.package_id=package.id AND item.source_id=p_source)
+        OR EXISTS(SELECT 1 FROM knowledge.evidence_package_facts fact WHERE fact.organization_id=package.organization_id AND fact.package_id=package.id
+          AND fact.subject_ref='knowledge_source:'||p_source::text))
+  )
+  SELECT run_id FROM package_runs
+  UNION SELECT checkpoint.run_id FROM ai.run_input_checkpoints checkpoint WHERE checkpoint.organization_id=app.current_organization_id() AND(
+    NOT checkpoint.history_complete OR EXISTS(SELECT 1 FROM ai.run_input_observations observation WHERE observation.organization_id=checkpoint.organization_id
+      AND observation.run_id=checkpoint.run_id AND observation.input_kind='artifact' AND p_source IN(SELECT knowledge.artifact_required_sources(observation.input_id))))
+  UNION SELECT call.run_id FROM ai.model_call_attempts call JOIN ai.model_call_inputs input ON input.organization_id=call.organization_id AND input.call_id=call.id
+    WHERE call.organization_id=app.current_organization_id() AND call.run_id IS NOT NULL AND input.source_id=p_source
+  UNION SELECT run.id FROM ai.agent_runs run WHERE run.organization_id=app.current_organization_id() AND run.work_unit_id IN(SELECT id FROM inherited_work)
+  UNION SELECT observation.run_id FROM ai.run_input_observations observation WHERE observation.organization_id=app.current_organization_id()
+    AND observation.input_kind='work_unit' AND observation.input_id IN(SELECT id FROM inherited_work)
+  UNION SELECT authority.run_id FROM ai.run_read_authorities authority CROSS JOIN LATERAL jsonb_array_elements(authority.authority_inventory) original_ref
+    WHERE authority.organization_id=app.current_organization_id() AND original_ref->>'kind'='work_unit' AND original_ref->>'id' IN(SELECT id::text FROM inherited_work)
+  UNION SELECT snapshot.run_id FROM ai.main_input_snapshots snapshot CROSS JOIN LATERAL jsonb_array_elements(snapshot.input_inventory) frozen_ref
+    WHERE snapshot.organization_id=app.current_organization_id() AND(frozen_ref->>'sourceId'=p_source::text
+      OR(frozen_ref->>'kind'='source' AND frozen_ref->>'id'=p_source::text)
+      OR(frozen_ref->>'kind'='work_unit' AND frozen_ref->>'id' IN(SELECT id::text FROM inherited_work))
+      OR EXISTS(SELECT 1 FROM jsonb_array_elements(CASE WHEN frozen_ref->>'kind'='inherited_influence' THEN frozen_ref->'influenceRefs' ELSE '[]'::jsonb END) influence
+        WHERE influence->>'sourceId'=p_source::text OR(influence->>'kind'='source' AND influence->>'id'=p_source::text)))
+$$;

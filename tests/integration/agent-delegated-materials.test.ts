@@ -6,6 +6,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { and, eq, sql } from 'drizzle-orm';
 import {
   createWorkUnit,
+  recordDelegatedWorkRedactionInTx,
   transitionWorkUnit,
   updateWorkUnit,
   type ObjectStore,
@@ -29,6 +30,7 @@ import {
   withTenantTx,
   workUnits,
 } from '@ensemus/database';
+import { createServiceContext } from '@ensemus/database/service';
 import { loadAgentReadScopeInTx } from '../../packages/application/src/ai/read-scope';
 import { pgCode } from '../../packages/application/src/errors';
 import { idFromRequest } from '../../packages/application/src/request-id';
@@ -293,6 +295,46 @@ describe('delegated material birth evidence (0419)', () => {
         tx.select().from(mainInputSnapshots).where(eq(mainInputSnapshots.id, f.snapshot.id)),
       ),
     ).toEqual([]);
+  });
+
+  it('refuses app/agent redaction calls and cannot turn a genuine parent into an invented child disposition', async () => {
+    const f = await fixture();
+    const invoke = (tx: Parameters<typeof recordDelegatedWorkRedactionInTx>[0]) =>
+      tx.execute(sql`select * from work.redact_delegated_body(${f.runId}::uuid,${f.work.id}::uuid,'work_unit',${f.work.id}::uuid,NULL::uuid)`);
+    await expect(withTenantTx(app.db, createServiceContext(a.organizationId), invoke))
+      .rejects.toSatisfy((error: unknown) => pgCode(error) === '42501');
+    await expect(withTenantTx(agent.db, f.context, invoke))
+      .rejects.toSatisfy((error: unknown) => pgCode(error) === '42501');
+    await withTenantTx(agent.db, createServiceContext(a.organizationId), async (tx) => {
+      const prior = randomUUID();
+      await tx.execute(sql`select set_config('app.delegated_work_redaction_run',${prior},true)`);
+      expect((await invoke(tx)).rows).toEqual([]);
+      expect((await tx.execute<{ value: string }>(sql`select current_setting('app.delegated_work_redaction_run',true) value`)).rows[0]?.value).toBe(prior);
+    });
+    expect((await withTenantTx(agent.db, createServiceContext(b.organizationId), invoke)).rows).toEqual([]);
+    expect(await withTenantTx(app.db, a.owner, (tx) => tx.select().from(delegatedInputReceipts)
+      .where(eq(delegatedInputReceipts.childRunId, f.runId)))).toEqual([]);
+  });
+
+  it('denies fabricated Work-update effect metadata without a real fixed-SQL disposition in this transaction', async () => {
+    const f = await fixture(), service = createServiceContext(a.organizationId);
+    const before = await withTenantTx(app.db, a.owner, (tx) => tx.select({ version: workUnits.version })
+      .from(workUnits).where(eq(workUnits.id, f.work.id)));
+    await expect(withTenantTx(agent.db, service, (tx) => recordDelegatedWorkRedactionInTx(tx, service, {
+      current: f.work, contentSha256: hash('claimed redacted content'),
+    }))).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    expect(await withTenantTx(app.db, a.owner, (tx) => tx.select({ version: workUnits.version })
+      .from(workUnits).where(eq(workUnits.id, f.work.id)))).toEqual(before);
+  });
+
+  it('does not grant runtime roles direct disposition-stamp mutation', async () => {
+    const f = await fixture();
+    for (const context of [a.owner, createServiceContext(a.organizationId)])
+      await expect(withTenantTx(app.db, context, (tx) => tx.update(delegatedInputReceipts)
+        .set({ redactedAt: new Date(), redactedVersion: 1, dispositionSha256: hash('forged'),
+          redactionScopeKind: 'work_unit', redactionScopeId: f.work.id })
+        .where(eq(delegatedInputReceipts.childRunId, f.runId))))
+        .rejects.toSatisfy((error: unknown) => pgCode(error) === '42501');
   });
 
   it('refuses direct app/agent witness and receipt inserts even with the actual proposal IDs', async () => {

@@ -63,6 +63,9 @@ export const delegatedInputReceipts = aiSchema.table(
     redactedAt: timestamp({ withTimezone: true }),
     redactedVersion: bigint({ mode: 'number' }),
     dispositionSha256: text(),
+    redactionScopeKind: text(),
+    redactionScopeId: uuid(),
+    redactionPurgeJobId: uuid(),
   },
   (t) => [
     primaryKey({ name: 'delegated_input_receipts_pk', columns: [t.organizationId, t.childRunId] }),
@@ -138,7 +141,10 @@ export const delegatedInputReceipts = aiSchema.table(
     ),
     check(
       'delegated_input_receipts_disposition',
-      sql`(${t.redactedAt} is null and ${t.redactedVersion} is null and ${t.dispositionSha256} is null) or (${t.redactedAt} is not null and ${t.redactedVersion} is not null and ${t.redactedVersion}>0 and ${t.dispositionSha256} is not null and ${t.dispositionSha256} ~ '^[0-9a-f]{64}$')`,
+      sql`(${t.redactedAt} is null and ${t.redactedVersion} is null and ${t.dispositionSha256} is null and ${t.redactionScopeKind} is null and ${t.redactionScopeId} is null and ${t.redactionPurgeJobId} is null)
+        or (${t.redactedAt} is not null and ${t.redactedVersion} is not null and ${t.redactedVersion}>0 and ${t.dispositionSha256} is not null and ${t.dispositionSha256} ~ '^[0-9a-f]{64}$'
+          and ${t.redactionScopeKind} is not null and ${t.redactionScopeKind} in('knowledge_source','work_unit','project','client','object_record') and ${t.redactionScopeId} is not null
+          and ((${t.redactionScopeKind}='knowledge_source' and ${t.redactionPurgeJobId} is not null) or (${t.redactionScopeKind}<>'knowledge_source' and ${t.redactionPurgeJobId} is null)))`,
     ),
   ],
 );
