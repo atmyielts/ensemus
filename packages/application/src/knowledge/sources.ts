@@ -786,7 +786,8 @@ async function storeUpload(
   try {
     await rawKnowledgeObjects(store).put(context, needed, input.body, input.mediaType);
   } catch {
-    // The received row is durable. A retry can upload again, and the sweep can mark missing bytes failed.
+    // The received row and exact writer intent are durable. An admitted ambiguous PUT cannot be
+    // resent or promoted by a sweep/HEAD; native completion or a never-admitted fence is required.
     throw new AppError('INVALID_STATE');
   }
   try {

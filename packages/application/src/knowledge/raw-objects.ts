@@ -16,9 +16,10 @@ export interface RawKnowledgeObjectPort {
   put(context: TenantContext, write: ObjectWrite, body: Buffer, mimeType: string): Promise<void>;
   erase(context: TenantContext, input: { documentId: string }): Promise<{ state: 'purged'; quiescent: true } | { state: 'held' | 'unconfirmed' }>;
   captureSource(context: TenantContext, input: RawSourceIdentity): Promise<{ more: boolean }>;
+  reconcile(context: TenantContext, sourceId?: string): Promise<{ changed: number }>;
 }
 type PutAdmission = {
-  state: string; object_key: string; content_sha256: string; size_bytes: string | number;
+  state: string; source_id: string; object_key: string; content_sha256: string; size_bytes: string | number;
   material_generation: string; auth_generation: string; token: string;
 };
 const observed = new WeakSet<object>();
@@ -46,12 +47,14 @@ export function createRawKnowledgeObjectPort(deps: { database: AppDatabase; stor
     async put(context, write, body, mimeType) {
       if (!deps.store.putSingleAttempt) throw new AppError('CAPABILITY_UNAVAILABLE');
       write = Object.freeze({ ...write });
+      idSchema.parse(write.sourceId);
+      if (!Number.isSafeInteger(write.generation) || write.generation < 1) throw new AppError('INVALID_INPUT');
       // Capture bytes/hash before the admission await. Mutable request buffers cannot replace them.
       const bytes = Buffer.from(body), sha = createHash('sha256').update(bytes).digest('hex');
       const rows = await withTenantTx(deps.database, context, tx => tx.execute<PutAdmission>(sql`select * from lifecycle.admit_raw_put(
         ${idSchema.parse(write.documentId)}::uuid,${idSchema.parse(write.writeId)}::uuid,${write.generation}::bigint)`));
       const admission = rows.rows[0] ? Object.freeze({ ...rows.rows[0] }) : undefined;
-      if (rows.rows.length !== 1 || !admission || admission.state !== 'send' ||
+      if (rows.rows.length !== 1 || !admission || admission.state !== 'send' || admission.source_id !== write.sourceId ||
         admission.object_key !== knowledgeObjectKey(context.organizationId, write.documentId) ||
         admission.content_sha256 !== sha || BigInt(admission.size_bytes) !== BigInt(bytes.length) ||
         !idSchema.safeParse(admission.material_generation).success || !idSchema.safeParse(admission.auth_generation).success ||
@@ -79,6 +82,15 @@ export function createRawKnowledgeObjectPort(deps: { database: AppDatabase; stor
         ${idSchema.parse(input.sourceId)}::uuid,${input.sourceVersion}::bigint,${idSchema.parse(input.purgeJobId)}::uuid)`));
       if (result.rows.length !== 1 || typeof result.rows[0]?.more !== 'boolean') throw new AppError('PREREQUISITES_INCOMPLETE');
       return { more: result.rows[0].more };
+    },
+    async reconcile(context, sourceId) {
+      service(context);
+      const result = await withTenantTx(deps.database, context, tx => tx.execute<{ changed: number }>(sql`select lifecycle.reconcile_raw_source_completions(
+        ${sourceId === undefined ? null : idSchema.parse(sourceId)}::uuid) changed`));
+      const changed = result.rows[0]?.changed;
+      if (result.rows.length !== 1 || typeof changed !== 'number' || !Number.isSafeInteger(changed) || changed < 0 || changed > 25)
+        throw new AppError('PREREQUISITES_INCOMPLETE');
+      return { changed };
     },
   };
 }

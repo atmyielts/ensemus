@@ -37,8 +37,9 @@ export const rawObjectWrites = lifecycle.table('raw_object_writes', {
   uniqueIndex('raw_object_write_generation').on(t.organizationId, t.documentId, t.generation),
   uniqueIndex('raw_object_write_token').on(t.organizationId, t.writeId),
   index('raw_object_source_inventory').on(t.organizationId, t.sourceId, t.id),
+  index('raw_object_unconfirmed').on(t.organizationId, t.sourceId, t.state),
   check('raw_object_write_key', sql`${t.objectKey}=${t.organizationId}::text||'/knowledge/'||${t.documentId}::text`),
   check('raw_object_write_hash', sql`${t.contentSha256} ~ '^[0-9a-f]{64}$' and ${t.sizeBytes}>=0`),
   check('raw_object_write_state', sql`(${t.generation}=0 and ${t.state}='catalog') or (${t.generation}>0 and ${t.state} in ('intent','put_admitted','finished','unknown','legacy','not_dispatched'))`),
-  check('raw_object_write_receipt', sql`(${t.state} not in ('put_admitted','finished','unknown') or (${t.putTokenSha256} is not null and ${t.putAuthRestoreGeneration} is not null and ${t.admittedAt} is not null)) and (${t.state}<>'finished' or ${t.finishedAt} is not null)`),
+  check('raw_object_write_receipt', sql`(${t.state} not in ('put_admitted','finished','unknown') or (${t.putTokenSha256} is not null and ${t.putAuthRestoreGeneration} is not null and ${t.admittedAt} is not null)) and (${t.state}<>'finished' or ${t.finishedAt} is not null) and (${t.state}<>'not_dispatched' or (${t.finishedAt} is not null and ${t.putAuthRestoreGeneration} is not null and ${t.putTokenSha256} is null and ${t.admittedAt} is null))`),
 ]);

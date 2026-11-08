@@ -4,6 +4,7 @@ import {
   bigint,
   check,
   foreignKey,
+  integer,
   pgSchema,
   primaryKey,
   text,
@@ -26,6 +27,10 @@ export const delegatedErasureReceipts = pgSchema('lifecycle').table(
     runCount: bigint({ mode: 'bigint' }).notNull(),
     childCount: bigint({ mode: 'bigint' }).notNull(),
     sourceCount: bigint({ mode: 'bigint' }).notNull(),
+    rawProtocolVersion: integer(),
+    rawInventorySha256: text(),
+    rawScopeCount: bigint({ mode: 'bigint' }),
+    rawWriteCount: bigint({ mode: 'bigint' }),
     sealedAt: timestamp({ withTimezone: true })
       .notNull()
       .default(sql`clock_timestamp()`),
@@ -46,6 +51,7 @@ export const delegatedErasureReceipts = pgSchema('lifecycle').table(
       foreignColumns: [offboardings.organizationId, offboardings.id],
     }),
     check('delegated_erasure_receipts_hash', sql`${t.proofSha256} ~ '^[0-9a-f]{64}$'`),
+    check('delegated_erasure_raw_pin', sql`(${t.rawProtocolVersion} is null and ${t.rawInventorySha256} is null and ${t.rawScopeCount} is null and ${t.rawWriteCount} is null) or (${t.rawProtocolVersion}=1 and ${t.rawInventorySha256} is not null and ${t.rawInventorySha256} ~ '^[0-9a-f]{64}$' and ${t.rawScopeCount} is not null and ${t.rawScopeCount}>=0 and ${t.rawWriteCount} is not null and ${t.rawWriteCount}>=0)`),
     check(
       'delegated_erasure_receipts_counts',
       sql`${t.runCount}>=0 and ${t.childCount}>=0 and ${t.sourceCount}>=0`,

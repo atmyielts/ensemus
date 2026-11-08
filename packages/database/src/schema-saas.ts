@@ -1721,8 +1721,14 @@ export const objectDeletionClaims = lifecycleSchema.table(
     organizationId: uuid().notNull(),
     id: uuid().notNull().defaultRandom(),
     kind: text().notNull(),
-    artifactId: uuid().notNull(),
+    artifactId: uuid(),
     importId: uuid(),
+    rawSourceId: uuid(),
+    rawSourceVersion: bigint({ mode: 'bigint' }),
+    rawPurgeJobId: uuid(),
+    rawDocumentId: uuid(),
+    materialRestoreGeneration: uuid(),
+    authRestoreGeneration: uuid(),
     writerToken: uuid().notNull(),
     generation: bigint({ mode: 'number' }).notNull(),
     objectKey: text().notNull(),
@@ -1744,8 +1750,10 @@ export const objectDeletionClaims = lifecycleSchema.table(
     uniqueIndex('object_deletion_unresolved_key')
       .on(t.organizationId, t.objectKey)
       .where(sql`${t.state}<>'proven'`),
-    check('object_deletion_claims_kind_check', sql`${t.kind} in ('derived','ordinary','archive')`),
-    check('object_deletion_claims_generation_check', sql`${t.generation}>0`),
+    index('raw_delete_receipt_by_document').on(t.organizationId, t.rawDocumentId, t.materialRestoreGeneration).where(sql`${t.kind}='raw_source'`),
+    check('raw_claim_version_nonnull', sql`${t.kind}<>'raw_source' or ${t.rawSourceVersion} is not null`),
+    check('object_deletion_claims_kind_check', sql`${t.kind} in ('derived','ordinary','archive','raw_source')`),
+    check('object_deletion_claims_generation_check', sql`(${t.kind}='raw_source' and ${t.generation}>=0) or (${t.kind}<>'raw_source' and ${t.generation}>0)`),
     check('object_deletion_claims_sha256_check', sql`${t.sha256} ~ '^[0-9a-f]{64}$'`),
     check(
       'object_deletion_claims_state_check',
@@ -1753,7 +1761,7 @@ export const objectDeletionClaims = lifecycleSchema.table(
     ),
     check(
       'object_deletion_key',
-      sql`(${t.kind}='archive' and ${t.importId} is not null and ${t.objectKey}=${t.organizationId}::text||'/archive-quarantine/'||${t.importId}::text||'/'||${t.artifactId}::text||'/'||${t.writerToken}::text) or (${t.kind} in ('derived','ordinary') and ${t.importId} is null and ${t.objectKey}=${t.organizationId}::text||'/artifacts/'||${t.artifactId}::text)`,
+      sql`(${t.kind}='raw_source' and ${t.artifactId} is null and ${t.importId} is null and ${t.rawSourceId} is not null and ${t.rawSourceVersion}>0 and ${t.rawPurgeJobId} is not null and ${t.rawDocumentId} is not null and ${t.materialRestoreGeneration} is not null and ${t.authRestoreGeneration} is not null and ${t.objectKey}=${t.organizationId}::text||'/knowledge/'||${t.rawDocumentId}::text) or (${t.kind}<>'raw_source' and ${t.artifactId} is not null and ${t.rawSourceId} is null and ${t.rawSourceVersion} is null and ${t.rawPurgeJobId} is null and ${t.rawDocumentId} is null and ${t.materialRestoreGeneration} is null and ${t.authRestoreGeneration} is null and ((${t.kind}='archive' and ${t.importId} is not null and ${t.objectKey}=${t.organizationId}::text||'/archive-quarantine/'||${t.importId}::text||'/'||${t.artifactId}::text||'/'||${t.writerToken}::text) or (${t.kind} in ('derived','ordinary') and ${t.importId} is null and ${t.objectKey}=${t.organizationId}::text||'/artifacts/'||${t.artifactId}::text)))`,
     ),
     check(
       'object_deletion_receipt',

@@ -69,7 +69,7 @@ export async function beginObjectWrite(
     });
   return write;
 }
-/** A successful completed put, or an adapter-proven fence plus verified cleanup, may settle its token. */
+/** Only an exact native completed PUT or revoked never-admitted future intent may settle its token. */
 export async function settleObjectWrite(tx: Tx, write: ObjectWrite) {
   await tx
     .select({ id: knowledgeSources.id })
@@ -92,7 +92,7 @@ export async function settleObjectWrite(tx: Tx, write: ObjectWrite) {
   if (rows.length !== 1) throw new AppError('INVALID_STATE');
 }
 
-/** Crash recovery requires positive provider/worker-fence proof, never a TTL. Missing ports do nothing. */
+/** Crash recovery requires native protocol proof, never a TTL. Missing capability refuses recovery. */
 export async function recoverObjectWrites(
   database: AppDatabase,
   store: RecoverableKnowledgeStore,
@@ -100,6 +100,7 @@ export async function recoverObjectWrites(
   sourceId?: string,
 ) {
   if (context.actorType !== 'service') throw new AppError('FORBIDDEN');
+  await rawKnowledgeObjects(store).reconcile(context, sourceId);
   const rows = await withTenantTx(database, context, (tx) =>
     tx
       .select()
