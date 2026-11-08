@@ -644,15 +644,13 @@ export async function compileEvidence(
         })),
       );
     if (factReceipts.length)
-      await tx
-        .insert(evidencePackageFacts)
-        .values(
-          factReceipts.map((fact) => ({
-            organizationId: context.organizationId,
-            packageId,
-            ...fact,
-          })),
-        );
+      await tx.insert(evidencePackageFacts).values(
+        factReceipts.map((fact) => ({
+          organizationId: context.organizationId,
+          packageId,
+          ...fact,
+        })),
+      );
     for (const usage of usedModelResults) {
       if (usage.callId) {
         if (!deps.acceptResultInTx) throw new ModelCallFailed('MODEL_UNAVAILABLE');

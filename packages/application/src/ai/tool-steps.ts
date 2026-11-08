@@ -253,13 +253,11 @@ export async function storeProposal(
       return { proposalId: id };
     }
     if (input.originatingModel?.inputSnapshotId)
-      await tx
-        .insert(modelProposalInputs)
-        .values({
-          organizationId: context.organizationId,
-          proposalId: id,
-          snapshotId: input.originatingModel.inputSnapshotId,
-        });
+      await tx.insert(modelProposalInputs).values({
+        organizationId: context.organizationId,
+        proposalId: id,
+        snapshotId: input.originatingModel.inputSnapshotId,
+      });
     await tx.insert(stepPayloads).values({
       organizationId: context.organizationId,
       stepId: step.id,
