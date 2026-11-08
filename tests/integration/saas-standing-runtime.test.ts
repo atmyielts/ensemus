@@ -16,6 +16,8 @@ import {
   interactiveSessionOf,
   openAppDatabase,
   organizations,
+  memberships,
+  offboardings,
   resolveTenantContext,
   standingChanges,
   withTenantTx,
@@ -35,6 +37,7 @@ import {
 import { seedPlan, seedRateCard } from '../helpers/saas';
 import { urls } from '../helpers/stack';
 import { createSaasPorts } from '../../workers/workflow/src/saas-ports';
+import { makePerson, nativePersonContext, proveSecondFactor } from '../helpers/product';
 
 const app = openAppDatabase(urls.app()),
   agent = openAgentTestDatabase();
@@ -208,6 +211,33 @@ describe('standing-owned M4 stops and real entitlement composition', () => {
     expect((await stops(tenant)).find((row) => row.id === offboardingStop.id)?.released).toEqual(
       cancelled.released,
     );
+  });
+
+  it('allows another current native owner to cancel without changing the original admission requester', async () => {
+    const tenant = await seedAiTenant(app.db);
+    const person = await makePerson('other-offboarding-owner');
+    await proveSecondFactor(person);
+    // A real native owner authorizes this generated test membership through the actual app role.
+    // No private admission, stop, service actor or user identity is fabricated here.
+    await withTenantTx(app.db, tenant.owner, (tx) => tx.insert(memberships).values({
+      organizationId: tenant.organizationId, userId: person.userId, role: 'owner', status: 'active',
+    }));
+    const started = await requestOffboarding(app.db, tenant.owner, { confirmName: 'Same Name Ltd' },
+      ports.offboarding.offboardingAgents);
+    const otherOwner = await nativePersonContext(app.db, person, tenant.organizationId);
+    expect(otherOwner.membershipId).not.toBe(tenant.owner.membershipId);
+    expect(interactiveSessionOf(otherOwner)?.sessionId).toBe(person.sessionId);
+    const current = await getOffboarding(app.db, otherOwner);
+    expect(current?.id).toBe(started.offboardingId);
+    await cancelOffboarding(app.db, otherOwner, { reasonCode: 'TEST_OTHER_OWNER_STAY', expectedVersion: current!.version },
+      ports.offboarding.offboardingAgents);
+    const [intent] = await withAccountTx(app.db, otherOwner, (tx) => tx.select({
+      state: offboardings.state, requester: offboardings.requestedByMembershipId,
+    }).from(offboardings).where(eq(offboardings.id, started.offboardingId)));
+    expect(intent).toEqual({ state: 'cancelled', requester: tenant.owner.membershipId });
+    expect((await stops(tenant)).find((row) => row.reason === 'TENANT_OFFBOARDING')?.released).toBeInstanceOf(Date);
+    expect(await withAccountTx(app.db, otherOwner, (tx) => tx.select({ lifecycle: organizations.lifecycle }).from(organizations)))
+      .toEqual([{ lifecycle: 'active' }]);
   });
 
   it('refuses generic human and actual agent-login release of a standing-owned stop', async () => {

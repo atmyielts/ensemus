@@ -240,3 +240,17 @@ BEGIN
  RETURN NEW;
 END $$;
 REVOKE ALL ON FUNCTION org.guard_organization_management() FROM PUBLIC;
+
+--> statement-breakpoint
+-- 0508's fixed stop function locks the actual native-admitted intent. PostgreSQL also applies UPDATE
+-- USING to SELECT FOR UPDATE; its existing metadata SELECT policy alone silently hides that row.
+-- This permits a lock only. It cannot UPDATE the row, and does not mint or relax native admission.
+-- Match the retained original requester, not the current cancelling owner: another current owner may
+-- cancel through the existing native manager path without pretending to be the original requester.
+CREATE POLICY offboarding_stop_native_lock ON lifecycle.offboardings FOR UPDATE TO ensemus_migrator
+ USING(session_user='ensemus_app' AND app.current_actor_type() IN('user','service')
+  AND organization_id=app.current_organization_id()
+  AND EXISTS(SELECT 1 FROM lifecycle.offboarding_admissions a
+   WHERE a.organization_id=offboardings.organization_id AND a.offboarding_id=offboardings.id
+    AND a.requested_by_membership_id=offboardings.requested_by_membership_id))
+ WITH CHECK(false);
