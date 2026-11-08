@@ -48,6 +48,25 @@ browser journeys remain unrun. Root separately reported **14/14 original 0421 re
 on a fresh 68-migration PostgreSQL database**; that is independent baseline evidence, not execution of
 this follow-up's new switch cases. 0421 registration/activation remains root-owned.
 
+### Callback-context compatibility hardening
+
+A separate bounded follow-up inspects the actual installed 1.7.17 library: generic OAuth registers a
+first-class social provider using core `/callback/:id` (`generic-oauth/index.mjs`), and
+`api/dispatch.mjs` supplies `context.path = endpoint.path`. The original observer includes that pinned
+template. **No missing-path defect was reproduced for the installed version.**
+
+The observer now also accepts bounded concrete native callback paths and the compatible
+`/oauth2/callback/:providerId` template. A concrete callback has one bounded, valid URI segment;
+extra path segments, malformed encoding, query/fragment, control characters and unrelated prefixes
+are refused. The path still comes exclusively from the actual native `session.create.after` context,
+and a created native person observation remains mandatory. This creates no endpoint/provider or
+browser-controlled actor selection.
+
+Fresh follow-up checks: exact two-file format/lint; **64/64 affected self-link/OIDC/SSO units in three
+files**, including 14 added compatibility/preservation cases; serial auth/tests/browser types. All
+passed on first attempts with no warnings. No database, build, browser, install or new runtime
+qualification was performed. The short source slot was released after browser types.
+
 ## Restore audit
 
 Source inspection of the current `infrastructure/scripts/sovereign-restore.mjs` found full database
