@@ -6,6 +6,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { and, eq, sql } from 'drizzle-orm';
 import {
   createWorkUnit,
+  getWorkUnit,
   recordDelegatedWorkRedactionInTx,
   transitionWorkUnit,
   updateWorkUnit,
@@ -16,6 +17,7 @@ import { createKnowledgeCallStore } from '@ensemus/application/ai-knowledge-call
 import { createHaltCheck } from '@ensemus/application/ai-halt';
 import { createRunTranscriptPurge } from '@ensemus/application/ai-input-ledger';
 import { createDelegatedWorkPurge } from '@ensemus/application/knowledge/delegated-work-purge';
+import { createDelegatedRecordPurge } from '@ensemus/application/knowledge/delegated-record-purge';
 import { compileEvidence } from '@ensemus/application/knowledge/compiler';
 import { purgeRunTranscriptsForSource, revokeSource } from '@ensemus/application/knowledge/purge';
 import { createScriptedModelPort } from '@ensemus/knowledge/testing';
@@ -40,9 +42,12 @@ import {
   mainInputSnapshots,
   knowledgePurgeJobs,
   sourceRunClosures,
+  runInputCheckpoints,
+  tombstones,
   openAppDatabase,
   withTenantTx,
   workUnits,
+  type AgentContext,
 } from '@ensemus/database';
 import { createServiceContext } from '@ensemus/database/service';
 import { loadAgentReadScopeInTx } from '../../packages/application/src/ai/read-scope';
@@ -94,7 +99,7 @@ describe('delegated material birth evidence (0419)', () => {
     await app.close();
   });
 
-  async function fixture(scopes?: string[]) {
+  async function fixture(scopes?: string[], beforeModel?: (context: AgentContext) => Promise<void>) {
     const work = await createWorkUnit(app.db, a.owner, { title: 'Actual parent work' });
     await transitionWorkUnit(app.db, a.owner, {
       id: work.id,
@@ -135,6 +140,7 @@ describe('delegated material birth evidence (0419)', () => {
       tx.update(agentRuns).set({ status: 'running' }).where(eq(agentRuns.id, runId)),
     );
     await turns.bindProfile(context, { runId, profileId, profileVersion: 1 });
+    await beforeModel?.(context);
     const step = await turns.beginTurn(context, { runId, stepNumber: 1 });
     if (step.kind !== 'begin') throw new Error('TEST_MODEL_STEP_NOT_STARTED');
     const snapshot = {
@@ -773,14 +779,15 @@ describe('delegated material birth evidence (0419)', () => {
     ).toEqual([]);
   });
 
-  it('retains the interim birth refusal atomically while the disposition capability is unavailable', async () => {
+  it('refuses a child request without its actual original accepted proposal atomically', async () => {
     const f = await fixture();
+    const childWorkId = idFromRequest('agent_child_work',f.context.membershipId,f.runId,3);
     expect(
-      await createChildRun(agent.db, f.context, { parentRunId: f.runId, stepNumber: 2 }),
+      await createChildRun(agent.db, f.context, { parentRunId: f.runId, stepNumber: 3 }),
     ).toMatchObject({ kind: 'denied' });
     expect(
       await withTenantTx(app.db, a.owner, (tx) =>
-        tx.select({ id: workUnits.id }).from(workUnits).where(eq(workUnits.id, f.childWorkId)),
+        tx.select({ id: workUnits.id }).from(workUnits).where(eq(workUnits.id, childWorkId)),
       ),
     ).toEqual([]);
     expect(
@@ -788,9 +795,84 @@ describe('delegated material birth evidence (0419)', () => {
         tx
           .select()
           .from(delegatedWorkBirths)
-          .where(eq(delegatedWorkBirths.workUnitId, f.childWorkId)),
+          .where(eq(delegatedWorkBirths.workUnitId, childWorkId)),
       ),
     ).toEqual([]);
+  });
+
+  // These are genuine full-composition gates, not expected passes while0414/0417 readiness stays
+  // false. Root must review/qualify the complete lifecycle before enabling and running them.
+  async function genuineChildWithRecord() {
+    const input = await createWorkUnit(app.db,a.owner,{ title: 'Actual inherited record material' });
+    const f = await fixture(undefined,async context => {
+      await createContextSource({ database: agent.db,readObject: async () => { throw new Error('TEST_UNEXPECTED_BYTES'); } }).loadWork(context,input.id);
+    });
+    const created = await createChildRun(agent.db,f.context,{ parentRunId: f.runId,stepNumber: 2 });
+    if (created.kind !== 'created') throw new Error('TEST_GENUINE_CHILD_NOT_ADMITTED');
+    expect(created).toMatchObject({ childRunId: f.childRunId,childWorkUnitId: f.childWorkId });
+    const child = await getWorkUnit(app.db,a.owner,f.childWorkId);
+    expect(child.title).toBe('Actual copied child');
+    const [receipt] = await withTenantTx(app.db,a.owner,tx => tx.select().from(delegatedInputReceipts).where(eq(delegatedInputReceipts.childRunId,f.childRunId)));
+    if (!receipt) throw new Error('TEST_GENUINE_BIRTH_RECEIPT_MISSING');
+    expect(receipt.proposalId).toBe(f.proposalId);expect(receipt.snapshotId).toBe(f.snapshot.id);
+    return { ...f,input,receipt };
+  }
+  const recordAdapter = (transcripts = createRunTranscriptPurge()) => createDelegatedRecordPurge({ database: agent.db,transcripts,
+    accounting: createKnowledgeCallStore(agent.db,{ halt: createHaltCheck() }) });
+  const closeRecord = (id: string) => withTenantTx(app.db,a.owner,tx => tx.insert(tombstones).values({
+    organizationId: a.organizationId,targetType: 'work_unit',targetId: id,reasonCode: 'USER_DELETED' }));
+
+  it('full lifecycle: captures actual inheritance and permanently redacts copied Work once after real closure', async () => {
+    const f = await genuineChildWithRecord();
+    const later = await createWorkUnit(app.db,a.owner,{ title: 'Read only after the original proposal' });
+    await createContextSource({ database: agent.db,readObject: async () => { throw new Error('TEST_UNEXPECTED_BYTES'); } }).loadWork(f.context,later.id);
+    await withTenantTx(app.db,a.owner,async tx => {
+      expect((await tx.execute<{ included: boolean }>(sql`select ai.delegated_record_ref(${f.childRunId}::uuid,'work_unit',${f.input.id}::uuid) included`)).rows[0]?.included).toBe(true);
+      expect((await tx.execute<{ included: boolean }>(sql`select ai.delegated_record_ref(${f.childRunId}::uuid,'work_unit',${later.id}::uuid) included`)).rows[0]?.included).toBe(false);
+    });
+    await closeRecord(f.input.id);
+    await expect(getWorkUnit(app.db,a.owner,f.childWorkId)).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    const service = createServiceContext(a.organizationId),purger = recordAdapter();
+    expect(await purger.purgeRecord(service,{ kind: 'work_unit',id: f.input.id,limit: 25 })).toEqual({ confirmed: true,removed: 1,remaining: 0,controlsRemaining: 0,unproven: 0 });
+    const [disposed] = await withTenantTx(app.db,a.owner,tx => tx.select().from(delegatedInputReceipts).where(eq(delegatedInputReceipts.childRunId,f.childRunId)));
+    expect(disposed).toMatchObject({ ...f.receipt,redactedAt: expect.any(Date),redactedVersion: expect.any(Number),dispositionSha256: expect.stringMatching(/^[0-9a-f]{64}$/),
+      redactionScopeKind: 'work_unit',redactionScopeId: f.input.id,redactionPurgeJobId: null });
+    expect(await purger.purgeRecord(service,{ kind: 'work_unit',id: f.input.id,limit: 25 })).toEqual({ confirmed: true,removed: 1,remaining: 0,controlsRemaining: 0,unproven: 0 });
+    const [replayed] = await withTenantTx(app.db,a.owner,tx => tx.select().from(delegatedInputReceipts).where(eq(delegatedInputReceipts.childRunId,f.childRunId)));
+    expect(replayed).toEqual(disposed);
+    const resurrection = await withTenantTx(app.db,a.owner,tx => tx.update(workUnits).set({ title: 'Attempted resurrection' }).where(eq(workUnits.id,f.childWorkId)).returning({ id: workUnits.id }))
+      .catch((error: unknown) => { expect(['42501','EN119']).toContain(pgCode(error));return []; });
+    expect(resurrection).toEqual([]);
+  });
+
+  it('full lifecycle: an actual hold preserves the copied body debt until a genuine release', async () => {
+    const f = await genuineChildWithRecord(),holdId = randomUUID();
+    await withTenantTx(app.db,a.owner,async tx => {
+      await tx.execute(sql`insert into lifecycle.legal_holds(organization_id,id,matter_ref,placed_by_membership_id)
+        values(${a.organizationId}::uuid,${holdId}::uuid,${randomUUID()},${a.owner.membershipId}::uuid)`);
+      await tx.execute(sql`insert into lifecycle.legal_hold_scopes(organization_id,hold_id,scope_type) values(${a.organizationId}::uuid,${holdId}::uuid,'organization')`);
+    });
+    await closeRecord(f.input.id);
+    const service = createServiceContext(a.organizationId),purger = recordAdapter();
+    expect(await purger.purgeRecord(service,{ kind: 'work_unit',id: f.input.id,limit: 25 })).toMatchObject({ confirmed: false,removed: 0,remaining: 1,controlsRemaining: 0 });
+    const [pending] = await withTenantTx(app.db,a.owner,tx => tx.select().from(delegatedInputReceipts).where(eq(delegatedInputReceipts.childRunId,f.childRunId)));
+    expect(pending?.redactedAt).toBeNull();expect(pending?.dispositionSha256).toBeNull();
+    await withTenantTx(app.db,a.owner,tx => tx.execute(sql`update lifecycle.legal_holds set status='released',released_by_membership_id=${a.owner.membershipId}::uuid,
+      released_at=now(),release_reason_code='TEST_RELEASE',version=version+1 where organization_id=${a.organizationId}::uuid and id=${holdId}::uuid`));
+    expect(await purger.purgeRecord(service,{ kind: 'work_unit',id: f.input.id,limit: 25 })).toMatchObject({ confirmed: true,removed: 1,remaining: 0,controlsRemaining: 0 });
+  });
+
+  it('full lifecycle: unavailable transcript completion cannot clear real Work/control debt', async () => {
+    const f = await genuineChildWithRecord();await closeRecord(f.input.id);
+    const real = createRunTranscriptPurge(),service = createServiceContext(a.organizationId);
+    const unknown = recordAdapter({ ...real,purgeUsing: async () => ({ removed: 0 }) });
+    expect(await unknown.purgeRecord(service,{ kind: 'work_unit',id: f.input.id,limit: 25 })).toMatchObject({ confirmed: false,removed: 0,remaining: 1 });
+    const [fenced] = await withTenantTx(app.db,a.owner,tx => tx.select({ fencedAt: runInputCheckpoints.fencedAt,purgedAt: runInputCheckpoints.payloadsPurgedAt })
+      .from(runInputCheckpoints).where(eq(runInputCheckpoints.runId,f.runId)));
+    expect(fenced?.fencedAt).toBeInstanceOf(Date);expect(fenced?.purgedAt).toBeNull();
+    const [pending] = await withTenantTx(app.db,a.owner,tx => tx.select().from(delegatedInputReceipts).where(eq(delegatedInputReceipts.childRunId,f.childRunId)));
+    expect(pending?.redactedAt).toBeNull();
+    expect(await recordAdapter().purgeRecord(service,{ kind: 'work_unit',id: f.input.id,limit: 25 })).toMatchObject({ confirmed: true,removed: 1,remaining: 0,controlsRemaining: 0 });
   });
 
   it('keeps exact fact metadata private to its owner-only seam for actual app and agent logins', async () => {

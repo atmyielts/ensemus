@@ -1892,6 +1892,21 @@ DROP POLICY work_purge_requalification_write ON knowledge.purge_jobs;
 --> statement-breakpoint
 -- Typed-record purge snapshots are actual current metadata only, not historical input hashes.
 -- Dead catalog rows are retained until positive whole-tenant disposition; no body grant is added.
+CREATE FUNCTION ai.serialize_record_tombstone() RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
+BEGIN
+  IF TG_RELID<>'platform.tombstones'::regclass OR TG_OP<>'INSERT' OR current_user<>'ensemus_migrator'
+    OR NEW.organization_id IS DISTINCT FROM app.current_organization_id() THEN
+    RAISE EXCEPTION 'RECORD_TOMBSTONE_TARGET' USING ERRCODE='42501';END IF;
+  IF NEW.target_type IN('work_unit','project','client','object_record') THEN
+    -- Genuine reads hold this exact catalog row SHARE before recording material. A tombstone
+    -- cannot certify an empty consumer set ahead of their commit. Never wait in an inverse order.
+    PERFORM actual.record_id FROM knowledge.structured_record_catalog actual
+      WHERE actual.organization_id=NEW.organization_id AND actual.record_kind=NEW.target_type AND actual.record_id=NEW.target_id FOR UPDATE NOWAIT;
+  END IF;
+  RETURN NEW;
+END $$;
+REVOKE ALL ON FUNCTION ai.serialize_record_tombstone() FROM PUBLIC;
+CREATE TRIGGER record_tombstone_read_barrier BEFORE INSERT ON platform.tombstones FOR EACH ROW EXECUTE FUNCTION ai.serialize_record_tombstone();
 CREATE FUNCTION ai.record_purge_snapshot_scope(p_org uuid,p_kind text,p_id uuid) RETURNS boolean LANGUAGE sql STABLE SET search_path=pg_catalog AS $$
   SELECT coalesce(current_user='ensemus_migrator' AND session_user IN('ensemus_app','ensemus_agent') AND app.current_actor_type()='service'
     AND p_org=app.current_organization_id() AND p_kind=current_setting('app.record_purge_kind',true) AND p_id::text=current_setting('app.record_purge_id',true),false)

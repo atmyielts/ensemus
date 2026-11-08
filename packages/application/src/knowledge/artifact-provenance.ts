@@ -51,7 +51,7 @@ export type GeneratedArtifactWrite = {
   classification: Classification;
 };
 export type StructuredArtifactInput = {
-  kind: 'work_unit' | 'project' | 'client';
+  kind: 'work_unit' | 'project' | 'client' | 'object_record';
   id: string;
   sha256: string;
   /** Actual read-time protection from the trusted ledger. Optional for old port compatibility;
@@ -164,7 +164,7 @@ export function normalizeStructuredInputs(
     if (
       !value ||
       typeof value !== 'object' ||
-      !['work_unit', 'project', 'client'].includes(value.kind)
+      !['work_unit', 'project', 'client', 'object_record'].includes(value.kind)
     )
       throw new AppError('INVALID_INPUT');
     const row: StructuredArtifactInput = {
@@ -996,7 +996,7 @@ export function createDerivedArtifactPurge(deps: DerivedArtifactPurgeDeps): Stru
     return { remaining: Number(result.rows[0]?.remaining ?? 1) };
   };
   const recordInput = (input: { kind: StructuredArtifactInput['kind']; id: string }) => {
-    if (!['work_unit', 'project', 'client'].includes(input.kind))
+    if (!['work_unit', 'project', 'client', 'object_record'].includes(input.kind))
       throw new AppError('INVALID_INPUT');
     return { kind: input.kind, id: checkedId(input.id) };
   };

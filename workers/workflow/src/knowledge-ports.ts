@@ -2,7 +2,9 @@
 // does not prove other content safe or replace the fresh policy check before any model call.
 import type { IngestDeps } from '@ensemus/application/knowledge/ingest';
 import { confirmDelegatedWorkPurgeInTx } from '@ensemus/application/knowledge/delegated-work-purge';
+import { confirmRecordWorkPurgeInTx } from '@ensemus/application/knowledge/delegated-record-purge';
 import type { DelegatedWorkPurge } from '@ensemus/application/knowledge/ports';
+import type { DelegatedRecordPurge } from '@ensemus/application/knowledge/ports';
 import { scanForSecrets } from '@ensemus/policy';
 import { loadAgentCanaries } from './agent-settings';
 import { createParseRunner } from './parse-thread';
@@ -10,10 +12,12 @@ import { createParseRunner } from './parse-thread';
 export function createKnowledgeRuntimePorts(env: NodeJS.ProcessEnv = process.env): {
   ingest: IngestDeps;
   delegatedWorks: Pick<DelegatedWorkPurge, 'confirmInTx'>;
+  recordWorks: Pick<DelegatedRecordPurge, 'confirmRecordInTx'>;
 } {
   const canaries = loadAgentCanaries(env);
   return {
     delegatedWorks: { confirmInTx: confirmDelegatedWorkPurgeInTx },
+    recordWorks: { confirmRecordInTx: confirmRecordWorkPurgeInTx },
     ingest: {
       parse: createParseRunner(),
       contentScan: {

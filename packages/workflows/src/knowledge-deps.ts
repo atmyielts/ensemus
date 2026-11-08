@@ -7,7 +7,9 @@ import type {
   RunTranscriptPurge,
   DerivedArtifactPurge,
   DelegatedWorkPurge,
+  DelegatedRecordPurge,
 } from '@ensemus/application/knowledge/ports';
+import type { StructuredRecordPurge } from '@ensemus/application/knowledge/artifact-provenance';
 import type { ObjectStore } from '@ensemus/application';
 import type { AppDatabase } from '@ensemus/database';
 import type { KnowledgeModelPort } from '@ensemus/knowledge/ports';
@@ -16,8 +18,9 @@ export type KnowledgeWorkerDeps = {
   database: AppDatabase;
   store: ObjectStore;
   ingest: IngestDeps;
-  derivedArtifacts?: DerivedArtifactPurge;
+  derivedArtifacts?: DerivedArtifactPurge & Partial<Pick<StructuredRecordPurge, 'purgeRecord' | 'confirmRecordInTx'>>;
   delegatedWorks?: Pick<DelegatedWorkPurge, 'confirmInTx'>;
+  recordWorks?: Pick<DelegatedRecordPurge, 'confirmRecordInTx'>;
 };
 
 /** On M4's agent queue, with its database handle. */
@@ -33,6 +36,7 @@ export type KnowledgeTranscriptDeps = {
   database: AppDatabase;
   transcripts: RunTranscriptPurge;
   delegatedWorks?: DelegatedWorkPurge;
+  delegatedRecords?: DelegatedRecordPurge;
 };
 
 export type OnboardingDeps = {
