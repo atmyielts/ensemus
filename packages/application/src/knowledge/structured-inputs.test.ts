@@ -21,6 +21,7 @@ describe('structured read inventory is explicit and historical', () => {
       { kind: 'artifact', id: work, sha256: hash },
       { kind: 'work_unit', id: 'invalid', sha256: hash },
       { kind: 'work_unit', id: work, sha256: 'not-a-hash' },
+      { kind: 'work_unit', id: work, sha256: hash, classification: 'invented' },
     ])
       expect(() => normalizeStructuredInputs([value], work)).toThrow();
     expect(() =>
@@ -29,5 +30,27 @@ describe('structured read inventory is explicit and historical', () => {
         work,
       ),
     ).toThrow();
+  });
+  it('cannot weaken a previously captured class when the same historical material is read again', () => {
+    const record = { kind: 'work_unit', id: work, sha256: hash };
+    expect(
+      normalizeStructuredInputs(
+        [
+          { ...record, classification: 'restricted' },
+          { ...record, classification: 'public' },
+          record,
+        ],
+        work,
+      ),
+    ).toEqual([{ ...record, classification: 'restricted' }]);
+    expect(
+      normalizeStructuredInputs(
+        [
+          { ...record, classification: 'public' },
+          { ...record, classification: 'restricted' },
+        ],
+        work,
+      ),
+    ).toEqual([{ ...record, classification: 'restricted' }]);
   });
 });

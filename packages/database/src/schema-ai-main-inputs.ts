@@ -83,6 +83,9 @@ export const modelProposalInputs = aiSchema.table(
     organizationId: uuid().notNull(),
     proposalId: uuid().notNull(),
     snapshotId: uuid().notNull(),
+    /** Trusted Work-kernel transform of the actual delegate result. Legacy NULL is not repaired. */
+    transformVersion: text(),
+    derivedBodySha256: text(),
   },
   (t) => [
     primaryKey({ name: 'model_proposal_inputs_pk', columns: [t.organizationId, t.proposalId] }),
@@ -96,6 +99,10 @@ export const modelProposalInputs = aiSchema.table(
       columns: [t.organizationId, t.snapshotId],
       foreignColumns: [mainInputSnapshots.organizationId, mainInputSnapshots.id],
     }),
+    check(
+      'model_proposal_inputs_title_transform',
+      sql`(${t.transformVersion} is null and ${t.derivedBodySha256} is null) or (${t.transformVersion} is not null and ${t.transformVersion}='work-title-v1' and ${t.derivedBodySha256} is not null and ${t.derivedBodySha256} ~ '^[0-9a-f]{64}$')`,
+    ),
   ],
 );
 
@@ -107,6 +114,8 @@ export const evidencePackageFacts = pgSchema('knowledge').table(
     organizationId: uuid().notNull(),
     packageId: uuid().notNull(),
     factId: uuid().notNull(),
+    // NULL only on legacy receipts; never reconstructed from a later mutable/deleted fact row.
+    subjectRef: text(),
     contentSha256: text().notNull(),
     classification: text().notNull(),
   },
@@ -121,6 +130,10 @@ export const evidencePackageFacts = pgSchema('knowledge').table(
       foreignColumns: [knowledgeEvidencePackages.organizationId, knowledgeEvidencePackages.id],
     }),
     check('evidence_package_facts_hash', sql`${t.contentSha256} ~ '^[0-9a-f]{64}$'`),
+    check(
+      'evidence_package_facts_subject',
+      sql`${t.subjectRef} is null or ${t.subjectRef} ~ '^(client|project|membership|team|work_unit|knowledge_source):[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'`,
+    ),
     check(
       'evidence_package_facts_class',
       sql`${t.classification} in('public','internal','confidential','restricted')`,

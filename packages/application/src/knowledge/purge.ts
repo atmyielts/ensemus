@@ -29,7 +29,7 @@ import type { ReapplyOptions, ReapplyResult } from '../tombstone-ledger';
 import { AppError } from '../errors';
 import { emit } from '../events';
 import { idSchema } from '../ids';
-import type { RunTranscriptPurge, DerivedArtifactPurge } from './ports';
+import type { RunTranscriptPurge, DerivedArtifactPurge, DelegatedWorkPurge } from './ports';
 import { recoverObjectWrites } from './object-writes';
 
 const PAGE = 100;
@@ -69,6 +69,27 @@ async function jobFor(tx: Tx, sourceId: string) {
     .where(eq(knowledgePurgeJobs.sourceId, sourceId));
   if (!job) throw new AppError('NOT_FOUND');
   return job;
+}
+async function assertMaterialHoldFree(
+  tx: Tx,
+  source: Source,
+  jobId: string,
+  operation: 'payload' | 'projection',
+) {
+  // These fixed functions retain the root hold barrier in this same destructive transaction.
+  // The two native roles have separate capabilities; no caller-selected SQL target is exposed.
+  const available = await tx.execute<{ available: boolean }>(
+    operation === 'payload'
+      ? sql`select to_regprocedure('lifecycle.source_payload_hold_free(uuid,bigint,uuid)') is not null available`
+      : sql`select to_regprocedure('lifecycle.source_projection_hold_free(uuid,bigint,uuid)') is not null available`,
+  );
+  if (available.rows[0]?.available !== true) throw new AppError('CAPABILITY_UNAVAILABLE');
+  const hold = await tx.execute<{ allowed: boolean }>(
+    operation === 'payload'
+      ? sql`select lifecycle.source_payload_hold_free(${source.id}::uuid,${source.version}::bigint,${jobId}::uuid) allowed`
+      : sql`select lifecycle.source_projection_hold_free(${source.id}::uuid,${source.version}::bigint,${jobId}::uuid) allowed`,
+  );
+  if (hold.rows[0]?.allowed !== true) throw new AppError('POLICY_DENIED');
 }
 async function close(
   tx: Tx,
@@ -215,6 +236,10 @@ export type PurgeOutcome = {
   blobs: number;
   transcripts: number;
   artifacts: number;
+  workUnits: number;
+  workUnitsRemaining: number | null;
+  workControlProofsRemaining: number | null;
+  unprovenWorkUnits: number | null;
 };
 const outcome = (job: Job): PurgeOutcome => ({
   state: job.state as PurgeState,
@@ -226,6 +251,10 @@ const outcome = (job: Job): PurgeOutcome => ({
   blobs: job.blobsRemoved,
   transcripts: job.transcriptsRemoved,
   artifacts: job.derivedArtifactsRemoved,
+  workUnits: job.delegatedWorkRemoved,
+  workUnitsRemaining: job.delegatedWorkRemaining,
+  workControlProofsRemaining: job.delegatedWorkControlsRemaining,
+  unprovenWorkUnits: job.delegatedWorkUnknown,
 });
 async function runIdsFor(
   tx: Tx,
@@ -250,7 +279,13 @@ async function allRunsHash(tx: Tx, context: TenantContext, sourceId: string) {
   return hash.digest('hex');
 }
 async function proofValid(tx: Tx, context: TenantContext, source: Source, job: Job) {
+  const generation = await tx.execute<{ generation: string | null }>(
+    sql`select ai.current_material_restore_generation() generation`,
+  );
   return (
+    generation.rows[0]?.generation !== null &&
+    generation.rows[0]?.generation !== undefined &&
+    job.transcriptRestoreGeneration === generation.rows[0]?.generation &&
     job.transcriptsCheckedAt !== null &&
     job.transcriptSourceVersion === source.version &&
     job.transcriptRunsSha256 === (await allRunsHash(tx, context, source.id))
@@ -323,11 +358,17 @@ export async function purgeRunTranscriptsForSource(
     let after: string | null = null,
       removed = 0;
     for (;;) {
-      const batch = await withTenantTx(database, context, async (tx) => {
+      const runIds = await withTenantTx(database, context, async (tx) => {
         await lockSource(tx, sourceId);
         const runIds = await runIdsFor(tx, context, sourceId, after);
         if (!(await deps.transcripts.fenceUsing!(tx, context, { runIds })).fenced)
           throw new Error('TRANSCRIPT_FENCE_UNCONFIRMED');
+        return runIds;
+      });
+      // Fence commit is independent of a later hold or unknown deletion outcome.
+      const batch = await withTenantTx(database, context, async (tx) => {
+        const source = await lockSource(tx, sourceId);
+        await assertMaterialHoldFree(tx, source, initial.job.id, 'payload');
         const result = await deps.transcripts.purgeUsing(tx, context, { runIds });
         if (
           !Number.isSafeInteger(result.removed) ||
@@ -352,6 +393,7 @@ export async function purgeRunTranscriptsForSource(
     const sha256 = fingerprint.digest('hex');
     await withTenantTx(database, context, async (tx) => {
       const source = await lockSource(tx, sourceId);
+      await assertMaterialHoldFree(tx, source, initial.job.id, 'payload');
       if (
         source.version !== initial.source.version ||
         sha256 !== (await allRunsHash(tx, context, sourceId))
@@ -382,7 +424,10 @@ export async function runSourcePurge(
   store: ObjectStore,
   context: TenantContext,
   input: { sourceId: string },
-  deps?: { derivedArtifacts?: DerivedArtifactPurge },
+  deps?: {
+    derivedArtifacts?: DerivedArtifactPurge;
+    delegatedWorks?: Pick<DelegatedWorkPurge, 'confirmInTx'>;
+  },
 ): Promise<PurgeOutcome> {
   requireService(context);
   const sourceId = checkedId(input.sourceId);
@@ -406,10 +451,17 @@ export async function runSourcePurge(
       const artifactProof = deps?.derivedArtifacts
         ? await deps.derivedArtifacts.confirmInTx(tx, context, { sourceId })
         : null;
+      const workProof = deps?.delegatedWorks
+        ? await deps.delegatedWorks.confirmInTx(tx, context, { sourceId })
+        : null;
       if (
         !active.length &&
         (await proofValid(tx, context, source, job)) &&
-        artifactProof?.remaining === 0
+        artifactProof?.remaining === 0 &&
+        workProof?.confirmed === true &&
+        workProof.remaining === 0 &&
+        workProof.controlsRemaining === 0 &&
+        workProof.unproven === 0
       ) {
         const [fresh] = await tx
           .update(knowledgePurgeJobs)
@@ -462,6 +514,8 @@ export async function runSourcePurge(
   try {
     const derived = deps?.derivedArtifacts;
     if (!derived) return fail(database, context, sourceId, 'ARTIFACT_PURGE_UNCONFIRMED');
+    const works = deps?.delegatedWorks;
+    if (!works) return fail(database, context, sourceId, 'DELEGATED_WORK_PURGE_UNCONFIRMED');
     let generated;
     try {
       generated = await derived.purgeSource(context, { sourceId, limit: 25 });
@@ -500,7 +554,8 @@ export async function runSourcePurge(
     // All inputs, including uncited ones, invalidate a produced answer.
     while (
       await withTenantTx(database, context, async (tx) => {
-        await lockSource(tx, sourceId);
+        const source = await lockSource(tx, sourceId);
+        await assertMaterialHoldFree(tx, source, (await jobFor(tx, sourceId)).id, 'projection');
         const removed = await tx.execute<{ id: string }>(
           sql`delete from knowledge.answers where organization_id=${context.organizationId}::uuid and id in(select a.id from knowledge.answers a where a.organization_id=${context.organizationId}::uuid and (exists(select 1 from knowledge.answer_sources s where s.organization_id=a.organization_id and s.answer_id=a.id and s.source_id=${sourceId}::uuid) or exists(select 1 from knowledge.answer_citations c where c.organization_id=a.organization_id and c.answer_id=a.id and c.source_id=${sourceId}::uuid)) order by a.id limit ${PAGE}) returning id`,
         );
@@ -518,7 +573,8 @@ export async function runSourcePurge(
     }
     while (
       await withTenantTx(database, context, async (tx) => {
-        await lockSource(tx, sourceId);
+        const source = await lockSource(tx, sourceId);
+        await assertMaterialHoldFree(tx, source, (await jobFor(tx, sourceId)).id, 'projection');
         const facts = await tx.execute<{ id: string; trustState: string }>(
           sql`select f.id,f.trust_state as "trustState" from knowledge.facts f where f.organization_id=${context.organizationId}::uuid and exists(select 1 from knowledge.fact_evidence e where e.organization_id=f.organization_id and e.fact_id=f.id and e.source_id=${sourceId}::uuid) order by f.id limit ${PAGE} for update`,
         );
@@ -558,7 +614,8 @@ export async function runSourcePurge(
     // Append-only evidence packages/items and artifact citation hashes survive as audit lineage.
     while (
       await withTenantTx(database, context, async (tx) => {
-        await lockSource(tx, sourceId);
+        const source = await lockSource(tx, sourceId);
+        await assertMaterialHoldFree(tx, source, (await jobFor(tx, sourceId)).id, 'projection');
         const ids = await tx.execute<{ id: string }>(
           sql`select id from knowledge.chunks where organization_id=${context.organizationId}::uuid and source_id=${sourceId}::uuid order by id limit ${PAGE}`,
         );
@@ -623,7 +680,8 @@ export async function runSourcePurge(
           throw new Error('STORE_UNAVAILABLE');
         }
         await withTenantTx(database, context, async (tx) => {
-          await lockSource(tx, sourceId);
+          const source = await lockSource(tx, sourceId);
+          await assertMaterialHoldFree(tx, source, (await jobFor(tx, sourceId)).id, 'projection');
           await tx
             .delete(knowledgeObjectWriters)
             .where(
@@ -658,10 +716,19 @@ export async function runSourcePurge(
     return await withTenantTx(database, context, async (tx) => {
       const source = await lockSource(tx, sourceId);
       const job = await jobFor(tx, sourceId);
+      await assertMaterialHoldFree(tx, source, job.id, 'projection');
       if (!(await proofValid(tx, context, source, job)))
         throw new Error('TRANSCRIPT_PURGE_UNCONFIRMED');
       const currentArtifacts = await derived.confirmInTx(tx, context, { sourceId });
       if (currentArtifacts.remaining !== 0) throw new Error('ARTIFACT_PURGE_UNCONFIRMED');
+      const currentWorks = await works.confirmInTx(tx, context, { sourceId });
+      if (
+        !currentWorks.confirmed ||
+        currentWorks.remaining !== 0 ||
+        currentWorks.controlsRemaining !== 0 ||
+        currentWorks.unproven !== 0
+      )
+        throw new Error('DELEGATED_WORK_PURGE_UNCONFIRMED');
       if (job.state === 'completed') return outcome(job);
       const [updated] = await tx
         .update(knowledgePurgeJobs)
@@ -689,13 +756,16 @@ export async function runSourcePurge(
       database,
       context,
       sourceId,
-      error instanceof Error && error.message === 'STORE_UNAVAILABLE'
-        ? 'STORE_UNAVAILABLE'
-        : error instanceof Error && error.message === 'ARTIFACT_PURGE_UNCONFIRMED'
-          ? 'ARTIFACT_PURGE_UNCONFIRMED'
-          : error instanceof Error && error.message === 'TRANSCRIPT_PURGE_UNCONFIRMED'
-            ? 'TRANSCRIPT_PURGE_UNCONFIRMED'
-            : 'PURGE_FAILED',
+      error instanceof AppError &&
+        (error.code === 'POLICY_DENIED' || error.code === 'CAPABILITY_UNAVAILABLE')
+        ? 'SOURCE_MATERIAL_HOLD_UNCONFIRMED'
+        : error instanceof Error && error.message === 'STORE_UNAVAILABLE'
+          ? 'STORE_UNAVAILABLE'
+          : error instanceof Error && error.message === 'ARTIFACT_PURGE_UNCONFIRMED'
+            ? 'ARTIFACT_PURGE_UNCONFIRMED'
+            : error instanceof Error && error.message === 'TRANSCRIPT_PURGE_UNCONFIRMED'
+              ? 'TRANSCRIPT_PURGE_UNCONFIRMED'
+              : 'PURGE_FAILED',
     );
   }
 }
@@ -748,6 +818,7 @@ export type PurgeStatus = {
   counts: Omit<PurgeOutcome, 'state'>;
   requestedAt: Date;
   completedAt: Date | null;
+  priorCompletedAt: Date | null;
   lastErrorCode: string | null;
   retryRequests: number;
   nextRetryAt: Date | null;
@@ -765,18 +836,62 @@ export async function getPurgeStatus(
     await person(tx, context, source);
     const job = await jobFor(tx, sourceId);
     const { state: recordedState, ...counts } = outcome(job);
+    const work =
+      source.state === 'active'
+        ? null
+        : (
+            await tx.execute<{
+              removed: number;
+              remaining: number;
+              unproven: number;
+              controlsRemaining: number;
+              receiptsSha256: string;
+            }>(sql`select removed,remaining,unproven,receipts_sha256 "receiptsSha256",
+      ai.source_run_closure_remaining(${sourceId}::uuid,${source.version}::bigint) "controlsRemaining"
+      from ai.source_delegated_work_counts(${sourceId}::uuid)`)
+          ).rows[0];
+    const generation = (
+      await tx.execute<{ generation: string | null }>(
+        sql`select ai.current_material_restore_generation() generation`,
+      )
+    ).rows[0]?.generation;
+    const workProof =
+      work !== null &&
+      work !== undefined &&
+      work.remaining === 0 &&
+      work.unproven === 0 &&
+      work.controlsRemaining === 0 &&
+      job.delegatedWorkCheckedAt !== null &&
+      job.delegatedWorkSourceVersion === source.version &&
+      job.delegatedWorkReceiptsSha256 === work.receiptsSha256 &&
+      job.delegatedWorkRestoreGeneration !== null &&
+      job.delegatedWorkRestoreGeneration === generation &&
+      job.transcriptRestoreGeneration === generation;
     const state =
-      recordedState === 'completed' && (!job.transcriptsCheckedAt || !job.artifactsCheckedAt)
+      recordedState === 'completed' &&
+      (!job.transcriptsCheckedAt || !job.artifactsCheckedAt || !workProof)
         ? 'failed'
         : recordedState;
     return {
       sourceId,
       reason: job.reason as PurgeReason,
       state,
-      counts,
+      counts: {
+        ...counts,
+        workUnits: work?.removed ?? job.delegatedWorkRemoved,
+        workUnitsRemaining: work?.remaining ?? null,
+        workControlProofsRemaining: work?.controlsRemaining ?? null,
+        unprovenWorkUnits: work?.unproven ?? null,
+      },
       requestedAt: job.requestedAt,
       completedAt: state === 'completed' ? job.completedAt : null,
-      lastErrorCode: state !== recordedState ? 'ARTIFACT_PURGE_UNCONFIRMED' : job.lastErrorCode,
+      priorCompletedAt: job.priorCompletedAt,
+      lastErrorCode:
+        state !== recordedState
+          ? !workProof
+            ? 'DELEGATED_WORK_PURGE_UNCONFIRMED'
+            : 'ARTIFACT_PURGE_UNCONFIRMED'
+          : job.lastErrorCode,
       retryRequests: job.retryRequests,
       nextRetryAt: job.nextRetryAt,
       retryExhausted: job.retryRequests >= 8 && state !== 'completed',

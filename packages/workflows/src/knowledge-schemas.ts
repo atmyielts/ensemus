@@ -27,6 +27,16 @@ export const knowledgePurgeWorkflowIdFor = (input: KnowledgePurgeInput) =>
   `knowledge-purge-${input.organizationId}-${input.sourceId}`;
 export type KnowledgePurgeResult = { state: 'completed' | 'failed'; chunks: number };
 
+export const knowledgeRecordPurgeInputSchema = z.strictObject({
+  organizationId: z.uuid(),
+  kind: z.enum(['work_unit', 'project', 'client', 'object_record']),
+  id: z.uuid(),
+  limit: z.number().int().min(1).max(100),
+});
+export type KnowledgeRecordPurgeInput = z.infer<typeof knowledgeRecordPurgeInputSchema>;
+export const knowledgeRecordPurgeWorkflowIdFor = (input: KnowledgeRecordPurgeInput) =>
+  `knowledge-record-purge-${input.organizationId}-${input.kind}-${input.id}`;
+
 export const knowledgeAnswerInputSchema = z.strictObject({
   organizationId: z.uuid(),
   answerId: z.uuid(),

@@ -17,12 +17,15 @@ import { AppError, pgCode } from '../errors';
 import { idSchema } from '../ids';
 import type { ArtifactInputInventory } from '../knowledge/artifact-provenance';
 import { assertWithinAgentCeiling, loadAgentReadScopeInTx } from './read-scope';
+import { captureReadAuthoritiesInTx } from './read-authority';
 
 export type ObservedInput = {
   kind: 'work_unit' | 'project' | 'client' | 'artifact';
   id: string;
   sha256: string;
   classification: AiClassification;
+  /** Trusted actual Work link used by an artifact body read, never a model citation or argument. */
+  authorizationWorkUnitId?: string;
 };
 class RunInputClosed extends AppError {
   constructor() {
@@ -78,6 +81,10 @@ export async function assertRunInputsOpen(tx: Tx, context: AgentContext) {
 /** Acquire before touching payload rows. Purge takes this fence first, then deletes payloads too. */
 export async function lockRunInputsForContent(tx: Tx, context: AgentContext) {
   own(context);
+  // Load the actual original source/catalog closure before the checkpoint lock. The second check
+  // below closes a fence committed while that first proof was being acquired; neither grants body
+  // access to terminal reconciliation, which uses the separate metadata-only proposal path.
+  await assertRunInputsOpen(tx, context);
   await tx
     .select({ id: runInputCheckpoints.runId })
     .from(runInputCheckpoints)
@@ -143,6 +150,7 @@ export async function recordRunInputs(
         })),
     )
     .onConflictDoNothing();
+  await captureReadAuthoritiesInTx(tx, context, input);
   const classification = input.reduce(
     (current, row) => strongestClassification(current, row.classification),
     run.classification as AiClassification,
@@ -180,6 +188,7 @@ export function inventoryFromObservations(input: {
     if (
       !['work_unit', 'project', 'client', 'artifact'].includes(row.kind) ||
       !idSchema.safeParse(row.id).success ||
+      !['public', 'internal', 'confidential', 'restricted'].includes(row.classification) ||
       !/^[0-9a-f]{64}$/.test(row.sha256)
     )
       return null;
@@ -198,7 +207,7 @@ export function inventoryFromObservations(input: {
         (row): row is ObservedInput & { kind: 'work_unit' | 'project' | 'client' } =>
           row.kind !== 'artifact',
       )
-      .map(({ kind, id, sha256 }) => ({ kind, id, sha256 })),
+      .map(({ kind, id, sha256, classification }) => ({ kind, id, sha256, classification })),
   };
 }
 
@@ -211,6 +220,12 @@ export function createRunInputInventory(): ArtifactInputInventory {
         context.agentRunId !== input.execution.id
       )
         return { known: false };
+      const authority = await tx.execute<{ protocol: string | null }>(
+        sql`select ai.run_authority_protocol_version(${context.agentRunId}::uuid) protocol`,
+      );
+      // 0419 must carry the genuine read-time closures into retained file lineage/serving/purge.
+      // A normal Work-only inventory cannot discard an original parent after reparenting.
+      if (authority.rows[0]?.protocol !== 'legacy') return { known: false };
       const [run] = await tx
         .select()
         .from(agentRuns)

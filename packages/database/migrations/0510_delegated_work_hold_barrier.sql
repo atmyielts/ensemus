@@ -52,6 +52,42 @@ CREATE POLICY delegated_hold_work_birth_read ON ai.delegated_work_births FOR SEL
 CREATE POLICY delegated_hold_work_birth_lock ON ai.delegated_work_births FOR UPDATE TO ensemus_migrator
   USING(lifecycle.delegated_hold_scope(organization_id,child_run_id,NULL,NULL)) WITH CHECK(false);
 --> statement-breakpoint
+-- Internal-only exact immutable fact-package association. Existing0419 metadata policies use
+-- these exact selectors; no caller gets general fact relationships, bodies or a new SELECT grant.
+CREATE FUNCTION lifecycle.delegated_fact_record_reference(p_child uuid,p_kind text,p_id uuid)
+RETURNS boolean LANGUAGE plpgsql SET search_path=pg_catalog AS $$
+DECLARE original_ref record;matched boolean:=false;examined integer:=0;
+  previous_org text:=current_setting('knowledge.fact_authority_org',true);
+  previous_fact text:=current_setting('knowledge.fact_authority_fact',true);
+  previous_package text:=current_setting('knowledge.fact_authority_package',true);
+BEGIN
+  IF current_user<>'ensemus_migrator' OR session_user<>'ensemus_agent' OR app.current_actor_type() IS DISTINCT FROM 'service'
+    OR p_kind IS NULL OR p_kind NOT IN('work_unit','project','client','object_record') OR p_id IS NULL OR p_child IS NULL
+    OR NOT lifecycle.delegated_hold_scope(app.current_organization_id(),p_child,NULL,NULL) THEN RETURN false;END IF;
+  FOR original_ref IN SELECT ref.ref_id,ref.fact_package_id,ref.content_sha256 FROM ai.delegated_input_refs ref
+    WHERE ref.organization_id=app.current_organization_id() AND ref.child_run_id=p_child AND ref.ref_kind='fact'
+    ORDER BY ref.proof_key_sha256 LIMIT 1001 FOR SHARE NOWAIT LOOP
+    examined:=examined+1;IF examined>1000 THEN EXIT;END IF;
+    PERFORM set_config('knowledge.fact_authority_org',app.current_organization_id()::text,true);
+    PERFORM set_config('knowledge.fact_authority_fact',original_ref.ref_id::text,true);
+    PERFORM set_config('knowledge.fact_authority_package',original_ref.fact_package_id::text,true);
+    SELECT EXISTS(SELECT 1 FROM knowledge.evidence_package_facts receipt
+      WHERE receipt.organization_id=app.current_organization_id() AND receipt.package_id=original_ref.fact_package_id
+        AND receipt.fact_id=original_ref.ref_id AND receipt.content_sha256=original_ref.content_sha256
+        AND receipt.subject_ref=p_kind||':'||p_id::text) INTO matched;
+    IF matched THEN EXIT;END IF;
+  END LOOP;
+  PERFORM set_config('knowledge.fact_authority_org',coalesce(previous_org,''),true);
+  PERFORM set_config('knowledge.fact_authority_fact',coalesce(previous_fact,''),true);
+  PERFORM set_config('knowledge.fact_authority_package',coalesce(previous_package,''),true);
+  RETURN matched AND examined<=1000;
+EXCEPTION WHEN OTHERS THEN
+  PERFORM set_config('knowledge.fact_authority_org',coalesce(previous_org,''),true);
+  PERFORM set_config('knowledge.fact_authority_fact',coalesce(previous_fact,''),true);
+  PERFORM set_config('knowledge.fact_authority_package',coalesce(previous_package,''),true);RAISE;
+END $$;
+REVOKE ALL ON FUNCTION lifecycle.delegated_fact_record_reference(uuid,text,uuid) FROM PUBLIC;
+--> statement-breakpoint
 CREATE FUNCTION lifecycle.delegated_work_hold_free(p_child_run uuid,p_work uuid,p_scope_kind text,p_scope_id uuid,p_purge_job uuid)
 RETURNS boolean LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
 DECLARE tenant uuid:=app.current_organization_id();permitted boolean:=false;source_state text;source_version bigint;
@@ -122,7 +158,9 @@ BEGIN
       PERFORM f.proof_key_sha256 FROM ai.delegated_input_refs f WHERE f.organization_id=tenant AND f.child_run_id=p_child_run
         AND(CASE WHEN p_scope_kind='knowledge_source' THEN (f.ref_kind='source' AND f.ref_id=p_scope_id) OR f.source_id=p_scope_id
           ELSE f.ref_kind=p_scope_kind AND f.ref_id=p_scope_id END) FOR SHARE NOWAIT;
-      IF NOT FOUND THEN EXIT proof;END IF;
+      IF NOT FOUND THEN
+        IF p_scope_kind='knowledge_source' OR NOT lifecycle.delegated_fact_record_reference(p_child_run,p_scope_kind,p_scope_id) THEN EXIT proof;END IF;
+      END IF;
       permitted:=true;
     END proof;
   EXCEPTION WHEN lock_not_available THEN permitted:=false;

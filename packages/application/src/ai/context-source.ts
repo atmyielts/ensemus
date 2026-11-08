@@ -43,6 +43,7 @@ import {
   loadAgentReadScopeInTx,
 } from './read-scope';
 import { currentRunInputClassInTx } from './model-admission';
+import { lockReadAuthorityBeforeBody } from './read-authority';
 export { loadAgentReadScope } from './read-scope';
 
 export type LoadedWork = {
@@ -290,8 +291,9 @@ export function createContextSource(deps: {
       return withTenantTx(database, context, async (tx) => {
         await assertRunInputsOpen(tx, context);
         const scope = await loadAgentReadScopeInTx(tx, context);
-        // 0414 filters the body by the current immutable company ceiling. Acquire its row before
-        // metadata locks, then recheck the locked parent closure before capture/material leaves.
+        // Pin the exact current authority closure before the body read; receipt capture must not
+        // substitute a later parent after a concurrent reparenting.
+        await lockReadAuthorityBeforeBody(tx, context, { kind: 'work_unit', id: id.data });
         const work = await loadReadable(tx, context, id.data);
         const floor = await workInputClassInTx(tx, id.data, 'public');
         assertWithinAgentCeiling(scope, floor);
@@ -350,6 +352,11 @@ export function createContextSource(deps: {
         await assertRunInputsOpen(tx, context);
         const scope = await loadAgentReadScopeInTx(tx, context);
         try {
+          await lockReadAuthorityBeforeBody(tx, context, {
+            kind: 'artifact',
+            id: artifactId.data,
+            authorizationWorkUnitId: workUnitId.data,
+          });
           await loadReadable(tx, context, workUnitId.data);
           const workClass = await workInputClassInTx(tx, workUnitId.data, 'public');
           assertWithinAgentCeiling(scope, workClass);
@@ -396,6 +403,11 @@ export function createContextSource(deps: {
         await lockArtifactInputSources(tx, context, { artifactId: loaded.id });
         const scope = await loadAgentReadScopeInTx(tx, context);
         assertWithinAgentCeiling(scope, loaded.classification);
+        await lockReadAuthorityBeforeBody(tx, context, {
+          kind: 'artifact',
+          id: loaded.id,
+          authorizationWorkUnitId: workUnitId.data,
+        });
         const work = await loadReadable(tx, context, workUnitId.data);
         assertWithinAgentCeiling(scope, await workInputClassInTx(tx, workUnitId.data, 'public'));
         const [current] = await tx
@@ -423,6 +435,7 @@ export function createContextSource(deps: {
             id: loaded.id,
             sha256: loaded.sha256,
             classification: finalClass,
+            authorizationWorkUnitId: work.id,
           },
         ]);
         return { ...loaded, classification: finalClass };

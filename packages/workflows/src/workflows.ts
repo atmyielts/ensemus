@@ -163,6 +163,7 @@ export { clientOnboardingWorkflow } from './client-onboarding-workflow';
 export { knowledgeAnswerWorkflow } from './knowledge-answer-workflow';
 export { knowledgeIngestWorkflow } from './knowledge-ingest-workflow';
 export { knowledgePurgeWorkflow } from './knowledge-purge-workflow';
+export { knowledgeRecordPurgeWorkflow } from './knowledge-record-purge-workflow';
 export { knowledgeSweepWorkflow } from './knowledge-sweep-workflow';
 export { objectMigrationWorkflow } from './object-migration-workflow';
 export { processRunWorkflow } from './process-run-workflow';

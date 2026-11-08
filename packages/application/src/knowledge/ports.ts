@@ -76,6 +76,41 @@ export interface DerivedArtifactPurge {
   ): Promise<{ remaining: number }>;
 }
 
+/** Copied Work bodies and run control are separate from file/header/byte removal counts. This
+ * source-only port does not claim typed-record closure, provider completion or financial settlement. */
+export type DelegatedWorkPurgeCounts = {
+  removed: number;
+  remaining: number;
+  controlsRemaining: number;
+  unproven: number;
+  confirmed: boolean;
+};
+export interface DelegatedWorkPurge {
+  purgeSource(
+    context: TenantContext,
+    input: { sourceId: string; limit: number },
+  ): Promise<DelegatedWorkPurgeCounts>;
+  confirmInTx(
+    tx: Tx,
+    context: TenantContext,
+    input: { sourceId: string },
+  ): Promise<DelegatedWorkPurgeCounts>;
+}
+
+export type RecordPurgeKind = 'work_unit' | 'project' | 'client' | 'object_record';
+/** Actual closed-record snapshots and Work/control proof are separate from generated-file counts. */
+export interface DelegatedRecordPurge {
+  purgeRecord(
+    context: TenantContext,
+    input: { kind: RecordPurgeKind; id: string; limit: number },
+  ): Promise<DelegatedWorkPurgeCounts>;
+  confirmRecordInTx(
+    tx: Tx,
+    context: TenantContext,
+    input: { kind: RecordPurgeKind; id: string },
+  ): Promise<DelegatedWorkPurgeCounts>;
+}
+
 /** M4's agent runs. The flagship asks for one, and reads how it went. */
 export interface AgentRuns {
   /** Durably bind the real run and waiting state to requestKey in the caller's transaction. No unbound

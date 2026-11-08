@@ -90,6 +90,8 @@ export class AppDatabase {
         'app.agent_input_protocol': '',
         'app.agent_scope_protocol': '',
         'app.outcome_draft_id': '',
+        'app.agent_authority_protocol': '',
+        'app.terminal_work_control_run': '',
         'app.portability_export_id': '',
         'app.portability_import_id': '',
         'app.portability_part_path': '',
@@ -111,6 +113,33 @@ export class AppDatabase {
         'lifecycle.delegated_hold_run': '',
         'lifecycle.delegated_hold_source': '',
         'lifecycle.delegated_hold_job': '',
+        'app.delegated_work_redaction_run': '',
+        'app.record_purge_kind': '',
+        'app.record_purge_id': '',
+        'app.work_purge_requalification': '',
+        'app.work_purge_requalification_job': '',
+        'knowledge.fact_authority_org': '',
+        'knowledge.fact_authority_fact': '',
+        'knowledge.fact_authority_package': '',
+        'work.review_control_org': '',
+        'work.review_control_work': '',
+        'ai.material_restore_org': '',
+        'lifecycle.record_purge_org': '',
+        'lifecycle.record_purge_kind': '',
+        'lifecycle.record_purge_id': '',
+        'lifecycle.record_purge_hash': '',
+        'sovereign.material_restore_mode': '',
+        'sovereign.material_restore_org': '',
+        'sovereign.material_restore_generation': '',
+        'lifecycle.delegated_erase_org': '',
+        'lifecycle.delegated_erase_work': '',
+        'lifecycle.source_purge_org': '',
+        'lifecycle.source_purge_source': '',
+        'lifecycle.source_purge_job': '',
+        'lifecycle.material_delete_org': '',
+        'lifecycle.material_delete_source': '',
+        'lifecycle.material_delete_run': '',
+        'lifecycle.material_delete_row': '',
         ...bindings,
       })) {
         await tx.execute(sql`select set_config(${name}, ${value}, true)`);
@@ -270,6 +299,8 @@ export function withWebhookEndpointTx<T>(
         set_config('app.agent_input_protocol', '', true), set_config('app.interactive_session_id','',true),
         set_config('app.agent_scope_protocol','',true),
         set_config('app.outcome_draft_id','',true),
+          set_config('app.agent_authority_protocol','',true),
+          set_config('app.terminal_work_control_run','',true),
         set_config('app.portability_export_id','',true),set_config('app.portability_import_id','',true),
         set_config('app.portability_part_path','',true),set_config('app.portability_part_sha256','',true),
         set_config('app.knowledge_model_protocol','',true), set_config('app.model_job_id','',true)`,
@@ -358,7 +389,7 @@ export async function resolveInteractiveTenantContext(
 
 /**
  * For a worker's agent process only (`@ensemus/database/agent`, enforced by lint). Reads the initiator's
- * membership now, so a disabled or removed initiator stops the run at its next step (04-security/04 §6).
+ * membership now, so a disabled or removed initiator stops the run at its next step (04-security/04 Â§6).
  * Call it again for every model turn and tool call rather than keeping the result. Throws
  * TenantAccessDenied when the membership is not active.
  */

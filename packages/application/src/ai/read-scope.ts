@@ -14,6 +14,7 @@ import { and, eq, sql } from 'drizzle-orm';
 import { AppError } from '../errors';
 import { idSchema } from '../ids';
 import { currentRunCompanyClassInTx } from './input-class';
+import { bindAgentAuthorityProtocolInTx } from './read-authority';
 
 export type AgentReadScope = { sourceIds: readonly string[]; ceiling: AiClassification | null };
 /** Studio/simulation semantics: highest explicitly declared class includes the lower classes. Legacy
@@ -137,9 +138,8 @@ export async function loadAgentReadScopeInTx(
     runId = row.parentRunId;
   }
   if (scope === null) throw new AppError('NOT_FOUND');
-  // 0416 must provide an actual immutable birth dependency before a child can claim inherited
-  // input completeness. Parent IDs/scopes alone are not that receipt. Never backfill observations.
-  if (seen.size > 1) throw new AppError('POLICY_DENIED');
+  // SQL preflight requires the actual 0419 birth receipt for every child (and preserves the old
+  // unproven inventory fence). Ancestor scope intersection never creates read observations.
   // Ordinary reads do not take the run UPDATE lock before acquiring their new body locks. Content
   // recording takes it after those locks; dispatch/result publication requests the serialized proof.
   const company = await currentRunCompanyClassInTx(tx, context, options);
@@ -149,6 +149,7 @@ export async function loadAgentReadScopeInTx(
   await tx.execute(
     sql`select set_config('app.agent_scope_protocol',${`scoped-v1:${context.agentRunId}`},true)`,
   );
+  await bindAgentAuthorityProtocolInTx(tx, context);
   const admitted = await tx.execute<{ admitted: boolean }>(
     sql`select ai.run_input_admitted(${context.agentRunId}::uuid) admitted`,
   );

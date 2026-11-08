@@ -1117,6 +1117,57 @@ describe('bounded Knowledge model jobs and principal-bound result receipts (0216
     });
     expect((await job(claimed.jobId))?.state).toBe('running');
   });
+  it('preserves a real private query under an actual hold, including direct older-worker deletion', async () => {
+    const f = await fixture(),
+      service = createServiceContext(a.organizationId),
+      holdId = randomUUID();
+    const privateCount = () =>
+      withTenantTx(
+        agent.db,
+        service,
+        async (tx) =>
+          (
+            await tx.execute<{ count: number }>(
+              sql`select count(job_id)::integer count from ai.model_job_payloads where organization_id=${a.organizationId}::uuid and job_id=${f.jobId}::uuid`,
+            )
+          ).rows[0]!.count,
+      );
+    expect(await privateCount()).toBe(1);
+    await withTenantTx(app.db, a.owner, async (tx) => {
+      await tx.execute(sql`insert into lifecycle.legal_holds(organization_id,id,matter_ref,placed_by_membership_id)
+        values(${a.organizationId}::uuid,${holdId}::uuid,${randomUUID()},${a.owner.membershipId}::uuid)`);
+      await tx.execute(sql`insert into lifecycle.legal_hold_scopes(organization_id,hold_id,scope_type)
+        values(${a.organizationId}::uuid,${holdId}::uuid,'organization')`);
+    });
+    try {
+      expect(
+        await codeOf(() =>
+          withTenantTx(agent.db, service, (tx) =>
+            tx.delete(modelJobPayloads).where(eq(modelJobPayloads.jobId, f.jobId)),
+          ),
+        ),
+      ).toBe('EN119');
+      expect(await codeOf(() => purgeModelJobPayloads(agent.db, service, f.jobId))).toBe('EN119');
+      expect(await privateCount()).toBe(1);
+      expect(await job(f.jobId)).toMatchObject({
+        payloadsPurgedAt: null,
+        purgedFenceGeneration: null,
+      });
+    } finally {
+      await withTenantTx(app.db, a.owner, (tx) =>
+        tx.execute(sql`update lifecycle.legal_holds set status='released',released_by_membership_id=${a.owner.membershipId}::uuid,
+        released_at=now(),release_reason_code='TEST_RELEASE',version=version+1 where organization_id=${a.organizationId}::uuid and id=${holdId}::uuid`),
+      );
+    }
+    expect(await purgeModelJobPayloads(agent.db, service, f.jobId)).toEqual({ removed: 1 });
+    expect(await privateCount()).toBe(0);
+    expect(await job(f.jobId)).toMatchObject({
+      fenceGeneration: 1,
+      purgedFenceGeneration: 1,
+      payloadsPurgedAt: expect.any(Date),
+    });
+  });
+
   it('serializes fallback against the actual claim row instead of guessing from zero counters', async () => {
     const f = await fixture();
     let release!: () => void, locked!: () => void;

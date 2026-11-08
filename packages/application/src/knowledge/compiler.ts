@@ -51,6 +51,7 @@ import {
   loadAgentReadScope,
   loadAgentReadScopeInTx,
 } from '../ai/read-scope';
+import { lockReadAuthorityBeforeBody } from '../ai/read-authority';
 
 export type CompileDeps = {
   model: KnowledgeModelPort;
@@ -165,6 +166,8 @@ export async function compileEvidence(
     // authorize this transaction's Work body read after withTenantTx has cleared its marker.
     if (agentContext) await loadAgentReadScopeInTx(tx, agentContext);
     if (!workUnitId) return { classification: queryClass, subjects: [] as string[] };
+    if (agentContext)
+      await lockReadAuthorityBeforeBody(tx, agentContext, { kind: 'work_unit', id: workUnitId });
     const result = await tx.execute<{
       classification: Classification;
       projectId: string | null;
@@ -501,6 +504,7 @@ export async function compileEvidence(
   // digest and the retained fact receipt; no later lookup reconstructs a historical claim read.
   const factReceipts = facts.map((fact) => ({
     factId: fact.id,
+    subjectRef: fact.subjectRef,
     contentSha256: digest(
       JSON.stringify({ subjectRef: fact.subjectRef, predicate: fact.predicate, claim: fact.claim }),
     ),
@@ -516,7 +520,16 @@ export async function compileEvidence(
     await requireSearchPerson(tx, context);
     if (agentContext) await loadAgentReadScopeInTx(tx, agentContext);
     if (selection.items.length) {
-      const sourceIds = [...new Set(selection.items.map((item) => item.sourceId))].sort();
+      const sourceIds = [
+        ...new Set([
+          ...selection.items.map((item) => item.sourceId),
+          ...factReceipts.flatMap((fact) =>
+            fact.subjectRef.startsWith('knowledge_source:')
+              ? [fact.subjectRef.slice('knowledge_source:'.length)]
+              : [],
+          ),
+        ]),
+      ].sort();
       // Closing a source takes the same row lock. Its purge cannot finish, then discover that a
       // previously read passage published a new run provenance row after the source had closed.
       await tx.execute(
@@ -586,8 +599,10 @@ export async function compileEvidence(
       }
     }
     if (workUnitId) {
+      if (agentContext)
+        await lockReadAuthorityBeforeBody(tx, agentContext, { kind: 'work_unit', id: workUnitId });
       const work = await tx.execute<{ classification: Classification }>(
-        sql`select knowledge.structured_record_class('work_unit',w.id) classification from work.work_units w where w.organization_id=${context.organizationId}::uuid and w.id=${workUnitId}::uuid and knowledge.can_read_work(w.id,app.current_membership_id()) for share`,
+        sql`select knowledge.structured_record_class('work_unit',w.id) classification from work.work_units w where w.organization_id=${context.organizationId}::uuid and w.id=${workUnitId}::uuid and knowledge.can_read_work(w.id,app.current_membership_id()) for share nowait`,
       );
       if (
         !work.rows[0] ||

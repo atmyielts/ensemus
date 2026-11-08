@@ -23,7 +23,12 @@ import {
   type AppDatabase,
   type Tx,
 } from '@ensemus/database';
-import { isTerminalAgentRun, type AgentRunStatus, type AiClassification } from '@ensemus/domain/ai';
+import {
+  isTerminalAgentRun,
+  strongestClassification,
+  type AgentRunStatus,
+  type AiClassification,
+} from '@ensemus/domain/ai';
 import { can } from '@ensemus/domain/policy';
 import { isTerminal, type WorkState } from '@ensemus/domain/work-unit';
 import { scanForSecrets } from '@ensemus/policy';
@@ -41,8 +46,11 @@ import { emit } from '../events';
 import { idSchema } from '../ids';
 import { idFromRequest } from '../request-id';
 import { loadChangeable } from '../work';
+import { workTitleInput } from '../work-title';
 import { createHaltCheck } from './halt';
 import { loadProposal } from './tool-steps';
+import { delegatedBodyProofFromProposal } from './delegated-title';
+import { lockDelegationInfluenceInTx } from './delegation-influence';
 
 export type ChildRunResult =
   | { kind: 'created'; childWorkUnitId: string; childRunId: string; maxCostMicros: number }
@@ -326,6 +334,10 @@ export async function createChildRun(
   if (!args.success) {
     return deny(database, context, parentRunId, 'DELEGATION_WIDENED', 'TOOL_ARGS_INVALID');
   }
+  const childTitle = workTitleInput.safeParse(args.data.title);
+  const bodyProof = delegatedBodyProofFromProposal(proposal.args);
+  if (!childTitle.success || !bodyProof)
+    return deny(database, context, parentRunId, 'DELEGATION_WIDENED', 'TOOL_ARGS_INVALID');
   // A model wrote this title, and people read it on a Work Unit, so a secret must not travel that way.
   if (scanForSecrets([{ id: 'title', text: args.data.title }]).hits.length > 0) {
     return deny(database, context, parentRunId, 'DELEGATION_WIDENED', 'SECRET_FOUND_IN_PAYLOAD');
@@ -336,18 +348,29 @@ export async function createChildRun(
       const refuse = (code: DelegationCode, reason?: string) =>
         denyInTx(tx, context, parentRunId, code, reason);
 
-      // An actual delegation-birth influence receipt is unavailable until 0416 is joined. Refuse
-      // before copying any parent-derived Work text; a scope/class label is not provenance proof.
-      const influence = await tx.execute<{ ready: boolean }>(
-        sql`select ai.delegation_influence_ready(${parentRunId}::uuid,${ids.runId}::uuid) ready`,
-      );
-      if (influence.rows[0]?.ready !== true)
-        return refuse('DELEGATION_WIDENED', 'DELEGATION_INPUT_PROOF_UNAVAILABLE');
+      const influence = await lockDelegationInfluenceInTx(tx, context, {
+        parentRunId,
+        childRunId: ids.runId,
+        childWorkUnitId: ids.workUnitId,
+        toolStepNumber: stepNumber,
+        proposalId: proposal.id,
+        inputSnapshotId: proposal.inputSnapshotId ?? null,
+        birthContentSha256: bodyProof.derivedBodySha256,
+      });
+      if (!influence) return refuse('DELEGATION_WIDENED', 'DELEGATION_INPUT_PROOF_UNAVAILABLE');
 
       // The initiator's own access, read now. They may have lost it since the run began.
       if (!can(context.role, 'work.create') || !can(context.role, 'agent.run')) {
         return refuse('DELEGATION_WIDENED', 'RESOURCE_NOT_PERMITTED');
       }
+      // Metadata/source closures are already pinned. Do not wait on an inverse body->catalog
+      // writer or a run->Work reclaim while holding them; a refusal leaves no copied material.
+      const [body] = await tx
+        .select({ id: workUnits.id })
+        .from(workUnits)
+        .where(eq(workUnits.id, found.parent.workUnitId))
+        .for('update', { noWait: true });
+      if (!body) return refuse('DELEGATION_WIDENED', 'RESOURCE_NOT_PERMITTED');
       const parentWork = await loadChangeable(tx, context, found.parent.workUnitId);
 
       // Everything from here is one decision: this lock is why two children cannot share the same headroom.
@@ -355,7 +378,7 @@ export async function createChildRun(
         .select()
         .from(agentRuns)
         .where(eq(agentRuns.id, parentRunId))
-        .for('update');
+        .for('update', { noWait: true });
       if (!parent) throw new AppError('NOT_FOUND');
       const [raced] = await tx
         .select(childSelection)
@@ -420,7 +443,10 @@ export async function createChildRun(
         parent: {
           depth: parent.depth,
           tools: toolsIn(parent.delegatedScopes),
-          classification: parent.effectiveClassification as AiClassification,
+          classification: strongestClassification(
+            parent.effectiveClassification as AiClassification,
+            influence.classification,
+          ),
           limits: {
             maxModelTurns: parent.maxModelTurns,
             maxToolCalls: parent.maxToolCalls,
@@ -461,7 +487,7 @@ export async function createChildRun(
         parentId: parentWork.id,
         ownerMembershipId: parentWork.ownerMembershipId,
         createdByMembershipId: context.membershipId,
-        title: args.data.title,
+        title: childTitle.data,
         classification: decision.classification,
       });
       await tx.insert(workAssignments).values({
@@ -536,6 +562,16 @@ export async function createChildRun(
     if (pgCode(error) === RUN_RULE_BROKEN) {
       return deny(database, context, parentRunId, 'DELEGATION_WIDENED', 'TRIGGER_REFUSED');
     }
+    if (['55P03', '40001'].includes(pgCode(error) ?? ''))
+      return deny(database, context, parentRunId, 'DELEGATION_WIDENED', 'RESOURCE_BUSY');
+    if (['EN119', 'EN118'].includes(pgCode(error) ?? ''))
+      return deny(
+        database,
+        context,
+        parentRunId,
+        'DELEGATION_WIDENED',
+        'DELEGATION_INPUT_PROOF_UNAVAILABLE',
+      );
     if (error instanceof AppError && (error.code === 'NOT_FOUND' || error.code === 'FORBIDDEN')) {
       return deny(database, context, parentRunId, 'DELEGATION_WIDENED', 'RESOURCE_NOT_PERMITTED');
     }

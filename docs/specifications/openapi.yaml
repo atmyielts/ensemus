@@ -8367,6 +8367,10 @@ components:
             - blobs
             - transcripts
             - artifacts
+            - work_units
+            - work_units_remaining
+            - work_control_proofs_remaining
+            - unproven_work_units
           properties:
             documents:
               type: integer
@@ -8384,6 +8388,22 @@ components:
               type: integer
             artifacts:
               type: integer
+            work_units:
+              type: integer
+              minimum: 0
+              description: Actual retained delegated Work body redactions, separate from file removals.
+            work_units_remaining:
+              type: [integer, "null"]
+              minimum: 0
+              description: Current undisposed source-associated Work bodies; null means unconfirmed.
+            work_control_proofs_remaining:
+              type: [integer, "null"]
+              minimum: 0
+              description: Current source run control closures awaiting actual proof; not financial settlement.
+            unproven_work_units:
+              type: [integer, "null"]
+              minimum: 0
+              description: Retained legacy delegated Work with unknown inputs in this tenant; no source association is inferred.
         requested_at:
           type: string
           format: date-time
