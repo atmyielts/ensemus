@@ -90,3 +90,30 @@ fallback if that dependency is missing. Do not apply or activate this intermedia
 No formatter, lint, type, unit, database, migration, provider, build, browser or restore check has run
 for this foundation. No new real credential or runtime activation was used. Earlier self-link checks
 do not qualify it. Root will review the completed composed source before a separate allowed gate.
+
+## Second bounded source checkpoint
+
+The next unchecked source adds restrictive native and fixed-owner metadata read fences (using the
+actual session login), dispatcher entry/batch fences and outbox policies, native admission hooks,
+HS256/native-issued-at email verification cutoff, typed restoring-page/API behavior, and the real
+native cryptographic invalidation transaction. The crypto helper checks the supplied key against
+each bounded factor page before mutation, writes a valid native encrypted empty recovery-code list,
+preserves TOTP/flags/counters, raises the lock deadline, removes actual transient state, and asks the
+SQL guard to validate exact generation/actual zero state. Exact-generation retry verifies the stored
+proof and native empty ciphertext; it does not invent a second successful cleanup.
+
+New pure/native-library tests are authored but unrun. Their explicit memory adapter/metadata doubles
+cannot qualify PostgreSQL roles or a real restored installation. The pinned native email issuer has
+no `iss` claim; this source verifies its actual HS256 signature/email/iat/exp form and does not invent
+a required issuer claim. A token from before the cutoff, a coarse same-second token, a foreign issuer,
+missing/future issuance, wrong key or other algorithm is refused after a restore.
+
+The UUID helper is a pure metadata read, not a lock over provider I/O. A previously committed remote
+admission may still finish; stopping a process or losing its response cannot certify that no remote
+effect occurred. Every actual reader/worker must stop/drain before begin. Unknown prior external
+effects retain debt and need independent reconciliation. Post-I/O generation refusal fences stale
+acceptance/refund; it cannot recall an already delivered charge or send.
+
+Operator snapshot/fingerprint, deny-only reconciliation/acknowledgment, recovery job packaging,
+restore script ordering and actual role/browser/restore gates remain unfinished. 0422 is still
+unregistered; no source check, database, build or restore has run for either restore checkpoint.

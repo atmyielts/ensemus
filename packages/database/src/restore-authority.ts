@@ -37,6 +37,7 @@ export function parseAuthRestoreAdmission(value:unknown):AuthRestoreAdmission|nu
     typeof row.generation!=='string'||!uuid.test(row.generation)||
     !(row.cutoff===null||timestamp(row.cutoff))||!(row.notBefore===null||timestamp(row.notBefore)))return null;
   if((row.cutoff===null)!==(row.notBefore===null)||(row.phase!=='admitted'&&row.cutoff===null))return null;
+  if(typeof row.cutoff==='string'&&typeof row.notBefore==='string'&&Date.parse(row.notBefore)<Date.parse(row.cutoff)+900000)return null;
   return row as AuthRestoreAdmission;
 }
 export async function readAuthRestoreAdmission(database:Executor):Promise<AuthRestoreAdmission>{

@@ -14,6 +14,8 @@ import {
   readSsoProvider,
   recordSsoAssurance,
   createVerifiedInteractiveIdentity,
+  RestoreAdmissionDenied,
+  isRestoreAdmissionDenied,
 } from '@ensemus/database/auth';
 import { createLogger, errorCode } from '@ensemus/telemetry';
 import { betterAuth, type BetterAuthPlugin } from 'better-auth';
@@ -30,6 +32,7 @@ import { createOperatorOidcFlow, type OidcTrust } from './oidc-primary';
 import { createIdpChallenges } from './idp-challenge';
 import { createSamlBrowserFlow } from './saml-browser-flow';
 import { createSamlSelfLinkPlugin } from './saml-self-link';
+import {createAuthRestoreAdmission} from './restore-admission';
 import { SAML_BROWSER_COOKIE, samlBrowserCookieValue } from './saml-browser-binding';
 
 export type OidcProvider = {
@@ -72,7 +75,7 @@ export type CredentialForm =
   | { path: '/sign-up/email'; body: { name: string; email: string; password: string } };
 
 export type CredentialOutcome = {
-  outcome: 'accepted' | 'two_factor' | 'refused' | 'rate_limited';
+  outcome: 'accepted' | 'two_factor' | 'refused' | 'rate_limited' | 'restore_pending';
   /** The HTTP status behind the outcome, for the log. */
   status: number;
   /** The cookies to set, which the caller's framework has to pass on to the browser. */
@@ -182,6 +185,7 @@ export function createAuth(options: AuthOptions) {
         defaultCookieAttributes: { httpOnly: true, sameSite: 'lax' },
       },
       plugins: [
+        createAuthRestoreAdmission(db,options.secret),
         ...(options.oidc && !privateFactorManagement
           ? [
               genericOAuth({
@@ -304,11 +308,11 @@ export function createAuth(options: AuthOptions) {
       }),
     );
     const data =
-      response.status === 200
+      (response.status === 200 || response.status === 503)
         ? ((await response
             .clone()
             .json()
-            .catch(() => null)) as { twoFactorRedirect?: unknown } | null)
+            .catch(() => null)) as { twoFactorRedirect?: unknown;code?:unknown } | null)
         : null;
     return {
       outcome: response.ok
@@ -317,6 +321,7 @@ export function createAuth(options: AuthOptions) {
           : 'accepted'
         : response.status === TOO_MANY_REQUESTS
           ? 'rate_limited'
+          : response.status === 503 && data?.code==='RESTORE_PENDING' ? 'restore_pending'
           : 'refused',
       status: response.status,
       setCookie: response.ok ? response.headers.get('set-cookie') : null,
@@ -379,7 +384,9 @@ export function createAuth(options: AuthOptions) {
 
   /** The sole interactive-context admission: the actual native verifier owns the cookie/session. */
   async function readInteractiveSession(headers: Headers) {
-    const current = await auth.api.getSession({ headers, query: { disableCookieCache: true } });
+    const current = await auth.api.getSession({ headers, query: { disableCookieCache: true } }).catch((error:unknown)=>{
+      if(isRestoreAdmissionDenied(error))throw new RestoreAdmissionDenied();throw error;
+    });
     if (!current || current.session.userId !== current.user.id) return null;
     const expiresAt =
       current.session.expiresAt instanceof Date

@@ -6,6 +6,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./mfa": "./src/mfa.ts",
+    "./restore": "./src/restore.ts",
     "./sso": "./src/sso.ts"
   },
   "scripts": {

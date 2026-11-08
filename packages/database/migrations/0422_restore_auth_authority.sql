@@ -16,9 +16,10 @@ DECLARE body jsonb;
 BEGIN
  IF session_user='ensemus_migrator' THEN RETURN true;END IF;
  body:=identity.auth_restore_control();
- RETURN body->>'phase'='admitted' OR (session_user='ensemus_auth'
+ IF body->>'phase'='admitted' OR (session_user='ensemus_auth'
   AND body->>'phase' IN('pending','invalidated') AND current_setting('identity.auth_restore_operation',true)='invalidate'
-  AND current_setting('identity.auth_restore_generation',true)=body->>'generation');
+  AND current_setting('identity.auth_restore_generation',true)=body->>'generation') THEN RETURN true;END IF;
+ RAISE EXCEPTION 'RESTORE_PENDING' USING ERRCODE='EN422';
 END $$;
 REVOKE ALL ON FUNCTION identity.auth_restore_read_allowed() FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION identity.auth_restore_read_allowed() TO ensemus_auth;
@@ -30,7 +31,24 @@ DO $$ DECLARE target regclass;BEGIN
  END LOOP;
 END $$;
 CREATE POLICY auth_restore_read ON identity.verifications AS RESTRICTIVE FOR SELECT TO ensemus_auth
- USING(id='68766d8e-9f7d-4b87-b881-bb4c3ff1654b' OR identity.auth_restore_read_allowed());
+ USING(CASE WHEN id='68766d8e-9f7d-4b87-b881-bb4c3ff1654b' THEN true ELSE identity.auth_restore_read_allowed() END);
+--> statement-breakpoint
+
+-- Fixed owner metadata functions also retain the caller's actual session_user. Closing their
+-- source rows prevents a stale MFA/SSO/member guard from bypassing pending admission through its
+-- SECURITY DEFINER current_user. Only the one control row avoids recursive admission lookup.
+DO $$ DECLARE target regclass;BEGIN
+ FOREACH target IN ARRAY ARRAY['identity.users'::regclass,'identity.accounts'::regclass,'identity.sessions'::regclass,
+  'identity.session_assurances'::regclass,'identity.two_factors'::regclass,'identity.setup_tokens'::regclass,
+  'org.organizations'::regclass,'org.memberships'::regclass,'org.security_policies'::regclass,
+  'org.sso_connections'::regclass,'org.sso_member_links'::regclass,'org.scim_tokens'::regclass,
+  'platform.domain_events'::regclass,'platform.outbox_events'::regclass,'studio.process_run_intents'::regclass] LOOP
+  EXECUTE format('CREATE POLICY auth_restore_owner_read ON %s AS RESTRICTIVE FOR SELECT TO ensemus_migrator
+   USING(identity.auth_restore_read_allowed())',target);
+ END LOOP;
+END $$;
+CREATE POLICY auth_restore_owner_read ON identity.verifications AS RESTRICTIVE FOR SELECT TO ensemus_migrator
+ USING(CASE WHEN id='68766d8e-9f7d-4b87-b881-bb4c3ff1654b' THEN true ELSE identity.auth_restore_read_allowed() END);
 --> statement-breakpoint
 
 -- This existing private table holds one bounded control document, not an auth proof or user input.
@@ -124,7 +142,11 @@ BEGIN
  RETURN (body->>'generation')::uuid;
 END $$;
 REVOKE ALL ON FUNCTION app.current_auth_restore_generation() FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION app.current_auth_restore_generation() TO ensemus_app,ensemus_agent,ensemus_secrets,ensemus_migrator;
+GRANT EXECUTE ON FUNCTION app.current_auth_restore_generation() TO ensemus_app,ensemus_agent,ensemus_secrets,ensemus_dispatcher,ensemus_migrator;
+CREATE POLICY auth_restore_dispatch_admission ON platform.domain_events AS RESTRICTIVE FOR SELECT TO ensemus_dispatcher
+ USING(app.current_auth_restore_generation() IS NOT NULL);
+CREATE POLICY auth_restore_dispatch_admission ON platform.outbox_events AS RESTRICTIVE TO ensemus_dispatcher
+ USING(app.current_auth_restore_generation() IS NOT NULL) WITH CHECK(app.current_auth_restore_generation() IS NOT NULL);
 --> statement-breakpoint
 
 CREATE FUNCTION identity.auth_restore_admission() RETURNS jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER
