@@ -156,7 +156,7 @@ small,
   grid-template-columns: var(--sidebar) minmax(0, 1fr);
   min-height: 100dvh;
 }
-/* The column runs the full height of the page, and what is in it stays in view as the page scrolls. */
+/* Brand and account controls stay available; only the desktop navigation scrolls. */
 .sidebar {
   background: var(--sidebar-bg);
   border-right: 1px solid var(--line);
@@ -164,14 +164,31 @@ small,
 .sidebar-inner {
   position: sticky;
   top: 0;
+  height: 100dvh;
   max-height: 100dvh;
-  min-height: 100dvh;
-  overflow-y: auto;
+  min-height: 0;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
   gap: var(--space-8);
   padding: var(--space-5) var(--space-3);
 }
+.workspace-brand {
+  flex: none;
+  min-width: 0;
+}
+.desktop-navigation {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-gutter: stable;
+  scroll-padding: var(--space-2);
+  /* Keep the existing link alignment and space for its shared focus outline inside the scroller. */
+  padding: var(--space-1);
+  margin: calc(-1 * var(--space-1));
+}
+
 .brand {
   display: flex;
   align-items: center;
@@ -299,6 +316,8 @@ textarea[aria-invalid='true'] {
   border-color: var(--danger);
 }
 .sidebar-end {
+  flex: none;
+  min-width: 0;
   margin-top: auto;
   display: grid;
   grid-template-columns: 2rem minmax(0, 1fr);
@@ -331,7 +350,14 @@ textarea[aria-invalid='true'] {
 }
 .account-email {
   color: var(--muted);
-  overflow-wrap: anywhere;
+}
+.account-name,
+.account-email {
+  min-width: 0;
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .content {
   padding: var(--space-5) clamp(1rem, 3.5vw, 3.5rem) 4rem;
@@ -1061,6 +1087,7 @@ details.confirm > form {
   }
   .sidebar-inner {
     position: static;
+    height: auto;
     max-height: none;
     min-height: 0;
     overflow: visible;
