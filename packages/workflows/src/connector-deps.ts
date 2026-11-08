@@ -2,6 +2,7 @@
 import type { SecretLease } from '@ensemus/application';
 import type { ConnectorNetwork, ConnectorRegistry } from '@ensemus/connectors';
 import type { AppDatabase } from '@ensemus/database';
+import type { VerifiedPaymentWebhook } from './webhook-activities';
 
 export type ConnectorActivityDeps = {
   database: AppDatabase;
@@ -16,4 +17,8 @@ export type ConnectorActivityDeps = {
     billingConnectionId: string | null;
     processor: string | null;
   };
+  /** Native secrets-role adapter only. The proof can be made only after actual signature/body parsing. */
+  attestPaymentWebhook?: (
+    proof: VerifiedPaymentWebhook,
+  ) => Promise<{ token: string; expiresAt: Date }>;
 };

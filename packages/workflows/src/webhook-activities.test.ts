@@ -12,7 +12,12 @@ const settings = {
   billingConnectionId: connectionId,
   processor: 'test_scripted',
 };
-const source = { endpointId: randomUUID(), connectionId, providerEventId: randomUUID() };
+const source = {
+  deliveryId: randomUUID(),
+  endpointId: randomUUID(),
+  connectionId,
+  providerEventId: randomUUID(),
+};
 const effect: Parameters<WebhookEffectHandlers['recordPaymentEvent']>[2] = {
   kind: 'payment_event',
   event: {

@@ -54,6 +54,7 @@ import { creditPaidTopUpInTx } from './top-ups';
 import type { AgentHaltPort } from './ports';
 import { setTenantStandingInTx } from './standing';
 import { randomUUID } from 'node:crypto';
+import { canonicalJson } from '@ensemus/domain/approval';
 import type {
   ChargeRequest,
   ChargeResult,
@@ -492,7 +493,7 @@ export type BeginPaymentResult =
 export async function beginPaymentAttempt(
   database: AppDatabase,
   context: TenantContext,
-  input: { paymentId: string; runId: string },
+  input: { paymentId: string; runId: string; executionBindingId?: string },
 ): Promise<BeginPaymentResult> {
   service(context);
   const id = idOf(input.paymentId);
@@ -516,6 +517,10 @@ export async function beginPaymentAttempt(
       if (!prior) throw new AppError('INVALID_STATE');
       return { kind: 'reconcile', attemptId: prior.id };
     }
+    // A legacy/unqualified intent may still be inspected or reconciled, but cannot mint a new attempt.
+    // The 0512 INSERT trigger independently checks the actual broker-attested original binding.
+    if (!input.executionBindingId) throw new AppError('PREREQUISITES_INCOMPLETE');
+    const executionBindingId = idOf(input.executionBindingId);
     const [account] = await tx
       .select()
       .from(billingAccounts)
@@ -573,6 +578,7 @@ export async function beginPaymentAttempt(
         attemptNo: number,
         idempotencyKey: payment.idempotencyKey,
         runId: input.runId,
+        executionBindingId,
       })
       .returning();
     await tx
@@ -736,7 +742,12 @@ export async function beginPaymentReconcile(
   database: AppDatabase,
   context: TenantContext,
   input: { paymentId: string; code: PaymentCode },
-): Promise<{ attemptId: string; idempotencyKey: string; processor: string } | null> {
+): Promise<{
+  attemptId: string;
+  idempotencyKey: string;
+  processor: string;
+  executionBindingId: string | null;
+} | null> {
   service(context);
   const id = idOf(input.paymentId);
   if (!PAYMENT_CODES.includes(input.code)) throw new AppError('INVALID_INPUT');
@@ -772,6 +783,7 @@ export async function beginPaymentReconcile(
       attemptId: attempt.id,
       idempotencyKey: payment.idempotencyKey,
       processor: payment.processor,
+      executionBindingId: attempt.executionBindingId,
     };
   });
 }
@@ -783,9 +795,11 @@ export async function finishPaymentReconcile(
     attemptId: string;
     result: PaymentLookupResult;
     lookup: ProcessorManifest['lookup'];
+    /** One-use native broker token, kept inside the Activity and consumed with the exact effect. */
+    nativeLookupToken?: string;
   },
   agents?: AgentHaltPort,
-): Promise<'succeeded' | 'failed' | 'retry' | 'unknown'> {
+): Promise<'succeeded' | 'failed' | 'cancelled' | 'retry' | 'unknown'> {
   service(context);
   const id = idOf(input.attemptId);
   const result = input.result;
@@ -815,12 +829,23 @@ export async function finishPaymentReconcile(
       .for('update');
     if (!attempt) throw new AppError('NOT_FOUND');
     if (['succeeded', 'failed', 'cancelled'].includes(payment.status))
-      return payment.status === 'cancelled' ? 'failed' : (payment.status as 'succeeded' | 'failed');
+      return payment.status as 'succeeded' | 'failed' | 'cancelled';
     if (payment.status === 'ready') return 'retry';
     if (attempt.outcome !== 'indeterminate') throw new AppError('INVALID_STATE');
+    const consumeNativeLookup = async () => {
+      if (!input.nativeLookupToken || !/^[0-9a-f]{64}$/.test(input.nativeLookupToken))
+        throw new AppError('PREREQUISITES_INCOMPLETE');
+      const consumed = await tx.execute<{
+        consumed: boolean;
+      }>(sql`select billing.consume_payment_lookup(
+        ${id}::uuid,${input.nativeLookupToken},${canonicalJson(result)}) as consumed`);
+      if (consumed.rows.length !== 1 || consumed.rows[0]?.consumed !== true)
+        throw new AppError('PREREQUISITES_INCOMPLETE');
+    };
     if (result.found === 'succeeded') {
       if (payment.processorPaymentRef && payment.processorPaymentRef !== result.processorPaymentRef)
         throw new AppError('INVALID_INPUT');
+      await consumeNativeLookup();
       await tx
         .update(paymentAttempts)
         .set({
@@ -843,13 +868,19 @@ export async function finishPaymentReconcile(
     }
     const decision = decideAfterLookup(result, input.lookup);
     if (payment.status === 'unknown' && decision.status === 'ready') return 'unknown';
+    if (result.found === 'declined' || decision.status === 'ready') await consumeNativeLookup();
     const exhausted = decision.status === 'ready' && attempt.attemptNo >= MAX_PAYMENT_ATTEMPTS;
     const status = exhausted ? 'failed' : decision.status;
     const code = exhausted ? 'ATTEMPTS_EXHAUSTED' : decision.code;
     if (decision.status === 'ready')
       await tx
         .update(paymentAttempts)
-        .set({ outcome: 'not_sent', outcomeCode: decision.code, finishedAt: new Date() })
+        .set({
+          outcome: 'not_sent',
+          outcomeCode: decision.code,
+          processorPaymentRef: null,
+          finishedAt: new Date(),
+        })
         .where(eq(paymentAttempts.id, id));
     if (result.found === 'declined')
       await tx
