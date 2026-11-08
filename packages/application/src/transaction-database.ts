@@ -39,6 +39,7 @@ const EMPTY_BINDINGS = {
   'billing.payment_target_org': '',
   'billing.payment_target_account': '',
   'billing.payment_webhook_token': '',
+  'billing.model_credit_org': '',
   'sovereign.archive_source_proof': '',
   'lifecycle.delegated_hold_org': '',
   'lifecycle.delegated_hold_run': '',

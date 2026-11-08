@@ -14,6 +14,7 @@ const paymentKeys = [
   'billing.payment_target_org',
   'billing.payment_target_account',
   'billing.payment_webhook_token',
+  'billing.model_credit_org',
 ] as const;
 
 function savepoints() {

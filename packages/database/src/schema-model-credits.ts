@@ -1,6 +1,6 @@
 // 0513 financial control metadata only. No runtime table grants, provider body, key or auth assertion.
 import { sql } from 'drizzle-orm';
-import { bigint, check, foreignKey, index, integer, pgSchema, primaryKey, text, timestamp, unique, uuid } from 'drizzle-orm/pg-core';
+import { bigint, check, foreignKey, index, integer, pgSchema, primaryKey, text, timestamp, unique, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
 import { organizations } from './schema';
 import { budgetReservations, modelProfiles, usageLedger } from './schema-ai';
 import { mainInputSnapshots } from './schema-ai-main-inputs';
@@ -61,6 +61,8 @@ export const modelCreditHolds = creditSchema.table('model_credit_holds', {
   foreignKey({ name: 'model_credit_input_usage', columns: [t.organizationId, t.inputUsageId], foreignColumns: [usageLedger.organizationId, usageLedger.id] }),
   foreignKey({ name: 'model_credit_output_usage', columns: [t.organizationId, t.outputUsageId], foreignColumns: [usageLedger.organizationId, usageLedger.id] }),
   index('model_credit_active').on(t.organizationId, t.state).where(sql`${t.state} in ('pending','prepared','dispatched')`),
+  uniqueIndex('model_credit_input_once').on(t.organizationId, t.inputUsageId).where(sql`${t.inputUsageId} is not null`),
+  uniqueIndex('model_credit_output_once').on(t.organizationId, t.outputUsageId).where(sql`${t.outputUsageId} is not null`),
   check('model_credit_principal', sql`(${t.mainSnapshotId} is not null and ${t.modelCallId} is null) or (${t.mainSnapshotId} is null and ${t.modelCallId} is not null)`),
   check('model_credit_ceiling', sql`${t.maxInputTokens}>=0 and ${t.maxOutputTokens}>=0 and ${t.inputMicrocreditsPerToken}>=0 and ${t.outputMicrocreditsPerToken}>=0 and ${t.ceilingMicrocredits}>=0 and ${t.ceilingMicrocredits}::numeric=${t.maxInputTokens}::numeric*${t.inputMicrocreditsPerToken}::numeric+${t.maxOutputTokens}::numeric*${t.outputMicrocreditsPerToken}::numeric`),
   check('model_credit_identity', sql`${t.profileVersion}>0 and ${t.rateCardVersion}>0 and ${t.requestSha256} ~ '^[0-9a-f]{64}$'`),

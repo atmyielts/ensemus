@@ -830,6 +830,7 @@ export const usageLedger = platformSchema.table(
       sql`(${t.modelJobId} is null and ${t.runId} is not null and ${t.workUnitId} is not null) or (${t.modelJobId} is not null and ${t.modelCallId} is not null and ${t.runId} is null and ${t.workUnitId} is null and ${t.stepId} is null)`,
     ),
     index('usage_ledger_period_idx').on(t.organizationId, t.billingPeriod),
+    index('model_credit_unconfirmed_usage').on(t.organizationId, t.status, t.id).where(sql`${t.billable} and ${t.commercialMode}='cloud'`),
     check(
       'usage_ledger_meter_check',
       sql`${t.meter} in ('model_input_tokens','model_output_tokens','tool_call')`,
