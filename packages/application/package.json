@@ -43,6 +43,7 @@
     "./knowledge/purge": "./src/knowledge/purge.ts",
     "./knowledge/delegated-work-purge": "./src/knowledge/delegated-work-purge.ts",
     "./knowledge/delegated-record-purge": "./src/knowledge/delegated-record-purge.ts",
+    "./knowledge/delegated-erasure": "./src/knowledge/delegated-erasure.ts",
     "./knowledge/mcp": "./src/knowledge/mcp.ts",
     "./knowledge/verification": "./src/knowledge/verification.ts",
     "./knowledge/onboarding": "./src/knowledge/onboarding.ts",

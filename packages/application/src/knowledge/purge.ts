@@ -70,6 +70,27 @@ async function jobFor(tx: Tx, sourceId: string) {
   if (!job) throw new AppError('NOT_FOUND');
   return job;
 }
+async function assertMaterialHoldFree(
+  tx: Tx,
+  source: Source,
+  jobId: string,
+  operation: 'payload' | 'projection',
+) {
+  // These fixed functions retain the root hold barrier in this same destructive transaction.
+  // The two native roles have separate capabilities; no caller-selected SQL target is exposed.
+  const available = await tx.execute<{ available: boolean }>(
+    operation === 'payload'
+      ? sql`select to_regprocedure('lifecycle.source_payload_hold_free(uuid,bigint,uuid)') is not null available`
+      : sql`select to_regprocedure('lifecycle.source_projection_hold_free(uuid,bigint,uuid)') is not null available`,
+  );
+  if (available.rows[0]?.available !== true) throw new AppError('CAPABILITY_UNAVAILABLE');
+  const hold = await tx.execute<{ allowed: boolean }>(
+    operation === 'payload'
+      ? sql`select lifecycle.source_payload_hold_free(${source.id}::uuid,${source.version}::bigint,${jobId}::uuid) allowed`
+      : sql`select lifecycle.source_projection_hold_free(${source.id}::uuid,${source.version}::bigint,${jobId}::uuid) allowed`,
+  );
+  if (hold.rows[0]?.allowed !== true) throw new AppError('POLICY_DENIED');
+}
 async function close(
   tx: Tx,
   context: TenantContext,
@@ -337,11 +358,17 @@ export async function purgeRunTranscriptsForSource(
     let after: string | null = null,
       removed = 0;
     for (;;) {
-      const batch = await withTenantTx(database, context, async (tx) => {
+      const runIds = await withTenantTx(database, context, async (tx) => {
         await lockSource(tx, sourceId);
         const runIds = await runIdsFor(tx, context, sourceId, after);
         if (!(await deps.transcripts.fenceUsing!(tx, context, { runIds })).fenced)
           throw new Error('TRANSCRIPT_FENCE_UNCONFIRMED');
+        return runIds;
+      });
+      // Fence commit is independent of a later hold or unknown deletion outcome.
+      const batch = await withTenantTx(database, context, async (tx) => {
+        const source = await lockSource(tx, sourceId);
+        await assertMaterialHoldFree(tx, source, initial.job.id, 'payload');
         const result = await deps.transcripts.purgeUsing(tx, context, { runIds });
         if (
           !Number.isSafeInteger(result.removed) ||
@@ -366,6 +393,7 @@ export async function purgeRunTranscriptsForSource(
     const sha256 = fingerprint.digest('hex');
     await withTenantTx(database, context, async (tx) => {
       const source = await lockSource(tx, sourceId);
+      await assertMaterialHoldFree(tx, source, initial.job.id, 'payload');
       if (
         source.version !== initial.source.version ||
         sha256 !== (await allRunsHash(tx, context, sourceId))
@@ -526,7 +554,8 @@ export async function runSourcePurge(
     // All inputs, including uncited ones, invalidate a produced answer.
     while (
       await withTenantTx(database, context, async (tx) => {
-        await lockSource(tx, sourceId);
+        const source = await lockSource(tx, sourceId);
+        await assertMaterialHoldFree(tx, source, (await jobFor(tx, sourceId)).id, 'projection');
         const removed = await tx.execute<{ id: string }>(
           sql`delete from knowledge.answers where organization_id=${context.organizationId}::uuid and id in(select a.id from knowledge.answers a where a.organization_id=${context.organizationId}::uuid and (exists(select 1 from knowledge.answer_sources s where s.organization_id=a.organization_id and s.answer_id=a.id and s.source_id=${sourceId}::uuid) or exists(select 1 from knowledge.answer_citations c where c.organization_id=a.organization_id and c.answer_id=a.id and c.source_id=${sourceId}::uuid)) order by a.id limit ${PAGE}) returning id`,
         );
@@ -544,7 +573,8 @@ export async function runSourcePurge(
     }
     while (
       await withTenantTx(database, context, async (tx) => {
-        await lockSource(tx, sourceId);
+        const source = await lockSource(tx, sourceId);
+        await assertMaterialHoldFree(tx, source, (await jobFor(tx, sourceId)).id, 'projection');
         const facts = await tx.execute<{ id: string; trustState: string }>(
           sql`select f.id,f.trust_state as "trustState" from knowledge.facts f where f.organization_id=${context.organizationId}::uuid and exists(select 1 from knowledge.fact_evidence e where e.organization_id=f.organization_id and e.fact_id=f.id and e.source_id=${sourceId}::uuid) order by f.id limit ${PAGE} for update`,
         );
@@ -584,7 +614,8 @@ export async function runSourcePurge(
     // Append-only evidence packages/items and artifact citation hashes survive as audit lineage.
     while (
       await withTenantTx(database, context, async (tx) => {
-        await lockSource(tx, sourceId);
+        const source = await lockSource(tx, sourceId);
+        await assertMaterialHoldFree(tx, source, (await jobFor(tx, sourceId)).id, 'projection');
         const ids = await tx.execute<{ id: string }>(
           sql`select id from knowledge.chunks where organization_id=${context.organizationId}::uuid and source_id=${sourceId}::uuid order by id limit ${PAGE}`,
         );
@@ -649,7 +680,8 @@ export async function runSourcePurge(
           throw new Error('STORE_UNAVAILABLE');
         }
         await withTenantTx(database, context, async (tx) => {
-          await lockSource(tx, sourceId);
+          const source = await lockSource(tx, sourceId);
+          await assertMaterialHoldFree(tx, source, (await jobFor(tx, sourceId)).id, 'projection');
           await tx
             .delete(knowledgeObjectWriters)
             .where(
@@ -684,6 +716,7 @@ export async function runSourcePurge(
     return await withTenantTx(database, context, async (tx) => {
       const source = await lockSource(tx, sourceId);
       const job = await jobFor(tx, sourceId);
+      await assertMaterialHoldFree(tx, source, job.id, 'projection');
       if (!(await proofValid(tx, context, source, job)))
         throw new Error('TRANSCRIPT_PURGE_UNCONFIRMED');
       const currentArtifacts = await derived.confirmInTx(tx, context, { sourceId });
@@ -723,7 +756,10 @@ export async function runSourcePurge(
       database,
       context,
       sourceId,
-      error instanceof Error && error.message === 'STORE_UNAVAILABLE'
+      error instanceof AppError &&
+      (error.code === 'POLICY_DENIED' || error.code === 'CAPABILITY_UNAVAILABLE')
+        ? 'SOURCE_MATERIAL_HOLD_UNCONFIRMED'
+        : error instanceof Error && error.message === 'STORE_UNAVAILABLE'
         ? 'STORE_UNAVAILABLE'
         : error instanceof Error && error.message === 'ARTIFACT_PURGE_UNCONFIRMED'
           ? 'ARTIFACT_PURGE_UNCONFIRMED'

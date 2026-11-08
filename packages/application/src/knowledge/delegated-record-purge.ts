@@ -59,6 +59,12 @@ const target = (scope: Scope) =>
     eq(recordPurgeJobs.recordId, scope.id),
     eq(recordPurgeJobs.snapshotSha256, scope.snapshot),
   );
+async function holdFree(tx: Tx, scope: Scope) {
+  const available = await tx.execute<{ available: boolean }>(sql`select to_regprocedure('lifecycle.record_purge_hold_free(text,uuid,text)') is not null available`);
+  return available.rows[0]?.available === true && (await tx.execute<{ allowed: boolean }>(
+    sql`select lifecycle.record_purge_hold_free(${scope.kind},${scope.id}::uuid,${scope.snapshot}) allowed`,
+  )).rows[0]?.allowed === true;
+}
 async function cursor(tx: Tx, scope: Scope, kindOfPage: Cursor['kindOfPage']): Promise<Cursor> {
   const [job] = await tx
     .select({ afterRun: recordPurgeJobs.afterRun, afterChild: recordPurgeJobs.afterChild })
@@ -178,6 +184,7 @@ export function createDelegatedRecordPurge(deps: {
           await withTenantTx(deps.database, context, async (tx) => {
             await sameSnapshot(tx, scope);
             const query = { runIds: [row.id] };
+            if (!(await holdFree(tx,scope))) throw new AppError('POLICY_DENIED');
             const erased = await deps.transcripts.purgeUsing(tx, context, query);
             if (erased.remaining !== 0 || !(await fence(tx, context, query)).fenced)
               throw new AppError('INVALID_STATE');
@@ -259,18 +266,9 @@ export function createDelegatedRecordPurge(deps: {
       return withTenantTx(deps.database, context, async (tx) => {
         await sameSnapshot(tx, scope);
         const actual = await counts(tx, scope);
-        const available = await tx.execute<{ available: boolean }>(
-          sql`select to_regprocedure('lifecycle.record_purge_hold_free(text,uuid,text)') is not null available`,
-        );
-        const holdFree =
-          available.rows[0]?.available === true &&
-          (
-            await tx.execute<{ allowed: boolean }>(
-              sql`select lifecycle.record_purge_hold_free(${scope.kind},${scope.id}::uuid,${scope.snapshot}) allowed`,
-            )
-          ).rows[0]?.allowed === true;
+        const holdIsFree = await holdFree(tx,scope);
         const confirmed =
-          holdFree &&
+          holdIsFree &&
           actual.remaining === 0 &&
           actual.controlsRemaining === 0 &&
           actual.unproven === 0;

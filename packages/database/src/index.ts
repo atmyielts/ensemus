@@ -54,6 +54,7 @@ export * from './schema-ai-read-authority';
 export * from './schema-ai-delegated-inputs';
 export * from './schema-ai-source-closures';
 export * from './schema-ai-record-closures';
+export * from './schema-lifecycle-delegated-erasure';
 export * from './schema-artifact-authority';
 export * from './schema-model-jobs';
 export * from './schema-knowledge';

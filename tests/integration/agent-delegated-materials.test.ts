@@ -587,6 +587,43 @@ describe('delegated material birth evidence (0419)', () => {
     ).rejects.toThrow();
   });
 
+  it('keeps actual source-consumer private rows while held, with its permanent fence committed', async () => {
+    const source=await seedSearchableSource(app.db,a.owner,{passages:['heldclosure is genuine compiler material.'],grants:[{kind:'organization'}]});
+    const f=await fixture(['work.read','data.internal.read',`knowledge.${source.sourceId}.read`]);
+    const compiled=await compileEvidence(agent.db,f.context,{
+      model:createScriptedModelPort({route:()=>({decision:'deny',reasonCode:'NO_APPROVED_MODEL',policyVersion:'generated-lexical-only'})}),
+      authorizeAgentContext:async()=>true,
+    },{purpose:'agent_turn',question:'heldclosure',queryClassification:'internal',workUnitId:f.work.id,runId:f.runId,
+      sourceIds:[source.sourceId],budgetTokens:1000,signal:AbortSignal.timeout(10000)});
+    if(!compiled.ok) throw new Error(`TEST_COMPILE_REFUSED:${compiled.code}`);
+    await revokeSource(app.db,a.owner,{sourceId:source.sourceId,expectedVersion:1,reason:'Actual source held after closure.'});
+    const service=createServiceContext(a.organizationId),holdId=randomUUID();
+    const privateCount=()=>withTenantTx(agent.db,service,async tx=>(await tx.execute<{count:number}>(
+      sql`select count(*)::integer count from ai.step_payloads payload join ai.execution_steps step
+        on step.organization_id=payload.organization_id and step.id=payload.step_id
+        where step.organization_id=${a.organizationId}::uuid and step.run_id=${f.runId}::uuid`)).rows[0]!.count);
+    const before=await privateCount();expect(before).toBeGreaterThan(0);
+    await withTenantTx(app.db,a.owner,async tx=>{
+      await tx.execute(sql`insert into lifecycle.legal_holds(organization_id,id,matter_ref,placed_by_membership_id)
+        values(${a.organizationId}::uuid,${holdId}::uuid,${randomUUID()},${a.owner.membershipId}::uuid)`);
+      await tx.execute(sql`insert into lifecycle.legal_hold_scopes(organization_id,hold_id,scope_type)
+        values(${a.organizationId}::uuid,${holdId}::uuid,'organization')`);
+    });
+    try {
+      await expect(purgeRunTranscriptsForSource(agent.db,service,{transcripts:createRunTranscriptPurge()},{sourceId:source.sourceId}))
+        .rejects.toMatchObject({code:'POLICY_DENIED'});
+      expect(await privateCount()).toBe(before);
+      const [checkpoint]=await withTenantTx(app.db,a.owner,tx=>tx.select({fencedAt:runInputCheckpoints.fencedAt,purgedAt:runInputCheckpoints.payloadsPurgedAt})
+        .from(runInputCheckpoints).where(eq(runInputCheckpoints.runId,f.runId)));
+      expect(checkpoint?.fencedAt).toBeInstanceOf(Date);expect(checkpoint?.purgedAt).toBeNull();
+    } finally {
+      await withTenantTx(app.db,a.owner,tx=>tx.execute(sql`update lifecycle.legal_holds set status='released',released_by_membership_id=${a.owner.membershipId}::uuid,
+        released_at=now(),release_reason_code='TEST_RELEASE',version=version+1 where organization_id=${a.organizationId}::uuid and id=${holdId}::uuid`));
+    }
+    expect((await purgeRunTranscriptsForSource(agent.db,service,{transcripts:createRunTranscriptPurge()},{sourceId:source.sourceId})).removed).toBeGreaterThan(0);
+    expect(await privateCount()).toBe(0);
+  });
+
   it('requires actual native agent proof even for an explicitly checked source with no Work consumers', async () => {
     const source = await seedSearchableSource(app.db, a.owner, {
       passages: ['Actual source without a generated Work consumer.'],
@@ -929,6 +966,7 @@ describe('delegated material birth evidence (0419)', () => {
   it('full lifecycle: an actual hold preserves the copied body debt until a genuine release', async () => {
     const f = await genuineChildWithRecord(),
       holdId = randomUUID();
+    await closeRecord(f.input.id);
     await withTenantTx(app.db, a.owner, async (tx) => {
       await tx.execute(sql`insert into lifecycle.legal_holds(organization_id,id,matter_ref,placed_by_membership_id)
         values(${a.organizationId}::uuid,${holdId}::uuid,${randomUUID()},${a.owner.membershipId}::uuid)`);
@@ -936,12 +974,24 @@ describe('delegated material birth evidence (0419)', () => {
         sql`insert into lifecycle.legal_hold_scopes(organization_id,hold_id,scope_type) values(${a.organizationId}::uuid,${holdId}::uuid,'organization')`,
       );
     });
-    await closeRecord(f.input.id);
     const service = createServiceContext(a.organizationId),
       purger = recordAdapter();
-    expect(
-      await purger.purgeRecord(service, { kind: 'work_unit', id: f.input.id, limit: 25 }),
-    ).toMatchObject({ confirmed: false, removed: 0, remaining: 1, controlsRemaining: 0 });
+    const privateCount = () => withTenantTx(agent.db, service, async (tx) => (
+      await tx.execute<{ count: number }>(sql`select count(*)::integer count from ai.step_payloads payload
+        join ai.execution_steps step on step.organization_id=payload.organization_id and step.id=payload.step_id
+        where step.organization_id=${a.organizationId}::uuid and step.run_id in(${f.runId}::uuid,${f.childRunId}::uuid)`)
+    ).rows[0]!.count);
+    try {
+    const before = await privateCount();
+    expect(before).toBeGreaterThan(0);
+    const held = await purger.purgeRecord(service, { kind: 'work_unit', id: f.input.id, limit: 25 });
+    expect(held).toMatchObject({ confirmed: false, removed: 0, remaining: 1 });
+    expect(held.controlsRemaining).toBeGreaterThan(0);
+    expect(await privateCount()).toBe(before);
+    const [checkpoint] = await withTenantTx(app.db,a.owner,tx=>tx.select({ fencedAt:runInputCheckpoints.fencedAt,purgedAt:runInputCheckpoints.payloadsPurgedAt })
+      .from(runInputCheckpoints).where(eq(runInputCheckpoints.runId,f.runId)));
+    expect(checkpoint?.fencedAt).toBeInstanceOf(Date);
+    expect(checkpoint?.purgedAt).toBeNull();
     const [pending] = await withTenantTx(app.db, a.owner, (tx) =>
       tx
         .select()
@@ -950,10 +1000,12 @@ describe('delegated material birth evidence (0419)', () => {
     );
     expect(pending?.redactedAt).toBeNull();
     expect(pending?.dispositionSha256).toBeNull();
+    } finally {
     await withTenantTx(app.db, a.owner, (tx) =>
       tx.execute(sql`update lifecycle.legal_holds set status='released',released_by_membership_id=${a.owner.membershipId}::uuid,
       released_at=now(),release_reason_code='TEST_RELEASE',version=version+1 where organization_id=${a.organizationId}::uuid and id=${holdId}::uuid`),
     );
+    }
     expect(
       await purger.purgeRecord(service, { kind: 'work_unit', id: f.input.id, limit: 25 }),
     ).toMatchObject({ confirmed: true, removed: 1, remaining: 0, controlsRemaining: 0 });
