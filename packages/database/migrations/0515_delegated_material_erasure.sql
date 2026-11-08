@@ -241,6 +241,8 @@ GRANT SELECT(id,organization_id,requested_by_membership_id,state,erasure_started
 GRANT SELECT(organization_id,id,parent_run_id,work_unit_id,status,version) ON ai.agent_runs TO ensemus_migrator;
 GRANT SELECT(organization_id,run_id,purged_restore_generation) ON ai.run_input_checkpoints TO ensemus_migrator;
 GRANT SELECT(organization_id) ON ai.step_payloads TO ensemus_migrator;
+GRANT SELECT(organization_id,job_id) ON ai.model_job_payloads TO ensemus_migrator;
+GRANT SELECT(organization_id,id,state,fenced_at,fence_generation,payloads_purged_at,purged_fence_generation) ON ai.model_jobs TO ensemus_migrator;
 GRANT SELECT(organization_id,state) ON ai.run_output_writes TO ensemus_migrator;
 GRANT SELECT(organization_id,child_run_id,parent_run_id,child_work_unit_id,proposal_id,snapshot_id,birth_content_sha256,classification,
   redacted_at,redacted_version,disposition_sha256,redaction_scope_kind,redaction_scope_id,redaction_purge_job_id) ON ai.delegated_input_receipts TO ensemus_migrator;
@@ -254,6 +256,8 @@ GRANT SELECT(organization_id,source_id) ON knowledge.documents,knowledge.chunks,
 GRANT SELECT(organization_id,id,title,objective,version,run_id) ON work.work_units TO ensemus_migrator;
 CREATE POLICY delegated_erase_runs ON ai.agent_runs FOR SELECT TO ensemus_migrator USING(lifecycle.delegated_erasure_scope(organization_id));
 CREATE POLICY delegated_erase_payload_count ON ai.step_payloads FOR SELECT TO ensemus_migrator USING(lifecycle.delegated_erasure_scope(organization_id));
+CREATE POLICY delegated_erase_job_payload_count ON ai.model_job_payloads FOR SELECT TO ensemus_migrator USING(lifecycle.delegated_erasure_scope(organization_id));
+CREATE POLICY delegated_erase_model_jobs ON ai.model_jobs FOR SELECT TO ensemus_migrator USING(lifecycle.delegated_erasure_scope(organization_id));
 CREATE POLICY delegated_erase_writers ON ai.run_output_writes FOR SELECT TO ensemus_migrator USING(lifecycle.delegated_erasure_scope(organization_id));
 CREATE POLICY delegated_erase_receipts ON ai.delegated_input_receipts FOR SELECT TO ensemus_migrator USING(lifecycle.delegated_erasure_scope(organization_id));
 CREATE POLICY delegated_erase_births ON ai.delegated_work_births FOR SELECT TO ensemus_migrator USING(lifecycle.delegated_erasure_scope(organization_id));
@@ -285,6 +289,10 @@ BEGIN
     -- returned or read; SELECT(organization_id) suffices for the actual private-payload COUNT0.
     IF EXISTS(SELECT 1 FROM ai.unproven_child_work_inputs actual WHERE actual.organization_id=app.current_organization_id())
       OR EXISTS(SELECT 1 FROM ai.step_payloads actual WHERE actual.organization_id=app.current_organization_id())
+      OR(SELECT count(actual.job_id) FROM ai.model_job_payloads actual WHERE actual.organization_id=app.current_organization_id())<>0
+      OR EXISTS(SELECT 1 FROM ai.model_jobs actual WHERE actual.organization_id=app.current_organization_id()
+        AND(actual.state NOT IN('completed','refused','fenced') OR actual.fenced_at IS NULL OR actual.fence_generation<>1
+          OR actual.payloads_purged_at IS NULL OR actual.purged_fence_generation IS DISTINCT FROM actual.fence_generation))
       OR EXISTS(SELECT 1 FROM ai.run_output_writes actual WHERE actual.organization_id=app.current_organization_id() AND actual.state<>'settled')
       OR EXISTS(SELECT 1 FROM ai.agent_runs run LEFT JOIN ai.run_input_checkpoints checkpoint
         ON checkpoint.organization_id=run.organization_id AND checkpoint.run_id=run.id
@@ -592,12 +600,17 @@ CREATE POLICY material_delete_step_metadata ON ai.execution_steps FOR SELECT TO 
   USING(lifecycle.material_delete_scope(organization_id,NULL,NULL) AND id::text=current_setting('lifecycle.material_delete_row',true));
 CREATE POLICY material_delete_checkpoint_read ON ai.run_input_checkpoints FOR SELECT TO ensemus_migrator USING(lifecycle.material_delete_scope(organization_id,NULL,run_id));
 CREATE POLICY material_delete_checkpoint_lock ON ai.run_input_checkpoints FOR UPDATE TO ensemus_migrator USING(lifecycle.material_delete_scope(organization_id,NULL,run_id)) WITH CHECK(false);
+CREATE POLICY material_delete_model_job_read ON ai.model_jobs FOR SELECT TO ensemus_migrator
+  USING(lifecycle.material_delete_scope(organization_id,NULL,NULL) AND id::text=current_setting('lifecycle.material_delete_row',true));
+CREATE POLICY material_delete_model_job_lock ON ai.model_jobs FOR UPDATE TO ensemus_migrator
+  USING(lifecycle.material_delete_scope(organization_id,NULL,NULL) AND id::text=current_setting('lifecycle.material_delete_row',true)) WITH CHECK(false);
 CREATE FUNCTION lifecycle.guard_material_delete_hold() RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
-DECLARE tenant uuid;target_source uuid;target_run uuid;source_row record;payload_target boolean:=false;
+DECLARE tenant uuid;target_source uuid;target_run uuid;target_job uuid;source_row record;
+  payload_target boolean:=false;run_payload_target boolean:=false;job_payload_target boolean:=false;
   previous_org text:=current_setting('lifecycle.material_delete_org',true);previous_source text:=current_setting('lifecycle.material_delete_source',true);
   previous_run text:=current_setting('lifecycle.material_delete_run',true);previous_row text:=current_setting('lifecycle.material_delete_row',true);
 BEGIN
-  IF TG_OP<>'DELETE' OR TG_LEVEL<>'ROW' OR TG_RELID NOT IN('ai.step_payloads'::regclass,'knowledge.answers'::regclass,'knowledge.facts'::regclass,
+  IF TG_OP<>'DELETE' OR TG_LEVEL<>'ROW' OR TG_RELID NOT IN('ai.step_payloads'::regclass,'ai.model_job_payloads'::regclass,'knowledge.answers'::regclass,'knowledge.facts'::regclass,
     'knowledge.fact_evidence'::regclass,'knowledge.chunks'::regclass,'knowledge.embeddings'::regclass,'knowledge.documents'::regclass,'knowledge.object_writers'::regclass)
     OR current_user<>'ensemus_migrator' THEN RAISE EXCEPTION 'MATERIAL_DELETE_TARGET' USING ERRCODE='42501';END IF;
   tenant:=OLD.organization_id;
@@ -609,18 +622,21 @@ BEGIN
       RAISE EXCEPTION 'MATERIAL_DELETE_ERASURE_UNCONFIRMED' USING ERRCODE='EN850';END IF;
     RETURN OLD;
   END IF;
-  payload_target:=TG_RELID='ai.step_payloads'::regclass;
+  run_payload_target:=TG_RELID='ai.step_payloads'::regclass;job_payload_target:=TG_RELID='ai.model_job_payloads'::regclass;
+  payload_target:=run_payload_target OR job_payload_target;
   IF(payload_target AND(session_user<>'ensemus_agent' OR NOT knowledge.is_service_actor()))
     OR(NOT payload_target AND session_user<>'ensemus_app') THEN
     RAISE EXCEPTION 'MATERIAL_DELETE_NATIVE_OPERATION_REQUIRED' USING ERRCODE='42501';END IF;
   PERFORM set_config('lifecycle.material_delete_org',tenant::text,true);
   PERFORM set_config('lifecycle.material_delete_source','',true);PERFORM set_config('lifecycle.material_delete_run','',true);
   PERFORM set_config('lifecycle.material_delete_row','',true);
-  IF payload_target THEN
+  IF run_payload_target THEN
     PERFORM set_config('lifecycle.material_delete_row',OLD.step_id::text,true);
     SELECT actual.run_id INTO target_run FROM ai.execution_steps actual WHERE actual.organization_id=tenant AND actual.id=OLD.step_id;
     IF NOT FOUND THEN RAISE EXCEPTION 'MATERIAL_DELETE_RUN_UNKNOWN' USING ERRCODE='EN119';END IF;
     PERFORM set_config('lifecycle.material_delete_run',target_run::text,true);
+  ELSIF job_payload_target THEN
+    target_job:=OLD.job_id;PERFORM set_config('lifecycle.material_delete_row',target_job::text,true);
   ELSIF TG_RELID='knowledge.documents'::regclass THEN target_source:=OLD.source_id;
   ELSIF TG_RELID='knowledge.chunks'::regclass THEN target_source:=OLD.source_id;
   ELSIF TG_RELID='knowledge.fact_evidence'::regclass THEN target_source:=OLD.source_id;
@@ -645,10 +661,14 @@ BEGIN
   PERFORM actual.id FROM org.organizations actual WHERE actual.id=tenant FOR NO KEY UPDATE NOWAIT;
   IF NOT FOUND OR EXISTS(SELECT 1 FROM lifecycle.legal_holds actual WHERE actual.organization_id=tenant AND actual.status='active') THEN
     RAISE EXCEPTION 'MATERIAL_DELETE_HOLD_UNCONFIRMED' USING ERRCODE='EN119';END IF;
-  IF payload_target THEN
+  IF run_payload_target THEN
     PERFORM actual.run_id FROM ai.run_input_checkpoints actual WHERE actual.organization_id=tenant AND actual.run_id=target_run
       AND actual.fenced_at IS NOT NULL AND actual.fence_generation=1 FOR SHARE NOWAIT;
     IF NOT FOUND THEN RAISE EXCEPTION 'MATERIAL_DELETE_RUN_UNFENCED' USING ERRCODE='EN119';END IF;
+  ELSIF job_payload_target THEN
+    PERFORM actual.id FROM ai.model_jobs actual WHERE actual.organization_id=tenant AND actual.id=target_job
+      AND actual.fenced_at IS NOT NULL AND actual.fence_generation=1 FOR SHARE NOWAIT;
+    IF NOT FOUND THEN RAISE EXCEPTION 'MATERIAL_DELETE_MODEL_JOB_UNFENCED' USING ERRCODE='EN120';END IF;
   END IF;
   -- Facts after their last evidence deletion and multi-source answers deliberately get no guessed
   -- subject/source relationship here. Their exact source/job check stays in the real native DAL Tx.
@@ -660,6 +680,7 @@ EXCEPTION WHEN OTHERS THEN
 END $$;
 REVOKE ALL ON FUNCTION lifecycle.guard_material_delete_hold() FROM PUBLIC;
 CREATE TRIGGER step_payloads_material_hold BEFORE DELETE ON ai.step_payloads FOR EACH ROW EXECUTE FUNCTION lifecycle.guard_material_delete_hold();
+CREATE TRIGGER model_job_payloads_material_hold BEFORE DELETE ON ai.model_job_payloads FOR EACH ROW EXECUTE FUNCTION lifecycle.guard_material_delete_hold();
 CREATE TRIGGER answers_material_hold BEFORE DELETE ON knowledge.answers FOR EACH ROW EXECUTE FUNCTION lifecycle.guard_material_delete_hold();
 CREATE TRIGGER facts_material_hold BEFORE DELETE ON knowledge.facts FOR EACH ROW EXECUTE FUNCTION lifecycle.guard_material_delete_hold();
 CREATE TRIGGER fact_evidence_material_hold BEFORE DELETE ON knowledge.fact_evidence FOR EACH ROW EXECUTE FUNCTION lifecycle.guard_material_delete_hold();
