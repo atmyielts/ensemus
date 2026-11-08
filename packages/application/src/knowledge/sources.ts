@@ -36,6 +36,7 @@ import { idSchema } from '../ids';
 import { idFromRequest } from '../request-id';
 import { requestHash, runIdempotent } from '../idempotency';
 import { beginObjectWrite, settleObjectWrite } from './object-writes';
+import { rawKnowledgeObjects } from './raw-objects';
 import type {
   DocumentState,
   EmbeddingState,
@@ -770,7 +771,6 @@ async function storeUpload(
   context: TenantContext,
   input: { sourceId: string; documentId: string; body: Buffer; mediaType: string },
 ) {
-  const key = knowledgeObjectKey(context.organizationId, input.documentId);
   // Repeats must not replace an already published object's bytes after its source has moved on.
   const needed = await withTenantTx(database, context, async (tx) => {
     const actor = await person(tx, context, 'add'),
@@ -784,7 +784,7 @@ async function storeUpload(
   });
   if (!needed) return;
   try {
-    await store.put(key, input.body, input.mediaType);
+    await rawKnowledgeObjects(store).put(context, needed, input.body, input.mediaType);
   } catch {
     // The received row is durable. A retry can upload again, and the sweep can mark missing bytes failed.
     throw new AppError('INVALID_STATE');
@@ -820,10 +820,9 @@ async function storeUpload(
       }),
     );
   } catch (error) {
-    // The put resolved, so this particular writer has ended. Do not release its barrier until failed
-    // publication's bytes are confirmed absent; a delete outage intentionally strands it for recovery.
-    await store.delete(key);
-    if (await store.exists(key)) throw new AppError('INVALID_STATE');
+    // The actual native PUT receipt can settle this exact writer after grant/publication loss.
+    // A human callback has no source-purge service authority. Keep its bytes durably inventoried;
+    // only the admitted native closed-source lifecycle may delete them, including under a hold.
     await withTenantTx(database, context, (tx) => settleObjectWrite(tx, needed));
     throw error;
   }

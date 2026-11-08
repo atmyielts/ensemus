@@ -70,7 +70,7 @@ export function createKnowledgePurgePorts(deps: {
   const requireLifecycleBindings = () => {
     // M5's completed-job fast path reads only remaining. An absent lifecycle must still refuse
     // that revalidation; inventing a remaining count would conceal the actual missing authority.
-    if (!deps.derivedLifecycle || !deps.archiveLifecycle) throw new AppError('INVALID_STATE');
+    if (!deps.derivedLifecycle || !deps.archiveLifecycle || !deps.store.rawKnowledge) throw new AppError('INVALID_STATE');
   };
   return {
     derivedArtifacts: {

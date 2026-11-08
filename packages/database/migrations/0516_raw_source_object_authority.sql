@@ -31,7 +31,7 @@ CREATE TABLE lifecycle.raw_object_writes(
  CONSTRAINT raw_object_writes_pk PRIMARY KEY(organization_id,id),
  CONSTRAINT raw_object_write_key CHECK(object_key=organization_id::text||'/knowledge/'||document_id::text),
  CONSTRAINT raw_object_write_hash CHECK(content_sha256 ~ '^[0-9a-f]{64}$' AND size_bytes>=0),
- CONSTRAINT raw_object_write_state CHECK((generation=0 AND state='catalog') OR(generation>0 AND state IN('intent','put_admitted','finished','unknown','legacy'))),
+ CONSTRAINT raw_object_write_state CHECK((generation=0 AND state='catalog') OR(generation>0 AND state IN('intent','put_admitted','finished','unknown','legacy','not_dispatched'))),
  CONSTRAINT raw_object_write_receipt CHECK((state NOT IN('put_admitted','finished','unknown') OR(put_token_sha256 IS NOT NULL AND put_auth_restore_generation IS NOT NULL AND admitted_at IS NOT NULL)) AND(state<>'finished' OR finished_at IS NOT NULL))
 );
 CREATE UNIQUE INDEX raw_object_write_generation ON lifecycle.raw_object_writes(organization_id,document_id,generation);
@@ -227,7 +227,9 @@ BEGIN
  IF material IS NULL OR auth IS NULL THEN RETURN false;END IF;
  PERFORM set_config('lifecycle.raw_object_org',tenant::text,true);
  SELECT EXISTS(SELECT 1 FROM lifecycle.raw_object_writes w WHERE w.organization_id=tenant AND w.document_id=p_document AND w.write_id=p_write AND w.generation=p_generation
-  AND w.generation>0 AND w.state='finished' AND w.finished_at IS NOT NULL AND w.put_token_sha256 IS NOT NULL
+  AND w.generation>0 AND w.state IN('finished','not_dispatched') AND w.finished_at IS NOT NULL
+  AND((w.state='finished' AND w.put_token_sha256 IS NOT NULL AND w.admitted_at IS NOT NULL)
+   OR(w.state='not_dispatched' AND w.put_token_sha256 IS NULL AND w.admitted_at IS NULL))
   AND w.material_restore_generation=material AND w.put_auth_restore_generation=auth
   AND(app.current_actor_type()='service' OR(w.started_by_membership_id=app.current_membership_id() AND w.started_by_user_id=app.current_user_id()))) INTO answer;
  PERFORM set_config('lifecycle.raw_object_org',coalesce(previous,''),true);RETURN answer;
@@ -235,6 +237,38 @@ EXCEPTION WHEN OTHERS THEN PERFORM set_config('lifecycle.raw_object_org',coalesc
 END $$;
 REVOKE ALL ON FUNCTION lifecycle.raw_write_quiescent(uuid,uuid,bigint) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION lifecycle.raw_write_quiescent(uuid,uuid,bigint) TO ensemus_app;
+
+-- A source closure can permanently revoke an intent that was NEVER admitted. Source/admission use
+-- the same row barrier, and native transport starts only after its admission commits. This is
+-- positive future-protocol no-request authority, not a TTL/cancellation/provider-absence assertion.
+CREATE FUNCTION lifecycle.close_unadmitted_raw_write(p_document uuid,p_write uuid,p_generation bigint) RETURNS boolean
+ LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
+DECLARE tenant uuid:=app.current_organization_id();previous text:=current_setting('lifecycle.raw_object_org',true);w record;s record;material uuid;auth uuid;
+BEGIN
+ IF session_user<>'ensemus_app' OR NOT knowledge.is_service_actor() OR tenant IS NULL THEN RETURN false;END IF;
+ material:=ai.current_material_restore_generation();auth:=app.current_auth_restore_generation();
+ IF material IS NULL OR auth IS NULL THEN RETURN false;END IF;
+ PERFORM set_config('lifecycle.raw_object_org',tenant::text,true);
+ SELECT * INTO w FROM lifecycle.raw_object_writes x WHERE x.organization_id=tenant AND x.document_id=p_document AND x.write_id=p_write AND x.generation=p_generation;
+ IF w.id IS NULL OR w.generation<1 OR w.state<>'intent' OR w.put_token_sha256 IS NOT NULL OR w.admitted_at IS NOT NULL
+  OR w.material_restore_generation IS DISTINCT FROM material THEN
+  PERFORM set_config('lifecycle.raw_object_org',coalesce(previous,''),true);RETURN false;END IF;
+ SELECT x.id,x.state INTO s FROM knowledge.sources x WHERE x.organization_id=tenant AND x.id=w.source_id FOR SHARE NOWAIT;
+ IF s.id IS NULL OR s.state NOT IN('revoked','deleted') THEN
+  PERFORM set_config('lifecycle.raw_object_org',coalesce(previous,''),true);RETURN false;END IF;
+ PERFORM o.id FROM org.organizations o WHERE o.id=tenant FOR NO KEY UPDATE NOWAIT;
+ IF NOT FOUND OR NOT EXISTS(SELECT 1 FROM lifecycle.raw_source_inventories i WHERE i.organization_id=tenant AND i.scope_kind='organization'
+  AND i.protocol_version=1 AND i.state='open' AND i.material_restore_generation=material) THEN
+  PERFORM set_config('lifecycle.raw_object_org',coalesce(previous,''),true);RETURN false;END IF;
+ SELECT * INTO w FROM lifecycle.raw_object_writes x WHERE x.organization_id=tenant AND x.id=w.id FOR UPDATE NOWAIT;
+ IF w.state<>'intent' OR w.put_token_sha256 IS NOT NULL OR w.admitted_at IS NOT NULL THEN
+  PERFORM set_config('lifecycle.raw_object_org',coalesce(previous,''),true);RETURN false;END IF;
+ UPDATE lifecycle.raw_object_writes SET state='not_dispatched',finished_at=clock_timestamp(),put_auth_restore_generation=auth WHERE organization_id=tenant AND id=w.id;
+ PERFORM set_config('lifecycle.raw_object_org',coalesce(previous,''),true);RETURN true;
+EXCEPTION WHEN OTHERS THEN PERFORM set_config('lifecycle.raw_object_org',coalesce(previous,''),true);RAISE;
+END $$;
+REVOKE ALL ON FUNCTION lifecycle.close_unadmitted_raw_write(uuid,uuid,bigint) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION lifecycle.close_unadmitted_raw_write(uuid,uuid,bigint) TO ensemus_app;
 
 CREATE FUNCTION lifecycle.capture_raw_source_inventory(p_source uuid,p_version bigint,p_job uuid)
  RETURNS TABLE(more boolean) LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$

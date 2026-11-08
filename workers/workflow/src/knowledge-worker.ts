@@ -11,6 +11,7 @@ import {
   refuseUnadmittedDeletes,
 } from '@ensemus/application/saas/object-deletion';
 import { openAppDatabase } from '@ensemus/database';
+import { withRawKnowledgeObjects } from '@ensemus/application/knowledge/raw-objects';
 import { S3ObjectStore } from '@ensemus/storage';
 import { createLogger, errorCode } from '@ensemus/telemetry';
 import { AesGcmPayloadCodec } from '@ensemus/workflows/codec';
@@ -42,7 +43,7 @@ async function main() {
     accessKey: readSecret('OBJECT_STORAGE_ACCESS_KEY'),
     secretKey: readSecret('OBJECT_STORAGE_SECRET_KEY'),
   });
-  const guardedStore = refuseUnadmittedDeletes(store);
+  const guardedStore = withRawKnowledgeObjects({ database: app.db, store, exposedStore: refuseUnadmittedDeletes(store) });
   const lifecycle = createObjectDeletionLifecycle({ database: app.db, store });
   const deps = {
     database: app.db,
