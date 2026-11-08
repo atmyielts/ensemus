@@ -57,3 +57,4 @@ export * from './schema-artifact-provenance';
 export * from './schema-client-access';
 export * from './schema-sovereign';
 export * from './schema-saas';
+export * from './schema-model-credits';

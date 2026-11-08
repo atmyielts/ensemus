@@ -1,0 +1,70 @@
+// 0513 financial control metadata only. No runtime table grants, provider body, key or auth assertion.
+import { sql } from 'drizzle-orm';
+import { bigint, check, foreignKey, index, integer, pgSchema, primaryKey, text, timestamp, unique, uuid } from 'drizzle-orm/pg-core';
+import { organizations } from './schema';
+import { budgetReservations, modelProfiles, usageLedger } from './schema-ai';
+import { mainInputSnapshots } from './schema-ai-main-inputs';
+import { modelCallAttempts } from './schema-model-jobs';
+import { billingPeriods, billingRateCards, planVersions } from './schema-saas';
+
+const creditSchema = pgSchema('billing');
+export const modelCreditHolds = creditSchema.table('model_credit_holds', {
+  organizationId: uuid().notNull(),
+  id: uuid().notNull().defaultRandom(),
+  mainSnapshotId: uuid(),
+  modelCallId: uuid(),
+  usdReservationId: uuid(),
+  birthTransaction: text().notNull(),
+  writerToken: uuid().notNull(),
+  restoreGeneration: uuid().notNull(),
+  requestSha256: text().notNull(),
+  profileId: uuid().notNull(),
+  profileVersion: integer().notNull(),
+  maxInputTokens: integer().notNull(),
+  maxOutputTokens: integer().notNull(),
+  billingPeriodId: uuid().notNull(),
+  planVersionId: uuid().notNull(),
+  rateCardId: uuid().notNull(),
+  rateCardVersion: integer().notNull(),
+  inputMicrocreditsPerToken: bigint({ mode: 'bigint' }).notNull(),
+  outputMicrocreditsPerToken: bigint({ mode: 'bigint' }).notNull(),
+  ceilingMicrocredits: bigint({ mode: 'bigint' }).notNull(),
+  state: text().notNull().default('pending'),
+  inputUsageId: uuid(),
+  outputUsageId: uuid(),
+  chargedMicrocredits: bigint({ mode: 'bigint' }),
+  outcomeTokenSha256: text(),
+  outcomeKind: text(),
+  outcomeInputTokens: integer(),
+  outcomeOutputTokens: integer(),
+  outcomeSha256: text(),
+  outcomeRestoreGeneration: uuid(),
+  outcomeIssuedAt: timestamp({ withTimezone: true }),
+  outcomeExpiresAt: timestamp({ withTimezone: true }),
+  outcomeConsumedAt: timestamp({ withTimezone: true }),
+  createdAt: timestamp({ withTimezone: true }).notNull().default(sql`clock_timestamp()`),
+  dispatchedAt: timestamp({ withTimezone: true }),
+  settledAt: timestamp({ withTimezone: true }),
+}, t => [
+  primaryKey({ name: 'model_credit_holds_pk', columns: [t.organizationId, t.id] }),
+  unique('model_credit_main_once').on(t.organizationId, t.mainSnapshotId),
+  unique('model_credit_call_once').on(t.organizationId, t.modelCallId),
+  unique('model_credit_outcome_token').on(t.outcomeTokenSha256),
+  foreignKey({ name: 'model_credit_org', columns: [t.organizationId], foreignColumns: [organizations.id] }),
+  foreignKey({ name: 'model_credit_main', columns: [t.organizationId, t.mainSnapshotId], foreignColumns: [mainInputSnapshots.organizationId, mainInputSnapshots.id] }),
+  foreignKey({ name: 'model_credit_call', columns: [t.organizationId, t.modelCallId], foreignColumns: [modelCallAttempts.organizationId, modelCallAttempts.id] }),
+  foreignKey({ name: 'model_credit_usd_reservation', columns: [t.organizationId, t.usdReservationId], foreignColumns: [budgetReservations.organizationId, budgetReservations.id] }),
+  foreignKey({ name: 'model_credit_profile', columns: [t.organizationId, t.profileId], foreignColumns: [modelProfiles.organizationId, modelProfiles.id] }),
+  foreignKey({ name: 'model_credit_period', columns: [t.organizationId, t.billingPeriodId], foreignColumns: [billingPeriods.organizationId, billingPeriods.id] }),
+  foreignKey({ name: 'model_credit_plan', columns: [t.planVersionId], foreignColumns: [planVersions.id] }),
+  foreignKey({ name: 'model_credit_card', columns: [t.rateCardId], foreignColumns: [billingRateCards.id] }),
+  foreignKey({ name: 'model_credit_input_usage', columns: [t.organizationId, t.inputUsageId], foreignColumns: [usageLedger.organizationId, usageLedger.id] }),
+  foreignKey({ name: 'model_credit_output_usage', columns: [t.organizationId, t.outputUsageId], foreignColumns: [usageLedger.organizationId, usageLedger.id] }),
+  index('model_credit_active').on(t.organizationId, t.state).where(sql`${t.state} in ('pending','prepared','dispatched')`),
+  check('model_credit_principal', sql`(${t.mainSnapshotId} is not null and ${t.modelCallId} is null) or (${t.mainSnapshotId} is null and ${t.modelCallId} is not null)`),
+  check('model_credit_ceiling', sql`${t.maxInputTokens}>=0 and ${t.maxOutputTokens}>=0 and ${t.inputMicrocreditsPerToken}>=0 and ${t.outputMicrocreditsPerToken}>=0 and ${t.ceilingMicrocredits}>=0 and ${t.ceilingMicrocredits}::numeric=${t.maxInputTokens}::numeric*${t.inputMicrocreditsPerToken}::numeric+${t.maxOutputTokens}::numeric*${t.outputMicrocreditsPerToken}::numeric`),
+  check('model_credit_identity', sql`${t.profileVersion}>0 and ${t.rateCardVersion}>0 and ${t.requestSha256} ~ '^[0-9a-f]{64}$'`),
+  check('model_credit_state', sql`${t.state} in ('pending','prepared','dispatched','final','estimated','released')`),
+  check('model_credit_settlement', sql`(${t.state} in ('pending','prepared','dispatched') and ${t.chargedMicrocredits} is null and ${t.settledAt} is null and ${t.inputUsageId} is null and ${t.outputUsageId} is null) or (${t.state} in ('final','estimated') and ${t.chargedMicrocredits} is not null and ${t.chargedMicrocredits}>=0 and ${t.settledAt} is not null and ${t.inputUsageId} is not null and (${t.maxOutputTokens}=0 or ${t.outputUsageId} is not null)) or (${t.state}='released' and ${t.chargedMicrocredits} is not null and ${t.chargedMicrocredits}=0 and ${t.settledAt} is not null)`),
+  check('model_credit_outcome', sql`(${t.outcomeTokenSha256} is null and ${t.outcomeKind} is null and ${t.outcomeSha256} is null and ${t.outcomeInputTokens} is null and ${t.outcomeOutputTokens} is null and ${t.outcomeRestoreGeneration} is null and ${t.outcomeIssuedAt} is null and ${t.outcomeExpiresAt} is null and ${t.outcomeConsumedAt} is null) or (${t.outcomeTokenSha256} is not null and ${t.outcomeTokenSha256} ~ '^[0-9a-f]{64}$' and ${t.outcomeKind} is not null and ${t.outcomeSha256} is not null and ${t.outcomeSha256} ~ '^[0-9a-f]{64}$' and ${t.outcomeRestoreGeneration} is not null and ${t.outcomeRestoreGeneration}=${t.restoreGeneration} and ${t.outcomeIssuedAt} is not null and ${t.outcomeExpiresAt} is not null and ${t.outcomeExpiresAt}>${t.outcomeIssuedAt} and ((${t.outcomeKind}='measured' and ${t.outcomeInputTokens} is not null and ${t.outcomeInputTokens}>=0 and ${t.outcomeOutputTokens} is not null and ${t.outcomeOutputTokens}>=0) or (${t.outcomeKind}='not_sent' and ${t.outcomeInputTokens} is null and ${t.outcomeOutputTokens} is null)))`),
+]);

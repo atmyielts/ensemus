@@ -140,6 +140,8 @@ async function admitMainInputSnapshotInTx(
         requestHash: snapshot.requestHash,
         profileId: input.profileId,
         profileVersion: input.profileVersion,
+        maxInputTokens: input.ceiling.inputTokens,
+        maxOutputTokens: input.ceiling.outputTokens,
         viewerMembershipId: context.membershipId,
         inputInventory: proof.inventory,
         inventorySha256: proof.hash,

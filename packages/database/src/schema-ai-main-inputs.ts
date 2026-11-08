@@ -29,6 +29,9 @@ export const mainInputSnapshots = aiSchema.table(
     requestHash: text().notNull(),
     profileId: uuid().notNull(),
     profileVersion: integer().notNull(),
+    /** Legacy NULL has no prepaid proof; never infer a ceiling from USD or current profile limits. */
+    maxInputTokens: integer(),
+    maxOutputTokens: integer(),
     viewerMembershipId: uuid().notNull(),
     inputInventory: jsonb().notNull(),
     inventorySha256: text().notNull(),
@@ -65,6 +68,10 @@ export const mainInputSnapshots = aiSchema.table(
     check(
       'main_input_snapshots_identity',
       sql`${t.attempt}>0 and ${t.reservationAttempt}>=${t.attempt} and ${t.profileVersion}>0 and ${t.requestHash} ~ '^[0-9a-f]{64}$' and ${t.inventorySha256} ~ '^[0-9a-f]{64}$'`,
+    ),
+    check(
+      'main_input_snapshots_token_ceiling',
+      sql`(${t.maxInputTokens} is null and ${t.maxOutputTokens} is null) or (${t.maxInputTokens} is not null and ${t.maxInputTokens}>=0 and ${t.maxOutputTokens} is not null and ${t.maxOutputTokens}>=0)`,
     ),
     check(
       'main_input_snapshots_inventory',
