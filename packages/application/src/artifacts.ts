@@ -37,6 +37,15 @@ export interface ObjectStore {
   get(key: string): Promise<Buffer>;
   delete(key: string): Promise<void>;
   exists(key: string): Promise<boolean>;
+  /** Positive physical absence, including actual backend versioning capability. Missing support
+   * cannot certify purge. A current-key HEAD alone is never this proof. */
+  isPhysicallyAbsent?(key: string): Promise<boolean>;
+  /** Exactly one destructive request after a real capability check. A known completed DELETE can
+   * remain physically unproved; an unsupported preflight is distinct from transport ambiguity. */
+  deleteForPurge?(key: string): Promise<{
+    transport: 'not_attempted' | 'deleted' | 'unknown';
+    capabilityVerified: boolean;
+  }>;
 }
 
 /** Far longer than any upload can take, so a sweep never takes bytes a request is about to attach. */

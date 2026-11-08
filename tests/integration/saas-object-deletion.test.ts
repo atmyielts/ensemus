@@ -24,14 +24,14 @@ describe('actual tenant deletion and hold admission',()=>{
  };
  const execute=(store:LifecycleMemoryStore)=>createObjectDeletionExecutor({authority:createSqlObjectDeletionAuthority(app.db),store});
  it('honors any active hold before physical DELETE even when logical deletion predates it',async()=>{
-  const f=await prepared(),remove=vi.spyOn(f.store,'delete');
+  const f=await prepared(),remove=vi.spyOn(f.store,'deleteForPurge');
   await placeLegalHold(app.db,f.owner,{matterRef:randomUUID(),scopes:[{type:'organization',id:null}]});
   await expect(execute(f.store)(f.service,{kind:'ordinary',artifactId:f.file.artifactId})).resolves.toEqual({state:'held'});
   expect(remove).not.toHaveBeenCalled();
  });
  it('retains ambiguous DELETE debt, refuses a new hold, and never promotes by HEAD/retry',async()=>{
-  const f=await prepared(),remove=vi.spyOn(f.store,'delete').mockRejectedValue(new Error('TEST_UNKNOWN_DELETE')),
-   head=vi.spyOn(f.store,'exists').mockResolvedValue(false),erase=execute(f.store);
+  const f=await prepared(),remove=vi.spyOn(f.store,'deleteForPurge').mockResolvedValue({transport:'unknown',capabilityVerified:false}),
+   head=vi.spyOn(f.store,'isPhysicallyAbsent').mockResolvedValue(true),erase=execute(f.store);
   await expect(erase(f.service,{kind:'ordinary',artifactId:f.file.artifactId})).resolves.toEqual({state:'unconfirmed'});
   await expect(erase(f.service,{kind:'ordinary',artifactId:f.file.artifactId})).resolves.toEqual({state:'unconfirmed'});
   expect(remove).toHaveBeenCalledTimes(1);expect(head).not.toHaveBeenCalled();
@@ -40,18 +40,18 @@ describe('actual tenant deletion and hold admission',()=>{
   const counts=await withTenantTx(app.db,f.service,tx=>tx.execute<{unconfirmed:number}>(sql`select unconfirmed from lifecycle.object_delete_counts()`));
   expect(counts.rows[0]?.unconfirmed).toBe(1);
  });
- it('retries only HEAD after known terminal DELETE and records exact positive receipt',async()=>{
-  const f=await prepared(),remove=vi.spyOn(f.store,'delete'),head=vi.spyOn(f.store,'exists');
+ it('retries only capability-backed absence after known terminal DELETE and records exact positive receipt',async()=>{
+  const f=await prepared(),remove=vi.spyOn(f.store,'deleteForPurge'),head=vi.spyOn(f.store,'isPhysicallyAbsent');
   head.mockRejectedValueOnce(new Error('TEST_HEAD_OUTAGE'));
   const erase=execute(f.store),target={kind:'ordinary' as const,artifactId:f.file.artifactId};
-  await expect(erase(f.service,target)).rejects.toThrow('TEST_HEAD_OUTAGE');
+  await expect(erase(f.service,target)).resolves.toEqual({state:'unconfirmed'});
   await expect(erase(f.service,target)).resolves.toEqual({state:'purged',quiescent:true});
   expect(remove).toHaveBeenCalledTimes(1);expect(head).toHaveBeenCalledTimes(2);
   const counts=await withTenantTx(app.db,f.service,tx=>tx.execute<{unconfirmed:number;proven:number}>(sql`select unconfirmed,proven from lifecycle.object_delete_counts()`));
   expect(counts.rows[0]).toEqual({unconfirmed:0,proven:1});
  });
  it('refuses another tenant and an orphan upload whose writer has no completion receipt',async()=>{
-  const f=await prepared(),other=await lifecycleTenant(app.db,auth),remove=vi.spyOn(f.store,'delete');
+  const f=await prepared(),other=await lifecycleTenant(app.db,auth),remove=vi.spyOn(f.store,'deleteForPurge');
   await expect(execute(f.store)(createServiceContext(other.organizationId),{kind:'ordinary',artifactId:f.file.artifactId})).resolves.toEqual({state:'unconfirmed'});
   const id=randomUUID();
   await withTenantTx(app.db,other,tx=>tx.insert(blobLifecycle).values({organizationId:other.organizationId,
