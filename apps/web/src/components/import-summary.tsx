@@ -39,6 +39,10 @@ const WARNING_WORDS: Record<ImportWarningCode, string> = {
     'provider-backed documents remain reference material until the connection and its current permissions have been checked again.',
   CORE_ONLY_ARCHIVE:
     'archive uses the older core-only format. It does not carry the complete agent and knowledge inventory.',
+  FILES_AWAIT_REVIEW:
+    'files were placed in separate review storage. Their original input permissions could not be proven, so they were not added to work.',
+  FILE_LINK_REQUIRES_REUPLOAD:
+    'file links were left inactive. Review the downloaded file and attach it yourself to the right work when appropriate.',
 };
 
 const FAILURE_WORDS: Record<ImportFailureCode, string> = {
@@ -51,7 +55,8 @@ const FAILURE_WORDS: Record<ImportFailureCode, string> = {
   RECORD_REFUSED: 'A record in the archive did not pass the checks it has to pass.',
   FORMAT_NOT_SUPPORTED: 'This archive was made by a newer release than this one can read.',
   TARGET_NOT_EMPTY: 'This organization is no longer empty, so an archive cannot go into it.',
-  STORE_UNAVAILABLE: 'File storage could not be reached. Your operator can run the import again.',
+  STORE_UNAVAILABLE:
+    'File storage could not be confirmed. Your operator must inspect uncertain writes before retrying; they are held and never sent again automatically.',
 };
 
 const kindLabel = (kind: string) => kind.replaceAll('_', ' ');
@@ -85,7 +90,7 @@ export function ImportSummary({
         <div className="gap-above">
           <p>
             {view.status === 'failed'
-              ? 'Nothing that failed needs undoing. Your operator can run the import again, and whatever finished is not applied twice.'
+              ? 'Completed steps may already be present. Your operator must review the failure before resuming the same archive. Uncertain file writes stay held and are never sent again automatically.'
               : 'Your operator runs the import on their own machine, with the organization-import command, so the private key that opens the archive never reaches this page or this service.'}
           </p>
           <dl className="gap-above">

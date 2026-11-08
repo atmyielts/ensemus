@@ -16,6 +16,7 @@ export const REQUIRED_RESTORE_CONTRIBUTORS = [
   'm4-private-transcripts',
   'm5-sources-and-indexes',
   'm5-derived-artifacts',
+  'm6-archive-quarantine',
 ] as const;
 type ContributorName = (typeof REQUIRED_RESTORE_CONTRIBUTORS)[number];
 
@@ -103,6 +104,14 @@ async function metadata(
 ): Promise<MetadataAudit> {
   if (context.actorType !== 'service') throw new Error('RESTORE_NEEDS_SERVICE');
   return withTenantTx(database, context, async (tx) => {
+    if (name === 'm6-archive-quarantine') {
+      const [row] = await queryRows<MetadataAudit>(
+        tx,
+        sql`select * from sovereign.archive_file_restore_counts()`,
+      );
+      if (!row) throw new Error('RESTORE_METADATA_UNAVAILABLE');
+      return row;
+    }
     if (name === 'm4-runs-and-budgets') {
       const [row] = await queryRows<{ checked: number; attention: number }>(
         tx,

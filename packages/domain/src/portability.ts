@@ -183,6 +183,7 @@ export const PORTABILITY_INVENTORY = [
   inventory('ai.model_call_attempts', 'agents', 'operational_excluded'),
   inventory('ai.model_call_inputs', 'agents', 'private_excluded'),
   inventory('ai.model_job_payloads', 'agents', 'private_excluded'),
+  inventory('ai.unproven_child_work_inputs', 'agents', 'operational_excluded'),
   inventory('org.security_policies', 'policy', 'quarantined'),
   inventory('org.sso_connections', 'people', 'credentials_excluded'),
   inventory('org.sso_member_links', 'people', 'private_excluded'),
@@ -230,6 +231,9 @@ export const PORTABILITY_INVENTORY = [
   inventory('sovereign.export_epochs', 'history', 'operational_excluded'),
   inventory('sovereign.organization_import_manifests', 'history', 'operational_excluded'),
   inventory('sovereign.organization_import_effects', 'history', 'operational_excluded'),
+  inventory('sovereign.imported_archive_files', 'artifacts', 'operational_excluded'),
+  inventory('experience.onboarding_completions', 'policy', 'operational_excluded'),
+  inventory('experience.outcome_work_births', 'policy', 'operational_excluded'),
 ] as const;
 
 export const PORTABILITY_INVENTORY_PROFILES = {
@@ -430,6 +434,8 @@ export const IMPORT_WARNING_CODES = [
   'SOURCE_REQUIRES_REINGEST',
   'PROVIDER_RECONNECTION_REQUIRED',
   'CORE_ONLY_ARCHIVE',
+  'FILES_AWAIT_REVIEW',
+  'FILE_LINK_REQUIRES_REUPLOAD',
 ] as const;
 export type ImportWarningCode = (typeof IMPORT_WARNING_CODES)[number];
 

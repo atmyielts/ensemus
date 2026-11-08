@@ -37,7 +37,6 @@ import {
 } from '@ensemus/application';
 import { exportManifestSchema, type ExportManifest } from '@ensemus/contracts/portability-records';
 import {
-  artifacts,
   connections,
   createOrganization,
   domainEvents,
@@ -45,7 +44,6 @@ import {
   openAppDatabase,
   organizationExportParts,
   organizationExports,
-  resolveTenantContext,
   sealedSecrets,
   webhookEndpoints,
   withTenantTx,
@@ -70,7 +68,12 @@ import { open } from '@ensemus/sovereign/sealed';
 import { readTarEntries } from '@ensemus/sovereign/tar';
 import { createPortabilityActivities } from '@ensemus/workflows/portability-activities';
 import { and, eq } from 'drizzle-orm';
-import { seedExportRow, sha256Hex, testRecipient } from '../helpers/sovereign';
+import {
+  seedExportRow,
+  sha256Hex,
+  testRecipient,
+  nativeSovereignContext,
+} from '../helpers/sovereign';
 import { seedConnection, seedExternalAction } from '../helpers/integrations';
 import { urls } from '../helpers/stack';
 
@@ -140,7 +143,7 @@ describe('organization export', () => {
       name: 'Same Name Ltd',
       commercialMode: 'sovereign',
     });
-    return resolveTenantContext(db(), user.id, organizationId);
+    return nativeSovereignContext(db(), user.id, organizationId);
   }
 
   async function join(context: TenantContext, label: string, role: 'admin' | 'member') {
@@ -152,7 +155,7 @@ describe('organization export', () => {
       email: user.email,
       emailVerified: true,
     });
-    return resolveTenantContext(db(), user.id, context.organizationId);
+    return nativeSovereignContext(db(), user.id, context.organizationId);
   }
 
   const worker = (context: TenantContext) => createServiceContext(context.organizationId);
@@ -526,21 +529,13 @@ describe('organization export', () => {
         await file(owner, store, restricted.id, RESTRICTED_FILE_NAME, RESTRICTED_FILE_BYTES)
       ).id;
       // Internal by its own class, and linked only to restricted work, so it stays out all the same.
-      onlyLinkedFileId = randomUUID();
+      onlyLinkedFileId = (await file(owner, store, open.id, ONLY_LINKED_NAME, ONLY_LINKED_BYTES))
+        .id;
       const organizationId = owner.organizationId;
       await withTenantTx(db(), owner, async (tx) => {
-        const key = `${organizationId}/artifacts/${onlyLinkedFileId}`;
-        store.objects.set(key, Buffer.from(ONLY_LINKED_BYTES));
-        await tx.insert(artifacts).values({
-          organizationId,
-          id: onlyLinkedFileId,
-          name: ONLY_LINKED_NAME,
-          objectKey: key,
-          sha256: sha256Hex(ONLY_LINKED_BYTES),
-          mimeType: 'text/plain',
-          sizeBytes: ONLY_LINKED_BYTES.length,
-          classification: 'internal',
-        });
+        // Actual ordinary-human upload birth is retained. Only its links change, so an archive
+        // cannot accidentally qualify a manually fabricated, unknown-origin artifact as ordinary.
+        await tx.delete(workArtifacts).where(eq(workArtifacts.artifactId, onlyLinkedFileId));
         await tx.insert(workArtifacts).values([
           { organizationId, workUnitId: restricted.id, artifactId: onlyLinkedFileId },
           // Linked to both, so it is exported, and only the link to restricted work stays out.

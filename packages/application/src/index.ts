@@ -14,6 +14,7 @@ export * from './people';
 export * from './portability-export';
 export * from './portability-epoch';
 export * from './portability-import';
+export * from './portability-archive-files';
 export * from './portability-extensions';
 export * from './portability-sections';
 export * from './receipts';

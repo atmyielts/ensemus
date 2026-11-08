@@ -6930,7 +6930,7 @@ export interface paths {
         get?: never;
         put?: never;
         post?: never;
-        /** Revoke this connection�s provisioning token after recent factor confirmation */
+        /** Revoke this connection’s provisioning token after recent factor confirmation */
         delete: operations["revokeScimToken"];
         options?: never;
         head?: never;
@@ -7351,6 +7351,31 @@ export interface paths {
                 503: components["responses"]["RestorePending"];
             };
         };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/organizations/{organization_id}/imports/{import_id}/files/{source_artifact_id}/download": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+                import_id: components["parameters"]["ImportID"];
+                source_artifact_id: string;
+            };
+            cookie?: never;
+        };
+        /**
+         * Download an inert archived file for review by its current native custodian
+         * @description Requires a finished verified write and current permission checks before and after storage I/O. No Work attachment or provenance promotion is created.
+         */
+        get: operations["downloadImportedArchiveFile"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -9125,6 +9150,37 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
+        };
+    };
+    downloadImportedArchiveFile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+                import_id: components["parameters"]["ImportID"];
+                source_artifact_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The verified bytes as an attachment */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/octet-stream": string;
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["RestorePending"];
         };
     };
 }

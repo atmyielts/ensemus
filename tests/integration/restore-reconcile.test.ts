@@ -26,7 +26,6 @@ import {
 import {
   createOrganization,
   openAppDatabase,
-  resolveTenantContext,
   withTenantTx,
   externalActionAttempts,
   externalActions,
@@ -41,7 +40,7 @@ import { createActivities } from '@ensemus/workflows/activities';
 import { eq } from 'drizzle-orm';
 import { restoreReconcileCommand } from '../../workers/workflow/src/restore-reconcile-command';
 import { seedConnection, seedExternalAction } from '../helpers/integrations';
-import { seedExportRow, testRecipient } from '../helpers/sovereign';
+import { seedExportRow, testRecipient, nativeSovereignContext } from '../helpers/sovereign';
 import { urls } from '../helpers/stack';
 
 class MemoryStore implements ObjectStore, LedgerReader {
@@ -107,7 +106,7 @@ describe('reconciling after a restore', () => {
       name: 'Same Name Ltd',
       commercialMode: 'sovereign',
     });
-    return resolveTenantContext(db(), id, organizationId);
+    return nativeSovereignContext(db(), id, organizationId);
   }
 
   const file = (context: TenantContext, store: MemoryStore, workUnitId: string, name: string) =>

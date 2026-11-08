@@ -464,3 +464,95 @@ export const organizationImportEffects = sovereignSchema.table(
     ),
   ],
 );
+
+/** Unknown-origin archive bytes are separate inert custody. Source IDs are immutable archive
+ * references, never live artifact FKs; this header survives until physical deletion is proven. */
+export const importedArchiveFiles = sovereignSchema.table(
+  'imported_archive_files',
+  {
+    organizationId: uuid().notNull(),
+    importId: uuid().notNull(),
+    sourceArtifactId: uuid().notNull(),
+    metadataPartPath: text().notNull(),
+    metadataSha256: text().notNull(),
+    binaryPartPath: text().notNull(),
+    binarySha256: text().notNull(),
+    name: text().notNull(),
+    mimeType: text().notNull(),
+    sizeBytes: bigint({ mode: 'number' }).notNull(),
+    classification: text().notNull(),
+    custodianMembershipId: uuid().notNull(),
+    writeToken: uuid().notNull(),
+    objectKey: text().notNull(),
+    state: text().notNull(),
+    writeState: text().notNull(),
+    held: boolean().notNull().default(false),
+    writeFinishedAt: moment(),
+    writeFencedAt: moment(),
+    closedAt: moment(),
+    physicalPurgedAt: moment(),
+    createdAt: moment()
+      .notNull()
+      .default(sql`clock_timestamp()`),
+  },
+  (t) => [
+    primaryKey({
+      name: 'imported_archive_files_pkey',
+      columns: [t.organizationId, t.importId, t.sourceArtifactId],
+    }),
+    foreignKey({
+      name: 'archive_file_import_fk',
+      columns: [t.organizationId, t.importId],
+      foreignColumns: [organizationImports.organizationId, organizationImports.id],
+    }),
+    foreignKey({
+      name: 'archive_file_metadata_part_fk',
+      columns: [t.organizationId, t.importId, t.metadataPartPath],
+      foreignColumns: [
+        organizationImportManifests.organizationId,
+        organizationImportManifests.importId,
+        organizationImportManifests.path,
+      ],
+    }),
+    foreignKey({
+      name: 'archive_file_binary_part_fk',
+      columns: [t.organizationId, t.importId, t.binaryPartPath],
+      foreignColumns: [
+        organizationImportManifests.organizationId,
+        organizationImportManifests.importId,
+        organizationImportManifests.path,
+      ],
+    }),
+    foreignKey({
+      name: 'archive_file_custodian_fk',
+      columns: [t.organizationId, t.custodianMembershipId],
+      foreignColumns: [memberships.organizationId, memberships.id],
+    }),
+    check(
+      'imported_archive_files_metadata_sha256_check',
+      sql`${t.metadataSha256}~'^[0-9a-f]{64}$'`,
+    ),
+    check('imported_archive_files_binary_sha256_check', sql`${t.binarySha256}~'^[0-9a-f]{64}$'`),
+    check('imported_archive_files_size_bytes_check', sql`${t.sizeBytes} between 1 and 26214400`),
+    check(
+      'imported_archive_files_classification_check',
+      sql`${t.classification} in('public','internal','confidential')`,
+    ),
+    check(
+      'imported_archive_files_state_check',
+      sql`${t.state} in('writing','unknown','quarantined','closing','purged')`,
+    ),
+    check(
+      'imported_archive_files_write_state_check',
+      sql`${t.writeState} in('active','settled','fenced')`,
+    ),
+    check(
+      'archive_file_key',
+      sql`${t.objectKey}=${t.organizationId}::text||'/archive-quarantine/'||${t.importId}::text||'/'||${t.sourceArtifactId}::text||'/'||${t.writeToken}::text`,
+    ),
+    check(
+      'archive_file_finished',
+      sql`(${t.state}<>'quarantined' or(${t.writeState} in('settled','fenced') and ${t.writeFinishedAt} is not null and ${t.closedAt} is null)) and(${t.state}<>'purged' or(${t.writeState} in('settled','fenced') and ${t.physicalPurgedAt} is not null and ${t.closedAt} is not null))`,
+    ),
+  ],
+);

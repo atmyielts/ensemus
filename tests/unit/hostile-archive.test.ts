@@ -442,6 +442,16 @@ function fakeDatabase(row: Record<string, unknown>) {
   const scope = new Map<string, string>();
   let manifest: Record<string, unknown> | undefined;
   const parts = new Map<string, { hash: string; records: unknown[] }>();
+  const archiveFiles = new Map<
+    string,
+    {
+      record: Record<string, unknown>;
+      token: string;
+      key: string;
+      state: 'writing' | 'unknown' | 'quarantined' | 'closing';
+      bytes: Buffer;
+    }
+  >();
   let verified = false;
   let lastQuery = '';
   const writes: { table: string; values: Record<string, unknown> }[] = [];
@@ -549,6 +559,74 @@ function fakeDatabase(row: Record<string, unknown>) {
           throw new Error('TEST_UNVERIFIED_EFFECT');
         return { rows: [{ target: 'scripted' }] };
       }
+      if (text.includes('begin_archive_file')) {
+        const record = JSON.parse(params[1] as string) as Record<string, unknown>,
+          bytes = params[2] as Buffer,
+          part = parts.get(scope.get('app.portability_part_path') ?? ''),
+          binary = parts.get(`artifacts/${String(record.id)}.bin.sealed`);
+        if (
+          !verified ||
+          scope.get('app.portability_import_id') !== row.id ||
+          part?.hash !== scope.get('app.portability_part_sha256') ||
+          !part.records.some((item) => canonicalJson(item) === canonicalJson(record)) ||
+          binary?.hash !== sha256(bytes) ||
+          record.sha256 !== sha256(bytes) ||
+          record.size_bytes !== bytes.length
+        )
+          throw new Error('TEST_UNVERIFIED_ARCHIVE_BYTES');
+        const prior = archiveFiles.get(String(record.id));
+        if (prior && prior.state !== 'quarantined')
+          throw new Error('TEST_ARCHIVE_WRITER_UNSETTLED', { cause: { code: 'EN415' } });
+        const token = prior?.token ?? randomUUID(),
+          key =
+            prior?.key ??
+            `${String(row.organizationId)}/archive-quarantine/${String(row.id)}/${String(record.id)}/${token}`;
+        if (!prior)
+          archiveFiles.set(String(record.id), { record, token, key, state: 'writing', bytes });
+        return {
+          rows: [
+            {
+              claimed: !prior,
+              object_key: key,
+              write_token: token,
+              state: prior?.state ?? 'writing',
+              binary_sha256: record.sha256,
+              size_bytes: bytes.length,
+            },
+          ],
+        };
+      }
+      if (text.includes('finish_archive_file')) {
+        const file = archiveFiles.get(String(params[1]));
+        if (
+          !file ||
+          file.token !== params[2] ||
+          file.record.sha256 !== params[3] ||
+          file.bytes.length !== params[4]
+        )
+          throw new Error('TEST_ARCHIVE_SETTLEMENT_MISMATCH');
+        file.state = 'quarantined';
+        return { rows: [{ ready: true }] };
+      }
+      if (text.includes('unknown_archive_file') || text.includes('close_finished_archive_file')) {
+        const file = archiveFiles.get(String(params[1]));
+        if (file && file.token === params[2])
+          file.state = text.includes('unknown_archive_file') ? 'unknown' : 'closing';
+        return { rows: [] };
+      }
+      if (text.includes('archive_file_ready')) {
+        const record = JSON.parse(params[1] as string) as Record<string, unknown>,
+          file = archiveFiles.get(String(record.id));
+        return {
+          rows: [
+            {
+              ready:
+                file?.state === 'quarantined' &&
+                canonicalJson(file.record) === canonicalJson(record),
+            },
+          ],
+        };
+      }
       if (text.includes('to_regclass'))
         return { rows: PORTABILITY_INVENTORY.map((entry) => ({ table_name: entry.table })) };
       if (text.includes('pg_catalog.pg_tables'))
@@ -582,7 +660,7 @@ function fakeDatabase(row: Record<string, unknown>) {
   const database = {
     transaction: (_bindings: unknown, fn: (inner: unknown) => Promise<unknown>) => fn(tx),
   } as unknown as AppDatabase;
-  return { database, writes, updates, lastQuery: () => lastQuery };
+  return { database, writes, updates, archiveFiles, lastQuery: () => lastQuery };
 }
 
 const memoryStore = (ledgerEntries: Readonly<Record<string, Buffer>> = {}) => {
@@ -590,6 +668,11 @@ const memoryStore = (ledgerEntries: Readonly<Record<string, Buffer>> = {}) => {
   const deps: Pick<ImportRunDeps, 'ledger' | 'store'> = {
     store: {
       put: async (key, body) => void objects.set(key, body),
+      get: async (key) => {
+        const bytes = objects.get(key);
+        if (!bytes) throw new Error('GENERATED_OBJECT_MISSING');
+        return bytes;
+      },
       exists: async (key) => objects.has(key),
       delete: async (key) => void objects.delete(key),
     },
@@ -796,7 +879,14 @@ describe('the runner', () => {
       new Set(['tombstone.recorded', 'organization_import.finished']),
     );
 
-    expect(objects.get(objectKey(organizationId, ids.keptFile))).toEqual(kept);
+    expect(
+      fake.writes.filter(
+        ({ table }) => table === 'work.artifacts' || table === 'work.work_artifacts',
+      ),
+    ).toEqual([]);
+    expect(result.warningCounts.FILES_AWAIT_REVIEW).toBe(1);
+    expect(result.warningCounts.FILE_LINK_REQUIRES_REUPLOAD).toBe(1);
+    expect(objects.get(fake.archiveFiles.get(ids.keptFile)!.key)).toEqual(kept);
     expect(objects.size).toBe(1);
   });
 
@@ -811,6 +901,7 @@ describe('the runner', () => {
       const kind = (page.records[0] as { kind: string }).kind;
       expected[kind] = (expected[kind] ?? 0) + page.records.length;
     }
+    expected.work_artifact = 0;
     expect(result.appliedCounts).toEqual(expected);
   });
 
@@ -978,9 +1069,10 @@ describe('the runner', () => {
     );
     expect(another).toMatchObject({ status: 'failed', failureCode: 'TARGET_NOT_EMPTY' });
 
-    // The same archive carries on where it stopped: nothing applied before is applied again.
+    // Completed metadata stays, but the same archive must not resend a possibly still active put.
     const resumed = await run(fake, row, first.bytes);
-    expect(resumed.status).toBe('completed_with_warnings');
+    expect(resumed).toMatchObject({ status: 'failed', failureCode: 'RECORD_REFUSED' });
+    expect(puts).toBe(1);
     expect(fake.writes.filter(({ table }) => table === 'work.work_units')).toHaveLength(
       appliedBefore,
     );
