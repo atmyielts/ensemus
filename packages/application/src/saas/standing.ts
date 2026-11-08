@@ -22,7 +22,7 @@ import {
   NOTIFY_STANDING_CHANGED,
   organizationTargetRef,
 } from '@ensemus/saas/events';
-import { and, desc, eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { emit } from '../events';
 import { notify } from '../work';
 import { AppError } from '../errors';
@@ -30,6 +30,7 @@ import { idSchema } from '../ids';
 import { loadPlanTerms } from './catalog';
 import { canStartOn } from '@ensemus/saas/catalog';
 import { startSubscriptionInTx } from './subscriptions';
+import { loadEntitlementMetadataInTx } from './entitlement-metadata';
 
 export type StandingActor =
   | { type: 'operator'; ref: string }
@@ -179,16 +180,11 @@ export async function getTenantStanding(database: AppDatabase, context: TenantCo
       .from(organizations)
       .where(eq(organizations.id, context.organizationId));
     if (!org || org.lifecycle === 'deleted') throw new AppError('NOT_FOUND');
-    const [change] = await tx
-      .select({ reasonCode: standingChanges.reasonCode, occurredAt: standingChanges.occurredAt })
-      .from(standingChanges)
-      .where(eq(standingChanges.organizationId, context.organizationId))
-      .orderBy(desc(standingChanges.occurredAt), desc(standingChanges.id))
-      .limit(1);
+    const change=await loadEntitlementMetadataInTx(tx,context);
     return {
       lifecycle: org.lifecycle,
-      reasonCode: change?.reasonCode ?? null,
-      changedAt: change?.occurredAt ?? null,
+      reasonCode: change.standingReasonCode,
+      changedAt: change.standingChangedAt,
     };
   });
 }

@@ -21,6 +21,7 @@ import {
   organizationTargetRef,
 } from '@ensemus/saas/events';
 import { and, desc, eq, gt, lte } from 'drizzle-orm';
+import { loadEntitlementMetadataInTx } from './entitlement-metadata';
 import { AppError } from '../errors';
 import { idSchema } from '../ids';
 import { emit } from '../events';
@@ -272,9 +273,7 @@ export async function consumeUsage(
 
 /** What the entitlement check asks when a Cloud model call is about to start. */
 export async function loadCreditBalanceInTx(tx: Tx, context: TenantContext): Promise<bigint> {
-  const [account] = await tx
-    .select({ balance: creditAccounts.balanceMicrocredits })
-    .from(creditAccounts)
-    .where(eq(creditAccounts.organizationId, context.organizationId));
-  return account?.balance ?? 0n;
+  // The SQL function checks the real caller and current tenant; no raw account/usage cursor read.
+  if(!context.organizationId) throw new AppError('NOT_FOUND');
+  return (await loadEntitlementMetadataInTx(tx,context)).balanceMicrocredits;
 }

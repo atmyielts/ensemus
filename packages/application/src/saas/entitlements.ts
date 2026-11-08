@@ -2,7 +2,6 @@
 // whether something is licensed. See docs/06-delivery/m8-slices.md and ADR-032 D5.
 import {
   organizations,
-  subscriptions,
   withTenantTx,
   type AppDatabase,
   type TenantContext,
@@ -16,10 +15,10 @@ import {
   type EntitlementRequest,
   type TenantLifecycle,
 } from '@ensemus/saas/entitlements';
-import { desc, eq } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { AppError } from '../errors';
 import { loadPlanTerms } from './catalog';
-import { loadCreditBalanceInTx } from './credits';
+import { loadEntitlementMetadataInTx } from './entitlement-metadata';
 
 async function entitlementFacts(
   tx: Tx,
@@ -34,31 +33,26 @@ async function entitlementFacts(
   if (!org || org.lifecycle === 'deleted') throw new AppError('NOT_FOUND');
   if (!['cloud', 'byom', 'sovereign'].includes(org.commercialMode)) throw new AppError('NOT_FOUND');
   const commercialMode = org.commercialMode as EntitlementFacts['commercialMode'];
-  const [sub] =
+  const facts =
     commercialMode === 'sovereign'
-      ? []
-      : await tx
-          .select()
-          .from(subscriptions)
-          .where(eq(subscriptions.organizationId, context.organizationId))
-          .orderBy(desc(subscriptions.createdAt), desc(subscriptions.id))
-          .limit(1);
-  const plan = sub ? await loadPlanTerms(tx, sub.planVersionId) : null;
+      ? null
+      : await loadEntitlementMetadataInTx(tx,context);
+  const plan = facts?.planVersionId ? await loadPlanTerms(tx, facts.planVersionId) : null;
   const balanceMicrocredits =
     balance &&
     billingEnabled &&
     org.lifecycle === 'active' &&
     commercialMode === 'cloud' &&
     plan &&
-    (sub?.status === 'active' || sub?.status === 'past_due')
-      ? await loadCreditBalanceInTx(tx, context)
+    (facts?.subscriptionStatus === 'active' || facts?.subscriptionStatus === 'past_due')
+      ? facts.balanceMicrocredits
       : null;
   return {
     billingEnabled,
     commercialMode,
     lifecycle: org.lifecycle as TenantLifecycle,
     plan,
-    subscriptionStatus: sub ? (sub.status as EntitlementFacts['subscriptionStatus']) : null,
+    subscriptionStatus: facts?.subscriptionStatus ?? null,
     balanceMicrocredits,
   };
 }
