@@ -21,13 +21,21 @@ export async function restoreVerificationTokenIsCurrent(token:unknown,secret:str
     typeof claims.exp==='number'&&Number.isSafeInteger(claims.exp)&&claims.exp>claims.iat);
 }
 export function createAuthRestoreAdmission(database:ReturnType<typeof openAuthDatabase>['db'],secret:string):BetterAuthPlugin{
-  return{id:'ensemus-auth-restore-admission',hooks:{before:[{
+  const admitted=async()=>{
+    let state;
+    try{state=await readAuthRestoreAdmission(database);}
+    catch(error){throw new APIError('SERVICE_UNAVAILABLE',{code:isRestoreAdmissionDenied(error)?'RESTORE_PENDING':'SIGN_IN_UNAVAILABLE'});}
+    if(state.phase!=='admitted')throw new APIError('SERVICE_UNAVAILABLE',{code:'RESTORE_PENDING'});
+    return state;
+  };
+  return{id:'ensemus-auth-restore-admission',
+   // Native initializes plugins sequentially. This FIRST plugin refuses before any later provider
+   // initialization; request hooks alone would run after provider discovery had already started.
+   init:async()=>{await admitted();},
+   hooks:{before:[{
     matcher:()=>true,
     handler:createAuthMiddleware(async context=>{
-      let state;
-      try{state=await readAuthRestoreAdmission(database);}
-      catch(error){throw new APIError('SERVICE_UNAVAILABLE',{code:isRestoreAdmissionDenied(error)?'RESTORE_PENDING':'SIGN_IN_UNAVAILABLE'});}
-      if(state.phase!=='admitted')throw new APIError('SERVICE_UNAVAILABLE',{code:'RESTORE_PENDING'});
+      const state=await admitted();
       if(context.path==='/verify-email'&&!(await restoreVerificationTokenIsCurrent(context.query?.token,secret,state.cutoff)))
         throw new APIError('BAD_REQUEST',{code:'INVALID_TOKEN'});
     }),

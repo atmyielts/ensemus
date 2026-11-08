@@ -64,10 +64,18 @@ The reverse order would make different gaps, and worse ones. Objects taken befor
 
 ## Restore, in this order
 
-Do this with people kept out, and keep the connector worker stopped throughout.
+Do this with every reader/worker stopped, including overlay replicas, and keep the connector worker
+stopped throughout. The 0422/0515 auth/material restore additions below are **unregistered,
+unchecked source**. Previous backup/restore evidence does not qualify them; do not use this revised
+procedure until the composed migrations, native-role gate and actual isolated drill pass.
 
 1. **Check that the ledger is still there.** It is what stands between an old database and everything deleted since. If the store you are restoring into is the one that was running, it is. If you are restoring into a new store, copy `tombstone-ledger/` from the old store at its newest state, if any of it survives, before going further. **If the ledger is lost with the store, deletions made after this backup cannot be put back**, and those files return. Tell the people affected.
-2. **Restore.** It checks every part of the backup before touching anything, stops the services, restores the three databases, and writes the objects back:
+2. **Restore.** It checks every part before mutation, enumerates and stops all configured project readers
+   (retaining PostgreSQL/object storage), and verifies none remain running. It restores the three
+   databases, applies the image's schema, and invokes actual migrator begin. Begin closes authentication,
+   creates a new auth generation/cutoff, rotates the protected material UUID, and revokes outstanding
+   invitations and SCIM bearer sets. The separate auth-only job then uses the native crypto key to
+   invalidate sessions/assurances/transient state/recovery codes before objects are written:
 
    ```sh
    node infrastructure/scripts/sovereign-restore.mjs \
@@ -78,7 +86,10 @@ Do this with people kept out, and keep the connector worker stopped throughout.
 
    Every key goes through `mayRestoreObject`, which refuses `tombstone-ledger/` and `tombstone-ledger-quarantine/` however they are spelled. A file with an entry in the ledger does not get its bytes back, and is printed as `left_out_as_tombstoned`. Those bytes stay in the sealed backup. If an entry turns out to be forged, that is how you get the file back.
 
-3. **Apply any newer migrations**, as the [runbook](../05-container-deployment-runbook.md#backup-and-restore) does.
+3. **Complete the independent authority review below.** The script prints the pending auth generation
+   and never acknowledges or restarts anything. Missing 0422/0515/helper/job/key or incomplete cleanup
+   stops the restore. Every partial restore retry creates fresh generations before new object bytes.
+   The real 15-minute cooldown is a minimum, not automatic admission.
 4. **Start Temporal, and nothing else.** The reconcile asks it about runs. **If Temporal is not restored, every run looks closed to it**, and applying would fail all of that work, so check this first.
 5. **Read the report.** This changes nothing, the ledger included:
 
@@ -94,7 +105,72 @@ Do this with people kept out, and keep the connector worker stopped throughout.
    ```
 
 8. **Review what it lists**, below. Running it again is always safe, and changes nothing that has already been done.
-9. **Start the web tier and the other workers.** Then, once someone has reviewed the intents, **the connector worker, last.**
+9. **Start the web tier and other workers only after exact-generation authority acknowledgment AND
+   actual material reconciliation.** Then, after explicit intent/charge/send review, start the connector
+   worker last. No command here restarts serving processes automatically.
+
+### Authentication and external-authority review (0422 source, unqualified)
+
+The reviewed migration must preserve the original tenant-helper OID and be composed with the final
+0999 admission extension after all actual SaaS tables/eraser grants. Missing/uncovered RLS or an
+unknown reachable application schema refuses that extension; it grants no new table/body access.
+An ordinary app, auth, agent, support, secrets or eraser login cannot acknowledge.
+
+Use the exact generation/backup/manifest printed by the restore. In a private directory writable only
+by the operator/container identity, run the image's offline commands through the migrator service,
+mounting that directory at /review. Never place review bodies or auth secrets in command arguments
+or logs. For example, with the normal Compose project/options:
+
+    docker compose run --rm --no-deps -v "$PRIVATE_REVIEW_DIRECTORY:/review" migrate \
+      node dist/auth-restore.js inspect --generation "$GENERATION" --out /review/snapshot-1.json
+
+Inspect writes a new file only, never overwrites a prior review, and prints hashes/phase/IDs only.
+The snapshot contains bounded explicit IDs, permission/security state and identity/provider hashes,
+not XML, password/token/cookie/assertion/factor bodies. Compare it to genuinely current independent
+identity, membership, team, provider and SCIM authority. A restored dump cannot prove later
+revocations. Large inventories refuse instead of silently truncating.
+
+If real revocations are needed, prepare a strict JSON array of exact tenant/target IDs. Supported kinds
+are disable_member, downgrade_member (role member/admin only), disable_provider,
+deprovision_member, revoke_scim, revoke_invitation and remove_team_access (all that person's team
+access in the named tenant). Reconcile requires the current snapshot hash; stale input rolls back:
+
+    docker compose run --rm --no-deps -v "$PRIVATE_REVIEW_DIRECTORY:/review:ro" migrate \
+      node dist/auth-restore.js reconcile --generation "$GENERATION" \
+      --snapshot "$SECURITY_SHA256" --actions /review/revocations.json
+
+There is no promotion, activation, owner invention or policy weakening. If the last independently
+confirmed owner is revoked, admission stays pending with AUTH_RESTORE_OWNER_REPAIR_REQUIRED;
+the deny-only command cannot invent a replacement. A separate explicitly reviewed repair is required.
+Inspect again after any change; its new fingerprint is mandatory.
+
+Prepare a bounded nonempty review JSON artifact with exactly version=1, generation, backupId,
+manifestSha256, securitySha256, reviewer, reviewedAt, authorityEvidence and
+inFlightEffectsEvidence. The evidence fields must identify the actual independent reports reviewed.
+This records an operator declaration, not automated live-provider truth. The command reads/hashes
+the real file; SQL independently rechecks the exact generation/backup/manifest, current locked
+metadata, cleanup counts/ciphertext digest, cooldown and surviving owner. It does not decrypt
+ciphertexts or claim SQL password verification:
+
+    docker compose run --rm --no-deps -v "$PRIVATE_REVIEW_DIRECTORY:/review:ro" migrate \
+      node dist/auth-restore.js acknowledge --generation "$GENERATION" \
+      --manifest "$MANIFEST_SHA256" --snapshot "$SECURITY_SHA256" --review /review/review.json
+
+Passwords/accounts and enrolled TOTP secrets/flags are preserved. All backed-up sessions,
+assurances, primary/pre-auth/trusted-device/SAML purpose verification records are removed; setup
+tokens, outstanding invitations and SCIM bearers are revoked. Backup-code sets become a real native
+encrypted empty list, so a code consumed after the backup cannot return. Failure/rate counters are
+preserved and factor lock deadlines cannot shrink. Native stateless email-verification tokens are
+checked against the actual retained cutoff/signature/issued-at form, including conservative refusal
+of the cutoff's coarse second.
+
+A UUID check is MVCC metadata admission, not a lock across external I/O. A transport admitted before
+begin may still finish; stopping a process, losing a response or seeing an empty queue does not prove
+no send/charge occurred. Such financial/action debt stays unresolved until genuine external review.
+Post-I/O generation mismatch blocks stale acceptance/refund/release; it cannot recall delivered bytes.
+No ordinary worker receives the auth key, and the dedicated cleanup job has no provider, vault,
+object or Temporal credential. A process accidentally started while pending fails closed and must be
+restarted after real acknowledgment. The script starts none.
 
 ### The connector worker stays stopped, and only you can make sure of that
 

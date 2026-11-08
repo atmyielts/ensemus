@@ -117,3 +117,59 @@ acceptance/refund; it cannot recall an already delivered charge or send.
 Operator snapshot/fingerprint, deny-only reconciliation/acknowledgment, recovery job packaging,
 restore script ordering and actual role/browser/restore gates remain unfinished. 0422 is still
 unregistered; no source check, database, build or restore has run for either restore checkpoint.
+
+## Third bounded source checkpoint
+
+The operator source now has actual-migrator-only inspect, deny-only reconcile and acknowledgment
+helpers. The bounded explicit metadata snapshot includes security policies, native identity hashes,
+provider configuration hashes, current memberships/team access, SSO links, SCIM state and invitation
+state. It exports no XML, password/token/cookie/assertion or factor bodies. Large inventories refuse
+instead of truncating. Mutations retain exact tenant/target identity; they can disable/downgrade,
+deprovision or remove access, never reactivate/promote. Begin revokes outstanding invitations and
+SCIM bearer sets while retaining their history. A tenant without a surviving active owner remains
+pending with a repair-required refusal; this command cannot invent a replacement owner.
+
+Acknowledgment requires the exact generation, backup and manifest, current locked security
+fingerprint, an actual nonempty bounded operator review artifact, real 15-minute cooldown and zero
+transient authentication state. The review declares external-authority and previous in-flight-effect
+reconciliation evidence; it is human review, not a live-provider verification. SQL validates the
+generation, fresh metadata/counts and transitions. The native cryptographic tool remains the trusted
+boundary for decrypting the supplied key and encrypting an empty recovery-code list; SQL does not
+claim to decrypt or cryptographically verify passwords/ciphertexts.
+
+A new one-shot auth-restore Compose job has only the auth DB URL and native key, with no Temporal,
+object, vault or provider credential. Ordinary workers gain no key/role. The worker receives one
+workspace dependency/build entry; no dependency version/resolution or third-party package changes.
+The restore script now enumerates all configured project services, including overlay replicas,
+stops/verifies all readers except PostgreSQL/object storage, restores DBs, applies schema, commits
+begin (including 0515 material UUID rotation), and runs the real native invalidation BEFORE writing
+object bytes. Missing helpers/jobs/results stop. It never acknowledges or resumes readers.
+
+New parser and exact command-boundary regressions are authored, not run. Their command double
+does not qualify Docker, native roles, real restore or external services. All source checks and
+actual PostgreSQL/restore/browser gates remain open; 0422 is still unregistered. Dedicated isolated
+real-role tests, operator runbook and independent source review are next.
+
+The later source also closes native initialization before provider plugins, retains per-request
+checks for warm runtimes, and maps pending initialization to the same typed refusal. An owned local
+rejection handler preserves the original rejected native promise; no global rejection listener or
+permissive fallback is added. An accidentally started pending runtime must restart after real ack.
+
+An opt-in isolated role profile is authored at tests/integration/auth-restore/authority.gate.ts,
+with vitest.auth-restore.config.ts. It requires all actual role URLs to the same explicitly named
+disposable ensemus_auth_restore_* database. It enrolls via native HTTP, never seeds admission or
+assurance and never advances a test clock over the cooldown. It deliberately leaves the disposable
+database pending and is excluded from the shared integration suite, which must remain available.
+These cases are unrun; the profile/config are not a role acceptance result.
+
+The final root-owned 0999 migration must call identity.extend_auth_restore_admission() AFTER all
+SaaS tables/grants and eraser reach. It adds restrictive ready-UUID policies for actual operator,
+support and eraser raw reach, no new grants. Missing required SaaS/eraser inventory, an unknown
+reachable application schema, non-FORCE-RLS/view/materialized/foreign reach or TRUNCATE privilege
+refuses registration. Repeated calls verify existing policy definitions rather than replacing an
+unexpected policy. This helper is source only; currently unregistered coverage is not claimed.
+
+Preserved native password/account history can also be older than the last real credential change.
+Snapshot hashes bind exactly what was reviewed; they do not prove a restored password or provider
+account link is still current. External-authority review must address that uncertainty. A specific
+deny-only credential/token revocation seam is under root review, not silently assumed available.

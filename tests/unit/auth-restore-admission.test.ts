@@ -22,13 +22,23 @@ describe('protected restore metadata and native admission',()=>{
     expect(isRestoreAdmissionDenied({body:{code:'RESTORE_PENDING'}})).toBe(true);
     expect(isRestoreAdmissionDenied({code:'OTHER',message:'RESTORE_PENDING'})).toBe(false);
   });
-  it.each(['pending','invalidated','missing'] as const)('native get-session refuses %s before accepting a session',async phase=>{
+  it.each(['pending','invalidated','missing'] as const)('native initialization refuses %s before later provider initialization',async phase=>{
     const meta=phase==='missing'?null:{...admitted,phase,cutoff:'2026-11-08T00:00:00Z',notBefore:'2026-11-08T00:15:00Z'};
     const database={execute:vi.fn(async()=>({rows:[{admission:meta}]}))} as unknown as Parameters<typeof createAuthRestoreAdmission>[0];
+    const laterInit=vi.fn();
+    const native=betterAuth({baseURL:'https://generated-restore.example.invalid',secret,database:memoryAdapter({}),plugins:[createAuthRestoreAdmission(database,secret),{id:'test-only-provider-init-observer',init:laterInit}],telemetry:{enabled:false}});
+    await expect(native.handler(new Request('https://generated-restore.example.invalid/api/auth/get-session'))).rejects.toMatchObject({body:{code:'RESTORE_PENDING'}});
+    await expect(native.api.getSession({headers:new Headers()})).rejects.toMatchObject({body:{code:'RESTORE_PENDING'}});
+    expect(laterInit).not.toHaveBeenCalled();
+  });
+  it('rechecks a warm native request after initialization rather than caching initial admission',async()=>{
+    let meta:unknown=admitted;
+    const database={execute:vi.fn(async()=>({rows:[{admission:meta}]}))} as unknown as Parameters<typeof createAuthRestoreAdmission>[0];
     const native=betterAuth({baseURL:'https://generated-restore.example.invalid',secret,database:memoryAdapter({}),plugins:[createAuthRestoreAdmission(database,secret)],telemetry:{enabled:false}});
+    await native.$context;
+    meta={...admitted,phase:'pending',cutoff:'2026-11-08T00:00:00Z',notBefore:'2026-11-08T00:15:00Z'};
     const response=await native.handler(new Request('https://generated-restore.example.invalid/api/auth/get-session'));
     expect(response.status).toBe(503);expect((await response.json()).code).toBe('RESTORE_PENDING');
-    await expect(native.api.getSession({headers:new Headers()})).rejects.toMatchObject({body:{code:'RESTORE_PENDING'}});
   });
 });
 describe('actual native signed email verification cutoff',()=>{

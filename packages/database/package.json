@@ -15,6 +15,7 @@
     "./setup-token": "./src/setup-token.ts",
     "./product": "./src/product.ts",
     "./sso-operator": "./src/sso-operator.ts",
+    "./auth-restore-operator": "./src/auth-restore-operator.ts",
     "./account": "./src/account.ts",
     "./payment-routing": "./src/payment-routing.ts",
     "./operator": "./src/operator.ts",

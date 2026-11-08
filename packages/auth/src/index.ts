@@ -140,8 +140,8 @@ export function createAuth(options: AuthOptions) {
       finish: (input) => primary.finishIdpChallenge(input),
     },
   );
-  const build = (allowSignup: boolean, privateFactorManagement = false) =>
-    betterAuth({
+  const build = (allowSignup: boolean, privateFactorManagement = false) => {
+    const native=betterAuth({
       appName: 'Ensemus',
       baseURL: options.baseURL,
       secret: options.secret,
@@ -229,6 +229,11 @@ export function createAuth(options: AuthOptions) {
         ...(privateFactorManagement ? [] : (options.plugins ?? [])),
       ],
     });
+    // This eager native initialization may refuse before a request arrives. Handle that owned
+    // promise locally; consumers still await the original rejection and admission never falls back.
+    void native.$context.catch(()=>undefined);
+    return native;
+  };
   const core = build(options.allowSignup);
   currentOidcTrust = async () =>
     oidcFlow.trust(
@@ -252,6 +257,10 @@ export function createAuth(options: AuthOptions) {
           ),
         );
       } catch (error) {
+        if(isRestoreAdmissionDenied(error))return Response.json(
+          {code:'RESTORE_PENDING',message:'This installation is waiting for restore review.'},
+          {status:503,headers:{'cache-control':'no-store'}},
+        );
         if (
           /\/api\/auth\/(?:callback\/|sso\/saml2\/sp\/acs\/)/.test(new URL(request.url).pathname)
         ) {

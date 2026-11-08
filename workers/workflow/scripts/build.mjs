@@ -20,6 +20,7 @@ await build({
     'src/redrive.ts',
     'src/setup-token.ts',
     'src/identity-operator.ts',
+    'src/auth-restore.ts',
     'src/ledger-backlog.ts',
     'src/reapply-ledger.ts',
     'src/connector-worker.ts',
