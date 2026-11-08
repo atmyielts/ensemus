@@ -384,7 +384,10 @@ DO $$ DECLARE target regclass;BEGIN
  END LOOP;
 END $$;
 CREATE POLICY auth_restore_owner_read ON identity.verifications AS RESTRICTIVE FOR SELECT TO ensemus_migrator
- USING(CASE WHEN id='68766d8e-9f7d-4b87-b881-bb4c3ff1654b' THEN true ELSE identity.auth_restore_read_allowed() END);
+ USING(CASE WHEN current_setting('identity.auth_restore_control_scope',true)='v1' THEN
+  id='68766d8e-9f7d-4b87-b881-bb4c3ff1654b' AND identifier='ensemus-auth-restore:v1'
+  ELSE CASE WHEN id='68766d8e-9f7d-4b87-b881-bb4c3ff1654b' THEN true
+   ELSE identity.auth_restore_read_allowed() END END);
 --> statement-breakpoint
 
 -- This existing private table holds one bounded control document, not an auth proof or user input.
@@ -405,20 +408,26 @@ DO $$ DECLARE target regclass;BEGIN
 END $$;
 CREATE FUNCTION identity.auth_restore_transient_counts() RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER
 SET search_path=pg_catalog AS $$
-DECLARE saved text;answer jsonb;
+DECLARE saved text;saved_control text;answer jsonb;
 BEGIN
  IF session_user NOT IN('ensemus_auth','ensemus_migrator') THEN
   RAISE EXCEPTION 'AUTH_RESTORE_CONTROL_REFUSED' USING ERRCODE='42501';END IF;
  saved:=current_setting('identity.auth_restore_count_scope',true);
+ saved_control:=current_setting('identity.auth_restore_control_scope',true);
  BEGIN
-  PERFORM set_config('identity.auth_restore_count_scope','v1',true);
+  -- A caller-supplied narrowing scope must never turn existing proof rows into a false zero.
+  PERFORM set_config('identity.auth_restore_count_scope','v1',true),
+   set_config('identity.auth_restore_control_scope','',true);
   SELECT jsonb_build_object('sessions',(SELECT count(*) FROM identity.sessions),
    'assurances',(SELECT count(*) FROM identity.session_assurances),
    'verifications',(SELECT count(*) FROM identity.verifications WHERE id<>'68766d8e-9f7d-4b87-b881-bb4c3ff1654b'),
    'setupTokens',(SELECT count(*) FROM identity.setup_tokens WHERE used_at IS NULL),
    'backupSets',(SELECT count(*) FROM identity.two_factors)) INTO answer;
- EXCEPTION WHEN OTHERS THEN PERFORM set_config('identity.auth_restore_count_scope',coalesce(saved,''),true);RAISE;END;
- PERFORM set_config('identity.auth_restore_count_scope',coalesce(saved,''),true);
+ EXCEPTION WHEN OTHERS THEN
+  PERFORM set_config('identity.auth_restore_count_scope',coalesce(saved,''),true),
+   set_config('identity.auth_restore_control_scope',coalesce(saved_control,''),true);RAISE;END;
+ PERFORM set_config('identity.auth_restore_count_scope',coalesce(saved,''),true),
+  set_config('identity.auth_restore_control_scope',coalesce(saved_control,''),true);
  RETURN answer;
 END $$;
 REVOKE ALL ON FUNCTION identity.auth_restore_transient_counts() FROM PUBLIC;
@@ -427,10 +436,15 @@ GRANT EXECUTE ON FUNCTION identity.auth_restore_transient_counts() TO ensemus_au
 
 CREATE FUNCTION identity.auth_restore_control() RETURNS jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER
 SET search_path=pg_catalog AS $$
-DECLARE body jsonb;
+DECLARE body jsonb;saved text;
 BEGIN
- SELECT v.value::jsonb INTO body FROM identity.verifications v
-  WHERE v.id='68766d8e-9f7d-4b87-b881-bb4c3ff1654b' AND v.identifier='ensemus-auth-restore:v1';
+ saved:=current_setting('identity.auth_restore_control_scope',true);
+ BEGIN
+  PERFORM set_config('identity.auth_restore_control_scope','v1',true);
+  SELECT v.value::jsonb INTO body FROM identity.verifications v
+   WHERE v.id='68766d8e-9f7d-4b87-b881-bb4c3ff1654b' AND v.identifier='ensemus-auth-restore:v1';
+ EXCEPTION WHEN OTHERS THEN PERFORM set_config('identity.auth_restore_control_scope',coalesce(saved,''),true);RAISE;END;
+ PERFORM set_config('identity.auth_restore_control_scope',coalesce(saved,''),true);
  IF NOT coalesce(body->'version'='1'::jsonb AND body->>'generation'~'^[0-9a-f-]{36}$'
   AND body->>'phase' IN('pending','invalidated','admitted')
   AND body ?& ARRAY['version','generation','phase','backupId','manifestSha256','cutoff','notBefore',

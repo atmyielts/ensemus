@@ -77,6 +77,11 @@ describe.sequential('0422 actual-role isolated restore barrier (unrun source)',(
   expect(inspection).toMatchObject({generation,backupId,manifestSha256,phase:'pending',invalidation:null});
   expect(Date.parse(inspection.notBefore)-Date.parse(inspection.cutoff)).toBeGreaterThanOrEqual(900000);
   expect((await counts()).sessions).toBeGreaterThan(0);
+  const actual=await counts();
+  await asRole('MIGRATOR',async connection=>{
+   await connection.query("select set_config('identity.auth_restore_control_scope','v1',false)");
+   expect((await connection.query('select identity.auth_restore_transient_counts() as counts')).rows[0].counts).toEqual(actual);
+  });
  });
  it('blocks tenant, unbound dispatcher, native identity and generation admission while pending',async()=>{
   for(const role of ['APP','AGENT','DISPATCHER','SECRETS'] as const)await asRole(role,async connection=>{
@@ -85,6 +90,7 @@ describe.sequential('0422 actual-role isolated restore barrier (unrun source)',(
    await expect(connection.query('select app.current_auth_restore_generation()')).rejects.toMatchObject({code:'EN422'});
   });
   await asRole('AUTH',async connection=>{
+   await connection.query("select set_config('identity.auth_restore_control_scope','v1',false)");
    await expect(connection.query('select id from identity.users')).rejects.toMatchObject({code:'EN422'});
    await expect(connection.query("delete from identity.verifications where identifier='ensemus-auth-restore:v1'")).rejects.toBeDefined();
    await connection.query("select set_config('identity.auth_restore_operation','acknowledge',false)");

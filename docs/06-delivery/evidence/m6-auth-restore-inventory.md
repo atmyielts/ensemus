@@ -179,3 +179,9 @@ credential is accepted. Native-password/cross-tenant/elevation role cases are au
 Clearing OAuth tokens does NOT disable its retained provider-account login binding or prove historical
 link authorization. That separate live-authority/revocation gate remains explicit, never an implicit
 result of this tool. No source/runtime checks have run for this follow-up.
+
+The pre-gate source review also removes reliance on planner/PK evaluation to avoid recursive
+verification-table admission. The fixed control reader owns a saved/restored scope whose outer
+RLS CASE selects only that row without recursing. The actual count helper explicitly clears and
+restores that narrowing scope before querying, so caller GUCs cannot create a filtered-zero proof.
+Actual-role spoofed-scope/count regressions are authored, unrun; no private body grant is added.
