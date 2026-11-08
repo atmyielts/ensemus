@@ -27,9 +27,11 @@ import {
 import {
   artifactAuthorityReceipts,
   artifactAuthorityRefs,
+  artifactLineage,
   memberships,
   openAppDatabase,
   withTenantTx,
+  workUnits,
 } from '@ensemus/database';
 import { createServiceContext } from '@ensemus/database/service';
 import { createActivities } from '@ensemus/workflows/activities';
@@ -45,9 +47,13 @@ class ActualMemoryStore implements ObjectStore {
   readonly objects = new Map<string, Buffer>();
   putCount = 0;
   getCount = 0;
+  beforePut?: () => Promise<void>;
+  afterPut?: () => Promise<void>;
   async put(key: string, bytes: Buffer) {
+    await this.beforePut?.();
     this.putCount++;
     this.objects.set(key, bytes);
+    await this.afterPut?.();
   }
   async get(key: string) {
     this.getCount++;
@@ -263,6 +269,69 @@ describe('actual pre-put artifact authority (0419)', () => {
           .where(eq(artifactAuthorityRefs.artifactId, result.artifactId)),
       ),
     ).rejects.toSatisfy((error: unknown) => pgCode(error) === '42501');
+  });
+
+  it('commits exact captured historical bindings before invoking the actual object writer', async () => {
+    const f = await fixture();
+    let checked = false;
+    f.store.beforePut = async () => {
+      const [receipt] = await withTenantTx(app.db, a.owner, (tx) => tx.select()
+        .from(artifactAuthorityReceipts).where(eq(artifactAuthorityReceipts.workUnitId, f.work.id)));
+      if (!receipt) throw new Error('TEST_PREPUT_RECEIPT_MISSING');
+      const result = await withTenantTx(app.db, a.owner, (tx) => tx.execute<{ valid: boolean }>(
+        sql`select knowledge.artifact_authority_bindings_complete(${receipt.artifactId}::uuid) valid`));
+      expect(result.rows[0]?.valid).toBe(true);
+      checked = true;
+    };
+    await f.activities.produceChecklistArtifact(f.input);
+    expect(checked).toBe(true);
+    expect(f.store.putCount).toBe(1);
+  });
+
+  it('refuses a guessed structured hash before put instead of borrowing the actual template receipt', async () => {
+    const f = await fixture(), actual = createChecklistInputInventory();
+    const corrupted: ArtifactInputInventory = { async inspectInTx(tx, context, input) {
+      const proof = await actual.inspectInTx(tx, context, input);
+      return proof.known ? { ...proof, recordInputs: proof.recordInputs.map((record) => ({ ...record, sha256: 'a'.repeat(64) })) } : proof;
+    } };
+    await expect(addGeneratedArtifact(app.db, f.store, f.service, { workUnitId: f.work.id, name: 'candidate.md', mimeType: 'text/markdown',
+      body: Buffer.from(completionChecklist({ id: f.work.id, completionCriteria: f.completionCriteria })),
+      execution: { kind: 'system', id: f.input.runId, template: CHECKLIST_TEMPLATE }, requestKey: randomUUID() },
+    { inventory: corrupted })).rejects.toSatisfy((error: unknown) => pgCode(error) === 'EN119');
+    expect(f.store.putCount).toBe(0);
+    expect(await withTenantTx(app.db, a.owner, (tx) => tx.select().from(artifactAuthorityReceipts)
+      .where(eq(artifactAuthorityReceipts.workUnitId, f.work.id)))).toEqual([]);
+  });
+
+  it('retains an unknown put and refuses a second writer after a lost acknowledgement', async () => {
+    const f = await fixture();
+    f.store.afterPut = async () => { throw new Error('TEST_PUT_ACK_UNKNOWN'); };
+    await expect(f.activities.produceChecklistArtifact(f.input)).rejects.toThrow('TEST_PUT_ACK_UNKNOWN');
+    const [header] = await withTenantTx(app.db, a.owner, (tx) => tx.select().from(artifactLineage)
+      .where(eq(artifactLineage.workUnitId, f.work.id)));
+    expect(header).toMatchObject({ state: 'pending', writeState: 'active', physicalPurgedAt: null });
+    expect(f.store.objects.size).toBe(1);
+    await expect(f.activities.produceChecklistArtifact(f.input)).rejects.toThrow();
+    expect(f.store.putCount).toBe(1);
+    expect(await withTenantTx(app.db, a.owner, (tx) => tx.select().from(artifactLineage)
+      .where(eq(artifactLineage.workUnitId, f.work.id)))).toEqual([header]);
+  });
+
+  it('blocks publication after a fulfilled put when current protection rises, preserving bytes for hold-aware disposition', async () => {
+    const f = await fixture();
+    f.store.afterPut = async () => {
+      await withTenantTx(app.db, a.owner, (tx) => tx.update(workUnits).set({ classification: 'confidential' })
+        .where(eq(workUnits.id, f.work.id)));
+    };
+    await expect(f.activities.produceChecklistArtifact(f.input)).rejects.toThrow();
+    const [header] = await withTenantTx(app.db, a.owner, (tx) => tx.select().from(artifactLineage)
+      .where(eq(artifactLineage.workUnitId, f.work.id)));
+    expect(header).toMatchObject({ state: 'blocked', writeState: 'settled', physicalPurgedAt: null });
+    expect(f.store.putCount).toBe(1);
+    expect(f.store.objects.size).toBe(1);
+    const [receipt] = await withTenantTx(app.db, a.owner, (tx) => tx.select().from(artifactAuthorityReceipts)
+      .where(eq(artifactAuthorityReceipts.workUnitId, f.work.id)));
+    expect(receipt?.classification).toBe('internal');
   });
 
   it('keeps actual M2 human/service review hashes equal while generated bytes require a named viewer', async () => {

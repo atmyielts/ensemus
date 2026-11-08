@@ -1028,7 +1028,7 @@ GRANT EXECUTE ON FUNCTION knowledge.artifact_authority_complete(uuid) TO ensemus
 CREATE FUNCTION knowledge.require_artifact_authority_complete() RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog AS $$
 BEGIN
   IF TG_RELID<>'knowledge.artifact_lineage'::regclass OR TG_OP<>'INSERT' THEN RAISE EXCEPTION 'ARTIFACT_AUTHORITY_COMPLETENESS_TARGET' USING ERRCODE='42501';END IF;
-  IF NEW.execution_kind IN('agent_run','system') AND NOT knowledge.artifact_authority_complete(NEW.artifact_id) THEN
+  IF NEW.execution_kind IN('agent_run','system') AND NOT knowledge.artifact_authority_bindings_complete(NEW.artifact_id) THEN
     RAISE EXCEPTION 'ARTIFACT_AUTHORITY_INCOMPLETE' USING ERRCODE='EN119';END IF;
   RETURN NEW;
 END $$;
@@ -1122,18 +1122,6 @@ CREATE FUNCTION knowledge.work_own_scope_readable_0419(p_work uuid,p_viewer uuid
 $$;
 REVOKE ALL ON FUNCTION knowledge.work_own_scope_readable_0419(uuid,uuid) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION knowledge.work_own_scope_readable_0419(uuid,uuid) TO ensemus_app;
--- This material floor is separate from own-record ACL: a private current parent still uses its
--- actual named-reader rules, while copied Work material retains its independently pinned birth
--- protection after a raw-label lowering. Missing/dead Work never becomes a class-only permission.
-CREATE FUNCTION knowledge.work_material_class_0419(p_work uuid) RETURNS text LANGUAGE sql STABLE SET search_path=pg_catalog AS $$
-  SELECT CASE WHEN current_class.classification IS NULL THEN NULL ELSE CASE greatest(knowledge.class_rank(current_class.classification),
-    coalesce((SELECT max(knowledge.class_rank(receipt.classification)) FROM ai.delegated_input_receipts receipt
-      WHERE receipt.organization_id=app.current_organization_id() AND receipt.child_work_unit_id=p_work),0))
-    WHEN 3 THEN 'restricted' WHEN 2 THEN 'confidential' WHEN 1 THEN 'internal' ELSE 'public' END END
-  FROM(SELECT knowledge.work_scope_class(p_work) classification) current_class
-$$;
-REVOKE ALL ON FUNCTION knowledge.work_material_class_0419(uuid) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION knowledge.work_material_class_0419(uuid) TO ensemus_app;
 CREATE FUNCTION knowledge.retained_scope_node(p_kind text,p_id uuid,p_hash text,p_historical_class text,p_source uuid,p_document uuid,p_package uuid,p_cap integer)
 RETURNS jsonb LANGUAGE sql IMMUTABLE SET search_path=pg_catalog AS $$
   SELECT jsonb_build_object('kind',p_kind,'id',p_id,'sha256',p_hash,'historicalClass',p_historical_class,
@@ -1178,7 +1166,7 @@ BEGIN
     node_source_id:=(node->>'sourceId')::uuid;node_document_id:=(node->>'documentId')::uuid;node_package_id:=(node->>'packageId')::uuid;cap:=(node->>'cap')::integer;
     allowed:=cap BETWEEN 0 AND 3 AND(historical_class IS NULL OR knowledge.class_rank(historical_class)<=cap);children:='[]'::jsonb;
     IF kind='work_unit' THEN
-      live_class:=knowledge.work_material_class_0419(target);
+      live_class:=knowledge.work_scope_class(target);
       allowed:=allowed AND live_class IS NOT NULL AND knowledge.class_rank(live_class)<=cap AND knowledge.work_own_scope_readable_0419(target,p_viewer)
         AND NOT EXISTS(SELECT 1 FROM ai.unproven_child_work_inputs unknown_input WHERE unknown_input.organization_id=app.current_organization_id() AND unknown_input.work_unit_id=target)
         AND NOT EXISTS(SELECT 1 FROM ai.agent_runs child_run WHERE child_run.organization_id=app.current_organization_id() AND child_run.work_unit_id=target AND child_run.parent_run_id IS NOT NULL
@@ -1208,7 +1196,7 @@ BEGIN
         allowed:=allowed AND header.inventory_complete AND header.state='bound' AND header.write_state='settled' AND header.physical_purged_at IS NULL
           AND header.artifact_sha256=catalog.sha256;
         IF header.execution_kind IN('agent_run','system') THEN
-          allowed:=allowed AND header.structured_inventory_complete AND knowledge.artifact_authority_complete(target);
+          allowed:=allowed AND header.structured_inventory_complete AND knowledge.artifact_authority_bindings_complete(target);
           IF allowed THEN
           FOR record_ref IN SELECT ref.* FROM knowledge.artifact_authority_refs ref WHERE ref.organization_id=app.current_organization_id() AND ref.artifact_id=target LOOP
             children:=children||jsonb_build_array(jsonb_build_object('alternative',false,'node',knowledge.retained_scope_node(record_ref.ref_kind,record_ref.ref_id,
@@ -1230,7 +1218,7 @@ BEGIN
       FOR link IN SELECT linked.work_unit_id FROM knowledge.artifact_work_links linked WHERE linked.organization_id=app.current_organization_id() AND linked.artifact_id=target
         ORDER BY linked.work_unit_id LIMIT 1001 LOOP
         links_seen:=links_seen+1;IF links_seen>1000 THEN RETURN false;END IF;
-        live_class:=knowledge.work_material_class_0419(link.work_unit_id);
+        live_class:=knowledge.work_scope_class(link.work_unit_id);
         IF live_class IS NOT NULL THEN children:=children||jsonb_build_array(jsonb_build_object('alternative',true,
           'node',knowledge.retained_scope_node('work_unit',link.work_unit_id,NULL,NULL,NULL,NULL,NULL,knowledge.class_rank(live_class))));END IF;
       END LOOP;
@@ -1404,3 +1392,118 @@ BEGIN
 END $$;
 REVOKE ALL ON FUNCTION work.held_review_artifact_ids(uuid,bigint,text,uuid) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION work.held_review_artifact_ids(uuid,bigint,text,uuid) TO ensemus_app;
+--> statement-breakpoint
+-- Identity completeness and actual historical bindings are separate. Authority-only parent refs
+-- carry no invented content hash and therefore do not create structured read rows. Every genuine
+-- content read must survive in both the frozen receipt and the existing flattened lineage.
+CREATE FUNCTION knowledge.artifact_authority_bindings_complete(p_artifact uuid) RETURNS boolean
+LANGUAGE sql STABLE SET search_path=pg_catalog AS $$
+  SELECT coalesce(knowledge.artifact_authority_complete(p_artifact) AND EXISTS(
+    SELECT 1 FROM knowledge.artifact_authority_receipts receipt JOIN knowledge.artifact_lineage header
+      ON header.organization_id=receipt.organization_id AND header.artifact_id=receipt.artifact_id
+    WHERE receipt.organization_id=app.current_organization_id() AND receipt.artifact_id=p_artifact
+      AND header.inventory_complete AND header.structured_inventory_complete
+      AND EXISTS(SELECT 1 FROM knowledge.artifact_lineage_records target WHERE target.organization_id=receipt.organization_id
+        AND target.artifact_id=receipt.artifact_id AND target.record_kind='work_unit' AND target.record_id=receipt.work_unit_id)
+      AND NOT EXISTS(SELECT 1 FROM knowledge.artifact_authority_refs ref WHERE ref.organization_id=receipt.organization_id AND ref.artifact_id=receipt.artifact_id
+        AND ref.proof_kind='actual_content' AND ref.ref_kind IN('work_unit','project','client','object_record')
+        AND NOT EXISTS(SELECT 1 FROM knowledge.artifact_lineage_records record WHERE record.organization_id=ref.organization_id AND record.artifact_id=ref.artifact_id
+          AND record.record_kind=ref.ref_kind AND record.record_id=ref.ref_id AND record.record_sha256=ref.content_sha256
+          AND knowledge.class_rank(record.classification)>=knowledge.class_rank(ref.classification)))
+      AND NOT EXISTS(SELECT 1 FROM knowledge.artifact_authority_refs ref WHERE ref.organization_id=receipt.organization_id AND ref.artifact_id=receipt.artifact_id
+        AND ref.ref_kind='artifact' AND ref.proof_kind='actual_content' AND NOT EXISTS(
+          SELECT 1 FROM knowledge.artifact_lineage_inputs input WHERE input.organization_id=ref.organization_id AND input.artifact_id=ref.artifact_id
+            AND input.input_artifact_id=ref.ref_id AND input.input_sha256=ref.content_sha256))
+      AND NOT EXISTS(SELECT 1 FROM knowledge.artifact_authority_refs ref WHERE ref.organization_id=receipt.organization_id AND ref.artifact_id=receipt.artifact_id
+        AND ref.ref_kind='evidence_package' AND NOT EXISTS(SELECT 1 FROM knowledge.artifact_lineage_packages package
+          WHERE package.organization_id=ref.organization_id AND package.artifact_id=ref.artifact_id AND package.package_id=ref.ref_id))
+      AND NOT EXISTS(SELECT 1 FROM knowledge.artifact_authority_refs ref WHERE ref.organization_id=receipt.organization_id AND ref.artifact_id=receipt.artifact_id
+        AND coalesce(ref.source_id,CASE WHEN ref.ref_kind='source' THEN ref.ref_id END) IS NOT NULL
+        AND NOT EXISTS(SELECT 1 FROM knowledge.artifact_lineage_sources source WHERE source.organization_id=ref.organization_id AND source.artifact_id=ref.artifact_id
+          AND source.source_id=coalesce(ref.source_id,CASE WHEN ref.ref_kind='source' THEN ref.ref_id END)))
+      -- Additional flattened rows must come from an actual retained direct read or an actually read
+      -- file's immutable lineage. A metadata-only parent ref cannot masquerade as a content read.
+      AND NOT EXISTS(SELECT 1 FROM knowledge.artifact_lineage_records record WHERE record.organization_id=receipt.organization_id AND record.artifact_id=receipt.artifact_id
+        AND NOT EXISTS(SELECT 1 FROM knowledge.artifact_authority_refs ref WHERE ref.organization_id=record.organization_id AND ref.artifact_id=record.artifact_id
+          AND ref.proof_kind='actual_content' AND ref.ref_kind=record.record_kind AND ref.ref_id=record.record_id
+          AND ref.content_sha256=record.record_sha256 AND knowledge.class_rank(record.classification)>=knowledge.class_rank(ref.classification))
+        AND NOT EXISTS(SELECT 1 FROM knowledge.artifact_lineage_inputs input JOIN knowledge.artifact_lineage_records inherited
+          ON inherited.organization_id=input.organization_id AND inherited.artifact_id=input.input_artifact_id
+          WHERE input.organization_id=record.organization_id AND input.artifact_id=record.artifact_id
+            AND inherited.record_kind=record.record_kind AND inherited.record_id=record.record_id AND inherited.record_sha256=record.record_sha256
+            AND knowledge.class_rank(record.classification)>=knowledge.class_rank(inherited.classification)))),false)
+$$;
+REVOKE ALL ON FUNCTION knowledge.artifact_authority_bindings_complete(uuid) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION knowledge.artifact_authority_bindings_complete(uuid) TO ensemus_app;
+
+CREATE FUNCTION knowledge.guard_artifact_authority_publication() RETURNS trigger
+LANGUAGE plpgsql SET search_path=pg_catalog AS $$
+DECLARE receipt knowledge.artifact_authority_receipts;current_class text;ref record;
+BEGIN
+  IF TG_RELID<>'knowledge.artifact_lineage'::regclass OR TG_OP<>'UPDATE' THEN
+    RAISE EXCEPTION 'ARTIFACT_AUTHORITY_PUBLICATION_TARGET' USING ERRCODE='42501';END IF;
+  -- Blocking, exact fulfilled-put settlement and positive erasure retain their old independent
+  -- guards. No fresh body authority is required merely to record a conservative terminal fact.
+  IF NEW.execution_kind NOT IN('agent_run','system') OR OLD.state<>'pending' OR NEW.state<>'bound' THEN RETURN NEW;END IF;
+  IF NOT knowledge.artifact_authority_bindings_complete(NEW.artifact_id) THEN
+    RAISE EXCEPTION 'ARTIFACT_AUTHORITY_BINDINGS_REQUIRED' USING ERRCODE='EN119';END IF;
+  SELECT * INTO receipt FROM knowledge.artifact_authority_receipts actual WHERE actual.organization_id=NEW.organization_id AND actual.artifact_id=NEW.artifact_id;
+  IF NOT FOUND OR ROW(NEW.write_id,NEW.generation,NEW.artifact_sha256,NEW.classification,NEW.work_unit_id)
+    IS DISTINCT FROM ROW(receipt.write_id,receipt.generation,receipt.artifact_sha256,receipt.classification,receipt.work_unit_id) THEN
+    RAISE EXCEPTION 'ARTIFACT_AUTHORITY_WRITE_STALE' USING ERRCODE='EN119';END IF;
+  IF NEW.execution_kind='agent_run' THEN
+    IF session_user<>'ensemus_agent' OR current_user<>'ensemus_agent' OR app.current_actor_type() IS DISTINCT FROM 'agent'
+      OR receipt.run_id IS DISTINCT FROM NEW.execution_id OR receipt.run_id::text IS DISTINCT FROM current_setting('app.agent_run_id',true)
+      OR receipt.viewer_membership_id IS DISTINCT FROM app.current_membership_id() THEN
+      RAISE EXCEPTION 'ARTIFACT_AUTHORITY_WRITE_STALE' USING ERRCODE='EN119';END IF;
+    current_class:=ai.lock_frozen_input_refs(receipt.input_inventory,receipt.viewer_membership_id);
+    IF current_class IS NULL OR knowledge.class_rank(current_class)>knowledge.class_rank(receipt.classification)
+      OR NOT ai.run_authority_read_admitted(receipt.run_id) OR NOT ai.run_authority_ready(receipt.run_id,receipt.viewer_membership_id) THEN
+      RAISE EXCEPTION 'ARTIFACT_AUTHORITY_INPUT_CLOSED' USING ERRCODE='EN119';END IF;
+  ELSE
+    -- The exact template body is independently revalidated while the actual Work is still held.
+    -- Its original receipt remains unchanged; this cannot attach proof to an older header.
+    IF knowledge.known_checklist_authority(NEW.artifact_id) IS NULL THEN
+      RAISE EXCEPTION 'ARTIFACT_TEMPLATE_INPUT_UNPROVEN' USING ERRCODE='EN119';END IF;
+    FOR ref IN SELECT actual.* FROM knowledge.artifact_authority_refs actual WHERE actual.organization_id=receipt.organization_id AND actual.artifact_id=receipt.artifact_id LOOP
+      IF ref.ref_kind NOT IN('work_unit','project','client') OR NOT knowledge.lock_structured_record(ref.ref_kind,ref.ref_id)
+        OR knowledge.structured_record_class(ref.ref_kind,ref.ref_id) IS NULL
+        OR knowledge.class_rank(knowledge.structured_record_class(ref.ref_kind,ref.ref_id))>knowledge.class_rank(receipt.classification) THEN
+        RAISE EXCEPTION 'ARTIFACT_TEMPLATE_INPUT_UNPROVEN' USING ERRCODE='EN119';END IF;
+    END LOOP;
+  END IF;
+  RETURN NEW;
+END $$;
+REVOKE ALL ON FUNCTION knowledge.guard_artifact_authority_publication() FROM PUBLIC;
+CREATE TRIGGER artifact_lineage_00_authority_publication BEFORE UPDATE ON knowledge.artifact_lineage
+  FOR EACH ROW EXECUTE FUNCTION knowledge.guard_artifact_authority_publication();
+
+CREATE FUNCTION ai.guard_output_authority_proof() RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog AS $$
+DECLARE receipt knowledge.artifact_authority_receipts;current_class text;
+BEGIN
+  IF TG_RELID<>'ai.run_output_writes'::regclass OR TG_OP NOT IN('INSERT','UPDATE') THEN
+    RAISE EXCEPTION 'ARTIFACT_AUTHORITY_PUT_TARGET' USING ERRCODE='42501';END IF;
+  -- Existing exact-token guard independently allows only started->settled after actual fulfillment.
+  -- A fence does not erase the truth of that old put, and this does not attest object quiescence.
+  IF TG_OP='UPDATE' THEN IF OLD.state='started' AND NEW.state='settled' THEN RETURN NEW;END IF;END IF;
+  IF session_user<>'ensemus_agent' OR current_user<>'ensemus_agent' OR app.current_actor_type() IS DISTINCT FROM 'agent'
+    OR NEW.run_id::text IS DISTINCT FROM current_setting('app.agent_run_id',true) OR NOT knowledge.artifact_authority_bindings_complete(NEW.artifact_id) THEN
+    RAISE EXCEPTION 'ARTIFACT_AUTHORITY_PUT_UNPROVEN' USING ERRCODE='EN119';END IF;
+  SELECT * INTO receipt FROM knowledge.artifact_authority_receipts actual WHERE actual.organization_id=NEW.organization_id AND actual.artifact_id=NEW.artifact_id;
+  IF NOT FOUND OR ROW(NEW.run_id,NEW.write_id,NEW.generation) IS DISTINCT FROM ROW(receipt.run_id,receipt.write_id,receipt.generation)
+    OR receipt.viewer_membership_id IS DISTINCT FROM app.current_membership_id()
+    OR NOT EXISTS(SELECT 1 FROM ai.agent_runs run WHERE run.organization_id=NEW.organization_id AND run.id=NEW.run_id
+      AND run.work_unit_id=receipt.work_unit_id AND run.initiator_membership_id=receipt.viewer_membership_id AND run.status='running'
+      AND NOT EXISTS(SELECT 1 FROM ai.run_controls stop WHERE stop.organization_id=run.organization_id AND stop.run_id=run.id AND stop.kind='stop')) THEN
+    RAISE EXCEPTION 'ARTIFACT_AUTHORITY_PUT_UNPROVEN' USING ERRCODE='EN119';END IF;
+  -- Run/checkpoint admission occurs after actual original input closure locks. The old guard below
+  -- still serializes against the permanent fence and validates each permitted state transition.
+  current_class:=ai.lock_frozen_input_refs(receipt.input_inventory,receipt.viewer_membership_id);
+  IF current_class IS NULL OR knowledge.class_rank(current_class)>knowledge.class_rank(receipt.classification)
+    OR NOT ai.run_authority_read_admitted(NEW.run_id) OR NOT ai.run_authority_ready(NEW.run_id,receipt.viewer_membership_id) THEN
+    RAISE EXCEPTION 'ARTIFACT_AUTHORITY_INPUT_CLOSED' USING ERRCODE='EN119';END IF;
+  RETURN NEW;
+END $$;
+REVOKE ALL ON FUNCTION ai.guard_output_authority_proof() FROM PUBLIC;
+CREATE TRIGGER run_output_00_authority_proof BEFORE INSERT OR UPDATE ON ai.run_output_writes
+  FOR EACH ROW EXECUTE FUNCTION ai.guard_output_authority_proof();
