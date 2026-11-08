@@ -34,6 +34,19 @@ $$;
 REVOKE ALL ON FUNCTION studio.current_author() FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION studio.current_author() TO ensemus_app;
 
+-- Definition instructions have at least internal protection. This is not a company-data grant:
+-- the portable reader separately rechecks every selected source's actual class and current ACL.
+-- Unknown legacy/malformed answers cannot be inferred to be exportable.
+CREATE FUNCTION studio.agent_draft_class(p_answers jsonb) RETURNS text LANGUAGE sql IMMUTABLE
+ SET search_path=pg_catalog AS $$
+ SELECT CASE WHEN jsonb_typeof(p_answers->'dataClasses') IS DISTINCT FROM 'array' THEN 'restricted'
+   WHEN EXISTS(SELECT 1 FROM jsonb_array_elements(p_answers->'dataClasses') v
+     WHERE jsonb_typeof(v)<>'string' OR (v#>>'{}') NOT IN ('public','internal','confidential')) THEN 'restricted'
+   WHEN (p_answers->'dataClasses') ? 'confidential' THEN 'confidential' ELSE 'internal' END
+$$;
+REVOKE ALL ON FUNCTION studio.agent_draft_class(jsonb) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION studio.agent_draft_class(jsonb) TO ensemus_app;
+
 -- This is a session check, deliberately independent of MFA. Reuse the exact auth-metadata lock
 -- visibility from0404; no account, token, factor secret or session body grant is added to the app.
 CREATE FUNCTION identity.lock_studio_session(p_user uuid,p_session uuid) RETURNS boolean
@@ -217,7 +230,7 @@ CREATE POLICY reviews_current_person ON studio.publish_reviews AS RESTRICTIVE TO
  WITH CHECK(studio.current_author());
 CREATE FUNCTION studio.guard_review_authority() RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog AS $$
 DECLARE subject_hash text;subject_status text;subject_owner uuid;subject_name text;simulation studio.simulation_runs%ROWTYPE;
-  snapshot studio.simulation_inputs%ROWTYPE;spec jsonb;requires_second boolean;reviewer uuid;definition_key uuid;identity_key uuid;
+  snapshot studio.simulation_inputs%ROWTYPE;reviewed_spec jsonb;requires_second boolean;reviewer uuid;definition_key uuid;identity_key uuid;
 BEGIN
  IF NEW.organization_id IS DISTINCT FROM app.current_organization_id() OR NOT studio.current_author() THEN
    RAISE EXCEPTION 'REVIEW_PERSON_REQUIRED' USING ERRCODE='EN412';END IF;
@@ -243,13 +256,13 @@ BEGIN
      OR simulation.subject_sha256 IS DISTINCT FROM NEW.subject_sha256
      OR encode(sha256(convert_to(snapshot.spec_canonical,'UTF8')),'hex')<>NEW.subject_sha256 THEN
      RAISE EXCEPTION 'REVIEW_SIMULATION_MISMATCH' USING ERRCODE='EN412';END IF;
-   spec:=snapshot.spec_canonical::jsonb;
+   reviewed_spec:=snapshot.spec_canonical::jsonb;
    IF NEW.subject_kind='agent_draft' THEN
-     requires_second:=coalesce((spec->'tools'->'allow') ?| ARRAY['email.send','agent.delegate'],false)
-       OR coalesce((spec->'context'->'allowed_scopes') ? 'data.confidential.read',false);
+     requires_second:=coalesce((reviewed_spec->'tools'->'allow') ?| ARRAY['email.send','agent.delegate'],false)
+       OR coalesce((reviewed_spec->'context'->'allowed_scopes') ? 'data.confidential.read',false);
    ELSE
-     requires_second:=coalesce(spec->>'classification' IN ('confidential','restricted'),false)
-       OR EXISTS(SELECT 1 FROM jsonb_array_elements(spec->'steps') step WHERE step->>'kind' IN ('external_action','agent_task'));
+     requires_second:=coalesce(reviewed_spec->>'classification' IN ('confidential','restricted'),false)
+       OR EXISTS(SELECT 1 FROM jsonb_array_elements(reviewed_spec->'steps') step WHERE step->>'kind' IN ('external_action','agent_task'));
    END IF;
    IF requires_second AND NEW.risk_level<>'elevated' THEN
      RAISE EXCEPTION 'REVIEW_RISK_DOWNGRADE' USING ERRCODE='EN412';END IF;
@@ -278,7 +291,7 @@ BEGIN
    SELECT i.* INTO snapshot FROM studio.simulation_inputs i
      WHERE i.organization_id=NEW.organization_id AND i.simulation_run_id=NEW.simulation_run_id;
    IF snapshot.simulation_run_id IS NULL THEN RAISE EXCEPTION 'REVIEW_INPUT_MISSING' USING ERRCODE='EN412';END IF;
-   spec:=snapshot.spec_canonical::jsonb;
+   reviewed_spec:=snapshot.spec_canonical::jsonb;
    IF NEW.subject_kind='agent_draft' THEN
      -- Immutable metadata hashes alone cannot stand in for the actual reviewed manifest/body.
      SELECT d.id,d.service_identity_id INTO definition_key,identity_key FROM ai.agent_versions v JOIN ai.agent_definitions d
@@ -295,7 +308,7 @@ BEGIN
        ON identity.organization_id=d.organization_id AND identity.id=d.service_identity_id
        JOIN studio.agent_drafts draft ON draft.organization_id=v.organization_id AND draft.id=NEW.subject_id
        WHERE v.organization_id=NEW.organization_id AND v.id=NEW.published_ref AND v.spec_sha256=NEW.subject_sha256
-         AND v.spec=spec AND draft.compiled_spec=spec AND draft.agent_definition_id=d.id AND d.slug=spec->>'id'
+         AND v.spec=reviewed_spec AND draft.compiled_spec=reviewed_spec AND draft.agent_definition_id=d.id AND d.slug=reviewed_spec->>'id'
          AND d.owner_membership_id=NEW.subject_owner_membership_id AND identity.owner_membership_id=NEW.subject_owner_membership_id
          AND d.name=NEW.subject_name
          AND identity.status='active' AND (identity.expires_at IS NULL OR identity.expires_at>now())
@@ -306,7 +319,7 @@ BEGIN
        RAISE EXCEPTION 'REVIEW_AGENT_RESULT_MISMATCH' USING ERRCODE='EN412';END IF;
    ELSIF NOT EXISTS(SELECT 1 FROM studio.process_specs p JOIN studio.process_drafts d
        ON d.organization_id=p.organization_id AND d.id=NEW.subject_id WHERE p.organization_id=NEW.organization_id
-       AND p.id=NEW.published_ref AND p.spec_sha256=NEW.subject_sha256 AND p.spec=spec
+       AND p.id=NEW.published_ref AND p.spec_sha256=NEW.subject_sha256 AND p.spec=reviewed_spec
        AND p.source_ref=NEW.subject_id::text AND p.source IN ('graph','pack')
        AND p.name=d.name AND p.classification=d.classification) THEN
      RAISE EXCEPTION 'REVIEW_PROCESS_RESULT_MISMATCH' USING ERRCODE='EN412';END IF;
@@ -367,3 +380,20 @@ END $$;
 CREATE TRIGGER process_specs_authority BEFORE INSERT ON studio.process_specs
  FOR EACH ROW EXECUTE FUNCTION studio.guard_process_publication();
 REVOKE ALL ON FUNCTION studio.guard_process_publication() FROM PUBLIC;
+
+CREATE FUNCTION studio.guard_process_start() RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog AS $$
+BEGIN
+ IF NEW.organization_id IS DISTINCT FROM app.current_organization_id()
+ OR NEW.started_by_membership_id IS DISTINCT FROM app.current_membership_id()
+ OR NEW.status<>'queued' OR NEW.version<>1 OR NOT studio.author_allowed()
+ OR NOT EXISTS(SELECT 1 FROM studio.process_specs p JOIN work.work_units w
+   ON w.organization_id=p.organization_id AND w.id=NEW.root_work_unit_id
+   WHERE p.organization_id=NEW.organization_id AND p.id=NEW.spec_id
+     AND p.classification=w.classification AND w.owner_membership_id=NEW.started_by_membership_id
+     AND w.status='queued' AND w.run_id IS NULL AND w.execution_plan IS NULL) THEN
+   RAISE EXCEPTION 'PROCESS_NATIVE_START_REQUIRED' USING ERRCODE='EN412';END IF;
+ RETURN NEW;
+END $$;
+CREATE TRIGGER process_runs_start_authority BEFORE INSERT ON studio.process_runs
+ FOR EACH ROW EXECUTE FUNCTION studio.guard_process_start();
+REVOKE ALL ON FUNCTION studio.guard_process_start() FROM PUBLIC;

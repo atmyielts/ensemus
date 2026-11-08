@@ -402,7 +402,7 @@ export const simulationInputs = studioSchema.table(
     createdAt: createdAt(),
   },
   (t) => [
-    primaryKey({ columns: [t.organizationId, t.simulationRunId] }),
+    primaryKey({ name: 'simulation_inputs_pk', columns: [t.organizationId, t.simulationRunId] }),
     foreignKey({
       name: 'simulation_inputs_run_fk',
       columns: [t.organizationId, t.simulationRunId],
@@ -969,7 +969,7 @@ export const outcomeDrafts = experienceSchema.table(
 export const outcomeWorkBirths = experienceSchema.table(
   'outcome_work_births',
   {
-    organizationId: tenantId(),
+    organizationId: uuid().notNull(),
     draftId: uuid().notNull(),
     workUnitId: uuid().notNull(),
     previewVersion: bigint({ mode: 'number' }).notNull(),
@@ -979,24 +979,33 @@ export const outcomeWorkBirths = experienceSchema.table(
     createdAt: createdAt(),
   },
   (t) => [
-    primaryKey({ columns: [t.organizationId, t.draftId] }),
-    unique('outcome_birth_work').on(t.organizationId, t.workUnitId),
+    primaryKey({ name: 'outcome_work_births_pkey', columns: [t.organizationId, t.draftId] }),
+    unique('outcome_work_births_organization_id_work_unit_id_key').on(
+      t.organizationId,
+      t.workUnitId,
+    ),
     foreignKey({
+      name: 'outcome_work_births_organization_id_fkey',
+      columns: [t.organizationId],
+      foreignColumns: [organizations.id],
+    }),
+    foreignKey({
+      name: 'outcome_work_births_organization_id_draft_id_fkey',
       columns: [t.organizationId, t.draftId],
       foreignColumns: [outcomeDrafts.organizationId, outcomeDrafts.id],
     }),
     foreignKey({
+      name: 'outcome_work_births_organization_id_work_unit_id_fkey',
       columns: [t.organizationId, t.workUnitId],
       foreignColumns: [workUnits.organizationId, workUnits.id],
     }),
     foreignKey({
+      name: 'outcome_work_births_organization_id_created_by_membership__fkey',
       columns: [t.organizationId, t.createdByMembershipId],
       foreignColumns: [memberships.organizationId, memberships.id],
     }),
-    check(
-      'outcome_birth_shape',
-      sql`${t.previewVersion}>0 and ${t.previewSha256} ~ '^[0-9a-f]{64}$'`,
-    ),
+    check('outcome_work_births_preview_version_check', sql`${t.previewVersion}>0`),
+    check('outcome_work_births_preview_sha256_check', sql`${t.previewSha256} ~ '^[0-9a-f]{64}$'`),
   ],
 );
 
@@ -1024,7 +1033,7 @@ export const onboardingSteps = experienceSchema.table(
 export const onboardingCompletions = experienceSchema.table(
   'onboarding_completions',
   {
-    organizationId: tenantId().primaryKey(),
+    organizationId: uuid().notNull().primaryKey(),
     version: integer().notNull().default(1),
     completedByMembershipId: uuid().notNull(),
     firstSimulationId: uuid().notNull(),
@@ -1033,16 +1042,24 @@ export const onboardingCompletions = experienceSchema.table(
   },
   (t) => [
     foreignKey({
+      name: 'onboarding_completions_organization_id_fkey',
+      columns: [t.organizationId],
+      foreignColumns: [organizations.id],
+    }),
+    foreignKey({
+      name: 'onboarding_completions_organization_id_completed_by_member_fkey',
       columns: [t.organizationId, t.completedByMembershipId],
       foreignColumns: [memberships.organizationId, memberships.id],
     }),
     foreignKey({
+      name: 'onboarding_completions_organization_id_first_simulation_id_fkey',
       columns: [t.organizationId, t.firstSimulationId],
       foreignColumns: [simulationRuns.organizationId, simulationRuns.id],
     }),
+    check('onboarding_completions_version_check', sql`${t.version}=1`),
     check(
-      'onboarding_completion_shape',
-      sql`${t.version}=1 and ${t.firstSimulationSha256} ~ '^[0-9a-f]{64}$'`,
+      'onboarding_completions_first_simulation_sha256_check',
+      sql`${t.firstSimulationSha256} ~ '^[0-9a-f]{64}$'`,
     ),
   ],
 );

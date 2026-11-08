@@ -59,6 +59,7 @@ const view = (row: Row): PublishReviewView => ({
   id: row.id,
   subjectId: row.subjectId,
   subjectSha256: row.subjectSha256,
+  subjectName: row.subjectName,
   simulationRunId: row.simulationRunId,
   requestedByMembershipId: row.requestedByMembershipId,
   reviewerMembershipId: row.reviewerMembershipId,
@@ -224,6 +225,7 @@ export type PublishReviewView = {
   subjectKind: 'agent_draft' | 'process_draft';
   subjectId: string;
   subjectSha256: string;
+  subjectName: string | null;
   simulationRunId: string;
   riskLevel: 'standard' | 'elevated';
   riskSummary: readonly RiskFinding[];

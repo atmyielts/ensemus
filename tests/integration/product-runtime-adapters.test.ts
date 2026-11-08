@@ -11,7 +11,7 @@ import {
 import { requestProcessAgentRun } from '@ensemus/application/ai-run-control';
 import { createRuntimeProductPorts } from '@ensemus/application/product-runtime';
 import { advanceProcessRun, startProcessRun } from '@ensemus/application/process-runs';
-import { publishProcessSpecInTx } from '@ensemus/application/process-specs';
+import { publishReviewedProcess } from '../helpers/studio';
 import { agentSpecV1Schema } from '@ensemus/contracts/ai';
 import {
   agentDefinitions,
@@ -245,15 +245,29 @@ describe('real product runtime adapters', () => {
       hash,
     );
     if (!compiled.ok) throw new Error('TEST_PROCESS_NOT_COMPILED');
-    const publishedProcess = await withTenantTx(app.db, f.owner, (tx) =>
-      publishProcessSpecInTx(tx, f.owner, {
-        processKey: 'generated-product-process',
-        name: 'Generated process',
-        classification: 'internal',
-        spec: compiled.spec,
-        specSha256: compiled.specSha256,
-        source: 'graph',
-      }),
+    const publishedProcess = await publishReviewedProcess(
+      app.db,
+      f.owner,
+      {
+        schemaVersion: 1,
+        nodes: [
+          { id: 'start', kind: 'start', label: 'Start', x: 0, y: 0 },
+          {
+            id: 'assistant',
+            kind: 'agent_task',
+            label: 'Prepare a draft',
+            agentDefinitionId: published.definition_id,
+            x: 1,
+            y: 0,
+          },
+          { id: 'end', kind: 'end', label: 'Finish', x: 2, y: 0 },
+        ],
+        edges: [
+          { from: 'start', to: 'assistant' },
+          { from: 'assistant', to: 'end' },
+        ],
+      },
+      'Generated process',
     );
     const process = await startProcessRun(app.db, f.owner, {
         specId: publishedProcess.specId,

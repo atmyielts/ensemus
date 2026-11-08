@@ -17,6 +17,7 @@ const EMPTY_BINDINGS = {
   'app.scim_token_hash': '',
   'app.sso_provider_id': '',
   'app.studio_simulation_id': '',
+  'app.outcome_draft_id': '',
   'app.portability_export_id': '',
   'app.portability_import_id': '',
   'app.portability_part_path': '',

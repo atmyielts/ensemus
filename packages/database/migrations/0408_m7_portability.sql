@@ -114,7 +114,7 @@ ALTER POLICY object_relations_read ON objects.relations USING(
 -- only on SELECT; adding it to an ALL USING expression would accidentally authorize DELETE.
 DROP POLICY agent_drafts_person ON studio.agent_drafts;
 CREATE POLICY agent_drafts_person ON studio.agent_drafts AS RESTRICTIVE FOR SELECT TO ensemus_app
-  USING(studio.current_author() OR (classification<>'restricted' AND sovereign.portable_export_viewer() IS NOT NULL));
+  USING(studio.current_author() OR (studio.agent_draft_class(answers)<>'restricted' AND sovereign.portable_export_viewer() IS NOT NULL));
 CREATE POLICY agent_drafts_person_insert ON studio.agent_drafts AS RESTRICTIVE FOR INSERT TO ensemus_app WITH CHECK(studio.current_author());
 CREATE POLICY agent_drafts_person_update ON studio.agent_drafts AS RESTRICTIVE FOR UPDATE TO ensemus_app USING(studio.current_author()) WITH CHECK(studio.current_author());
 CREATE POLICY agent_drafts_person_delete ON studio.agent_drafts AS RESTRICTIVE FOR DELETE TO ensemus_app USING(studio.current_author());
@@ -141,7 +141,7 @@ CREATE TRIGGER export_epoch_object_records AFTER INSERT OR UPDATE OR DELETE ON o
 CREATE TRIGGER export_epoch_object_relations AFTER INSERT OR UPDATE OR DELETE ON objects.relations FOR EACH ROW
   EXECUTE FUNCTION sovereign.advance_export_epoch('relation_key','from_record_id','to_record_id');
 CREATE TRIGGER export_epoch_agent_drafts AFTER INSERT OR UPDATE OR DELETE ON studio.agent_drafts FOR EACH ROW
-  EXECUTE FUNCTION sovereign.advance_export_epoch('name','owner_membership_id','classification','answers','spec_sha256','status','version');
+  EXECUTE FUNCTION sovereign.advance_export_epoch('name','owner_membership_id','answers','spec_sha256','status','version');
 CREATE TRIGGER export_epoch_process_drafts AFTER INSERT OR UPDATE OR DELETE ON studio.process_drafts FOR EACH ROW
   EXECUTE FUNCTION sovereign.advance_export_epoch('name','owner_membership_id','classification','graph','spec_sha256','status','version');
 CREATE TRIGGER export_epoch_process_specs AFTER INSERT OR UPDATE OR DELETE ON studio.process_specs FOR EACH ROW

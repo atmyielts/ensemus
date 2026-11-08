@@ -393,8 +393,8 @@ BEGIN
         WHERE r.organization_id=NEW.organization_id and r.id=NEW.run_id and r.status in('completed','failed','cancelled','budget_exhausted','policy_denied','timed_out','outcome_unverified')
           and p.fenced_at is not null and p.fence_generation=1) THEN RAISE EXCEPTION 'MODEL_ACCOUNTING_TARGET' USING ERRCODE='42501';END IF;
     END IF;
-    IF NEW.input_tokens<>0 OR NEW.output_tokens<>0 OR NEW.cost_micros IS DISTINCT FROM CASE WHEN OLD.state='dispatched' THEN OLD.reserved_micros ELSE 0 END
-      OR NEW.status IS DISTINCT FROM CASE WHEN OLD.state='dispatched' THEN 'estimated' ELSE 'final' END THEN RAISE EXCEPTION 'MODEL_ACCOUNTING_ESTIMATE_REQUIRED' USING ERRCODE='EN120';END IF;
+    IF NEW.input_tokens<>0 OR NEW.output_tokens<>0 OR NEW.cost_micros IS DISTINCT FROM (CASE WHEN OLD.state='dispatched' THEN OLD.reserved_micros ELSE 0 END)
+      OR NEW.status IS DISTINCT FROM (CASE WHEN OLD.state='dispatched' THEN 'estimated' ELSE 'final' END) THEN RAISE EXCEPTION 'MODEL_ACCOUNTING_ESTIMATE_REQUIRED' USING ERRCODE='EN120';END IF;
   ELSE
     IF current_setting('app.knowledge_model_protocol',true) IS DISTINCT FROM 'v1' THEN RAISE EXCEPTION 'MODEL_RUNTIME_REQUIRED' USING ERRCODE='42501';END IF;
     IF NEW.job_id IS NOT NULL THEN

@@ -8,7 +8,7 @@ import {
   PULSE_WORK_LIMIT,
   setPulseSignalState,
 } from '@ensemus/application/pulse';
-import { publishProcessSpecInTx } from '@ensemus/application/process-specs';
+import { publishReviewedProcess } from '../helpers/studio';
 import { finishProcessRun, startProcessRun } from '@ensemus/application/process-runs';
 import { compileProcessGraph } from '@ensemus/domain/process-spec';
 import { createPulseMetadataReaders } from '@ensemus/application/pulse-metadata';
@@ -403,15 +403,11 @@ describe('Pulse fresh viewer access and own personal state', () => {
       (body) => createHash('sha256').update(body).digest('hex'),
     );
     if (!compiled.ok) throw new Error('TEST_PROCESS_COMPILATION_REFUSED');
-    const published = await withTenantTx(app.db, f.a.owner.context, (tx) =>
-      publishProcessSpecInTx(tx, f.a.owner.context, {
-        processKey: `pulse-${randomUUID()}`,
-        name: 'Generated Pulse process',
-        classification: 'internal',
-        spec: compiled.spec,
-        specSha256: compiled.specSha256,
-        source: 'graph',
-      }),
+    const published = await publishReviewedProcess(
+      app.db,
+      f.a.owner.context,
+      graph,
+      'Generated Pulse process',
     );
     const run = await startProcessRun(app.db, f.a.owner.context, {
       specId: published.specId,

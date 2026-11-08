@@ -232,6 +232,146 @@
       "when": 1794010184887,
       "tag": "0215_onboarding_run_binding",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1794010184888,
+      "tag": "0216_knowledge_model_jobs",
+      "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1794010184889,
+      "tag": "0300_sovereign",
+      "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1794010184890,
+      "tag": "0301_sovereign_security",
+      "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1794010184891,
+      "tag": "0302_portable_definitions",
+      "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1794010184892,
+      "tag": "0303_export_revocation_epoch",
+      "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1794010184893,
+      "tag": "0400_product_depth",
+      "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "7",
+      "when": 1794010184894,
+      "tag": "0401_product_depth_security",
+      "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1794010184895,
+      "tag": "0402_second_factor_uniqueness",
+      "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1794010184896,
+      "tag": "0403_scim_human_disable",
+      "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1794010184897,
+      "tag": "0404_interactive_privileges",
+      "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1794010184898,
+      "tag": "0405_pulse_personal_state_authority",
+      "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1794010184899,
+      "tag": "0406_product_agent_binding",
+      "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "7",
+      "when": 1794010184900,
+      "tag": "0407_object_record_authority",
+      "breakpoints": true
+    },
+    {
+      "idx": 46,
+      "version": "7",
+      "when": 1794010184901,
+      "tag": "0410_interactive_sso_authority",
+      "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1794010184902,
+      "tag": "0411_work_parent_authority",
+      "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "7",
+      "when": 1794010184903,
+      "tag": "0412_studio_admission",
+      "breakpoints": true
+    },
+    {
+      "idx": 49,
+      "version": "7",
+      "when": 1794010184904,
+      "tag": "0409_import_intent_authority",
+      "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "7",
+      "when": 1794010184905,
+      "tag": "0408_m7_portability",
+      "breakpoints": true
+    },
+    {
+      "idx": 51,
+      "version": "7",
+      "when": 1794010184906,
+      "tag": "0413_experience_authority",
+      "breakpoints": true
+    },
+    {
+      "idx": 52,
+      "version": "7",
+      "when": 1794010184907,
+      "tag": "0414_agent_scope_protocol",
+      "breakpoints": true
     }
   ]
 }

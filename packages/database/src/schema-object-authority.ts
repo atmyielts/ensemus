@@ -23,12 +23,17 @@ export const objectMigrationResults = pgSchema('objects').table(
     createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
-    primaryKey({ columns: [t.organizationId, t.migrationId, t.recordId] }),
+    primaryKey({
+      name: 'migration_results_pkey',
+      columns: [t.organizationId, t.migrationId, t.recordId],
+    }),
     foreignKey({
+      name: 'migration_results_organization_id_migration_id_fkey',
       columns: [t.organizationId, t.migrationId],
       foreignColumns: [objectMigrations.organizationId, objectMigrations.id],
     }),
     foreignKey({
+      name: 'migration_results_organization_id_record_id_fkey',
       columns: [t.organizationId, t.recordId],
       foreignColumns: [objectRecords.organizationId, objectRecords.id],
     }),
@@ -48,9 +53,9 @@ export const objectTypeAclCatalog = pgSchema('objects').table(
     classification: text().notNull(),
   },
   (t) => [
-    primaryKey({ columns: [t.organizationId, t.typeId] }),
+    primaryKey({ name: 'type_acl_catalog_pkey', columns: [t.organizationId, t.typeId] }),
     check(
-      'object_type_acl_class',
+      'type_acl_catalog_classification_check',
       sql`${t.classification} in ('public','internal','confidential','restricted')`,
     ),
   ],
@@ -66,9 +71,13 @@ export const objectRelationSlots = pgSchema('objects').table(
     relationId: uuid().notNull(),
   },
   (t) => [
-    primaryKey({ columns: [t.organizationId, t.fromRecordId, t.relationKey] }),
-    unique().on(t.organizationId, t.relationId),
+    primaryKey({
+      name: 'relation_slots_pkey',
+      columns: [t.organizationId, t.fromRecordId, t.relationKey],
+    }),
+    unique('relation_slots_organization_id_relation_id_key').on(t.organizationId, t.relationId),
     foreignKey({
+      name: 'relation_slots_organization_id_from_record_id_fkey',
       columns: [t.organizationId, t.fromRecordId],
       foreignColumns: [objectRecords.organizationId, objectRecords.id],
     }),

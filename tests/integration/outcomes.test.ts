@@ -1,5 +1,11 @@
 import { afterAll, beforeAll, describe, it, expect } from 'vitest';
-import { openAppDatabase, withTenantTx, workUnits, domainEvents } from '@ensemus/database';
+import {
+  openAppDatabase,
+  withTenantTx,
+  workUnits,
+  domainEvents,
+  outboxEvents,
+} from '@ensemus/database';
 import { outcomeDrafts, outcomeWorkBirths } from '@ensemus/database/product';
 import { createServiceContext } from '@ensemus/database/service';
 import {
@@ -216,6 +222,13 @@ describe('previewed outcomes through actual native tenant roles', () => {
     const { a } = await makeTwoTenants(app.db),
       draft = await compose(a.member.context),
       pool = new pg.Pool({ connectionString: urls.app(), max: 1 });
+    const before = await withTenantTx(app.db, a.member.context, async (tx) => ({
+      events: await tx.select({ id: domainEvents.id }).from(domainEvents).orderBy(domainEvents.id),
+      outbox: await tx
+        .select({ eventId: outboxEvents.eventId })
+        .from(outboxEvents)
+        .orderBy(outboxEvents.eventId),
+    }));
     let reachedWrite = false;
     pool.on('connect', (client) => {
       client.query = new Proxy(client.query, {
@@ -238,7 +251,7 @@ describe('previewed outcomes through actual native tenant roles', () => {
           expectedVersion: draft.version,
           previewSha256: draft.previewSha256,
         }),
-      ).rejects.toThrow('OWNED_OUTCOME_WRITE_FAULT');
+      ).rejects.toMatchObject({ cause: { message: 'OWNED_OUTCOME_WRITE_FAULT' } });
       expect(reachedWrite).toBe(true);
     } finally {
       await pool.end();
@@ -250,7 +263,16 @@ describe('previewed outcomes through actual native tenant roles', () => {
     });
     await withTenantTx(app.db, a.member.context, async (tx) => {
       expect(await tx.select().from(workUnits)).toHaveLength(0);
-      expect(await tx.select().from(domainEvents)).toHaveLength(0);
+      expect(
+        await tx.select({ id: domainEvents.id }).from(domainEvents).orderBy(domainEvents.id),
+      ).toEqual(before.events);
+      expect(
+        await tx
+          .select({ eventId: outboxEvents.eventId })
+          .from(outboxEvents)
+          .orderBy(outboxEvents.eventId),
+      ).toEqual(before.outbox);
+      expect(await tx.select().from(outcomeWorkBirths)).toHaveLength(0);
     });
     expect(
       (

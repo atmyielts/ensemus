@@ -16,6 +16,7 @@ import type { AgentDraftAnswers, ToolFacts } from '@ensemus/domain/agent-draft';
 import pg from 'pg';
 import { urls } from './stack';
 import { fixtureSessionCookie } from '../../packages/auth/test-support/mfa-router';
+import { inFixtureTenant } from './fixture-tenant';
 
 export type TestPerson = { userId: string; context: TenantContext; sessionId: string };
 
@@ -99,10 +100,12 @@ export async function makeTwoTenants(database: ReturnType<typeof openAppDatabase
       const client = new pg.Client({ connectionString: urls.superuser() });
       await client.connect();
       try {
-        await client.query(
-          `insert into org.memberships (organization_id, user_id, role, status)
+        await inFixtureTenant(client, organizationId, () =>
+          client.query(
+            `insert into org.memberships (organization_id, user_id, role, status)
            values ($1, $2, $3, 'active')`,
-          [organizationId, person.userId, role],
+            [organizationId, person.userId, role],
+          ),
         );
       } finally {
         await client.end();

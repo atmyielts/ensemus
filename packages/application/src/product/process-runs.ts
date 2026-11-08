@@ -92,6 +92,7 @@ import {
 } from '../work';
 import type { ProductPorts } from './ports';
 import { publishProcessSpecInTx } from './process-specs';
+import { studioPerson, withStudioTx } from './studio-authority';
 
 export type ProcessRunView = {
   id: string;
@@ -250,7 +251,12 @@ export async function startProcessRun(
   const parsed = startInput.safeParse(raw);
   if (!parsed.success) throw new AppError('INVALID_INPUT');
   const input = parsed.data;
-  return withTenantTx(database, context, async (tx) => {
+  return withStudioTx(database, context, async (tx) => {
+    await studioPerson(tx, context, 'studio.publish');
+    const native = await tx.execute<{ allowed: boolean }>(
+      sql`select studio.author_allowed() as allowed`,
+    );
+    if (native.rows[0]?.allowed !== true) throw new AppError('FORBIDDEN');
     const [spec] = await tx.select().from(processSpecs).where(eq(processSpecs.id, input.specId));
     if (!spec || !whoReads(spec, context.membershipId)) throw new AppError('NOT_FOUND');
     const { steps } = specOf(spec);
@@ -335,7 +341,12 @@ export async function installBundledWorkflow(
   );
   if (!compiled.ok) throw new AppError('GRAPH_INVALID');
   const sourceRef = bundledRef(workflow);
-  return withTenantTx(database, context, async (tx) => {
+  return withStudioTx(database, context, async (tx) => {
+    await studioPerson(tx, context, 'studio.publish');
+    const native = await tx.execute<{ allowed: boolean }>(
+      sql`select studio.author_allowed() as allowed`,
+    );
+    if (native.rows[0]?.allowed !== true) throw new AppError('FORBIDDEN');
     // Two people pressing Install at once queue here, so "once per version" is not a race.
     await tx.execute(
       sql`select pg_advisory_xact_lock(hashtextextended(${`bundled_install:${context.organizationId}:${workflow.key}`}, 0))`,

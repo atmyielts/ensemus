@@ -130,7 +130,7 @@ BEGIN
  IF NEW.organization_id IS DISTINCT FROM draft.organization_id OR NEW.created_by_membership_id IS DISTINCT FROM draft.created_by_membership_id
  OR NEW.owner_membership_id IS DISTINCT FROM (draft.preview->>'ownerMembershipId')::uuid OR NEW.title IS DISTINCT FROM draft.preview->>'title'
  OR NEW.objective IS DISTINCT FROM objective OR NEW.classification IS DISTINCT FROM draft.preview->>'classification'
- OR NEW.due_at IS DISTINCT FROM CASE WHEN draft.preview->'dueAt'='null'::jsonb THEN NULL ELSE (draft.preview->>'dueAt')::date::timestamp AT TIME ZONE 'UTC' END
+ OR NEW.due_at IS DISTINCT FROM (CASE WHEN draft.preview->'dueAt'='null'::jsonb THEN NULL ELSE (draft.preview->>'dueAt')::date::timestamp AT TIME ZONE 'UTC' END)
  OR NEW.completion_criteria IS DISTINCT FROM criteria OR NEW.version<>1 OR NEW.status<>'queued'
  OR NEW.project_id IS NOT NULL OR NEW.parent_id IS NOT NULL OR NEW.execution_plan IS NOT NULL
  OR NEW.run_requested_at IS NOT NULL OR NEW.run_id IS NOT NULL THEN RAISE EXCEPTION 'OUTCOME_BIRTH_MISMATCH' USING ERRCODE='EN413';END IF;
@@ -198,7 +198,7 @@ BEGIN
  OR actual.title IS DISTINCT FROM NEW.preview->>'title' OR actual.objective IS DISTINCT FROM expected_objective
  OR actual.owner_membership_id IS DISTINCT FROM (NEW.preview->>'ownerMembershipId')::uuid
  OR actual.classification IS DISTINCT FROM NEW.preview->>'classification'
- OR actual.due_at IS DISTINCT FROM CASE WHEN NEW.preview->'dueAt'='null'::jsonb THEN NULL ELSE (NEW.preview->>'dueAt')::date::timestamp AT TIME ZONE 'UTC' END
+ OR actual.due_at IS DISTINCT FROM (CASE WHEN NEW.preview->'dueAt'='null'::jsonb THEN NULL ELSE (NEW.preview->>'dueAt')::date::timestamp AT TIME ZONE 'UTC' END)
  OR actual.completion_criteria IS DISTINCT FROM expected_criteria OR actual_dependencies IS DISTINCT FROM expected_dependencies
  OR actual.execution_plan IS NOT NULL OR actual.run_requested_at IS NOT NULL OR actual.run_id IS NOT NULL
  OR actual.parent_id IS NOT NULL OR actual.project_id IS NOT NULL THEN RAISE EXCEPTION 'OUTCOME_WORK_MISMATCH' USING ERRCODE='EN413';END IF;

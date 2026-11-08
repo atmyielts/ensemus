@@ -63,12 +63,12 @@ BEGIN
   IF NEW.status = OLD.status THEN
     RETURN NEW;
   END IF;
-  IF NOT CASE OLD.status
+  IF NOT (CASE OLD.status
     WHEN 'requested' THEN NEW.status IN ('running', 'failed')
     WHEN 'running' THEN NEW.status IN ('ready', 'failed')
     WHEN 'ready' THEN NEW.status = 'expired'
     ELSE false
-  END THEN
+  END) THEN
     RAISE EXCEPTION 'ORGANIZATION_EXPORT_INVALID_TRANSITION' USING ERRCODE = 'EN006';
   END IF;
   IF NEW.status = 'ready' AND (NEW.manifest_sealed_sha256 IS NULL OR NEW.snapshot_at IS NULL) THEN
@@ -105,12 +105,12 @@ BEGIN
   IF NEW.status = OLD.status THEN
     RETURN NEW;
   END IF;
-  IF NOT CASE OLD.status
+  IF NOT (CASE OLD.status
     WHEN 'requested' THEN NEW.status IN ('running', 'failed')
     WHEN 'running' THEN NEW.status IN ('completed', 'completed_with_warnings', 'failed')
     WHEN 'failed' THEN NEW.status = 'running'
     ELSE false
-  END THEN
+  END) THEN
     RAISE EXCEPTION 'ORGANIZATION_IMPORT_INVALID_TRANSITION' USING ERRCODE = 'EN006';
   END IF;
   RETURN NEW;

@@ -188,7 +188,7 @@ export async function getAgentDraftChoices(
     await studioPerson(tx, context);
     const owner = selectedOwner ? canonicalId(selectedOwner) : context.membershipId;
     const people = await tx
-      .select({ id: memberships.id, name: users.name })
+      .select({ id: memberships.id, name: users.name, role: memberships.role })
       .from(memberships)
       .innerJoin(users, eq(users.id, memberships.userId))
       .where(eq(memberships.status, 'active'))

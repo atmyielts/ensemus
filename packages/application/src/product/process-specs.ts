@@ -26,7 +26,18 @@ import { canonicalId } from '../ids';
 import { auditAction } from '../work';
 import type { AgentVersionSummary, ProductPorts } from './ports';
 import { assertInteractivePrivilege } from './privileged';
-import { studioPerson, withStudioTx as withTenantTx } from './studio-authority';
+import { studioPerson, withStudioTx } from './studio-authority';
+
+function withTenantTx<T>(
+  database: AppDatabase,
+  context: TenantContext,
+  fn: (tx: Tx) => Promise<T>,
+) {
+  return withStudioTx(database, context, async (tx) => {
+    await studioPerson(tx, context);
+    return fn(tx);
+  });
+}
 
 export type ProcessDraftView = {
   id: string;
@@ -536,7 +547,7 @@ export async function publishProcessSpecInTx(
         context,
         'process_spec.published',
         `process_spec:${row.id}`,
-        input.source,
+        ({ graph: 'GRAPH', bundled: 'BUNDLED', pack: 'PACK' } as const)[input.source],
       );
       return { specId: row.id, versionNumber: row.versionNumber };
     }

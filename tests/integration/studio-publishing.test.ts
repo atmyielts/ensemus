@@ -18,9 +18,13 @@ import {
 import { createRuntimeProductPorts } from '@ensemus/application/product-runtime';
 import { makeTwoTenants, proveSecondFactor, testAnswers } from '../helpers/product';
 import { urls } from '../helpers/stack';
-import { publishReviews } from '@ensemus/database/product';
+import { publishReviews, processSpecs } from '@ensemus/database/product';
+import { installBundledWorkflow } from '@ensemus/application/process-runs';
+import { compileProcessGraph } from '@ensemus/domain/process-spec';
+import { canonicalJson } from '@ensemus/domain/approval';
+import { BUNDLED_WORKFLOWS } from '@ensemus/packs/bundled';
 import { eq, sql } from 'drizzle-orm';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { pgCode } from '../../packages/application/src/errors';
 
 describe('Studio publishes only the actually rehearsed and reviewed revision', () => {
@@ -51,6 +55,70 @@ describe('Studio publishes only the actually rehearsed and reviewed revision', (
     });
     return { a, b, ports, answers, draft, simulation };
   }
+  it('admits only exact released catalog bodies and refuses a direct graph publication without its actual review', async () => {
+    const { a } = await makeTwoTenants(app.db),
+      hash = (s: string) => createHash('sha256').update(s).digest('hex');
+    for (const release of BUNDLED_WORKFLOWS) {
+      const compiled = compileProcessGraph(
+        release.graph,
+        {
+          classification: release.classification,
+          agentDefinitionIds: new Set(),
+          toolIds: new Set(release.graph.nodes.flatMap((n) => n.toolId ?? [])),
+        },
+        hash,
+      );
+      if (!compiled.ok) throw Error('TEST_RELEASE_NOT_COMPILED');
+      const spec = compiled.spec,
+        canonical = canonicalJson(spec),
+        ref = `${release.key}@${release.version}`;
+      const checked = await withTenantTx(app.db, a.owner.context, (tx) =>
+        tx.execute<{ valid: boolean; changed: boolean }>(sql`select
+        studio.bundled_publication_matches(${release.key},${ref},${release.name},${release.classification},${compiled.specSha256},${canonical}::jsonb) as valid,
+        studio.bundled_publication_matches(${release.key},${ref},${release.name + ' changed'},${release.classification},${compiled.specSha256},${canonical}::jsonb) as changed`),
+      );
+      expect(checked.rows[0]).toEqual({ valid: true, changed: false });
+    }
+    await expect(
+      installBundledWorkflow(app.db, a.owner.context, { processKey: 'client-status-update' }),
+    ).rejects.toMatchObject({ code: 'MFA_REQUIRED' });
+    await proveSecondFactor(a.owner);
+    expect(
+      (
+        await installBundledWorkflow(app.db, a.owner.context, {
+          processKey: 'client-status-update',
+        })
+      ).versionNumber,
+    ).toBe(1);
+    const release = BUNDLED_WORKFLOWS[0]!,
+      compiled = compileProcessGraph(
+        release.graph,
+        {
+          classification: release.classification,
+          agentDefinitionIds: new Set(),
+          toolIds: new Set(release.graph.nodes.flatMap((n) => n.toolId ?? [])),
+        },
+        hash,
+      );
+    if (!compiled.ok) throw Error('TEST_RELEASE_NOT_COMPILED');
+    const denied = await withTenantTx(app.db, a.owner.context, (tx) =>
+      tx.insert(processSpecs).values({
+        organizationId: a.organizationId,
+        processKey: 'generated-unreviewed',
+        versionNumber: 1,
+        name: release.name,
+        classification: release.classification,
+        spec: compiled.spec,
+        specSha256: compiled.specSha256,
+        source: 'graph',
+        publishedByMembershipId: a.owner.context.membershipId,
+      }),
+    ).then(
+      () => null,
+      (e) => e as unknown,
+    );
+    expect(pgCode(denied)).toBe('EN412');
+  });
   it('closes a named review without MFA and requires a new immutable reviewer assignment', async () => {
     const f = await fixture(),
       review = await requestPublishReview(app.db, f.a.owner.context, {

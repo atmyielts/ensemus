@@ -22,6 +22,7 @@ import { eq } from 'drizzle-orm';
 import pg from 'pg';
 import { urls } from '../stack';
 import { makePerson, nativePersonContext, proveSecondFactor } from '../product';
+import { inFixtureTenant } from '../fixture-tenant';
 
 export const openAgentTestDatabase = (max = 2) => openAgentDatabase(urls.agent(), { max });
 
@@ -98,10 +99,12 @@ export async function seedAiTenant(
   const superuser = new pg.Client({ connectionString: urls.superuser() });
   await superuser.connect();
   try {
-    await superuser.query(
-      `insert into org.memberships (organization_id, user_id, role, status)
+    await inFixtureTenant(superuser, organizationId, () =>
+      superuser.query(
+        `insert into org.memberships (organization_id, user_id, role, status)
        values ($1, $2, 'member', 'active')`,
-      [organizationId, memberId],
+        [organizationId, memberId],
+      ),
     );
   } finally {
     await superuser.end();

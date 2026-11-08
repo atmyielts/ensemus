@@ -8,6 +8,7 @@ import {
   loadChangeable,
   purgeDueBlobs,
   purgeExpiredWebhookDeliveries,
+  purgeExpiredExports,
   reissueStaleRunRequests,
   sendDueReminders,
   type ObjectStore,
@@ -25,6 +26,7 @@ vi.mock('@ensemus/application', async (original) => ({
   loadChangeable: vi.fn(),
   purgeDueBlobs: vi.fn(),
   purgeExpiredWebhookDeliveries: vi.fn(),
+  purgeExpiredExports: vi.fn(),
   reissueStaleRunRequests: vi.fn(),
   sendDueReminders: vi.fn(),
 }));
@@ -74,6 +76,7 @@ beforeEach(() => {
   vi.mocked(sendDueReminders).mockResolvedValue(0);
   vi.mocked(purgeDueBlobs).mockResolvedValue({ purged: 0, failed: 0 });
   vi.mocked(purgeExpiredWebhookDeliveries).mockResolvedValue(0);
+  vi.mocked(purgeExpiredExports).mockResolvedValue(0);
   vi.mocked(listHeldRuns).mockResolvedValue({
     items: [{ id: workId, runId: temporalRunId }],
     next: null,

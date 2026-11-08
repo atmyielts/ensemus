@@ -40,7 +40,66 @@ Their root composition is on `codex/m7-platform-integration`; main remains the v
   stay inside that transaction. Named reviewer assignments are immutable; changes require a new review.
   The policy advisory lock precedes author membership locks, matching member-disable administration.
 
-## SQL and checks
+## November 8 continuation — current boundary
+
+Source checkpoint `f688b5d` adds 17 Studio HTTP operations, strict request contracts, actual native
+forms and agent authoring pages. Review cancellation grants no authority and needs no fresh MFA.
+Reviews pin both the responsible membership and display name; new agent service identities use that
+actual reviewed responsible person while publication records the actual native signer. The real
+M4 publisher now takes the policy lock before its membership lock.
+
+`148fd8a` joins the private outcome composer and explicit company setup. Outcome authorization uses
+the actual Work kernel and a protected Work-birth receipt; it does not adopt an earlier Work row or
+start an assistant. Later Studio detail/rehearsal/review pages were recovered from the interrupted
+agent checkout. A complete workflow editor and rendered acceptance remain open.
+
+The full joined unit run passed **4,981**, failed **three**, and explicitly skipped **two** across
+190 files. The three failures share an older stranded-recovery test double missing the newly added
+export-expiry upkeep call. Only that double was corrected; its focused **five tests passed**. The
+full rerun is still owed. Application/tests and actual Next typegen/web types passed before the last
+screen recovery; later edits require their own checks.
+
+Twenty new migrations are now registered (53 total), in dependency order rather than filename order:
+0216, 0300–0303, 0400–0407, 0410, 0411, 0412, 0409, 0408, 0413, 0414. Isolated Drizzle generation
+includes 145 tables, but the final checked-in snapshot and actual database metadata audit are pending.
+**These new migrations have not yet passed the fresh database gate.** 0412 now also checks exact
+released catalog workflow bodies, an actual approved review for graph publication, and native process
+start authority. New real-role tests are authored, not executed.
+
+### Actual PostgreSQL follow-up
+
+All **53 registered migrations applied from fresh PostgreSQL** as the actual restricted migrator.
+The first run exposed unexecuted PL/pgSQL CASE expressions in 0216/0301/0413 and a nonexistent
+`agent_drafts.classification` reference in 0408. These were repaired without removing authority checks.
+Draft export sensitivity now comes from a fixed helper: instructions receive at least internal
+protection, declared confidential sensitivity is retained, and unknown/malformed answers refuse export;
+selected sources still require their actual current class and named-viewer permission.
+
+The five-file Studio/outcome/setup run first failed all 33 cases in generated membership fixtures
+that did not bind the tenant required by the new export-epoch trigger. Fixtures now bind that real
+row tenant rather than disable the trigger. The next run passed 29/failed four, exposing an ambiguous
+SQL `spec` variable in real publication, a lowercase audit-reason value and the rollback fixture's
+failure to inspect Drizzle's cause. After those repairs and another ownership-checked fresh database
+reset, **32 passed/one failed**. That remaining assertion assumed zero existing events despite the
+real `organization.created` event; it now compares the original event/outbox identities and checks
+that no Work-birth receipt survives. Its focused rerun **passed one** (11 cases deselected). A full
+post-fix rerun of these five files is still owed; these counts are not additive full-suite acceptance.
+
+The isolated 145-table schema generation was compared with actual PostgreSQL constraint metadata.
+Modeled PK/FK/unique/check names now have **zero missing entries and zero name mismatches**;
+PostgreSQL's normal 63-byte identifier truncation is respected. New receipt/table declarations match
+the actual named constraints, and the redundant idempotency unique declaration was removed while
+its identical primary key remains. The final snapshot is chained to 0215.
+
+Scoped formatting/lint, application/tests no-emit and actual Next route generation passed after the
+screen recovery; web no-emit found one read-model optional-field typing mismatch, corrected by using
+the actual snapshot reader's type. Its web rerun passed. Later schema/fixture edits still require their
+joined source checks. No full database regression, new browser/Temporal run, actual provider,
+restoration, physical lifecycle, hosted or independent acceptance is claimed.
+
+The sections below describe earlier source work and its historical checks, not newer acceptance.
+
+## Earlier SQL and checks
 
 `0406_product_agent_binding.sql` adds tenant-safe draft-definition, process-agent-run and external-action
 foreign keys, plus fixed direct-SQL process-binding and polymorphic publication-reference checks.

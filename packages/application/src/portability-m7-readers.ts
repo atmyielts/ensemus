@@ -28,7 +28,7 @@ const shape = {
 const draftWhere = `t.classification<>'restricted' AND t.status<>'archived'`;
 const itemVisible = `CASE t.item_kind
  WHEN 'object_type' THEN EXISTS(SELECT 1 FROM objects.types subject WHERE subject.organization_id=t.organization_id AND subject.id=t.item_id AND subject.state='active' AND subject.classification<>'restricted')
- WHEN 'agent_draft' THEN EXISTS(SELECT 1 FROM studio.agent_drafts subject WHERE subject.organization_id=t.organization_id AND subject.id=t.item_id AND subject.classification<>'restricted' AND subject.status<>'archived' AND NOT EXISTS(SELECT 1 FROM jsonb_array_elements_text(subject.answers->'knowledgeSourceIds') wanted(id) WHERE NOT (${sourceReadable('wanted.id::uuid', 'subject.classification')})))
+ WHEN 'agent_draft' THEN EXISTS(SELECT 1 FROM studio.agent_drafts subject WHERE subject.organization_id=t.organization_id AND subject.id=t.item_id AND studio.agent_draft_class(subject.answers)<>'restricted' AND subject.status<>'archived' AND NOT EXISTS(SELECT 1 FROM jsonb_array_elements_text(subject.answers->'knowledgeSourceIds') wanted(id) WHERE NOT (${sourceReadable('wanted.id::uuid', 'studio.agent_draft_class(subject.answers)')})))
  WHEN 'process_draft' THEN EXISTS(SELECT 1 FROM studio.process_drafts subject WHERE subject.organization_id=t.organization_id AND subject.id=t.item_id AND subject.classification<>'restricted' AND subject.status<>'archived')
  WHEN 'process_spec' THEN EXISTS(SELECT 1 FROM studio.process_specs subject WHERE subject.organization_id=t.organization_id AND subject.id=t.item_id AND subject.classification<>'restricted')
  ELSE false END`;
@@ -46,13 +46,13 @@ export const M7_PORTABLE_READERS: Readonly<
         ...common,
         name: 't.name',
         owner_membership_id: 't.owner_membership_id',
-        classification: 't.classification',
+        classification: 'studio.agent_draft_class(t.answers)',
         answers: 't.answers',
         spec_sha256: 't.spec_sha256',
         version: 't.version',
         updated_at: instant('t.updated_at'),
       },
-      where: `${draftWhere} AND NOT EXISTS(SELECT 1 FROM jsonb_array_elements_text(t.answers->'knowledgeSourceIds') wanted(id) WHERE NOT (${sourceReadable('wanted.id::uuid')}))`,
+      where: `studio.agent_draft_class(t.answers)<>'restricted' AND t.status<>'archived' AND NOT EXISTS(SELECT 1 FROM jsonb_array_elements_text(t.answers->'knowledgeSourceIds') wanted(id) WHERE NOT (${sourceReadable('wanted.id::uuid', 'studio.agent_draft_class(t.answers)')}))`,
       oneAtATime: true,
     },
     {

@@ -80,6 +80,7 @@ export class AppDatabase {
       for (const [name, value] of Object.entries({
         'app.agent_input_protocol': '',
         'app.agent_scope_protocol': '',
+        'app.outcome_draft_id': '',
         'app.portability_export_id': '',
         'app.portability_import_id': '',
         'app.portability_part_path': '',
@@ -193,6 +194,7 @@ export function withWebhookEndpointTx<T>(
         set_config('app.actor_type', 'service', true), set_config('app.agent_run_id', '', true),
         set_config('app.agent_input_protocol', '', true), set_config('app.interactive_session_id','',true),
         set_config('app.agent_scope_protocol','',true),
+        set_config('app.outcome_draft_id','',true),
         set_config('app.portability_export_id','',true),set_config('app.portability_import_id','',true),
         set_config('app.portability_part_path','',true),set_config('app.portability_part_sha256','',true),
         set_config('app.knowledge_model_protocol','',true), set_config('app.model_job_id','',true)`,

@@ -1,6 +1,6 @@
 # Ensemus 2.0: end-to-end delivery plan
 
-**Status, updated 2026-11-07:** approved by the project owner on 2026-11-05. M0's document changes are applied. Product code exists: **M4 is the current integration milestone.** The owner has requested continued implementation of the entire platform, including Claude's unfinished later milestones. M1's outside security review and signing-key custody decisions remain open. Legal entity/jurisdiction and data residency are deferred deployment settings at the owner's direction; no values have been invented. Only throwaway test credentials are used. In this plan, "you" means the project owner.
+**Status, updated 2026-11-08:** approved by the project owner on 2026-11-05. M0's document changes are applied. **The main branch retains the locally verified M4 checkpoint; active development joins M5–M7 on `codex/m7-platform-integration`.** M5 has a separate passing local database checkpoint; the later joined product has not passed its combined database/browser gates. The owner has requested continued implementation of the entire platform, including Claude's unfinished later milestones. M1's outside security review and signing-key custody decisions remain open. Legal entity/jurisdiction and data residency are deferred deployment settings at the owner's direction; no values have been invented. Only throwaway test credentials are used. In this plan, "you" means the project owner.
 
 Implementation evidence is recorded separately from the planned scope below:
 
@@ -10,7 +10,9 @@ Implementation evidence is recorded separately from the planned scope below:
 | M2 | Core implemented; committed baseline passed CI; continuation checks passed locally | [M2 report](evidence/M2-report.md). Exact email-recipient scenario QA-007 remains partial until M3; no overall sign-off claimed |
 | M3 | Integrated with newer M2 fixes on `codex/platform-completion`; local integration, receipts, connector faults and offline gates passed | [M3 report](evidence/M3-report.md); independent and hosted acceptance remain open |
 | M4 | Governed AI and shared interface integrated locally; runtime confidentiality, full replay and full browser gates passed | [M4 report](evidence/M4-report.md); isolation, upgrade and release checks continue |
-| M5–M11 | Later branches contain active implementation and preserved partial work | [Platform progress](platform-completion-progress.md); knowledge and SaaS services are being implemented, and M6 source has been recovered. Branches and source checkpoints do not establish milestone acceptance |
+| M5 | Knowledge/onboarding local checkpoint passed 3,084 units and 1,486 real-role database checks | [M5 report](evidence/M5-report.md); actual model/provider journeys and hosted acceptance remain open |
+| M6–M7 | Portability, native identity, models and product depth actively composed; Studio HTTP and outcome composer implemented in source | [Platform progress](platform-completion-progress.md); combined migrations, complete workflows and browser/runtime acceptance remain open |
+| M8–M11 | Partial implementation and preserved foundations | [Platform progress](platform-completion-progress.md); billing/operations, assurance, launch and expansion are not complete |
 
 Ticket IDs refer to the [reconciled backlog](../specifications/implementation-backlog.csv), whose `milestone` column is authoritative. Run `node specifications/tools/check-backlog.mjs` to validate it.
 

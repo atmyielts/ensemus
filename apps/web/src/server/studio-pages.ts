@@ -13,7 +13,11 @@ export async function studioRead<T>(read: Promise<T>): Promise<T> {
   try {
     return await read;
   } catch (error) {
-    if (error instanceof AppError && ['NOT_FOUND', 'FORBIDDEN'].includes(error.code)) notFound();
+    if (
+      error instanceof AppError &&
+      ['NOT_FOUND', 'FORBIDDEN', 'INVALID_INPUT'].includes(error.code)
+    )
+      notFound();
     throw error;
   }
 }

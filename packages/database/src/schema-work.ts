@@ -12,7 +12,6 @@ import {
   primaryKey,
   text,
   timestamp,
-  unique,
   uniqueIndex,
   uuid,
 } from 'drizzle-orm/pg-core';
@@ -476,8 +475,5 @@ export const idempotencyKeys = platformSchema.table(
     responseBody: jsonb().notNull(),
     createdAt: createdAt(),
   },
-  (t) => [
-    primaryKey({ columns: [t.organizationId, t.membershipId, t.key] }),
-    unique('idempotency_keys_unique').on(t.organizationId, t.membershipId, t.key),
-  ],
+  (t) => [primaryKey({ columns: [t.organizationId, t.membershipId, t.key] })],
 );
