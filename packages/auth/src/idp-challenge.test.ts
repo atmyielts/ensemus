@@ -1,6 +1,11 @@
 import { randomUUID } from 'node:crypto';
 import { describe, expect, it, vi } from 'vitest';
-import { createIdpChallenges, type IdpBridgePayload } from './idp-challenge';
+import { generateRandomString } from 'better-auth/crypto';
+import {
+  createIdpChallenges,
+  nativeFactorChallengeIdentifier,
+  type IdpBridgePayload,
+} from './idp-challenge';
 import { mfaPlugins } from './mfa';
 
 function fixture() {
@@ -49,6 +54,27 @@ function fixture() {
 const incoming = (value: string) =>
   new Headers({ cookie: `__Secure-better-auth.two_factor=${value}.generated-signature` });
 describe('required IdP factor bridge boundary', () => {
+  it('accepts the pinned native generator including its URL-safe alphabet', () => {
+    const challenges = [
+      `2fa-${'A'.repeat(18)}-_`,
+      ...Array.from({ length: 128 }, () => `2fa-${generateRandomString(20)}`),
+    ];
+    expect(challenges.every(nativeFactorChallengeIdentifier)).toBe(true);
+  });
+  it('does not confuse native challenges with malformed, signed or promoted identifiers', () => {
+    for (const value of [
+      undefined,
+      null,
+      `2fa-${'a'.repeat(19)}`,
+      `2fa-${'a'.repeat(21)}`,
+      `2fa-${'a'.repeat(18)}/a`,
+      `2fa-${'a'.repeat(18)} a`,
+      `2fa-${'a'.repeat(20)}.signature`,
+      `2fa-idp-${'a'.repeat(32)}`,
+      `reset-${'a'.repeat(20)}`,
+    ])
+      expect(nativeFactorChallengeIdentifier(value)).toBe(false);
+  });
   it('preserves the exact native factor handler while widening only its callback matcher', () => {
     const f = fixture(),
       native = mfaPlugins()[0]!,

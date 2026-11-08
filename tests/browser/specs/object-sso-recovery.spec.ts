@@ -4,22 +4,22 @@ import { randomUUID } from 'node:crypto';
 import type { Page } from '@playwright/test';
 import { expect, test } from '../support/fixtures';
 import { BASE, PASSWORD } from '../../helpers/forms';
-import { ssoStackFixture, generatedHttpPerson } from '../../helpers/sso-stack-fixture';
+import {
+  ssoStackFixture as createSsoFixture,
+  generatedHttpPerson,
+} from '../../helpers/sso-stack-fixture';
 import { axeFindings } from '../support/look';
+const ssoStackFixture = () => createSsoFixture({ browserProvider: true });
 type Fixture = Awaited<ReturnType<typeof ssoStackFixture>>;
 const origin = new URL(BASE).origin;
-const esc = (value: string) =>
-  value.replaceAll('&', '&amp;').replaceAll('"', '&quot;').replaceAll('<', '&lt;');
 async function generatedProvider(page: Page, f: Fixture) {
-  // New popup pages share this context route. It is installed after the ordinary outside-origin
-  // guard and fulfills only this exact test-owned provider; every other destination remains denied.
-  await page.context().route('https://generated-idp.example.invalid/**', async (route) => {
-    const signed = await f.idp.response(route.request().url(), f.spMetadata, f.member.email);
-    await route.fulfill({
-      contentType: 'text/html',
-      body: `<!doctype html><html lang="en"><meta charset="utf-8"><title>Generated company sign-in</title><main><h1>Confirm generated company sign-in</h1><form method="post" action="${esc(`${BASE}/api/auth/sso/saml2/sp/acs/${f.connection.provider_id}`)}"><input type="hidden" name="SAMLResponse" value="${esc(signed.SAMLResponse)}"><input type="hidden" name="RelayState" value="${esc(signed.RelayState)}"><button>Continue to Ensemus</button></form></main></html>`,
-    });
-  });
+  if (!f.browserProvider) throw new Error('GENERATED_BROWSER_PROVIDER_REQUIRED');
+  await page.context().addCookies([
+    f.browserProvider.configure({
+      acsURL: `${BASE}/api/auth/sso/saml2/sp/acs/${f.connection.provider_id}`,
+      response: (url) => f.idp.response(url, f.spMetadata, f.member.email),
+    }),
+  ]);
 }
 async function verifyInOtherTab(page: Page, f: Fixture) {
   const waiting = page.waitForEvent('popup');
@@ -210,7 +210,9 @@ test.describe('company sign-in changing while a custom editor is open', () => {
       const page = await open(f.member, { javaScriptEnabled });
       await page.goto(`/o/${f.organization}/objects/new`);
       await page.getByLabel('Type name', { exact: true }).fill('My held new type');
-      await page.getByLabel('Minimum sensitivity', { exact: true }).selectOption('internal');
+      await page
+        .getByRole('combobox', { name: 'Minimum sensitivity', exact: true })
+        .selectOption('internal');
       await page
         .getByRole('group', { name: 'Field 1', exact: true })
         .getByLabel('Label', { exact: true })
@@ -236,11 +238,17 @@ test.describe('company sign-in changing while a custom editor is open', () => {
       expect((await listing.json()).items).toHaveLength(1);
       const connection = page.getByRole('group', { name: 'Relation 1', exact: true });
       await connection.getByLabel('Relation label', { exact: true }).fill('Connected records');
-      await connection.getByLabel('Related type', { exact: true }).selectOption(target.slug);
-      await connection.getByLabel('How many', { exact: true }).selectOption('one');
+      await connection
+        .getByRole('combobox', { name: 'Related type', exact: true })
+        .selectOption(target.slug);
+      await connection.getByRole('combobox', { name: 'How many', exact: true }).selectOption('one');
       await page.getByRole('button', { name: 'Add another field', exact: true }).click();
-      await expect(connection.getByLabel('Related type', { exact: true })).toHaveValue(target.slug);
-      await expect(connection.getByLabel('How many', { exact: true })).toHaveValue('one');
+      await expect(
+        connection.getByRole('combobox', { name: 'Related type', exact: true }),
+      ).toHaveValue(target.slug);
+      await expect(connection.getByRole('combobox', { name: 'How many', exact: true })).toHaveValue(
+        'one',
+      );
       await page
         .getByRole('group', { name: 'Field 2', exact: true })
         .getByLabel('Label', { exact: true })

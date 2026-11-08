@@ -302,11 +302,11 @@ export function ObjectTypeForm(props: TypeFormProps) {
                   </option>
                 ))}
               </select>
-              <span className="muted" id={`${prefix}-class-help`}>
-                Every record keeps at least this protection. You can raise the minimum later; a
-                lower minimum needs a different record type.
-              </span>
             </label>
+            <small className="muted" id={`${prefix}-class-help`}>
+              Every record keeps at least this protection. You can raise the minimum later; a lower
+              minimum needs a different record type.
+            </small>
           </>
         )}
         <p className="muted">

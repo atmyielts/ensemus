@@ -25,6 +25,20 @@ person surviving a later native sign-in as another person in the same browser. P
 callback path coverage is under review. Complete native MFA, collision, browser and current joined
 acceptance remain open.
 
+The subsequent common database run passed **84 tests across nine files**, including all 16 native
+self-link/principal-switch cases and the earlier selected 68 standing/catalog/privacy/entitlement/
+webhook/account-export cases. These overlap the earlier checkpoints and must not be added to them.
+Callback path inspection confirmed the installed SDK already supplies its registered `/callback/:id`
+template; the follow-up classifier is bounded compatibility hardening, not a reproduced defect in
+the pinned version. Its additional protocol units passed. The latest common source run passed
+**5,612 units**, with two explicit skips across 246 files; all workspace types, license gate and clean
+production build passed. The later factor-alphabet compatibility repair passed its before/after
+regression and the next full unit run passed **5,614 tests**, still with two explicit skips across
+246 files. Current auth/web/tests/browser types, normal production build and the selected common
+**57-case browser gate** passed, including all fourteen SAML correlation/self-link/local-factor
+cases. [Browser evidence](product-browser-checkpoint.md) records scope, initial failures and repairs;
+this does not replace the separate 84-case database gate or qualify a hosted provider/restore.
+
 The restore audit also found that the full-dump restore script currently restores private
 verification/session state without an explicit invalidation step. Private/nonportable status and a
 five-minute expiry are not restore guarantees. Auth invalidation, preserved TOTP enrollment and

@@ -22,7 +22,9 @@ const esc = (value: string) =>
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&apos;');
-export async function generatedSamlIdp(options: { issuer?: string; keySize?: number } = {}) {
+export async function generatedSamlIdp(
+  options: { issuer?: string; keySize?: number; endpoint?: string } = {},
+) {
   const pems = await generate([{ name: 'commonName', value: 'generated-idp.example.invalid' }], {
     algorithm: 'sha256',
     keyType: 'rsa',
@@ -31,7 +33,7 @@ export async function generatedSamlIdp(options: { issuer?: string; keySize?: num
     notAfterDate: new Date(Date.now() + 86400000),
   });
   const issuer = options.issuer ?? `https://generated-idp.example.invalid/${randomUUID()}`;
-  const endpoint = 'https://generated-idp.example.invalid/sign-in';
+  const endpoint = options.endpoint ?? 'https://generated-idp.example.invalid/sign-in';
   const certificate = pems.cert.replace(/-----[^-]+-----|\s/g, '');
   const metadata = `<md:EntityDescriptor xmlns:md="urn:oasis:names:tc:SAML:2.0:metadata" entityID="${esc(issuer)}"><md:IDPSSODescriptor protocolSupportEnumeration="urn:oasis:names:tc:SAML:2.0:protocol"><md:KeyDescriptor use="signing"><ds:KeyInfo xmlns:ds="http://www.w3.org/2000/09/xmldsig#"><ds:X509Data><ds:X509Certificate>${certificate}</ds:X509Certificate></ds:X509Data></ds:KeyInfo></md:KeyDescriptor><md:SingleSignOnService Binding="urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect" Location="${endpoint}"/></md:IDPSSODescriptor></md:EntityDescriptor>`;
   const idp = IdentityProvider({

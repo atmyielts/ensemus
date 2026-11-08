@@ -23,3 +23,12 @@ export function totpFromUri(uri: string, now = Date.now()) {
   if (!secret) throw new Error('TEST_TOTP_URI_INVALID');
   return totpCode(secret, now);
 }
+
+/** Positive fixtures sometimes need the previous code so the next real challenge uses a different
+ * code. Do not start that HTTP verification at its final boundary: it could become two periods old
+ * while the real server checks it. Wait for the actual clock; no auth time/state is overridden. */
+export async function previousTotpFromUri(uri: string) {
+  const remaining = 30000 - (Date.now() % 30000);
+  if (remaining < 5000) await new Promise<void>((resolve) => setTimeout(resolve, remaining + 50));
+  return totpFromUri(uri, Date.now() - 30000);
+}

@@ -15,6 +15,7 @@ import {
   type Person,
 } from './forms';
 import { generatedSamlIdp } from './saml-idp';
+import { startGeneratedBrowserSamlProvider } from './browser-saml-provider';
 import { totpFromUri } from './totp';
 import { urls } from './stack';
 export async function generatedHttpPerson(domain: string, label: string): Promise<Person> {
@@ -32,11 +33,14 @@ export async function generatedHttpPerson(domain: string, label: string): Promis
     throw new Error('GENERATED_SSO_ACCOUNT_NOT_CREATED');
   return person;
 }
-export async function ssoStackFixture() {
+export async function ssoStackFixture(options: { browserProvider?: boolean } = {}) {
+  const browserProvider = options.browserProvider
+    ? await startGeneratedBrowserSamlProvider()
+    : undefined;
   const domain = `generated-${randomUUID()}.example.invalid`,
     owner = await generatedHttpPerson(domain, 'Generated SSO owner'),
     organization = await createOrganization(owner, 'Generated SSO company'),
-    idp = await generatedSamlIdp();
+    idp = await generatedSamlIdp(browserProvider ? { endpoint: browserProvider.endpoint } : {});
   const factorPath = `/o/${organization}/security/two-factor`,
     setup = await submit(factorPath, owner.jar, /Set up authenticator app/, { password: PASSWORD }),
     html = assembled(await setup.text());
@@ -107,6 +111,7 @@ export async function ssoStackFixture() {
     member,
     organization,
     idp,
+    browserProvider,
     path,
     api,
     connection,

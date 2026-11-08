@@ -218,7 +218,6 @@ export function WorkflowMap({
                         width={node.width}
                         height={node.height}
                       />
-                      <title>{`${nodeName(node)}. ${kindName(node)}. ${caption}.`}</title>
                       <text className={styles.small} x={node.x + 16} y={node.y + 23}>
                         {`Point ${node.index + 1} `}
                       </text>

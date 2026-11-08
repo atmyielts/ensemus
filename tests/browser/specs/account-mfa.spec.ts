@@ -14,7 +14,7 @@ import {
   type Person,
 } from '../../helpers/forms';
 import { setGeneratedAccountStanding } from '../../helpers/account-export';
-import { totpFromUri } from '../../helpers/totp';
+import { previousTotpFromUri, totpFromUri } from '../../helpers/totp';
 import { axeFindings } from '../support/look';
 
 async function enroll(person: Person, organization: string) {
@@ -27,7 +27,7 @@ async function enroll(person: Person, organization: string) {
   const confirmation = formsIn(html).filter((form) => /Confirm and turn on/.test(form.html));
   expect(confirmation).toHaveLength(1);
   const result = await post(path, person.jar, confirmation[0]!, {
-    code: totpFromUri(uri, Date.now() - 30000),
+    code: await previousTotpFromUri(uri),
   });
   expect(result.headers.get('location')).toBe(`/o/${organization}/security?notice=enrolled`);
   return uri;
@@ -123,7 +123,7 @@ for (const javaScriptEnabled of [true, false]) {
       .locator('form')
       .filter({ has: popup.getByRole('button', { name: 'Confirm and turn on', exact: true }) })
       .getByLabel('Verification code', { exact: true })
-      .fill(totpFromUri(uri, Date.now() - 30000));
+      .fill(await previousTotpFromUri(uri));
     await popup.getByRole('button', { name: 'Confirm and turn on', exact: true }).click();
     await expect(popup).toHaveURL(new RegExp(`/o/${organization}/account/leave$`));
     await expect(

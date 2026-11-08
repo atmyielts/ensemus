@@ -300,6 +300,7 @@ export async function removeWorkflowConnectionAction(
     { database, context } = await requireStudio(org),
     draftId = workflowIdentifier(form, 'draftId'),
     back = `/o/${org}/studio/workflows/${draftId}/edit`;
+  let result: WorkflowConnectionState;
   try {
     if (workflowText(form, 'confirmed') !== 'yes') throw new AppError('INVALID_INPUT');
     const expectedVersion = workflowVersion(form),
@@ -337,7 +338,7 @@ export async function removeWorkflowConnectionAction(
       200,
     );
     const draft = await getProcessDraft(database, context, webProductPorts(), id);
-    return {
+    result = {
       revision: (previous.revision ?? 0) + 1,
       receipt: {
         draft,
@@ -349,4 +350,9 @@ export async function removeWorkflowConnectionAction(
   } catch (error) {
     return { code: await failure(error, org, back), revision: (previous.revision ?? 0) + 1 };
   }
+  // The repaired connection's component disappears on the native POST rerender. Put its success
+  // notice on the saved editor instead; JavaScript keeps the receipt and other pending entries.
+  if (workflowText(form, 'nativeForm') === 'yes')
+    redirect(`${back}?saved=connection-removed#edit-workflow-map`);
+  return result;
 }

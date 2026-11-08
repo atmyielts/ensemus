@@ -1,9 +1,13 @@
 // What every browser test stands on: one seeded organization, and pages signed in as a named person,
-// each watched for anything leaving the proxy's origin. The app loads nothing from outside (ADR-021),
-// so any such request fails the test that caused it.
+// each watched for unexpected destinations. App resources stay on the proxy (ADR-021); generated
+// SAML tests can also use only their exact owned local HTTPS provider. Any other destination fails.
 import { expect, test as base, type BrowserContext, type Page } from '@playwright/test';
 import { aClientAddress, BASE, type Person } from '../../helpers/forms';
 import { buildWorld, type World } from './world';
+import {
+  closeGeneratedBrowserSamlProviders,
+  isGeneratedBrowserSamlRequest,
+} from '../../helpers/browser-saml-provider';
 
 const ORIGIN = new URL(BASE).origin;
 
@@ -15,18 +19,36 @@ export function leavesTheProxy(url: string) {
   return origin !== ORIGIN;
 }
 
-/** Sends the guard's findings to one list. Anything headed outside is stopped as well as recorded. */
-async function guard(context: BrowserContext, outside: string[]) {
+/** Records all unexpected destinations and aborts requests that browser routing can intercept. */
+async function guard(context: BrowserContext, outside: string[], scriptErrors: string[]) {
+  const record = (value: string) => {
+    const url = new URL(value);
+    outside.push(`${url.origin}${url.pathname}`);
+  };
+  // Request events include redirects, which route handlers do not. Never exempt an arbitrary
+  // external URL: the only additional destination is a live test-owned loopback IdP document.
+  context.on('request', (request) => {
+    if (
+      leavesTheProxy(request.url()) &&
+      !isGeneratedBrowserSamlRequest(request.url(), request.method(), request.resourceType())
+    )
+      record(request.url());
+  });
   await context.route(
     (url) => leavesTheProxy(url.href),
     async (route) => {
-      outside.push(route.request().url());
+      const request = route.request();
+      if (isGeneratedBrowserSamlRequest(request.url(), request.method(), request.resourceType())) {
+        await route.continue();
+        return;
+      }
       await route.abort();
     },
   );
   context.on('page', (page) => {
+    page.on('pageerror', (error) => scriptErrors.push(error.message));
     page.on('websocket', (socket) => {
-      outside.push(socket.url());
+      record(socket.url());
     });
   });
 }
@@ -60,9 +82,20 @@ async function addSession(context: BrowserContext, person: Person) {
 }
 
 export const test = base.extend<
-  { open: Open; outsideRequests: string[]; scriptErrors: string[] },
+  { open: Open; outsideRequests: string[]; scriptErrors: string[]; generatedSamlProviders: void },
   { world: World }
 >({
+  generatedSamlProviders: [
+    // eslint-disable-next-line no-empty-pattern -- Playwright requires the destructuring form here.
+    async ({}, use) => {
+      try {
+        await use();
+      } finally {
+        await closeGeneratedBrowserSamlProviders();
+      }
+    },
+    { auto: true },
+  ],
   world: [
     // eslint-disable-next-line no-empty-pattern -- Playwright requires the destructuring form here.
     async ({}, use) => {
@@ -101,10 +134,9 @@ export const test = base.extend<
         extraHTTPHeaders: { 'x-ensemus-test-client': aClientAddress() },
       });
       contexts.push(context);
-      await guard(context, outsideRequests);
+      await guard(context, outsideRequests, scriptErrors);
       if (person) await addSession(context, person);
       const page = await context.newPage();
-      page.on('pageerror', (error) => scriptErrors.push(error.message));
       return page;
     });
     await Promise.all(contexts.map((context) => context.close()));

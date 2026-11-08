@@ -69,6 +69,7 @@ export function RemoveWorkflowConnection({
         other connection is kept.
       </p>
       <noscript>
+        <input type="hidden" name="nativeForm" value="yes" />
         <p className="notice">
           Save edits in your other open forms first. Submitting without JavaScript reloads this
           saved editor.

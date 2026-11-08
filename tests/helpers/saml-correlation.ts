@@ -8,9 +8,10 @@ import {
   SAML_BROWSER_PREFIX,
 } from '../../packages/auth/src/saml-browser-binding';
 import { urls } from './stack';
+import { isGeneratedBrowserSamlRequest } from './browser-saml-provider';
 export async function expireGeneratedSamlCorrelation(id: string, idpURL: string, issuer: string) {
   const redirect = nativeSamlRedirect(idpURL);
-  if (!redirect || new URL(idpURL).hostname !== 'generated-idp.example.invalid')
+  if (!redirect || !isGeneratedBrowserSamlRequest(idpURL, 'GET', 'document'))
     throw new Error('GENERATED_SAML_REQUEST_REQUIRED');
   const database = openAuthDatabase(urls.auth());
   try {

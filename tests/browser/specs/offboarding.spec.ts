@@ -15,9 +15,11 @@ test('owner can request and cancel offboarding without JavaScript when the real 
     page.getByRole('heading', { name: /Request recorded|Export offered|Contractual transition/ }),
   ).toBeVisible();
   await page.getByText('Cancel offboarding', { exact: true }).first().click();
-  await expect(page.getByLabel('Reason for cancelling', { exact: true })).toHaveValue('');
+  await expect(
+    page.getByRole('combobox', { name: 'Reason for cancelling', exact: true }),
+  ).toHaveValue('');
   await page
-    .getByLabel('Reason for cancelling', { exact: true })
+    .getByRole('combobox', { name: 'Reason for cancelling', exact: true })
     .selectOption({ label: 'Our organization has decided to stay' });
   await page.getByLabel('I want this organization to stay.', { exact: false }).check();
   await page.getByRole('button', { name: 'Cancel offboarding', exact: true }).click();

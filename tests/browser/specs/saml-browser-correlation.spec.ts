@@ -4,21 +4,20 @@ import { randomUUID } from 'node:crypto';
 import type { Page } from '@playwright/test';
 import { expect, test } from '../support/fixtures';
 import { BASE, bringIn, type Person } from '../../helpers/forms';
-import { ssoStackFixture } from '../../helpers/sso-stack-fixture';
+import { ssoStackFixture as createSsoFixture } from '../../helpers/sso-stack-fixture';
 import { expireGeneratedSamlCorrelation } from '../../helpers/saml-correlation';
 import { SAML_BROWSER_COOKIE } from '../../../packages/auth/src/saml-browser-binding';
 
+const ssoStackFixture = () => createSsoFixture({ browserProvider: true });
 type Fixture = Awaited<ReturnType<typeof ssoStackFixture>>;
-const esc = (value: string) =>
-  value.replaceAll('&', '&amp;').replaceAll('"', '&quot;').replaceAll('<', '&lt;');
 async function provider(page: Page, f: Fixture, email: string) {
-  await page.context().route('https://generated-idp.example.invalid/**', async (route) => {
-    const signed = await f.idp.response(route.request().url(), f.spMetadata, email);
-    await route.fulfill({
-      contentType: 'text/html',
-      body: `<!doctype html><html lang="en"><meta charset="utf-8"><title>Generated company sign-in</title><main><h1>Confirm generated company sign-in</h1><form method="post" action="${esc(`${BASE}/api/auth/sso/saml2/sp/acs/${f.connection.provider_id}`)}"><input type="hidden" name="SAMLResponse" value="${esc(signed.SAMLResponse)}"><input type="hidden" name="RelayState" value="${esc(signed.RelayState)}"><button>Continue to Ensemus</button></form></main></html>`,
-    });
-  });
+  if (!f.browserProvider) throw new Error('GENERATED_BROWSER_PROVIDER_REQUIRED');
+  await page.context().addCookies([
+    f.browserProvider.configure({
+      acsURL: `${BASE}/api/auth/sso/saml2/sp/acs/${f.connection.provider_id}`,
+      response: (url) => f.idp.response(url, f.spMetadata, email),
+    }),
+  ]);
 }
 async function start(page: Page, email: string) {
   await page.goto('/sign-in/sso');

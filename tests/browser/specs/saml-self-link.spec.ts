@@ -4,10 +4,14 @@ import type { Page } from '@playwright/test';
 import { randomUUID } from 'node:crypto';
 import { expect, test } from '../support/fixtures';
 import { BASE, PASSWORD, assembled, bringIn, formsIn, post, submit } from '../../helpers/forms';
-import { ssoStackFixture, generatedHttpPerson } from '../../helpers/sso-stack-fixture';
-import { totpFromUri } from '../../helpers/totp';
+import {
+  ssoStackFixture as createSsoFixture,
+  generatedHttpPerson,
+} from '../../helpers/sso-stack-fixture';
+import { previousTotpFromUri, totpFromUri } from '../../helpers/totp';
 import { axeFindings } from '../support/look';
 import { SAML_BROWSER_COOKIE } from '../../../packages/auth/src/saml-browser-binding';
+const ssoStackFixture = () => createSsoFixture({ browserProvider: true });
 type Fixture = Awaited<ReturnType<typeof ssoStackFixture>>;
 async function originalSourceStillLive(f: Fixture, id: string) {
   const response = await fetch(`${BASE}/api/auth/get-session?disableCookieCache=true`, {
@@ -29,21 +33,19 @@ async function enrollNative(
   const confirmation = formsIn(html).filter((form) => /Confirm and turn on/.test(form.html));
   if (confirmation.length !== 1) throw new Error('NATIVE_SWITCH_CONFIRMATION_REQUIRED');
   const confirmed = await post(path, person.jar, confirmation[0]!, {
-    code: totpFromUri(uri, Date.now() - 30000),
+    code: await previousTotpFromUri(uri),
   });
   expect(confirmed.headers.get('location')).toBe(`/o/${organization}/security?notice=enrolled`);
   return uri;
 }
-const esc = (value: string) =>
-  value.replaceAll('&', '&amp;').replaceAll('"', '&quot;').replaceAll('<', '&lt;');
 async function provider(page: Page, f: Fixture, email = f.member.email) {
-  await page.context().route('https://generated-idp.example.invalid/**', async (route) => {
-    const signed = await f.idp.response(route.request().url(), f.spMetadata, email);
-    await route.fulfill({
-      contentType: 'text/html',
-      body: `<!doctype html><html lang="en"><meta charset="utf-8"><title>Generated company identity</title><main><h1>Confirm generated company identity</h1><form method="post" action="${esc(`${BASE}/api/auth/sso/saml2/sp/acs/${f.connection.provider_id}`)}"><input type="hidden" name="SAMLResponse" value="${esc(signed.SAMLResponse)}"><input type="hidden" name="RelayState" value="${esc(signed.RelayState)}"><button>Continue to Ensemus</button></form></main></html>`,
-    });
-  });
+  if (!f.browserProvider) throw new Error('GENERATED_BROWSER_PROVIDER_REQUIRED');
+  await page.context().addCookies([
+    f.browserProvider.configure({
+      acsURL: `${BASE}/api/auth/sso/saml2/sp/acs/${f.connection.provider_id}`,
+      response: (url) => f.idp.response(url, f.spMetadata, email),
+    }),
+  ]);
 }
 async function start(page: Page) {
   await page.goto('/sign-in/sso');
@@ -53,7 +55,7 @@ async function start(page: Page) {
     .check();
   await page.getByRole('button', { name: 'Connect company sign-in', exact: true }).click();
   await expect(
-    page.getByRole('heading', { name: 'Confirm generated company identity', exact: true }),
+    page.getByRole('heading', { name: 'Confirm generated company sign-in', exact: true }),
   ).toBeVisible();
   return page.url();
 }
@@ -217,9 +219,12 @@ test('an actual local second factor is still challenged after explicit company c
     .getByRole('link', { name: 'Open in an authenticator app on this device', exact: true })
     .getAttribute('href');
   if (!uri) throw new Error('NATIVE_FACTOR_URI_REQUIRED');
-  await page
+  const enrollment = page
+    .locator('form')
+    .filter({ has: page.getByRole('button', { name: 'Confirm and turn on', exact: true }) });
+  await enrollment
     .getByLabel('Verification code', { exact: true })
-    .fill(totpFromUri(uri, Date.now() - 30000));
+    .fill(await previousTotpFromUri(uri));
   await page.getByRole('button', { name: 'Confirm and turn on', exact: true }).click();
   await provider(page, f);
   await start(page);

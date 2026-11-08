@@ -32,6 +32,20 @@ test('axe reports a real violation when one is planted', async ({ open }) => {
   expect(findings.map((finding) => finding.rule)).toContain('label');
 });
 
+test('the script-error guard also watches a new tab', async ({ open, scriptErrors }) => {
+  const page = await open(null),
+    other = await page.context().newPage();
+  await other.goto('/sign-in');
+  await other.evaluate(() => {
+    setTimeout(() => {
+      throw new Error('GENERATED_NEW_TAB_ERROR');
+    }, 0);
+  });
+  await expect.poll(() => scriptErrors).toEqual(['GENERATED_NEW_TAB_ERROR']);
+  // This deliberate control was detected; ordinary journeys must leave the same list empty.
+  scriptErrors.length = 0;
+});
+
 test('the signed-in session carries over from the seeded person', async ({ open, world }) => {
   const page = await open(world.bob);
   await page.goto(`/o/${world.organization}`);

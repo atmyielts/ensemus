@@ -42,6 +42,11 @@ type Dependencies = {
     userId: string;
   }) => Promise<boolean>;
 };
+/** Exact native challenge namespace and length; this does not verify its signed cookie or DB row. */
+export function nativeFactorChallengeIdentifier(value: unknown): value is string {
+  // The pinned native generator uses a-z, 0-9, A-Z and -_. Keep its exact 20-character bound.
+  return typeof value === 'string' && /^2fa-[A-Za-z0-9_-]{20}$/.test(value);
+}
 function receiptIdentity(key: string, identifier: string) {
   const bytes = createHmac('sha256', key)
       .update(JSON.stringify(['ensemus-idp-factor:v1', identifier]))
@@ -162,7 +167,7 @@ export function createIdpChallenges(
         parsed = parseSetCookieHeader(response?.get('set-cookie') ?? ''),
         signed = parsed.get(cookie.name)?.value,
         oldIdentifier = signed?.slice(0, signed.lastIndexOf('.'));
-      if (!oldIdentifier || !/^2fa-[A-Za-z0-9]{20}$/.test(oldIdentifier))
+      if (!nativeFactorChallengeIdentifier(oldIdentifier))
         return withhold(context, scope.sourceSession);
       // Keep each native cookie's final value only. The browser never sees the normal-prefix IdP
       // challenge, so deleting/expiring its required bridge cannot turn it into a credential challenge.

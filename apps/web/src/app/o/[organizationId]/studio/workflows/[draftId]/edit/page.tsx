@@ -58,6 +58,11 @@ export default async function EditWorkflowPage({
               rehearsal.
             </p>
           )}
+          {query.saved === 'connection-removed' && (
+            <p role="status" className="notice">
+              The connection removal was recorded.
+            </p>
+          )}
           {draft.status === 'archived' ? (
             <Empty>This draft is archived. Its saved definition is read-only.</Empty>
           ) : (
