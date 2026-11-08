@@ -1,0 +1,124 @@
+.section {
+  min-inline-size: 0;
+  display: grid;
+  gap: var(--space-4);
+}
+.heading {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  align-items: baseline;
+  justify-content: space-between;
+}
+.viewport {
+  inline-size: 100%;
+  max-inline-size: 100%;
+  max-block-size: min(70vh, 42rem);
+  overflow: auto;
+  overscroll-behavior: contain;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-md);
+  background: var(--surface-2);
+  scroll-padding: var(--space-4);
+}
+.diagram {
+  display: block;
+  max-inline-size: none;
+  overflow: visible;
+}
+.edge {
+  fill: none;
+  stroke: var(--muted);
+  stroke-width: 1.5;
+}
+.loop {
+  stroke: var(--warn);
+  stroke-dasharray: 5 4;
+}
+.arrow {
+  fill: var(--muted);
+}
+.loopArrow {
+  fill: var(--warn);
+}
+.node {
+  fill: var(--surface);
+  stroke: var(--line-strong);
+  stroke-width: 1.5;
+  rx: var(--radius-md);
+}
+.needsReview {
+  stroke: var(--warn);
+  stroke-dasharray: 5 3;
+}
+.pointLink {
+  color: var(--fg);
+  cursor: pointer;
+}
+.pointLink:hover .node {
+  fill: var(--surface-2);
+  stroke: var(--accent);
+}
+.pointLink:focus-visible {
+  outline: none;
+}
+.pointLink:focus-visible .node,
+.selected .node {
+  stroke: var(--accent);
+  stroke-width: 3;
+}
+.label {
+  fill: var(--fg);
+  font-family: var(--font-sans);
+  font-size: var(--text-body);
+  font-weight: 620;
+}
+.small {
+  fill: var(--muted);
+  font-family: var(--font-sans);
+  font-size: var(--text-small);
+}
+.reviewLabel {
+  fill: var(--warn);
+}
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+  color: var(--muted);
+  font-size: var(--text-small);
+}
+.legendItem {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.legendLine {
+  inline-size: var(--space-8);
+  border-block-start: 2px solid var(--muted);
+}
+.legendLoop {
+  border-color: var(--warn);
+  border-block-start-style: dashed;
+}
+.pointName {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.connectionList {
+  padding-inline-start: var(--space-6);
+  display: grid;
+  gap: var(--space-3);
+}
+@media (max-width: 40rem) {
+  .viewport {
+    max-block-size: 24rem;
+  }
+  .heading {
+    align-items: start;
+  }
+}
+
+.editTarget {
+  scroll-margin-block-start: calc(var(--control-height) + var(--space-6));
+}
