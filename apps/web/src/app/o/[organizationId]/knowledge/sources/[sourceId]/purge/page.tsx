@@ -27,7 +27,9 @@ export default async function PurgePage({
       <ResourceRefresh active={['pending', 'running'].includes(job.state)} />
       <p className="notice">
         {job.state === 'completed'
-          ? 'The worker confirmed removal of the source projections, related transcripts and generated files for this source. Retained audit records contain IDs and hashes.'
+          ? 'The worker confirmed removal of the source projections, related transcripts, generated files and copied work for this source. Retained audit records contain IDs and hashes.'
+          : job.counts.unprovenWorkUnits!==null && job.counts.unprovenWorkUnits>0
+            ? 'Some older delegated work still needs an administrator to verify its removal. The source remains closed.'
           : job.heldArtifacts
             ? 'Some generated files are on hold. Removal cannot be confirmed while those holds apply.'
             : job.retryExhausted
@@ -48,10 +50,14 @@ export default async function PurgePage({
                   blobs: 'Source files',
                   transcripts: 'Run transcripts',
                   artifacts: 'Generated files',
+                  workUnits: 'Copied work redacted',
+                  workUnitsRemaining: 'Copied work awaiting removal',
+                  workControlProofsRemaining: 'Run closures awaiting confirmation',
+                  unprovenWorkUnits: 'Older delegated work awaiting verification',
                 } as Record<string, string>
               )[name] ?? name}
             </dt>
-            <dd>{count}</dd>
+            <dd>{count===null ? 'Not yet confirmed' : count}</dd>
           </Fragment>
         ))}
         <dt>Files on hold</dt>

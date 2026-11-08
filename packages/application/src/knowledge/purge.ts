@@ -215,6 +215,10 @@ export type PurgeOutcome = {
   blobs: number;
   transcripts: number;
   artifacts: number;
+  workUnits: number;
+  workUnitsRemaining: number | null;
+  workControlProofsRemaining: number | null;
+  unprovenWorkUnits: number | null;
 };
 const outcome = (job: Job): PurgeOutcome => ({
   state: job.state as PurgeState,
@@ -226,6 +230,10 @@ const outcome = (job: Job): PurgeOutcome => ({
   blobs: job.blobsRemoved,
   transcripts: job.transcriptsRemoved,
   artifacts: job.derivedArtifactsRemoved,
+  workUnits: job.delegatedWorkRemoved,
+  workUnitsRemaining: job.delegatedWorkRemaining,
+  workControlProofsRemaining: job.delegatedWorkControlsRemaining,
+  unprovenWorkUnits: job.delegatedWorkUnknown,
 });
 async function runIdsFor(
   tx: Tx,
@@ -772,18 +780,26 @@ export async function getPurgeStatus(
     await person(tx, context, source);
     const job = await jobFor(tx, sourceId);
     const { state: recordedState, ...counts } = outcome(job);
+    const work = source.state==='active' ? null : (await tx.execute<{
+      removed:number;remaining:number;unproven:number;controlsRemaining:number;receiptsSha256:string;
+    }>(sql`select removed,remaining,unproven,receipts_sha256 "receiptsSha256",
+      ai.source_run_closure_remaining(${sourceId}::uuid,${source.version}::bigint) "controlsRemaining"
+      from ai.source_delegated_work_counts(${sourceId}::uuid)`)).rows[0];
+    const workProof=work!==null&&work!==undefined&&work.remaining===0&&work.unproven===0&&work.controlsRemaining===0
+      &&job.delegatedWorkCheckedAt!==null&&job.delegatedWorkSourceVersion===source.version&&job.delegatedWorkReceiptsSha256===work.receiptsSha256;
     const state =
-      recordedState === 'completed' && (!job.transcriptsCheckedAt || !job.artifactsCheckedAt)
+      recordedState === 'completed' && (!job.transcriptsCheckedAt || !job.artifactsCheckedAt || !workProof)
         ? 'failed'
         : recordedState;
     return {
       sourceId,
       reason: job.reason as PurgeReason,
       state,
-      counts,
+      counts:{...counts,workUnits:work?.removed??job.delegatedWorkRemoved,workUnitsRemaining:work?.remaining??null,
+        workControlProofsRemaining:work?.controlsRemaining??null,unprovenWorkUnits:work?.unproven??null},
       requestedAt: job.requestedAt,
       completedAt: state === 'completed' ? job.completedAt : null,
-      lastErrorCode: state !== recordedState ? 'ARTIFACT_PURGE_UNCONFIRMED' : job.lastErrorCode,
+      lastErrorCode: state !== recordedState ? !workProof ? 'DELEGATED_WORK_PURGE_UNCONFIRMED' : 'ARTIFACT_PURGE_UNCONFIRMED' : job.lastErrorCode,
       retryRequests: job.retryRequests,
       nextRetryAt: job.nextRetryAt,
       retryExhausted: job.retryRequests >= 8 && state !== 'completed',
