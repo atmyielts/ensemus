@@ -3,17 +3,19 @@
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { inflateRawSync } from 'node:zlib';
 import { DOMParser } from '@xmldom/xmldom';
+import type { SamlLinkSource } from '@ensemus/database/auth';
 
 export const SAML_BROWSER_COOKIE = '__Host-ensemus-saml-browser';
 export const SAML_BROWSER_TTL_SECONDS = 300;
 export const SAML_BROWSER_PREFIX = 'ensemus-saml-browser:v1:';
+export const SAML_SELF_LINK_PREFIX = 'ensemus-saml-self-link:v1:';
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const HASH = /^[0-9a-f]{64}$/;
 export const samlHash = (value: string | Uint8Array) =>
   createHash('sha256').update(value).digest('hex');
 export type SamlBrowserIntent = {
   version: 1;
-  mode: 'signin';
+  mode: 'signin' | 'self_link';
   phase: 'prepared' | 'consumed';
   requestId: string;
   relaySha256: string;
@@ -23,6 +25,14 @@ export type SamlBrowserIntent = {
   boundary: string;
   rawConfigSha256: string;
   browserProofSha256: string;
+  source?: SamlLinkSource;
+  organizationId?: string;
+  membershipId?: string;
+  scopeAdmission?: 'v1';
+  subject?: string;
+  signedEmail?: string;
+  finalizationAdmission?: 'v1';
+  finalizationTransaction?: string;
 };
 export function samlIntentBinding(intent: SamlBrowserIntent): string {
   return samlHash(
@@ -37,6 +47,30 @@ export function samlIntentBinding(intent: SamlBrowserIntent): string {
       intent.boundary,
       intent.rawConfigSha256,
       intent.browserProofSha256,
+      // Preserve the checked ordinary-signin tuple exactly across this additive rollout.
+      ...(intent.mode === 'self_link'
+        ? [
+            intent.source
+              ? [
+                  intent.source.userId,
+                  intent.source.sessionId,
+                  intent.source.sessionTokenSha256,
+                  intent.source.email,
+                  intent.source.primary.kind,
+                  intent.source.primary.accountId,
+                  intent.source.primary.fingerprint,
+                  ...(intent.source.primary.kind === 'provider'
+                    ? [
+                        intent.source.primary.proofId,
+                        intent.source.primary.authenticatedAt,
+                        intent.source.primary.providerId,
+                        intent.source.primary.rawConfigSha256,
+                      ]
+                    : []),
+                ]
+              : null,
+          ]
+        : []),
     ]),
   );
 }
@@ -100,7 +134,7 @@ export function parseSamlIntent(value: string): SamlBrowserIntent | null {
     if (
       !row ||
       row.version !== 1 ||
-      row.mode !== 'signin' ||
+      !['signin', 'self_link'].includes(row.mode) ||
       !['prepared', 'consumed'].includes(row.phase) ||
       Object.keys(row).some(
         (key) =>
@@ -116,6 +150,18 @@ export function parseSamlIntent(value: string): SamlBrowserIntent | null {
             'boundary',
             'rawConfigSha256',
             'browserProofSha256',
+            ...(row.mode === 'self_link'
+              ? [
+                  'source',
+                  'organizationId',
+                  'membershipId',
+                  'scopeAdmission',
+                  'subject',
+                  'signedEmail',
+                  'finalizationAdmission',
+                  'finalizationTransaction',
+                ]
+              : []),
           ].includes(key),
       ) ||
       typeof row.requestId !== 'string' ||
@@ -134,12 +180,90 @@ export function parseSamlIntent(value: string): SamlBrowserIntent | null {
       )
     )
       return null;
+    if (row.mode === 'self_link') {
+      if (
+        row.phase === 'prepared' &&
+        ['subject', 'signedEmail', 'finalizationAdmission', 'finalizationTransaction'].some((key) =>
+          Object.hasOwn(row, key),
+        )
+      )
+        return null;
+      const source = row.source,
+        primary = source?.primary;
+      if (
+        !source ||
+        !primary ||
+        Object.keys(source).some(
+          (key) => !['userId', 'sessionId', 'sessionTokenSha256', 'email', 'primary'].includes(key),
+        ) ||
+        !UUID.test(source.userId) ||
+        !UUID.test(source.sessionId) ||
+        !HASH.test(source.sessionTokenSha256) ||
+        typeof source.email !== 'string' ||
+        source.email.length > 320 ||
+        !/^[^\s@]+@[^\s@]+$/.test(source.email) ||
+        !['credential', 'provider'].includes(primary.kind) ||
+        !UUID.test(primary.accountId) ||
+        !HASH.test(primary.fingerprint) ||
+        Object.keys(primary).some(
+          (key) =>
+            !(
+              primary.kind === 'credential'
+                ? ['kind', 'accountId', 'fingerprint']
+                : [
+                    'kind',
+                    'accountId',
+                    'proofId',
+                    'fingerprint',
+                    'authenticatedAt',
+                    'providerId',
+                    'rawConfigSha256',
+                  ]
+            ).includes(key),
+        )
+      )
+        return null;
+      if (
+        primary.kind === 'provider' &&
+        (!UUID.test(primary.proofId) ||
+          !Number.isFinite(primary.authenticatedAt) ||
+          typeof primary.providerId !== 'string' ||
+          !primary.providerId ||
+          primary.providerId.length > 200 ||
+          (primary.rawConfigSha256 !== null && !HASH.test(primary.rawConfigSha256)))
+      )
+        return null;
+      if (
+        (row.organizationId !== undefined && !UUID.test(row.organizationId)) ||
+        (row.membershipId !== undefined && !UUID.test(row.membershipId)) ||
+        (row.scopeAdmission !== undefined && row.scopeAdmission !== 'v1') ||
+        (row.finalizationAdmission !== undefined && row.finalizationAdmission !== 'v1') ||
+        (row.finalizationTransaction !== undefined &&
+          !/^[0-9]{1,30}$/.test(row.finalizationTransaction)) ||
+        (row.subject !== undefined &&
+          (typeof row.subject !== 'string' ||
+            !row.subject ||
+            row.subject.length > 2048 ||
+            [...row.subject].some(
+              (character) => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127,
+            ))) ||
+        (row.signedEmail !== undefined &&
+          (typeof row.signedEmail !== 'string' || row.signedEmail.length > 320))
+      )
+        return null;
+    }
     return row;
   } catch {
     return null;
   }
 }
-type BrowserProof = { version: 1; mode: 'signin'; id: string; binding: string; proof: string };
+type BrowserProof = {
+  version: 1;
+  mode: 'signin' | 'self_link';
+  id: string;
+  binding: string;
+  proof: string;
+};
 const signature = (key: string, payload: string) =>
   createHmac('sha256', key).update(`ensemus-saml-browser:v1:${payload}`).digest('base64url');
 export function issueSamlBrowserProof(
@@ -177,7 +301,7 @@ export function readSamlBrowserProof(key: string, cookie: string | undefined): B
       ['version', 'mode', 'id', 'binding', 'proof'].includes(key),
     ) &&
       row.version === 1 &&
-      row.mode === 'signin' &&
+      ['signin', 'self_link'].includes(row.mode) &&
       UUID.test(row.id) &&
       HASH.test(row.binding) &&
       /^[A-Za-z0-9_-]{43}$/.test(row.proof)

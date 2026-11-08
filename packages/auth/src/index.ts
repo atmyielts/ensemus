@@ -29,6 +29,7 @@ import { guardSamlRequest } from './sso-request';
 import { createOperatorOidcFlow, type OidcTrust } from './oidc-primary';
 import { createIdpChallenges } from './idp-challenge';
 import { createSamlBrowserFlow } from './saml-browser-flow';
+import { createSamlSelfLinkPlugin } from './saml-self-link';
 
 export type OidcProvider = {
   providerId: string;
@@ -111,6 +112,7 @@ export function createAuth(options: AuthOptions) {
     database: db,
     secret: options.secret,
     baseURL: options.baseURL,
+    providerPrimaryCurrent: (receipt) => primary.selfLinkProviderCurrent(receipt),
   });
   const idpChallenges = createIdpChallenges(
     db,
@@ -161,6 +163,7 @@ export function createAuth(options: AuthOptions) {
         customRules: {
           '/sign-in/email': { window: 60, max: 10 },
           '/sign-up/email': { window: 60, max: 5 },
+          '/sso/link-self': { window: 60, max: 5 },
         },
       },
       advanced: {
@@ -195,6 +198,17 @@ export function createAuth(options: AuthOptions) {
             })
           : []),
         ...(!privateFactorManagement ? [samlFlow.plugin] : []),
+        ...(!privateFactorManagement
+          ? [
+              createSamlSelfLinkPlugin({
+                database: db,
+                baseURL: options.baseURL,
+                primary: (input) => primary.selfLinkProof(input),
+                nativeStart: (request): Promise<Response> => core.handler(request),
+                bindStart: samlBrowser.bindStart,
+              }),
+            ]
+          : []),
         ...(!privateFactorManagement && options.oidc ? [oidcFlow.plugin] : []),
         // Private MFA responses are forwarded only AFTER durable admission and trusted proof.
         // Framework cookie plugins would otherwise mint the browser cookie before that decision.

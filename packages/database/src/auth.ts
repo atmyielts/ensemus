@@ -8,6 +8,12 @@ import { sessionAssurances, ssoProviders, twoFactors } from './schema-product';
 import { ssoConfigurationSha256 } from './sso-fingerprint';
 export { ssoConfigurationSha256 } from './sso-fingerprint';
 export { createVerifiedInteractiveIdentity } from './interactive-identity';
+export {
+  prepareNativeSamlLinkSource,
+  storeNativeSamlBrowserIntent,
+  type SamlLinkPrimaryProof,
+  type SamlLinkSource,
+} from './auth-saml-link';
 
 export const authSchema = {
   user: users,

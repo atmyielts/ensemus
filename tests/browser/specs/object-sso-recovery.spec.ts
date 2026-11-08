@@ -3,7 +3,7 @@
 import { randomUUID } from 'node:crypto';
 import type { Page } from '@playwright/test';
 import { expect, test } from '../support/fixtures';
-import { BASE } from '../../helpers/forms';
+import { BASE, PASSWORD } from '../../helpers/forms';
 import { ssoStackFixture, generatedHttpPerson } from '../../helpers/sso-stack-fixture';
 import { axeFindings } from '../support/look';
 type Fixture = Awaited<ReturnType<typeof ssoStackFixture>>;
@@ -27,8 +27,13 @@ async function verifyInOtherTab(page: Page, f: Fixture) {
     .getByRole('link', { name: 'Verify company sign-in in another tab', exact: true })
     .click();
   const verify = await waiting;
-  await verify.getByLabel('Work email', { exact: true }).fill(f.member.email);
-  await verify.getByRole('button', { name: 'Continue with company sign-in', exact: true }).click();
+  // Existing password members explicitly consent to a native link. Ordinary Continue keeps its
+  // unverified-local-email refusal; the test must not silently depend on automatic account linking.
+  await verify.getByLabel('Password for this Ensemus account', { exact: true }).fill(PASSWORD);
+  await verify
+    .getByLabel('I want to connect company sign-in to this Ensemus account.', { exact: true })
+    .check();
+  await verify.getByRole('button', { name: 'Connect company sign-in', exact: true }).click();
   await expect(
     verify.getByRole('heading', { name: 'Confirm generated company sign-in', exact: true }),
   ).toBeVisible();

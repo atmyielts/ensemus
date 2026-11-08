@@ -1,7 +1,14 @@
-// Correlation only: this module never selects a user or enables implicit account linking.
+// Ordinary sign-in remains implicit-link refusing. Explicit self-link selects only the native
+// source person captured after local proof, then consumes its guard in the SDK's real transaction.
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { randomBytes, randomUUID } from 'node:crypto';
-import { authSchema, readSsoProvider, type openAuthDatabase } from '@ensemus/database/auth';
+import {
+  authSchema,
+  readSsoProvider,
+  storeNativeSamlBrowserIntent,
+  type SamlLinkSource,
+  type openAuthDatabase,
+} from '@ensemus/database/auth';
 import type {
   SSOSAMLUserResolutionInput,
   SSOUserResolution,
@@ -20,7 +27,9 @@ import {
   samlBrowserCookie,
   samlBrowserCookieValue,
   samlHash,
+  samlIntentBinding,
   SAML_BROWSER_PREFIX,
+  SAML_SELF_LINK_PREFIX,
   SAML_BROWSER_TTL_SECONDS,
   type SamlBrowserIntent,
 } from './saml-browser-binding';
@@ -41,6 +50,7 @@ export function createSamlBrowserFlow(options: {
   database: Database;
   secret: string;
   baseURL: string;
+  providerPrimaryCurrent?: (receipt: string) => Promise<boolean>;
 }) {
   const db = options.database,
     storage = new AsyncLocalStorage<{
@@ -48,87 +58,100 @@ export function createSamlBrowserFlow(options: {
       envelope?: SamlEnvelope;
       matched: boolean;
     }>();
+  const bindStart = async (
+    request: Request,
+    response: Response,
+    source?: SamlLinkSource,
+  ): Promise<Response> => {
+    if (
+      request.method !== 'POST' ||
+      new URL(request.url).pathname !== '/api/auth/sign-in/sso' ||
+      !response.ok
+    )
+      return response;
+    if (new URL(options.baseURL).protocol !== 'https:') throw refuse();
+    let payload: { url?: unknown };
+    try {
+      payload = (await response.clone().json()) as { url?: unknown };
+    } catch {
+      throw refuse();
+    }
+    const redirect = nativeSamlRedirect(payload.url);
+    if (!redirect) throw refuse();
+    const nativeRequests = await db.query.verifications.findMany({
+      where: (row, { eq }) => eq(row.identifier, `saml-authn-request:${redirect.requestId}`),
+      limit: 2,
+    });
+    const nativeRequest = nativeRequests[0];
+    if (
+      nativeRequests.length !== 1 ||
+      !nativeRequest ||
+      nativeRequest.expiresAt.getTime() <= Date.now()
+    )
+      throw refuse();
+    let recorded: { id?: unknown; providerId?: unknown };
+    try {
+      recorded = JSON.parse(nativeRequest.value) as typeof recorded;
+    } catch {
+      throw refuse();
+    }
+    if (recorded.id !== redirect.requestId || typeof recorded.providerId !== 'string')
+      throw refuse();
+    const provider = await readSsoProvider(db, recorded.providerId),
+      issuer = provider ? ssoIdpIssuer(provider) : null;
+    if (
+      !provider?.domainVerified ||
+      !trustedSamlProvider(provider) ||
+      !provider.samlConfig ||
+      !issuer
+    )
+      throw refuse();
+    const proof = randomBytes(32).toString('base64url'),
+      id = randomUUID(),
+      now = new Date();
+    const intent: SamlBrowserIntent = {
+      version: 1,
+      mode: source ? 'self_link' : 'signin',
+      phase: 'prepared',
+      requestId: redirect.requestId,
+      relaySha256: redirect.relaySha256,
+      providerId: provider.providerId,
+      issuer,
+      domain: provider.domain,
+      boundary: ssoBoundary(provider),
+      rawConfigSha256: samlHash(provider.samlConfig),
+      browserProofSha256: samlHash(proof),
+      ...(source ? { source } : {}),
+    };
+    const expiresAt = new Date(
+      Math.min(nativeRequest.expiresAt.getTime(), now.getTime() + SAML_BROWSER_TTL_SECONDS * 1000),
+    );
+    // The native request record is authoritative for provider selection, not caller email or IDs.
+    const stored = {
+      id,
+      identifier: `${source ? SAML_SELF_LINK_PREFIX : SAML_BROWSER_PREFIX}${intent.relaySha256}`,
+      value: JSON.stringify(intent),
+      expiresAt,
+      createdAt: now,
+    };
+    let prepared: SamlBrowserIntent | null = intent;
+    if (source) {
+      const row = await storeNativeSamlBrowserIntent(db, stored, source);
+      prepared = row ? parseSamlIntent(row.value) : null;
+    } else await db.insert(authSchema.verification).values(stored);
+    // A missing migration/guard is unavailable, never an unguarded native selection.
+    if (
+      !prepared ||
+      (source &&
+        (prepared.scopeAdmission !== 'v1' || !prepared.organizationId || !prepared.membershipId))
+    )
+      throw refuse();
+    if (expiresAt.getTime() <= Date.now()) throw refuse();
+    const cookie = issueSamlBrowserProof(options.secret, id, prepared, proof);
+    return withCookie(response, samlBrowserCookie(cookie.value));
+  };
   return {
-    async bindStart(request: Request, response: Response): Promise<Response> {
-      if (
-        request.method !== 'POST' ||
-        new URL(request.url).pathname !== '/api/auth/sign-in/sso' ||
-        !response.ok
-      )
-        return response;
-      if (new URL(options.baseURL).protocol !== 'https:') throw refuse();
-      let payload: { url?: unknown };
-      try {
-        payload = (await response.clone().json()) as { url?: unknown };
-      } catch {
-        throw refuse();
-      }
-      const redirect = nativeSamlRedirect(payload.url);
-      if (!redirect) throw refuse();
-      const nativeRequests = await db.query.verifications.findMany({
-        where: (row, { eq }) => eq(row.identifier, `saml-authn-request:${redirect.requestId}`),
-        limit: 2,
-      });
-      const nativeRequest = nativeRequests[0];
-      if (
-        nativeRequests.length !== 1 ||
-        !nativeRequest ||
-        nativeRequest.expiresAt.getTime() <= Date.now()
-      )
-        throw refuse();
-      let recorded: { id?: unknown; providerId?: unknown };
-      try {
-        recorded = JSON.parse(nativeRequest.value) as typeof recorded;
-      } catch {
-        throw refuse();
-      }
-      if (recorded.id !== redirect.requestId || typeof recorded.providerId !== 'string')
-        throw refuse();
-      const provider = await readSsoProvider(db, recorded.providerId),
-        issuer = provider ? ssoIdpIssuer(provider) : null;
-      if (
-        !provider?.domainVerified ||
-        !trustedSamlProvider(provider) ||
-        !provider.samlConfig ||
-        !issuer
-      )
-        throw refuse();
-      const proof = randomBytes(32).toString('base64url'),
-        id = randomUUID(),
-        now = new Date();
-      const intent: SamlBrowserIntent = {
-        version: 1,
-        mode: 'signin',
-        phase: 'prepared',
-        requestId: redirect.requestId,
-        relaySha256: redirect.relaySha256,
-        providerId: provider.providerId,
-        issuer,
-        domain: provider.domain,
-        boundary: ssoBoundary(provider),
-        rawConfigSha256: samlHash(provider.samlConfig),
-        browserProofSha256: samlHash(proof),
-      };
-      const expiresAt = new Date(
-        Math.min(
-          nativeRequest.expiresAt.getTime(),
-          now.getTime() + SAML_BROWSER_TTL_SECONDS * 1000,
-        ),
-      );
-      // The native request record is authoritative for provider selection, not caller email or IDs.
-      await db
-        .insert(authSchema.verification)
-        .values({
-          id,
-          identifier: `${SAML_BROWSER_PREFIX}${intent.relaySha256}`,
-          value: JSON.stringify(intent),
-          expiresAt,
-          createdAt: now,
-        });
-      if (expiresAt.getTime() <= Date.now()) throw refuse();
-      const cookie = issueSamlBrowserProof(options.secret, id, intent, proof);
-      return withCookie(response, samlBrowserCookie(cookie.value));
-    },
+    bindStart,
     run(
       request: Request,
       envelope: SamlEnvelope | undefined,
@@ -167,7 +190,10 @@ export function createSamlBrowserFlow(options: {
         model: 'verification',
         where: [
           { field: 'id', value: proof.id },
-          { field: 'identifier', value: `${SAML_BROWSER_PREFIX}${envelope.relaySha256}` },
+          {
+            field: 'identifier',
+            value: `${proof.mode === 'self_link' ? SAML_SELF_LINK_PREFIX : SAML_BROWSER_PREFIX}${envelope.relaySha256}`,
+          },
         ],
       });
       const intent = row ? parseSamlIntent(row.value) : null;
@@ -195,6 +221,31 @@ export function createSamlBrowserFlow(options: {
         intent.rawConfigSha256 !== samlHash(provider.samlConfig)
       )
         return { action: 'reject', code: 'SSO_REFUSED' };
+      if (intent.mode === 'self_link') {
+        if (
+          !intent.source ||
+          intent.scopeAdmission !== 'v1' ||
+          !intent.organizationId ||
+          !intent.membershipId ||
+          intent.source.email.toLowerCase() !== input.providerUser.email.toLowerCase()
+        )
+          return { action: 'reject', code: 'SSO_REFUSED' };
+        const primary = intent.source.primary;
+        if (primary.kind === 'provider') {
+          // The native adapter is transaction-local. 0421 locks this exact receipt and source
+          // account/provider again while consuming; operator OIDC trust has no SQL body authority.
+          const receipt = await context.database.findOne<{ value: string }>({
+            model: 'verification',
+            where: [{ field: 'id', value: primary.proofId }],
+          });
+          if (
+            !receipt ||
+            samlHash(receipt.value) !== primary.fingerprint ||
+            !(await options.providerPrimaryCurrent?.(receipt.value))
+          )
+            return { action: 'reject', code: 'SSO_REFUSED' };
+        }
+      }
       scope.matched = true;
       const changed = await context.database.update<{ value: string; expiresAt: Date }>({
         model: 'verification',
@@ -203,7 +254,15 @@ export function createSamlBrowserFlow(options: {
           { field: 'value', value: row.value },
           { field: 'expiresAt', value: row.expiresAt },
         ],
-        update: { value: JSON.stringify({ ...intent, phase: 'consumed' }) },
+        update: {
+          value: JSON.stringify({
+            ...intent,
+            phase: 'consumed',
+            ...(intent.mode === 'self_link'
+              ? { subject: input.accountKey.accountId, signedEmail: input.providerUser.email }
+              : {}),
+          }),
+        },
       });
       const consumed = changed ? parseSamlIntent(changed.value) : null;
       const consumedExpiry = changed ? new Date(changed.expiresAt).getTime() : NaN;
@@ -216,6 +275,20 @@ export function createSamlBrowserFlow(options: {
         consumedExpiry <= Date.now()
       )
         throw refuse();
+      if (intent.mode === 'self_link') {
+        if (
+          !consumed.source ||
+          consumed.finalizationAdmission !== 'v1' ||
+          !consumed.finalizationTransaction ||
+          samlIntentBinding(consumed) !== samlIntentBinding(intent) ||
+          consumed.organizationId !== intent.organizationId ||
+          consumed.membershipId !== intent.membershipId ||
+          consumed.subject !== input.accountKey.accountId ||
+          consumed.signedEmail !== input.providerUser.email
+        )
+          throw refuse();
+        return { action: 'link', userId: consumed.source.userId, profile: 'preserve' };
+      }
       return { action: 'continue' };
     },
   };
