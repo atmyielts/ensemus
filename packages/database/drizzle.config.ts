@@ -14,6 +14,7 @@ export default defineConfig({
     './src/schema-ai-read-authority.ts',
     './src/schema-ai-delegated-inputs.ts',
     './src/schema-ai-source-closures.ts',
+    './src/schema-ai-record-closures.ts',
     './src/schema-artifact-authority.ts',
     './src/schema-knowledge.ts',
     './src/schema-artifact-provenance.ts',

@@ -1763,6 +1763,7 @@ $$;
 REVOKE ALL ON FUNCTION ai.source_delegated_work_counts(uuid) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION ai.source_delegated_work_counts(uuid) TO ensemus_app;
 ALTER TABLE knowledge.purge_jobs ADD COLUMN delegated_work_removed integer NOT NULL DEFAULT 0,
+  ADD COLUMN prior_completed_at timestamptz,
   ADD COLUMN delegated_work_remaining integer,ADD COLUMN delegated_work_unknown integer,ADD COLUMN delegated_work_controls_remaining integer,
   ADD COLUMN delegated_work_checked_at timestamptz,ADD COLUMN delegated_work_source_version bigint,ADD COLUMN delegated_work_receipts_sha256 text,
   ADD COLUMN delegated_work_cursor_source_version bigint,ADD COLUMN delegated_work_after_run uuid,ADD COLUMN delegated_work_after_child uuid,
@@ -1784,6 +1785,19 @@ BEGIN
   IF TG_RELID<>'knowledge.purge_jobs'::regclass OR TG_OP NOT IN('INSERT','UPDATE') OR NEW.organization_id IS DISTINCT FROM app.current_organization_id() THEN
     RAISE EXCEPTION 'DELEGATED_PURGE_PROOF_TARGET' USING ERRCODE='42501';END IF;
   IF TG_OP='UPDATE' THEN
+    IF NEW.prior_completed_at IS DISTINCT FROM OLD.prior_completed_at THEN
+      -- One migration-only demotion preserves the earlier certificate's date. Runtime actors have
+      -- no column grant, and neither a copied GUC nor SET ROLE app can create this evidence.
+      IF current_user<>'ensemus_migrator' OR session_user<>'ensemus_migrator'
+        OR current_setting('app.work_purge_requalification',true) IS DISTINCT FROM 'row'
+        OR current_setting('app.work_purge_requalification_job',true) IS DISTINCT FROM OLD.id::text
+        OR app.current_actor_type() IS DISTINCT FROM 'service' OR OLD.state<>'completed' OR OLD.prior_completed_at IS NOT NULL OR OLD.delegated_work_checked_at IS NOT NULL
+        OR OLD.completed_at IS NULL OR NEW.prior_completed_at IS DISTINCT FROM OLD.completed_at
+        OR NEW.state<>'failed' OR NEW.completed_at IS NOT NULL OR NEW.last_error_code IS DISTINCT FROM 'WORK_CONTROL_PROOF_REQUIRED'
+        OR (to_jsonb(NEW)-ARRAY['state','completed_at','prior_completed_at','last_error_code'])
+          IS DISTINCT FROM (to_jsonb(OLD)-ARRAY['state','completed_at','prior_completed_at','last_error_code']) THEN
+        RAISE EXCEPTION 'PURGE_PRIOR_COMPLETION_IMMUTABLE' USING ERRCODE='42501';END IF;
+    END IF;
     validate_proof:=validate_proof OR(NEW.delegated_work_checked_at IS NOT NULL AND ROW(NEW.delegated_work_checked_at,NEW.delegated_work_source_version,
         NEW.delegated_work_receipts_sha256,NEW.delegated_work_removed,NEW.delegated_work_remaining,NEW.delegated_work_unknown,NEW.delegated_work_controls_remaining)
       IS DISTINCT FROM ROW(OLD.delegated_work_checked_at,OLD.delegated_work_source_version,OLD.delegated_work_receipts_sha256,
@@ -1805,6 +1819,7 @@ BEGIN
       END IF;
     END IF;
   ELSE
+    IF NEW.prior_completed_at IS NOT NULL THEN RAISE EXCEPTION 'PURGE_PRIOR_COMPLETION_AT_BIRTH' USING ERRCODE='42501';END IF;
     IF ROW(NEW.delegated_work_removed,NEW.delegated_work_remaining,NEW.delegated_work_unknown,NEW.delegated_work_controls_remaining,NEW.delegated_work_checked_at,
       NEW.delegated_work_source_version,NEW.delegated_work_receipts_sha256,NEW.delegated_work_cursor_source_version,NEW.delegated_work_after_run,NEW.delegated_work_after_child)
       IS DISTINCT FROM ROW(0,NULL::integer,NULL::integer,NULL::integer,NULL::timestamptz,NULL::bigint,NULL::text,NULL::bigint,NULL::uuid,NULL::uuid) THEN
@@ -1826,3 +1841,299 @@ BEGIN
 END $$;
 REVOKE ALL ON FUNCTION knowledge.guard_delegated_work_purge_proof() FROM PUBLIC;
 CREATE TRIGGER source_purge_delegated_work_proof BEFORE INSERT OR UPDATE ON knowledge.purge_jobs FOR EACH ROW EXECUTE FUNCTION knowledge.guard_delegated_work_purge_proof();
+--> statement-breakpoint
+-- Existing certificates predate Work/control proof. Requalify their status, preserving every
+-- removal counter, transcript/file receipt and original observation. This does not say earlier
+-- byte removal failed. Forced RLS stays on; only this actual migrator transaction can enumerate
+-- metadata, then mutate the exact row under its own tenant binding. No runtime grant is added.
+CREATE POLICY work_purge_requalification_scan ON knowledge.purge_jobs FOR SELECT TO ensemus_migrator
+  USING(current_user='ensemus_migrator' AND session_user='ensemus_migrator'
+    AND current_setting('app.work_purge_requalification',true)='scan' AND state='completed' AND prior_completed_at IS NULL AND delegated_work_checked_at IS NULL);
+CREATE POLICY work_purge_requalification_read ON knowledge.purge_jobs FOR SELECT TO ensemus_migrator
+  USING(current_user='ensemus_migrator' AND session_user='ensemus_migrator'
+    AND current_setting('app.work_purge_requalification',true)='row' AND organization_id=app.current_organization_id()
+    AND id::text=current_setting('app.work_purge_requalification_job',true));
+CREATE POLICY work_purge_requalification_write ON knowledge.purge_jobs FOR UPDATE TO ensemus_migrator
+  USING(current_user='ensemus_migrator' AND session_user='ensemus_migrator'
+    AND current_setting('app.work_purge_requalification',true)='row' AND organization_id=app.current_organization_id()
+    AND id::text=current_setting('app.work_purge_requalification_job',true) AND state='completed' AND prior_completed_at IS NULL AND delegated_work_checked_at IS NULL)
+  WITH CHECK(current_user='ensemus_migrator' AND session_user='ensemus_migrator'
+    AND current_setting('app.work_purge_requalification',true)='row' AND organization_id=app.current_organization_id()
+    AND id::text=current_setting('app.work_purge_requalification_job',true) AND state='failed'
+    AND prior_completed_at IS NOT NULL AND completed_at IS NULL AND last_error_code='WORK_CONTROL_PROOF_REQUIRED');
+DO $$
+DECLARE candidate record;previous_org text:=current_setting('app.organization_id',true);
+  previous_actor text:=current_setting('app.actor_type',true);
+  previous_mode text:=current_setting('app.work_purge_requalification',true);
+  previous_job text:=current_setting('app.work_purge_requalification_job',true);
+BEGIN
+  IF current_user<>'ensemus_migrator' OR session_user<>'ensemus_migrator' THEN
+    RAISE EXCEPTION 'PURGE_REQUALIFICATION_MIGRATOR_REQUIRED' USING ERRCODE='42501';END IF;
+  PERFORM set_config('app.work_purge_requalification','scan',true);
+  FOR candidate IN SELECT organization_id,id,completed_at FROM knowledge.purge_jobs WHERE state='completed' AND prior_completed_at IS NULL AND delegated_work_checked_at IS NULL ORDER BY organization_id,id LOOP
+    PERFORM set_config('app.organization_id',candidate.organization_id::text,true);
+    PERFORM set_config('app.actor_type','service',true);
+    PERFORM set_config('app.work_purge_requalification','row',true);
+    PERFORM set_config('app.work_purge_requalification_job',candidate.id::text,true);
+    UPDATE knowledge.purge_jobs SET state='failed',prior_completed_at=completed_at,completed_at=NULL,last_error_code='WORK_CONTROL_PROOF_REQUIRED'
+      WHERE organization_id=candidate.organization_id AND id=candidate.id AND state='completed' AND completed_at=candidate.completed_at AND prior_completed_at IS NULL AND delegated_work_checked_at IS NULL;
+    IF NOT FOUND THEN RAISE EXCEPTION 'PURGE_REQUALIFICATION_STALE' USING ERRCODE='EN119';END IF;
+    PERFORM set_config('app.work_purge_requalification','scan',true);
+  END LOOP;
+  PERFORM set_config('app.organization_id',coalesce(previous_org,''),true);PERFORM set_config('app.actor_type',coalesce(previous_actor,''),true);
+  PERFORM set_config('app.work_purge_requalification',coalesce(previous_mode,''),true);PERFORM set_config('app.work_purge_requalification_job',coalesce(previous_job,''),true);
+EXCEPTION WHEN OTHERS THEN
+  PERFORM set_config('app.organization_id',coalesce(previous_org,''),true);PERFORM set_config('app.actor_type',coalesce(previous_actor,''),true);
+  PERFORM set_config('app.work_purge_requalification',coalesce(previous_mode,''),true);PERFORM set_config('app.work_purge_requalification_job',coalesce(previous_job,''),true);RAISE;
+END $$;
+DROP POLICY work_purge_requalification_scan ON knowledge.purge_jobs;
+DROP POLICY work_purge_requalification_read ON knowledge.purge_jobs;
+DROP POLICY work_purge_requalification_write ON knowledge.purge_jobs;
+--> statement-breakpoint
+-- Typed-record purge snapshots are actual current metadata only, not historical input hashes.
+-- Dead catalog rows are retained until positive whole-tenant disposition; no body grant is added.
+CREATE FUNCTION ai.record_purge_snapshot_scope(p_org uuid,p_kind text,p_id uuid) RETURNS boolean LANGUAGE sql STABLE SET search_path=pg_catalog AS $$
+  SELECT coalesce(current_user='ensemus_migrator' AND session_user IN('ensemus_app','ensemus_agent') AND app.current_actor_type()='service'
+    AND p_org=app.current_organization_id() AND p_kind=current_setting('app.record_purge_kind',true) AND p_id::text=current_setting('app.record_purge_id',true),false)
+$$;
+REVOKE ALL ON FUNCTION ai.record_purge_snapshot_scope(uuid,text,uuid) FROM PUBLIC;
+CREATE POLICY record_purge_tombstone_read ON platform.tombstones FOR SELECT TO ensemus_migrator
+  USING(ai.record_purge_snapshot_scope(organization_id,target_type,target_id));
+CREATE POLICY record_purge_tombstone_lock ON platform.tombstones FOR UPDATE TO ensemus_migrator
+  USING(ai.record_purge_snapshot_scope(organization_id,target_type,target_id)) WITH CHECK(false);
+CREATE FUNCTION ai.lock_record_purge_snapshot(p_kind text,p_id uuid) RETURNS text
+LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
+DECLARE previous_kind text:=current_setting('app.record_purge_kind',true);previous_id text:=current_setting('app.record_purge_id',true);
+  catalog record;tombstone record;tombstone_found boolean;result text;
+BEGIN
+  IF current_user<>'ensemus_migrator' OR session_user NOT IN('ensemus_app','ensemus_agent') OR app.current_actor_type() IS DISTINCT FROM 'service'
+    OR app.current_organization_id() IS NULL THEN RAISE EXCEPTION 'RECORD_PURGE_SNAPSHOT_TARGET' USING ERRCODE='42501';END IF;
+  IF p_kind IS NULL OR p_kind NOT IN('work_unit','project','client','object_record') OR p_id IS NULL THEN RETURN NULL;END IF;
+  BEGIN
+    PERFORM set_config('app.record_purge_kind',p_kind,true);PERFORM set_config('app.record_purge_id',p_id::text,true);
+    SELECT actual.record_id,actual.record_kind,actual.alive,actual.classification,actual.owner_membership_id,actual.parent_record_id INTO catalog
+      FROM knowledge.structured_record_catalog actual WHERE actual.organization_id=app.current_organization_id() AND actual.record_kind=p_kind AND actual.record_id=p_id FOR SHARE NOWAIT;
+    IF FOUND THEN
+      SELECT actual.reason_code,extract(epoch FROM actual.created_at)::text created_epoch INTO tombstone FROM platform.tombstones actual
+        WHERE actual.organization_id=app.current_organization_id() AND actual.target_type=p_kind AND actual.target_id=p_id FOR SHARE NOWAIT;
+      tombstone_found:=FOUND;
+      IF NOT catalog.alive OR tombstone_found THEN
+        result:=encode(sha256(convert_to(jsonb_build_object('protocol','record-purge-snapshot/v1','organizationId',app.current_organization_id(),
+          'kind',catalog.record_kind,'id',catalog.record_id,'alive',catalog.alive,'classification',catalog.classification,'ownerMembershipId',catalog.owner_membership_id,
+          'parentRecordId',catalog.parent_record_id,'tombstone',CASE WHEN tombstone_found THEN jsonb_build_object('reasonCode',tombstone.reason_code,'createdEpoch',tombstone.created_epoch) END)::text,'UTF8')),'hex');
+      END IF;
+    END IF;
+  EXCEPTION WHEN lock_not_available THEN result:=NULL;
+  END;
+  PERFORM set_config('app.record_purge_kind',coalesce(previous_kind,''),true);PERFORM set_config('app.record_purge_id',coalesce(previous_id,''),true);
+  RETURN result;
+EXCEPTION WHEN OTHERS THEN
+  PERFORM set_config('app.record_purge_kind',coalesce(previous_kind,''),true);PERFORM set_config('app.record_purge_id',coalesce(previous_id,''),true);RAISE;
+END $$;
+REVOKE ALL ON FUNCTION ai.lock_record_purge_snapshot(text,uuid) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION ai.lock_record_purge_snapshot(text,uuid) TO ensemus_app,ensemus_agent;
+CREATE TABLE ai.record_purge_jobs (
+  organization_id uuid NOT NULL,record_kind text NOT NULL,record_id uuid NOT NULL,snapshot_sha256 text NOT NULL,
+  after_run uuid,after_child uuid,work_removed integer NOT NULL DEFAULT 0,work_remaining integer,unknown_work integer,controls_remaining integer,
+  checked_at timestamptz,receipts_sha256 text,created_at timestamptz NOT NULL DEFAULT now(),updated_at timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT record_purge_jobs_pk PRIMARY KEY(organization_id,record_kind,record_id,snapshot_sha256),
+  CONSTRAINT record_purge_jobs_catalog_fk FOREIGN KEY(organization_id,record_kind,record_id) REFERENCES knowledge.structured_record_catalog(organization_id,record_kind,record_id),
+  CONSTRAINT record_purge_jobs_scope CHECK(record_kind IN('work_unit','project','client','object_record') AND snapshot_sha256 ~ '^[0-9a-f]{64}$'),
+  CONSTRAINT record_purge_jobs_counts CHECK(work_removed>=0 AND(work_remaining IS NULL OR work_remaining>=0) AND(unknown_work IS NULL OR unknown_work>=0) AND(controls_remaining IS NULL OR controls_remaining>=0)),
+  CONSTRAINT record_purge_jobs_proof CHECK((checked_at IS NULL AND receipts_sha256 IS NULL) OR(checked_at IS NOT NULL AND receipts_sha256 IS NOT NULL AND receipts_sha256 ~ '^[0-9a-f]{64}$'
+    AND work_remaining IS NOT NULL AND work_remaining=0 AND unknown_work IS NOT NULL AND unknown_work=0 AND controls_remaining IS NOT NULL AND controls_remaining=0))
+);
+CREATE TABLE ai.record_run_closures (
+  organization_id uuid NOT NULL,record_kind text NOT NULL,record_id uuid NOT NULL,snapshot_sha256 text NOT NULL,run_id uuid NOT NULL,
+  terminal_version bigint NOT NULL,fence_generation integer NOT NULL,terminal_status text NOT NULL,closed_at timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT record_run_closures_pk PRIMARY KEY(organization_id,record_kind,record_id,snapshot_sha256,run_id,terminal_version,fence_generation),
+  CONSTRAINT record_run_closures_job_fk FOREIGN KEY(organization_id,record_kind,record_id,snapshot_sha256) REFERENCES ai.record_purge_jobs(organization_id,record_kind,record_id,snapshot_sha256),
+  CONSTRAINT record_run_closures_run_fk FOREIGN KEY(organization_id,run_id) REFERENCES ai.agent_runs(organization_id,id),
+  CONSTRAINT record_run_closures_checkpoint_fk FOREIGN KEY(organization_id,run_id) REFERENCES ai.run_input_checkpoints(organization_id,run_id),
+  CONSTRAINT record_run_closures_scope CHECK(record_kind IN('work_unit','project','client','object_record') AND snapshot_sha256 ~ '^[0-9a-f]{64}$'),
+  CONSTRAINT record_run_closures_control CHECK(terminal_version>0 AND fence_generation=1 AND terminal_status IN('completed','failed','cancelled','budget_exhausted','policy_denied','timed_out','outcome_unverified'))
+);
+CREATE INDEX record_run_closures_run_idx ON ai.record_run_closures(organization_id,run_id);
+ALTER TABLE ai.record_purge_jobs ENABLE ROW LEVEL SECURITY;ALTER TABLE ai.record_purge_jobs FORCE ROW LEVEL SECURITY;
+ALTER TABLE ai.record_run_closures ENABLE ROW LEVEL SECURITY;ALTER TABLE ai.record_run_closures FORCE ROW LEVEL SECURITY;
+CREATE POLICY record_purge_metadata ON ai.record_purge_jobs FOR SELECT TO ensemus_app USING(organization_id=app.current_organization_id());
+CREATE POLICY record_closure_metadata ON ai.record_run_closures FOR SELECT TO ensemus_app USING(organization_id=app.current_organization_id());
+CREATE POLICY record_purge_worker ON ai.record_purge_jobs TO ensemus_agent USING(organization_id=app.current_organization_id() AND current_user='ensemus_agent' AND session_user='ensemus_agent' AND app.current_actor_type()='service')
+  WITH CHECK(organization_id=app.current_organization_id() AND current_user='ensemus_agent' AND session_user='ensemus_agent' AND app.current_actor_type()='service');
+CREATE POLICY record_closure_append ON ai.record_run_closures FOR INSERT TO ensemus_agent WITH CHECK(organization_id=app.current_organization_id()
+  AND current_user='ensemus_agent' AND session_user='ensemus_agent' AND app.current_actor_type()='service');
+GRANT SELECT ON ai.record_purge_jobs,ai.record_run_closures TO ensemus_app;
+GRANT INSERT ON ai.record_purge_jobs,ai.record_run_closures TO ensemus_agent;
+GRANT UPDATE(after_run,after_child,work_removed,work_remaining,unknown_work,controls_remaining,checked_at,receipts_sha256,updated_at) ON ai.record_purge_jobs TO ensemus_agent;
+CREATE TRIGGER record_purge_jobs_no_delete BEFORE DELETE OR TRUNCATE ON ai.record_purge_jobs FOR EACH STATEMENT EXECUTE FUNCTION app.reject_change();
+CREATE TRIGGER record_run_closures_keep BEFORE UPDATE OR DELETE OR TRUNCATE ON ai.record_run_closures FOR EACH STATEMENT EXECUTE FUNCTION app.reject_change();
+CREATE FUNCTION ai.delegated_record_ref(p_child uuid,p_kind text,p_id uuid) RETURNS boolean LANGUAGE sql STABLE SET search_path=pg_catalog AS $$
+  SELECT EXISTS(SELECT 1 FROM ai.delegated_input_refs original_ref WHERE original_ref.organization_id=app.current_organization_id()
+    AND original_ref.child_run_id=p_child AND((original_ref.ref_kind=p_kind AND original_ref.ref_id=p_id)
+      OR(original_ref.ref_kind='fact' AND EXISTS(SELECT 1 FROM knowledge.evidence_package_facts original_fact
+        WHERE original_fact.organization_id=original_ref.organization_id AND original_fact.package_id=original_ref.fact_package_id
+          AND original_fact.fact_id=original_ref.ref_id AND original_fact.subject_ref=p_kind||':'||p_id::text))))
+$$;
+REVOKE ALL ON FUNCTION ai.delegated_record_ref(uuid,text,uuid) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION ai.delegated_record_ref(uuid,text,uuid) TO ensemus_app;
+CREATE FUNCTION knowledge.artifact_depends_on_record(p_artifact uuid,p_kind text,p_id uuid) RETURNS boolean LANGUAGE sql STABLE SET search_path=pg_catalog AS $$
+  SELECT EXISTS(SELECT 1 FROM knowledge.artifact_required_records(p_artifact) original_ref WHERE original_ref.record_kind=p_kind AND original_ref.record_id=p_id)
+    OR EXISTS(SELECT 1 FROM knowledge.artifact_authority_refs original_ref WHERE original_ref.organization_id=app.current_organization_id()
+      AND(original_ref.artifact_id=p_artifact OR original_ref.artifact_id IN(SELECT input.input_artifact_id FROM knowledge.artifact_lineage_inputs input
+        WHERE input.organization_id=app.current_organization_id() AND input.artifact_id=p_artifact))
+      AND((original_ref.ref_kind=p_kind AND original_ref.ref_id=p_id)
+        OR(original_ref.ref_kind='fact' AND EXISTS(SELECT 1 FROM knowledge.evidence_package_facts original_fact
+          WHERE original_fact.organization_id=original_ref.organization_id AND original_fact.package_id=original_ref.fact_package_id
+            AND original_fact.fact_id=original_ref.ref_id AND original_fact.subject_ref=p_kind||':'||p_id::text))
+        OR(original_ref.ref_kind='work_unit' AND EXISTS(SELECT 1 FROM ai.delegated_input_receipts receipt
+          WHERE receipt.organization_id=original_ref.organization_id AND receipt.child_work_unit_id=original_ref.ref_id
+            AND ai.delegated_record_ref(receipt.child_run_id,p_kind,p_id)))))
+$$;
+REVOKE ALL ON FUNCTION knowledge.artifact_depends_on_record(uuid,text,uuid) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION knowledge.artifact_depends_on_record(uuid,text,uuid) TO ensemus_app;
+CREATE FUNCTION ai.record_input_runs(p_kind text,p_id uuid) RETURNS SETOF uuid LANGUAGE sql STABLE SET search_path=pg_catalog AS $$
+  WITH inherited_work AS(SELECT receipt.child_work_unit_id id FROM ai.delegated_input_receipts receipt
+    WHERE receipt.organization_id=app.current_organization_id() AND ai.delegated_record_ref(receipt.child_run_id,p_kind,p_id))
+  SELECT run.id FROM ai.agent_runs run WHERE run.organization_id=app.current_organization_id()
+    AND((p_kind='work_unit' AND run.work_unit_id=p_id) OR run.work_unit_id IN(SELECT id FROM inherited_work))
+  UNION SELECT observation.run_id FROM ai.run_input_observations observation WHERE observation.organization_id=app.current_organization_id()
+    AND((observation.input_kind=p_kind AND observation.input_id=p_id) OR(observation.input_kind='work_unit' AND observation.input_id IN(SELECT id FROM inherited_work))
+      OR(observation.input_kind='artifact' AND knowledge.artifact_depends_on_record(observation.input_id,p_kind,p_id)))
+  UNION SELECT authority.run_id FROM ai.run_read_authorities authority CROSS JOIN LATERAL jsonb_array_elements(authority.authority_inventory) original_ref
+    WHERE authority.organization_id=app.current_organization_id() AND((original_ref->>'kind'=p_kind AND original_ref->>'id'=p_id::text)
+      OR(original_ref->>'kind'='work_unit' AND original_ref->>'id' IN(SELECT id::text FROM inherited_work)))
+  UNION SELECT model_attempt.run_id FROM ai.model_call_attempts model_attempt JOIN ai.model_call_inputs input
+    ON input.organization_id=model_attempt.organization_id AND input.call_id=model_attempt.id WHERE model_attempt.organization_id=app.current_organization_id()
+      AND model_attempt.run_id IS NOT NULL AND((input.kind=p_kind AND input.input_id=p_id) OR(input.kind='work_unit' AND input.input_id IN(SELECT id FROM inherited_work))
+        OR input.kind='fact') -- Without an original package/subject receipt, a paid fact influence is unknown, not an empty dependency.
+  UNION SELECT package.run_id FROM knowledge.evidence_packages package JOIN knowledge.evidence_package_facts fact
+    ON fact.organization_id=package.organization_id AND fact.package_id=package.id WHERE package.organization_id=app.current_organization_id()
+      AND package.run_id IS NOT NULL AND fact.subject_ref=p_kind||':'||p_id::text
+  UNION SELECT snapshot.run_id FROM ai.main_input_snapshots snapshot CROSS JOIN LATERAL jsonb_array_elements(snapshot.input_inventory) frozen_ref
+    WHERE snapshot.organization_id=app.current_organization_id() AND((frozen_ref->>'kind'=p_kind AND frozen_ref->>'id'=p_id::text)
+      OR(frozen_ref->>'kind'='fact' AND frozen_ref->>'subjectRef'=p_kind||':'||p_id::text)
+      OR(frozen_ref->>'kind'='work_unit' AND frozen_ref->>'id' IN(SELECT id::text FROM inherited_work))
+      OR EXISTS(SELECT 1 FROM jsonb_array_elements(CASE WHEN frozen_ref->>'kind'='read_authority' THEN frozen_ref->'authorityInventory'
+        WHEN frozen_ref->>'kind'='inherited_influence' THEN frozen_ref->'influenceRefs' ELSE '[]'::jsonb END) original_ref
+        WHERE(original_ref->>'kind'=p_kind AND original_ref->>'id'=p_id::text)
+          OR(original_ref->>'kind'='fact' AND EXISTS(SELECT 1 FROM knowledge.evidence_package_facts original_fact
+            WHERE original_fact.organization_id=app.current_organization_id() AND original_fact.package_id::text=original_ref->>'factPackageId'
+              AND original_fact.fact_id::text=original_ref->>'id' AND original_fact.subject_ref=p_kind||':'||p_id::text))))
+  UNION SELECT checkpoint.run_id FROM ai.run_input_checkpoints checkpoint WHERE checkpoint.organization_id=app.current_organization_id() AND NOT checkpoint.history_complete
+  UNION SELECT checkpoint.run_id FROM ai.run_authority_checkpoints checkpoint WHERE checkpoint.organization_id=app.current_organization_id() AND NOT checkpoint.history_complete
+$$;
+REVOKE ALL ON FUNCTION ai.record_input_runs(text,uuid) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION ai.record_input_runs(text,uuid) TO ensemus_app;
+CREATE FUNCTION ai.record_work_counts(p_kind text,p_id uuid)
+RETURNS TABLE(removed integer,remaining integer,unproven integer,receipts_sha256 text) LANGUAGE sql STABLE SET search_path=pg_catalog AS $$
+  WITH receipts AS(SELECT receipt.child_run_id,receipt.disposition_sha256,ai.delegated_body_disposed(receipt.child_run_id) disposed
+    FROM ai.delegated_input_receipts receipt WHERE receipt.organization_id=app.current_organization_id() AND ai.delegated_record_ref(receipt.child_run_id,p_kind,p_id))
+  SELECT count(*) FILTER(WHERE disposed)::integer,count(*) FILTER(WHERE NOT disposed)::integer,
+    (SELECT count(*)::integer FROM ai.unproven_child_work_inputs unknown_input WHERE unknown_input.organization_id=app.current_organization_id()),
+    encode(sha256(convert_to(coalesce(string_agg(child_run_id::text||':'||coalesce(disposition_sha256,'unconfirmed'),E'\n' ORDER BY child_run_id),''),'UTF8')),'hex') FROM receipts
+$$;
+REVOKE ALL ON FUNCTION ai.record_work_counts(text,uuid) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION ai.record_work_counts(text,uuid) TO ensemus_app;
+CREATE FUNCTION ai.record_run_closure_remaining(p_kind text,p_id uuid,p_snapshot text) RETURNS integer LANGUAGE sql STABLE SET search_path=pg_catalog AS $$
+  SELECT count(*)::integer FROM ai.record_input_runs(p_kind,p_id) actual(run_id) LEFT JOIN ai.agent_runs run
+    ON run.organization_id=app.current_organization_id() AND run.id=actual.run_id LEFT JOIN ai.run_input_checkpoints checkpoint
+      ON checkpoint.organization_id=app.current_organization_id() AND checkpoint.run_id=actual.run_id
+    WHERE run.id IS NULL OR checkpoint.run_id IS NULL OR checkpoint.fenced_at IS NULL OR checkpoint.payloads_purged_at IS NULL
+      OR checkpoint.purged_fence_generation IS DISTINCT FROM checkpoint.fence_generation
+      OR run.status NOT IN('completed','failed','cancelled','budget_exhausted','policy_denied','timed_out','outcome_unverified')
+      OR NOT EXISTS(SELECT 1 FROM ai.record_run_closures closure WHERE closure.organization_id=app.current_organization_id() AND closure.record_kind=p_kind
+        AND closure.record_id=p_id AND closure.snapshot_sha256=p_snapshot AND closure.run_id=actual.run_id
+        AND closure.fence_generation=checkpoint.fence_generation AND closure.terminal_version<=run.version)
+$$;
+REVOKE ALL ON FUNCTION ai.record_run_closure_remaining(text,uuid,text) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION ai.record_run_closure_remaining(text,uuid,text) TO ensemus_app;
+CREATE FUNCTION ai.guard_record_run_closure() RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog AS $$
+DECLARE current_snapshot text;run record;checkpoint record;
+BEGIN
+  IF TG_RELID<>'ai.record_run_closures'::regclass OR TG_OP<>'INSERT' OR current_user<>'ensemus_agent' OR session_user<>'ensemus_agent'
+    OR app.current_actor_type() IS DISTINCT FROM 'service' OR NEW.organization_id IS DISTINCT FROM app.current_organization_id() THEN
+    RAISE EXCEPTION 'RECORD_CONTROL_CLOSURE_TARGET' USING ERRCODE='42501';END IF;
+  current_snapshot:=ai.lock_record_purge_snapshot(NEW.record_kind,NEW.record_id);
+  IF current_snapshot IS NULL OR current_snapshot IS DISTINCT FROM NEW.snapshot_sha256 OR NEW.run_id NOT IN(SELECT ai.record_input_runs(NEW.record_kind,NEW.record_id)) THEN
+    RAISE EXCEPTION 'RECORD_CONTROL_CLOSURE_STALE' USING ERRCODE='EN119';END IF;
+  SELECT stored.fenced_at,stored.fence_generation,stored.payloads_purged_at,stored.purged_fence_generation INTO checkpoint FROM ai.run_input_checkpoints stored
+    WHERE stored.organization_id=NEW.organization_id AND stored.run_id=NEW.run_id FOR SHARE NOWAIT;
+  IF NOT FOUND OR checkpoint.fenced_at IS NULL OR checkpoint.fence_generation IS DISTINCT FROM NEW.fence_generation
+    OR checkpoint.payloads_purged_at IS NULL OR checkpoint.purged_fence_generation IS DISTINCT FROM NEW.fence_generation THEN
+    RAISE EXCEPTION 'RECORD_CONTROL_FENCE_UNCONFIRMED' USING ERRCODE='EN119';END IF;
+  SELECT stored.status,stored.version INTO run FROM ai.agent_runs stored WHERE stored.organization_id=NEW.organization_id AND stored.id=NEW.run_id FOR SHARE NOWAIT;
+  IF NOT FOUND OR run.status IS DISTINCT FROM NEW.terminal_status OR run.version IS DISTINCT FROM NEW.terminal_version
+    OR run.status NOT IN('completed','failed','cancelled','budget_exhausted','policy_denied','timed_out','outcome_unverified') THEN
+    RAISE EXCEPTION 'RECORD_CONTROL_TERMINAL_UNCONFIRMED' USING ERRCODE='EN119';END IF;
+  NEW.closed_at:=clock_timestamp();RETURN NEW;
+END $$;
+REVOKE ALL ON FUNCTION ai.guard_record_run_closure() FROM PUBLIC;
+CREATE TRIGGER record_run_closure_guard BEFORE INSERT ON ai.record_run_closures FOR EACH ROW EXECUTE FUNCTION ai.guard_record_run_closure();
+CREATE FUNCTION ai.guard_record_purge_job() RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog AS $$
+DECLARE current_snapshot text;counts record;controls integer;
+BEGIN
+  IF TG_RELID<>'ai.record_purge_jobs'::regclass OR TG_OP NOT IN('INSERT','UPDATE') OR current_user<>'ensemus_agent' OR session_user<>'ensemus_agent'
+    OR app.current_actor_type() IS DISTINCT FROM 'service' OR NEW.organization_id IS DISTINCT FROM app.current_organization_id() THEN
+    RAISE EXCEPTION 'RECORD_PURGE_JOB_TARGET' USING ERRCODE='42501';END IF;
+  current_snapshot:=ai.lock_record_purge_snapshot(NEW.record_kind,NEW.record_id);
+  IF current_snapshot IS NULL OR current_snapshot IS DISTINCT FROM NEW.snapshot_sha256 THEN RAISE EXCEPTION 'RECORD_PURGE_SNAPSHOT_STALE' USING ERRCODE='EN119';END IF;
+  IF TG_OP='INSERT' THEN
+    IF ROW(NEW.work_removed,NEW.work_remaining,NEW.unknown_work,NEW.controls_remaining,NEW.checked_at,NEW.receipts_sha256,NEW.after_run,NEW.after_child)
+      IS DISTINCT FROM ROW(0,NULL::integer,NULL::integer,NULL::integer,NULL::timestamptz,NULL::text,NULL::uuid,NULL::uuid) THEN
+      RAISE EXCEPTION 'RECORD_PURGE_PROOF_AT_BIRTH' USING ERRCODE='42501';END IF;
+    NEW.created_at:=clock_timestamp();
+  ELSE
+    IF ROW(NEW.organization_id,NEW.record_kind,NEW.record_id,NEW.snapshot_sha256,NEW.created_at)
+      IS DISTINCT FROM ROW(OLD.organization_id,OLD.record_kind,OLD.record_id,OLD.snapshot_sha256,OLD.created_at) THEN
+      RAISE EXCEPTION 'RECORD_PURGE_JOB_IMMUTABLE' USING ERRCODE='42501';END IF;
+    IF ROW(NEW.work_removed,NEW.work_remaining,NEW.unknown_work,NEW.controls_remaining) IS DISTINCT FROM ROW(OLD.work_removed,OLD.work_remaining,OLD.unknown_work,OLD.controls_remaining)
+      OR NEW.checked_at IS NOT NULL THEN
+      SELECT * INTO counts FROM ai.record_work_counts(NEW.record_kind,NEW.record_id);
+      controls:=ai.record_run_closure_remaining(NEW.record_kind,NEW.record_id,NEW.snapshot_sha256);
+      IF NEW.work_removed IS DISTINCT FROM counts.removed OR NEW.work_remaining IS DISTINCT FROM counts.remaining
+        OR NEW.unknown_work IS DISTINCT FROM counts.unproven OR NEW.controls_remaining IS DISTINCT FROM controls THEN
+        RAISE EXCEPTION 'RECORD_PURGE_COUNTS_STALE' USING ERRCODE='EN119';END IF;
+    END IF;
+  END IF;
+  IF NEW.checked_at IS NOT NULL THEN
+    IF to_regprocedure('lifecycle.record_purge_hold_free(text,uuid,text)') IS NULL THEN RAISE EXCEPTION 'RECORD_HOLD_AUTHORITY_UNAVAILABLE' USING ERRCODE='EN119';END IF;
+    IF NOT lifecycle.record_purge_hold_free(NEW.record_kind,NEW.record_id,NEW.snapshot_sha256) OR counts.remaining<>0 OR counts.unproven<>0 OR controls<>0
+      OR NEW.receipts_sha256 IS DISTINCT FROM counts.receipts_sha256 THEN RAISE EXCEPTION 'RECORD_PURGE_PROOF_UNCONFIRMED' USING ERRCODE='EN119';END IF;
+    NEW.checked_at:=clock_timestamp();
+  END IF;
+  NEW.updated_at:=clock_timestamp();RETURN NEW;
+END $$;
+REVOKE ALL ON FUNCTION ai.guard_record_purge_job() FROM PUBLIC;
+CREATE TRIGGER record_purge_job_guard BEFORE INSERT OR UPDATE ON ai.record_purge_jobs FOR EACH ROW EXECUTE FUNCTION ai.guard_record_purge_job();
+CREATE FUNCTION ai.record_work_purge_confirmed(p_kind text,p_id uuid) RETURNS boolean LANGUAGE plpgsql SET search_path=pg_catalog AS $$
+DECLARE current_snapshot text;job ai.record_purge_jobs;counts record;controls integer;
+BEGIN
+  IF current_user NOT IN('ensemus_app','ensemus_agent') OR session_user NOT IN('ensemus_app','ensemus_agent')
+    OR app.current_actor_type() IS DISTINCT FROM 'service' OR app.current_organization_id() IS NULL THEN RETURN false;END IF;
+  current_snapshot:=ai.lock_record_purge_snapshot(p_kind,p_id);
+  IF current_snapshot IS NULL OR to_regprocedure('lifecycle.record_purge_hold_free(text,uuid,text)') IS NULL THEN RETURN false;END IF;
+  IF NOT lifecycle.record_purge_hold_free(p_kind,p_id,current_snapshot) THEN RETURN false;END IF;
+  SELECT * INTO job FROM ai.record_purge_jobs actual WHERE actual.organization_id=app.current_organization_id()
+    AND actual.record_kind=p_kind AND actual.record_id=p_id AND actual.snapshot_sha256=current_snapshot;
+  IF NOT FOUND OR job.checked_at IS NULL THEN RETURN false;END IF;
+  SELECT * INTO counts FROM ai.record_work_counts(p_kind,p_id);
+  controls:=ai.record_run_closure_remaining(p_kind,p_id,current_snapshot);
+  RETURN counts.remaining=0 AND counts.unproven=0 AND controls=0 AND job.work_removed=counts.removed
+    AND job.work_remaining=0 AND job.unknown_work=0 AND job.controls_remaining=0 AND job.receipts_sha256=counts.receipts_sha256;
+END $$;
+REVOKE ALL ON FUNCTION ai.record_work_purge_confirmed(text,uuid) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION ai.record_work_purge_confirmed(text,uuid) TO ensemus_app;
+-- Preserve the public OID and file-only count. An old caller receives an explicit refusal while
+-- separate Work/control/unknown debt remains; copied Work is never disguised as an artifact count.
+CREATE OR REPLACE FUNCTION knowledge.derived_structured_artifacts_remaining(p_kind text,p_id uuid) RETURNS integer LANGUAGE plpgsql SET search_path=pg_catalog AS $$
+DECLARE result integer;
+BEGIN
+  IF NOT ai.record_work_purge_confirmed(p_kind,p_id) THEN RAISE EXCEPTION 'RECORD_WORK_PURGE_UNCONFIRMED' USING ERRCODE='EN119';END IF;
+  SELECT count(*)::integer INTO result FROM knowledge.artifact_lineage header LEFT JOIN knowledge.artifact_acl_catalog catalog
+    ON catalog.organization_id=header.organization_id AND catalog.artifact_id=header.artifact_id WHERE header.organization_id=app.current_organization_id() AND(
+      (header.execution_kind IN('agent_run','system') AND(NOT header.structured_inventory_complete OR NOT knowledge.artifact_authority_complete(header.artifact_id)))
+      OR knowledge.artifact_depends_on_record(header.artifact_id,p_kind,p_id))
+      AND(header.physical_purged_at IS NULL OR header.write_state IN('active','unknown') OR coalesce(catalog.alive,true)
+        OR NOT EXISTS(SELECT 1 FROM platform.tombstones tombstone WHERE tombstone.organization_id=header.organization_id AND tombstone.target_type='artifact' AND tombstone.target_id=header.artifact_id));
+  RETURN result;
+END $$;

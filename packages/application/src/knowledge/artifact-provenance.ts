@@ -1001,7 +1001,7 @@ export function createDerivedArtifactPurge(deps: DerivedArtifactPurgeDeps): Stru
     return { kind: input.kind, id: checkedId(input.id) };
   };
   const recordAffected = (input: { kind: StructuredArtifactInput['kind']; id: string }) =>
-    sql`((${artifactLineage.executionKind} in ('agent_run','system') and not ${artifactLineage.structuredInventoryComplete}) or exists(select 1 from knowledge.artifact_required_records(${artifactLineage.artifactId}) r where r.record_kind=${input.kind} and r.record_id=${input.id}::uuid))`;
+    sql`((${artifactLineage.executionKind} in ('agent_run','system') and not ${artifactLineage.structuredInventoryComplete}) or knowledge.artifact_depends_on_record(${artifactLineage.artifactId},${input.kind},${input.id}::uuid))`;
   const confirmRecord = async (
     tx: Tx,
     input: { kind: StructuredArtifactInput['kind']; id: string },

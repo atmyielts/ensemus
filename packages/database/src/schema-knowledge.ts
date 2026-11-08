@@ -946,6 +946,8 @@ export const knowledgePurgeJobs = knowledgeSchema.table(
     lastErrorCode: text(),
     requestedAt: createdAt(),
     completedAt: timestamp({ withTimezone: true }),
+    /** Original certificate time retained when 0419 requires its Work/control requalification. */
+    priorCompletedAt: timestamp({ withTimezone: true }),
   },
   (t) => [
     primaryKey({ columns: [t.organizationId, t.id] }),
