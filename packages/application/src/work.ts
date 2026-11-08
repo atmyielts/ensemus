@@ -538,9 +538,13 @@ export async function updateWorkUnit(
       .where(and(eq(workUnits.id, id), eq(workUnits.version, expectedVersion)))
       .returning();
     if (!row) throw new AppError('VERSION_CONFLICT');
-    await recordWorkContentUpdate(tx, context, row,
+    await recordWorkContentUpdate(
+      tx,
+      context,
+      row,
       async () => actionHash(await currentReviewAction(tx, row)),
-      () => failRun(tx, context, row));
+      () => failRun(tx, context, row),
+    );
     return row;
   });
 }
@@ -824,8 +828,11 @@ async function recordWorkContentUpdate(
   pause?: () => Promise<WorkTransitionMetadata>,
 ) {
   await emit(tx, context, {
-    eventType: 'work.updated', aggregateType: 'work_unit', aggregateId: work.id,
-    aggregateVersion: work.version, classification: work.classification,
+    eventType: 'work.updated',
+    aggregateType: 'work_unit',
+    aggregateId: work.id,
+    aggregateVersion: work.version,
+    classification: work.classification,
     payload: { work_unit_id: work.id },
   });
   await closeOutdatedReviewsByHash(tx, context, work, currentHash, pause);
@@ -840,12 +847,18 @@ export async function recordDelegatedWorkRedactionInTx(
 ) {
   if (!consumeDelegatedWorkDisposition(disposition, tx, context)) throw new AppError('FORBIDDEN');
   if (disposition.current.runId !== null) throw new AppError('INVALID_STATE');
-  await recordWorkContentUpdate(tx, context, disposition.current, async () => actionHash(
-    workReviewActionFromContentHash(disposition.current.id, disposition.contentSha256, []),
-  ));
+  await recordWorkContentUpdate(tx, context, disposition.current, async () =>
+    actionHash(
+      workReviewActionFromContentHash(disposition.current.id, disposition.contentSha256, []),
+    ),
+  );
   await appendAudit(tx, {
-    organizationId: context.organizationId, ...actorOf(context), action: 'ai.delegated_work_redacted',
-    targetRef: `work_unit:${disposition.current.id}`, decision: 'allow', safeReason: 'INPUT_PURGED',
+    organizationId: context.organizationId,
+    ...actorOf(context),
+    action: 'ai.delegated_work_redacted',
+    targetRef: `work_unit:${disposition.current.id}`,
+    decision: 'allow',
+    safeReason: 'INPUT_PURGED',
   });
 }
 

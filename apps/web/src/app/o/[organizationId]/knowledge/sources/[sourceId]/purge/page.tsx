@@ -28,13 +28,13 @@ export default async function PurgePage({
       <p className="notice">
         {job.state === 'completed'
           ? 'The worker confirmed removal of the source projections, related transcripts, generated files and copied work for this source. Retained audit records contain IDs and hashes.'
-          : job.counts.unprovenWorkUnits!==null && job.counts.unprovenWorkUnits>0
+          : job.counts.unprovenWorkUnits !== null && job.counts.unprovenWorkUnits > 0
             ? 'Some older delegated work still needs an administrator to verify its removal. The source remains closed.'
-          : job.heldArtifacts
-            ? 'Some generated files are on hold. Removal cannot be confirmed while those holds apply.'
-            : job.retryExhausted
-              ? 'Automatic repair has reached its limit. An administrator needs to investigate; the source remains closed.'
-              : 'Removal is still being checked. Unknown writes, storage failures or unavailable workers prevent a completed result.'}
+            : job.heldArtifacts
+              ? 'Some generated files are on hold. Removal cannot be confirmed while those holds apply.'
+              : job.retryExhausted
+                ? 'Automatic repair has reached its limit. An administrator needs to investigate; the source remains closed.'
+                : 'Removal is still being checked. Unknown writes, storage failures or unavailable workers prevent a completed result.'}
       </p>
       <dl className="facts">
         {Object.entries(job.counts).map(([name, count]) => (
@@ -57,7 +57,7 @@ export default async function PurgePage({
                 } as Record<string, string>
               )[name] ?? name}
             </dt>
-            <dd>{count===null ? 'Not yet confirmed' : count}</dd>
+            <dd>{count === null ? 'Not yet confirmed' : count}</dd>
           </Fragment>
         ))}
         <dt>Files on hold</dt>

@@ -31,8 +31,10 @@ export function createKnowledgePurgeActivities(deps: KnowledgeWorkerDeps) {
         deps.store,
         createServiceContext(input.organizationId),
         input,
-        { ...(deps.derivedArtifacts ? { derivedArtifacts: deps.derivedArtifacts } : {}),
-          ...(deps.delegatedWorks ? { delegatedWorks: deps.delegatedWorks } : {}) },
+        {
+          ...(deps.derivedArtifacts ? { derivedArtifacts: deps.derivedArtifacts } : {}),
+          ...(deps.delegatedWorks ? { delegatedWorks: deps.delegatedWorks } : {}),
+        },
       );
       return {
         state: result.state === 'completed' ? 'completed' : 'failed',
@@ -61,15 +63,18 @@ export function createKnowledgeTranscriptActivities(deps: KnowledgeTranscriptDep
     /** Counts only. No prompt, and no run's content, comes back across Temporal. */
     async purgeRunTranscripts(input: KnowledgePurgeInput): Promise<{ removed: number }> {
       const context = createServiceContext(input.organizationId);
-      const result = await purgeRunTranscriptsForSource(
-        deps.database,
-        context,
-        deps,
-        input,
-      );
+      const result = await purgeRunTranscriptsForSource(deps.database, context, deps, input);
       if (!deps.delegatedWorks) throw new Error('DELEGATED_WORK_PURGE_UNAVAILABLE');
-      const work = await deps.delegatedWorks.purgeSource(context, { sourceId: input.sourceId, limit: 25 });
-      if(!work.confirmed || work.remaining!==0 || work.controlsRemaining!==0 || work.unproven!==0)
+      const work = await deps.delegatedWorks.purgeSource(context, {
+        sourceId: input.sourceId,
+        limit: 25,
+      });
+      if (
+        !work.confirmed ||
+        work.remaining !== 0 ||
+        work.controlsRemaining !== 0 ||
+        work.unproven !== 0
+      )
         throw new Error('DELEGATED_WORK_PURGE_UNCONFIRMED');
       return result;
     },

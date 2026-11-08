@@ -20,7 +20,12 @@ import { compileEvidence } from '@ensemus/application/knowledge/compiler';
 import { purgeRunTranscriptsForSource, revokeSource } from '@ensemus/application/knowledge/purge';
 import { createScriptedModelPort } from '@ensemus/knowledge/testing';
 import { createContextSource } from '@ensemus/application/ai-context-source';
-import { completeTurn, claimQueuedRun, createTurnStore, finishRun } from '@ensemus/application/ai-runs';
+import {
+  completeTurn,
+  claimQueuedRun,
+  createTurnStore,
+  finishRun,
+} from '@ensemus/application/ai-runs';
 import {
   admitMainModelDispatchInTx,
   receiveMainInputSnapshotInTx,
@@ -89,7 +94,7 @@ describe('delegated material birth evidence (0419)', () => {
     await app.close();
   });
 
-  async function fixture(scopes?:string[]) {
+  async function fixture(scopes?: string[]) {
     const work = await createWorkUnit(app.db, a.owner, { title: 'Actual parent work' });
     await transitionWorkUnit(app.db, a.owner, {
       id: work.id,
@@ -97,7 +102,7 @@ describe('delegated material birth evidence (0419)', () => {
       to: 'ready',
     });
     const spec = testAgentSpec({
-      ...(scopes ? {context:{allowed_scopes:scopes,memory_write_policy:'none'}} : {}),
+      ...(scopes ? { context: { allowed_scopes: scopes, memory_write_policy: 'none' } } : {}),
       tools: { allow: ['work.read', 'agent.delegate'], deny: [] },
       execution: {
         max_model_turns: 5,
@@ -311,118 +316,316 @@ describe('delegated material birth evidence (0419)', () => {
   it('refuses app/agent redaction calls and cannot turn a genuine parent into an invented child disposition', async () => {
     const f = await fixture();
     const invoke = (tx: Parameters<typeof recordDelegatedWorkRedactionInTx>[0]) =>
-      tx.execute(sql`select * from work.redact_delegated_body(${f.runId}::uuid,${f.work.id}::uuid,'work_unit',${f.work.id}::uuid,NULL::uuid)`);
-    await expect(withTenantTx(app.db, createServiceContext(a.organizationId), invoke))
-      .rejects.toSatisfy((error: unknown) => pgCode(error) === '42501');
-    await expect(withTenantTx(agent.db, f.context, invoke))
-      .rejects.toSatisfy((error: unknown) => pgCode(error) === '42501');
+      tx.execute(
+        sql`select * from work.redact_delegated_body(${f.runId}::uuid,${f.work.id}::uuid,'work_unit',${f.work.id}::uuid,NULL::uuid)`,
+      );
+    await expect(
+      withTenantTx(app.db, createServiceContext(a.organizationId), invoke),
+    ).rejects.toSatisfy((error: unknown) => pgCode(error) === '42501');
+    await expect(withTenantTx(agent.db, f.context, invoke)).rejects.toSatisfy(
+      (error: unknown) => pgCode(error) === '42501',
+    );
     await withTenantTx(agent.db, createServiceContext(a.organizationId), async (tx) => {
       const prior = randomUUID();
       await tx.execute(sql`select set_config('app.delegated_work_redaction_run',${prior},true)`);
       expect((await invoke(tx)).rows).toEqual([]);
-      expect((await tx.execute<{ value: string }>(sql`select current_setting('app.delegated_work_redaction_run',true) value`)).rows[0]?.value).toBe(prior);
+      expect(
+        (
+          await tx.execute<{ value: string }>(
+            sql`select current_setting('app.delegated_work_redaction_run',true) value`,
+          )
+        ).rows[0]?.value,
+      ).toBe(prior);
     });
-    expect((await withTenantTx(agent.db, createServiceContext(b.organizationId), invoke)).rows).toEqual([]);
-    expect(await withTenantTx(app.db, a.owner, (tx) => tx.select().from(delegatedInputReceipts)
-      .where(eq(delegatedInputReceipts.childRunId, f.runId)))).toEqual([]);
+    expect(
+      (await withTenantTx(agent.db, createServiceContext(b.organizationId), invoke)).rows,
+    ).toEqual([]);
+    expect(
+      await withTenantTx(app.db, a.owner, (tx) =>
+        tx
+          .select()
+          .from(delegatedInputReceipts)
+          .where(eq(delegatedInputReceipts.childRunId, f.runId)),
+      ),
+    ).toEqual([]);
   });
 
   it('denies fabricated Work-update effect metadata without a real fixed-SQL disposition in this transaction', async () => {
-    const f = await fixture(), service = createServiceContext(a.organizationId);
-    const before = await withTenantTx(app.db, a.owner, (tx) => tx.select({ version: workUnits.version })
-      .from(workUnits).where(eq(workUnits.id, f.work.id)));
-    await expect(withTenantTx(agent.db, service, (tx) => recordDelegatedWorkRedactionInTx(tx, service, {
-      current: f.work, contentSha256: hash('claimed redacted content'),
-    }))).rejects.toMatchObject({ code: 'FORBIDDEN' });
-    expect(await withTenantTx(app.db, a.owner, (tx) => tx.select({ version: workUnits.version })
-      .from(workUnits).where(eq(workUnits.id, f.work.id)))).toEqual(before);
+    const f = await fixture(),
+      service = createServiceContext(a.organizationId);
+    const before = await withTenantTx(app.db, a.owner, (tx) =>
+      tx.select({ version: workUnits.version }).from(workUnits).where(eq(workUnits.id, f.work.id)),
+    );
+    await expect(
+      withTenantTx(agent.db, service, (tx) =>
+        recordDelegatedWorkRedactionInTx(tx, service, {
+          current: f.work,
+          contentSha256: hash('claimed redacted content'),
+        }),
+      ),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    expect(
+      await withTenantTx(app.db, a.owner, (tx) =>
+        tx
+          .select({ version: workUnits.version })
+          .from(workUnits)
+          .where(eq(workUnits.id, f.work.id)),
+      ),
+    ).toEqual(before);
   });
 
   it('does not grant runtime roles direct disposition-stamp mutation', async () => {
     const f = await fixture();
     for (const context of [a.owner, createServiceContext(a.organizationId)])
-      await expect(withTenantTx(app.db, context, (tx) => tx.update(delegatedInputReceipts)
-        .set({ redactedAt: new Date(), redactedVersion: 1, dispositionSha256: hash('forged'),
-          redactionScopeKind: 'work_unit', redactionScopeId: f.work.id })
-        .where(eq(delegatedInputReceipts.childRunId, f.runId))))
-        .rejects.toSatisfy((error: unknown) => pgCode(error) === '42501');
+      await expect(
+        withTenantTx(app.db, context, (tx) =>
+          tx
+            .update(delegatedInputReceipts)
+            .set({
+              redactedAt: new Date(),
+              redactedVersion: 1,
+              dispositionSha256: hash('forged'),
+              redactionScopeKind: 'work_unit',
+              redactionScopeId: f.work.id,
+            })
+            .where(eq(delegatedInputReceipts.childRunId, f.runId)),
+        ),
+      ).rejects.toSatisfy((error: unknown) => pgCode(error) === '42501');
   });
 
   it('cannot stamp a purge-time control witness as app/interactive agent or against an active unrelated source', async () => {
-    const f = await fixture(), source = await seedSearchableSource(app.db, a.owner, {
-      passages: ['Generated unrelated closure fixture.'], grants: [{ kind: 'organization' }],
-    });
-    const [run] = await withTenantTx(agent.db, f.context, (tx) => tx.select({ version: agentRuns.version })
-      .from(agentRuns).where(eq(agentRuns.id, f.runId)));
+    const f = await fixture(),
+      source = await seedSearchableSource(app.db, a.owner, {
+        passages: ['Generated unrelated closure fixture.'],
+        grants: [{ kind: 'organization' }],
+      });
+    const [run] = await withTenantTx(agent.db, f.context, (tx) =>
+      tx.select({ version: agentRuns.version }).from(agentRuns).where(eq(agentRuns.id, f.runId)),
+    );
     if (!run) throw new Error('TEST_RUN_MISSING');
-    const stamp = { organizationId: a.organizationId, sourceId: source.sourceId, sourceVersion: 1,
-      runId: f.runId, terminalVersion: run.version, fenceGeneration: 1, terminalStatus: 'cancelled' };
+    const stamp = {
+      organizationId: a.organizationId,
+      sourceId: source.sourceId,
+      sourceVersion: 1,
+      runId: f.runId,
+      terminalVersion: run.version,
+      fenceGeneration: 1,
+      terminalStatus: 'cancelled',
+    };
     for (const context of [a.owner, createServiceContext(a.organizationId)])
-      await expect(withTenantTx(app.db, context, (tx) => tx.insert(sourceRunClosures).values(stamp)))
-        .rejects.toSatisfy((error: unknown) => pgCode(error) === '42501');
-    await expect(withTenantTx(agent.db, f.context, (tx) => tx.insert(sourceRunClosures).values(stamp)))
-      .rejects.toSatisfy((error: unknown) => pgCode(error) === '42501');
-    await expect(withTenantTx(agent.db, createServiceContext(a.organizationId), (tx) => tx.insert(sourceRunClosures).values(stamp)))
-      .rejects.toSatisfy((error: unknown) => pgCode(error) === 'EN119');
-    expect(await withTenantTx(app.db, a.owner, (tx) => tx.select().from(sourceRunClosures)
-      .where(eq(sourceRunClosures.runId, f.runId)))).toEqual([]);
+      await expect(
+        withTenantTx(app.db, context, (tx) => tx.insert(sourceRunClosures).values(stamp)),
+      ).rejects.toSatisfy((error: unknown) => pgCode(error) === '42501');
+    await expect(
+      withTenantTx(agent.db, f.context, (tx) => tx.insert(sourceRunClosures).values(stamp)),
+    ).rejects.toSatisfy((error: unknown) => pgCode(error) === '42501');
+    await expect(
+      withTenantTx(agent.db, createServiceContext(a.organizationId), (tx) =>
+        tx.insert(sourceRunClosures).values(stamp),
+      ),
+    ).rejects.toSatisfy((error: unknown) => pgCode(error) === 'EN119');
+    expect(
+      await withTenantTx(app.db, a.owner, (tx) =>
+        tx.select().from(sourceRunClosures).where(eq(sourceRunClosures.runId, f.runId)),
+      ),
+    ).toEqual([]);
   });
 
   it('keeps actual terminal material authority closed while later metadata versions remain writable', async () => {
     const f = await fixture();
-    await finishRun(agent.db, f.context, { agentRunId: f.runId, status: 'cancelled', stopCode: 'STOPPED_BY_PERSON' });
-    await expect(withTenantTx(agent.db, f.context, (tx) => tx.update(agentRuns).set({ status: 'running' })
-      .where(eq(agentRuns.id, f.runId)))).rejects.toSatisfy((error: unknown) => pgCode(error) === 'EN119');
-    const [metadata] = await withTenantTx(agent.db, f.context, (tx) => tx.update(agentRuns)
-      .set({ version: sql`${agentRuns.version}+1` }).where(eq(agentRuns.id, f.runId))
-      .returning({ status: agentRuns.status, version: agentRuns.version }));
+    await finishRun(agent.db, f.context, {
+      agentRunId: f.runId,
+      status: 'cancelled',
+      stopCode: 'STOPPED_BY_PERSON',
+    });
+    await expect(
+      withTenantTx(agent.db, f.context, (tx) =>
+        tx.update(agentRuns).set({ status: 'running' }).where(eq(agentRuns.id, f.runId)),
+      ),
+    ).rejects.toSatisfy((error: unknown) => pgCode(error) === 'EN119');
+    const [metadata] = await withTenantTx(agent.db, f.context, (tx) =>
+      tx
+        .update(agentRuns)
+        .set({ version: sql`${agentRuns.version}+1` })
+        .where(eq(agentRuns.id, f.runId))
+        .returning({ status: agentRuns.status, version: agentRuns.version }),
+    );
     expect(metadata?.status).toBe('cancelled');
-    await expect(createContextSource({ database: agent.db, readObject: async () => { throw new Error('TEST_UNEXPECTED_BYTES'); } })
-      .loadWork(f.context, f.work.id)).rejects.toThrow();
+    await expect(
+      createContextSource({
+        database: agent.db,
+        readObject: async () => {
+          throw new Error('TEST_UNEXPECTED_BYTES');
+        },
+      }).loadWork(f.context, f.work.id),
+    ).rejects.toThrow();
   });
 
   it('closes a genuine compiler consumer once and retains a purge-time control witness without double charging', async () => {
-    const source=await seedSearchableSource(app.db,a.owner,{passages:['closureanchor is an actual lexical input.'],grants:[{kind:'organization'}]});
-    const f=await fixture(['work.read','data.internal.read',`knowledge.${source.sourceId}.read`]);
-    const compiled=await compileEvidence(agent.db,f.context,{
-      model:createScriptedModelPort({route:()=>({decision:'deny',reasonCode:'NO_APPROVED_MODEL',policyVersion:'generated-lexical-only'})}),
-      authorizeAgentContext:async()=>true,
-    },{purpose:'agent_turn',question:'closureanchor',queryClassification:'internal',workUnitId:f.work.id,runId:f.runId,
-      sourceIds:[source.sourceId],budgetTokens:1000,signal:AbortSignal.timeout(10000)});
-    if(!compiled.ok) throw new Error(`TEST_COMPILE_REFUSED:${compiled.code}`);
-    await revokeSource(app.db,a.owner,{sourceId:source.sourceId,expectedVersion:1,reason:'Actual privacy closure fixture.'});
-    const service=createServiceContext(a.organizationId);
-    await purgeRunTranscriptsForSource(agent.db,service,{transcripts:createRunTranscriptPurge()},{sourceId:source.sourceId});
-    const ledgerBefore=await withTenantTx(app.db,a.owner,(tx)=>tx.execute<{cost:string}>(sql`select sum(cost_micros)::text cost from platform.usage_ledger
-      where organization_id=${a.organizationId}::uuid and run_id=${f.runId}::uuid`));
-    const adapter=createDelegatedWorkPurge({database:agent.db,accounting:createKnowledgeCallStore(agent.db,{halt:createHaltCheck()})});
-    expect(await adapter.purgeSource(service,{sourceId:source.sourceId,limit:25})).toMatchObject({confirmed:true,remaining:0,controlsRemaining:0,unproven:0,removed:0});
-    const [witness]=await withTenantTx(app.db,a.owner,(tx)=>tx.select().from(sourceRunClosures)
-      .where(and(eq(sourceRunClosures.sourceId,source.sourceId),eq(sourceRunClosures.runId,f.runId))));
-    expect(witness).toMatchObject({sourceVersion:2,fenceGeneration:1,terminalStatus:'cancelled'});
+    const source = await seedSearchableSource(app.db, a.owner, {
+      passages: ['closureanchor is an actual lexical input.'],
+      grants: [{ kind: 'organization' }],
+    });
+    const f = await fixture([
+      'work.read',
+      'data.internal.read',
+      `knowledge.${source.sourceId}.read`,
+    ]);
+    const compiled = await compileEvidence(
+      agent.db,
+      f.context,
+      {
+        model: createScriptedModelPort({
+          route: () => ({
+            decision: 'deny',
+            reasonCode: 'NO_APPROVED_MODEL',
+            policyVersion: 'generated-lexical-only',
+          }),
+        }),
+        authorizeAgentContext: async () => true,
+      },
+      {
+        purpose: 'agent_turn',
+        question: 'closureanchor',
+        queryClassification: 'internal',
+        workUnitId: f.work.id,
+        runId: f.runId,
+        sourceIds: [source.sourceId],
+        budgetTokens: 1000,
+        signal: AbortSignal.timeout(10000),
+      },
+    );
+    if (!compiled.ok) throw new Error(`TEST_COMPILE_REFUSED:${compiled.code}`);
+    await revokeSource(app.db, a.owner, {
+      sourceId: source.sourceId,
+      expectedVersion: 1,
+      reason: 'Actual privacy closure fixture.',
+    });
+    const service = createServiceContext(a.organizationId);
+    await purgeRunTranscriptsForSource(
+      agent.db,
+      service,
+      { transcripts: createRunTranscriptPurge() },
+      { sourceId: source.sourceId },
+    );
+    const ledgerBefore = await withTenantTx(app.db, a.owner, (tx) =>
+      tx.execute<{ cost: string }>(sql`select sum(cost_micros)::text cost from platform.usage_ledger
+      where organization_id=${a.organizationId}::uuid and run_id=${f.runId}::uuid`),
+    );
+    const adapter = createDelegatedWorkPurge({
+      database: agent.db,
+      accounting: createKnowledgeCallStore(agent.db, { halt: createHaltCheck() }),
+    });
+    expect(
+      await adapter.purgeSource(service, { sourceId: source.sourceId, limit: 25 }),
+    ).toMatchObject({
+      confirmed: true,
+      remaining: 0,
+      controlsRemaining: 0,
+      unproven: 0,
+      removed: 0,
+    });
+    const [witness] = await withTenantTx(app.db, a.owner, (tx) =>
+      tx
+        .select()
+        .from(sourceRunClosures)
+        .where(
+          and(
+            eq(sourceRunClosures.sourceId, source.sourceId),
+            eq(sourceRunClosures.runId, f.runId),
+          ),
+        ),
+    );
+    expect(witness).toMatchObject({
+      sourceVersion: 2,
+      fenceGeneration: 1,
+      terminalStatus: 'cancelled',
+    });
     expect(witness?.closedAt).toBeInstanceOf(Date);
-    expect(await adapter.purgeSource(service,{sourceId:source.sourceId,limit:25})).toMatchObject({confirmed:true,remaining:0,controlsRemaining:0});
-    expect(await withTenantTx(app.db,a.owner,(tx)=>tx.select().from(sourceRunClosures)
-      .where(and(eq(sourceRunClosures.sourceId,source.sourceId),eq(sourceRunClosures.runId,f.runId))))).toEqual([witness]);
-    expect((await withTenantTx(app.db,a.owner,(tx)=>tx.execute<{cost:string}>(sql`select sum(cost_micros)::text cost from platform.usage_ledger
-      where organization_id=${a.organizationId}::uuid and run_id=${f.runId}::uuid`))).rows).toEqual(ledgerBefore.rows);
-    await expect(createContextSource({database:agent.db,readObject:async()=>{throw new Error('TEST_UNEXPECTED_BYTES');}})
-      .loadWork(f.context,f.work.id)).rejects.toThrow();
+    expect(
+      await adapter.purgeSource(service, { sourceId: source.sourceId, limit: 25 }),
+    ).toMatchObject({ confirmed: true, remaining: 0, controlsRemaining: 0 });
+    expect(
+      await withTenantTx(app.db, a.owner, (tx) =>
+        tx
+          .select()
+          .from(sourceRunClosures)
+          .where(
+            and(
+              eq(sourceRunClosures.sourceId, source.sourceId),
+              eq(sourceRunClosures.runId, f.runId),
+            ),
+          ),
+      ),
+    ).toEqual([witness]);
+    expect(
+      (
+        await withTenantTx(app.db, a.owner, (tx) =>
+          tx.execute<{
+            cost: string;
+          }>(sql`select sum(cost_micros)::text cost from platform.usage_ledger
+      where organization_id=${a.organizationId}::uuid and run_id=${f.runId}::uuid`),
+        )
+      ).rows,
+    ).toEqual(ledgerBefore.rows);
+    await expect(
+      createContextSource({
+        database: agent.db,
+        readObject: async () => {
+          throw new Error('TEST_UNEXPECTED_BYTES');
+        },
+      }).loadWork(f.context, f.work.id),
+    ).rejects.toThrow();
   });
 
   it('requires actual native agent proof even for an explicitly checked source with no Work consumers', async () => {
-    const source=await seedSearchableSource(app.db,a.owner,{passages:['Actual source without a generated Work consumer.'],grants:[{kind:'organization'}]});
-    const {purgeJobId}=await revokeSource(app.db,a.owner,{sourceId:source.sourceId,expectedVersion:1,reason:'Actual empty consumer-set fixture.'});
-    const service=createServiceContext(a.organizationId),adapter=createDelegatedWorkPurge({database:agent.db,
-      accounting:createKnowledgeCallStore(agent.db,{halt:createHaltCheck()})});
-    expect(await withTenantTx(app.db,service,(tx)=>adapter.confirmInTx(tx,service,{sourceId:source.sourceId})))
-      .toMatchObject({confirmed:false,remaining:0,controlsRemaining:0});
-    await purgeRunTranscriptsForSource(agent.db,service,{transcripts:createRunTranscriptPurge()},{sourceId:source.sourceId});
-    expect(await adapter.purgeSource(service,{sourceId:source.sourceId,limit:25})).toMatchObject({confirmed:true,removed:0,remaining:0,controlsRemaining:0});
-    await expect(withTenantTx(app.db,service,(tx)=>tx.update(knowledgePurgeJobs).set({delegatedWorkRemoved:99})
-      .where(eq(knowledgePurgeJobs.id,purgeJobId)))).rejects.toSatisfy((error:unknown)=>pgCode(error)==='42501');
-    const [job]=await withTenantTx(app.db,a.owner,(tx)=>tx.select().from(knowledgePurgeJobs).where(eq(knowledgePurgeJobs.id,purgeJobId)));
-    expect(job).toMatchObject({state:'pending',delegatedWorkRemoved:0,delegatedWorkRemaining:0,delegatedWorkUnknown:0,delegatedWorkControlsRemaining:0,delegatedWorkSourceVersion:2});
+    const source = await seedSearchableSource(app.db, a.owner, {
+      passages: ['Actual source without a generated Work consumer.'],
+      grants: [{ kind: 'organization' }],
+    });
+    const { purgeJobId } = await revokeSource(app.db, a.owner, {
+      sourceId: source.sourceId,
+      expectedVersion: 1,
+      reason: 'Actual empty consumer-set fixture.',
+    });
+    const service = createServiceContext(a.organizationId),
+      adapter = createDelegatedWorkPurge({
+        database: agent.db,
+        accounting: createKnowledgeCallStore(agent.db, { halt: createHaltCheck() }),
+      });
+    expect(
+      await withTenantTx(app.db, service, (tx) =>
+        adapter.confirmInTx(tx, service, { sourceId: source.sourceId }),
+      ),
+    ).toMatchObject({ confirmed: false, remaining: 0, controlsRemaining: 0 });
+    await purgeRunTranscriptsForSource(
+      agent.db,
+      service,
+      { transcripts: createRunTranscriptPurge() },
+      { sourceId: source.sourceId },
+    );
+    expect(
+      await adapter.purgeSource(service, { sourceId: source.sourceId, limit: 25 }),
+    ).toMatchObject({ confirmed: true, removed: 0, remaining: 0, controlsRemaining: 0 });
+    await expect(
+      withTenantTx(app.db, service, (tx) =>
+        tx
+          .update(knowledgePurgeJobs)
+          .set({ delegatedWorkRemoved: 99 })
+          .where(eq(knowledgePurgeJobs.id, purgeJobId)),
+      ),
+    ).rejects.toSatisfy((error: unknown) => pgCode(error) === '42501');
+    const [job] = await withTenantTx(app.db, a.owner, (tx) =>
+      tx.select().from(knowledgePurgeJobs).where(eq(knowledgePurgeJobs.id, purgeJobId)),
+    );
+    expect(job).toMatchObject({
+      state: 'pending',
+      delegatedWorkRemoved: 0,
+      delegatedWorkRemaining: 0,
+      delegatedWorkUnknown: 0,
+      delegatedWorkControlsRemaining: 0,
+      delegatedWorkSourceVersion: 2,
+    });
     expect(job?.delegatedWorkCheckedAt).toBeInstanceOf(Date);
     expect(job?.delegatedWorkReceiptsSha256).toMatch(/^[0-9a-f]{64}$/);
   });

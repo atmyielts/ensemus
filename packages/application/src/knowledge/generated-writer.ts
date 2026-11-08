@@ -42,13 +42,17 @@ async function move(
   requireAgentWriter(context);
   await withTenantTx(database, context, async (tx) => {
     if (to === 'started') {
-      const [run] = await tx.select({ workUnitId: agentRuns.workUnitId, agentVersionId: agentRuns.agentVersionId })
-        .from(agentRuns).where(eq(agentRuns.id, context.agentRunId));
+      const [run] = await tx
+        .select({ workUnitId: agentRuns.workUnitId, agentVersionId: agentRuns.agentVersionId })
+        .from(agentRuns)
+        .where(eq(agentRuns.id, context.agentRunId));
       if (!run || run.workUnitId !== write.workUnitId) throw new AppError('POLICY_DENIED');
       // Each pre-network claim has a fresh transaction. Remint from actual immutable scope and
       // all retained inputs before the run lock; a token alone cannot reopen a closed input.
       await loadAgentReadScopeInTx(tx, context, run, { lockRun: true });
-      const [current] = await tx.select({ status: agentRuns.status }).from(agentRuns)
+      const [current] = await tx
+        .select({ status: agentRuns.status })
+        .from(agentRuns)
         .where(eq(agentRuns.id, context.agentRunId));
       if (current?.status !== 'running') throw new AppError('POLICY_DENIED');
     }

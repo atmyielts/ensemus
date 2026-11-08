@@ -79,11 +79,22 @@ export interface DerivedArtifactPurge {
 /** Copied Work bodies and run control are separate from file/header/byte removal counts. This
  * source-only port does not claim typed-record closure, provider completion or financial settlement. */
 export type DelegatedWorkPurgeCounts = {
-  removed: number; remaining: number; controlsRemaining: number; unproven: number; confirmed: boolean;
+  removed: number;
+  remaining: number;
+  controlsRemaining: number;
+  unproven: number;
+  confirmed: boolean;
 };
 export interface DelegatedWorkPurge {
-  purgeSource(context: TenantContext, input: { sourceId: string; limit: number }): Promise<DelegatedWorkPurgeCounts>;
-  confirmInTx(tx: Tx, context: TenantContext, input: { sourceId: string }): Promise<DelegatedWorkPurgeCounts>;
+  purgeSource(
+    context: TenantContext,
+    input: { sourceId: string; limit: number },
+  ): Promise<DelegatedWorkPurgeCounts>;
+  confirmInTx(
+    tx: Tx,
+    context: TenantContext,
+    input: { sourceId: string },
+  ): Promise<DelegatedWorkPurgeCounts>;
 }
 
 /** M4's agent runs. The flagship asks for one, and reads how it went. */

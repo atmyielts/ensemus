@@ -390,7 +390,10 @@ export async function runSourcePurge(
   store: ObjectStore,
   context: TenantContext,
   input: { sourceId: string },
-  deps?: { derivedArtifacts?: DerivedArtifactPurge; delegatedWorks?: Pick<DelegatedWorkPurge,'confirmInTx'> },
+  deps?: {
+    derivedArtifacts?: DerivedArtifactPurge;
+    delegatedWorks?: Pick<DelegatedWorkPurge, 'confirmInTx'>;
+  },
 ): Promise<PurgeOutcome> {
   requireService(context);
   const sourceId = checkedId(input.sourceId);
@@ -414,12 +417,17 @@ export async function runSourcePurge(
       const artifactProof = deps?.derivedArtifacts
         ? await deps.derivedArtifacts.confirmInTx(tx, context, { sourceId })
         : null;
-      const workProof = deps?.delegatedWorks ? await deps.delegatedWorks.confirmInTx(tx, context, { sourceId }) : null;
+      const workProof = deps?.delegatedWorks
+        ? await deps.delegatedWorks.confirmInTx(tx, context, { sourceId })
+        : null;
       if (
         !active.length &&
         (await proofValid(tx, context, source, job)) &&
-        artifactProof?.remaining === 0 && workProof?.confirmed===true && workProof.remaining===0
-        && workProof.controlsRemaining===0 && workProof.unproven===0
+        artifactProof?.remaining === 0 &&
+        workProof?.confirmed === true &&
+        workProof.remaining === 0 &&
+        workProof.controlsRemaining === 0 &&
+        workProof.unproven === 0
       ) {
         const [fresh] = await tx
           .update(knowledgePurgeJobs)
@@ -675,7 +683,12 @@ export async function runSourcePurge(
       const currentArtifacts = await derived.confirmInTx(tx, context, { sourceId });
       if (currentArtifacts.remaining !== 0) throw new Error('ARTIFACT_PURGE_UNCONFIRMED');
       const currentWorks = await works.confirmInTx(tx, context, { sourceId });
-      if(!currentWorks.confirmed || currentWorks.remaining!==0 || currentWorks.controlsRemaining!==0 || currentWorks.unproven!==0)
+      if (
+        !currentWorks.confirmed ||
+        currentWorks.remaining !== 0 ||
+        currentWorks.controlsRemaining !== 0 ||
+        currentWorks.unproven !== 0
+      )
         throw new Error('DELEGATED_WORK_PURGE_UNCONFIRMED');
       if (job.state === 'completed') return outcome(job);
       const [updated] = await tx
@@ -780,26 +793,53 @@ export async function getPurgeStatus(
     await person(tx, context, source);
     const job = await jobFor(tx, sourceId);
     const { state: recordedState, ...counts } = outcome(job);
-    const work = source.state==='active' ? null : (await tx.execute<{
-      removed:number;remaining:number;unproven:number;controlsRemaining:number;receiptsSha256:string;
-    }>(sql`select removed,remaining,unproven,receipts_sha256 "receiptsSha256",
+    const work =
+      source.state === 'active'
+        ? null
+        : (
+            await tx.execute<{
+              removed: number;
+              remaining: number;
+              unproven: number;
+              controlsRemaining: number;
+              receiptsSha256: string;
+            }>(sql`select removed,remaining,unproven,receipts_sha256 "receiptsSha256",
       ai.source_run_closure_remaining(${sourceId}::uuid,${source.version}::bigint) "controlsRemaining"
-      from ai.source_delegated_work_counts(${sourceId}::uuid)`)).rows[0];
-    const workProof=work!==null&&work!==undefined&&work.remaining===0&&work.unproven===0&&work.controlsRemaining===0
-      &&job.delegatedWorkCheckedAt!==null&&job.delegatedWorkSourceVersion===source.version&&job.delegatedWorkReceiptsSha256===work.receiptsSha256;
+      from ai.source_delegated_work_counts(${sourceId}::uuid)`)
+          ).rows[0];
+    const workProof =
+      work !== null &&
+      work !== undefined &&
+      work.remaining === 0 &&
+      work.unproven === 0 &&
+      work.controlsRemaining === 0 &&
+      job.delegatedWorkCheckedAt !== null &&
+      job.delegatedWorkSourceVersion === source.version &&
+      job.delegatedWorkReceiptsSha256 === work.receiptsSha256;
     const state =
-      recordedState === 'completed' && (!job.transcriptsCheckedAt || !job.artifactsCheckedAt || !workProof)
+      recordedState === 'completed' &&
+      (!job.transcriptsCheckedAt || !job.artifactsCheckedAt || !workProof)
         ? 'failed'
         : recordedState;
     return {
       sourceId,
       reason: job.reason as PurgeReason,
       state,
-      counts:{...counts,workUnits:work?.removed??job.delegatedWorkRemoved,workUnitsRemaining:work?.remaining??null,
-        workControlProofsRemaining:work?.controlsRemaining??null,unprovenWorkUnits:work?.unproven??null},
+      counts: {
+        ...counts,
+        workUnits: work?.removed ?? job.delegatedWorkRemoved,
+        workUnitsRemaining: work?.remaining ?? null,
+        workControlProofsRemaining: work?.controlsRemaining ?? null,
+        unprovenWorkUnits: work?.unproven ?? null,
+      },
       requestedAt: job.requestedAt,
       completedAt: state === 'completed' ? job.completedAt : null,
-      lastErrorCode: state !== recordedState ? !workProof ? 'DELEGATED_WORK_PURGE_UNCONFIRMED' : 'ARTIFACT_PURGE_UNCONFIRMED' : job.lastErrorCode,
+      lastErrorCode:
+        state !== recordedState
+          ? !workProof
+            ? 'DELEGATED_WORK_PURGE_UNCONFIRMED'
+            : 'ARTIFACT_PURGE_UNCONFIRMED'
+          : job.lastErrorCode,
       retryRequests: job.retryRequests,
       nextRetryAt: job.nextRetryAt,
       retryExhausted: job.retryRequests >= 8 && state !== 'completed',
