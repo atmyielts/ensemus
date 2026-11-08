@@ -120,6 +120,14 @@ adapter and synthetic provider output; they are not native-session/MFA/provider 
   still require independent physical proof. Missing cleanup binding must leave nonzero remaining work.
 - Complete fresh-role receipt/revocation/contention/eraser gates, full integration, workflow replay,
   browser, worker image/offline and actual provider tests. No source result is a runtime gate.
+# Follow-up from the parent's 57-migration gate (source only, 2026-11-08)
+
+The parent applied 57 migrations and reported 23 of 25 model-job cases passed. One remaining case exposed a real PL/pgSQL name collision: `guard_model_money_principal` used `c` as both a local call row and an EXISTS table alias. The source repair renames only that SQL alias, preserving the exact money/principal admission.
+
+The other test incorrectly treated unassigning INTERNAL Work as a read revocation; internal Work is intentionally readable by current members. The corrected fixture uses RESTRICTED Work and explicit matching restricted job/route/input/result protection. It asserts the actual named viewer becomes unreadable after unassign, then requires fresh-result inspection and transactional acceptance to refuse, preserving already-settled usage and the unaccepted receipt. It still verifies that an ordinary Work text update does not invalidate historical input hashes. No production ACL or result-acceptance guard was weakened.
+
+These two follow-up source edits have not run format, lint, types, units or database checks in the author checkout. The parent owns the fresh migration/database rerun; its preceding 23-pass result is not acceptance of this repair.
+
 # Approval locking-read repair (source only, 2026-11-08)
 
 The parent's fresh 55-migration run reported 109 cases: 90 passed and 19 failed. Fourteen model-job failures reached `ai.assert_model_call` but the approval lookup returned no row: PostgreSQL applies UPDATE USING to `FOR SHARE`, and the approval policy allowed that locking visibility only for `actor_type=user`.
