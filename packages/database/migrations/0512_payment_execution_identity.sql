@@ -2,6 +2,8 @@
 DO $$ BEGIN
  IF current_user<>'ensemus_migrator' OR EXISTS(SELECT 1 FROM pg_roles WHERE rolname=current_user AND(rolsuper OR rolbypassrls)) THEN
   RAISE EXCEPTION 'PAYMENT_GUARD_OWNER_REQUIRED' USING ERRCODE='42501';END IF;
+ IF to_regprocedure('app.current_auth_restore_generation()') IS NULL THEN
+  RAISE EXCEPTION 'PAYMENT_RESTORE_GUARD_REQUIRED' USING ERRCODE='EN422';END IF;
 END $$;
 --> statement-breakpoint
 CREATE TABLE billing.payment_identity_attestations (
@@ -9,7 +11,7 @@ CREATE TABLE billing.payment_identity_attestations (
  token_sha256 text NOT NULL UNIQUE,billing_organization_id uuid NOT NULL,connection_id uuid NOT NULL,
  connection_version bigint NOT NULL CHECK(connection_version>0),credential_secret_id uuid NOT NULL,
  processor text NOT NULL,adapter_version text NOT NULL,api_origin text NOT NULL,config_sha256 text NOT NULL,authority_sha256 text NOT NULL,
- identity_sha256 text NOT NULL,account_namespace_sha256 text NOT NULL,read_receipt_sha256 text NOT NULL,issued_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+ identity_sha256 text NOT NULL,account_namespace_sha256 text NOT NULL,read_receipt_sha256 text NOT NULL,restore_generation uuid NOT NULL,issued_at timestamptz NOT NULL DEFAULT clock_timestamp(),
  expires_at timestamptz NOT NULL,consumed_binding_id uuid,
  CONSTRAINT payment_identity_pk PRIMARY KEY(organization_id,id),
  CONSTRAINT payment_identity_payment FOREIGN KEY(organization_id,payment_id) REFERENCES billing.payments(organization_id,id),
@@ -27,7 +29,7 @@ CREATE TABLE billing.payment_execution_bindings (
  identity_sha256 text NOT NULL,account_namespace_sha256 text NOT NULL,binding_sha256 text NOT NULL,qualified_at timestamptz NOT NULL DEFAULT clock_timestamp(),
  customer_state text NOT NULL DEFAULT 'new' CHECK(customer_state IN('new','sending','confirmed','unknown')),
  customer_request_key text NOT NULL,customer_token uuid,customer_ref_hash text,
- customer_started_at timestamptz,customer_transport_started_at timestamptz,customer_finished_at timestamptz,
+ customer_started_at timestamptz,customer_transport_started_at timestamptz,customer_transport_restore_generation uuid,customer_finished_at timestamptz,
  CONSTRAINT payment_execution_pk PRIMARY KEY(organization_id,id),
  CONSTRAINT payment_execution_one UNIQUE(organization_id,payment_id),
  CONSTRAINT payment_execution_attempt_key UNIQUE(organization_id,payment_id,id),
@@ -61,7 +63,9 @@ CREATE UNIQUE INDEX billing_accounts_customer_ref ON billing.billing_accounts(pr
  WHERE customer_ref_hash IS NOT NULL;
 ALTER TABLE billing.payment_attempts ADD COLUMN execution_binding_id uuid;
 ALTER TABLE billing.payment_attempts ADD COLUMN transport_started_at timestamptz;
+ALTER TABLE billing.payment_attempts ADD COLUMN transport_restore_generation uuid;
 ALTER TABLE billing.payment_attempts ADD COLUMN lookup_started_at timestamptz;
+ALTER TABLE billing.payment_attempts ADD COLUMN lookup_restore_generation uuid;
 ALTER TABLE billing.payment_attempts ADD CONSTRAINT payment_attempt_execution
  FOREIGN KEY(organization_id,payment_id,execution_binding_id) REFERENCES billing.payment_execution_bindings(organization_id,payment_id,id);
 ALTER TABLE billing.payment_webhook_events ADD COLUMN source_delivery_id uuid,ADD COLUMN source_endpoint_id uuid,
@@ -121,6 +125,7 @@ CREATE FUNCTION billing.payment_connection_snapshot(p_billing_org uuid,p_connect
  LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
 DECLARE prior text:=current_setting('billing.payment_control_org',true);c record;s record;config_hash text;
 BEGIN
+ PERFORM app.current_auth_restore_generation();
  IF session_user NOT IN('ensemus_app','ensemus_secrets') OR p_billing_org IS NULL OR p_connection IS NULL
   OR p_processor IS NULL OR p_adapter IS NULL OR p_processor!~'^[a-z][a-z0-9_]{1,55}$'
   OR length(p_adapter)>64 OR p_adapter!~'^[0-9]+\.[0-9]+\.[0-9]+$'
@@ -149,9 +154,9 @@ REVOKE ALL ON FUNCTION billing.payment_connection_snapshot(uuid,uuid,text,text,t
 
 CREATE FUNCTION billing.payment_execution_preflight(p_payment uuid,p_billing_org uuid,p_connection uuid,p_processor text,p_adapter text,p_origin text)
  RETURNS TABLE("billingOrganizationId" uuid,"connectionId" uuid,"connectionVersion" text,"credentialSecretId" uuid,
- "processor" text,"adapterVersion" text,"apiOrigin" text,"configSha256" text,"authoritySha256" text)
+ "processor" text,"adapterVersion" text,"apiOrigin" text,"configSha256" text,"authoritySha256" text,"restoreGeneration" uuid)
  LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
-DECLARE prior text:=current_setting('billing.payment_org',true);intent record;mode text;actual record;original record;
+DECLARE prior text:=current_setting('billing.payment_org',true);intent record;mode text;actual record;original record;generation uuid:=app.current_auth_restore_generation();
 BEGIN
  IF session_user<>'ensemus_app' OR app.current_actor_type() IS DISTINCT FROM 'service' OR app.current_organization_id() IS NULL THEN
   RAISE EXCEPTION 'PAYMENT_EXECUTION_UNCONFIRMED' USING ERRCODE='EN850';END IF;
@@ -168,7 +173,7 @@ BEGIN
    WHERE a.organization_id=app.current_organization_id() AND a.payment_id=p_payment)) THEN
   RAISE EXCEPTION 'PAYMENT_EXECUTION_UNCONFIRMED' USING ERRCODE='EN850';END IF;
  RETURN QUERY SELECT actual."billingOrganizationId",actual."connectionId",actual."connectionVersion",actual."credentialSecretId",
-  actual."processor",actual."adapterVersion",actual."apiOrigin",actual."configSha256",actual."authoritySha256";
+  actual."processor",actual."adapterVersion",actual."apiOrigin",actual."configSha256",actual."authoritySha256",generation;
  PERFORM set_config('billing.payment_org',coalesce(prior,''),true);
 EXCEPTION WHEN OTHERS THEN PERFORM set_config('billing.payment_org',coalesce(prior,''),true);RAISE;
 END $$;
@@ -176,11 +181,12 @@ REVOKE ALL ON FUNCTION billing.payment_execution_preflight(uuid,uuid,uuid,text,t
 GRANT EXECUTE ON FUNCTION billing.payment_execution_preflight(uuid,uuid,uuid,text,text,text) TO ensemus_app;
 
 CREATE FUNCTION billing.attest_payment_identity(p_org uuid,p_payment uuid,p_billing_org uuid,p_connection uuid,p_processor text,p_adapter text,p_origin text,
- p_authority_sha256 text,p_identity_sha256 text,p_namespace_sha256 text,p_read_receipt_sha256 text)
+ p_authority_sha256 text,p_identity_sha256 text,p_namespace_sha256 text,p_read_receipt_sha256 text,p_restore uuid)
  RETURNS TABLE(token text,"expiresAt" timestamptz) LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
 DECLARE prior text:=current_setting('billing.payment_org',true);intent record;mode text;actual record;original record;
- issued timestamptz;expires timestamptz;opaque text;
+ issued timestamptz;expires timestamptz;opaque text;generation uuid:=app.current_auth_restore_generation();
 BEGIN
+ IF p_restore IS DISTINCT FROM generation THEN RAISE EXCEPTION 'PAYMENT_RESTORE_GENERATION_CHANGED' USING ERRCODE='EN422';END IF;
  IF session_user<>'ensemus_secrets' OR p_org IS NULL OR p_payment IS NULL
   OR p_authority_sha256 IS NULL OR p_identity_sha256 IS NULL OR p_namespace_sha256 IS NULL OR p_read_receipt_sha256 IS NULL
   OR p_authority_sha256!~'^[0-9a-f]{64}$' OR p_identity_sha256!~'^[0-9a-f]{64}$' OR p_namespace_sha256!~'^[0-9a-f]{64}$' OR p_read_receipt_sha256!~'^[0-9a-f]{64}$' THEN
@@ -200,15 +206,15 @@ BEGIN
   RAISE EXCEPTION 'PAYMENT_EXECUTION_UNCONFIRMED' USING ERRCODE='EN850';END IF;
  issued:=clock_timestamp();expires:=issued+interval '60 seconds';opaque:=encode(public.gen_random_bytes(32),'hex');
  INSERT INTO billing.payment_identity_attestations(organization_id,payment_id,token_sha256,billing_organization_id,connection_id,connection_version,
-  credential_secret_id,processor,adapter_version,api_origin,config_sha256,authority_sha256,identity_sha256,account_namespace_sha256,read_receipt_sha256,issued_at,expires_at)
+  credential_secret_id,processor,adapter_version,api_origin,config_sha256,authority_sha256,identity_sha256,account_namespace_sha256,read_receipt_sha256,restore_generation,issued_at,expires_at)
  VALUES(p_org,p_payment,encode(public.digest(opaque,'sha256'),'hex'),actual."billingOrganizationId",actual."connectionId",actual."connectionVersion"::bigint,
-  actual."credentialSecretId",p_processor,p_adapter,p_origin,actual."configSha256",p_authority_sha256,p_identity_sha256,p_namespace_sha256,p_read_receipt_sha256,issued,expires);
+  actual."credentialSecretId",p_processor,p_adapter,p_origin,actual."configSha256",p_authority_sha256,p_identity_sha256,p_namespace_sha256,p_read_receipt_sha256,generation,issued,expires);
  RETURN QUERY SELECT opaque,expires;
  PERFORM set_config('billing.payment_org',coalesce(prior,''),true);
 EXCEPTION WHEN OTHERS THEN PERFORM set_config('billing.payment_org',coalesce(prior,''),true);RAISE;
 END $$;
-REVOKE ALL ON FUNCTION billing.attest_payment_identity(uuid,uuid,uuid,uuid,text,text,text,text,text,text,text) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION billing.attest_payment_identity(uuid,uuid,uuid,uuid,text,text,text,text,text,text,text) TO ensemus_secrets;
+REVOKE ALL ON FUNCTION billing.attest_payment_identity(uuid,uuid,uuid,uuid,text,text,text,text,text,text,text,uuid) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION billing.attest_payment_identity(uuid,uuid,uuid,uuid,text,text,text,text,text,text,text,uuid) TO ensemus_secrets;
 
 CREATE FUNCTION billing.bind_payment_execution(p_payment uuid,p_token text)
  RETURNS TABLE("id" uuid,"authoritySha256" text,"identitySha256" text,"accountNamespaceSha256" text,"bindingSha256" text,"customerState" text,"customerRefHash" text)
@@ -225,6 +231,8 @@ BEGIN
   AND a.token_sha256=encode(public.digest(p_token,'sha256'),'hex') FOR UPDATE NOWAIT;
  IF intent.id IS NULL OR att.id IS NULL OR att.expires_at<=clock_timestamp() OR att.processor IS DISTINCT FROM intent.processor THEN
   RAISE EXCEPTION 'PAYMENT_EXECUTION_UNCONFIRMED' USING ERRCODE='EN850';END IF;
+ IF att.restore_generation IS DISTINCT FROM app.current_auth_restore_generation() THEN
+  RAISE EXCEPTION 'PAYMENT_RESTORE_GENERATION_CHANGED' USING ERRCODE='EN422';END IF;
  SELECT * INTO actual FROM billing.payment_connection_snapshot(att.billing_organization_id,att.connection_id,att.processor,att.adapter_version,att.api_origin);
  IF actual."authoritySha256" IS DISTINCT FROM att.authority_sha256 THEN RAISE EXCEPTION 'PAYMENT_EXECUTION_UNCONFIRMED' USING ERRCODE='EN850';END IF;
  SELECT b.* INTO bound FROM billing.payment_execution_bindings b WHERE b.organization_id=org_id AND b.payment_id=p_payment FOR UPDATE NOWAIT;
@@ -334,6 +342,8 @@ BEGIN
  IF b.id IS NULL OR b.customer_token IS DISTINCT FROM p_token OR p_token IS NULL OR b.customer_state='new'
   OR(p_customer IS NOT NULL AND b.customer_transport_started_at IS NULL) THEN
   RAISE EXCEPTION 'PAYMENT_EXECUTION_UNCONFIRMED' USING ERRCODE='EN850';END IF;
+ IF p_customer IS NOT NULL AND b.customer_state<>'confirmed' AND b.customer_transport_restore_generation IS DISTINCT FROM app.current_auth_restore_generation() THEN
+  RAISE EXCEPTION 'PAYMENT_RESTORE_GENERATION_CHANGED' USING ERRCODE='EN422';END IF;
  -- A known returned answer belongs to the original operation even after its authority was revoked.
  IF b.customer_state='confirmed' THEN
   IF p_customer IS NOT NULL AND encode(public.digest(convert_to('['||to_json(b.processor)::text||','||to_json(p_customer)::text||']','UTF8'),'sha256'),'hex') IS DISTINCT FROM b.customer_ref_hash THEN
@@ -369,10 +379,12 @@ GRANT EXECUTE ON FUNCTION billing.finish_payment_customer(uuid,uuid,uuid,text) T
 --> statement-breakpoint
 
 CREATE FUNCTION billing.admit_payment_transport(p_payment uuid,p_billing_org uuid,p_connection uuid,p_processor text,p_adapter text,p_origin text,p_authority text,
- p_phase text,p_binding uuid,p_identity text,p_binding_sha text,p_attempt uuid,p_customer_token uuid)
+ p_phase text,p_binding uuid,p_identity text,p_binding_sha text,p_attempt uuid,p_customer_token uuid,p_restore uuid)
  RETURNS boolean LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
 DECLARE prior text:=current_setting('billing.payment_org',true);org_id uuid:=app.current_organization_id();actual record;b record;attempt record;
 BEGIN
+ IF p_restore IS DISTINCT FROM app.current_auth_restore_generation() THEN
+  RAISE EXCEPTION 'PAYMENT_RESTORE_GENERATION_CHANGED' USING ERRCODE='EN422';END IF;
  IF session_user<>'ensemus_app' OR app.current_actor_type() IS DISTINCT FROM 'service' OR org_id IS NULL OR p_phase IS NULL
   OR p_phase NOT IN('identity','customer','customer_lookup','charge','lookup') THEN RAISE EXCEPTION 'PAYMENT_EXECUTION_UNCONFIRMED' USING ERRCODE='EN850';END IF;
  PERFORM set_config('billing.payment_org',org_id::text,true);
@@ -382,14 +394,14 @@ BEGIN
   SELECT x.* INTO b FROM billing.payment_execution_bindings x WHERE x.organization_id=org_id AND x.payment_id=p_payment AND x.id=p_binding FOR UPDATE NOWAIT;
   IF b.id IS NULL OR b.authority_sha256 IS DISTINCT FROM p_authority OR b.identity_sha256 IS DISTINCT FROM p_identity OR b.binding_sha256 IS DISTINCT FROM p_binding_sha THEN
    RAISE EXCEPTION 'PAYMENT_EXECUTION_UNCONFIRMED' USING ERRCODE='EN850';END IF;
-  IF p_phase IN('customer','charge') AND NOT EXISTS(SELECT 1 FROM billing.payment_identity_attestations x
+  IF NOT EXISTS(SELECT 1 FROM billing.payment_identity_attestations x
    WHERE x.organization_id=org_id AND x.payment_id=p_payment AND x.consumed_binding_id=b.id AND x.expires_at>clock_timestamp()
-    AND x.authority_sha256=b.authority_sha256 AND x.identity_sha256=b.identity_sha256) THEN
+    AND x.authority_sha256=b.authority_sha256 AND x.identity_sha256=b.identity_sha256 AND x.restore_generation=p_restore) THEN
    RAISE EXCEPTION 'PAYMENT_NATIVE_IDENTITY_REQUIRED' USING ERRCODE='EN850';END IF;
   IF p_phase='customer' THEN
    IF b.customer_state<>'sending' OR b.customer_token IS DISTINCT FROM p_customer_token OR p_customer_token IS NULL
     OR b.customer_transport_started_at IS NOT NULL THEN RAISE EXCEPTION 'PAYMENT_CUSTOMER_ALREADY_DISPATCHED' USING ERRCODE='EN850';END IF;
-   UPDATE billing.payment_execution_bindings SET customer_transport_started_at=clock_timestamp() WHERE organization_id=org_id AND id=b.id;
+   UPDATE billing.payment_execution_bindings SET customer_transport_started_at=clock_timestamp(),customer_transport_restore_generation=p_restore WHERE organization_id=org_id AND id=b.id;
   ELSIF p_phase='customer_lookup' THEN
    IF b.customer_state NOT IN('sending','unknown') OR b.customer_token IS DISTINCT FROM p_customer_token OR p_customer_token IS NULL THEN
     RAISE EXCEPTION 'PAYMENT_EXECUTION_UNCONFIRMED' USING ERRCODE='EN850';END IF;
@@ -401,17 +413,17 @@ BEGIN
     IF attempt.transport_started_at IS NOT NULL OR NOT EXISTS(SELECT 1 FROM billing.payments p
      WHERE p.organization_id=org_id AND p.id=p_payment AND p.status='sending') THEN
      RAISE EXCEPTION 'PAYMENT_ATTEMPT_ALREADY_DISPATCHED' USING ERRCODE='EN850';END IF;
-    UPDATE billing.payment_attempts SET transport_started_at=clock_timestamp() WHERE organization_id=org_id AND id=attempt.id;
+    UPDATE billing.payment_attempts SET transport_started_at=clock_timestamp(),transport_restore_generation=p_restore WHERE organization_id=org_id AND id=attempt.id;
    ELSIF p_phase='lookup' THEN
-    UPDATE billing.payment_attempts SET lookup_started_at=coalesce(lookup_started_at,clock_timestamp()) WHERE organization_id=org_id AND id=attempt.id;
+    UPDATE billing.payment_attempts SET lookup_started_at=coalesce(lookup_started_at,clock_timestamp()),lookup_restore_generation=p_restore WHERE organization_id=org_id AND id=attempt.id;
    END IF;
   END IF;
  END IF;
  PERFORM set_config('billing.payment_org',coalesce(prior,''),true);RETURN true;
 EXCEPTION WHEN OTHERS THEN PERFORM set_config('billing.payment_org',coalesce(prior,''),true);RAISE;
 END $$;
-REVOKE ALL ON FUNCTION billing.admit_payment_transport(uuid,uuid,uuid,text,text,text,text,text,uuid,text,text,uuid,uuid) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION billing.admit_payment_transport(uuid,uuid,uuid,text,text,text,text,text,uuid,text,text,uuid,uuid) TO ensemus_app;
+REVOKE ALL ON FUNCTION billing.admit_payment_transport(uuid,uuid,uuid,text,text,text,text,text,uuid,text,text,uuid,uuid,uuid) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION billing.admit_payment_transport(uuid,uuid,uuid,text,text,text,text,text,uuid,text,text,uuid,uuid,uuid) TO ensemus_app;
 --> statement-breakpoint
 
 CREATE FUNCTION billing.check_payment_execution_attempt() RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
@@ -422,7 +434,13 @@ BEGIN
  IF TG_OP='UPDATE' THEN
   IF NEW.execution_binding_id IS NOT NULL AND NEW.outcome IN('succeeded','declined') AND NEW.transport_started_at IS NULL AND NEW.lookup_started_at IS NULL THEN
    RAISE EXCEPTION 'PAYMENT_TRANSPORT_UNCONFIRMED' USING ERRCODE='EN850';END IF;
+  IF NEW.execution_binding_id IS NOT NULL AND NEW.outcome IN('succeeded','declined','not_sent') AND ROW(NEW.outcome,NEW.outcome_code,NEW.processor_payment_ref) IS DISTINCT FROM ROW(OLD.outcome,OLD.outcome_code,OLD.processor_payment_ref) THEN
+   IF (CASE WHEN NEW.outcome_code IN('FOUND_BY_LOOKUP','REFUSED_BY_LOOKUP','NOT_FOUND_BY_LOOKUP') THEN NEW.lookup_restore_generation ELSE NEW.transport_restore_generation END)
+    IS DISTINCT FROM app.current_auth_restore_generation() THEN
+    RAISE EXCEPTION 'PAYMENT_RESTORE_GENERATION_CHANGED' USING ERRCODE='EN422';END IF;
+  END IF;
   IF NEW.execution_binding_id IS DISTINCT FROM OLD.execution_binding_id OR(OLD.lookup_started_at IS NOT NULL AND NEW.lookup_started_at IS DISTINCT FROM OLD.lookup_started_at)
+    OR(OLD.transport_restore_generation IS NOT NULL AND NEW.transport_restore_generation IS DISTINCT FROM OLD.transport_restore_generation)
     OR(NEW.lookup_started_at IS DISTINCT FROM OLD.lookup_started_at AND current_setting('billing.payment_org',true) IS DISTINCT FROM NEW.organization_id::text) OR(OLD.transport_started_at IS NOT NULL
     AND NEW.transport_started_at IS DISTINCT FROM OLD.transport_started_at)
     OR(NEW.transport_started_at IS DISTINCT FROM OLD.transport_started_at AND current_setting('billing.payment_org',true) IS DISTINCT FROM NEW.organization_id::text) THEN
@@ -430,7 +448,8 @@ BEGIN
   RETURN NEW;
  END IF;
  IF session_user<>'ensemus_app' OR app.current_actor_type() IS DISTINCT FROM 'service'
-  OR NEW.organization_id IS DISTINCT FROM app.current_organization_id() OR NEW.execution_binding_id IS NULL OR NEW.transport_started_at IS NOT NULL OR NEW.lookup_started_at IS NOT NULL THEN
+  OR NEW.organization_id IS DISTINCT FROM app.current_organization_id() OR NEW.execution_binding_id IS NULL OR NEW.transport_started_at IS NOT NULL OR NEW.lookup_started_at IS NOT NULL
+  OR NEW.transport_restore_generation IS NOT NULL OR NEW.lookup_restore_generation IS NOT NULL THEN
   RAISE EXCEPTION 'PAYMENT_NATIVE_IDENTITY_REQUIRED' USING ERRCODE='EN850';END IF;
  PERFORM set_config('billing.payment_org',NEW.organization_id::text,true);
  SELECT x.* INTO b FROM billing.payment_execution_bindings x
@@ -441,7 +460,7 @@ BEGIN
      AND a.customer_ref_hash=b.customer_ref_hash AND c.processor=b.processor AND c.account_namespace_sha256=b.account_namespace_sha256 AND c.customer_ref_hash=b.customer_ref_hash
   ) OR NOT EXISTS(SELECT 1 FROM billing.payment_identity_attestations a WHERE a.organization_id=NEW.organization_id
    AND a.payment_id=NEW.payment_id AND a.consumed_binding_id=b.id AND a.expires_at>clock_timestamp()
-   AND a.authority_sha256=b.authority_sha256 AND a.identity_sha256=b.identity_sha256) THEN
+   AND a.authority_sha256=b.authority_sha256 AND a.identity_sha256=b.identity_sha256 AND a.restore_generation=app.current_auth_restore_generation()) THEN
   RAISE EXCEPTION 'PAYMENT_NATIVE_IDENTITY_REQUIRED' USING ERRCODE='EN850';END IF;
  SELECT * INTO actual FROM billing.payment_connection_snapshot(b.billing_organization_id,b.connection_id,b.processor,b.adapter_version,b.api_origin);
  IF actual."authoritySha256" IS DISTINCT FROM b.authority_sha256 THEN RAISE EXCEPTION 'PAYMENT_EXECUTION_UNCONFIRMED' USING ERRCODE='EN850';END IF;
@@ -470,11 +489,12 @@ CREATE FUNCTION billing.keep_payment_execution() RETURNS trigger LANGUAGE plpgsq
 BEGIN
  IF TG_RELID<>'billing.payment_execution_bindings'::regclass OR TG_OP<>'UPDATE' OR current_user<>'ensemus_migrator'
   OR session_user<>'ensemus_app' OR app.current_actor_type() IS DISTINCT FROM 'service'
-  OR(to_jsonb(NEW)-ARRAY['customer_state','customer_token','customer_ref_hash','customer_started_at','customer_transport_started_at','customer_finished_at'])
-   IS DISTINCT FROM(to_jsonb(OLD)-ARRAY['customer_state','customer_token','customer_ref_hash','customer_started_at','customer_transport_started_at','customer_finished_at'])
+  OR(to_jsonb(NEW)-ARRAY['customer_state','customer_token','customer_ref_hash','customer_started_at','customer_transport_started_at','customer_transport_restore_generation','customer_finished_at'])
+   IS DISTINCT FROM(to_jsonb(OLD)-ARRAY['customer_state','customer_token','customer_ref_hash','customer_started_at','customer_transport_started_at','customer_transport_restore_generation','customer_finished_at'])
   OR(OLD.customer_token IS NOT NULL AND NEW.customer_token IS DISTINCT FROM OLD.customer_token)
   OR(OLD.customer_started_at IS NOT NULL AND NEW.customer_started_at IS DISTINCT FROM OLD.customer_started_at)
   OR(OLD.customer_transport_started_at IS NOT NULL AND NEW.customer_transport_started_at IS DISTINCT FROM OLD.customer_transport_started_at)
+  OR(OLD.customer_transport_restore_generation IS NOT NULL AND NEW.customer_transport_restore_generation IS DISTINCT FROM OLD.customer_transport_restore_generation)
   OR(OLD.customer_state='confirmed' AND NEW IS DISTINCT FROM OLD)
   OR NOT((OLD.customer_state='new' AND NEW.customer_state IN('sending','confirmed'))
     OR(OLD.customer_state='sending' AND NEW.customer_state IN('sending','unknown','confirmed'))
@@ -545,7 +565,8 @@ BEGIN
  SELECT x.* INTO b FROM billing.payment_execution_bindings x WHERE x.organization_id=p_origin_org AND x.payment_id=p_payment AND x.id=p_binding FOR SHARE NOWAIT;
  IF b.id IS NULL OR b.billing_organization_id IS DISTINCT FROM org_id OR NOT EXISTS(
   SELECT 1 FROM billing.payment_identity_attestations a WHERE a.organization_id=p_origin_org AND a.payment_id=p_payment
-   AND a.consumed_binding_id=b.id AND a.expires_at>clock_timestamp() AND a.authority_sha256=b.authority_sha256 AND a.identity_sha256=b.identity_sha256) THEN
+   AND a.consumed_binding_id=b.id AND a.expires_at>clock_timestamp() AND a.authority_sha256=b.authority_sha256 AND a.identity_sha256=b.identity_sha256
+   AND a.restore_generation=app.current_auth_restore_generation()) THEN
   RAISE EXCEPTION 'PAYMENT_NATIVE_IDENTITY_REQUIRED' USING ERRCODE='EN850';END IF;
  SELECT * INTO actual FROM billing.payment_connection_snapshot(org_id,b.connection_id,b.processor,b.adapter_version,b.api_origin);
  IF actual."authoritySha256" IS DISTINCT FROM b.authority_sha256 THEN RAISE EXCEPTION 'PAYMENT_EXECUTION_UNCONFIRMED' USING ERRCODE='EN850';END IF;
@@ -737,7 +758,8 @@ CREATE FUNCTION billing.guard_payment_transport_stamps() RETURNS trigger LANGUAG
 BEGIN
  IF TG_RELID<>'billing.payment_attempts'::regclass OR TG_OP<>'UPDATE' THEN RAISE EXCEPTION 'PAYMENT_TRANSPORT_UNCONFIRMED' USING ERRCODE='EN850';END IF;
  IF NEW.execution_binding_id IS DISTINCT FROM OLD.execution_binding_id OR(
-  (NEW.transport_started_at IS DISTINCT FROM OLD.transport_started_at OR NEW.lookup_started_at IS DISTINCT FROM OLD.lookup_started_at)
+  (NEW.transport_started_at IS DISTINCT FROM OLD.transport_started_at OR NEW.lookup_started_at IS DISTINCT FROM OLD.lookup_started_at
+   OR NEW.transport_restore_generation IS DISTINCT FROM OLD.transport_restore_generation OR NEW.lookup_restore_generation IS DISTINCT FROM OLD.lookup_restore_generation)
    AND current_user<>'ensemus_migrator') THEN
   RAISE EXCEPTION 'PAYMENT_TRANSPORT_UNCONFIRMED' USING ERRCODE='EN850';END IF;
  RETURN NEW;
@@ -801,7 +823,7 @@ CREATE TRIGGER payment_event_verified_source BEFORE INSERT ON billing.payment_ev
 -- existing secrets login are trusted. xmin is a read-version fence only; inbox birth comes from INSERT.
 CREATE TABLE billing.payment_webhook_attestations(
  organization_id uuid NOT NULL,id uuid NOT NULL DEFAULT gen_random_uuid(),token_sha256 text NOT NULL UNIQUE,
- delivery_id uuid NOT NULL,row_version text NOT NULL,endpoint_id uuid NOT NULL,connection_id uuid NOT NULL,signing_secret_id uuid NOT NULL,
+ delivery_id uuid NOT NULL,row_version text NOT NULL,restore_generation uuid NOT NULL,endpoint_id uuid NOT NULL,connection_id uuid NOT NULL,signing_secret_id uuid NOT NULL,
  processor text NOT NULL,adapter_version text NOT NULL,provider_event_id text NOT NULL,body_sha256 text NOT NULL,request_digest text NOT NULL,
  headers_sha256 text NOT NULL,fact_sha256 text NOT NULL,account_namespace_sha256 text,execution_identity_sha256 text,
  issued_at timestamptz NOT NULL DEFAULT clock_timestamp(),expires_at timestamptz NOT NULL,
@@ -864,10 +886,12 @@ END $$;
 REVOKE ALL ON FUNCTION billing.check_payment_webhook_envelope(uuid,text,uuid,uuid,uuid,text,text,text) FROM PUBLIC;
 
 CREATE FUNCTION billing.attest_payment_webhook(p_delivery uuid,p_version text,p_endpoint uuid,p_connection uuid,p_signing uuid,
- p_processor text,p_adapter text,p_provider_event text,p_body_sha text,p_request_digest text,p_headers_sha text,p_fact_sha text,p_namespace text,p_identity text)
+ p_processor text,p_adapter text,p_provider_event text,p_body_sha text,p_request_digest text,p_headers_sha text,p_fact_sha text,p_namespace text,p_identity text,p_restore uuid)
  RETURNS TABLE(token text,"expiresAt" timestamptz) LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
 DECLARE prior text:=current_setting('billing.payment_org',true);org_id uuid:=app.current_organization_id();issued timestamptz;expires timestamptz;opaque text;
 BEGIN
+ IF p_restore IS DISTINCT FROM app.current_auth_restore_generation() THEN
+  RAISE EXCEPTION 'PAYMENT_RESTORE_GENERATION_CHANGED' USING ERRCODE='EN422';END IF;
  IF session_user<>'ensemus_secrets' OR org_id IS NULL OR p_version IS NULL OR p_version!~'^[0-9]{1,20}$'
   OR p_processor IS NULL OR p_processor!~'^[a-z][a-z0-9_]{1,55}$' OR p_adapter IS NULL OR length(p_adapter)>64 OR p_adapter!~'^[0-9]+\.[0-9]+\.[0-9]+$'
   OR p_provider_event IS NULL OR length(p_provider_event) NOT BETWEEN 1 AND 256 OR p_provider_event ~ '[\r\n]'
@@ -878,16 +902,16 @@ BEGIN
  PERFORM billing.check_payment_webhook_envelope(p_delivery,p_version,p_endpoint,p_connection,p_signing,p_processor,p_body_sha,p_request_digest);
  PERFORM set_config('billing.payment_org',org_id::text,true);
  issued:=clock_timestamp();expires:=issued+interval '60 seconds';opaque:=encode(public.gen_random_bytes(32),'hex');
- INSERT INTO billing.payment_webhook_attestations(organization_id,token_sha256,delivery_id,row_version,endpoint_id,connection_id,signing_secret_id,
+ INSERT INTO billing.payment_webhook_attestations(organization_id,token_sha256,delivery_id,row_version,restore_generation,endpoint_id,connection_id,signing_secret_id,
   processor,adapter_version,provider_event_id,body_sha256,request_digest,headers_sha256,fact_sha256,account_namespace_sha256,execution_identity_sha256,issued_at,expires_at)
- VALUES(org_id,encode(public.digest(opaque,'sha256'),'hex'),p_delivery,p_version,p_endpoint,p_connection,p_signing,p_processor,p_adapter,p_provider_event,
+ VALUES(org_id,encode(public.digest(opaque,'sha256'),'hex'),p_delivery,p_version,p_restore,p_endpoint,p_connection,p_signing,p_processor,p_adapter,p_provider_event,
   p_body_sha,p_request_digest,p_headers_sha,p_fact_sha,p_namespace,p_identity,issued,expires);
  RETURN QUERY SELECT opaque,expires;
  PERFORM set_config('billing.payment_org',coalesce(prior,''),true);
 EXCEPTION WHEN OTHERS THEN PERFORM set_config('billing.payment_org',coalesce(prior,''),true);RAISE;
 END $$;
-REVOKE ALL ON FUNCTION billing.attest_payment_webhook(uuid,text,uuid,uuid,uuid,text,text,text,text,text,text,text,text,text) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION billing.attest_payment_webhook(uuid,text,uuid,uuid,uuid,text,text,text,text,text,text,text,text,text) TO ensemus_secrets;
+REVOKE ALL ON FUNCTION billing.attest_payment_webhook(uuid,text,uuid,uuid,uuid,text,text,text,text,text,text,text,text,text,uuid) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION billing.attest_payment_webhook(uuid,text,uuid,uuid,uuid,text,text,text,text,text,text,text,text,text,uuid) TO ensemus_secrets;
 
 --> statement-breakpoint
 CREATE FUNCTION billing.guard_webhook_attestation_change() RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog AS $$
@@ -922,10 +946,12 @@ BEGIN
  IF session_user<>'ensemus_app' OR app.current_actor_type() IS DISTINCT FROM 'service' OR NEW.organization_id IS DISTINCT FROM app.current_organization_id()
   OR opaque!~'^[0-9a-f]{64}$' THEN RAISE EXCEPTION 'PAYMENT_WEBHOOK_VERIFICATION_REQUIRED' USING ERRCODE='EN850';END IF;
  PERFORM set_config('billing.payment_org',NEW.organization_id::text,true);
- SELECT x.id,x.endpoint_id,x.provider_event_id,x.expires_at,x.inbox_transaction,x.consumed_event_id INTO a FROM billing.payment_webhook_attestations x
+ SELECT x.id,x.endpoint_id,x.provider_event_id,x.expires_at,x.inbox_transaction,x.consumed_event_id,x.restore_generation INTO a FROM billing.payment_webhook_attestations x
   WHERE x.organization_id=NEW.organization_id AND x.token_sha256=encode(public.digest(opaque,'sha256'),'hex') FOR UPDATE NOWAIT;
  IF a.id IS NULL OR a.expires_at<=clock_timestamp() OR a.inbox_transaction IS NOT NULL OR a.consumed_event_id IS NOT NULL THEN
   RAISE EXCEPTION 'PAYMENT_WEBHOOK_VERIFICATION_REQUIRED' USING ERRCODE='EN850';END IF;
+ IF a.restore_generation IS DISTINCT FROM app.current_auth_restore_generation() THEN
+  RAISE EXCEPTION 'PAYMENT_RESTORE_GENERATION_CHANGED' USING ERRCODE='EN422';END IF;
  -- Same compact JSON array and UUID slices as the existing M3 webhookInboxEventId, unchanged.
  h:=encode(public.digest(convert_to('['||to_json(a.endpoint_id::text)::text||','||to_json(a.provider_event_id)::text||']','UTF8'),'sha256'),'hex');
  expected:=(substring(h,1,8)||'-'||substring(h,9,4)||'-5'||substring(h,14,3)||'-a'||substring(h,18,3)||'-'||substring(h,21,12))::uuid;
@@ -967,6 +993,8 @@ BEGIN
   OR a.endpoint_id IS DISTINCT FROM p_endpoint OR a.connection_id IS DISTINCT FROM p_connection
   OR a.fact_sha256 IS DISTINCT FROM encode(public.digest(convert_to(p_canonical,'UTF8'),'sha256'),'hex') THEN
   RAISE EXCEPTION 'PAYMENT_WEBHOOK_VERIFICATION_REQUIRED' USING ERRCODE='EN850';END IF;
+ IF a.restore_generation IS DISTINCT FROM app.current_auth_restore_generation() THEN
+  RAISE EXCEPTION 'PAYMENT_RESTORE_GENERATION_CHANGED' USING ERRCODE='EN422';END IF;
  PERFORM billing.check_payment_webhook_envelope(a.delivery_id,a.row_version,a.endpoint_id,a.connection_id,a.signing_secret_id,a.processor,a.body_sha256,a.request_digest);
  data:=p_canonical::jsonb;
  IF jsonb_typeof(data) IS DISTINCT FROM 'object' OR jsonb_typeof(data->'event') IS DISTINCT FROM 'object' THEN

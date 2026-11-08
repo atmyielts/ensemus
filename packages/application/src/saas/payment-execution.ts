@@ -9,6 +9,7 @@ import { idSchema } from '../ids';
 
 const sha = z.string().regex(/^[0-9a-f]{64}$/);
 export const paymentAuthoritySchema = z.strictObject({
+  restoreGeneration: idSchema,
   billingOrganizationId: idSchema,
   connectionId: idSchema,
   connectionVersion: z
@@ -146,7 +147,7 @@ export async function assertPaymentTransport(
       await tx.execute(sql`select billing.admit_payment_transport(${identifier(binding.paymentId)}::uuid,
       ${a.billingOrganizationId}::uuid,${a.connectionId}::uuid,${a.processor},${a.adapterVersion},${a.apiOrigin},${a.authoritySha256},
       ${binding.phase},${execution?.id ?? null}::uuid,${execution?.identitySha256 ?? null},${execution?.bindingSha256 ?? null},
-      ${binding.attemptId ?? null}::uuid,${binding.customerToken ?? null}::uuid) as admitted`);
+      ${binding.attemptId ?? null}::uuid,${binding.customerToken ?? null}::uuid,${a.restoreGeneration}::uuid) as admitted`);
     if (result.rows.length !== 1 || result.rows[0]?.admitted !== true)
       throw new AppError('PREREQUISITES_INCOMPLETE');
   });

@@ -721,6 +721,7 @@ export const paymentIdentityAttestations = billingSchema.table(
     identitySha256: text().notNull(),
     accountNamespaceSha256: text().notNull(),
     readReceiptSha256: text().notNull(),
+    restoreGeneration: uuid().notNull(),
     issuedAt: timestamp({ withTimezone: true })
       .notNull()
       .default(sql`clock_timestamp()`),
@@ -786,6 +787,7 @@ export const paymentExecutionBindings = billingSchema.table(
     customerRefHash: text(),
     customerStartedAt: when(),
     customerTransportStartedAt: when(),
+    customerTransportRestoreGeneration: uuid(),
     customerFinishedAt: when(),
   },
   (t) => [
@@ -890,7 +892,9 @@ export const paymentAttempts = billingSchema.table(
     runId: text().notNull(),
     executionBindingId: uuid(),
     transportStartedAt: when(),
+    transportRestoreGeneration: uuid(),
     lookupStartedAt: when(),
+    lookupRestoreGeneration: uuid(),
     recordedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
     outcome: text(),
     outcomeCode: text(),
@@ -1046,6 +1050,7 @@ export const paymentWebhookAttestations = billingSchema.table(
     tokenSha256: text().notNull().unique('payment_webhook_attestations_token_sha256_key'),
     deliveryId: uuid().notNull(),
     rowVersion: text().notNull(),
+    restoreGeneration: uuid().notNull(),
     endpointId: uuid().notNull(),
     connectionId: uuid().notNull(),
     signingSecretId: uuid().notNull(),

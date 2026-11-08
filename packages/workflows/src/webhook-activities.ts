@@ -36,6 +36,7 @@ export type VerifiedPaymentWebhook = Readonly<{
   organizationId: string;
   deliveryId: string;
   rowVersion: string;
+  restoreGeneration: string;
   endpointId: string;
   connectionId: string;
   signingSecretId: string;
@@ -236,6 +237,13 @@ async function checkSignature(
 export function createWebhookVerifier(deps: ConnectorActivityDeps): WebhookVerifier {
   return {
     async verify(organizationId, delivery, nowMs): Promise<DeliveryVerdict> {
+      // Freeze the actual loaded envelope before a secret lease/other await. A retained caller
+      // reference cannot replace its generation after native verification has already begun.
+      delivery = Object.freeze({
+        ...delivery,
+        body: Buffer.from(delivery.body),
+        headers: Object.freeze({ ...delivery.headers }),
+      });
       const verdict = await checkSignature(deps, organizationId, delivery, nowMs);
       if (!verdict.ok) return { ok: false, code: verdict.code };
 
@@ -284,6 +292,8 @@ export function createWebhookVerifier(deps: ConnectorActivityDeps): WebhookVerif
           if (
             !deps.attestPaymentWebhook ||
             !delivery.rowVersion ||
+            !delivery.restoreGeneration ||
+            !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(delivery.restoreGeneration) ||
             !delivery.bodySha256 ||
             !delivery.requestDigest
           )
@@ -312,6 +322,7 @@ export function createWebhookVerifier(deps: ConnectorActivityDeps): WebhookVerif
             organizationId,
             deliveryId: delivery.id,
             rowVersion: delivery.rowVersion,
+            restoreGeneration: delivery.restoreGeneration,
             endpointId: delivery.endpointId,
             connectionId: delivery.connectionId,
             signingSecretId: verdict.signingSecretId,

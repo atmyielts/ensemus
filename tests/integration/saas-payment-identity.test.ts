@@ -101,7 +101,7 @@ describe('original payment identity and customer namespace under real roles', ()
       await agent.query('set local role ensemus_app');
       await expect(
         agent.query(
-          'select * from billing.attest_payment_identity($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)',
+          'select * from billing.attest_payment_identity($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)',
           [
             f.who.owner.organizationId,
             f.payment.paymentId,
@@ -114,6 +114,7 @@ describe('original payment identity and customer namespace under real roles', ()
             q.proof.sha256,
             q.proof.accountNamespaceSha256,
             q.proof.readReceiptSha256,
+            q.proof.restoreGeneration,
           ],
         ),
       ).rejects.toMatchObject({ code: '42501' });
@@ -224,6 +225,14 @@ describe('original payment identity and customer namespace under real roles', ()
         q.authority.authoritySha256,
       );
       expect(result.outcome).toBe('succeeded');
+      const [transport] = await withTenantTx(app.db, f.who.service, tx => tx.select({
+        transportGeneration: paymentAttempts.transportRestoreGeneration,
+        lookupGeneration: paymentAttempts.lookupRestoreGeneration,
+      }).from(paymentAttempts).where(eq(paymentAttempts.id, begun.attemptId)));
+      expect(transport).toEqual({ transportGeneration: q.proof.restoreGeneration, lookupGeneration: null });
+      await expect(withTenantTx(app.db, f.who.service, tx => tx.update(paymentAttempts).set({
+        transportRestoreGeneration: randomUUID(), lookupRestoreGeneration: randomUUID(),
+      }).where(eq(paymentAttempts.id, begun.attemptId)))).rejects.toSatisfy((error: unknown) => pgCode(error) === '42501');
       expect(
         await finishPaymentAttempt(
           app.db,

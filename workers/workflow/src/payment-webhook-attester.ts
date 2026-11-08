@@ -28,6 +28,7 @@ export function createPaymentWebhookAttester(
         organizationId,
         deliveryId,
         rowVersion: proof.rowVersion,
+        restoreGeneration: idSchema.parse(proof.restoreGeneration),
         endpointId,
         connectionId,
         signingSecretId: signingId,

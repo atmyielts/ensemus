@@ -56,6 +56,8 @@ export type StoredDelivery = {
   previousSigningSecretId: string | null;
   /** Actual PostgreSQL tuple version for an optimistic read fence, never an INSERT-birth proof. */
   rowVersion?: string;
+  /** Actual ready generation read with this envelope before native verification. */
+  restoreGeneration?: string;
   requestDigest?: string;
   bodySha256?: string;
 };

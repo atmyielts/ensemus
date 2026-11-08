@@ -8,6 +8,7 @@ const receipts = new WeakSet<object>();
 export type PaymentTransportReceipt = Readonly<{
   origin: string;
   authoritySha256: string;
+  restoreGeneration: string;
   phase: PaymentGatewayBinding['phase'];
   responseSha256: string;
   status: number;
@@ -57,26 +58,40 @@ export function createPaymentHttpGateway(deps: {
         (!(input.body instanceof Uint8Array) || input.body.byteLength > 1048576))
     )
       throw new Error('PAYMENT_GATEWAY_REQUEST_INVALID');
-    const authority = binding.authority;
+    // Capture before the first await. A retained mutable authority/request must not stamp a native
+    // response with a new restore generation or turn an admitted GET into a later POST.
+    const authority = Object.freeze({ ...binding.authority });
+    const admitted = Object.freeze({
+      ...binding,
+      authority,
+      ...(binding.executionBinding ? { executionBinding: Object.freeze({ ...binding.executionBinding }) } : {}),
+    });
+    const request = {
+      ...input,
+      headers: Object.freeze({ ...input.headers }),
+      ...(input.body === undefined ? {} : { body: Buffer.from(input.body) }),
+    };
     if (
       signal.aborted ||
       authority.apiOrigin !== deps.apiOrigin ||
       authority.processor !== deps.processor ||
       authority.adapterVersion !== deps.adapterVersion ||
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(authority.restoreGeneration) ||
       !/^[0-9a-f]{64}$/.test(authority.authoritySha256)
     )
       throw new Error('PAYMENT_GATEWAY_AUTHORITY_CHANGED');
-    const readOnly = ['identity', 'lookup', 'customer_lookup'].includes(binding.phase);
-    if (input.method !== (readOnly ? 'GET' : 'POST') || (readOnly && input.body !== undefined))
+    const readOnly = ['identity', 'lookup', 'customer_lookup'].includes(admitted.phase);
+    if (request.method !== (readOnly ? 'GET' : 'POST') || (readOnly && request.body !== undefined))
       throw new Error('PAYMENT_GATEWAY_OPERATION_REFUSED');
-    if (binding.phase !== 'identity') {
-      const proof = binding.identityProof;
+    if (admitted.phase !== 'identity') {
+      const proof = admitted.identityProof;
       if (
         !isVerifiedPaymentExecutionIdentity(proof) ||
-        !binding.executionBinding ||
+        !admitted.executionBinding ||
         proof.authoritySha256 !== authority.authoritySha256 ||
-        proof.sha256 !== binding.executionBinding.identitySha256 ||
-        proof.accountNamespaceSha256 !== binding.executionBinding.accountNamespaceSha256 ||
+        proof.restoreGeneration !== authority.restoreGeneration ||
+        proof.sha256 !== admitted.executionBinding.identitySha256 ||
+        proof.accountNamespaceSha256 !== admitted.executionBinding.accountNamespaceSha256 ||
         proof.apiOrigin !== deps.apiOrigin ||
         !proof.identity.apiOrigins.includes(deps.apiOrigin) ||
         Date.now() - proof.verifiedAtEpochMs < 0 ||
@@ -84,17 +99,17 @@ export function createPaymentHttpGateway(deps: {
       )
         throw new Error('PAYMENT_NATIVE_IDENTITY_REQUIRED');
     }
-    await deps.assertAuthority(binding);
+    await deps.assertAuthority(admitted);
     const response = await exchangeHttpOverRelay(
       deps.network,
       origin.hostname,
       {
-        method: input.method,
-        path: input.path,
-        headers: input.headers,
-        ...(input.body === undefined ? {} : { body: Buffer.from(input.body) }),
-        timeoutMs: input.timeoutMs,
-        maxResponseBytes: Math.min(input.maxResponseBytes ?? 262144, 262144),
+        method: request.method,
+        path: request.path,
+        headers: request.headers,
+        ...(request.body === undefined ? {} : { body: request.body }),
+        timeoutMs: request.timeoutMs,
+        maxResponseBytes: Math.min(request.maxResponseBytes ?? 262144, 262144),
         signal,
       },
       deps.testCa,
@@ -102,7 +117,8 @@ export function createPaymentHttpGateway(deps: {
     const receipt = Object.freeze({
       origin: deps.apiOrigin,
       authoritySha256: authority.authoritySha256,
-      phase: binding.phase,
+      restoreGeneration: authority.restoreGeneration,
+      phase: admitted.phase,
       responseSha256: createHash('sha256').update(response.body).digest('hex'),
       status: response.status,
     });

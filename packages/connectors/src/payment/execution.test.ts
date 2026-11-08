@@ -9,7 +9,7 @@ import type {
   ChargeRequest,
 } from '@ensemus/saas/payment';
 import { fakeProvider } from '../../../../tests/helpers/fake-provider';
-import { createPaymentHttpGateway } from './gateway';
+import { createPaymentHttpGateway, isPaymentTransportReceipt } from './gateway';
 import {
   identifyPaymentExecution,
   runBoundCharge,
@@ -20,6 +20,7 @@ import {
 const sha = (value: string) => createHash('sha256').update(value).digest('hex');
 const origin = 'https://generated.mcp.invalid';
 const authority: PaymentConnectionAuthority = {
+  restoreGeneration: randomUUID(),
   billingOrganizationId: randomUUID(),
   connectionId: randomUUID(),
   connectionVersion: '1',
@@ -155,6 +156,55 @@ async function fixture() {
 }
 afterEach(() => vi.restoreAllMocks());
 describe('native payment execution identity and single gateway exchange', () => {
+  it('keeps the observation generation and admitted GET immutable across the admission await', async () => {
+    const f = await fixture();
+    try {
+      const mutableAuthority = { ...authority };
+      const request = input('GET', '/identity');
+      const original = mutableAuthority.restoreGeneration;
+      f.admission.mockImplementationOnce(async admitted => {
+        expect(admitted.authority.restoreGeneration).toBe(original);
+        mutableAuthority.restoreGeneration = randomUUID();
+        request.method = 'POST';
+      });
+      const response = await f.call({ ...base, authority: mutableAuthority, phase: 'identity' }).request(request);
+      expect(isPaymentTransportReceipt(response.transportReceipt)).toBe(true);
+      if (!isPaymentTransportReceipt(response.transportReceipt)) throw new Error('TEST_EXPECTED_NATIVE_RECEIPT');
+      expect(response.transportReceipt.restoreGeneration).toBe(original);
+      expect(f.server.requests.at(-1)?.method).toBe('GET');
+      expect(f.proof.restoreGeneration).toBe(authority.restoreGeneration);
+    } finally { await f.server.close(); }
+  });
+  it('cannot refresh-stamp a cached genuine identity proof with another restore generation', async () => {
+    const f = await fixture();
+    try {
+      await expect(f.call({
+        ...base, authority: { ...authority, restoreGeneration: randomUUID() },
+        phase: 'charge', identityProof: f.proof, executionBinding: f.binding, attemptId: randomUUID(),
+      }).request(input('POST', '/charge'))).rejects.toThrow('PAYMENT_NATIVE_IDENTITY_REQUIRED');
+      expect(f.admission).toHaveBeenCalledTimes(1);
+      expect(f.server.requests).toHaveLength(1);
+    } finally { await f.server.close(); }
+  });
+  it('refuses identity assembled from genuine reads in different ready generations', async () => {
+    const f = await fixture();
+    try {
+      const original = f.call({ ...base, phase: 'identity' });
+      const restored = f.call({ ...base, authority: { ...authority, restoreGeneration: randomUUID() }, phase: 'identity' });
+      let reads = 0;
+      const context: ProcessorCallContext = {
+        ...original,
+        request: value => (++reads === 1 ? original : restored).request(value),
+      };
+      const twoReads: PaymentProcessor = { ...processor, identifyExecution: context => context.withCredential(async () => {
+        await context.request(input('GET', '/identity'));
+        await context.request(input('GET', '/identity'));
+        return identity;
+      }) };
+      expect(await identifyPaymentExecution(twoReads, context, authority.authoritySha256)).toBeNull();
+      expect(f.server.requests).toHaveLength(3);
+    } finally { await f.server.close(); }
+  });
   it('requires an authenticated local TLS identity response, then accepts exactly one real customer/charge/lookup exchange', async () => {
     const f = await fixture();
     try {

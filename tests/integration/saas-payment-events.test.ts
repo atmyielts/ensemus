@@ -121,7 +121,7 @@ describe('native verified payment events keep source, merchant and financial eff
       agent = new pg.Client({ connectionString: urls.agent() });
     try {
       const denied = sql`select * from billing.attest_payment_webhook(null::uuid,null::text,null::uuid,null::uuid,null::uuid,
-        null::text,null::text,null::text,null::text,null::text,null::text,null::text,null::text,null::text)`;
+        null::text,null::text,null::text,null::text,null::text,null::text,null::text,null::text,null::text,null::uuid)`;
       // Permission denial is the assertion: no positive receipt or token is fabricated by this call.
       await expect(
         withTenantTx(database.db, who.f.operatorContext, (tx) => tx.execute(denied)),
@@ -135,7 +135,7 @@ describe('native verified payment events keep source, merchant and financial eff
       );
       await expect(
         agent.query(`select * from billing.attest_payment_webhook(null::uuid,null::text,null::uuid,null::uuid,null::uuid,
-        null::text,null::text,null::text,null::text,null::text,null::text,null::text,null::text,null::text)`),
+        null::text,null::text,null::text,null::text,null::text,null::text,null::text,null::text,null::text,null::uuid)`),
       ).rejects.toMatchObject({ code: '42501' });
       await agent.query('rollback');
       expect(await financialRows(who)).toEqual([]);

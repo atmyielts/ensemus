@@ -20,6 +20,7 @@ export type VerifiedPaymentExecutionIdentity = Readonly<{
   accountNamespaceSha256: string;
   readReceiptSha256: string;
   authoritySha256: string;
+  restoreGeneration: string;
   verifiedAtEpochMs: number;
   apiOrigin: string;
 }>;
@@ -133,6 +134,7 @@ export async function identifyPaymentExecution(
   let inFlight = 0;
   let observedAt = 0;
   const observedOrigins = new Set<string>();
+  const observedGenerations = new Set<string>();
   const reads: string[] = [];
   const controller = new AbortController();
   const signal = AbortSignal.any([
@@ -185,12 +187,14 @@ export async function identifyPaymentExecution(
           !isPaymentTransportReceipt(transport) ||
           transport.phase !== 'identity' ||
           transport.authoritySha256 !== authoritySha256 ||
+          !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(transport.restoreGeneration) ||
           transport.status !== response.status ||
           transport.responseSha256 !== createHash('sha256').update(response.body).digest('hex')
         )
           throw new Error('PAYMENT_IDENTITY_UNAVAILABLE');
         observedAt = Date.now();
         observedOrigins.add(transport.origin);
+        observedGenerations.add(transport.restoreGeneration);
         reads.push(
           createHash('sha256')
             .update(
@@ -214,6 +218,7 @@ export async function identifyPaymentExecution(
     if (
       !parsed ||
       observedOrigins.size !== 1 ||
+      observedGenerations.size !== 1 ||
       [...observedOrigins].some((origin) => !parsed.identity.apiOrigins.includes(origin))
     )
       return null;
@@ -226,6 +231,7 @@ export async function identifyPaymentExecution(
       accountNamespaceSha256: parsed.accountNamespaceSha256,
       readReceiptSha256: createHash('sha256').update(canonicalJson(reads)).digest('hex'),
       authoritySha256,
+      restoreGeneration: [...observedGenerations][0]!,
       verifiedAtEpochMs: observedAt,
       apiOrigin: [...observedOrigins][0]!,
     });

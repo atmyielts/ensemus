@@ -58,6 +58,7 @@ vi.mock('@ensemus/connectors/payment', async (original) => ({
 const input = { organizationId: randomUUID(), paymentId: randomUUID(), runId: randomUUID() };
 const paymentInput = { organizationId: input.organizationId, paymentId: input.paymentId };
 const authority: PaymentConnectionAuthority = {
+  restoreGeneration: randomUUID(),
   billingOrganizationId: randomUUID(),
   connectionId: randomUUID(),
   connectionVersion: '1',
@@ -80,6 +81,7 @@ const binding = {
 // Explicit Activity-control test double only. Real opaque identity and actual local TLS are tested in
 // connectors/payment/execution.test.ts; this suite does not qualify broker, SQL, native parsing or provider I/O.
 const proof = {
+  restoreGeneration: authority.restoreGeneration,
   sha256: binding.identitySha256,
   accountNamespaceSha256: binding.accountNamespaceSha256,
 } as unknown as VerifiedPaymentExecutionIdentity;

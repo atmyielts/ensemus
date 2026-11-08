@@ -139,6 +139,8 @@ export type PaymentExecutionIdentity = {
 };
 
 export type PaymentConnectionAuthority = Readonly<{
+  /** Actual ready generation captured by preflight before native I/O; excluded from merchant identity. */
+  restoreGeneration: string;
   billingOrganizationId: string;
   connectionId: string;
   connectionVersion: string;

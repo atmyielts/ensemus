@@ -20,6 +20,7 @@ export function createPaymentIdentityAttester(
     if (
       !isVerifiedPaymentExecutionIdentity(proof) ||
       proof.authoritySha256 !== authority.authoritySha256 ||
+      proof.restoreGeneration !== authority.restoreGeneration ||
       proof.apiOrigin !== authority.apiOrigin ||
       proof.identity.processor !== authority.processor ||
       proof.identity.adapterVersion !== authority.adapterVersion ||
@@ -41,6 +42,7 @@ export function createPaymentIdentityAttester(
       identitySha256: proof.sha256,
       accountNamespaceSha256: proof.accountNamespaceSha256,
       readReceiptSha256: proof.readReceiptSha256,
+      restoreGeneration: idSchema.parse(proof.restoreGeneration),
     });
   };
 }

@@ -357,6 +357,7 @@ export async function loadStoredDelivery(
         endpoint: webhookEndpoints,
         connectorType: connections.connectorType,
         rowVersion: sql<string>`webhook_deliveries.xmin::text`,
+        restoreGeneration: sql<string>`app.current_auth_restore_generation()`,
       })
       .from(webhookDeliveries)
       .innerJoin(
@@ -412,6 +413,7 @@ export async function loadStoredDelivery(
       signingSecretId: endpoint.signingSecretId,
       previousSigningSecretId: previousValid ? endpoint.previousSigningSecretId : null,
       rowVersion: row.rowVersion,
+      restoreGeneration: row.restoreGeneration,
       requestDigest: delivery.requestDigest,
       bodySha256: delivery.bodySha256,
       receivedAtMs: delivery.receivedAt.getTime(),
