@@ -78,6 +78,7 @@ export async function assertCompletedPurgeAfterDelegatedProofMigration(
   assert.equal(demoted.delegatedWorkRemaining, null); assert.equal(demoted.delegatedWorkControlsRemaining, null);
   const status = await getPurgeStatus(app, tenant.owner, sourceId);
   assert.equal(status.state, 'failed'); assert.equal(status.lastErrorCode, 'WORK_CONTROL_PROOF_REQUIRED');
+  assert.deepEqual(status.priorCompletedAt, original.completedAt);
   for (let replay=0;replay<2;replay+=1) await assert.rejects(withTenantTx(app, service, (tx) => tx.execute(
     sql`update knowledge.purge_jobs set state='completed',completed_at=now() where organization_id=${tenant.organizationId}::uuid and id=${jobId}::uuid`,
   )), (error: unknown) => pgCode(error)==='EN119');

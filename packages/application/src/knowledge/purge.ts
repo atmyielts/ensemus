@@ -776,6 +776,7 @@ export type PurgeStatus = {
   counts: Omit<PurgeOutcome, 'state'>;
   requestedAt: Date;
   completedAt: Date | null;
+  priorCompletedAt: Date | null;
   lastErrorCode: string | null;
   retryRequests: number;
   nextRetryAt: Date | null;
@@ -834,6 +835,7 @@ export async function getPurgeStatus(
       },
       requestedAt: job.requestedAt,
       completedAt: state === 'completed' ? job.completedAt : null,
+      priorCompletedAt: job.priorCompletedAt,
       lastErrorCode:
         state !== recordedState
           ? !workProof
