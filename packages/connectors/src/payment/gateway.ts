@@ -32,6 +32,11 @@ export function createPaymentHttpGateway(deps: {
     input: Parameters<ProcessorCallContext['request']>[0],
     signal: AbortSignal,
   ): ReturnType<ProcessorCallContext['request']> => {
+    if (!Number.isSafeInteger(input.timeoutMs) || input.timeoutMs < 1 || input.timeoutMs > 60_000
+      || (input.maxResponseBytes !== undefined && (!Number.isSafeInteger(input.maxResponseBytes) || input.maxResponseBytes < 1 || input.maxResponseBytes > 262144))
+      || typeof input.path !== 'string' || input.path.length > 8192 || !/^\/(?!\/)[^\\#]*$/.test(input.path) || /[^\x21-\x7e]/.test(input.path)
+      || (input.body !== undefined && (!(input.body instanceof Uint8Array) || input.body.byteLength > 1048576)))
+      throw new Error('PAYMENT_GATEWAY_REQUEST_INVALID');
     const authority = binding.authority;
     if (signal.aborted || authority.apiOrigin !== deps.apiOrigin || authority.processor !== deps.processor
       || authority.adapterVersion !== deps.adapterVersion || !/^[0-9a-f]{64}$/.test(authority.authoritySha256))

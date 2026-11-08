@@ -158,6 +158,9 @@ export function createWebhookEffectHandlers(
         billingConnectionId: connection.id,
         processor: payment.processor,
         connectionId: endpoint.connectionId,
+        deliveryId: source.deliveryId,
+        endpointId: source.endpointId,
+        observedExecutionIdentitySha256: effect.executionIdentitySha256 ?? null,
       });
     },
   };

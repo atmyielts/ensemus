@@ -83,7 +83,8 @@ async function main() {
   };
   const sovereign = loadSovereignConfig();
   const ports = createSaasPorts(store);
-  const billingEnabled = loadSaasConfig().billingEnabled;
+  const saas = loadSaasConfig();
+  const billingEnabled = saas.billingEnabled;
   const worker = await Worker.create({
     connection,
     namespace: process.env.TEMPORAL_NAMESPACE ?? 'default',
@@ -121,7 +122,10 @@ async function main() {
         agents: ports.agents,
         billingEnabled,
       }),
-      ...createPaymentPlatformActivities({ database: db }),
+      ...createPaymentPlatformActivities({ database: db }, {
+        agents: ports.agents,
+        ...(saas.billingOrganizationId ? { routing: { billingOrganizationId: saas.billingOrganizationId } } : {}),
+      }),
       ...createRetentionActivities({ database: db, sources: ports.retentionSources }),
       ...createOffboardingActivities({ database: db, ports: ports.offboarding }),
     },

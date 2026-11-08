@@ -1,12 +1,12 @@
 // Owned by the payments slice (BILL-01). Makes any PaymentProcessor a connector with a webhook, so a processor's
 // callbacks arrive down M3's path (ADR-027 D4, ADR-032 D4): stored by the web tier, verified in the connector
 // worker, deduped by the inbox, and only then read. No processor is registered anywhere until the owner chooses.
-import type { PaymentProcessor } from '@ensemus/saas/payment';
+import { paymentExecutionIdentity, type PaymentProcessor } from '@ensemus/saas/payment';
 import type { Connector } from '../index';
 import { MalformedWebhook } from '../index';
 import { PAYMENT_EVENT_KINDS, SIGNATURE_SCHEMES } from '@ensemus/domain/webhook';
 export {
-  runCharge, runPaymentLookup, identifyPaymentExecution, isVerifiedPaymentExecutionIdentity,
+  runCharge, runPaymentLookup, runBoundCharge, runBoundCustomerRegistration, runBoundPaymentLookup, identifyPaymentExecution, isVerifiedPaymentExecutionIdentity,
   type VerifiedPaymentExecutionIdentity,
 } from './runtime';
 export { createPaymentHttpGateway, isPaymentTransportReceipt, type PaymentTransportReceipt } from './gateway';
@@ -49,7 +49,12 @@ export function createPaymentConnector(processor: PaymentProcessor): Connector<u
     webhooks: {
       interpret(_context, webhook) {
         try {
-          const event = processor.interpretWebhook(
+          const observed = processor.interpretExecutionWebhook?.(
+            webhook.providerEventId, webhook.body, webhook.signedAtSeconds,
+          );
+          const identity = observed ? paymentExecutionIdentity(observed.identity, info) : null;
+          if (observed && !identity) throw new MalformedWebhook();
+          const event = observed?.event ?? processor.interpretWebhook(
             webhook.providerEventId,
             webhook.body,
             webhook.signedAtSeconds,
@@ -75,7 +80,9 @@ export function createPaymentConnector(processor: PaymentProcessor): Connector<u
                 /[\r\n\0]/.test(event.processorPaymentRef)))
           )
             throw new MalformedWebhook();
-          return [{ kind: 'payment_event', event }];
+          return [{ kind: 'payment_event', event,
+            ...(identity ? { executionIdentitySha256: identity.sha256 } : {}),
+          }];
         } catch {
           throw new MalformedWebhook();
         }

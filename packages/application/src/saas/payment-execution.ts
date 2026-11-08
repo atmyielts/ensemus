@@ -66,6 +66,18 @@ export async function readPaymentExecutionBinding(database: AppDatabase, context
   });
 }
 
+/** Native worker only: pin a chosen stored signing endpoint to a genuinely qualified original execution. */
+export async function qualifyPaymentWebhookExecution(database: AppDatabase, operator: TenantContext, input: {
+  originOrganizationId: string; paymentId: string; bindingId: string; endpointId: string;
+}): Promise<void> {
+  service(operator);
+  await withAccountTx(database, operator, async (tx) => {
+    const result = await tx.execute(sql`select billing.qualify_payment_webhook(${identifier(input.originOrganizationId)}::uuid,
+      ${identifier(input.paymentId)}::uuid,${identifier(input.bindingId)}::uuid,${identifier(input.endpointId)}::uuid) as qualified`);
+    if (result.rows.length !== 1 || result.rows[0]?.qualified !== true) throw new AppError('PREREQUISITES_INCOMPLETE');
+  });
+}
+
 /** Called by the actual relay gateway immediately before I/O. No readiness Boolean can replace SQL admission. */
 export async function assertPaymentTransport(database: AppDatabase, context: TenantContext, binding: PaymentGatewayBinding): Promise<void> {
   service(context);

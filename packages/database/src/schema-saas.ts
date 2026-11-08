@@ -702,7 +702,7 @@ export const payments = billingSchema.table(
 export const paymentIdentityAttestations = billingSchema.table('payment_identity_attestations', {
   organizationId: uuid().notNull(), id: uuid().notNull().defaultRandom(), paymentId: uuid().notNull(),
   tokenSha256: text().notNull().unique('payment_identity_attestations_token_sha256_key'),
-  billingOrganizationId: uuid().notNull(), connectionId: uuid().notNull(), connectionVersion: bigint({ mode: 'number' }).notNull(),
+  billingOrganizationId: uuid().notNull(), connectionId: uuid().notNull(), connectionVersion: bigint({ mode: 'bigint' }).notNull(),
   credentialSecretId: uuid().notNull(), processor: text().notNull(), adapterVersion: text().notNull(), apiOrigin: text().notNull(),
   configSha256: text().notNull(), authoritySha256: text().notNull(), identitySha256: text().notNull(), readReceiptSha256: text().notNull(),
   issuedAt: timestamp({ withTimezone: true }).notNull().default(sql`clock_timestamp()`),
@@ -721,7 +721,7 @@ export const paymentIdentityAttestations = billingSchema.table('payment_identity
 /** The original native authority is retained across credential/config replacement, including UNKNOWN. */
 export const paymentExecutionBindings = billingSchema.table('payment_execution_bindings', {
   organizationId: uuid().notNull(), id: uuid().notNull().defaultRandom(), paymentId: uuid().notNull(), attestationId: uuid().notNull(),
-  billingOrganizationId: uuid().notNull(), connectionId: uuid().notNull(), connectionVersion: bigint({ mode: 'number' }).notNull(),
+  billingOrganizationId: uuid().notNull(), connectionId: uuid().notNull(), connectionVersion: bigint({ mode: 'bigint' }).notNull(),
   credentialSecretId: uuid().notNull(), processor: text().notNull(), adapterVersion: text().notNull(), apiOrigin: text().notNull(), configSha256: text().notNull(),
   authoritySha256: text().notNull(), identitySha256: text().notNull(), bindingSha256: text().notNull(),
   qualifiedAt: timestamp({ withTimezone: true }).notNull().default(sql`clock_timestamp()`),
@@ -768,7 +768,7 @@ export const paymentAttempts = billingSchema.table(
     idempotencyKey: text().notNull(),
     runId: text().notNull(),
     executionBindingId: uuid(),
-    transportStartedAt: when(),
+    transportStartedAt: when(), lookupStartedAt: when(),
     recordedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
     outcome: text(),
     outcomeCode: text(),
@@ -828,6 +828,23 @@ export const paymentEvents = billingSchema.table(
  * A verified event as the operator's own organization received it, waiting to be routed. A processor has
  * one webhook address for the whole deployment, so this is held there first (ADR-032 D4).
  */
+/** Retained financial control lineage. No provider body, customer reference, contact or raw config. */
+export const paymentWebhookBindings = billingSchema.table('payment_webhook_bindings', {
+  organizationId: uuid().notNull(), endpointId: uuid().notNull(), originOrganizationId: uuid().notNull(), executionBindingId: uuid().notNull(),
+  connectionId: uuid().notNull(), connectionVersion: bigint({ mode: 'bigint' }).notNull(), credentialSecretId: uuid().notNull(), signingSecretId: uuid().notNull(),
+  processor: text().notNull(), adapterVersion: text().notNull(), apiOrigin: text().notNull(), configSha256: text().notNull(),
+  authoritySha256: text().notNull(), identitySha256: text().notNull(), bindingSha256: text().notNull(),
+  qualifiedAt: timestamp({ withTimezone: true }).notNull().default(sql`clock_timestamp()`),
+}, (t) => [
+  primaryKey({ name: 'payment_webhook_binding_pk', columns: [t.organizationId, t.endpointId] }),
+  foreignKey({ name: 'payment_webhook_binding_endpoint', columns: [t.organizationId, t.endpointId], foreignColumns: [webhookEndpoints.organizationId, webhookEndpoints.id] }),
+  foreignKey({ name: 'payment_webhook_binding_execution', columns: [t.originOrganizationId, t.executionBindingId], foreignColumns: [paymentExecutionBindings.organizationId, paymentExecutionBindings.id] }),
+  foreignKey({ name: 'payment_webhook_binding_connection', columns: [t.organizationId, t.connectionId], foreignColumns: [connections.organizationId, connections.id] }),
+  foreignKey({ name: 'payment_webhook_binding_credential', columns: [t.organizationId, t.credentialSecretId], foreignColumns: [sealedSecrets.organizationId, sealedSecrets.id] }),
+  foreignKey({ name: 'payment_webhook_binding_signing', columns: [t.organizationId, t.signingSecretId], foreignColumns: [sealedSecrets.organizationId, sealedSecrets.id] }),
+  check('payment_webhook_binding_hashes', sql`${t.configSha256} ~ '^[0-9a-f]{64}$' and ${t.authoritySha256} ~ '^[0-9a-f]{64}$' and ${t.identitySha256} ~ '^[0-9a-f]{64}$' and ${t.bindingSha256} ~ '^[0-9a-f]{64}$'`),
+]);
+
 export const paymentWebhookEvents = billingSchema.table(
   'payment_webhook_events',
   {
@@ -835,7 +852,7 @@ export const paymentWebhookEvents = billingSchema.table(
     id: uuid().notNull().defaultRandom(),
     processor: text().notNull(),
     providerEventId: text().notNull(),
-    sourceDeliveryId: uuid(), sourceEndpointId: uuid(), sourceConnectionId: uuid(), sourceConnectionVersion: bigint({ mode: 'number' }),
+    sourceDeliveryId: uuid(), sourceEndpointId: uuid(), sourceConnectionId: uuid(), sourceConnectionVersion: bigint({ mode: 'bigint' }),
     sourceApiSecretId: uuid(), sourceConfigSha256: text(), executionIdentitySha256: text(), executionBindingSha256: text(),
     kind: text().notNull(),
     customerRefHash: text().notNull(),
@@ -851,7 +868,7 @@ export const paymentWebhookEvents = billingSchema.table(
   },
   (t) => [
     primaryKey({ name: 'payment_webhook_events_pk', columns: [t.organizationId, t.id] }),
-    unique('payment_webhook_events_provider').on(t.organizationId, t.processor, t.providerEventId),
+    unique('payment_webhook_events_provider').on(t.organizationId, t.processor, t.executionBindingSha256, t.providerEventId).nullsNotDistinct(),
     foreignKey({ name: 'payment_webhook_delivery', columns: [t.organizationId, t.sourceDeliveryId], foreignColumns: [webhookDeliveries.organizationId, webhookDeliveries.id] }),
     foreignKey({ name: 'payment_webhook_endpoint', columns: [t.organizationId, t.sourceEndpointId], foreignColumns: [webhookEndpoints.organizationId, webhookEndpoints.id] }),
     foreignKey({ name: 'payment_webhook_connection', columns: [t.organizationId, t.sourceConnectionId], foreignColumns: [connections.organizationId, connections.id] }),

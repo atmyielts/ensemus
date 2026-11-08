@@ -25,6 +25,60 @@ export type VerifiedPaymentExecutionIdentity = Readonly<{
 export const isVerifiedPaymentExecutionIdentity = (value: unknown): value is VerifiedPaymentExecutionIdentity =>
   typeof value === 'object' && value !== null && identityProofs.has(value);
 
+/** Real dispatch uses this in addition to the adapter's parser. A declared answer without the matching
+ * bounded gateway exchange is not an external receipt. Request admission may have committed before an
+ * error, so lack of a receipt is unknown even when a native adapter guesses `not_sent`. */
+function trackedPaymentCall(context: ProcessorCallContext, authoritySha256: string, phase: 'customer' | 'charge' | 'lookup') {
+  let requests = 0;
+  let receipts = 0;
+  const wrapped: ProcessorCallContext = {
+    signal: context.signal,
+    withCredential: context.withCredential.bind(context),
+    async request(this: ProcessorCallContext, input) {
+      requests += 1;
+      if (requests !== 1) throw new Error('PAYMENT_SINGLE_TRANSPORT_REQUIRED');
+      const response = await context.request.call({ ...context, signal: this.signal }, input);
+      const receipt = response.transportReceipt;
+      if (!isPaymentTransportReceipt(receipt) || receipt.phase !== phase
+        || receipt.authoritySha256 !== authoritySha256 || receipt.status !== response.status
+        || receipt.responseSha256 !== createHash('sha256').update(response.body).digest('hex'))
+        throw new Error('PAYMENT_TRANSPORT_UNCONFIRMED');
+      receipts += 1;
+      return response;
+    },
+  };
+  return { context: wrapped, confirmed: () => requests === 1 && receipts === 1 };
+}
+
+export async function runBoundCustomerRegistration(processor: PaymentProcessor, context: ProcessorCallContext,
+  input: Parameters<PaymentProcessor['createCustomer']>[1], authoritySha256: string): Promise<string | null> {
+  const controller = new AbortController();
+  const signal = AbortSignal.any([context.signal, controller.signal, AbortSignal.timeout(SEND_DEADLINE_MS)]);
+  if (signal.aborted) return null;
+  const tracked = trackedPaymentCall({ ...context, signal }, authoritySha256, 'customer');
+  let abort: () => void = () => undefined;
+  try {
+    const stopped = new Promise<null>((resolve) => { abort = () => resolve(null); signal.addEventListener('abort', abort, { once: true }); });
+    const work = Promise.resolve().then(() => processor.createCustomer(tracked.context, input)).then((answer) =>
+      tracked.confirmed() && reference(answer.customerRef) ? answer.customerRef : null, () => null);
+    return await Promise.race([work, stopped]);
+  } finally { signal.removeEventListener('abort', abort); controller.abort(); }
+}
+
+export async function runBoundCharge(processor: PaymentProcessor, context: ProcessorCallContext,
+  input: ChargeRequest, authoritySha256: string): Promise<ChargeResult> {
+  const tracked = trackedPaymentCall(context, authoritySha256, 'charge');
+  const answer = await runCharge(processor, tracked.context, input);
+  return tracked.confirmed() ? answer : { outcome: 'indeterminate', code: 'PROCESSOR_ERROR' };
+}
+
+export async function runBoundPaymentLookup(processor: PaymentProcessor, context: ProcessorCallContext,
+  key: string, authoritySha256: string): Promise<PaymentLookupResult> {
+  const tracked = trackedPaymentCall(context, authoritySha256, 'lookup');
+  const answer = await runPaymentLookup(processor, tracked.context, key);
+  return tracked.confirmed() ? answer : { found: 'cannot_answer' };
+}
+
 /** The native verifier must actually use its credential and read-only gateway; a declaration is insufficient. */
 export async function identifyPaymentExecution(
   processor: PaymentProcessor,
@@ -52,7 +106,7 @@ export async function identifyPaymentExecution(
           || reads.length >= 4) throw new Error('PAYMENT_IDENTITY_UNAVAILABLE');
         inFlight += 1;
         let response: Awaited<ReturnType<ProcessorCallContext['request']>>;
-        try { response = await context.request({ ...input, maxResponseBytes: 262144 }); }
+        try { response = await context.request.call({ ...context, signal }, { ...input, maxResponseBytes: 262144 }); }
         finally { inFlight -= 1; }
         if (signal.aborted || response.status < 200 || response.status >= 300
           || !(response.body instanceof Uint8Array) || response.body.byteLength > 262144)

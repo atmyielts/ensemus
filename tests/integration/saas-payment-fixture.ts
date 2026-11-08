@@ -29,11 +29,11 @@ export async function paymentTenant(database: AppDatabase, auth: pg.Client) {
   });
   return nativeSovereignContext(database, userId, org.organizationId);
 }
-export async function paymentFixture(database: AppDatabase, auth: pg.Client) {
+export async function paymentFixture(database: AppDatabase, auth: pg.Client, options: { legacyCustomer?: boolean } = {}) {
   const owner = await paymentTenant(database, auth),
     service = createServiceContext(owner.organizationId),
     customerRef = `test-customer:${randomUUID()}`;
-  await seedBillingAccount(database, owner, {
+  await seedBillingAccount(database, owner, options.legacyCustomer === false ? {} : {
     processor: 'test_scripted',
     processorCustomerRef: customerRef,
     customerRefHash: hashCustomerRef('test_scripted', customerRef),

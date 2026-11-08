@@ -511,6 +511,7 @@ export async function applyVerifiedDelivery(
               context,
               effect,
               Object.freeze({
+                deliveryId: delivery.id,
                 endpointId: delivery.endpointId,
                 connectionId: endpoint.connectionId,
                 providerEventId: input.providerEventId,

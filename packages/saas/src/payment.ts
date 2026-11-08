@@ -215,6 +215,11 @@ export interface PaymentProcessor {
     body: Uint8Array,
     signedAtSeconds: number,
   ): PaymentEventFact | null;
+  /** Only adapters whose signed payload identifies the authenticated merchant/environment may implement
+   * this. A missing/unsupported observation is retained unmatched; it must not echo configured identity. */
+  interpretExecutionWebhook?(
+    providerEventId: string, body: Uint8Array, signedAtSeconds: number,
+  ): { event: PaymentEventFact; identity: PaymentExecutionIdentity } | null;
 }
 
 /** No processor is configured unless the deployment names one, so `get` answering null is the default. */

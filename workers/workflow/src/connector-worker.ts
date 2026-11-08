@@ -21,6 +21,7 @@ import { createTemporalLogger } from '@ensemus/workflows/safe-logger';
 import { createTaxActivities } from '@ensemus/workflows/tax-activities';
 import { createWebhookActivities } from '@ensemus/workflows/webhook-activities';
 import { NativeConnection, Runtime, Worker } from '@temporalio/worker';
+import { createPaymentRuntimeOptions } from './payment-composition';
 
 const log = createLogger('connector-worker');
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -72,18 +73,16 @@ async function main() {
       ...createExternalActionConnectorActivities(deps),
       ...createWebhookActivities({
         ...deps,
-        ...(saas.billingEnabled
-          ? {
-              paymentWebhook: {
+        paymentWebhook: {
                 billingOrganizationId: saas.billingOrganizationId,
                 billingConnectionId: saas.billingConnectionId,
                 processor: saas.paymentProcessor,
-              },
-            }
-          : {}),
+        },
       }),
       ...createConnectorSyncActivities(deps),
-      ...createPaymentConnectorActivities(paymentDeps),
+      // No native processor is selected. The composition supplies real standing/broker ports while
+      // dispatch stays unavailable; it never fills origin/merchant identity from manifest or empty config.
+      ...createPaymentConnectorActivities(paymentDeps, createPaymentRuntimeOptions(paymentDeps, secretsDb.db)),
       ...createTaxActivities(paymentDeps),
     },
     dataConverter: {

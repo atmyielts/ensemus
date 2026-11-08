@@ -492,7 +492,7 @@ export type BeginPaymentResult =
 export async function beginPaymentAttempt(
   database: AppDatabase,
   context: TenantContext,
-  input: { paymentId: string; runId: string },
+  input: { paymentId: string; runId: string; executionBindingId?: string },
 ): Promise<BeginPaymentResult> {
   service(context);
   const id = idOf(input.paymentId);
@@ -516,6 +516,10 @@ export async function beginPaymentAttempt(
       if (!prior) throw new AppError('INVALID_STATE');
       return { kind: 'reconcile', attemptId: prior.id };
     }
+    // A legacy/unqualified intent may still be inspected or reconciled, but cannot mint a new attempt.
+    // The 0512 INSERT trigger independently checks the actual broker-attested original binding.
+    if (!input.executionBindingId) throw new AppError('PREREQUISITES_INCOMPLETE');
+    const executionBindingId = idOf(input.executionBindingId);
     const [account] = await tx
       .select()
       .from(billingAccounts)
@@ -573,6 +577,7 @@ export async function beginPaymentAttempt(
         attemptNo: number,
         idempotencyKey: payment.idempotencyKey,
         runId: input.runId,
+        executionBindingId,
       })
       .returning();
     await tx
@@ -736,7 +741,7 @@ export async function beginPaymentReconcile(
   database: AppDatabase,
   context: TenantContext,
   input: { paymentId: string; code: PaymentCode },
-): Promise<{ attemptId: string; idempotencyKey: string; processor: string } | null> {
+): Promise<{ attemptId: string; idempotencyKey: string; processor: string; executionBindingId: string | null } | null> {
   service(context);
   const id = idOf(input.paymentId);
   if (!PAYMENT_CODES.includes(input.code)) throw new AppError('INVALID_INPUT');
@@ -772,6 +777,7 @@ export async function beginPaymentReconcile(
       attemptId: attempt.id,
       idempotencyKey: payment.idempotencyKey,
       processor: payment.processor,
+      executionBindingId: attempt.executionBindingId,
     };
   });
 }

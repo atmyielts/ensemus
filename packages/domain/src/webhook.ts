@@ -169,7 +169,9 @@ export type WebhookEffect =
       payload: unknown;
     }
   | { kind: 'sync_requested' }
-  | { kind: 'payment_event'; event: PaymentEventFact };
+  | { kind: 'payment_event'; event: PaymentEventFact;
+      /** Native parser observation from the already signature-verified body. Never routing authority by itself. */
+      executionIdentitySha256?: string };
 
 /** The digest of one exact request. A repeat of the same bytes is stored once. */
 export function webhookRequestDigest(

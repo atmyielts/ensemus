@@ -13,7 +13,7 @@ import {
   type Tx,
 } from '@ensemus/database';
 import { withAccountTx } from '@ensemus/database/account';
-import { withPaymentCustomerTx } from '@ensemus/database/payment-routing';
+import { withVerifiedPaymentEventTx } from '@ensemus/database/payment-routing';
 import { PAYMENT_EVENT_KINDS } from '@ensemus/domain/webhook';
 import {
   AGGREGATE_INVOICE,
@@ -28,7 +28,7 @@ import {
   invoiceTargetRef,
   paymentTargetRef,
 } from '@ensemus/saas/events';
-import { and, desc, eq } from 'drizzle-orm';
+import { and, desc, eq, sql } from 'drizzle-orm';
 import { AppError } from '../errors';
 import { idSchema } from '../ids';
 import { emit } from '../events';
@@ -42,8 +42,12 @@ export type PaymentWebhookBinding = {
   billingConnectionId: string;
   processor: string;
   connectionId: string;
+  deliveryId?: string;
+  endpointId?: string;
+  observedExecutionIdentitySha256?: string | null;
 };
 export type PaymentRoutingBinding = { billingOrganizationId: string };
+type PaymentWebhookCapture = { connectionVersion: string; credentialSecretId: string; configSha256: string; identitySha256: string; bindingSha256: string };
 const ref = (value: unknown): value is string =>
   typeof value === 'string' && value.length > 0 && value.length <= 256 && !/[\r\n\0]/.test(value);
 const requireService = (context: TenantContext) => {
@@ -100,12 +104,35 @@ export async function recordPaymentEventInTx(
     binding.processor !== event.processor
   )
     throw new AppError('NOT_FOUND');
+  let proof: PaymentWebhookCapture | undefined;
+  if (binding.deliveryId && binding.endpointId) {
+    if (!idSchema.safeParse(binding.deliveryId).success || !idSchema.safeParse(binding.endpointId).success
+      || (binding.observedExecutionIdentitySha256 != null && !/^[0-9a-f]{64}$/.test(binding.observedExecutionIdentitySha256)))
+      throw new AppError('INVALID_INPUT');
+    const captured = await tx.execute<PaymentWebhookCapture>(sql`select * from billing.capture_payment_webhook(
+      ${binding.deliveryId}::uuid,${binding.endpointId}::uuid,${binding.connectionId}::uuid,
+      ${event.providerEventId},${binding.observedExecutionIdentitySha256 ?? null})`);
+    if (captured.rows.length > 1) throw new AppError('PREREQUISITES_INCOMPLETE');
+    proof = captured.rows[0];
+    if (proof && (!/^[1-9][0-9]*$/.test(proof.connectionVersion) || BigInt(proof.connectionVersion) > 9223372036854775807n
+      || !idSchema.safeParse(proof.credentialSecretId).success
+      || [proof.configSha256, proof.identitySha256, proof.bindingSha256].some((value) => !/^[0-9a-f]{64}$/.test(value))))
+      throw new AppError('PREREQUISITES_INCOMPLETE');
+  }
   const [row] = await tx
     .insert(paymentWebhookEvents)
     .values({
       organizationId: context.organizationId,
       processor: event.processor,
       providerEventId: event.providerEventId,
+      sourceDeliveryId: binding.deliveryId ?? null,
+      sourceEndpointId: binding.endpointId ?? null,
+      sourceConnectionId: binding.deliveryId ? binding.connectionId : null,
+      sourceConnectionVersion: proof ? BigInt(proof.connectionVersion) : null,
+      sourceApiSecretId: proof?.credentialSecretId ?? null,
+      sourceConfigSha256: proof?.configSha256 ?? null,
+      executionIdentitySha256: proof?.identitySha256 ?? null,
+      executionBindingSha256: proof?.bindingSha256 ?? null,
       kind: event.kind,
       customerRefHash: event.customerRefHash,
       processorPaymentRef: event.processorPaymentRef,
@@ -174,9 +201,10 @@ export async function routePaymentEvent(
   let organizationId: string | null = null;
   if (fact.kind === 'customer_updated') outcome = 'ignored';
   else {
-    const applied = await withPaymentCustomerTx(
+    const applied = await withVerifiedPaymentEventTx(
       database,
-      fact.customerRefHash,
+      operatorContext,
+      row.id,
       async (tx, scope) => {
         if (scope.account.processor !== fact.processor) return null;
         const result = await applyPaymentFactInTx(tx, scope.context, fact, agents);
