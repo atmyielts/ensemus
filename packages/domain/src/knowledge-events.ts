@@ -21,6 +21,9 @@ export const KNOWLEDGE_SOURCE_CLOSED = 'knowledge.source_closed';
 /** Gate D's "report completion". The purge job's row holds the counts. */
 export const KNOWLEDGE_PURGE_COMPLETED = 'knowledge.purge_completed';
 
+/** A current native typed-record closure asks for fresh material cleanup, not historical reads. */
+export const KNOWLEDGE_RECORD_PURGE_REQUESTED = 'knowledge.record_purge_requested';
+
 /** Someone asked a question. The dispatcher starts knowledgeAnswerWorkflow. */
 export const KNOWLEDGE_ANSWER_REQUESTED = 'knowledge.answer_requested';
 export const KNOWLEDGE_ANSWER_FINISHED = 'knowledge.answer_finished';

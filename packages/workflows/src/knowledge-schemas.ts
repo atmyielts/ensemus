@@ -32,6 +32,8 @@ export const knowledgeRecordPurgeInputSchema = z.strictObject({
   kind: z.enum(['work_unit', 'project', 'client', 'object_record']),
   id: z.uuid(),
   limit: z.number().int().min(1).max(100),
+  /** Durable backoff only; never a material/read/cleanup certificate. */
+  retryAttempt: z.number().int().min(0).max(10).optional(),
 });
 export type KnowledgeRecordPurgeInput = z.infer<typeof knowledgeRecordPurgeInputSchema>;
 export const knowledgeRecordPurgeWorkflowIdFor = (input: KnowledgeRecordPurgeInput) =>

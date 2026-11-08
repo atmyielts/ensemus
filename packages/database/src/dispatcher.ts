@@ -51,6 +51,64 @@ export async function processWakeTargets(
   return result.rows.map((row) => row.process_run_id);
 }
 
+export type RecordPurgeTarget = {
+  organizationId: string;
+  kind: 'work_unit' | 'project' | 'client' | 'object_record';
+  id: string;
+};
+const recordKinds = new Set(['work_unit', 'project', 'client', 'object_record']);
+const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+function recordTarget(row: RecordPurgeTarget): RecordPurgeTarget {
+  if (!row || !uuid.test(row.organizationId) || !uuid.test(row.id) || !recordKinds.has(row.kind))
+    throw new Error('RECORD_PURGE_METADATA_INVALID');
+  return row;
+}
+
+/** The SQL mapper verifies the persisted header/outbox and the current native closed identity.
+ * Caller-supplied metadata, an event payload or an ordinary tombstone alone grants no purge. */
+export async function recordPurgeTargetForEvent(
+  db: EnsemusDrizzle,
+  event: DispatchableEvent,
+): Promise<RecordPurgeTarget | null> {
+  if (event.eventType !== 'knowledge.record_purge_requested' || !recordKinds.has(event.aggregateType))
+    return null;
+  await assertRestoreAdmission(db);
+  const result = await db.execute<RecordPurgeTarget>(sql`select organization_id "organizationId",record_kind kind,record_id id
+    from knowledge.record_purge_event_target(${event.organizationId}::uuid,${event.eventId}::uuid)`);
+  if (result.rows.length === 0) return null;
+  if (result.rows.length !== 1) throw new Error('RECORD_PURGE_METADATA_INVALID');
+  const target = recordTarget(result.rows[0]!);
+  if (target.organizationId !== event.organizationId || target.kind !== event.aggregateType || target.id !== event.aggregateId)
+    throw new Error('RECORD_PURGE_METADATA_INVALID');
+  return target;
+}
+
+/** Bounded keyset recovery of actual current closures, including catalog-only deletes. It neither
+ * emits a historical event nor declares that cleanup succeeded. A restart safely begins at page one. */
+export async function closedRecordPurgeTargets(
+  db: EnsemusDrizzle,
+  after: RecordPurgeTarget | null,
+  limit = 5,
+): Promise<{ targets: RecordPurgeTarget[]; next: RecordPurgeTarget | null }> {
+  if (!Number.isSafeInteger(limit) || limit < 1 || limit > 25)
+    throw new Error('RECORD_PURGE_PAGE_INVALID');
+  if (after) recordTarget(after);
+  await assertRestoreAdmission(db);
+  const result = await db.execute<RecordPurgeTarget>(sql`select organization_id "organizationId",record_kind kind,record_id id
+    from knowledge.closed_record_purge_targets(${after?.organizationId ?? null}::uuid,${after?.kind ?? null},${after?.id ?? null}::uuid,${limit + 1}::integer)`);
+  if (result.rows.length > limit + 1) throw new Error('RECORD_PURGE_METADATA_INVALID');
+  const rows = result.rows.map(recordTarget);
+  const key = (row: RecordPurgeTarget) => `${row.organizationId}/${row.kind}/${row.id}`;
+  let previous = after ? key(after) : null;
+  for (const row of rows) {
+    const current = key(row);
+    if (previous !== null && current <= previous) throw new Error('RECORD_PURGE_METADATA_INVALID');
+    previous = current;
+  }
+  const targets = rows.slice(0, limit);
+  return { targets, next: rows.length > limit ? targets[targets.length - 1]! : null };
+}
+
 const MAX_ATTEMPTS = 12;
 /** At the backoff's 5-minute cap, about a day before an event that keeps failing this way goes dead. */
 const AMBIGUOUS_MAX_ATTEMPTS = 288;
