@@ -12,7 +12,7 @@ import { getRestoreGate, getRuntime } from './runtime';
  * Who this request is, in this tenant. React's `cache` lasts for one request only, so a revoked
  * membership takes effect on the very next request. A tenant someone may not see looks missing.
  */
-export const requireTenant = cache(async (organizationId: string) => {
+const resolveTenant = cache(async (organizationId: string, sso: 'redirect' | 'throw') => {
   const actor = await requireActor();
   const { app } = getRuntime();
   try {
@@ -31,10 +31,21 @@ export const requireTenant = cache(async (organizationId: string) => {
       notFound();
     }
     if (error instanceof AppError && error.code === 'RESTORE_PENDING') redirect('/restoring');
-    if (error instanceof AppError && error.code === 'SSO_REQUIRED') redirect('/sign-in/sso');
+    if (error instanceof AppError && error.code === 'SSO_REQUIRED' && sso === 'redirect')
+      redirect('/sign-in/sso');
     throw error;
   }
 });
+
+/** Ordinary pages retain the existing redirect and every native/member/restore/SSO gate. */
+export const requireTenant = cache((organizationId: string) =>
+  resolveTenant(organizationId, 'redirect'),
+);
+/** Same admission, with a typed SSO refusal for submitted-only editor recovery. No context is
+ * returned on refusal. The joined core-standing assertion remains before the successful return. */
+export const requireTenantForAction = cache((organizationId: string) =>
+  resolveTenant(organizationId, 'throw'),
+);
 
 /**
  * Someone named a tenant they are not in, through a page or a form. They get the same 404 whether or

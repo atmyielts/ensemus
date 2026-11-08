@@ -26,7 +26,7 @@ import { stepUpPath } from '@/lib/step-up';
 import { objectEditorRows, withGeneratedObjectKeys } from '@/lib/object-editor';
 import { OBJECT_LIMITS } from '@ensemus/domain/custom-object';
 import { canProduct } from '@ensemus/domain/product-policy';
-import { requireTenant } from './tenant';
+import { requireTenantForAction } from './tenant';
 import { getRuntime } from './runtime';
 import { createObjectOnce } from './object-api';
 const identifier = (f: FormData, key: string) => {
@@ -39,22 +39,22 @@ const version = (f: FormData) => {
   if (!/^[1-9]\d{0,9}$/.test(raw) || Number(raw) > 2147483647) throw new AppError('INVALID_INPUT');
   return Number(raw);
 };
-type Tenant = Awaited<ReturnType<typeof requireTenant>>;
+type Tenant = Awaited<ReturnType<typeof requireTenantForAction>>;
 async function run(
   state: ObjectFormState,
   form: FormData,
   effect: (t: Tenant, org: string) => Promise<string | ObjectFormState>,
 ): Promise<ObjectFormState> {
-  const org = identifier(form, 'organizationId'),
-    tenant = await requireTenant(org);
-  let path: string;
+  const org = identifier(form, 'organizationId');
+  let tenant: Tenant | undefined, path: string;
   try {
+    tenant = await requireTenantForAction(org);
     const outcome = await effect(tenant, org);
     if (typeof outcome !== 'string') return outcome;
     path = outcome;
     revalidatePath(`/o/${org}/objects`, 'layout');
   } catch (error) {
-    if (isAuditedRefusal(error))
+    if (tenant && isAuditedRefusal(error))
       await auditRefusal(tenant.database, tenant.context, {
         surface: 'web',
         code: refusalCode(error),
