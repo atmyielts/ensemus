@@ -7,13 +7,11 @@
 import { createHash, randomUUID } from 'node:crypto';
 import {
   approvals,
-  artifacts,
   connections,
   externalActions,
   memberships,
   TenantAccessDenied,
   withTenantTx,
-  workArtifacts,
   workAssignments,
   workUnits,
   type AppDatabase,
@@ -68,20 +66,19 @@ import {
   type BundledNeed,
   type BundledWorkflow,
 } from '@ensemus/packs/bundled';
-import { and, asc, desc, eq, inArray, isNotNull, lt, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, lt, or, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { createApprovalInTx, REVIEW_HOURS } from '../approvals';
 import { AppError } from '../errors';
 import { databaseInTransaction } from '../transaction-database';
 import { emit } from '../events';
-import { countVerifiedReceipts, proposeExternalActionInTx } from '../external-actions';
+import { proposeExternalActionInTx } from '../external-actions';
 import { idSchema } from '../ids';
 import { idFromRequest } from '../request-id';
 import {
   applyTransition,
   assignContributor,
   auditAction,
-  createWorkUnit,
   createWorkUnitInTx,
   failRun,
   loadReadable,
@@ -92,6 +89,16 @@ import {
 } from '../work';
 import type { ProductPorts } from './ports';
 import { publishProcessSpecInTx } from './process-specs';
+import { studioPerson, withStudioTx } from './studio-authority';
+import { experiencePerson } from './experience-authority';
+import {
+  assertProcessInventory,
+  withProcessBirth,
+  processProof,
+  processIntent,
+  processApproval,
+  processReceipt,
+} from './process-run-authority';
 
 export type ProcessRunView = {
   id: string;
@@ -199,6 +206,7 @@ function viewOf(
   canManage: boolean,
   cost: ProcessRunView['cost'] = null,
 ): ProcessRunView {
+  assertProcessInventory(spec.spec as ProcessSpec, rows);
   const byKey = new Map(rows.map((row) => [row.stepKey, row]));
   return {
     id: run.id,
@@ -209,12 +217,13 @@ function viewOf(
     stopCode: run.stopCode,
     steps: (spec.spec as ProcessSpec).steps.map((step) => {
       const row = byKey.get(step.key);
+      if (!row) throw new AppError('CAPABILITY_UNAVAILABLE');
       return {
         key: step.key,
         label: step.label,
         kind: step.kind,
         toolId: step.toolId ?? null,
-        status: (row?.status ?? 'pending') as StepStatus,
+        status: row.status as StepStatus,
         stopCode: row?.stopCode ?? null,
         workUnitId: row?.workUnitId ?? null,
         approvalId: row?.approvalId ?? null,
@@ -250,10 +259,16 @@ export async function startProcessRun(
   const parsed = startInput.safeParse(raw);
   if (!parsed.success) throw new AppError('INVALID_INPUT');
   const input = parsed.data;
-  return withTenantTx(database, context, async (tx) => {
+  return withStudioTx(database, context, async (tx) => {
+    await studioPerson(tx, context, 'studio.publish');
+    const native = await tx.execute<{ allowed: boolean }>(
+      sql`select studio.author_allowed() as allowed`,
+    );
+    if (native.rows[0]?.allowed !== true) throw new AppError('FORBIDDEN');
     const [spec] = await tx.select().from(processSpecs).where(eq(processSpecs.id, input.specId));
     if (!spec || !whoReads(spec, context.membershipId)) throw new AppError('NOT_FOUND');
     const { steps } = specOf(spec);
+    if (steps.length === 0) throw new AppError('GRAPH_INVALID');
     if (
       spec.classification === 'restricted' &&
       steps.some((step) => step.kind === 'external_action')
@@ -265,12 +280,27 @@ export async function startProcessRun(
     const runId = requestKey
       ? idFromRequest('process_run', context.membershipId, requestKey, content)
       : randomUUID();
-    const root = await createWorkUnit(insideThisTransaction(tx), context, {
-      title: input.title,
-      classification: spec.classification as Classification,
-      ...(input.dueAt ? { dueAt: input.dueAt } : {}),
-      requestKey: runId,
-    });
+    // Serialize a key before the real Work INSERT. A retry must find its committed intent before
+    // any birth trigger runs, even when its original Work is already finished.
+    await tx.execute(
+      sql`select pg_advisory_xact_lock(hashtextextended(${`process_start:${context.organizationId}:${runId}`},0))`,
+    );
+    const [previous] = await tx.select().from(processRuns).where(eq(processRuns.id, runId));
+    if (previous) {
+      if (previous.specId !== spec.id || previous.startedByMembershipId !== context.membershipId)
+        throw new AppError('VERSION_CONFLICT');
+      await processIntent(tx, previous.id);
+      const root = await loadReadable(tx, context, previous.rootWorkUnitId);
+      return viewOf(previous, spec, await loadSteps(tx, runId), answersFor(root, context));
+    }
+    const root = await withProcessBirth(tx, { runId, specId: spec.id }, () =>
+      createWorkUnitInTx(tx, context, {
+        title: input.title,
+        classification: spec.classification as Classification,
+        ...(input.dueAt ? { dueAt: input.dueAt } : {}),
+        requestKey: runId,
+      }),
+    );
     const [run] = await tx
       .insert(processRuns)
       .values({
@@ -335,7 +365,12 @@ export async function installBundledWorkflow(
   );
   if (!compiled.ok) throw new AppError('GRAPH_INVALID');
   const sourceRef = bundledRef(workflow);
-  return withTenantTx(database, context, async (tx) => {
+  return withStudioTx(database, context, async (tx) => {
+    await studioPerson(tx, context, 'studio.publish');
+    const native = await tx.execute<{ allowed: boolean }>(
+      sql`select studio.author_allowed() as allowed`,
+    );
+    if (native.rows[0]?.allowed !== true) throw new AppError('FORBIDDEN');
     // Two people pressing Install at once queue here, so "once per version" is not a race.
     await tx.execute(
       sql`select pg_advisory_xact_lock(hashtextextended(${`bundled_install:${context.organizationId}:${workflow.key}`}, 0))`,
@@ -435,12 +470,17 @@ export async function listStartableSpecs(
         publishedByMembershipId: processSpecs.publishedByMembershipId,
       })
       .from(processSpecs)
+      .where(
+        or(
+          sql`${processSpecs.classification}<>'restricted'`,
+          eq(processSpecs.publishedByMembershipId, context.membershipId),
+        ),
+      )
       .orderBy(asc(processSpecs.processKey), desc(processSpecs.versionNumber))
       .limit(500),
   );
   const seen = new Set<string>();
   return rows
-    .filter((row) => whoReads(row, context.membershipId))
     .filter((row) => {
       if (seen.has(row.processKey)) return false;
       seen.add(row.processKey);
@@ -503,6 +543,7 @@ export async function listProcessRuns(
       .orderBy(desc(processRuns.createdAt), desc(processRuns.id))
       .limit(PAGE_SIZE + 1);
     const page = rows.slice(0, PAGE_SIZE);
+    for (const { run } of page) await processIntent(tx, run.id);
     const ids = page.map(({ run }) => run.id);
     const steps = ids.length
       ? await tx.select().from(processRunSteps).where(inArray(processRunSteps.runId, ids))
@@ -565,6 +606,7 @@ export async function getProcessRun(
       .where(eq(processRuns.id, id.data));
     if (!row) throw new AppError('NOT_FOUND');
     const root = await loadReadable(tx, context, row.run.rootWorkUnitId);
+    await processIntent(tx, row.run.id);
     return viewOf(row.run, row, await loadSteps(tx, id.data), answersFor(root, context));
   });
   const workUnitIds = [view.rootWorkUnitId, ...view.steps.flatMap((step) => step.workUnitId ?? [])];
@@ -579,10 +621,15 @@ export async function requestStopProcessRun(
 ): Promise<void> {
   const id = idSchema.safeParse(input.runId);
   if (!id.success) throw new AppError('NOT_FOUND');
-  await withTenantTx(database, context, async (tx) => {
+  if (!Number.isSafeInteger(input.expectedVersion) || input.expectedVersion < 1)
+    throw new AppError('INVALID_INPUT');
+  await withStudioTx(database, context, async (tx) => {
+    // No new MFA rule: a real current person who manages this root may stop it. Lock the
+    // interactive policy and membership BEFORE the run/root, as deprovisioning does.
+    const person = await experiencePerson(tx, context);
     const run = await lockRun(tx, id.data);
-    const root = await loadReadable(tx, context, run.rootWorkUnitId);
-    if (!answersFor(root, context)) throw new AppError('FORBIDDEN');
+    const root = await loadReadable(tx, person, run.rootWorkUnitId);
+    if (!answersFor(root, person)) throw new AppError('FORBIDDEN');
     if (run.version !== input.expectedVersion) throw new AppError('VERSION_CONFLICT');
     if (FINISHED.has(run.status)) throw new AppError('INVALID_STATE');
     const version = run.version + 1;
@@ -822,15 +869,17 @@ async function startStep(tx: Tx, state: RoundState, step: ProcessStep): Promise<
   if (!workUnitId) {
     const made = await attempt(tx, (nested) =>
       withTenantTx(insideThisTransaction(nested), starter, (bound) =>
-        createWorkUnitInTx(
-          bound,
-          starter,
-          {
-            title: step.label,
-            classification: spec.classification as Classification,
-            requestKey: stepRequestKey(run.id, step.key),
-          },
-          { parentId: run.rootWorkUnitId },
+        withProcessBirth(bound, { runId: run.id, stepKey: step.key }, () =>
+          createWorkUnitInTx(
+            bound,
+            starter,
+            {
+              title: step.label,
+              classification: spec.classification as Classification,
+              requestKey: stepRequestKey(run.id, step.key),
+            },
+            { parentId: run.rootWorkUnitId },
+          ),
         ),
       ),
     );
@@ -877,7 +926,9 @@ async function askApproval(
   const [work] = await tx.select().from(workUnits).where(eq(workUnits.id, workUnitId));
   if (!work) throw new AppError('NOT_FOUND');
   const found = await attempt(tx, (nested) =>
-    findApprover(nested, { starter, asking: starter.membershipId }, run, spec, step, work),
+    withTenantTx(insideThisTransaction(nested), starter, (bound) =>
+      findApprover(bound, { starter, asking: starter.membershipId }, run, spec, step, work),
+    ),
   );
   if (!found.ok) {
     await setStep(tx, run.id, step.key, { status: 'failed', stopCode: found.code });
@@ -904,13 +955,15 @@ async function askApproval(
     payload: { process_run_id: run.id, step_key: step.key, spec_sha256: spec.specSha256 },
   };
   const asked = await attempt(tx, (nested) =>
-    createApprovalInTx(nested, starter, {
-      workUnitId,
-      action,
-      approverMembershipId: found.value as string,
-      expiresAt: new Date(Date.now() + REVIEW_HOURS * 60 * 60 * 1000),
-      requestedByMembershipId: starter.membershipId,
-    }),
+    withTenantTx(insideThisTransaction(nested), starter, (bound) =>
+      createApprovalInTx(bound, starter, {
+        workUnitId,
+        action,
+        approverMembershipId: found.value as string,
+        expiresAt: new Date(Date.now() + REVIEW_HOURS * 60 * 60 * 1000),
+        requestedByMembershipId: starter.membershipId,
+      }),
+    ),
   );
   const values = asked.ok
     ? { status: 'waiting', stopCode: null, approvalId: asked.value.id }
@@ -944,16 +997,20 @@ async function settleEvidence(
         ...(row.workUnitId ? [row.workUnitId] : []),
         ...before.flatMap((entry) => entry.row.workUnitId ?? []),
       ];
-      // Only a file a person added counts, as it does for a Work Unit's own evidence.
-      const [file] = await tx
-        .select({ id: artifacts.id })
-        .from(workArtifacts)
-        .innerJoin(artifacts, eq(artifacts.id, workArtifacts.artifactId))
-        .where(
-          and(inArray(workArtifacts.workUnitId, scope), isNotNull(artifacts.createdByMembershipId)),
-        )
-        .orderBy(asc(artifacts.id))
-        .limit(1);
+      // Use retained metadata, not a serving bypass. Generated rows may correctly be hidden from
+      // the service's raw artifact SELECT; this fixed predicate checks the actual named starter,
+      // current sources/input records and exact human acceptance before selecting one candidate.
+      const found = await tx.execute<{ id: string }>(sql`select a.artifact_id as id
+        from knowledge.artifact_acl_catalog a join knowledge.artifact_work_links wa
+          on wa.organization_id=a.organization_id and wa.artifact_id=a.artifact_id
+        where a.organization_id=app.current_organization_id() and a.alive
+          and wa.work_unit_id in (${sql.join(
+            scope.map((id) => sql`${id}::uuid`),
+            sql`,`,
+          )})
+          and studio.process_artifact_valid(a.artifact_id,wa.work_unit_id,${run.startedByMembershipId}::uuid)
+        order by a.artifact_id limit 1`);
+      const file = found.rows[0];
       return file ? { status: 'done', stopCode: null, artifactId: file.id } : missing;
     }
     case 'reviewer_approved': {
@@ -963,7 +1020,7 @@ async function settleEvidence(
           entry.row.status === 'done' &&
           entry.row.approvalId,
       );
-      return approved
+      return approved?.row.approvalId && (await processProof(tx, run.id, approved.row.stepKey))
         ? { status: 'done', stopCode: null, approvalId: approved.row.approvalId }
         : missing;
     }
@@ -971,7 +1028,7 @@ async function settleEvidence(
       for (const entry of before) {
         if (entry.step.kind !== 'external_action' || !entry.row.workUnitId) continue;
         if (!entry.row.externalActionId) continue;
-        if ((await countVerifiedReceipts(tx, entry.row.workUnitId)) > 0) {
+        if (await processReceipt(tx, entry.row.externalActionId, entry.row.workUnitId)) {
           return { status: 'done', stopCode: null, externalActionId: entry.row.externalActionId };
         }
       }
@@ -993,20 +1050,32 @@ async function settleWaiting(tx: Tx, state: RoundState): Promise<boolean> {
     if (step.kind === 'evidence_check') {
       values = await settleEvidence(tx, state, step, row);
     } else {
-      values = await outcomeOfRecord(tx, step, row);
+      values = await outcomeOfRecord(tx, run, step, row);
     }
-    if (values.status === row.status && (values.stopCode ?? null) === row.stopCode) continue;
+    if (values.status === 'done' && row.workUnitId) {
+      if (step.kind !== 'work_item') await closeWork(tx, starter, row.workUnitId);
+      const [work] = await tx
+        .select({ status: workUnits.status })
+        .from(workUnits)
+        .where(eq(workUnits.id, row.workUnitId));
+      if (work?.status !== 'completed')
+        values = { ...values, status: 'waiting', stopCode: 'WORK_CONFIRMATION_REQUIRED' };
+    }
+    if (Object.entries(values).every(([key, value]) => row[key as keyof StepRow] === value))
+      continue;
     await setStep(tx, run.id, step.key, values);
     rows.set(step.key, { ...row, ...values });
     moved = true;
-    if (values.status === 'done' && step.kind !== 'work_item' && row.workUnitId) {
-      await closeWork(tx, starter, row.workUnitId);
-    }
   }
   return moved;
 }
 
-async function outcomeOfRecord(tx: Tx, step: ProcessStep, row: StepRow): Promise<StepOutcome> {
+async function outcomeOfRecord(
+  tx: Tx,
+  run: RunRow,
+  step: ProcessStep,
+  row: StepRow,
+): Promise<StepOutcome> {
   if (step.kind === 'work_item' && row.workUnitId) {
     const [work] = await tx
       .select({ status: workUnits.status })
@@ -1019,6 +1088,11 @@ async function outcomeOfRecord(tx: Tx, step: ProcessStep, row: StepRow): Promise
       .select({ status: approvals.status })
       .from(approvals)
       .where(eq(approvals.id, row.approvalId));
+    if (
+      approval?.status === 'approved' &&
+      !(await processApproval(tx, run.id, step.key, row.approvalId))
+    )
+      return { status: 'waiting', stopCode: 'APPROVAL_PROOF_MISSING' };
     return approvalStepOutcome(approval?.status ?? 'cancelled');
   }
   if (step.kind === 'external_action') {
@@ -1027,6 +1101,15 @@ async function outcomeOfRecord(tx: Tx, step: ProcessStep, row: StepRow): Promise
       .select({ status: externalActions.status })
       .from(externalActions)
       .where(eq(externalActions.id, row.externalActionId));
+    if (
+      action?.status === 'sent' &&
+      !(await processReceipt(
+        tx,
+        row.externalActionId,
+        row.workUnitId ?? '00000000-0000-0000-0000-000000000000',
+      ))
+    )
+      return { status: 'waiting', stopCode: 'RECEIPT_PROOF_MISSING' };
     return externalStepOutcome(action?.status ?? 'cancelled');
   }
   return { status: 'waiting', stopCode: row.stopCode };
@@ -1137,6 +1220,7 @@ async function lockedRound(
   input: { runId: string; temporalRunId: string },
 ): Promise<Round> {
   const run = await lockRun(tx, input.runId);
+  await processIntent(tx, run.id);
   if (FINISHED.has(run.status)) {
     return {
       finished: { status: run.status as Finished['status'], agentRunIds: [] },
@@ -1170,6 +1254,13 @@ async function lockedRound(
 
   const process = specOf(spec);
   const stored = await loadSteps(tx, run.id);
+  assertProcessInventory(process, stored);
+  // A previously satisfied step may have lost its approval, receipt, file, or live Work proof.
+  // Never use its historical status to authorize a new dependent effect.
+  for (const row of stored) {
+    if (row.status === 'done' && !(await processProof(tx, run.id, row.stepKey)))
+      return end('failed', 'STEP_PROOF_CHANGED', gate.starter);
+  }
   const state: RoundState = {
     run,
     spec,
@@ -1183,7 +1274,19 @@ async function lockedRound(
     Object.fromEntries([...state.rows].map(([key, row]) => [key, row.status as StepStatus]));
 
   const decision = nextProcessSteps(process, statuses());
-  if (decision.next === 'completed') return end('completed', null, gate.starter);
+  if (decision.next === 'completed') {
+    await closeWork(tx, gate.starter, run.rootWorkUnitId);
+    const [root] = await tx
+      .select({ status: workUnits.status })
+      .from(workUnits)
+      .where(eq(workUnits.id, run.rootWorkUnitId));
+    if (root?.status === 'completed') return end('completed', null, gate.starter);
+    await tx
+      .update(processRuns)
+      .set({ status: 'waiting', stopCode: 'ROOT_CONFIRMATION_REQUIRED', updatedAt: new Date() })
+      .where(eq(processRuns.id, run.id));
+    return { finished: null, moved: false, agents: [] };
+  }
   if (decision.next === 'failed') {
     const code = state.rows.get(decision.stepKey)?.stopCode ?? 'STEP_FAILED';
     return end('failed', code, gate.starter);
@@ -1247,7 +1350,7 @@ async function recordAgent(
   stepKey: string,
   values: Parameters<typeof setStep>[3],
   closeAs: TenantContext | null,
-): Promise<'written' | 'run_finished'> {
+): Promise<'written' | 'unchanged' | 'run_finished'> {
   return withTenantTx(database, context, async (tx) => {
     const run = await lockRun(tx, runId);
     const [row] = await tx
@@ -1262,10 +1365,18 @@ async function recordAgent(
       }
       return 'run_finished';
     }
-    await setStep(tx, runId, stepKey, values);
     if (values.status === 'done' && closeAs && row.workUnitId) {
       await closeWork(tx, closeAs, row.workUnitId);
+      const [work] = await tx
+        .select({ status: workUnits.status })
+        .from(workUnits)
+        .where(eq(workUnits.id, row.workUnitId));
+      if (work?.status !== 'completed')
+        values = { ...values, status: 'waiting', stopCode: 'WORK_CONFIRMATION_REQUIRED' };
     }
+    if (Object.entries(values).every(([key, value]) => row[key as keyof StepRow] === value))
+      return 'unchanged';
+    await setStep(tx, runId, stepKey, values);
     return 'written';
   });
 }
@@ -1308,7 +1419,7 @@ async function agentRound(
     if (written === 'run_finished' && values.agentRunId) {
       await ports.agentRuns.requestStop(starter, values.agentRunId).catch(() => undefined);
     }
-    moved = true;
+    if (written !== 'unchanged') moved = true;
   }
   return moved;
 }
@@ -1423,17 +1534,18 @@ export async function proposeProcessStepAction(
   context: TenantContext,
   raw: { runId: string; stepKey: string; to: readonly string[]; subject: string; textBody: string },
 ): Promise<void> {
-  if (context.actorType === 'service') throw new AppError('FORBIDDEN');
+  if (context.actorType !== 'user') throw new AppError('FORBIDDEN');
   const { runId: rawRunId, stepKey, ...details } = raw;
   const id = idSchema.safeParse(rawRunId);
   if (!id.success) throw new AppError('NOT_FOUND');
   const parsed = emailDetails.safeParse(details);
   if (!parsed.success) throw new AppError('INVALID_INPUT');
   const runId = id.data;
-  await withTenantTx(database, context, async (tx) => {
+  await withStudioTx(database, context, async (tx) => {
+    const person = await experiencePerson(tx, context);
     const run = await lockRun(tx, runId);
-    const root = await loadReadable(tx, context, run.rootWorkUnitId);
-    if (!answersFor(root, context)) throw new AppError('FORBIDDEN');
+    const root = await loadReadable(tx, person, run.rootWorkUnitId);
+    if (!answersFor(root, person)) throw new AppError('FORBIDDEN');
     if (FINISHED.has(run.status)) throw new AppError('INVALID_STATE');
     const [spec] = await tx.select().from(processSpecs).where(eq(processSpecs.id, run.specId));
     if (!spec) throw new AppError('NOT_FOUND');
@@ -1464,7 +1576,7 @@ export async function proposeProcessStepAction(
     if (!connection) throw new AppError('CONNECTION_NOT_ACTIVE');
     const approver = await findApprover(
       tx,
-      { starter: gate.starter, asking: context.membershipId },
+      { starter: person, asking: person.membershipId },
       run,
       spec,
       step,
