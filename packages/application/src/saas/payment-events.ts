@@ -35,7 +35,8 @@ import { emit } from '../events';
 import { auditAction, notify } from '../work';
 import { afterInvoicePaidInTx } from './payments';
 import type { AgentHaltPort } from './ports';
-import type { PaymentEventFact } from '@ensemus/saas/payment';
+import { paymentWebhookFactCanonical, type PaymentEventFact } from '@ensemus/saas/payment';
+import { randomUUID } from 'node:crypto';
 
 export type PaymentWebhookBinding = {
   billingOrganizationId: string;
@@ -46,9 +47,10 @@ export type PaymentWebhookBinding = {
   endpointId?: string;
   observedExecutionIdentitySha256?: string | null;
   observedAccountNamespaceSha256?: string | null;
+  verificationToken?: string | null;
 };
 export type PaymentRoutingBinding = { billingOrganizationId: string };
-type PaymentWebhookCapture = { connectionVersion: string; credentialSecretId: string; configSha256: string; identitySha256: string; accountNamespaceSha256: string; bindingSha256: string };
+type PaymentWebhookCapture = { verificationId:string; eventId:string; replay:boolean; qualified:boolean; connectionVersion: string | null; credentialSecretId: string | null; configSha256: string | null; identitySha256: string | null; accountNamespaceSha256: string | null; bindingSha256: string | null };
 const ref = (value: unknown): value is string =>
   typeof value === 'string' && value.length > 0 && value.length <= 256 && !/[\r\n\0]/.test(value);
 const requireService = (context: TenantContext) => {
@@ -105,38 +107,47 @@ export async function recordPaymentEventInTx(
     binding.processor !== event.processor
   )
     throw new AppError('NOT_FOUND');
-  let proof: PaymentWebhookCapture | undefined;
-  if (binding.deliveryId && binding.endpointId) {
-    if (!idSchema.safeParse(binding.deliveryId).success || !idSchema.safeParse(binding.endpointId).success
-      || ((binding.observedExecutionIdentitySha256 == null) !== (binding.observedAccountNamespaceSha256 == null))
-      || (binding.observedExecutionIdentitySha256 != null && !/^[0-9a-f]{64}$/.test(binding.observedExecutionIdentitySha256))
-      || (binding.observedAccountNamespaceSha256 != null && !/^[0-9a-f]{64}$/.test(binding.observedAccountNamespaceSha256)))
-      throw new AppError('INVALID_INPUT');
-    const captured = await tx.execute<PaymentWebhookCapture>(sql`select * from billing.capture_payment_webhook(
-      ${binding.deliveryId}::uuid,${binding.endpointId}::uuid,${binding.connectionId}::uuid,
-      ${event.processor},${binding.observedAccountNamespaceSha256 ?? null})`);
-    if (captured.rows.length > 1) throw new AppError('PREREQUISITES_INCOMPLETE');
-    proof = captured.rows[0];
-    if (proof && (!/^[1-9][0-9]*$/.test(proof.connectionVersion) || BigInt(proof.connectionVersion) > 9223372036854775807n
+  if (!binding.deliveryId || !binding.endpointId || !binding.verificationToken || !/^[0-9a-f]{64}$/.test(binding.verificationToken))
+    throw new AppError('PREREQUISITES_INCOMPLETE');
+  if (!idSchema.safeParse(binding.deliveryId).success || !idSchema.safeParse(binding.endpointId).success
+    || ((binding.observedExecutionIdentitySha256 == null) !== (binding.observedAccountNamespaceSha256 == null))
+    || [binding.observedExecutionIdentitySha256,binding.observedAccountNamespaceSha256].some((value) => value != null && !/^[0-9a-f]{64}$/.test(value)))
+    throw new AppError('INVALID_INPUT');
+  const eventId=randomUUID();
+  const canonical=paymentWebhookFactCanonical(event,{executionIdentitySha256:binding.observedExecutionIdentitySha256 ?? null,
+    accountNamespaceSha256:binding.observedAccountNamespaceSha256 ?? null});
+  if (Buffer.byteLength(canonical,'utf8')>4096) throw new AppError('INVALID_INPUT');
+  let proof: PaymentWebhookCapture;
+  try {
+    const consumed=await tx.execute<PaymentWebhookCapture>(sql`select * from billing.consume_payment_webhook(${binding.verificationToken},${eventId}::uuid,
+      ${binding.deliveryId}::uuid,${binding.endpointId}::uuid,${binding.connectionId}::uuid,${canonical})`);
+    const candidate=consumed.rows[0];
+    if (consumed.rows.length!==1 || !candidate || !idSchema.safeParse(candidate.verificationId).success || !idSchema.safeParse(candidate.eventId).success
+      || typeof candidate.qualified!=='boolean' || typeof candidate.replay!=='boolean' || (!candidate.replay && candidate.eventId!==eventId))
+      throw new Error('PAYMENT_WEBHOOK_VERIFICATION_UNAVAILABLE');
+    proof=candidate;
+    if (proof.qualified && (!proof.connectionVersion || !/^[1-9][0-9]*$/.test(proof.connectionVersion) || BigInt(proof.connectionVersion)>9223372036854775807n
       || !idSchema.safeParse(proof.credentialSecretId).success
-      || [proof.configSha256, proof.identitySha256, proof.accountNamespaceSha256, proof.bindingSha256].some((value) => !/^[0-9a-f]{64}$/.test(value))))
-      throw new AppError('PREREQUISITES_INCOMPLETE');
-  }
+      || [proof.configSha256,proof.identitySha256,proof.accountNamespaceSha256,proof.bindingSha256].some((value) => typeof value!=='string' || !/^[0-9a-f]{64}$/.test(value))))
+      throw new Error('PAYMENT_WEBHOOK_VERIFICATION_UNAVAILABLE');
+  } catch { throw new Error('PAYMENT_WEBHOOK_VERIFICATION_UNAVAILABLE'); }
+  if (proof.replay) return;
   const [row] = await tx
     .insert(paymentWebhookEvents)
     .values({
       organizationId: context.organizationId,
+      id:eventId, verificationId:proof.verificationId,
       processor: event.processor,
       providerEventId: event.providerEventId,
       sourceDeliveryId: binding.deliveryId ?? null,
       sourceEndpointId: binding.endpointId ?? null,
       sourceConnectionId: binding.deliveryId ? binding.connectionId : null,
-      sourceConnectionVersion: proof ? BigInt(proof.connectionVersion) : null,
-      sourceApiSecretId: proof?.credentialSecretId ?? null,
-      sourceConfigSha256: proof?.configSha256 ?? null,
-      executionIdentitySha256: proof?.identitySha256 ?? null,
-      accountNamespaceSha256: proof?.accountNamespaceSha256 ?? null,
-      executionBindingSha256: proof?.bindingSha256 ?? null,
+      sourceConnectionVersion: proof.qualified ? BigInt(proof.connectionVersion!) : null,
+      sourceApiSecretId: proof.qualified ? proof.credentialSecretId : null,
+      sourceConfigSha256: proof.qualified ? proof.configSha256 : null,
+      executionIdentitySha256: proof.qualified ? proof.identitySha256 : null,
+      accountNamespaceSha256: proof.qualified ? proof.accountNamespaceSha256 : null,
+      executionBindingSha256: proof.qualified ? proof.bindingSha256 : null,
       kind: event.kind,
       customerRefHash: event.customerRefHash,
       processorPaymentRef: event.processorPaymentRef,
@@ -145,7 +156,6 @@ export async function recordPaymentEventInTx(
       currency: event.currency,
       providerOccurredAt: new Date(event.occurredAtSeconds * 1000),
     })
-    .onConflictDoNothing()
     .returning({ id: paymentWebhookEvents.id });
   if (row)
     await emit(tx, context, {

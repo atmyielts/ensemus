@@ -356,6 +356,7 @@ export async function loadStoredDelivery(
         delivery: webhookDeliveries,
         endpoint: webhookEndpoints,
         connectorType: connections.connectorType,
+        rowVersion: sql<string>`webhook_deliveries.xmin::text`,
       })
       .from(webhookDeliveries)
       .innerJoin(
@@ -410,6 +411,9 @@ export async function loadStoredDelivery(
       toleranceSeconds: endpoint.timestampToleranceSeconds,
       signingSecretId: endpoint.signingSecretId,
       previousSigningSecretId: previousValid ? endpoint.previousSigningSecretId : null,
+      rowVersion: row.rowVersion,
+      requestDigest: delivery.requestDigest,
+      bodySha256: delivery.bodySha256,
       receivedAtMs: delivery.receivedAt.getTime(),
     };
   });
@@ -456,6 +460,7 @@ export async function applyVerifiedDelivery(
     deliveryId: string;
     providerEventId: string;
     effects: readonly WebhookEffect[];
+    paymentVerificationToken?: string;
   },
   handlers: WebhookEffectHandlers,
 ): Promise<DeliveryStep> {
@@ -515,6 +520,7 @@ export async function applyVerifiedDelivery(
                 endpointId: delivery.endpointId,
                 connectionId: endpoint.connectionId,
                 providerEventId: input.providerEventId,
+                ...(input.paymentVerificationToken ? { paymentVerificationToken: input.paymentVerificationToken } : {}),
               }),
             );
           } else throw new AppError('INVALID_INPUT');

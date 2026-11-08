@@ -233,6 +233,18 @@ export interface PaymentProcessorRegistry {
 
 export type { PaymentEventKind, PaymentEventFact };
 
+/** A bounded whitelist, not an adapter's arbitrary response object. This exact UTF-8 text is pinned by
+ * native webhook verification and consumed by SQL; it is never logged or sent through Temporal. */
+export function paymentWebhookFactCanonical(event: PaymentEventFact, observed: {
+  accountNamespaceSha256: string | null; executionIdentitySha256: string | null;
+}): string {
+  const { processor, providerEventId, kind, customerRefHash, processorPaymentRef, paymentId,
+    amountMicros, currency, occurredAtSeconds } = event;
+  return canonicalJson({ event: { processor, providerEventId, kind, customerRefHash, processorPaymentRef,
+    paymentId: paymentId?.toLowerCase() ?? null, amountMicros, currency, occurredAtSeconds },
+    accountNamespaceSha256: observed.accountNamespaceSha256, executionIdentitySha256: observed.executionIdentitySha256 });
+}
+
 /** What is stored and looked up. A processor's customer reference is not secret, and this keeps it exact. */
 export const hashCustomerRef = (processor: string, customerRef: string) =>
   createHash('sha256')

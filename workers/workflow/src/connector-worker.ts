@@ -22,6 +22,7 @@ import { createTaxActivities } from '@ensemus/workflows/tax-activities';
 import { createWebhookActivities } from '@ensemus/workflows/webhook-activities';
 import { NativeConnection, Runtime, Worker } from '@temporalio/worker';
 import { createPaymentRuntimeOptions } from './payment-composition';
+import { createPaymentWebhookAttester } from './payment-webhook-attester';
 
 const log = createLogger('connector-worker');
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -73,6 +74,7 @@ async function main() {
       ...createExternalActionConnectorActivities(deps),
       ...createWebhookActivities({
         ...deps,
+        attestPaymentWebhook: createPaymentWebhookAttester(secretsDb.db),
         paymentWebhook: {
                 billingOrganizationId: saas.billingOrganizationId,
                 billingConnectionId: saas.billingConnectionId,

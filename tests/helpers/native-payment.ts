@@ -15,6 +15,7 @@ import { storeSecret } from '@ensemus/secrets/seal';
 import { SECRET_PURPOSE_WEBHOOK_SIGNING } from '@ensemus/domain/connector';
 import { paymentExecutionIdentity, type PaymentConnectionAuthority, type PaymentEventFact, type PaymentExecutionIdentity, type PaymentGatewayBinding, type PaymentProcessor, type ProcessorCallContext } from '@ensemus/saas/payment';
 import { createPaymentIdentityAttester } from '../../workers/workflow/src/payment-identity';
+import { createPaymentWebhookAttester } from '../../workers/workflow/src/payment-webhook-attester';
 import { paymentFixture, paymentTenant } from '../integration/saas-payment-fixture';
 import { fakeProvider } from './fake-provider';
 import { proveSecondFactor } from './product';
@@ -111,7 +112,7 @@ export async function nativePaymentFixture(database: AppDatabase, auth: pg.Clien
       return begun.action === 'confirmed' ? begun.customerRef : null;
     }
     return { who, operator, operatorContext, processor, connector, credential, signing, signingKey, connection, endpoint, payment, server, broker, attest,
-      refresh, qualify, register, call, get currentIdentity() { return identity; },
+      refresh, qualify, register, call, attestWebhook: createPaymentWebhookAttester(secretsDb.db), get currentIdentity() { return identity; },
       changeMerchant: () => { identity = { ...identity, merchantAccountSha256: createHash('sha256').update(randomUUID()).digest('hex') }; },
       beginAttempt: () => beginPaymentAttempt(database, who.service, { paymentId: payment.paymentId, runId: randomUUID(), executionBindingId: binding.id }),
       close: () => server.close(),

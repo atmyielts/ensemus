@@ -41,6 +41,7 @@ import { and, eq, inArray, notInArray } from 'drizzle-orm';
 import { seedConnection } from '../helpers/integrations';
 import { makeTwoTenants, proveSecondFactor } from '../helpers/product';
 import { secret, urls } from '../helpers/stack';
+import { createPaymentWebhookAttester } from '../../workers/workflow/src/payment-webhook-attester';
 
 describe('verified processor callbacks commit the real M8 receipt with the M3 inbox', () => {
   const app = openAppDatabase(urls.app()),
@@ -97,6 +98,7 @@ describe('verified processor callbacks commit the real M8 receipt with the M3 in
     });
     const deps: ConnectorActivityDeps = {
       database: app.db,
+      attestPaymentWebhook: createPaymentWebhookAttester(secretsDb.db),
       registry: createConnectorRegistry([createPaymentConnector(processor)]),
       secrets: new SecretBroker(
         secretsDb.db,

@@ -158,6 +158,7 @@ describe('original payment identity and customer namespace under real roles', ()
       const answer = await runBoundCharge(f.processor, f.call('charge',{attemptId: pending.attemptId}), pending.charge, q.authority.authoritySha256);
       if (answer.outcome !== 'succeeded') throw new Error('TEST_EXPECTED_NATIVE_WIRE_ACK');
       const webhook = createWebhookActivities({ database: app.db, registry: createConnectorRegistry([f.connector]), secrets: f.broker,
+        attestPaymentWebhook: f.attestWebhook,
         network: { openRelay: async () => { throw new Error('TEST_WEBHOOK_HAS_NO_NETWORK'); } },
         paymentWebhook: { billingOrganizationId: f.operator.organizationId, billingConnectionId: f.connection.id, processor: 'test_scripted' } });
       const deliver = async (foreign: boolean) => {
