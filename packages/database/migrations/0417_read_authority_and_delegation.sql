@@ -117,7 +117,7 @@ BEGIN
   ELSE RETURN false;END IF;
   inventory:=ai.current_read_authority_inventory(p_kind,p_id,p_work);
   RETURN jsonb_array_length(inventory) BETWEEN 1 AND 1000 AND NOT EXISTS(SELECT 1 FROM jsonb_array_elements(inventory) i WHERE i->>'classification' IS NULL OR i->>'classification' NOT IN('public','internal','confidential','restricted')
-    OR(ai.run_company_ceiling(nullif(current_setting('app.agent_run_id',true),'')::uuid) IS NOT NULL AND knowledge.class_rank(i->>'classification')>knowledge.class_rank(ai.run_company_ceiling(nullif(current_setting('app.agent_run_id',true),'')::uuid))));
+    OR(ai.run_company_ceiling(nullif(current_setting('app.agent_run_id',true),'')::uuid) IS NOT NULL AND knowledge.class_rank(i->>'classification')>ai.run_company_ceiling(nullif(current_setting('app.agent_run_id',true),'')::uuid)));
 END $$;
 REVOKE ALL ON FUNCTION ai.lock_read_authority(text,uuid,uuid) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION ai.lock_read_authority(text,uuid,uuid) TO ensemus_agent;
@@ -157,15 +157,15 @@ CREATE POLICY authority_project_body ON work.projects AS RESTRICTIVE FOR SELECT 
   USING(app.current_actor_type() IS DISTINCT FROM 'agent' OR NOT ai.run_authority_required(nullif(current_setting('app.agent_run_id',true),'')::uuid)
     OR(ai.run_authority_read_admitted(nullif(current_setting('app.agent_run_id',true),'')::uuid)
       AND(ai.run_company_ceiling(nullif(current_setting('app.agent_run_id',true),'')::uuid) IS NULL
-        OR knowledge.class_rank(CASE WHEN client_id IS NULL THEN 'internal' ELSE knowledge.structured_record_class('client',client_id) END)<=knowledge.class_rank(ai.run_company_ceiling(nullif(current_setting('app.agent_run_id',true),'')::uuid)))));
+        OR knowledge.class_rank(CASE WHEN client_id IS NULL THEN 'internal' ELSE knowledge.structured_record_class('client',client_id) END)<=ai.run_company_ceiling(nullif(current_setting('app.agent_run_id',true),'')::uuid))));
 CREATE POLICY authority_client_body ON work.clients AS RESTRICTIVE FOR SELECT TO ensemus_agent
   USING(app.current_actor_type() IS DISTINCT FROM 'agent' OR NOT ai.run_authority_required(nullif(current_setting('app.agent_run_id',true),'')::uuid)
     OR(ai.run_authority_read_admitted(nullif(current_setting('app.agent_run_id',true),'')::uuid)
-      AND(ai.run_company_ceiling(nullif(current_setting('app.agent_run_id',true),'')::uuid) IS NULL OR knowledge.class_rank(classification)<=knowledge.class_rank(ai.run_company_ceiling(nullif(current_setting('app.agent_run_id',true),'')::uuid)))));
+      AND(ai.run_company_ceiling(nullif(current_setting('app.agent_run_id',true),'')::uuid) IS NULL OR knowledge.class_rank(classification)<=ai.run_company_ceiling(nullif(current_setting('app.agent_run_id',true),'')::uuid))));
 CREATE POLICY authority_artifact_body ON work.artifacts AS RESTRICTIVE FOR SELECT TO ensemus_agent
   USING(app.current_actor_type() IS DISTINCT FROM 'agent' OR NOT ai.run_authority_required(nullif(current_setting('app.agent_run_id',true),'')::uuid)
     OR(ai.run_authority_read_admitted(nullif(current_setting('app.agent_run_id',true),'')::uuid)
-      AND(ai.run_company_ceiling(nullif(current_setting('app.agent_run_id',true),'')::uuid) IS NULL OR knowledge.class_rank(classification)<=knowledge.class_rank(ai.run_company_ceiling(nullif(current_setting('app.agent_run_id',true),'')::uuid)))));
+      AND(ai.run_company_ceiling(nullif(current_setting('app.agent_run_id',true),'')::uuid) IS NULL OR knowledge.class_rank(classification)<=ai.run_company_ceiling(nullif(current_setting('app.agent_run_id',true),'')::uuid))));
 CREATE POLICY authority_transcript_body ON ai.step_payloads AS RESTRICTIVE FOR SELECT TO ensemus_agent
   USING(app.current_actor_type() IS DISTINCT FROM 'agent' OR EXISTS(SELECT 1 FROM ai.execution_steps e WHERE e.organization_id=step_payloads.organization_id AND e.id=step_payloads.step_id
     AND e.run_id::text=current_setting('app.agent_run_id',true) AND(NOT ai.run_authority_required(e.run_id) OR ai.run_authority_read_admitted(e.run_id))));

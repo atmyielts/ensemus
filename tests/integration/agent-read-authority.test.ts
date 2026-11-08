@@ -2,14 +2,14 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { eq, sql } from 'drizzle-orm';
-import { createClient, createProject, createWorkUnit, disableMember, getClientSharing, getWorkUnit, setClientReaders, transitionWorkUnit } from '@ensemus/application';
+import { createClient, createProject, createWorkUnit, disableMember, failRun, getClientSharing, getWorkUnit, loadChangeable, requestApproval, setClientReaders, transitionWorkUnit } from '@ensemus/application';
 import { createContextSource } from '@ensemus/application/ai-context-source';
 import { currentRunInputClass } from '@ensemus/application/ai-model-admission';
 import { claimQueuedRun, closeRunWithoutContext, createTurnStore, finishRun } from '@ensemus/application/ai-runs';
-import { agentRuns, domainEvents, executionSteps, openAppDatabase, projects, runAuthorityCheckpoints, runInputObservations, runReadAuthorities, withTenantTx, workTransitions, workUnits, type TenantContext } from '@ensemus/database';
+import { agentRuns, approvals, clientReaders, domainEvents, executionSteps, notifications, openAppDatabase, outboxEvents, projects, runAuthorityCheckpoints, runInputObservations, runReadAuthorities, withTenantTx, workTransitions, workUnits, type TenantContext } from '@ensemus/database';
 import { createAgentContext } from '@ensemus/database/agent';
 import { createServiceContext } from '@ensemus/database/service';
-import { canonicalJson } from '@ensemus/domain/approval';
+import { canonicalJson, workReviewAction } from '@ensemus/domain/approval';
 import { pgCode } from '../../packages/application/src/errors';
 import { loadAgentReadScopeInTx } from '../../packages/application/src/ai/read-scope';
 import { makeTwoTenants, nativePersonContext, proveSecondFactor } from '../helpers/product';
@@ -163,5 +163,71 @@ describe('actual read-time authority and rolling admission (0417)', () => {
     await expect(source().loadWork(f.context, f.work.id)).rejects.toThrow();
     await closeRunWithoutContext(agent.db, { organizationId: initiator.organizationId, agentRunId: f.runId, status: 'cancelled', stopCode: 'INITIATOR_INACTIVE' });
     expect((await getWorkUnit(app.db, manager, f.work.id)).version).toBe(work.version);
+  });
+  it('closes an actual paused review and its reminders/notifications/outbox through the shared terminal effects', async () => {
+    const f = await running();
+    const review = await requestApproval(app.db, owner, {
+      workUnitId: f.work.id, action: workReviewAction(f.work, []),
+      approverMembershipId: admin.membershipId, expiresAt: new Date(Date.now() + 60000), runId: f.temporalRunId,
+    });
+    const before = await withTenantTx(app.db, admin, (tx) => tx.select().from(notifications).where(eq(notifications.targetRef, `approval:${review.id}`)));
+    expect(before).toHaveLength(1);
+    expect(before[0]?.remindAt).toBeInstanceOf(Date);
+    await finishRun(agent.db, f.context, { agentRunId: f.runId, status: 'cancelled', stopCode: 'STOPPED_BY_PERSON' });
+    const [closed] = await withTenantTx(app.db, owner, (tx) => tx.select().from(approvals).where(eq(approvals.id, review.id)));
+    expect(closed).toMatchObject({ status: 'cancelled' });
+    expect(closed?.decidedAt).toBeInstanceOf(Date);
+    const after = await withTenantTx(app.db, admin, (tx) => tx.select().from(notifications).where(eq(notifications.targetRef, `approval:${review.id}`)));
+    expect(after[0]?.readAt).toBeInstanceOf(Date);
+    expect(after[0]?.remindAt).toBeNull();
+    const ownerNotices = await withTenantTx(app.db, owner, (tx) => tx.select().from(notifications).where(eq(notifications.targetRef, `work_unit:${f.work.id}`)));
+    expect(ownerNotices.map((row) => row.kind)).toEqual(expect.arrayContaining(['approval.work_finished','work.failed']));
+    const published = await withTenantTx(app.db, owner, (tx) => tx.select({ eventType: domainEvents.eventType, payload: domainEvents.payload, state: outboxEvents.state })
+      .from(domainEvents).innerJoin(outboxEvents, eq(outboxEvents.eventId, domainEvents.id)).where(eq(domainEvents.aggregateId, f.work.id)));
+    expect(published).toEqual(expect.arrayContaining([expect.objectContaining({ eventType: 'approval.resolved', payload: { approval_id: review.id, work_unit_id: f.work.id, outcome: 'cancelled' } })]));
+    expect(published.filter((row) => row.eventType === 'approval.resolved').every((row) => ['queued','published'].includes(row.state))).toBe(true);
+    expect((await getWorkUnit(app.db, owner, f.work.id)).status).toBe('failed');
+  });
+  it('never releases a newer workflow hold when retrying an older terminal run', async () => {
+    const f = await running();
+    await withTenantTx(agent.db, f.context, (tx) => tx.update(agentRuns).set({ status: 'cancelled', stopCode: 'STOPPED_BY_PERSON', endedAt: new Date(), version: sql`${agentRuns.version}+1` }).where(eq(agentRuns.id, f.runId)));
+    const failed = await withTenantTx(app.db, owner, async (tx) => failRun(tx, owner, await loadChangeable(tx, owner, f.work.id)));
+    await transitionWorkUnit(app.db, owner, { id: f.work.id, expectedVersion: failed.version, to: 'ready' });
+    const newerRunId = await seedQueuedRun(app.db, owner, { workUnitId: f.work.id, version: f.version });
+    const newerTemporalId = randomUUID();
+    expect(await claimQueuedRun(agent.db, { organizationId: owner.organizationId, workUnitId: f.work.id, temporalRunId: newerTemporalId })).not.toBeNull();
+    const before = await getWorkUnit(app.db, owner, f.work.id);
+    await finishRun(agent.db, f.context, { agentRunId: f.runId, status: 'cancelled', stopCode: 'STOPPED_BY_PERSON' });
+    const after = await getWorkUnit(app.db, owner, f.work.id);
+    expect(after).toMatchObject({ version: before.version, status: 'running', runId: newerTemporalId });
+    const [newer] = await withTenantTx(app.db, owner, (tx) => tx.select().from(agentRuns).where(eq(agentRuns.id, newerRunId)));
+    expect(newer).toMatchObject({ status: 'preparing', temporalRunId: newerTemporalId });
+  });
+  it('pins original-parent authority against the actual concurrent revocation driver until the read transaction ends', async () => {
+    const client = await createClient(app.db, admin, { displayName: 'Read barrier parent', classification: 'restricted' });
+    if (!client) throw new Error('TEST_CLIENT_REFUSED');
+    await setClientReaders(app.db, admin, { clientId: client.id, expectedVersion: client.accessVersion, readerMembershipIds: [owner.membershipId] });
+    const project = await createProject(app.db, admin, { name: 'Read barrier project', clientId: client.id });
+    if (!project) throw new Error('TEST_PROJECT_REFUSED');
+    const f = await fixture(project.id, ['data.restricted.read']);
+    await source().loadWork(f.context, f.work.id);
+    let entered!: () => void, release!: () => void;
+    const inside = new Promise<void>((resolve) => { entered = resolve; });
+    const leave = new Promise<void>((resolve) => { release = resolve; });
+    const reader = withTenantTx(agent.db, f.context, async (tx) => {
+      await loadAgentReadScopeInTx(tx, f.context);
+      entered();
+      await leave;
+    });
+    try {
+      await Promise.race([inside, reader.then(() => { throw new Error('TEST_READ_BARRIER_ENDED_EARLY'); })]);
+      await expect(withTenantTx(app.db, admin, async (tx) => {
+        await tx.execute(sql`set local lock_timeout='200ms'`);
+        await tx.delete(clientReaders).where(eq(clientReaders.clientId, client.id));
+      })).rejects.toSatisfy((error: unknown) => pgCode(error) === '55P03');
+    } finally { release(); await reader; }
+    const sharing = await getClientSharing(app.db, admin, client.id);
+    await setClientReaders(app.db, admin, { clientId: client.id, expectedVersion: sharing.version, readerMembershipIds: [] });
+    await expect(source().loadWork(f.context, f.work.id)).rejects.toMatchObject({ code: 'POLICY_DENIED' });
   });
 });
