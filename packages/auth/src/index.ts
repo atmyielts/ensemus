@@ -17,6 +17,7 @@ import {
 } from '@ensemus/database/auth';
 import { createLogger, errorCode } from '@ensemus/telemetry';
 import { betterAuth, type BetterAuthPlugin } from 'better-auth';
+import { APIError } from 'better-auth/api';
 import { drizzleAdapter } from 'better-auth/adapters/drizzle';
 import { genericOAuth } from 'better-auth/plugins';
 import { createMfaOperations, mfaPlugins, MFA_PRIVATE_PATHS, MFA_ACCOUNT_LOCKOUT } from './mfa';
@@ -27,6 +28,7 @@ import { createSamlFlow } from './sso-flow';
 import { guardSamlRequest } from './sso-request';
 import { createOperatorOidcFlow, type OidcTrust } from './oidc-primary';
 import { createIdpChallenges } from './idp-challenge';
+import { createSamlBrowserFlow } from './saml-browser-flow';
 
 export type OidcProvider = {
   providerId: string;
@@ -104,6 +106,11 @@ export function createAuth(options: AuthOptions) {
         expectedSha256: input.boundary,
       });
     return true;
+  });
+  const samlBrowser = createSamlBrowserFlow({
+    database: db,
+    secret: options.secret,
+    baseURL: options.baseURL,
   });
   const idpChallenges = createIdpChallenges(
     db,
@@ -184,6 +191,7 @@ export function createAuth(options: AuthOptions) {
               baseURL: options.baseURL,
               ...(options.sso ? { callbacks: options.sso } : {}),
               verified: samlFlow.verified,
+              resolveBrowser: samlBrowser.resolve,
             })
           : []),
         ...(!privateFactorManagement ? [samlFlow.plugin] : []),
@@ -206,15 +214,32 @@ export function createAuth(options: AuthOptions) {
       const checked = await guardSamlRequest(request);
       if (checked instanceof Response) return checked;
       try {
-        return await samlFlow.run(
-          () => oidcFlow.run(() => idpChallenges.run(() => core.handler(checked.request))),
-          checked.envelope,
+        return await samlBrowser.run(checked.request, checked.envelope, async () =>
+          samlBrowser.bindStart(
+            checked.request,
+            await samlFlow.run(
+              () => oidcFlow.run(() => idpChallenges.run(() => core.handler(checked.request))),
+              checked.envelope,
+            ),
+          ),
         );
       } catch (error) {
         if (
           /\/api\/auth\/(?:callback\/|sso\/saml2\/sp\/acs\/)/.test(new URL(request.url).pathname)
         ) {
           log.error('auth.callback_failed', { errorCode: errorCode(error) });
+          return Response.json(
+            { code: 'SIGN_IN_UNAVAILABLE', message: 'Sign-in could not be completed.' },
+            { status: 500, headers: { 'cache-control': 'no-store' } },
+          );
+        }
+        if (new URL(request.url).pathname === '/api/auth/sign-in/sso') {
+          if (error instanceof APIError && error.body?.code === 'SSO_REFUSED')
+            return Response.json(
+              { code: 'SSO_REFUSED', message: 'Company sign-in could not be completed.' },
+              { status: 400, headers: { 'cache-control': 'no-store' } },
+            );
+          log.error('auth.saml_start_failed', { errorCode: errorCode(error) });
           return Response.json(
             { code: 'SIGN_IN_UNAVAILABLE', message: 'Sign-in could not be completed.' },
             { status: 500, headers: { 'cache-control': 'no-store' } },
