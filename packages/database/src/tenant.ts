@@ -89,6 +89,10 @@ export class AppDatabase {
         'app.knowledge_model_protocol': '',
         'app.model_job_id': '',
         'objects.soft_delete_record_id': '',
+        'app.process_start_run_id': '',
+        'app.process_start_spec_id': '',
+        'app.process_step_run_id': '',
+        'app.process_step_key': '',
         ...bindings,
       })) {
         await tx.execute(sql`select set_config(${name}, ${value}, true)`);
