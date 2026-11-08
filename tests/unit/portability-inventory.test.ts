@@ -73,6 +73,50 @@ describe('the versioned portability inventory', () => {
     expect(matchesPortabilityInventory(reordered)).toBe(true);
     expect(matchesPortabilityInventory([...reordered.slice(1), reordered[1]])).toBe(false);
   });
+  it('requires every joined material and payment witness without importing execution authority', () => {
+    const tables = [
+      'ai.run_authority_checkpoints',
+      'ai.run_read_authorities',
+      'ai.delegated_input_receipts',
+      'ai.delegated_input_refs',
+      'ai.delegated_work_births',
+      'knowledge.artifact_authority_receipts',
+      'knowledge.artifact_authority_refs',
+      'ai.source_run_closures',
+      'ai.record_purge_jobs',
+      'ai.record_run_closures',
+      'lifecycle.delegated_erasure_receipts',
+      'billing.payment_identity_attestations',
+      'billing.payment_execution_bindings',
+      'billing.payment_customer_bindings',
+      'billing.payment_webhook_bindings',
+      'billing.payment_webhook_attestations',
+      'lifecycle.raw_source_inventories',
+      'lifecycle.raw_object_writes',
+    ];
+    for (const table of tables) {
+      const entries = PORTABILITY_INVENTORY.filter((entry) => entry.table === table);
+      expect(entries, table).toHaveLength(1);
+      expect(entries[0]?.disposition, table).toBe('operational_excluded');
+      expect(PORTABILITY_INVENTORY_V2.some((entry) => entry.table === table), table).toBe(false);
+      expect(
+        matchesPortabilityInventory(PORTABILITY_INVENTORY.filter((entry) => entry.table !== table)),
+        table,
+      ).toBe(false);
+      expect(
+        matchesPortabilityInventory(
+          PORTABILITY_INVENTORY.map((entry) =>
+            entry.table === table ? { ...entry, disposition: 'records' } : entry,
+          ),
+        ),
+        table,
+      ).toBe(false);
+      expect(
+        extensionRecordSchema.safeParse({ kind: table.split('.')[1], id }).success,
+        table,
+      ).toBe(false);
+    }
+  });
   it('versions the new execution metadata without copying private lineage or reactivating writers', () => {
     expect(PORTABILITY_INVENTORY_VERSION).toBe('ensemus.m3-m7/3');
     expect(PORTABILITY_INVENTORY_V2).toHaveLength(PORTABILITY_INVENTORY_V1.length + 3);

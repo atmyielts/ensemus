@@ -19,8 +19,7 @@ import {
   uuid,
   type AnyPgColumn,
 } from 'drizzle-orm/pg-core';
-import { organizations, sealedSecrets, inboxEvents } from './schema';
-import { connections, webhookDeliveries, webhookEndpoints } from './schema-integrations';
+import { organizations, inboxEvents } from './schema';
 import { killSwitches } from './schema-ai';
 
 const createdAt = () => timestamp({ withTimezone: true }).notNull().defaultNow();
@@ -702,6 +701,8 @@ export const payments = billingSchema.table(
 );
 
 /** Broker-role qualification metadata. Tokens are stored only as hashes and can be consumed once. */
+// Original financial reference IDs survive live credential/content erasure (0518). Native 0512
+// admission locks actual current referents; immutable UUIDs/hashes never grant future authority.
 export const paymentIdentityAttestations = billingSchema.table(
   'payment_identity_attestations',
   {
@@ -734,16 +735,6 @@ export const paymentIdentityAttestations = billingSchema.table(
       name: 'payment_identity_payment',
       columns: [t.organizationId, t.paymentId],
       foreignColumns: [payments.organizationId, payments.id],
-    }),
-    foreignKey({
-      name: 'payment_identity_connection',
-      columns: [t.billingOrganizationId, t.connectionId],
-      foreignColumns: [connections.organizationId, connections.id],
-    }),
-    foreignKey({
-      name: 'payment_identity_secret',
-      columns: [t.billingOrganizationId, t.credentialSecretId],
-      foreignColumns: [sealedSecrets.organizationId, sealedSecrets.id],
     }),
     consumedPaymentBindingFK(t.organizationId, t.consumedBindingId),
     check('payment_identity_connection_version_check', sql`${t.connectionVersion}>0`),
@@ -806,16 +797,6 @@ export const paymentExecutionBindings = billingSchema.table(
       name: 'payment_execution_attestation',
       columns: [t.organizationId, t.attestationId],
       foreignColumns: [paymentIdentityAttestations.organizationId, paymentIdentityAttestations.id],
-    }),
-    foreignKey({
-      name: 'payment_execution_connection',
-      columns: [t.billingOrganizationId, t.connectionId],
-      foreignColumns: [connections.organizationId, connections.id],
-    }),
-    foreignKey({
-      name: 'payment_execution_secret',
-      columns: [t.billingOrganizationId, t.credentialSecretId],
-      foreignColumns: [sealedSecrets.organizationId, sealedSecrets.id],
     }),
     check('payment_execution_connection_version_check', sql`${t.connectionVersion}>0`),
     check(
@@ -1019,29 +1000,9 @@ export const paymentWebhookBindings = billingSchema.table(
   (t) => [
     primaryKey({ name: 'payment_webhook_binding_pk', columns: [t.organizationId, t.endpointId] }),
     foreignKey({
-      name: 'payment_webhook_binding_endpoint',
-      columns: [t.organizationId, t.endpointId],
-      foreignColumns: [webhookEndpoints.organizationId, webhookEndpoints.id],
-    }),
-    foreignKey({
       name: 'payment_webhook_binding_execution',
       columns: [t.originOrganizationId, t.executionBindingId],
       foreignColumns: [paymentExecutionBindings.organizationId, paymentExecutionBindings.id],
-    }),
-    foreignKey({
-      name: 'payment_webhook_binding_connection',
-      columns: [t.organizationId, t.connectionId],
-      foreignColumns: [connections.organizationId, connections.id],
-    }),
-    foreignKey({
-      name: 'payment_webhook_binding_credential',
-      columns: [t.organizationId, t.credentialSecretId],
-      foreignColumns: [sealedSecrets.organizationId, sealedSecrets.id],
-    }),
-    foreignKey({
-      name: 'payment_webhook_binding_signing',
-      columns: [t.organizationId, t.signingSecretId],
-      foreignColumns: [sealedSecrets.organizationId, sealedSecrets.id],
     }),
     check(
       'payment_webhook_binding_hashes',
@@ -1088,26 +1049,6 @@ export const paymentWebhookAttestations = billingSchema.table(
   },
   (t) => [
     primaryKey({ name: 'payment_webhook_attestation_pk', columns: [t.organizationId, t.id] }),
-    foreignKey({
-      name: 'payment_webhook_attestation_delivery',
-      columns: [t.organizationId, t.deliveryId],
-      foreignColumns: [webhookDeliveries.organizationId, webhookDeliveries.id],
-    }),
-    foreignKey({
-      name: 'payment_webhook_attestation_endpoint',
-      columns: [t.organizationId, t.endpointId],
-      foreignColumns: [webhookEndpoints.organizationId, webhookEndpoints.id],
-    }),
-    foreignKey({
-      name: 'payment_webhook_attestation_connection',
-      columns: [t.organizationId, t.connectionId],
-      foreignColumns: [connections.organizationId, connections.id],
-    }),
-    foreignKey({
-      name: 'payment_webhook_attestation_signing',
-      columns: [t.organizationId, t.signingSecretId],
-      foreignColumns: [sealedSecrets.organizationId, sealedSecrets.id],
-    }),
     foreignKey({
       name: 'payment_webhook_attestation_inbox',
       columns: [t.organizationId, t.inboxConsumerId, t.inboxEventId],
@@ -1188,26 +1129,6 @@ export const paymentWebhookEvents = billingSchema.table(
     uniqueIndex('payment_webhook_events_legacy_provider')
       .on(t.organizationId, t.processor, t.providerEventId)
       .where(sql`${t.accountNamespaceSha256} is null and ${t.sourceDeliveryId} is null`),
-    foreignKey({
-      name: 'payment_webhook_delivery',
-      columns: [t.organizationId, t.sourceDeliveryId],
-      foreignColumns: [webhookDeliveries.organizationId, webhookDeliveries.id],
-    }),
-    foreignKey({
-      name: 'payment_webhook_endpoint',
-      columns: [t.organizationId, t.sourceEndpointId],
-      foreignColumns: [webhookEndpoints.organizationId, webhookEndpoints.id],
-    }),
-    foreignKey({
-      name: 'payment_webhook_connection',
-      columns: [t.organizationId, t.sourceConnectionId],
-      foreignColumns: [connections.organizationId, connections.id],
-    }),
-    foreignKey({
-      name: 'payment_webhook_api_secret',
-      columns: [t.organizationId, t.sourceApiSecretId],
-      foreignColumns: [sealedSecrets.organizationId, sealedSecrets.id],
-    }),
     check(
       'payment_webhook_events_kind',
       sql`${t.kind} in ('payment_succeeded','payment_failed','payment_refunded','payment_disputed','customer_updated')`,

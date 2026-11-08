@@ -282,8 +282,27 @@ export const PORTABILITY_INVENTORY = [
   inventory('lifecycle.standing_stop_receipts', 'history', 'operational_excluded'),
   inventory('lifecycle.object_restore_debts', 'history', 'operational_excluded'),
   inventory('lifecycle.object_deletion_claims', 'history', 'operational_excluded'),
-  // The unregistered 0417/0419 authority tables must join this unpublished profile with their SQL;
-  // active exports still require an exact inventory of every actually installed table.
+  // Reviewed 0417/0419/0515 execution and material-cleanup evidence is never portable authority.
+  inventory('ai.run_authority_checkpoints', 'agents', 'operational_excluded'),
+  inventory('ai.run_read_authorities', 'agents', 'operational_excluded'),
+  inventory('ai.delegated_input_receipts', 'agents', 'operational_excluded'),
+  inventory('ai.delegated_input_refs', 'agents', 'operational_excluded'),
+  inventory('ai.delegated_work_births', 'agents', 'operational_excluded'),
+  inventory('knowledge.artifact_authority_receipts', 'artifacts', 'operational_excluded'),
+  inventory('knowledge.artifact_authority_refs', 'artifacts', 'operational_excluded'),
+  inventory('ai.source_run_closures', 'knowledge', 'operational_excluded'),
+  inventory('ai.record_purge_jobs', 'knowledge', 'operational_excluded'),
+  inventory('ai.record_run_closures', 'knowledge', 'operational_excluded'),
+  inventory('lifecycle.delegated_erasure_receipts', 'history', 'operational_excluded'),
+  // Native payment witnesses retain original IDs/hashes, never an imported live credential/route.
+  inventory('billing.payment_identity_attestations', 'history', 'operational_excluded'),
+  inventory('billing.payment_execution_bindings', 'history', 'operational_excluded'),
+  inventory('billing.payment_customer_bindings', 'history', 'operational_excluded'),
+  inventory('billing.payment_webhook_bindings', 'history', 'operational_excluded'),
+  inventory('billing.payment_webhook_attestations', 'history', 'operational_excluded'),
+  // Raw byte/writer debt survives header loss. Import cannot recreate or clear native erasure proof.
+  inventory('lifecycle.raw_source_inventories', 'knowledge', 'operational_excluded'),
+  inventory('lifecycle.raw_object_writes', 'knowledge', 'operational_excluded'),
   inventory('experience.onboarding_completions', 'policy', 'operational_excluded'),
   inventory('experience.outcome_work_births', 'policy', 'operational_excluded'),
 ] as const;
