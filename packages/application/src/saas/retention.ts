@@ -24,6 +24,7 @@ import { can } from '@ensemus/domain/policy';
 import { and, asc, desc, eq, isNull, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { AppError, refusalFromDatabase } from '../errors';
+import { idSchema } from '../ids';
 import { auditAction } from '../work';
 import { emit } from '../events';
 import { deleteArtifactInTx } from '../artifacts';
@@ -254,7 +255,7 @@ export async function sweepRetention(
                 new Set(page.records.map((row) => row.id)).size !== page.records.length ||
                 page.records.some(
                   (row) =>
-                    !z.uuid().safeParse(row.id).success ||
+                    !idSchema.safeParse(row.id).success ||
                     typeof row.cursor !== 'string' ||
                     !row.cursor ||
                     row.cursor.length > 4096 ||
@@ -276,7 +277,9 @@ export async function sweepRetention(
               result.examined += 1;
               remaining -= 1;
               try {
-                await tx.transaction((save) => source.remove(save, context, record.id));
+                await tx.transaction((save) =>
+                  source.remove(save, context, idSchema.parse(record.id)),
+                );
                 result.removed += 1;
               } catch (error) {
                 if (
@@ -340,12 +343,12 @@ export async function sweepRetention(
 export function createRawFilesRetentionSource(_store: unknown): RetentionSource {
   const cursorSchema = z.strictObject({
     v: z.literal(1),
-    organizationId: z.uuid(),
+    organizationId: idSchema,
     classification: z.enum(classifications),
-    ruleId: z.uuid(),
+    ruleId: idSchema,
     before: z.iso.datetime({ offset: true }),
     at: z.string().regex(/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{6}Z$/),
-    id: z.uuid(),
+    id: idSchema,
   });
   const source: RetentionSource = {
     category: 'raw_files',

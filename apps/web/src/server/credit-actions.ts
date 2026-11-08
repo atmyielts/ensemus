@@ -2,6 +2,7 @@
 import {
   AppError,
   auditRefusal,
+  canonicalId,
   isAuditedRefusal,
   refusalCode,
   refusalFromDatabase,
@@ -17,15 +18,16 @@ const text = (form: FormData, key: string) => {
   const value = form.get(key);
   return typeof value === 'string' ? value : '';
 };
+const idOf = (form: FormData, key: string) => canonicalId(text(form, key));
 export async function requestTopUpAction(form: FormData): Promise<never> {
-  const organizationId = text(form, 'organizationId');
+  const organizationId = idOf(form, 'organizationId');
   const tenant = await requireAccountTenant(organizationId);
   let target = `/o/${organizationId}/account/credits`;
   try {
     if (!loadSaasConfig().billingEnabled) throw new AppError('BILLING_NOT_ENABLED');
     if (text(form, 'confirm') !== 'yes') throw new AppError('INVALID_INPUT');
     const result = await requestTopUp(tenant.database, tenant.context, {
-      offerId: text(form, 'offerId'),
+      offerId: idOf(form, 'offerId'),
       quoteHash: text(form, 'quoteHash'),
       requestKey: text(form, 'requestKey'),
     });

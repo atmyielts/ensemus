@@ -203,6 +203,40 @@ describe('catalog and publication through real roles', () => {
     ).toBe(false);
   });
 
+  it('serializes concurrent versions of one immutable plan without UPDATE authority', async () => {
+    const input = {
+      operatorRef: TEST_OPERATOR,
+      planCode: code(),
+      displayName: 'Concurrent immutable plan',
+      commercialMode: 'byom' as const,
+      currency: 'XTS',
+      billingInterval: 'month' as const,
+      paymentTermsDays: 0,
+      minorUnitExponent: 2,
+      platformFeeMicros: testAmount(),
+      includedMicrocredits: null,
+      rateCardId: null,
+      overagePolicy: null,
+      features: ['work'],
+      maxActiveMembers: null,
+    };
+    const versions = await Promise.all([
+      draftPlanVersion(operator, input),
+      draftPlanVersion(operator, input),
+    ]);
+    expect(versions.map((row) => row.version).sort()).toEqual([1, 2]);
+    expect(new Set(versions.map((row) => row.planVersionId)).size).toBe(2);
+    expect(
+      (await pool.query('select code from billing.plans where code=$1', [input.planCode])).rows,
+    ).toEqual([{ code: input.planCode }]);
+    await expect(
+      pool.query('update billing.plans set display_name=$1 where code=$2', [
+        'Changed',
+        input.planCode,
+      ]),
+    ).rejects.toMatchObject({ code: '42501' });
+  });
+
   it('keeps approved prices immutable and permits historical reads after retirement', async () => {
     const first = await publishedCard();
     const second = await draftRateCard(operator, first.input);

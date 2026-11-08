@@ -21,6 +21,10 @@ import {
   type TenantContext,
 } from '@ensemus/database';
 import { eq, sql } from 'drizzle-orm';
+import { withAccountTx } from '@ensemus/database/account';
+import { createServiceContext } from '@ensemus/database/service';
+import { requestOffboarding } from '@ensemus/application/saas/offboarding';
+import { createOffboardingAgentHaltPort } from '@ensemus/application/saas/offboarding-agent-port';
 import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
@@ -31,6 +35,7 @@ import {
   seedSubscription,
 } from '../helpers/saas';
 import { urls } from '../helpers/stack';
+import { nativeSovereignContext } from '../helpers/sovereign';
 
 const sqlState = (code: string) =>
   expect.objectContaining({ cause: expect.objectContaining({ code }) });
@@ -462,18 +467,17 @@ describe('M8 rules in the database', () => {
   });
 
   it('refuses to start erasing while a hold is active or the steps are not done (LIFE-04)', async () => {
-    const tenant = await makeTenant('saas-off');
-    const id = randomUUID();
-    await withTenantTx(database.db, tenant, (tx) =>
-      tx.insert(offboardings).values({
-        organizationId: tenant.organizationId,
-        id,
-        requestedByMembershipId: tenant.membershipId,
-      }),
+    const person = await makeTenant('saas-off');
+    const tenant = await nativeSovereignContext(database.db, person.userId, person.organizationId);
+    const { offboardingId } = await requestOffboarding(
+      database.db,
+      tenant,
+      { confirmName: `saas-off ${tenant.userId}` },
+      createOffboardingAgentHaltPort(),
     );
     await expect(
-      withTenantTx(database.db, tenant, (tx) =>
-        tx.update(offboardings).set({ state: 'erasing' }).where(eq(offboardings.id, id)),
+      withAccountTx(database.db, createServiceContext(tenant.organizationId), (tx) =>
+        tx.update(offboardings).set({ state: 'erasing' }).where(eq(offboardings.id, offboardingId)),
       ),
     ).rejects.toEqual(sqlState('EN805'));
   });

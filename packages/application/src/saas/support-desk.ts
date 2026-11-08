@@ -25,8 +25,8 @@ const operatorReference = z
   .min(1)
   .max(200)
   .refine((value) => !/[\r\n\0]/.test(value));
-const ticketCommandSchema = z.strictObject({ organizationId: z.uuid(), ticketId: z.uuid() }),
-  coverageCommandSchema = z.strictObject({ coverageId: z.uuid(), operatorRef: operatorReference });
+const ticketCommandSchema = z.strictObject({ organizationId: idSchema, ticketId: idSchema }),
+  coverageCommandSchema = z.strictObject({ coverageId: idSchema, operatorRef: operatorReference });
 export const deskCommandInputSchemas = {
   queue: z.strictObject({
     status: z.enum(TICKET_STATUSES).optional(),
@@ -41,12 +41,12 @@ export const deskCommandInputSchemas = {
     requestedBy: operatorReference,
     reasonCode: z.string().regex(/^[A-Z][A-Z0-9_]{0,63}$/),
     scopeType: z.enum(['work_unit', 'artifact', 'client', 'project']),
-    scopeId: z.uuid(),
+    scopeId: idSchema,
     requestedMinutes: z.int().min(1),
   }),
   authorize: z.strictObject({
-    organizationId: z.uuid(),
-    requestId: z.uuid(),
+    organizationId: idSchema,
+    requestId: idSchema,
     operatorRef: operatorReference,
   }),
   'coverage-draft': z.strictObject({

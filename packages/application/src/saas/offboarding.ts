@@ -48,8 +48,8 @@ import type { createTenantObjectErasure } from './tenant-object-erasure';
 import type { AgentHaltPort, OffboardingAgentHaltPort, OffboardingPorts } from './ports';
 
 const operatorCommandSchema = z.strictObject({
-  organizationId: z.uuid(),
-  offboardingId: z.uuid(),
+  organizationId: idSchema,
+  offboardingId: idSchema,
   operatorRef: z
     .string()
     .trim()

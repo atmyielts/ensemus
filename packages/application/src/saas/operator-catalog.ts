@@ -271,11 +271,9 @@ export async function draftPlanVersion(
         displayName: value.displayName,
       })
       .onConflictDoNothing({ target: plans.code });
-    const [plan] = await tx
-      .select()
-      .from(plans)
-      .where(eq(plans.code, value.planCode))
-      .for('update');
+    // The transaction advisory lock above serializes this immutable code before insert/read.
+    // Plans are append-only; reading one must not require an UPDATE grant on the catalog.
+    const [plan] = await tx.select().from(plans).where(eq(plans.code, value.planCode));
     if (
       !plan ||
       plan.commercialMode !== value.commercialMode ||

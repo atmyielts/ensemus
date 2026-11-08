@@ -2,6 +2,7 @@
 import {
   AppError,
   auditRefusal,
+  canonicalId,
   isAuditedRefusal,
   refusalCode,
   refusalFromDatabase,
@@ -20,6 +21,7 @@ const text = (form: FormData, key: string) => {
   const value = form.get(key);
   return typeof value === 'string' ? value : '';
 };
+const idOf = (form: FormData, key: string) => canonicalId(text(form, key));
 async function codeFor(error: unknown, tenant: Awaited<ReturnType<typeof requireAccountTenant>>) {
   if (isAuditedRefusal(error))
     await auditRefusal(tenant.database, tenant.context, {
@@ -39,7 +41,7 @@ export async function setRetentionRuleFormAction(
   _previous: RetentionRuleFormState,
   form: FormData,
 ): Promise<RetentionRuleFormState> {
-  const organizationId = text(form, 'organizationId'),
+  const organizationId = idOf(form, 'organizationId'),
     tenant = await requireAccountTenant(organizationId);
   const values = {
     dataCategory: text(form, 'dataCategory'),
@@ -77,7 +79,7 @@ export async function placeLegalHoldFormAction(
   _previous: LegalHoldFormState,
   form: FormData,
 ): Promise<LegalHoldFormState> {
-  const organizationId = text(form, 'organizationId'),
+  const organizationId = idOf(form, 'organizationId'),
     tenant = await requireAccountTenant(organizationId),
     values = {
       matterRef: text(form, 'matterRef'),
@@ -103,7 +105,7 @@ export async function placeLegalHoldFormAction(
   }
 }
 export async function releaseLegalHoldAction(form: FormData): Promise<never> {
-  const organizationId = text(form, 'organizationId'),
+  const organizationId = idOf(form, 'organizationId'),
     tenant = await requireAccountTenant(organizationId),
     back = `/o/${organizationId}/account/legal-holds`;
   let target = back;
@@ -111,7 +113,7 @@ export async function releaseLegalHoldAction(form: FormData): Promise<never> {
     if (text(form, 'confirm') !== 'yes' || !/^[1-9]\d*$/.test(text(form, 'version')))
       throw new AppError('INVALID_INPUT');
     await releaseLegalHold(tenant.database, tenant.context, {
-      holdId: text(form, 'holdId'),
+      holdId: idOf(form, 'holdId'),
       reasonCode: text(form, 'reasonCode'),
       expectedVersion: Number(text(form, 'version')),
     });

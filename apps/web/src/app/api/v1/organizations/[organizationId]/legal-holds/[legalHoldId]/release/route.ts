@@ -1,10 +1,10 @@
+import { idSchema } from '@ensemus/application';
 import { releaseLegalHold } from '@ensemus/application/saas/legal-holds';
 import { releaseLegalHoldSchema } from '@ensemus/contracts/saas';
-import { z } from 'zod';
 import { apiRoute, organizationParams, readIfMatch, readJson } from '@/server/api';
 export const dynamic = 'force-dynamic';
 export const POST = apiRoute(
-  organizationParams.extend({ legalHoldId: z.uuid() }),
+  organizationParams.extend({ legalHoldId: idSchema }),
   async ({ request, database, context, params }) => {
     const body = await readJson(request, releaseLegalHoldSchema);
     await releaseLegalHold(database, context, {

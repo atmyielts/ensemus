@@ -2,6 +2,7 @@
 import {
   AppError,
   auditRefusal,
+  canonicalId,
   isAuditedRefusal,
   refusalCode,
   refusalFromDatabase,
@@ -18,6 +19,7 @@ const text = (form: FormData, key: string) => {
   const value = form.get(key);
   return typeof value === 'string' ? value : '';
 };
+const idOf = (form: FormData, key: string) => canonicalId(text(form, key));
 async function codeFor(error: unknown, tenant: Awaited<ReturnType<typeof requireAccountTenant>>) {
   if (isAuditedRefusal(error))
     await auditRefusal(tenant.database, tenant.context, {
@@ -37,7 +39,7 @@ export async function requestOffboardingFormAction(
   _previous: OffboardingFormState,
   form: FormData,
 ): Promise<OffboardingFormState> {
-  const organizationId = text(form, 'organizationId'),
+  const organizationId = idOf(form, 'organizationId'),
     tenant = await requireAccountTenant(organizationId),
     values = { confirmName: text(form, 'confirmName') };
   try {
@@ -50,7 +52,7 @@ export async function requestOffboardingFormAction(
   }
 }
 export async function cancelOffboardingAction(form: FormData): Promise<never> {
-  const organizationId = text(form, 'organizationId'),
+  const organizationId = idOf(form, 'organizationId'),
     tenant = await requireAccountTenant(organizationId),
     back = `/o/${organizationId}/account/leave`;
   let target = back;

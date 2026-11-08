@@ -1,13 +1,12 @@
-import { AppError } from '@ensemus/application';
+import { AppError, idSchema } from '@ensemus/application';
 import { decideBreakGlass, listBreakGlassRequests } from '@ensemus/application/saas/break-glass';
 import { loadSaasConfig } from '@ensemus/config';
 import { decideBreakGlassSchema } from '@ensemus/contracts/saas';
-import { z } from 'zod';
 import { apiRoute, etag, organizationParams, readIfMatch, readJson } from '@/server/api';
 import { breakGlassDto } from '../../../dto';
 export const dynamic = 'force-dynamic';
 export const POST = apiRoute(
-  organizationParams.extend({ breakGlassId: z.uuid() }),
+  organizationParams.extend({ breakGlassId: idSchema }),
   async ({ request, database, context, params }) => {
     const body = await readJson(request, decideBreakGlassSchema);
     await decideBreakGlass(

@@ -2,7 +2,7 @@
 // the actual agent login, including the deliberate SET ROLE app / forged actor negatives below.
 import { memberships, openAppDatabase, withTenantTx, type TenantContext } from '@ensemus/database';
 import { createServiceContext } from '@ensemus/database/service';
-import { createWorkUnit, disableMember, pgCode, setMemberRole } from '@ensemus/application';
+import { createWorkUnit, disableMember, setMemberRole } from '@ensemus/application';
 import { createEntitlementChecker, getEntitlements } from '@ensemus/application/saas/entitlements';
 import { getTenantStanding } from '@ensemus/application/saas/standing';
 import { openTicket } from '@ensemus/application/saas/support';
@@ -338,7 +338,7 @@ describe('financial and support bodies remain outside actual agent logins', () =
           await c.query('savepoint metadata_failure');
           await expect(
             c.query('select * from billing.current_entitlement_metadata()'),
-          ).rejects.toSatisfy((error: unknown) => pgCode(error) === '42501');
+          ).rejects.toMatchObject({ code: '42501' });
           await c.query('rollback to savepoint metadata_failure');
           expect(
             (await c.query("select current_setting('billing.entitlement_org',true) scope")).rows[0]
@@ -356,7 +356,7 @@ describe('financial and support bodies remain outside actual agent logins', () =
         asRole(role, (c) => c.query('select * from billing.current_entitlement_metadata()'), {
           organizationId: owner.organizationId,
         }),
-      ).rejects.toSatisfy((error: unknown) => pgCode(error) === '42501');
+      ).rejects.toMatchObject({ code: '42501' });
   });
 
   it('rechecks a disabled member instead of trusting a retained context role', async () => {
@@ -369,7 +369,7 @@ describe('financial and support bodies remain outside actual agent logins', () =
       bound(appClient, member, (c) =>
         c.query('select * from billing.current_entitlement_metadata()'),
       ),
-    ).rejects.toSatisfy((error: unknown) => pgCode(error) === '42501');
+    ).rejects.toMatchObject({ code: '42501' });
     const actual = await withTenantTx(app.db, owner, (tx) =>
       tx.select({ id: memberships.id, status: memberships.status }).from(memberships),
     );
