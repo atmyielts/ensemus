@@ -180,7 +180,7 @@ export async function getTenantStanding(database: AppDatabase, context: TenantCo
       .from(organizations)
       .where(eq(organizations.id, context.organizationId));
     if (!org || org.lifecycle === 'deleted') throw new AppError('NOT_FOUND');
-    const change=await loadEntitlementMetadataInTx(tx,context);
+    const change = await loadEntitlementMetadataInTx(tx, context);
     return {
       lifecycle: org.lifecycle,
       reasonCode: change.standingReasonCode,

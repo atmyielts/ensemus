@@ -85,6 +85,8 @@ export interface WebhookEffectHandlers {
     tx: Tx,
     context: TenantContext,
     effect: Extract<WebhookEffect, { kind: 'payment_event' }>,
+    /** Actual stored endpoint/inbox identity, never a body's claimed routing fields. */
+    source: Readonly<{ endpointId: string; connectionId: string; providerEventId: string }>,
   ): Promise<void>;
 }
 

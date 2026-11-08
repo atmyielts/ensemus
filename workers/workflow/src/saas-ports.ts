@@ -7,7 +7,10 @@ import {
   type RetentionSource,
 } from '@ensemus/application/saas/ports';
 import { createRawFilesRetentionSource } from '@ensemus/application/saas/retention';
-import { createOffboardingAgentHaltPort,createOffboardingExportPort } from '@ensemus/application/saas/offboarding-agent-port';
+import {
+  createOffboardingAgentHaltPort,
+  createOffboardingExportPort,
+} from '@ensemus/application/saas/offboarding-agent-port';
 
 /** The code a refusal carries, so an operator can tell what is missing from the log alone. */
 class PortNotWiredIn extends Error {
@@ -26,7 +29,6 @@ const agentsNotWiredIn: AgentHaltPort = {
   },
 };
 
-
 export function createSaasPorts(_store: unknown): {
   usage: typeof usageNotWiredIn;
   agents: AgentHaltPort;
@@ -37,6 +39,11 @@ export function createSaasPorts(_store: unknown): {
     usage: usageNotWiredIn,
     agents: agentsNotWiredIn,
     retentionSources: [createRawFilesRetentionSource(_store)],
-    offboarding: { exports:createOffboardingExportPort(), agents: agentsNotWiredIn, offboardingAgents:createOffboardingAgentHaltPort(), windDowns: [] },
+    offboarding: {
+      exports: createOffboardingExportPort(),
+      agents: agentsNotWiredIn,
+      offboardingAgents: createOffboardingAgentHaltPort(),
+      windDowns: [],
+    },
   };
 }

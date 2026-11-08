@@ -43,7 +43,7 @@ export async function readyToErase(
   owner: TenantContext,
   ports = offboardingPorts(),
 ) {
-  owner = await nativeSovereignContext(database,owner.userId,owner.organizationId);
+  owner = await nativeSovereignContext(database, owner.userId, owner.organizationId);
   const organization = await getOrganization(database, owner);
   if (!organization) throw new Error('TEST_ORGANIZATION_MISSING');
   const service = createServiceContext(owner.organizationId),

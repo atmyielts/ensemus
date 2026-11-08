@@ -320,8 +320,14 @@ const agentWorkerFiles = [
 ];
 
 const saasBoundarySelectors = [
-  { selector: "ImportDeclaration[source.value='@ensemus/database/account']", message: accountTx.message },
-  ...operatorRoles.group.map((name) => ({ selector: `ImportDeclaration[source.value='${name}']`, message: operatorRoles.message })),
+  {
+    selector: "ImportDeclaration[source.value='@ensemus/database/account']",
+    message: accountTx.message,
+  },
+  ...operatorRoles.group.map((name) => ({
+    selector: `ImportDeclaration[source.value='${name}']`,
+    message: operatorRoles.message,
+  })),
 ];
 
 export default tseslint.config(
@@ -522,7 +528,12 @@ export default tseslint.config(
   },
   restrict(['packages/saas/**/*.ts'], [saasReach], ['packages/saas/src/testing/**']),
   {
-    files: ['apps/web/**/*.{ts,tsx}', 'packages/application/src/**/*.ts', 'packages/workflows/**/*.ts', 'workers/**/*.ts'],
+    files: [
+      'apps/web/**/*.{ts,tsx}',
+      'packages/application/src/**/*.ts',
+      'packages/workflows/**/*.ts',
+      'workers/**/*.ts',
+    ],
     ignores: ['packages/application/src/saas/**', 'workers/workflow/src/ops*.ts'],
     rules: { 'no-restricted-syntax': ['error', ...saasBoundarySelectors] },
   },

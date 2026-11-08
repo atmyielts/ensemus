@@ -223,8 +223,10 @@ const MESSAGES: Record<ErrorCode, string> = {
   TENANT_SUSPENDED:
     'This organization is suspended. Its data is kept, and billing, export and support still work.',
   LEGAL_HOLD_ACTIVE: 'This is under a legal hold, so it cannot be deleted.',
-  OBJECT_DELETE_UNCONFIRMED: 'Storage has not confirmed this deletion. Its recovery evidence must be reviewed before trying again.',
-  OBJECT_DELETE_IN_PROGRESS: 'A file deletion is already in progress or unconfirmed. A new hold cannot promise to preserve those bytes yet.',
+  OBJECT_DELETE_UNCONFIRMED:
+    'Storage has not confirmed this deletion. Its recovery evidence must be reviewed before trying again.',
+  OBJECT_DELETE_IN_PROGRESS:
+    'A file deletion is already in progress or unconfirmed. A new hold cannot promise to preserve those bytes yet.',
   RETENTION_BASIS_REQUIRED: 'A retention period has to say whose sign-off it rests on.',
   OFFBOARDING_IN_PROGRESS: 'This organization is already being offboarded.',
   OFFBOARDING_NOT_CANCELLABLE: 'Erasure has started, so this can no longer be cancelled.',

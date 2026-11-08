@@ -15,7 +15,10 @@ import {
 } from '@ensemus/application/saas/offboarding';
 import type { OffboardingAgentHaltPort } from '@ensemus/application/saas/ports';
 import { createOffboardingAgentHaltPort } from '@ensemus/application/saas/offboarding-agent-port';
-import { createTenantObjectErasure, type ErasureObjectStore } from '@ensemus/application/saas/tenant-object-erasure';
+import {
+  createTenantObjectErasure,
+  type ErasureObjectStore,
+} from '@ensemus/application/saas/tenant-object-erasure';
 import { readSecret } from '@ensemus/config';
 import { openAppDatabase } from '@ensemus/database';
 import { createServiceContext } from '@ensemus/database/service';
@@ -60,8 +63,7 @@ export async function eraseCommand(
     if (Buffer.byteLength(wire) > 1024 * 1024) throw new Error('INVALID_INPUT');
     input = eraseCommandInputSchemas[command].parse(JSON.parse(wire));
     reportFile = values['report-file']?.[0];
-    if (command === 'run' && !reportFile)
-      throw new Error('PREREQUISITES_INCOMPLETE');
+    if (command === 'run' && !reportFile) throw new Error('PREREQUISITES_INCOMPLETE');
     if (command !== 'run' && reportFile) throw new Error('INVALID_INPUT');
   } catch {
     log.error('erasure.refused', { reasonCode: 'INVALID_COMMAND_OR_CONFIGURATION' });
@@ -108,13 +110,22 @@ export async function eraseCommand(
         accessKey: readSecret('OBJECT_STORAGE_ACCESS_KEY'),
         secretKey: readSecret('OBJECT_STORAGE_SECRET_KEY'),
       });
-    if(!('listPages' in store) || typeof store.listPages!=='function')
+    if (!('listPages' in store) || typeof store.listPages !== 'function')
       throw new AppError('PREREQUISITES_INCOMPLETE');
-    const objectErasure=createTenantObjectErasure({database:app.db,store:store as ErasureObjectStore});
-    const agents=bindings.agents??createOffboardingAgentHaltPort();
+    const objectErasure = createTenantObjectErasure({
+      database: app.db,
+      store: store as ErasureObjectStore,
+    });
+    const agents = bindings.agents ?? createOffboardingAgentHaltPort();
     const prior = await inspectErasure(app.db, context, input);
     if (prior.state === 'reported') {
-      const checked=await finishErasure(app.db,context,{...input,tables:[],blobsRemoved:0},agents,objectErasure);
+      const checked = await finishErasure(
+        app.db,
+        context,
+        { ...input, tables: [], blobsRemoved: 0 },
+        agents,
+        objectErasure,
+      );
       writeReport(checked.report);
       log.info('erasure.reported', { organizationId: input.organizationId });
       return 0;
@@ -139,24 +150,30 @@ export async function eraseCommand(
       return 1;
     }
     let blobsRemoved = 0;
-    for (let page=0;page<20;page++) {
-      const purge = await objectErasure.purge(context,{...input,limit:25});
+    for (let page = 0; page < 20; page++) {
+      const purge = await objectErasure.purge(context, { ...input, limit: 25 });
       blobsRemoved += purge.files.purged;
-      if (!purge.files.purged || purge.files.failed || purge.unconfirmedDeletes || purge.archives.held) break;
+      if (
+        !purge.files.purged ||
+        purge.files.failed ||
+        purge.unconfirmedDeletes ||
+        purge.archives.held
+      )
+        break;
     }
     pending = await inspectErasure(app.db, context, input);
     if (pending.activeHolds) throw new AppError('LEGAL_HOLD_ACTIVE');
-    const physical=await objectErasure.confirm(context,input);
+    const physical = await objectErasure.confirm(context, input);
     if (pending.blobsPending || !physical.confirmed) {
       writeReport({
         state: 'pending',
         reasonCode: 'BLOB_PURGE_PENDING',
-        count: pending.blobsPending+physical.objectsRemaining,
+        count: pending.blobsPending + physical.objectsRemaining,
       });
       log.warn('erasure.pending', {
         organizationId: input.organizationId,
         reasonCode: 'BLOB_PURGE_PENDING',
-        count: pending.blobsPending+physical.objectsRemaining,
+        count: pending.blobsPending + physical.objectsRemaining,
       });
       return 1;
     }

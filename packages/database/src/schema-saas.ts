@@ -40,7 +40,7 @@ export const operationsSchema = pgSchema('operations');
 // --- The price list. Global, entered by the operator, and immutable once approved.
 
 /** One version of a price list. Nothing can be billed from a draft, which the database also refuses. */
-export const rateCards = billingSchema.table(
+export const billingRateCards = billingSchema.table(
   'rate_cards',
   {
     id: uuidPk(),
@@ -76,7 +76,7 @@ export const rateCardLines = billingSchema.table(
   {
     rateCardId: uuid()
       .notNull()
-      .references(() => rateCards.id),
+      .references(() => billingRateCards.id),
     meter: text().notNull(),
     unit: text().notNull(),
     microcreditsPerUnit: bigint({ mode: 'bigint' }).notNull(),
@@ -94,7 +94,7 @@ export const topUpOffers = billingSchema.table(
     id: uuidPk(),
     rateCardId: uuid()
       .notNull()
-      .references(() => rateCards.id),
+      .references(() => billingRateCards.id),
     code: text().notNull(),
     microcredits: bigint({ mode: 'bigint' }).notNull(),
     priceMicros: micros().notNull(),
@@ -139,7 +139,7 @@ export const planVersions = billingSchema.table(
     minorUnitExponent: integer(),
     platformFeeMicros: micros().notNull(),
     includedMicrocredits: bigint({ mode: 'bigint' }),
-    rateCardId: uuid().references(() => rateCards.id),
+    rateCardId: uuid().references(() => billingRateCards.id),
     overagePolicy: text(),
     features: text()
       .array()
@@ -404,7 +404,7 @@ export const billingPeriods = billingSchema.table(
     planVersionId: uuid()
       .notNull()
       .references(() => planVersions.id),
-    rateCardId: uuid().references(() => rateCards.id),
+    rateCardId: uuid().references(() => billingRateCards.id),
     startsAt: when().notNull(),
     endsAt: when().notNull(),
     status: text().notNull().default('open'),
@@ -475,7 +475,7 @@ export const creditLedger = billingSchema.table(
     kind: text().notNull(),
     amountMicrocredits: bigint({ mode: 'bigint' }).notNull(),
     billingPeriodId: uuid(),
-    rateCardId: uuid().references(() => rateCards.id),
+    rateCardId: uuid().references(() => billingRateCards.id),
     usageRef: text(),
     topUpId: uuid(),
     correctsId: uuid(),
@@ -526,7 +526,7 @@ export const invoices = billingSchema.table(
     billingPeriodId: uuid(),
     topUpId: uuid(),
     planVersionId: uuid().references(() => planVersions.id),
-    rateCardId: uuid().references(() => rateCards.id),
+    rateCardId: uuid().references(() => billingRateCards.id),
     taxTreatmentId: uuid().references(() => taxTreatments.id),
     taxRef: text(),
     /** The name and address as they were at issue, so a later change does not rewrite an old invoice. */
@@ -1240,48 +1240,134 @@ export const vulnerabilityReports = operationsSchema.table(
 );
 
 /** Private durable physical-deletion receipts. IDs/keys/hashes only; SQL owns all writes and serving. */
-export const objectDeletionClaims = lifecycleSchema.table('object_deletion_claims', {
-  organizationId: uuid().notNull(), id: uuid().notNull().defaultRandom(), kind: text().notNull(),
-  artifactId: uuid().notNull(), importId: uuid(), writerToken: uuid().notNull(),
-  generation: bigint({ mode: 'number' }).notNull(), objectKey: text().notNull(), sha256: text().notNull(),
-  state: text().notNull(), admittedAt: timestamp({ withTimezone: true }).notNull().default(sql`clock_timestamp()`),
-  terminalAt: timestamp({ withTimezone: true }), absentAt: timestamp({ withTimezone: true }),
-}, (t) => [
-  foreignKey({ name:'object_deletion_claims_organization_id_fkey',columns:[t.organizationId],foreignColumns:[organizations.id] }),
-  primaryKey({ name: 'object_deletion_claims_pkey', columns: [t.organizationId, t.id] }),
-  uniqueIndex('object_deletion_unresolved_key').on(t.organizationId,t.objectKey).where(sql`${t.state}<>'proven'`),
-  check('object_deletion_claims_kind_check',sql`${t.kind} in ('derived','ordinary','archive')`),
-  check('object_deletion_claims_generation_check',sql`${t.generation}>0`),
-  check('object_deletion_claims_sha256_check',sql`${t.sha256} ~ '^[0-9a-f]{64}$'`),
-  check('object_deletion_claims_state_check',sql`${t.state} in ('admitted','unknown','deleted','proven')`),
-  check('object_deletion_key',sql`(${t.kind}='archive' and ${t.importId} is not null and ${t.objectKey}=${t.organizationId}::text||'/archive-quarantine/'||${t.importId}::text||'/'||${t.artifactId}::text||'/'||${t.writerToken}::text) or (${t.kind} in ('derived','ordinary') and ${t.importId} is null and ${t.objectKey}=${t.organizationId}::text||'/artifacts/'||${t.artifactId}::text)`),
-  check('object_deletion_receipt',sql`(${t.state} not in ('deleted','proven') or ${t.terminalAt} is not null) and (${t.state}<>'proven' or (${t.absentAt} is not null and ${t.absentAt}>=${t.terminalAt}))`),
-]);
+export const objectDeletionClaims = lifecycleSchema.table(
+  'object_deletion_claims',
+  {
+    organizationId: uuid().notNull(),
+    id: uuid().notNull().defaultRandom(),
+    kind: text().notNull(),
+    artifactId: uuid().notNull(),
+    importId: uuid(),
+    writerToken: uuid().notNull(),
+    generation: bigint({ mode: 'number' }).notNull(),
+    objectKey: text().notNull(),
+    sha256: text().notNull(),
+    state: text().notNull(),
+    admittedAt: timestamp({ withTimezone: true })
+      .notNull()
+      .default(sql`clock_timestamp()`),
+    terminalAt: timestamp({ withTimezone: true }),
+    absentAt: timestamp({ withTimezone: true }),
+  },
+  (t) => [
+    foreignKey({
+      name: 'object_deletion_claims_organization_id_fkey',
+      columns: [t.organizationId],
+      foreignColumns: [organizations.id],
+    }),
+    primaryKey({ name: 'object_deletion_claims_pkey', columns: [t.organizationId, t.id] }),
+    uniqueIndex('object_deletion_unresolved_key')
+      .on(t.organizationId, t.objectKey)
+      .where(sql`${t.state}<>'proven'`),
+    check('object_deletion_claims_kind_check', sql`${t.kind} in ('derived','ordinary','archive')`),
+    check('object_deletion_claims_generation_check', sql`${t.generation}>0`),
+    check('object_deletion_claims_sha256_check', sql`${t.sha256} ~ '^[0-9a-f]{64}$'`),
+    check(
+      'object_deletion_claims_state_check',
+      sql`${t.state} in ('admitted','unknown','deleted','proven')`,
+    ),
+    check(
+      'object_deletion_key',
+      sql`(${t.kind}='archive' and ${t.importId} is not null and ${t.objectKey}=${t.organizationId}::text||'/archive-quarantine/'||${t.importId}::text||'/'||${t.artifactId}::text||'/'||${t.writerToken}::text) or (${t.kind} in ('derived','ordinary') and ${t.importId} is null and ${t.objectKey}=${t.organizationId}::text||'/artifacts/'||${t.artifactId}::text)`,
+    ),
+    check(
+      'object_deletion_receipt',
+      sql`(${t.state} not in ('deleted','proven') or ${t.terminalAt} is not null) and (${t.state}<>'proven' or (${t.absentAt} is not null and ${t.absentAt}>=${t.terminalAt}))`,
+    ),
+  ],
+);
 
 /** Durable native admission; opaque historic session/person IDs survive logout and tenant row erasure. */
-export const offboardingAdmissions = lifecycleSchema.table('offboarding_admissions', {
- organizationId: uuid().notNull(),offboardingId: uuid().notNull(),requestedByMembershipId: uuid().notNull(),
- userId: uuid().notNull(),sessionId: uuid().notNull(),admittedAt: timestamp({ withTimezone:true }).notNull().default(sql`clock_timestamp()`),
-},(t)=>[
- primaryKey({name:'offboarding_admissions_pkey',columns:[t.organizationId,t.offboardingId]}),
- foreignKey({name:'offboarding_admissions_organization_id_fkey',columns:[t.organizationId],foreignColumns:[organizations.id]}),
- foreignKey({name:'offboarding_admission_intent',columns:[t.organizationId,t.offboardingId],foreignColumns:[offboardings.organizationId,offboardings.id]}),
-]);
+export const offboardingAdmissions = lifecycleSchema.table(
+  'offboarding_admissions',
+  {
+    organizationId: uuid().notNull(),
+    offboardingId: uuid().notNull(),
+    requestedByMembershipId: uuid().notNull(),
+    userId: uuid().notNull(),
+    sessionId: uuid().notNull(),
+    admittedAt: timestamp({ withTimezone: true })
+      .notNull()
+      .default(sql`clock_timestamp()`),
+  },
+  (t) => [
+    primaryKey({
+      name: 'offboarding_admissions_pkey',
+      columns: [t.organizationId, t.offboardingId],
+    }),
+    foreignKey({
+      name: 'offboarding_admissions_organization_id_fkey',
+      columns: [t.organizationId],
+      foreignColumns: [organizations.id],
+    }),
+    foreignKey({
+      name: 'offboarding_admission_intent',
+      columns: [t.organizationId, t.offboardingId],
+      foreignColumns: [offboardings.organizationId, offboardings.id],
+    }),
+  ],
+);
 
-export const offboardingAgentStops = lifecycleSchema.table('offboarding_agent_stops', {
- organizationId:uuid().notNull(),offboardingId:uuid().notNull(),switchId:uuid().notNull(),
-},(t)=>[
- primaryKey({name:'offboarding_agent_stops_pkey',columns:[t.organizationId,t.offboardingId]}),
- foreignKey({name:'offboarding_agent_stops_organization_id_fkey',columns:[t.organizationId],foreignColumns:[organizations.id]}),
- foreignKey({name:'offboarding_agent_stops_switch_id_fkey',columns:[t.switchId],foreignColumns:[killSwitches.id]}),
- foreignKey({name:'offboarding_agent_stop_intent',columns:[t.organizationId,t.offboardingId],foreignColumns:[offboardings.organizationId,offboardings.id]}),
-]);
+export const offboardingAgentStops = lifecycleSchema.table(
+  'offboarding_agent_stops',
+  {
+    organizationId: uuid().notNull(),
+    offboardingId: uuid().notNull(),
+    switchId: uuid().notNull(),
+  },
+  (t) => [
+    primaryKey({
+      name: 'offboarding_agent_stops_pkey',
+      columns: [t.organizationId, t.offboardingId],
+    }),
+    foreignKey({
+      name: 'offboarding_agent_stops_organization_id_fkey',
+      columns: [t.organizationId],
+      foreignColumns: [organizations.id],
+    }),
+    foreignKey({
+      name: 'offboarding_agent_stops_switch_id_fkey',
+      columns: [t.switchId],
+      foreignColumns: [killSwitches.id],
+    }),
+    foreignKey({
+      name: 'offboarding_agent_stop_intent',
+      columns: [t.organizationId, t.offboardingId],
+      foreignColumns: [offboardings.organizationId, offboardings.id],
+    }),
+  ],
+);
 
-export const objectRestoreDebts = lifecycleSchema.table('object_restore_debts',{
- organizationId:uuid().notNull(),objectKey:text().notNull(),kind:text().notNull(),artifactId:uuid().notNull(),importId:uuid(),
- writerToken:uuid().notNull(),recordedAt:timestamp({withTimezone:true}).notNull().default(sql`clock_timestamp()`),
-},(t)=>[
- primaryKey({name:'object_restore_debts_pkey',columns:[t.organizationId,t.objectKey]}),
- foreignKey({name:'object_restore_debts_organization_id_fkey',columns:[t.organizationId],foreignColumns:[organizations.id]}),
- check('object_restore_debts_kind_check',sql`${t.kind} in ('derived','archive')`),
-]);
+export const objectRestoreDebts = lifecycleSchema.table(
+  'object_restore_debts',
+  {
+    organizationId: uuid().notNull(),
+    objectKey: text().notNull(),
+    kind: text().notNull(),
+    artifactId: uuid().notNull(),
+    importId: uuid(),
+    writerToken: uuid().notNull(),
+    recordedAt: timestamp({ withTimezone: true })
+      .notNull()
+      .default(sql`clock_timestamp()`),
+  },
+  (t) => [
+    primaryKey({ name: 'object_restore_debts_pkey', columns: [t.organizationId, t.objectKey] }),
+    foreignKey({
+      name: 'object_restore_debts_organization_id_fkey',
+      columns: [t.organizationId],
+      foreignColumns: [organizations.id],
+    }),
+    check('object_restore_debts_kind_check', sql`${t.kind} in ('derived','archive')`),
+  ],
+);

@@ -274,6 +274,6 @@ export async function consumeUsage(
 /** What the entitlement check asks when a Cloud model call is about to start. */
 export async function loadCreditBalanceInTx(tx: Tx, context: TenantContext): Promise<bigint> {
   // The SQL function checks the real caller and current tenant; no raw account/usage cursor read.
-  if(!context.organizationId) throw new AppError('NOT_FOUND');
-  return (await loadEntitlementMetadataInTx(tx,context)).balanceMicrocredits;
+  if (!context.organizationId) throw new AppError('NOT_FOUND');
+  return (await loadEntitlementMetadataInTx(tx, context)).balanceMicrocredits;
 }

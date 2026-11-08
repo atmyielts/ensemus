@@ -15,8 +15,10 @@ import {
   type WebhookVerifier,
 } from '@ensemus/application';
 import { MalformedWebhook, type ConnectorContext } from '@ensemus/connectors';
+import { PAYMENT_CONNECTOR_PREFIX } from '@ensemus/connectors/payment';
 import { verifyWebhookSignature } from '@ensemus/connectors/runtime';
-import { connections, withTenantTx, workUnits, type Tx } from '@ensemus/database';
+import { recordPaymentEventInTx } from '@ensemus/application/saas/payment-events';
+import { connections, webhookEndpoints, withTenantTx, workUnits, type Tx } from '@ensemus/database';
 import { createServiceContext } from '@ensemus/database/service';
 import { SECRET_PURPOSE_WEBHOOK_SIGNING } from '@ensemus/domain/connector';
 import { AGGREGATE_CONNECTION, CONNECTOR_SYNC_REQUESTED } from '@ensemus/domain/integration-events';
@@ -46,6 +48,7 @@ const isSecretUnavailable = (error: unknown) => (error as Error).name === 'Secre
  */
 export function createWebhookEffectHandlers(
   propose: ProposeInTx = proposeExternalActionInTx,
+  payment: ConnectorActivityDeps['paymentWebhook'] = undefined,
 ): WebhookEffectHandlers {
   return {
     async proposeAction(tx, context, effect) {
@@ -97,6 +100,64 @@ export function createWebhookEffectHandlers(
         aggregateVersion: 1,
         classification: 'internal',
         payload: {},
+      });
+    },
+    async recordPaymentEvent(tx, context, effect, source) {
+      if (
+        !payment?.billingOrganizationId ||
+        !payment.billingConnectionId ||
+        !payment.processor ||
+        !source ||
+        context.actorType !== 'service' ||
+        payment.billingOrganizationId.toLowerCase() !== context.organizationId ||
+        payment.billingConnectionId.toLowerCase() !== source.connectionId ||
+        !/^[a-z][a-z0-9_]{1,55}$/.test(payment.processor) ||
+        effect.event.processor !== payment.processor ||
+        effect.event.providerEventId !== source.providerEventId
+      )
+        throw new AppError('NOT_FOUND');
+      // Current rows are locked inside the same delivery/inbox transaction. NOWAIT refuses an inverse
+      // endpoint/connection revocation order rather than holding a connection across any I/O.
+      const [endpoint] = await tx
+        .select({ connectionId: webhookEndpoints.connectionId, state: webhookEndpoints.state })
+        .from(webhookEndpoints)
+        .where(
+          and(
+            eq(webhookEndpoints.organizationId, context.organizationId),
+            eq(webhookEndpoints.id, source.endpointId),
+          ),
+        )
+        .for('share', { noWait: true });
+      const [connection] = await tx
+        .select({
+          id: connections.id,
+          state: connections.state,
+          connectorType: connections.connectorType,
+          credentialSecretId: connections.credentialSecretId,
+        })
+        .from(connections)
+        .where(
+          and(
+            eq(connections.organizationId, context.organizationId),
+            eq(connections.id, source.connectionId),
+          ),
+        )
+        .for('share', { noWait: true });
+      if (
+        !endpoint ||
+        endpoint.state !== 'active' ||
+        endpoint.connectionId !== source.connectionId ||
+        !connection ||
+        connection.state !== 'active' ||
+        connection.connectorType !== PAYMENT_CONNECTOR_PREFIX + payment.processor ||
+        !connection.credentialSecretId
+      )
+        throw new AppError('NOT_FOUND');
+      await recordPaymentEventInTx(tx, context, effect.event, {
+        billingOrganizationId: context.organizationId,
+        billingConnectionId: connection.id,
+        processor: payment.processor,
+        connectionId: endpoint.connectionId,
       });
     },
   };
@@ -190,7 +251,7 @@ export function createWebhookVerifier(deps: ConnectorActivityDeps): WebhookVerif
 /** On the connector queue, because this opens a signing secret and reads what a stranger sent. */
 export function createWebhookActivities(
   deps: ConnectorActivityDeps,
-  handlers: WebhookEffectHandlers = createWebhookEffectHandlers(),
+  handlers: WebhookEffectHandlers = createWebhookEffectHandlers(undefined, deps.paymentWebhook),
 ) {
   const verifier = createWebhookVerifier(deps);
   return {

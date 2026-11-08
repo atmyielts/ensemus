@@ -34,12 +34,18 @@ const VERSIONING_RESPONSE_LIMIT = 4096;
 // This is an intentionally narrow protocol recognizer, not a general XML parser. A genuinely
 // unversioned S3 bucket returns an empty VersioningConfiguration. Reject alternative roots,
 // attributes, children, entities and DTD declarations rather than guessing a compatible capability.
-const EMPTY_VERSIONING_CONFIGURATION = /^(?:<\?xml[\t\r\n ]+version=(?:"1\.0"|'1\.0')(?:[\t\r\n ]+encoding=(?:"UTF-8"|'UTF-8'))?[\t\r\n ]*\?>[\t\r\n ]*)?<VersioningConfiguration[\t\r\n ]+xmlns=(?:"http:\/\/s3\.amazonaws\.com\/doc\/2006-03-01\/"|'http:\/\/s3\.amazonaws\.com\/doc\/2006-03-01\/')[\t\r\n ]*(?:\/>|>[\t\r\n ]*<\/VersioningConfiguration[\t\r\n ]*>)[\t\r\n ]*$/u;
+const EMPTY_VERSIONING_CONFIGURATION =
+  /^(?:<\?xml[\t\r\n ]+version=(?:"1\.0"|'1\.0')(?:[\t\r\n ]+encoding=(?:"UTF-8"|'UTF-8'))?[\t\r\n ]*\?>[\t\r\n ]*)?<VersioningConfiguration[\t\r\n ]+xmlns=(?:"http:\/\/s3\.amazonaws\.com\/doc\/2006-03-01\/"|'http:\/\/s3\.amazonaws\.com\/doc\/2006-03-01\/')[\t\r\n ]*(?:\/>|>[\t\r\n ]*<\/VersioningConfiguration[\t\r\n ]*>)[\t\r\n ]*$/u;
 const physicalAbsenceUnproven = () => new Error('OBJECT_PHYSICAL_ABSENCE_UNPROVEN');
 
 async function versioningResponseBytes(body: unknown, signal: AbortSignal): Promise<Buffer> {
-  if (!body || typeof body !== 'object' || !(Symbol.asyncIterator in body) ||
-    !('destroy' in body) || typeof body.destroy !== 'function')
+  if (
+    !body ||
+    typeof body !== 'object' ||
+    !(Symbol.asyncIterator in body) ||
+    !('destroy' in body) ||
+    typeof body.destroy !== 'function'
+  )
     throw physicalAbsenceUnproven();
   const stream = body as AsyncIterable<unknown> & { destroy: (error?: Error) => void };
   const chunks: Buffer[] = [];
@@ -151,17 +157,24 @@ export class S3ObjectStore {
 
   async delete(key: string): Promise<void> {
     const result = await this.deleteForPurge(key);
-    if (result.transport !== 'deleted' || !result.capabilityVerified) throw physicalAbsenceUnproven();
+    if (result.transport !== 'deleted' || !result.capabilityVerified)
+      throw physicalAbsenceUnproven();
   }
 
   async deleteForPurge(key: string): Promise<{
-    transport: 'not_attempted' | 'deleted' | 'unknown'; capabilityVerified: boolean;
+    transport: 'not_attempted' | 'deleted' | 'unknown';
+    capabilityVerified: boolean;
   }> {
-    try { await this.#assertUnversionedBucket(); }
-    catch { return { transport: 'not_attempted', capabilityVerified: false }; }
+    try {
+      await this.#assertUnversionedBucket();
+    } catch {
+      return { transport: 'not_attempted', capabilityVerified: false };
+    }
     let result;
     try {
-      result = await this.#deleteClient.send(new DeleteObjectCommand({ Bucket: this.#bucket, Key: key }));
+      result = await this.#deleteClient.send(
+        new DeleteObjectCommand({ Bucket: this.#bucket, Key: key }),
+      );
     } catch {
       // A timeout, SDK/HTTP error or disconnected response may still have removed bytes. No retry.
       return { transport: 'unknown', capabilityVerified: false };
@@ -170,8 +183,11 @@ export class S3ObjectStore {
     if (result.$metadata.httpStatusCode !== 204)
       return { transport: 'unknown', capabilityVerified: false };
     let capabilityVerified = result.DeleteMarker !== true && result.VersionId === undefined;
-    try { await this.#assertUnversionedBucket(); }
-    catch { capabilityVerified = false; }
+    try {
+      await this.#assertUnversionedBucket();
+    } catch {
+      capabilityVerified = false;
+    }
     // Enabling versioning cannot later return to the never-enabled state in S3: suspended is also
     // refused. Keep the genuine completed transport separate from a failed capability post-check.
     return { transport: 'deleted', capabilityVerified };
@@ -194,7 +210,7 @@ export class S3ObjectStore {
     let recognizedResponse = false;
     // The pinned SDK discards the XML root before mapping known children. Without this raw check,
     // a backend that ignores ?versioning and returns ListBucketResult can look like Status absent.
-    command.middlewareStack.addRelativeTo(
+    command.middlewareStack.add(
       (next) => async (args) => {
         recognizedResponse = false;
         const result = await next(args);
@@ -203,27 +219,45 @@ export class S3ObjectStore {
           headers?: Record<string, string>;
           body?: unknown;
         };
-        if (response.statusCode !== 200 ||
-          !/^(?:application|text)\/xml(?:\s*;|$)/iu.test(response.headers?.['content-type'] ?? '')) {
+        if (
+          response.statusCode !== 200 ||
+          !/^(?:application|text)\/xml(?:\s*;|$)/iu.test(response.headers?.['content-type'] ?? '')
+        ) {
           (response.body as { destroy?: () => void } | undefined)?.destroy?.();
           throw physicalAbsenceUnproven();
         }
         const bytes = await versioningResponseBytes(response.body, abort.signal);
         let xml: string;
-        try { xml = new TextDecoder('utf-8', { fatal: true }).decode(bytes); }
-        catch { throw physicalAbsenceUnproven(); }
+        try {
+          xml = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+        } catch {
+          throw physicalAbsenceUnproven();
+        }
         if (!EMPTY_VERSIONING_CONFIGURATION.test(xml)) throw physicalAbsenceUnproven();
         response.body = bytes;
         recognizedResponse = true;
         return result;
       },
-      { name: 'validateVersioningConfiguration', relation: 'after', toMiddleware: 'deserializerMiddleware' },
+      {
+        name: 'validateVersioningConfiguration',
+        step: 'deserialize',
+        // The pinned native deserializer has normal priority. This lower-priority inner handler
+        // validates/restores the raw response before the native outer handler parses it.
+        priority: 'low',
+      },
     );
     try {
       const result = await this.#deleteClient.send(command, { abortSignal: abort.signal });
-      if (!recognizedResponse || result.$metadata.httpStatusCode !== 200 ||
-        result.Status !== undefined || result.MFADelete !== undefined) throw physicalAbsenceUnproven();
-    } finally { clearTimeout(timer); }
+      if (
+        !recognizedResponse ||
+        result.$metadata.httpStatusCode !== 200 ||
+        result.Status !== undefined ||
+        result.MFADelete !== undefined
+      )
+        throw physicalAbsenceUnproven();
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   /** The keys under a prefix, a page at a time, so a caller holds at most one page in memory. */

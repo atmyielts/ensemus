@@ -4,7 +4,7 @@ import {
   plans,
   planVersions,
   rateCardLines,
-  rateCards,
+  billingRateCards,
   subscriptions,
   topUpOffers,
   type AppDatabase,
@@ -115,14 +115,19 @@ export async function requirePublishedRateCard(tx: Tx, rateCardId: string): Prom
   if (!id.success) throw new AppError('RATE_CARD_NOT_APPROVED');
   const [card] = await tx
     .select({
-      id: rateCards.id,
-      status: rateCards.status,
-      currency: rateCards.currency,
-      minorUnitExponent: rateCards.minorUnitExponent,
-      effectiveFrom: rateCards.effectiveFrom,
+      id: billingRateCards.id,
+      status: billingRateCards.status,
+      currency: billingRateCards.currency,
+      minorUnitExponent: billingRateCards.minorUnitExponent,
+      effectiveFrom: billingRateCards.effectiveFrom,
     })
-    .from(rateCards)
-    .where(and(eq(rateCards.id, id.data), inArray(rateCards.status, ['approved', 'retired'])));
+    .from(billingRateCards)
+    .where(
+      and(
+        eq(billingRateCards.id, id.data),
+        inArray(billingRateCards.status, ['approved', 'retired']),
+      ),
+    );
   if (!card || (card.status !== 'approved' && card.status !== 'retired')) {
     throw new AppError('RATE_CARD_NOT_APPROVED');
   }
@@ -151,14 +156,14 @@ export async function listTopUpOffers(
         rateCardId: topUpOffers.rateCardId,
         microcredits: topUpOffers.microcredits,
         priceMicros: topUpOffers.priceMicros,
-        currency: rateCards.currency,
+        currency: billingRateCards.currency,
       })
       .from(subscriptions)
       .innerJoin(organizations, eq(organizations.id, subscriptions.organizationId))
       .innerJoin(planVersions, eq(planVersions.id, subscriptions.planVersionId))
       .innerJoin(plans, eq(plans.id, planVersions.planId))
-      .innerJoin(rateCards, eq(rateCards.id, planVersions.rateCardId))
-      .innerJoin(topUpOffers, eq(topUpOffers.rateCardId, rateCards.id))
+      .innerJoin(billingRateCards, eq(billingRateCards.id, planVersions.rateCardId))
+      .innerJoin(topUpOffers, eq(topUpOffers.rateCardId, billingRateCards.id))
       .where(
         and(
           eq(subscriptions.organizationId, context.organizationId),
@@ -167,8 +172,8 @@ export async function listTopUpOffers(
           eq(plans.commercialMode, 'cloud'),
           eq(planVersions.overagePolicy, 'explicit_top_up'),
           inArray(planVersions.status, ['approved', 'retired']),
-          inArray(rateCards.status, ['approved', 'retired']),
-          lte(rateCards.effectiveFrom, new Date()),
+          inArray(billingRateCards.status, ['approved', 'retired']),
+          lte(billingRateCards.effectiveFrom, new Date()),
         ),
       )
       .orderBy(asc(topUpOffers.code), asc(topUpOffers.id)),

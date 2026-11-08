@@ -415,8 +415,9 @@ async function purgeOne(
   context: TenantContext,
   row: { artifactId: string; objectKey: string },
 ) {
-  const result = await eraseTombstonedArtifact({database,store},context,row.artifactId);
-  if (result.state !== 'purged') throw new AppError(result.state === 'held' ? 'LEGAL_HOLD_ACTIVE' : 'OBJECT_DELETE_UNCONFIRMED');
+  const result = await eraseTombstonedArtifact({ database, store }, context, row.artifactId);
+  if (result.state !== 'purged')
+    throw new AppError(result.state === 'held' ? 'LEGAL_HOLD_ACTIVE' : 'OBJECT_DELETE_UNCONFIRMED');
 }
 
 /**

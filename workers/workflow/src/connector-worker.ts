@@ -68,7 +68,18 @@ async function main() {
     taskQueue: CONNECTOR_TASK_QUEUE,
     activities: {
       ...createExternalActionConnectorActivities(deps),
-      ...createWebhookActivities(deps),
+      ...createWebhookActivities({
+        ...deps,
+        ...(saas.billingEnabled
+          ? {
+              paymentWebhook: {
+                billingOrganizationId: saas.billingOrganizationId,
+                billingConnectionId: saas.billingConnectionId,
+                processor: saas.paymentProcessor,
+              },
+            }
+          : {}),
+      }),
       ...createConnectorSyncActivities(deps),
       ...createPaymentConnectorActivities(paymentDeps),
       ...createTaxActivities(paymentDeps),

@@ -10,4 +10,10 @@ export type ConnectorActivityDeps = {
   secrets: SecretLease;
   /** The egress gateway. The only way out. */
   network: ConnectorNetwork;
+  /** Server-owned deployment configuration; absent/partial means payment webhooks refuse. */
+  paymentWebhook?: {
+    billingOrganizationId: string | null;
+    billingConnectionId: string | null;
+    processor: string | null;
+  };
 };

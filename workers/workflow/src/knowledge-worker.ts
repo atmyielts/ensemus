@@ -6,7 +6,10 @@ import { writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readSecret } from '@ensemus/config';
-import { createObjectDeletionLifecycle,refuseUnadmittedDeletes } from '@ensemus/application/saas/object-deletion';
+import {
+  createObjectDeletionLifecycle,
+  refuseUnadmittedDeletes,
+} from '@ensemus/application/saas/object-deletion';
 import { openAppDatabase } from '@ensemus/database';
 import { S3ObjectStore } from '@ensemus/storage';
 import { createLogger, errorCode } from '@ensemus/telemetry';
@@ -39,13 +42,15 @@ async function main() {
     accessKey: readSecret('OBJECT_STORAGE_ACCESS_KEY'),
     secretKey: readSecret('OBJECT_STORAGE_SECRET_KEY'),
   });
-  const guardedStore=refuseUnadmittedDeletes(store);
-  const lifecycle=createObjectDeletionLifecycle({database:app.db,store});
+  const guardedStore = refuseUnadmittedDeletes(store);
+  const lifecycle = createObjectDeletionLifecycle({ database: app.db, store });
   const deps = {
     database: app.db,
-    store:guardedStore,
+    store: guardedStore,
     ...createKnowledgeRuntimePorts(),
-    ...createKnowledgePurgePorts({ database: app.db, store:guardedStore,
+    ...createKnowledgePurgePorts({
+      database: app.db,
+      store: guardedStore,
       derivedLifecycle: lifecycle.derived,
       archiveLifecycle: lifecycle.archive,
     }),
