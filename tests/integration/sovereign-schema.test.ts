@@ -12,13 +12,19 @@ import {
   organizationExportParts,
   organizationExports,
   organizationImports,
-  resolveTenantContext,
   signedDocuments,
   withTenantTx,
   type TenantContext,
 } from '@ensemus/database';
 import { eq } from 'drizzle-orm';
 import {
+  beginExport,
+  runOrganizationImport,
+  SOURCE_PORTABILITY_SECTIONS,
+} from '@ensemus/application';
+import { createServiceContext } from '@ensemus/database/service';
+import {
+  nativeSovereignContext,
   seedExportRow,
   seedImportRow,
   seedLicenseRow,
@@ -27,6 +33,7 @@ import {
   testRecipient,
 } from '../helpers/sovereign';
 import { urls } from '../helpers/stack';
+import { buildArchive } from './fixtures/archive-builder';
 
 const client = async (url: string) => {
   const c = new pg.Client({ connectionString: url });
@@ -55,7 +62,7 @@ describe('sovereign rules in the database', () => {
       name: 'Same Name Ltd',
       commercialMode: 'sovereign',
     });
-    return resolveTenantContext(database.db, userId, organizationId);
+    return nativeSovereignContext(database.db, userId, organizationId);
   };
 
   beforeAll(async () => {
@@ -160,13 +167,25 @@ describe('sovereign rules in the database', () => {
   });
 
   describe('an export', () => {
-    const move = (context: TenantContext, id: string, status: string, extra: object = {}) =>
-      withTenantTx(database.db, context, (tx) =>
+    const move = (context: TenantContext, id: string, status: string, extra: object = {}) => {
+      if (status === 'running')
+        return beginExport(
+          database.db,
+          createServiceContext(context.organizationId),
+          { exportId: id },
+          {
+            sections: SOURCE_PORTABILITY_SECTIONS,
+            sourceRelease: 'generated-test',
+            retentionHours: 1,
+          },
+        );
+      return withTenantTx(database.db, context, (tx) =>
         tx
           .update(organizationExports)
           .set({ status, ...extra })
           .where(eq(organizationExports.id, id)),
       );
+    };
 
     it('runs one at a time for a tenant', async () => {
       const context = await makeOwner('carol');
@@ -243,12 +262,35 @@ describe('sovereign rules in the database', () => {
       const context = await makeOwner('heidi');
       const id = await seedImportRow(database.db, context);
       const move = (status: string) =>
-        withTenantTx(database.db, context, (tx) =>
+        withTenantTx(database.db, createServiceContext(context.organizationId), (tx) =>
           tx.update(organizationImports).set({ status }).where(eq(organizationImports.id, id)),
         );
       await expect(move('completed')).rejects.toThrow();
-      await move('running');
-      await move('completed');
+      const recipient = testRecipient(),
+        archive = buildArchive(recipient, { pages: [] });
+      const result = await runOrganizationImport(
+        database.db,
+        createServiceContext(context.organizationId),
+        { importId: id, archive: archive.reader, recipientPrivateKeyPem: recipient.privateKeyPem },
+        {
+          sections: SOURCE_PORTABILITY_SECTIONS,
+          store: {
+            put: async () => {},
+            get: async () => {
+              throw new Error('GENERATED_NO_BINARY_PART');
+            },
+            exists: async () => false,
+            delete: async () => {},
+          },
+          ledger: {
+            async *listPages() {
+              yield [];
+            },
+            get: async () => Buffer.alloc(0),
+          },
+        },
+      );
+      expect(result).toMatchObject({ status: 'completed_with_warnings', failureCode: null });
       await expect(move('running')).rejects.toThrow();
     });
   });

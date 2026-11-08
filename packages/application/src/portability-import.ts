@@ -4,7 +4,6 @@
 import { createHash, createPublicKey, randomUUID, type KeyObject } from 'node:crypto';
 import {
   artifacts,
-  blobLifecycle,
   clients,
   connections,
   importedPeople,
@@ -91,6 +90,7 @@ import { queryRows } from './portability-sql';
 import { assertPortableDefinitionIntegrity } from '@ensemus/domain/portable-definition';
 import { withPrivilegeTx, assertInteractivePrivilege } from './product/privileged';
 import { withPortabilityScope } from './portability-scope';
+import { quarantineArchiveFile, ArchiveFileStorageFailure } from './portability-archive-files';
 
 export { parentsFirst } from './portability-sections-import';
 
@@ -154,7 +154,8 @@ const countsOfContent = async (tx: Tx, importId?: string) => {
       ${importId ? sql`where d.id not in(select sovereign.reserved_import_document_ids(${importId}::uuid))` : sql``}
     union all select 'model_profile',count(*)::int from ai.model_profiles
     union all select 'agent_definition',count(*)::int from ai.agent_definitions
-    union all select 'budget',count(*)::int from platform.budgets`,
+    union all select 'budget',count(*)::int from platform.budgets
+    union all select 'archive_file',sovereign.archive_file_target_conflicts(${importId ?? null}::uuid)`,
   );
   return {
     work_unit: await countOf(tx, workUnits),
@@ -256,8 +257,8 @@ export type ImportRunDeps = {
    * which the operator's guide states as a limit (ADR-030 D8).
    */
   ledger: Pick<LedgerReader, 'listPages' | 'get'>;
-  /** Where a file's bytes go, under this organization's own key, before its row is written. */
-  store: Pick<ObjectStore, 'put' | 'exists' | 'delete'>;
+  /** Private inert archive custody. The SQL writer receipt precedes every put; no live artifact is created. */
+  store: Pick<ObjectStore, 'put' | 'get' | 'exists' | 'delete'>;
 };
 
 export type ImportRunResult = {
@@ -639,7 +640,7 @@ export async function inspectOrganizationArchive(
 /**
  * Everything that goes wrong becomes one of the fixed codes. Bad data is the archive's fault, however far in it
  * was found: a database refusing a value is that too. Anything else, such as a connection going away, is an
- * outage, and running it again is safe.
+ * outage. Finished metadata can resume; an unknown file put remains closed and is never resent.
  */
 function namedFailure(error: unknown): ImportFailure {
   if (error instanceof ImportFailure) return error;
@@ -883,12 +884,9 @@ async function applyLedgerTombstones(
   }
 }
 
-const UPLOAD_GRACE_MS = 60 * 60 * 1000;
-
 /**
- * Puts one page of files' bytes in the store, and says which records go on to get rows. The same two steps
- * `addArtifact` takes: a row saying bytes are arriving, so a crash cannot strand them, then the bytes, and later
- * the artifact's own row. No transaction stays open while the store is being called.
+ * Unknown original provenance cannot become an ordinary human upload. Every archive profile now
+ * reserves exact verified bytes in separate inert custody; no active artifact or Work link is made.
  */
 async function storeArtifactBytes(
   opened: OpenedArchive,
@@ -898,6 +896,7 @@ async function storeArtifactBytes(
   lines: readonly unknown[],
   tombstoned: TombstoneSet,
   bytesParts: ReadonlyMap<string, ManifestPart>,
+  scope: { importId: string; sourcePart: { path: string; sha256: string } },
 ) {
   const keep: unknown[] = [];
   const finishedPaths: ManifestPart[] = [];
@@ -922,24 +921,13 @@ async function storeArtifactBytes(
     if (sha256(plain) !== record.sha256 || plain.length !== record.size_bytes) {
       throw new ImportFailure('PART_CHANGED');
     }
-    const key = objectKey(context.organizationId, record.id);
-    await withTenantTx(database, context, (tx) =>
-      tx
-        .insert(blobLifecycle)
-        .values({
-          organizationId: context.organizationId,
-          artifactId: record.id,
-          objectKey: key,
-          state: 'uploading',
-          purgeAfter: new Date(Date.now() + UPLOAD_GRACE_MS),
-        })
-        .onConflictDoNothing(),
-    );
     try {
-      await store.put(key, plain, record.mime_type);
-    } catch {
-      throw new ImportFailure('STORE_UNAVAILABLE');
+      await quarantineArchiveFile(database, store, context, { ...scope, record, bytes: plain });
+    } catch (error) {
+      if (error instanceof ArchiveFileStorageFailure) throw new ImportFailure(error.code);
+      throw error;
     }
+    addWarnings(warnings, { FILES_AWAIT_REVIEW: 1 });
     keep.push(line);
     finishedPaths.push(part);
   }
@@ -1017,6 +1005,7 @@ async function applyParts(
         lines,
         tombstoned,
         bytesParts,
+        { importId: row.id, sourcePart: { path: part.path, sha256: part.plaintext_sha256 } },
       );
       records = stored.keep;
       filesFinished = stored.finishedPaths;

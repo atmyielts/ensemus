@@ -1,0 +1,625 @@
+//0415 source-authored real-role/driver tests. No live provider claim: storage is an explicit private
+// test double; PostgreSQL, native identity, encrypted parser, receipts and SQL fences are actual.
+import { createHash, randomUUID } from 'node:crypto';
+import pg from 'pg';
+import { beforeAll, afterAll, describe, it, expect } from 'vitest';
+import { sql } from 'drizzle-orm';
+import {
+  createOrganization,
+  openAppDatabase,
+  withTenantTx,
+  artifacts,
+  workArtifacts,
+  type AppDatabase,
+  type Tx,
+} from '@ensemus/database';
+import { createServiceContext } from '@ensemus/database/service';
+import {
+  requestOrganizationImport,
+  runOrganizationImport,
+  SOURCE_PORTABILITY_SECTIONS,
+  listImportedArchiveFiles,
+  readImportedArchiveFile,
+  createImportedArchivePurge,
+  createArchiveQuarantineRecovery,
+  createWorkUnit,
+  addArtifact,
+  type ArchiveQuarantineLifecycle,
+} from '@ensemus/application';
+import {
+  addUploadedSource,
+  setSourceGrants,
+  raiseSourceClassification,
+} from '@ensemus/application/knowledge/sources';
+import { deleteSource } from '@ensemus/application/knowledge/purge';
+import { makePerson, nativePersonContext } from '../helpers/product';
+import { testRecipient } from '../helpers/sovereign';
+import { urls } from '../helpers/stack';
+import { buildArchive } from './fixtures/archive-builder';
+import {
+  PORTABILITY_INVENTORY,
+  PORTABILITY_INVENTORY_VERSION,
+  PORTABILITY_INVENTORY_V1,
+  LEGACY_PORTABILITY_INVENTORY_VERSION,
+  PORTABILITY_INVENTORY_V2,
+  PORTABILITY_INVENTORY_V2_VERSION,
+} from '@ensemus/domain/portability';
+
+const digest = (bytes: Buffer) => createHash('sha256').update(bytes).digest('hex');
+class PrivateStore {
+  objects = new Map<string, Buffer>();
+  puts = 0;
+  failPut = false;
+  failReadback = false;
+  beforeGet: (() => Promise<void>) | undefined;
+  async put(key: string, body: Buffer) {
+    this.puts++;
+    if (this.failPut) throw new Error('GENERATED_UNKNOWN_PUT');
+    this.objects.set(key, Buffer.from(body));
+  }
+  async get(key: string, max?: number) {
+    const hook = this.beforeGet;
+    this.beforeGet = undefined;
+    await hook?.();
+    if (this.failReadback) throw new Error('GENERATED_GET_FAILED');
+    const bytes = this.objects.get(key);
+    if (!bytes || (max !== undefined && bytes.length > max))
+      throw new Error('GENERATED_BYTES_UNAVAILABLE');
+    return bytes;
+  }
+  async exists(key: string) {
+    return this.objects.has(key);
+  }
+  async delete(key: string) {
+    this.objects.delete(key);
+  }
+  async *listPages(prefix: string) {
+    yield [...this.objects.keys()].filter((key) => key.startsWith(prefix));
+  }
+}
+describe('inert archive file custody', () => {
+  let app: ReturnType<typeof openAppDatabase>, control: pg.Client, auth: pg.Client;
+  beforeAll(async () => {
+    app = openAppDatabase(urls.app(), { max: 4 });
+    control = new pg.Client({ connectionString: urls.superuser() });
+    auth = new pg.Client({ connectionString: urls.auth() });
+    await control.connect();
+    await auth.connect();
+  });
+  afterAll(async () => {
+    await app.close();
+    await control.end();
+    await auth.end();
+  });
+  const owner = async () => {
+    const person = await makePerson('archive-custodian'),
+      created = await createOrganization(app.db, {
+        userId: person.userId,
+        name: 'Generated archive custody',
+        commercialMode: 'sovereign',
+      });
+    return {
+      ...person,
+      context: await nativePersonContext(app.db, person, created.organizationId),
+    };
+  };
+  const fixture = async (profile: string | null = null) => {
+    const person = await owner(),
+      view = await requestOrganizationImport(app.db, person.context),
+      store = new PrivateStore(),
+      recipient = testRecipient();
+    const sourceId = randomUUID(),
+      bytes = Buffer.from('GENERATED archive bytes, with no assertion of trusted original inputs.'),
+      record = {
+        kind: 'artifact',
+        id: sourceId,
+        name: 'Generated review.txt',
+        mime_type: 'text/plain',
+        size_bytes: bytes.length,
+        sha256: digest(bytes),
+        classification: 'internal',
+        created_by_membership_id: randomUUID(),
+        created_at: '2026-11-07T00:00:00.000Z',
+      };
+    const archive = buildArchive(
+      recipient,
+      {
+        pages: [{ section: 'artifacts', recordKind: 'artifact', records: [record] }],
+        files: { [sourceId]: bytes },
+      },
+      profile
+        ? ({ manifest }) => ({
+            manifest: {
+              ...manifest,
+              schema_version: 2,
+              inventory_version: profile,
+              inventory:
+                profile === PORTABILITY_INVENTORY_VERSION
+                  ? PORTABILITY_INVENTORY
+                  : profile === PORTABILITY_INVENTORY_V2_VERSION
+                    ? PORTABILITY_INVENTORY_V2
+                    : PORTABILITY_INVENTORY_V1,
+              generated_bodies_excluded: 0,
+              ...(profile === PORTABILITY_INVENTORY_VERSION ? { record_max_bytes: 4194304 } : {}),
+            },
+          })
+        : undefined,
+    );
+    const service = createServiceContext(person.context.organizationId);
+    const run = (database: AppDatabase = app.db) =>
+      runOrganizationImport(
+        database,
+        service,
+        {
+          importId: view.id,
+          archive: archive.reader,
+          recipientPrivateKeyPem: recipient.privateKeyPem,
+        },
+        { sections: SOURCE_PORTABILITY_SECTIONS, store, ledger: store },
+      );
+    const read = () =>
+      readImportedArchiveFile(app.db, store, person.context, {
+        importId: view.id,
+        sourceArtifactId: sourceId,
+      });
+    const headers = async () =>
+      (
+        await control.query<{
+          object_key: string;
+          write_token: string;
+          state: string;
+          write_state: string;
+          physical_purged_at: Date | null;
+        }>(
+          'select object_key,write_token,state,write_state,physical_purged_at from sovereign.imported_archive_files where organization_id=$1 and import_id=$2',
+          [person.context.organizationId, view.id],
+        )
+      ).rows;
+    return { person, view, store, sourceId, bytes, record, archive, service, run, read, headers };
+  };
+  const source = async (input: Awaited<ReturnType<typeof fixture>>) =>
+    addUploadedSource(app.db, input.store, input.person.context, {
+      title: 'Generated source',
+      mediaType: 'text/plain',
+      body: Buffer.from('Generated source content'),
+      classification: 'internal',
+      grants: [{ kind: 'membership', membershipId: input.person.context.membershipId }],
+    });
+  const lifecycle = (
+    store: PrivateStore,
+    held: () => boolean = () => false,
+  ): ArchiveQuarantineLifecycle => ({
+    erase: async (_context, input) => {
+      if (held()) return { state: 'held' };
+      // This explicit fake knows only completed puts; an active/unknown writer has no fence proof.
+      if (input.writeState === 'active') return { state: 'unconfirmed' };
+      await store.delete(input.objectKey);
+      return { state: 'purged', quiescent: true };
+    },
+  });
+  it.each([
+    null,
+    LEGACY_PORTABILITY_INVENTORY_VERSION,
+    PORTABILITY_INVENTORY_V2_VERSION,
+    PORTABILITY_INVENTORY_VERSION,
+  ])('keeps verified files inert for profile %s', async (profile) => {
+    const f = await fixture(profile);
+    expect(await f.run()).toMatchObject({
+      status: 'completed_with_warnings',
+      warningCounts: { FILES_AWAIT_REVIEW: 1 },
+    });
+    expect((await f.read()).bytes).toEqual(f.bytes);
+    expect(
+      await withTenantTx(app.db, f.person.context, (tx) => tx.select().from(artifacts)),
+    ).toEqual([]);
+    expect(
+      await withTenantTx(app.db, f.person.context, (tx) => tx.select().from(workArtifacts)),
+    ).toEqual([]);
+    expect(await f.headers()).toEqual([
+      expect.objectContaining({
+        state: 'quarantined',
+        write_state: 'settled',
+        physical_purged_at: null,
+      }),
+    ]);
+    expect([...f.store.objects.keys()][0]).toMatch(
+      new RegExp(
+        `^${f.person.context.organizationId}/archive-quarantine/${f.view.id}/${f.sourceId}/[0-9a-f-]{36}$`,
+      ),
+    );
+  });
+  it('requires an actual human reupload to create a new ordinary artifact and Work link', async () => {
+    const f = await fixture();
+    await f.run();
+    const reviewed = await f.read(),
+      work = await createWorkUnit(app.db, f.person.context, {
+        title: 'Generated reviewed attachment',
+      });
+    const uploaded = await addArtifact(app.db, f.store, f.person.context, {
+      workUnitId: work.id,
+      name: reviewed.name,
+      mimeType: reviewed.mimeType,
+      body: reviewed.bytes,
+    });
+    expect(uploaded.id).not.toBe(f.sourceId);
+    expect(
+      await withTenantTx(app.db, f.person.context, (tx) => tx.select().from(workArtifacts)),
+    ).toEqual([expect.objectContaining({ workUnitId: work.id, artifactId: uploaded.id })]);
+  });
+  it('denies direct table access and foreign-tenant reads', async () => {
+    const f = await fixture();
+    await f.run();
+    const other = await owner();
+    await expect(
+      withTenantTx(app.db, f.person.context, (tx) =>
+        tx.execute(sql`select object_key,write_token from sovereign.imported_archive_files`),
+      ),
+    ).rejects.toThrow();
+    await expect(
+      readImportedArchiveFile(app.db, f.store, other.context, {
+        importId: f.view.id,
+        sourceArtifactId: f.sourceId,
+      }),
+    ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    expect(await listImportedArchiveFiles(app.db, other.context, { importId: f.view.id })).toEqual(
+      [],
+    );
+  });
+  it('refuses changed bytes at native download and reports restore corruption', async () => {
+    const f = await fixture();
+    await f.run();
+    const [header] = await f.headers();
+    f.store.objects.set(header!.object_key, Buffer.alloc(f.bytes.length, 0));
+    await expect(f.read()).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    const report = await createArchiveQuarantineRecovery(f.store).reconcile(app.db, f.service);
+    expect(report.needsAttention).toBeGreaterThan(0);
+    expect((await f.headers())[0]).toMatchObject({
+      state: 'closing',
+      write_state: 'settled',
+      physical_purged_at: null,
+    });
+  });
+  it('does not resend an unknown put even when storage currently reports no object', async () => {
+    const f = await fixture();
+    f.store.failPut = true;
+    expect(await f.run()).toMatchObject({ status: 'failed', failureCode: 'STORE_UNAVAILABLE' });
+    f.store.failPut = false;
+    expect(await f.run()).toMatchObject({ status: 'failed', failureCode: 'RECORD_REFUSED' });
+    expect(f.store.puts).toBe(1);
+    const purge = createImportedArchivePurge({
+      database: app.db,
+      store: f.store,
+      lifecycle: lifecycle(f.store),
+    });
+    expect(await purge.purgeTenant(f.service, { limit: 25 })).toMatchObject({
+      remaining: 1,
+      confirmed: false,
+    });
+    expect((await f.headers())[0]).toMatchObject({
+      state: 'closing',
+      write_state: 'active',
+      physical_purged_at: null,
+    });
+    const token = (await f.headers())[0]!.write_token;
+    const nullProof = await withTenantTx(app.db, f.service, (tx) =>
+      tx.execute<{ confirmed: boolean }>(
+        sql`select sovereign.archive_file_cleanup_receipt(${f.view.id}::uuid,${f.sourceId}::uuid,${token}::uuid,NULL,NULL,false) as confirmed`,
+      ),
+    );
+    expect(nullProof.rows[0]?.confirmed).toBe(false);
+    expect((await f.headers())[0]?.physical_purged_at).toBeNull();
+  });
+  it('records a genuinely finished put as closed/quiescent when read-back fails', async () => {
+    const f = await fixture();
+    f.store.failReadback = true;
+    expect(await f.run()).toMatchObject({ status: 'failed', failureCode: 'STORE_UNAVAILABLE' });
+    expect((await f.headers())[0]).toMatchObject({ state: 'closing', write_state: 'settled' });
+    f.store.failReadback = false;
+    expect(
+      await createImportedArchivePurge({
+        database: app.db,
+        store: f.store,
+        lifecycle: lifecycle(f.store),
+      }).purgeTenant(f.service, { limit: 25 }),
+    ).toMatchObject({ remaining: 0, removed: 1, confirmed: true });
+  });
+  it('does not turn absent storage or a missing lifecycle adapter into a completed purge', async () => {
+    const f = await fixture();
+    await f.run();
+    await f.store.delete((await f.headers())[0]!.object_key);
+    expect(
+      await createImportedArchivePurge({ database: app.db, store: f.store }).purgeTenant(
+        f.service,
+        { limit: 25 },
+      ),
+    ).toMatchObject({ remaining: 1, confirmed: false });
+  });
+  it('honors a hold and requires independent absence before retaining positive deletion proof', async () => {
+    const f = await fixture();
+    await f.run();
+    let held = true;
+    const purge = createImportedArchivePurge({
+      database: app.db,
+      store: f.store,
+      lifecycle: lifecycle(f.store, () => held),
+    });
+    expect(await purge.purgeTenant(f.service, { limit: 25 })).toMatchObject({
+      held: 1,
+      remaining: 1,
+      confirmed: false,
+    });
+    held = false;
+    expect(await purge.purgeTenant(f.service, { limit: 25 })).toMatchObject({
+      held: 0,
+      remaining: 0,
+      removed: 1,
+      confirmed: true,
+    });
+    expect((await f.headers())[0]).toMatchObject({
+      state: 'purged',
+      write_state: 'settled',
+      physical_purged_at: expect.any(Date),
+    });
+    expect(await purge.purgeTenant(f.service, { limit: 25 })).toMatchObject({
+      removed: 1,
+      remaining: 0,
+      confirmed: true,
+    });
+  });
+  it('rejects a claimed cleanup when bytes still exist', async () => {
+    const f = await fixture();
+    await f.run();
+    const purge = createImportedArchivePurge({
+      database: app.db,
+      store: f.store,
+      lifecycle: { erase: async () => ({ state: 'purged', quiescent: true }) },
+    });
+    expect(await purge.purgeTenant(f.service, { limit: 25 })).toMatchObject({
+      remaining: 1,
+      confirmed: false,
+    });
+    expect((await f.headers())[0]?.physical_purged_at).toBeNull();
+  });
+  it('reopens a historical purge receipt when restored storage contains the old bytes', async () => {
+    const f = await fixture();
+    await f.run();
+    const key = (await f.headers())[0]!.object_key;
+    await createImportedArchivePurge({
+      database: app.db,
+      store: f.store,
+      lifecycle: lifecycle(f.store),
+    }).purgeTenant(f.service, { limit: 25 });
+    f.store.objects.set(key, f.bytes);
+    expect(
+      (await createArchiveQuarantineRecovery(f.store).reconcile(app.db, f.service)).needsAttention,
+    ).toBeGreaterThan(0);
+    expect((await f.headers())[0]).toMatchObject({ state: 'closing', physical_purged_at: null });
+    await expect(f.read()).rejects.toMatchObject({ code: 'NOT_FOUND' });
+  });
+  it('counts orphan quarantine objects after a database restore instead of certifying zero', async () => {
+    const f = await fixture();
+    const key = `${f.person.context.organizationId}/archive-quarantine/${randomUUID()}/${randomUUID()}/${randomUUID()}`;
+    f.store.objects.set(key, f.bytes);
+    expect(
+      (await createArchiveQuarantineRecovery(f.store).reconcile(app.db, f.service)).needsAttention,
+    ).toBeGreaterThan(0);
+    expect(f.store.objects.has(key)).toBe(true);
+  });
+  it('does not retain a live session FK and refuses the old native session after logout', async () => {
+    const f = await fixture();
+    await f.run();
+    await auth.query('delete from identity.sessions where id=$1', [f.person.sessionId]);
+    await expect(f.read()).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    expect((await f.headers())[0]?.state).toBe('quarantined');
+  });
+  it('rechecks the actual native session after object I/O', async () => {
+    const f = await fixture();
+    await f.run();
+    f.store.beforeGet = () =>
+      auth
+        .query('delete from identity.sessions where id=$1', [f.person.sessionId])
+        .then(() => undefined);
+    await expect(f.read()).rejects.toMatchObject({ code: 'NOT_FOUND' });
+  });
+  it('does not turn service cleanup authority into custodian download authority', async () => {
+    const f = await fixture();
+    await f.run();
+    await expect(
+      readImportedArchiveFile(app.db, f.store, f.service, {
+        importId: f.view.id,
+        sourceArtifactId: f.sourceId,
+      }),
+    ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    const direct = await withTenantTx(app.db, f.service, (tx) =>
+      tx.execute(
+        sql`select * from sovereign.archive_file_read(${f.view.id}::uuid,${f.sourceId}::uuid)`,
+      ),
+    );
+    expect(direct.rows).toEqual([]);
+  });
+  it('rechecks an active source grant before and after object I/O', async () => {
+    const f = await fixture();
+    await f.run();
+    const added = await source(f);
+    const grants = await control.query<{ id: string }>(
+      'select id from knowledge.source_grants where organization_id=$1 and source_id=$2',
+      [f.person.context.organizationId, added.sourceId],
+    );
+    expect((await f.read()).bytes).toEqual(f.bytes);
+    f.store.beforeGet = () =>
+      setSourceGrants(app.db, f.person.context, {
+        sourceId: added.sourceId,
+        expectedVersion: 1,
+        add: [],
+        removeGrantIds: grants.rows.map((row) => row.id),
+      }).then(() => undefined);
+    await expect(f.read()).rejects.toMatchObject({ code: 'NOT_FOUND' });
+  });
+  it('blocks an archive copy after a current source classification rises', async () => {
+    const f = await fixture();
+    await f.run();
+    const added = await source(f);
+    await raiseSourceClassification(app.db, f.person.context, {
+      sourceId: added.sourceId,
+      expectedVersion: 1,
+      classification: 'confidential',
+    });
+    await expect(f.read()).rejects.toMatchObject({ code: 'NOT_FOUND' });
+  });
+  it('closes all unknown-input files on source deletion and participates in its physical final proof', async () => {
+    const f = await fixture();
+    await f.run();
+    const added = await source(f);
+    await deleteSource(app.db, f.person.context, {
+      sourceId: added.sourceId,
+      expectedVersion: 1,
+      reason: 'Generated source deletion',
+    });
+    await expect(f.read()).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    const purge = createImportedArchivePurge({
+      database: app.db,
+      store: f.store,
+      lifecycle: lifecycle(f.store),
+    });
+    expect(
+      await withTenantTx(app.db, f.service, (tx) =>
+        purge.confirmInTx(tx, f.service, { sourceId: added.sourceId }),
+      ),
+    ).toEqual({ remaining: 1 });
+    expect(
+      await purge.purgeSource(f.service, { sourceId: added.sourceId, limit: 25 }),
+    ).toMatchObject({ remaining: 0, confirmed: true });
+  });
+  it('serializes a concurrent source birth and closure behind the actual uncommitted archive header', async () => {
+    const f = await fixture(),
+      driver = new pg.Client({ connectionString: urls.app() }),
+      sourceId = randomUUID();
+    await driver.connect();
+    let holderPid = 0,
+      release = () => {};
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    // This test-only delegate pauses an actual transaction before commit. It neither manufactures a
+    // native identity nor prepares/stamps any import or storage receipt. The real encrypted importer
+    // has already registered all bytes and executed begin_archive_file when the pause is reached.
+    const paused = {
+      transaction: <T>(bindings: Record<string, string>, run: (tx: Tx) => Promise<T>) =>
+        app.db.transaction(bindings, async (tx) => {
+          const result = await run(tx),
+            first = Array.isArray(result)
+              ? (result[0] as { claimed?: boolean; state?: string } | undefined)
+              : undefined;
+          if (first?.claimed === true && first.state === 'writing' && holderPid === 0) {
+            holderPid = (await tx.execute<{ pid: number }>(sql`select pg_backend_pid() as pid`))
+              .rows[0]!.pid;
+            await held;
+          }
+          return result;
+        }),
+    } as unknown as AppDatabase;
+    const importing = f.run(paused);
+    let closing: Promise<number> | undefined;
+    try {
+      await expect.poll(() => holderPid, { timeout: 5000, interval: 20 }).toBeGreaterThan(0);
+      // The pending header is genuinely invisible in another transaction at this point.
+      expect(await f.headers()).toEqual([]);
+      const driverPid = (await driver.query<{ pid: number }>('select pg_backend_pid() as pid'))
+        .rows[0]!.pid;
+      closing = (async () => {
+        await driver.query('begin');
+        await driver.query(
+          "select set_config('app.organization_id',$1,true),set_config('app.actor_type','service',true),set_config('app.user_id','',true),set_config('app.membership_id','',true),set_config('app.interactive_session_id','',true)",
+          [f.person.context.organizationId],
+        );
+        // Actual worker metadata admission only: no document, fake body, grant or trusted-origin claim.
+        await driver.query(
+          "insert into knowledge.sources(organization_id,id,kind,classification,owner_membership_id) values($1,$2,'upload','internal',$3)",
+          [f.person.context.organizationId, sourceId, f.person.context.membershipId],
+        );
+        await driver.query(
+          "update knowledge.sources set state='deleted',revoked_at=clock_timestamp(),version=version+1 where organization_id=$1 and id=$2",
+          [f.person.context.organizationId, sourceId],
+        );
+        const result = await driver.query<{ remaining: number }>(
+          'select remaining from sovereign.archive_file_counts()',
+        );
+        await driver.query('commit');
+        return result.rows[0]!.remaining;
+      })();
+      await expect
+        .poll(
+          async () => {
+            const result = await control.query<{ blocked: boolean }>(
+              'select $1=any(pg_blocking_pids($2)) as blocked',
+              [holderPid, driverPid],
+            );
+            return result.rows[0]?.blocked;
+          },
+          { timeout: 5000, interval: 20 },
+        )
+        .toBe(true);
+      release();
+      // The closure cannot certify zero while that real writer exists, even before any object put.
+      expect(await closing).toBe(1);
+      expect(await importing).toMatchObject({ status: 'failed', failureCode: 'RECORD_REFUSED' });
+      expect((await f.headers())[0]).toMatchObject({
+        state: 'closing',
+        write_state: 'settled',
+        physical_purged_at: null,
+      });
+      await expect(f.read()).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    } finally {
+      release();
+      await closing?.catch(() => driver.query('rollback'));
+      await importing.catch(() => undefined);
+      await driver.end();
+    }
+  });
+  it('blocks unknown archive bytes on structured-record closure and counts them in record cleanup', async () => {
+    const f = await fixture();
+    await f.run();
+    const work = await createWorkUnit(app.db, f.person.context, {
+      title: 'Generated possible input',
+    });
+    expect((await f.read()).bytes).toEqual(f.bytes);
+    // A real retained tombstone is authoritative even when the original structured row still exists.
+    await withTenantTx(app.db, f.service, (tx) =>
+      tx.execute(sql`insert into platform.tombstones(organization_id,target_type,target_id,reason_code,created_at)
+   values(${f.person.context.organizationId}::uuid,'work_unit',${work.id}::uuid,'GENERATED_REVIEW_DELETION',clock_timestamp())`),
+    );
+    await expect(f.read()).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    const files = await listImportedArchiveFiles(app.db, f.person.context, { importId: f.view.id });
+    expect(files).toEqual([
+      expect.objectContaining({
+        sourceArtifactId: f.sourceId,
+        name: null,
+        mimeType: null,
+        state: 'closing',
+        reviewable: false,
+      }),
+    ]);
+    const purge = createImportedArchivePurge({
+      database: app.db,
+      store: f.store,
+      lifecycle: lifecycle(f.store),
+    });
+    expect(
+      await withTenantTx(app.db, f.service, (tx) =>
+        purge.confirmRecordInTx(tx, f.service, { kind: 'work_unit', id: work.id }),
+      ),
+    ).toEqual({ remaining: 1 });
+    expect(
+      await purge.purgeRecord(f.service, { kind: 'work_unit', id: work.id, limit: 25 }),
+    ).toMatchObject({ remaining: 0, removed: 1, confirmed: true });
+  });
+  it('does not allow ordinary application or custodian deletion of the retained physical ledger', async () => {
+    const f = await fixture();
+    await f.run();
+    await expect(
+      withTenantTx(app.db, f.person.context, (tx) =>
+        tx.execute(sql`delete from sovereign.imported_archive_files`),
+      ),
+    ).rejects.toThrow();
+  });
+});

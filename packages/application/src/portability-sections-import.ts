@@ -3,8 +3,6 @@
 // says, nothing here starts anything: no workflow, no event a workflow listens to, no pending approval and no
 // connection with a credential. The only events written are `tombstone.recorded`, which keep a deletion deleted.
 import {
-  artifacts,
-  blobLifecycle,
   clients,
   connections,
   importedPeople,
@@ -14,7 +12,6 @@ import {
   teamMemberships,
   teams,
   tombstones,
-  workArtifacts,
   workAssignments,
   workDependencies,
   workUnits,
@@ -29,7 +26,6 @@ import {
 } from '@ensemus/domain/portability';
 import { ledgerKeyFor, TOMBSTONE_RECORDED } from '@ensemus/domain/tombstone-ledger';
 import { and, asc, eq, sql } from 'drizzle-orm';
-import { objectKey } from './artifacts';
 import { pgCode } from './errors';
 import { emit } from './events';
 import { idFromRequest } from './request-id';
@@ -125,8 +121,6 @@ const clientExists = (tx: Tx, id: string) =>
   exists(tx.select({ id: clients.id }).from(clients).where(eq(clients.id, id)));
 const projectExists = (tx: Tx, id: string) =>
   exists(tx.select({ id: projects.id }).from(projects).where(eq(projects.id, id)));
-const artifactExists = (tx: Tx, id: string) =>
-  exists(tx.select({ id: artifacts.id }).from(artifacts).where(eq(artifacts.id, id)));
 
 /** Who stands in for people not linked yet. Being that person says nothing true about who did the work. */
 async function fallbackMembership(page: Page) {
@@ -580,63 +574,32 @@ const WRITERS: {
   },
 
   /**
-   * A file's row. Its bytes were checked and written by the runner before this transaction began, so a row here
-   * always has bytes behind it. A deleted file gets neither.
+   * Count only the exact verified inert-custody receipt written by the runner. No ordinary artifact
+   * or live Work link is created from an archive's unproven origin metadata.
    */
   artifact: async (page, records) => {
-    const fallback = await fallbackMembership(page);
     let applied = 0;
     for (const record of records) {
       if (page.scope.isTombstoned('artifact', record.id)) {
         page.warn('TOMBSTONED_SKIPPED');
         continue;
       }
-      const added = await page.tx
-        .insert(artifacts)
-        .values({
-          organizationId: organizationId(page),
-          id: record.id,
-          name: record.name,
-          objectKey: objectKey(organizationId(page), record.id),
-          sha256: record.sha256,
-          mimeType: record.mime_type,
-          sizeBytes: record.size_bytes,
-          classification: record.classification,
-          createdByMembershipId: linkedOrNull(page, fallback, record.created_by_membership_id),
-          createdAt: new Date(record.created_at),
-        })
-        .onConflictDoNothing()
-        .returning({ id: artifacts.id });
-      // The file has its row now, so the sweep must not take its bytes. The same step `addArtifact` ends with.
-      await page.tx.delete(blobLifecycle).where(eq(blobLifecycle.artifactId, record.id));
-      applied += added.length;
+      const ready = await page.tx.execute<{ ready: boolean }>(
+        sql`select sovereign.archive_file_ready(${page.scope.importId}::uuid,${JSON.stringify(record)}::jsonb) as ready`,
+      );
+      if (ready.rows[0]?.ready !== true) throw new RecordRefused();
+      applied += 1;
     }
     return applied;
   },
 
   work_artifact: async (page, records) => {
-    let applied = 0;
     for (const record of records) {
       // Already counted when the file itself was skipped.
       if (page.scope.isTombstoned('artifact', record.artifact_id)) continue;
-      const usable =
-        (await workExists(page.tx, record.work_unit_id)) &&
-        (await artifactExists(page.tx, record.artifact_id));
-      if (!usable) {
-        page.warn('RELATION_DANGLING');
-        continue;
-      }
-      await page.tx
-        .insert(workArtifacts)
-        .values({
-          organizationId: organizationId(page),
-          workUnitId: record.work_unit_id,
-          artifactId: record.artifact_id,
-        })
-        .onConflictDoNothing();
-      applied += 1;
+      page.warn('FILE_LINK_REQUIRES_REUPLOAD');
     }
-    return applied;
+    return 0;
   },
 
   /** Kept to be read, and never made live (ADR-030 D9). A row with no work is for owners. */

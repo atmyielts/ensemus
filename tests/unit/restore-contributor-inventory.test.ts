@@ -11,7 +11,7 @@ import type { AppDatabase } from '@ensemus/database';
 
 describe('restore contributor completeness', () => {
   it('does not qualify an empty or partial contributor inventory', () => {
-    expect(missingRestoreContributors([])).toBe(4);
+    expect(missingRestoreContributors([])).toBe(5);
     const reports = REQUIRED_RESTORE_CONTRIBUTORS.map((name) => ({
       name,
       checked: 0,
@@ -23,7 +23,7 @@ describe('restore contributor completeness', () => {
     expect(missingRestoreContributors([...reports, reports[0]!])).toBe(1);
     expect(
       missingRestoreContributors([{ name: 'unknown', checked: 0, changed: 0, needsAttention: 0 }]),
-    ).toBe(5);
+    ).toBe(6);
   });
   it('registers real audits and never treats invalid counters as proof', () => {
     expect(createRestoreContributors().map((item) => item.name)).toEqual(

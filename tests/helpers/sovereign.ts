@@ -1,6 +1,9 @@
 // Test seeds for ADR-030, shared by every M6 slice. Generated keys and values only: nothing here is real, and
 // everything signed here says it was signed with a test key.
 import { createHash, randomUUID } from 'node:crypto';
+import pg from 'pg';
+import { nativePersonContext } from './product';
+import { urls } from './stack';
 import {
   licenseRecords,
   organizationExports,
@@ -23,6 +26,33 @@ import {
 } from '@ensemus/sovereign/testing';
 
 export const sha256Hex = (text: string | Buffer) => createHash('sha256').update(text).digest('hex');
+
+/** Explicit generated auth-role fixture, then the actual pinned native getSession verifier. This
+ * does not mint a primary-auth/MFA assurance and never creates a production admission exception. */
+export async function nativeSovereignContext(
+  database: AppDatabase,
+  userId: string,
+  organizationId: string,
+) {
+  const auth = new pg.Client({ connectionString: urls.auth() });
+  await auth.connect();
+  const sessionId = randomUUID();
+  try {
+    const found = await auth.query<{ email: string }>(
+      'select email from identity.users where id=$1',
+      [userId],
+    );
+    if (!found.rows[0]?.email.endsWith('.invalid'))
+      throw new Error('GENERATED_TEST_PERSON_REQUIRED');
+    await auth.query(
+      "insert into identity.sessions(id,user_id,token,expires_at) values($1,$2,$3,clock_timestamp()+interval '1 hour')",
+      [sessionId, userId, randomUUID()],
+    );
+  } finally {
+    await auth.end();
+  }
+  return nativePersonContext(database, { userId, sessionId }, organizationId);
+}
 
 /** A key, and a trust root that believes it. A new pair each call, so tests cannot lean on each other. */
 export function testKeyring(keyId = 'test-key-1') {

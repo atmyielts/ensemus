@@ -3,6 +3,8 @@ import {
   listDirectory,
   listImportedPeople,
   listOrganizationExports,
+  listImportedArchiveFiles,
+  idSchema,
 } from '@ensemus/application';
 import { can } from '@ensemus/domain/policy';
 import Link from 'next/link';
@@ -12,6 +14,7 @@ import { ExportList } from '@/components/export-list';
 import { ExportRequestForm } from '@/components/export-request-form';
 import { ImportPeople } from '@/components/import-people';
 import { ImportSummary } from '@/components/import-summary';
+import { ImportedArchiveFiles } from '@/components/imported-archive-files';
 import { ErrorNotice, PageHead } from '@/components/ui';
 import { requestImportAction } from '@/server/sovereign-actions';
 import { findOrganizationImportId } from '@/server/sovereign-runtime';
@@ -29,10 +32,10 @@ export default async function DataPage({
   searchParams,
 }: {
   params: Promise<{ organizationId: string }>;
-  searchParams: Promise<{ error?: string | string[] }>;
+  searchParams: Promise<{ error?: string | string[]; files_after?: string | string[] }>;
 }) {
   const { organizationId } = await params;
-  const { error } = await searchParams;
+  const { error, files_after } = await searchParams;
   const { context, database } = await requireTenant(organizationId);
   // The same not found as anything else a member may not see, and neither page is in their navigation.
   if (!can(context.role, 'license.view')) notFound();
@@ -67,6 +70,13 @@ export default async function DataPage({
     listDirectory(database, context),
   ]);
   const importView = importId ? await getOrganizationImport(database, context, importId) : null;
+  const cursor = typeof files_after === 'string' ? idSchema.safeParse(files_after) : null;
+  const archivedFiles = importId
+    ? await listImportedArchiveFiles(database, context, {
+        importId,
+        ...(cursor?.success ? { after: cursor.data } : {}),
+      })
+    : [];
   const linked = new Set(people.map((person) => person.targetMembershipId));
   // Someone already linked cannot be linked again, and a disabled member cannot take on anyone's work.
   const candidates = directory.filter(
@@ -128,6 +138,18 @@ export default async function DataPage({
             everyone={directory}
           />
         </section>
+
+        {importId && (
+          <section className="panel" id="data-files" aria-labelledby="data-file-heading">
+            <h2 id="data-file-heading">Files awaiting review</h2>
+            <ImportedArchiveFiles
+              organizationId={organizationId}
+              importId={importId}
+              files={archivedFiles}
+              {...(cursor?.success ? { after: cursor.data } : {})}
+            />
+          </section>
+        )}
 
         {importView && FINISHED.has(importView.status) && (
           <section className="panel" aria-labelledby="data-history">

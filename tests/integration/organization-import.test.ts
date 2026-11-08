@@ -21,6 +21,8 @@ import {
   requestOrganizationImport,
   runOrganizationImport,
   type ImportRunDeps,
+  listImportedArchiveFiles,
+  readImportedArchiveFile,
 } from '@ensemus/application';
 import {
   approvals,
@@ -34,7 +36,6 @@ import {
   openAppDatabase,
   organizationImports,
   projects,
-  resolveTenantContext,
   teams,
   tombstones,
   withTenantTx,
@@ -52,7 +53,7 @@ import {
   TOMBSTONE_RECORDED,
 } from '@ensemus/domain/tombstone-ledger';
 import { eq, sql } from 'drizzle-orm';
-import { seedImportRow, testRecipient } from '../helpers/sovereign';
+import { seedImportRow, testRecipient, nativeSovereignContext } from '../helpers/sovereign';
 import { urls } from '../helpers/stack';
 import { archiveReader, buildArchive, sourceTenant } from './fixtures/archive-builder';
 
@@ -104,7 +105,7 @@ describe('importing an organization archive', () => {
       name: 'Same Name Ltd',
       commercialMode: 'sovereign',
     });
-    return resolveTenantContext(db(), user.id, organizationId);
+    return nativeSovereignContext(db(), user.id, organizationId);
   };
 
   const joinAs = async (owner: TenantContext, role: 'admin' | 'member') => {
@@ -116,7 +117,7 @@ describe('importing an organization archive', () => {
       emailVerified: true,
       token: invitation.token,
     });
-    return resolveTenantContext(db(), user.id, owner.organizationId);
+    return nativeSovereignContext(db(), user.id, owner.organizationId);
   };
 
   const depsFor = (store: MemoryStore): ImportRunDeps => ({
@@ -160,7 +161,7 @@ describe('importing an organization archive', () => {
   });
 
   describe('QA-023', () => {
-    it('keeps names, relationships, the DAG and the bytes, with counts equal to the manifest', async () => {
+    it('keeps metadata and the DAG while verified files remain inert and unlinked', async () => {
       const owner = await makeOwner('owner');
       const { spec, ids, kept } = sourceTenant('Moved');
       const { store, view, result } = await imported(owner, spec);
@@ -171,6 +172,7 @@ describe('importing an organization archive', () => {
         const kind = (page.records[0] as { kind: string }).kind;
         expected[kind] = (expected[kind] ?? 0) + page.records.length;
       }
+      expected.work_artifact = 0;
       expect(result.appliedCounts).toEqual(expected);
       expect((await getOrganizationImport(db(), owner, view.id)).appliedCounts).toEqual(expected);
 
@@ -196,18 +198,29 @@ describe('importing an organization archive', () => {
           }),
         ]);
 
-        const [file] = await tx.select().from(artifacts);
-        expect(file).toMatchObject({
-          id: ids.keptFile,
-          objectKey: objectKey(owner.organizationId, ids.keptFile),
-          sizeBytes: kept.length,
-        });
+        expect(await tx.select().from(artifacts)).toEqual([]);
         const links = await tx.select().from(workArtifacts);
-        expect(links).toEqual([
-          expect.objectContaining({ workUnitId: ids.parentWork, artifactId: ids.keptFile }),
-        ]);
+        expect(links).toEqual([]);
       });
-      expect(store.objects.get(objectKey(owner.organizationId, ids.keptFile))).toEqual(kept);
+      expect(await listImportedArchiveFiles(db(), owner, { importId: view.id })).toEqual([
+        expect.objectContaining({
+          sourceArtifactId: ids.keptFile,
+          state: 'quarantined',
+          sizeBytes: kept.length,
+        }),
+      ]);
+      expect(
+        (
+          await readImportedArchiveFile(db(), store, owner, {
+            importId: view.id,
+            sourceArtifactId: ids.keptFile,
+          })
+        ).bytes,
+      ).toEqual(kept);
+      expect(result.warningCounts).toMatchObject({
+        FILES_AWAIT_REVIEW: 1,
+        FILE_LINK_REQUIRES_REUPLOAD: 1,
+      });
     });
 
     it('leaves another tenant with the same names and the same IDs untouched', async () => {
@@ -576,7 +589,7 @@ describe('importing an organization archive', () => {
   });
 
   describe('a run after a failure', () => {
-    it('skips what finished, and ends with the counts it would have had', async () => {
+    it('retains completed steps and refuses to resend a file whose write outcome is unknown', async () => {
       const owner = await makeOwner('owner');
       const { spec } = sourceTenant('Retry');
       const view = await requestOrganizationImport(db(), owner);
@@ -595,6 +608,7 @@ describe('importing an organization archive', () => {
           store: {
             ...store,
             exists: store.exists.bind(store),
+            get: store.get.bind(store),
             delete: store.delete.bind(store),
             put: async () => {
               throw new Error('store down');
@@ -618,10 +632,14 @@ describe('importing an organization archive', () => {
         },
         depsFor(store),
       );
-      expect(resumed.status).toBe('completed_with_warnings');
+      expect(resumed).toMatchObject({ status: 'failed', failureCode: 'RECORD_REFUSED' });
       expect((await rows(owner, (tx) => tx.select().from(workUnits))).length).toBe(4);
       expect(resumed.appliedCounts.work_unit).toBe(4);
-      expect((await rows(owner, (tx) => tx.select().from(artifacts))).length).toBe(1);
+      expect(await rows(owner, (tx) => tx.select().from(artifacts))).toEqual([]);
+      expect(store.objects.size).toBe(0);
+      expect(await listImportedArchiveFiles(db(), owner, { importId: view.id })).toEqual([
+        expect.objectContaining({ state: 'unknown' }),
+      ]);
     });
   });
 
@@ -656,7 +674,7 @@ describe('importing an organization archive', () => {
         }),
       ]);
 
-      const after = await resolveTenantContext(db(), member.userId, owner.organizationId);
+      const after = await nativeSovereignContext(db(), member.userId, owner.organizationId);
       expect(after.role).toBe('member');
 
       const { rows: audits } = await su.query(
@@ -678,7 +696,7 @@ describe('importing an organization archive', () => {
         sourceMembershipId: ids.ada,
         membershipId: member.membershipId,
       });
-      const after = await resolveTenantContext(db(), member.userId, owner.organizationId);
+      const after = await nativeSovereignContext(db(), member.userId, owner.organizationId);
       expect(after.role).toBe('member');
     });
 

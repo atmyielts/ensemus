@@ -6116,6 +6116,31 @@ paths:
           $ref: "#/components/responses/InternalError"
         "503":
           $ref: "#/components/responses/RestorePending"
+  /organizations/{organization_id}/imports/{import_id}/files/{source_artifact_id}/download:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+      - $ref: '#/components/parameters/ImportID'
+      - name: source_artifact_id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      tags: [ commercial ]
+      operationId: downloadImportedArchiveFile
+      summary: Download an inert archived file for review by its current native custodian
+      description: Requires a finished verified write and current permission checks before and after storage I/O. No Work attachment or provenance promotion is created.
+      responses:
+        '200':
+          description: The verified bytes as an attachment
+          content:
+            application/octet-stream:
+              schema: { type: string, format: binary }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
+        '503': { $ref: '#/components/responses/RestorePending' }
   /organizations/{organization_id}/imports/{import_id}:
     parameters:
       - $ref: "#/components/parameters/OrganizationID"

@@ -17,6 +17,8 @@ async function main() {
     bucket: process.env.OBJECT_STORAGE_BUCKET ?? 'ensemus',
     accessKey: readSecret('OBJECT_STORAGE_ACCESS_KEY'),
     secretKey: readSecret('OBJECT_STORAGE_SECRET_KEY'),
+    // The immutable file ledger owns admission; an ambiguous put must not be resent by the SDK.
+    maxAttempts: 1,
   });
   const code = await organizationImportCommand(process.argv.slice(2), {
     database: db,

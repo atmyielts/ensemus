@@ -2,14 +2,16 @@
 // composes that schema. Generated sessions/keys/data only; no hosted provider or production claim.
 import { randomUUID, createHash } from 'node:crypto';
 import pg from 'pg';
-import { beforeAll, afterAll, describe, it, expect } from 'vitest';
-import { sql } from 'drizzle-orm';
+import { beforeAll, afterAll, afterEach, describe, it, expect } from 'vitest';
+import { sql, type SQL } from 'drizzle-orm';
+import { PgDialect } from 'drizzle-orm/pg-core';
 import {
   createOrganization,
   openAppDatabase,
   withTenantTx,
   type TenantContext,
   type Tx,
+  type AppDatabase,
 } from '@ensemus/database';
 import { createServiceContext } from '@ensemus/database/service';
 import {
@@ -23,7 +25,7 @@ import { withPortabilityScope } from '../../packages/application/src/portability
 import { makePerson, nativePersonContext } from '../helpers/product';
 import { testRecipient } from '../helpers/sovereign';
 import { urls } from '../helpers/stack';
-import { buildArchive, jsonLines } from './fixtures/archive-builder';
+import { buildArchive } from './fixtures/archive-builder';
 
 const sha = (body: Buffer) => createHash('sha256').update(body).digest('hex');
 const at = '2026-11-07T00:00:00.000Z';
@@ -36,6 +38,10 @@ const team = () => ({
 });
 describe('native admitted portability authority', () => {
   let app: ReturnType<typeof openAppDatabase>, control: pg.Client;
+  const cleanups: (() => Promise<void>)[] = [];
+  afterEach(async () => {
+    for (const cleanup of cleanups.splice(0)) await cleanup();
+  });
   const owner = async () => {
     const person = await makePerson('portable-owner'),
       created = await createOrganization(app.db, {
@@ -85,20 +91,77 @@ describe('native admitted portability authority', () => {
       }),
       part = archive.manifest.parts[0]!;
     const context = createServiceContext(person.context.organizationId);
-    await withTenantTx(app.db, context, (tx) =>
-      tx.execute(
-        sql`update sovereign.organization_imports set status='running' where id=${view.id}::uuid`,
-      ),
-    );
-    await scoped(context, view.id, '', '', async (tx) => {
-      await tx.execute(
-        sql`select sovereign.register_import_manifest(${view.id}::uuid,${sha(archive.bytes)},${Buffer.from(JSON.stringify(archive.manifest))})`,
-      );
-      await tx.execute(
-        sql`select sovereign.register_import_part(${view.id}::uuid,${part.path},${jsonLines([record])})`,
-      );
-      await tx.execute(sql`select sovereign.complete_import_verification(${view.id}::uuid)`);
+    let verified = false,
+      paused = false,
+      release = () => {};
+    const hold = new Promise<void>((resolve) => {
+      release = resolve;
     });
+    // Pause only between real committed transactions, after the actual encrypted parser/operator
+    // has claimed the admitted request and registered every verified byte. No fixture stamps a
+    // running state or a manifest/part verification receipt directly.
+    const delegate = {
+      transaction: async <T>(bindings: Record<string, string>, run: (tx: Tx) => Promise<T>) => {
+        if (verified && !paused) {
+          paused = true;
+          await hold;
+        }
+        let completed = false;
+        const wrap = (tx: Tx): Tx =>
+          new Proxy(tx, {
+            get(target, key) {
+              if (key === 'execute')
+                return async (query: SQL) => {
+                  const result = await target.execute(query);
+                  if (
+                    new PgDialect().sqlToQuery(query).sql.includes('complete_import_verification')
+                  )
+                    completed = true;
+                  return result;
+                };
+              if (key === 'transaction')
+                return <V>(nested: (inner: Tx) => Promise<V>) =>
+                  target.transaction((inner) => nested(wrap(inner)));
+              const value = Reflect.get(target, key, target) as unknown;
+              return typeof value === 'function' ? value.bind(target) : value;
+            },
+          });
+        const result = await app.db.transaction(bindings, (tx) => run(wrap(tx)));
+        if (completed) verified = true;
+        return result;
+      },
+    } as unknown as AppDatabase;
+    const importing = runOrganizationImport(
+      delegate,
+      context,
+      {
+        importId: view.id,
+        archive: archive.reader,
+        recipientPrivateKeyPem: recipient.privateKeyPem,
+      },
+      {
+        sections: SOURCE_PORTABILITY_SECTIONS,
+        store: {
+          put: async () => {},
+          get: async () => {
+            throw new Error('GENERATED_NO_BINARY_PART');
+          },
+          exists: async () => false,
+          delete: async () => {},
+        },
+        ledger: {
+          async *listPages() {
+            yield [];
+          },
+          get: async () => Buffer.alloc(0),
+        },
+      },
+    );
+    cleanups.push(async () => {
+      release();
+      await importing;
+    });
+    await expect.poll(() => paused, { timeout: 5000, interval: 20 }).toBe(true);
     return { person, view, record, archive, part, context };
   };
   const insertTeam = async (tx: Tx, record: ReturnType<typeof team>) =>
@@ -138,7 +201,14 @@ describe('native admitted portability authority', () => {
       },
       {
         sections: SOURCE_PORTABILITY_SECTIONS,
-        store: { put: async () => {}, delete: async () => {}, exists: async () => false },
+        store: {
+          put: async () => {},
+          get: async () => {
+            throw new Error('GENERATED_NO_BINARY_PART');
+          },
+          delete: async () => {},
+          exists: async () => false,
+        },
         ledger: {
           async *listPages() {
             yield [];

@@ -5,7 +5,6 @@ import { beforeAll, afterAll, describe, it, expect } from 'vitest';
 import {
   createOrganization,
   openAppDatabase,
-  resolveTenantContext,
   withTenantTx,
   type TenantContext,
 } from '@ensemus/database';
@@ -29,7 +28,7 @@ import {
   openExportArchive,
 } from '@ensemus/application';
 import { sql } from 'drizzle-orm';
-import { seedImportRow, testRecipient } from '../helpers/sovereign';
+import { testRecipient, nativeSovereignContext } from '../helpers/sovereign';
 import { urls } from '../helpers/stack';
 import { buildArchive } from './fixtures/archive-builder';
 import { PORTABILITY_INVENTORY, PORTABILITY_INVENTORY_VERSION } from '@ensemus/domain/portability';
@@ -48,7 +47,7 @@ describe('joined portable definitions and restore audits', () => {
       name: 'Same Name',
       commercialMode: 'sovereign',
     });
-    return resolveTenantContext(app.db, user, created.organizationId);
+    return nativeSovereignContext(app.db, user, created.organizationId);
   };
   beforeAll(async () => {
     app = openAppDatabase(urls.app());
@@ -59,8 +58,62 @@ describe('joined portable definitions and restore audits', () => {
     await app.close();
     await auth.end();
   });
+  const importRecords = async (
+    context: TenantContext,
+    section: 'agents' | 'knowledge',
+    kind: string,
+    records: readonly Record<string, unknown>[],
+  ) => {
+    const view = await requestOrganizationImport(app.db, context),
+      recipient = testRecipient(),
+      objects = new Map<string, Buffer>();
+    const built = buildArchive(
+      recipient,
+      { pages: [{ section, recordKind: kind, records }] },
+      ({ manifest }) => ({
+        manifest: {
+          ...manifest,
+          schema_version: 2,
+          inventory_version: PORTABILITY_INVENTORY_VERSION,
+          inventory: PORTABILITY_INVENTORY,
+          generated_bodies_excluded: 0,
+          record_max_bytes: 4194304,
+        },
+      }),
+    );
+    const store = {
+      put: async (key: string, bytes: Buffer) => {
+        objects.set(key, bytes);
+      },
+      get: async (key: string) => {
+        const bytes = objects.get(key);
+        if (!bytes) throw new Error('GENERATED_OBJECT_MISSING');
+        return bytes;
+      },
+      delete: async (key: string) => {
+        objects.delete(key);
+      },
+      exists: async (key: string) => objects.has(key),
+    };
+    const result = await runOrganizationImport(
+      app.db,
+      createServiceContext(context.organizationId),
+      { importId: view.id, archive: built.reader, recipientPrivateKeyPem: recipient.privateKeyPem },
+      {
+        sections: SOURCE_PORTABILITY_SECTIONS,
+        store,
+        ledger: {
+          async *listPages() {
+            yield [];
+          },
+          get: async () => Buffer.alloc(0),
+        },
+      },
+    );
+    expect(result).toMatchObject({ status: 'completed_with_warnings', failureCode: null });
+    return view.id;
+  };
   const seed = async (context: TenantContext) => {
-    const importId = await seedImportRow(app.db, context, { status: 'running' });
     const id = randomUUID();
     const record = {
       kind: 'agent_definition' as const,
@@ -71,14 +124,12 @@ describe('joined portable definitions and restore audits', () => {
       service_identity_id: randomUUID(),
       created_at: new Date().toISOString(),
     };
+    const importId = await importRecords(context, 'agents', 'agent_definition', [record]);
     const scope = {
       importId,
       membershipFor: () => context.membershipId,
       isTombstoned: () => false,
     };
-    await withTenantTx(app.db, createServiceContext(context.organizationId), (tx) =>
-      quarantinePortableRecord(tx, createServiceContext(context.organizationId), scope, record),
-    );
     return { record, scope };
   };
   it('retains review material while another tenant and ordinary member see no definitions', async () => {
@@ -101,7 +152,7 @@ describe('joined portable definitions and restore audits', () => {
       emailVerified: true,
       token: invitation.token,
     });
-    const member = await resolveTenantContext(app.db, user, a.organizationId);
+    const member = await nativeSovereignContext(app.db, user, a.organizationId);
     await expect(listImportedDefinitions(app.db, member)).rejects.toThrow();
     const raw = await withTenantTx(app.db, member, (tx) =>
       tx.execute(sql`select record from sovereign.imported_definitions`),
@@ -164,28 +215,18 @@ describe('joined portable definitions and restore audits', () => {
     const a = await owner(),
       sourceId = randomUUID();
     const service = createServiceContext(a.organizationId);
-    const importId = await seedImportRow(app.db, a, { status: 'running' });
-    await withTenantTx(app.db, service, async (tx) => {
-      await tx.execute(sql`insert into knowledge.sources(organization_id,id,kind,classification,owner_membership_id)
-        values(${a.organizationId}::uuid,${sourceId}::uuid,'upload','internal',${a.membershipId}::uuid)`);
-      await tx.execute(sql`insert into knowledge.source_grants(organization_id,source_id,principal_kind,membership_id,granted_by_membership_id)
-        values(${a.organizationId}::uuid,${sourceId}::uuid,'membership',${a.membershipId}::uuid,${a.membershipId}::uuid)`);
-      await quarantinePortableRecord(
-        tx,
-        service,
-        { importId, membershipFor: () => a.membershipId, isTombstoned: () => false },
-        {
-          kind: 'knowledge_source',
-          id: sourceId,
-          created_at: new Date().toISOString(),
-          source_kind: 'upload',
-          classification: 'internal',
-          connection_id: null,
-          external_resource_id: null,
-          owner_membership_id: a.membershipId,
-        },
-      );
-    });
+    await importRecords(a, 'knowledge', 'knowledge_source', [
+      {
+        kind: 'knowledge_source',
+        id: sourceId,
+        created_at: new Date().toISOString(),
+        source_kind: 'upload',
+        classification: 'internal',
+        connection_id: null,
+        external_resource_id: null,
+        owner_membership_id: a.membershipId,
+      },
+    ]);
     expect(await listImportedDefinitions(app.db, a)).toHaveLength(1);
     const eraser = createImportedDefinitionPurge(app.db);
     await expect(
@@ -268,6 +309,7 @@ describe('joined portable definitions and restore audits', () => {
             inventory_version: PORTABILITY_INVENTORY_VERSION,
             inventory: PORTABILITY_INVENTORY,
             generated_bodies_excluded: 0,
+            record_max_bytes: 4194304,
           },
         }),
       );
