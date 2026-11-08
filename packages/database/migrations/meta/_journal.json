@@ -463,6 +463,13 @@
       "when": 1794010184920,
       "tag": "0509_saas_private_reads",
       "breakpoints": true
+    },
+    {
+      "idx": 66,
+      "version": "7",
+      "when": 1794010184921,
+      "tag": "0511_standing_agent_stops",
+      "breakpoints": true
     }
   ]
 }

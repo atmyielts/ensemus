@@ -12,7 +12,8 @@ Implementation evidence is recorded separately from the planned scope below:
 | M4 | Governed AI and shared interface integrated locally; runtime confidentiality, full replay and full browser gates passed | [M4 report](evidence/M4-report.md); isolation, upgrade and release checks continue |
 | M5 | Knowledge/onboarding local checkpoint passed 3,084 units and 1,486 real-role database checks | [M5 report](evidence/M5-report.md); actual model/provider journeys and hosted acceptance remain open |
 | M6–M7 | Portability, native identity, models and product depth actively composed; Studio HTTP and outcome composer implemented in source | [Platform progress](platform-completion-progress.md); combined migrations, complete workflows and browser/runtime acceptance remain open |
-| M8–M11 | Partial implementation and preserved foundations | [Platform progress](platform-completion-progress.md); billing/operations, assurance, launch and expansion are not complete |
+| M8 | Billing/operations and standing foundations joined; selected fresh database gates passed | [Standing checkpoint](evidence/M8-standing-database-checkpoint.md); prepaid dispatch, payment authority, providers and commercial acceptance remain open |
+| M9–M11 | Partial implementation and preserved foundations | [Platform progress](platform-completion-progress.md); assurance, launch and expansion are not complete |
 
 Ticket IDs refer to the [reconciled backlog](../specifications/implementation-backlog.csv), whose `milestone` column is authoritative. Run `node specifications/tools/check-backlog.mjs` to validate it.
 

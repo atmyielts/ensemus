@@ -72,13 +72,17 @@ describe('exact late-commit credit reconciliation through the runtime usage port
       ]);
       await withTenantTx(agent.db, context, (tx) => tx.execute(insert(secondId)));
       const usage = createSaasPorts({}).usage;
-      expect(await consumeUsage(app.db, service, usage, { limit: 1 }))
-        .toMatchObject({ entries: 1, microcredits: card.microcreditsPerUnit });
+      expect(await consumeUsage(app.db, service, usage, { limit: 1 })).toMatchObject({
+        entries: 1,
+        microcredits: card.microcreditsPerUnit,
+      });
       if (!releaseOlder) throw new Error('TEST_OLDER_BARRIER_MISSING');
       releaseOlder();
       await older;
-      expect(await consumeUsage(app.db, service, usage, { limit: 1 }))
-        .toMatchObject({ entries: 1, microcredits: card.microcreditsPerUnit });
+      expect(await consumeUsage(app.db, service, usage, { limit: 1 })).toMatchObject({
+        entries: 1,
+        microcredits: card.microcreditsPerUnit,
+      });
       expect((await consumeUsage(app.db, service, usage, { limit: 1 })).entries).toBe(0);
       const rows = await withTenantTx(app.db, service, (tx) =>
         tx.execute(

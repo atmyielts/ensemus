@@ -125,9 +125,12 @@ describe('standing and trusted provisioning', () => {
       ),
     );
     expect(counts.rows[0]).toMatchObject({ changes: 1, events: 1, notices: 1 });
-    const refusalRows = () => withTenantTx(database.db, service, (tx) => tx.execute(
-      sql`select count(*)::int as n from platform.audit_events where action='access.refused.web' and safe_reason='TENANT_READ_ONLY'`,
-    ));
+    const refusalRows = () =>
+      withTenantTx(database.db, service, (tx) =>
+        tx.execute(
+          sql`select count(*)::int as n from governance.audit_events where action='access.refused.web' and safe_reason='TENANT_READ_ONLY'`,
+        ),
+      );
     const refusalRowsBefore = (await refusalRows()).rows;
     let refusal: unknown;
     try {
@@ -142,10 +145,12 @@ describe('standing and trusted provisioning', () => {
     // refusal wrapper. The read-only standing code is intentionally outside that classifier's set.
     expect(isAuditedRefusal(refusal)).toBe(false);
     // An explicit audit attempt also remains read-only: denial is not a durable committed receipt.
-    await expect(auditRefusal(database.db, current, {
-      code: (refusal as AppError).code,
-      surface: 'web',
-    })).rejects.toSatisfy((error: unknown) => pgCode(error) === '25006');
+    await expect(
+      auditRefusal(database.db, current, {
+        code: (refusal as AppError).code,
+        surface: 'web',
+      }),
+    ).rejects.toSatisfy((error: unknown) => pgCode(error) === '25006');
     expect((await refusalRows()).rows).toEqual(refusalRowsBefore);
     expect((await getTenantStanding(database.db, owner)).lifecycle).toBe('suspended');
   });
@@ -174,7 +179,9 @@ describe('standing and trusted provisioning', () => {
   it('a fabricated bootstrap capability cannot create an invited owner and leaves no tenant or invitation', async () => {
     const plan = await seedPlan({ mode: 'byom' });
     const organizationId = randomUUID();
-    const issueOwnerInvitationInTx = vi.fn(async () => { throw new AppError('VERSION_CONFLICT'); });
+    const issueOwnerInvitationInTx = vi.fn(async () => {
+      throw new AppError('VERSION_CONFLICT');
+    });
     const port: TenantProvisioningPort = {
       prepare: async () => ({
         ownerUserId: owner.userId,
