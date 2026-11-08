@@ -83,7 +83,31 @@ export type ErrorCode =
   | 'EXPORT_SUPERSEDED'
   | 'IMPORT_TARGET_NOT_EMPTY'
   | 'IMPORT_ALREADY_USED'
-  | 'IMPORTED_PERSON_ALREADY_LINKED';
+  | 'IMPORTED_PERSON_ALREADY_LINKED'
+  // M8 (ADR-032).
+  | 'BILLING_NOT_ENABLED'
+  | 'RATE_CARD_NOT_APPROVED'
+  | 'PLAN_NOT_AVAILABLE'
+  | 'SUBSCRIPTION_EXISTS'
+  | 'NO_SUBSCRIPTION'
+  | 'QUOTE_CHANGED'
+  | 'TOP_UP_NOT_ALLOWED'
+  | 'TAX_TREATMENT_MISSING'
+  | 'TAX_PROVIDER_UNAVAILABLE'
+  | 'INVOICE_NOT_PAYABLE'
+  | 'PAYMENT_NOT_RESOLVABLE'
+  | 'PAYMENT_PROCESSOR_NOT_CONFIGURED'
+  | 'TENANT_READ_ONLY'
+  | 'TENANT_SUSPENDED'
+  | 'LEGAL_HOLD_ACTIVE'
+  | 'OBJECT_DELETE_UNCONFIRMED'
+  | 'OBJECT_DELETE_IN_PROGRESS'
+  | 'RETENTION_BASIS_REQUIRED'
+  | 'OFFBOARDING_IN_PROGRESS'
+  | 'OFFBOARDING_NOT_CANCELLABLE'
+  | 'OFFBOARDING_CONFIRMATION_MISMATCH'
+  | 'BREAK_GLASS_DISABLED'
+  | 'BREAK_GLASS_NOT_AUTHORIZABLE';
 
 const MESSAGES: Record<ErrorCode, string> = {
   IDEMPOTENCY_KEY_REUSED: 'This request key was already used with different details.',
@@ -181,6 +205,32 @@ const MESSAGES: Record<ErrorCode, string> = {
   IMPORT_TARGET_NOT_EMPTY: 'An archive can only be imported into a new, empty organization.',
   IMPORT_ALREADY_USED: 'This organization has already taken an archive.',
   IMPORTED_PERSON_ALREADY_LINKED: 'This person has already been linked to a member.',
+  BILLING_NOT_ENABLED: 'Billing is not available on this deployment.',
+  RATE_CARD_NOT_APPROVED: 'Nothing can be billed until an approved rate card is in place.',
+  PLAN_NOT_AVAILABLE: 'That plan is not available.',
+  SUBSCRIPTION_EXISTS: 'This organization already has a subscription.',
+  NO_SUBSCRIPTION: 'This organization has no subscription.',
+  QUOTE_CHANGED:
+    'The price changed after you saw it, so nothing was bought. Check it and try again.',
+  TOP_UP_NOT_ALLOWED: 'This plan does not allow top-ups.',
+  TAX_TREATMENT_MISSING: 'Tax for this place has not been set up, so no invoice can be issued yet.',
+  TAX_PROVIDER_UNAVAILABLE: 'Tax could not be worked out just now. Nothing was charged.',
+  INVOICE_NOT_PAYABLE: 'This invoice cannot be paid in its current state.',
+  PAYMENT_NOT_RESOLVABLE: 'Only a payment in an unknown state can be resolved.',
+  PAYMENT_PROCESSOR_NOT_CONFIGURED: 'Payments are not set up on this deployment.',
+  TENANT_READ_ONLY:
+    'This organization is read-only, so nothing can be changed. Billing and support still work.',
+  TENANT_SUSPENDED:
+    'This organization is suspended. Its data is kept, and billing, export and support still work.',
+  LEGAL_HOLD_ACTIVE: 'This is under a legal hold, so it cannot be deleted.',
+  OBJECT_DELETE_UNCONFIRMED: 'Storage has not confirmed this deletion. Its recovery evidence must be reviewed before trying again.',
+  OBJECT_DELETE_IN_PROGRESS: 'A file deletion is already in progress or unconfirmed. A new hold cannot promise to preserve those bytes yet.',
+  RETENTION_BASIS_REQUIRED: 'A retention period has to say whose sign-off it rests on.',
+  OFFBOARDING_IN_PROGRESS: 'This organization is already being offboarded.',
+  OFFBOARDING_NOT_CANCELLABLE: 'Erasure has started, so this can no longer be cancelled.',
+  OFFBOARDING_CONFIRMATION_MISMATCH: 'That does not match this organization’s name.',
+  BREAK_GLASS_DISABLED: 'Support access to content is turned off on this deployment.',
+  BREAK_GLASS_NOT_AUTHORIZABLE: 'This request can no longer be decided.',
 };
 
 export class AppError extends Error {
@@ -286,10 +336,46 @@ export const HTTP_STATUS: Record<ErrorCode, number> = {
   IMPORT_TARGET_NOT_EMPTY: 409,
   IMPORT_ALREADY_USED: 409,
   IMPORTED_PERSON_ALREADY_LINKED: 409,
+  BILLING_NOT_ENABLED: 409,
+  RATE_CARD_NOT_APPROVED: 409,
+  PLAN_NOT_AVAILABLE: 409,
+  SUBSCRIPTION_EXISTS: 409,
+  NO_SUBSCRIPTION: 409,
+  QUOTE_CHANGED: 409,
+  TOP_UP_NOT_ALLOWED: 409,
+  TAX_TREATMENT_MISSING: 409,
+  TAX_PROVIDER_UNAVAILABLE: 503,
+  INVOICE_NOT_PAYABLE: 409,
+  PAYMENT_NOT_RESOLVABLE: 409,
+  PAYMENT_PROCESSOR_NOT_CONFIGURED: 409,
+  TENANT_READ_ONLY: 403,
+  TENANT_SUSPENDED: 403,
+  LEGAL_HOLD_ACTIVE: 409,
+  OBJECT_DELETE_UNCONFIRMED: 409,
+  OBJECT_DELETE_IN_PROGRESS: 409,
+  RETENTION_BASIS_REQUIRED: 400,
+  OFFBOARDING_IN_PROGRESS: 409,
+  OFFBOARDING_NOT_CANCELLABLE: 409,
+  OFFBOARDING_CONFIRMATION_MISMATCH: 400,
+  BREAK_GLASS_DISABLED: 409,
+  BREAK_GLASS_NOT_AUTHORIZABLE: 409,
 };
 
 /** Reads the Postgres error code through the wrapper Drizzle adds. */
 export function pgCode(error: unknown): string | undefined {
   const cause = (error as { cause?: { code?: unknown } })?.cause;
   return typeof cause?.code === 'string' ? cause.code : undefined;
+}
+
+/**
+ * What PostgreSQL refused below the application, as what a person is told (ADR-032 D5, D6). A write in a
+ * tenant that is not served in full, and a deletion under a legal hold, reach here from any path at all.
+ */
+export function refusalFromDatabase(error: unknown): AppError | null {
+  const code = pgCode(error);
+  if (code === '25006') return new AppError('TENANT_READ_ONLY');
+  if (code === 'EN850') return new AppError('OBJECT_DELETE_UNCONFIRMED');
+  if (code === 'EN851') return new AppError('OBJECT_DELETE_IN_PROGRESS');
+  if (code === 'EN804') return new AppError('LEGAL_HOLD_ACTIVE');
+  return null;
 }

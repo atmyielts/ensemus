@@ -1,0 +1,53 @@
+schemaVersion: 1
+kind: PortableHpaPlan
+activation: template-only
+deployment: { platform: null, namespace: null, imageRegistry: null }
+workloads:
+  - name: web
+    signal:
+      { binding: authenticated_web_latency, unit: milliseconds, target: null, available: false }
+    limits: { minReplicas: null, maxReplicas: null }
+    guards: [database-pool-budget, memory-budget, readiness]
+  - name: platform-worker
+    signal:
+      {
+        binding: temporal.platform.schedule-to-start,
+        taskQueue: ensemus-platform,
+        unit: milliseconds,
+        target: null,
+        available: false,
+      }
+    limits: { minReplicas: null, maxReplicas: null }
+    guards: [database-pool-budget, workflow-cache-budget]
+  - name: agent-worker
+    signal:
+      {
+        binding: temporal.agent.schedule-to-start,
+        taskQueue: ensemus-agent,
+        unit: milliseconds,
+        target: null,
+        available: false,
+      }
+    limits: { minReplicas: null, maxReplicas: null }
+    isolation: { network: agents, publicOrConnectorNetworkAllowed: false }
+    activityConcurrency: { policy: explicit-budget-required, runtimeBinding: missing }
+    guards:
+      [agent-database-role, private-model-and-object-links, per-tenant-budgets, effect-uncertainty]
+  - name: connector-worker
+    signal:
+      {
+        binding: temporal.connectors.schedule-to-start,
+        taskQueue: ensemus-connectors,
+        unit: milliseconds,
+        target: null,
+        available: false,
+      }
+    limits: { minReplicas: null, maxReplicas: null }
+    activityConcurrency:
+      { policy: low-explicit-cap-required, tuningValue: 2, runtimeBinding: missing }
+    guards:
+      [provider-rate-limits, egress-policy, credential-boundary, unknown-effect-reconciliation]
+  - name: dispatcher
+    signal: { binding: outbox.oldest-ready-age, unit: seconds, target: null, available: false }
+    limits: { minReplicas: null, maxReplicas: null }
+    guards: [database-pool-budget, skip-locked-delivery, ledger-backlog]

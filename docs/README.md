@@ -65,6 +65,7 @@
 - [ADR-027: verified external actions](00-foundation/adr/ADR-027-verified-external-actions.md)
 - [ADR-028: governed AI](00-foundation/adr/ADR-028-governed-ai.md)
 - [ADR-031: full product depth](00-foundation/adr/ADR-031-full-product-depth.md)
+- [ADR-032: SaaS operations and billing](00-foundation/adr/ADR-032-saas-operations-and-billing.md)
 - [Document governance and implementation discipline](00-foundation/04-doc-governance.md)
 
 ### Product and commercial UX

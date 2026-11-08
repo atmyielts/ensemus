@@ -30,7 +30,9 @@
     "@temporalio/workflow": "1.25.0",
     "drizzle-orm": "0.45.4",
     "pg": "8.23.1",
-    "@ensemus/packs": "workspace:*"
+    "@ensemus/packs": "workspace:*",
+    "@ensemus/config": "workspace:*",
+    "@ensemus/saas": "workspace:*"
   },
   "devDependencies": {
     "@types/pg": "8.23.1",

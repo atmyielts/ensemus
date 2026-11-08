@@ -35,7 +35,15 @@
     "./simulation-activities": "./src/simulation-activities.ts",
     "./process-run-activities": "./src/process-run-activities.ts",
     "./object-migration-activities": "./src/object-migration-activities.ts",
-    "./portability-activities": "./src/portability-activities.ts"
+    "./portability-activities": "./src/portability-activities.ts",
+    "./saas-schemas": "./src/saas-schemas.ts",
+    "./saas-deps": "./src/saas-deps.ts",
+    "./billing-activities": "./src/billing-activities.ts",
+    "./credit-activities": "./src/credit-activities.ts",
+    "./tax-activities": "./src/tax-activities.ts",
+    "./payment-activities": "./src/payment-activities.ts",
+    "./retention-activities": "./src/retention-activities.ts",
+    "./offboarding-activities": "./src/offboarding-activities.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"
@@ -57,6 +65,7 @@
     "@temporalio/workflow": "1.25.0",
     "drizzle-orm": "0.45.4",
     "zod": "4.6.7",
-    "@ensemus/knowledge": "workspace:*"
+    "@ensemus/knowledge": "workspace:*",
+    "@ensemus/saas": "workspace:*"
   }
 }

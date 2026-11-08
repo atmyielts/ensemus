@@ -14,6 +14,7 @@ import {
   type ObjectStore,
 } from '@ensemus/application';
 import type { AppDatabase } from '@ensemus/database';
+import { assertNoUnresolvedObjectDeletes } from '@ensemus/application/saas/object-deletion';
 import { scanForSecrets } from '@ensemus/policy';
 import { loadAgentCanaries } from './agent-settings';
 import { createParseRunner } from './parse-thread';
@@ -68,10 +69,12 @@ export function createKnowledgePurgePorts(deps: {
       ...combined,
       async confirmInTx(tx, context, input) {
         requireLifecycleBindings();
+        await assertNoUnresolvedObjectDeletes(tx,context);
         return combined.confirmInTx(tx, context, input);
       },
       async confirmRecordInTx(tx, context, input) {
         requireLifecycleBindings();
+        await assertNoUnresolvedObjectDeletes(tx,context);
         return combined.confirmRecordInTx(tx, context, input);
       },
     },

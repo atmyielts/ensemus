@@ -32,7 +32,15 @@ export type Capability =
   | 'organization.export'
   | 'organization.import'
   | 'license.manage'
-  | 'license.view';
+  | 'license.view'
+  // M8 (ADR-032). Money, retention and leaving are the organization's own decisions.
+  | 'billing.view'
+  | 'billing.manage'
+  | 'retention.manage'
+  | 'legal_hold.manage'
+  | 'offboarding.manage'
+  | 'break_glass.authorize'
+  | 'support.use';
 
 const GRANTS: Record<Role, ReadonlySet<Capability>> = {
   owner: new Set([
@@ -64,6 +72,13 @@ const GRANTS: Record<Role, ReadonlySet<Capability>> = {
     'organization.import',
     'license.manage',
     'license.view',
+    'billing.view',
+    'billing.manage',
+    'retention.manage',
+    'legal_hold.manage',
+    'offboarding.manage',
+    'break_glass.authorize',
+    'support.use',
   ]),
   admin: new Set([
     'member.invite',
@@ -88,8 +103,12 @@ const GRANTS: Record<Role, ReadonlySet<Capability>> = {
     'egress.view',
     'client_onboarding.start',
     'license.view',
+    'billing.view',
+    'billing.manage',
+    'retention.manage',
+    'support.use',
   ]),
-  member: new Set(['client.manage', 'project.manage', 'work.create', 'knowledge.add']),
+  member: new Set(['client.manage', 'project.manage', 'work.create', 'knowledge.add', 'support.use']),
 };
 
 export function isRole(value: string): value is Role {

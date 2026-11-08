@@ -29,7 +29,8 @@
     "server-only": "0.0.1",
     "zod": "4.6.7",
     "@ensemus/knowledge": "workspace:*",
-    "@ensemus/packs": "workspace:*"
+    "@ensemus/packs": "workspace:*",
+    "@ensemus/saas": "workspace:*"
   },
   "devDependencies": {
     "@types/react": "19.3.0",

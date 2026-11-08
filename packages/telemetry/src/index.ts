@@ -61,6 +61,18 @@ const SAFE_FIELDS = new Set([
   'chunks',
   'embeddings',
   'closed',
+  // Billing and lifecycle (ADR-032). IDs and counts, and never an amount, a name or an address.
+  'subscriptionId',
+  'invoiceId',
+  'paymentId',
+  'offboardingId',
+  'ticketId',
+  'tableRef',
+  'rowsRemoved',
+  'rowsLeft',
+  'examined',
+  'removed',
+  'held',
 ]);
 
 // Safe values are short and machine-shaped. Free text is refused even under a safe field name.

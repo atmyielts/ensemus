@@ -9,14 +9,19 @@ import { openAppDatabase } from '@ensemus/database';
 import { S3ObjectStore } from '@ensemus/storage';
 import { createLogger, errorCode } from '@ensemus/telemetry';
 import { createActivities, type WorkflowProbe } from '@ensemus/workflows/activities';
+import { createBillingActivities } from '@ensemus/workflows/billing-activities';
 import { AesGcmPayloadCodec } from '@ensemus/workflows/codec';
 import { createClientOnboardingActivities } from '@ensemus/workflows/client-onboarding-activities';
 import { PLATFORM_TASK_QUEUE, TEMPORAL_CHANNEL_ARGS } from '@ensemus/workflows/constants';
+import { createCreditActivities } from '@ensemus/workflows/credit-activities';
 import { createExternalActionPlatformActivities } from '@ensemus/workflows/external-action-activities';
 import { createObjectMigrationActivities } from '@ensemus/workflows/object-migration-activities';
 import { createProcessRunActivities } from '@ensemus/workflows/process-run-activities';
 import { createSimulationActivities } from '@ensemus/workflows/simulation-activities';
 import { createPortabilityActivities } from '@ensemus/workflows/portability-activities';
+import { createOffboardingActivities } from '@ensemus/workflows/offboarding-activities';
+import { createPaymentPlatformActivities } from '@ensemus/workflows/payment-activities';
+import { createRetentionActivities } from '@ensemus/workflows/retention-activities';
 import { createTemporalLogger } from '@ensemus/workflows/safe-logger';
 import { workflowIdFor } from '@ensemus/workflows/schemas';
 import { Client, Connection, WorkflowNotFoundError } from '@temporalio/client';
@@ -24,6 +29,7 @@ import { NativeConnection, Runtime, Worker } from '@temporalio/worker';
 import { PORTABILITY_SECTIONS } from './portability-sections';
 
 import { workerProductPorts } from './product-ports';
+import { createSaasPorts } from './saas-ports';
 
 const log = createLogger('worker');
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -76,6 +82,7 @@ async function main() {
     }
   };
   const sovereign = loadSovereignConfig();
+  const ports = createSaasPorts(store);
   const worker = await Worker.create({
     connection,
     namespace: process.env.TEMPORAL_NAMESPACE ?? 'default',
@@ -100,6 +107,12 @@ async function main() {
           retentionHours: sovereign.exportRetentionHours,
         },
       }),
+      // M8 (ADR-032). Its ports refuse until sibling milestones are wired in, in saas-ports.ts.
+      ...createBillingActivities({ database: db, usage: ports.usage, agents: ports.agents }),
+      ...createCreditActivities({ database: db, usage: ports.usage, agents: ports.agents }),
+      ...createPaymentPlatformActivities({ database: db }),
+      ...createRetentionActivities({ database: db, sources: ports.retentionSources }),
+      ...createOffboardingActivities({ database: db, ports: ports.offboarding }),
     },
     dataConverter: {
       payloadCodecs: [new AesGcmPayloadCodec(readSecret('TEMPORAL_CODEC_KEY'))],

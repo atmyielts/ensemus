@@ -9,6 +9,7 @@ import {
   addDependency,
   addTeamMember,
   AppError,
+  refusalFromDatabase,
   assignContributor,
   auditRefusal,
   canonicalId,
@@ -105,6 +106,8 @@ async function run(
       target = stepUpPath(tenant.context.organizationId, back);
     } else if (error instanceof AppError) {
       target = `${back}${back.includes('?') ? '&' : '?'}error=${error.code}`;
+    } else if (refusalFromDatabase(error)) {
+      target = `${back}${back.includes('?') ? '&' : '?'}error=${refusalFromDatabase(error)?.code}`;
     } else {
       getRuntime().log.error('action.failed', { errorCode: errorCode(error) });
       target = `${back}${back.includes('?') ? '&' : '?'}error=UNEXPECTED`;
@@ -127,6 +130,8 @@ async function codeOf(tenant: Tenant, error: unknown): Promise<string> {
       stepUpPath(tenant.context.organizationId, `/o/${tenant.context.organizationId}/people`),
     );
   if (error instanceof AppError) return error.code;
+  const refused = refusalFromDatabase(error);
+  if (refused) return refused.code;
   getRuntime().log.error('action.failed', { errorCode: errorCode(error) });
   return 'UNEXPECTED';
 }

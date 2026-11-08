@@ -23,8 +23,56 @@ const broker = {
     '@ensemus/database/service',
     '@ensemus/database/dispatcher',
     '@ensemus/database/setup-token',
+    '@ensemus/database/account',
+    '@ensemus/database/payment-routing',
+    '@ensemus/database/operator',
+    '@ensemus/database/support',
+    '@ensemus/database/eraser',
+    '@ensemus/application/saas/operator-*',
+    '@ensemus/application/saas/support-desk',
   ],
   message: 'Worker-only: the web tier cannot unseal secrets or act as a service (ADR-024 D5).',
+};
+const accountTx = {
+  group: ['@ensemus/database/account'],
+  message:
+    'Only @ensemus/application/saas may write in a tenant that is not served in full (ADR-032 D5).',
+};
+const operatorRoles = {
+  group: ['@ensemus/database/operator', '@ensemus/database/support', '@ensemus/database/eraser'],
+  message:
+    'These roles belong to the operator commands in workers/workflow/src/ops*.ts (ADR-032 D3).',
+};
+const saasReach = {
+  group: [
+    '@ensemus/application',
+    '@ensemus/application/*',
+    '@ensemus/connectors',
+    '@ensemus/connectors/*',
+    '@ensemus/contracts',
+    '@ensemus/database',
+    '@ensemus/database/*',
+    '@ensemus/secrets',
+    '@ensemus/secrets/*',
+    '@ensemus/workflows',
+    '@ensemus/workflows/*',
+    '@temporalio/*',
+    'drizzle-orm',
+    'drizzle-orm/*',
+    'next',
+    'next/*',
+    'pg',
+    'pg/*',
+    'net',
+    'node:net',
+    'http',
+    'node:http',
+    'https',
+    'node:https',
+    'node:fs',
+    'fs',
+  ],
+  message: '@ensemus/saas is pure: no database, network or framework (ADR-032 D1).',
 };
 const authDatabase = {
   group: ['@ensemus/database/auth'],
@@ -88,6 +136,7 @@ const testDoubles = {
     '@ensemus/intelligence/testing',
     '@ensemus/knowledge/testing',
     '@ensemus/sovereign/testing',
+    '@ensemus/saas/testing',
   ],
   message: 'Test doubles never reach a shipped image.',
 };
@@ -268,6 +317,11 @@ const agentWorkerFiles = [
   'packages/application/src/ai/delegation.ts',
   'packages/application/src/ai/context-source.ts',
   'packages/application/src/ai/model-probe-store.ts',
+];
+
+const saasBoundarySelectors = [
+  { selector: "ImportDeclaration[source.value='@ensemus/database/account']", message: accountTx.message },
+  ...operatorRoles.group.map((name) => ({ selector: `ImportDeclaration[source.value='${name}']`, message: operatorRoles.message })),
 ];
 
 export default tseslint.config(
@@ -465,5 +519,11 @@ export default tseslint.config(
   {
     files: ['tests/**', 'infrastructure/**', 'eslint.config.mjs', '**/scripts/**'],
     rules: { 'no-restricted-properties': 'off' },
+  },
+  restrict(['packages/saas/**/*.ts'], [saasReach], ['packages/saas/src/testing/**']),
+  {
+    files: ['apps/web/**/*.{ts,tsx}', 'packages/application/src/**/*.ts', 'packages/workflows/**/*.ts', 'workers/**/*.ts'],
+    ignores: ['packages/application/src/saas/**', 'workers/workflow/src/ops*.ts'],
+    rules: { 'no-restricted-syntax': ['error', ...saasBoundarySelectors] },
   },
 );

@@ -23,8 +23,8 @@ export type StorageConfig = {
 
 /**
  * One request, connecting included, gets this long, and the client tries at most this many times.
- * Together they stay well under the 2 minutes a workflow Activity has, so an Activity that timed out
- * is not still uploading while its retry runs. A file is at most 25 MB, on the private network.
+ * These bound the caller's wait; a failed or timed-out request can still have an ambiguous provider
+ * outcome. Durable writer/deletion receipts must settle that ambiguity before replay or completion.
  */
 export const REQUEST_TIMEOUT_MS = 30_000;
 export const MAX_ATTEMPTS = 3;
@@ -32,24 +32,29 @@ export const MAX_ATTEMPTS = 3;
 /** Implements the ObjectStore port from @ensemus/application. */
 export class S3ObjectStore {
   readonly #client: S3Client;
+  readonly #deleteClient: S3Client;
   readonly #bucket: string;
 
   constructor(config: StorageConfig) {
     this.#bucket = config.bucket;
-    this.#client = new S3Client({
+    const options = {
       endpoint: config.endpoint,
       region: 'us-east-1', // Required by the SDK, and unused by self-hosted stores.
       forcePathStyle: true,
       credentials: { accessKeyId: config.accessKey, secretAccessKey: config.secretKey },
-      requestChecksumCalculation: 'WHEN_REQUIRED',
-      responseChecksumValidation: 'WHEN_REQUIRED',
+      requestChecksumCalculation: 'WHEN_REQUIRED' as const,
+      responseChecksumValidation: 'WHEN_REQUIRED' as const,
       maxAttempts: config.maxAttempts ?? MAX_ATTEMPTS,
       requestHandler: {
         connectionTimeout: 5_000,
         requestTimeout: config.requestTimeoutMs ?? REQUEST_TIMEOUT_MS,
         throwOnRequestTimeout: true,
       },
-    });
+    };
+    this.#client = new S3Client(options);
+    // A rejected first DELETE may still complete at the provider. An implicit SDK retry could
+    // hide that unresolved operation behind a second success, so destructive transport never retries.
+    this.#deleteClient = new S3Client({ ...options, maxAttempts: 1 });
   }
 
   /** Run by the one-shot setup job, never by a request. */
@@ -105,10 +110,11 @@ export class S3ObjectStore {
 
   close(): void {
     this.#client.destroy();
+    this.#deleteClient.destroy();
   }
 
   async delete(key: string): Promise<void> {
-    await this.#client.send(new DeleteObjectCommand({ Bucket: this.#bucket, Key: key }));
+    await this.#deleteClient.send(new DeleteObjectCommand({ Bucket: this.#bucket, Key: key }));
   }
 
   /** The keys under a prefix, a page at a time, so a caller holds at most one page in memory. */

@@ -170,3 +170,8 @@ export { simulationWorkflow } from './simulation-workflow';
 export { knowledgeModelJobWorkflow } from './knowledge-model-job-workflow';
 // M6 (ADR-030).
 export { organizationExportWorkflow } from './portability-workflow';
+// M8 (ADR-032). The same reason.
+export { billingCycleWorkflow } from './billing-cycle-workflow';
+export { paymentEventWorkflow, paymentWorkflow } from './payment-workflow';
+export { retentionSweepWorkflow } from './retention-workflow';
+export { tenantOffboardingWorkflow } from './offboarding-workflow';

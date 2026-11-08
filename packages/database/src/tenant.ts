@@ -1,14 +1,21 @@
 import { and, eq, sql } from 'drizzle-orm';
 import { openDatabase, type EnsemusDrizzle } from './connection';
-import { memberships, sessions } from './schema';
+import { memberships, sessions, organizations } from './schema';
 import { webhookEndpoints } from './schema-integrations';
 import {
   interactiveIdentity,
   isVerifiedInteractiveIdentity,
   type VerifiedInteractiveIdentity,
 } from './interactive-identity';
+import { billingAccounts } from './schema-saas';
 
 const brand: unique symbol = Symbol('TenantContext');
+
+/**
+ * How far this person's tenant is being served (ADR-032 D5). Anything but `full` makes withTenantTx a
+ * read-only transaction, so a write is refused by PostgreSQL itself even where a check was forgotten.
+ */
+export type TenantServing = 'full' | 'read_only' | 'suspended' | 'offboarding';
 
 /** Proof that a user's active membership was checked. Only this module can create one. */
 export type TenantContext = Readonly<{
@@ -21,6 +28,8 @@ export type TenantContext = Readonly<{
   agentRunId?: string;
   /** An opaque native-verifier handoff. JSON/Temporal cannot carry this symbol; no worker mints it. */
   [interactiveIdentity]?: VerifiedInteractiveIdentity;
+  /** Missing means full for a worker acting on a prior durable intent. */
+  serving?: TenantServing;
   [brand]: true;
 }>;
 
@@ -88,6 +97,8 @@ export class AppDatabase {
         'app.interactive_session_id': '',
         'app.knowledge_model_protocol': '',
         'app.model_job_id': '',
+        'app.payment_customer_hash': '',
+        'lifecycle.erasure_count_org': '',
         ...bindings,
       })) {
         await tx.execute(sql`select set_config(${name}, ${value}, true)`);
@@ -126,6 +137,18 @@ export function withUserTx<T>(
   return database.transaction({ 'app.user_id': userId }, fn);
 }
 
+function tenantBindings(context: TenantContext): Record<string, string> {
+  return {
+    'app.organization_id': context.organizationId,
+    'app.user_id': context.userId,
+    'app.membership_id': context.membershipId,
+    'app.actor_type': context.actorType,
+    'app.agent_run_id': context.actorType === 'agent' ? (context.agentRunId ?? '') : '',
+    'app.agent_input_protocol': context.actorType === 'agent' ? 'v1' : '',
+    'app.interactive_session_id': interactiveSessionOf(context)?.sessionId ?? '',
+  };
+}
+
 /** Binds one tenant. Keep it short: never span rendering or a model call. */
 export async function withTenantTx<T>(
   database: AppDatabase,
@@ -134,18 +157,59 @@ export async function withTenantTx<T>(
 ): Promise<T> {
   if (context[brand] !== true) throw new TenantAccessDenied();
   return database.transaction(
-    {
-      'app.organization_id': context.organizationId,
-      'app.user_id': context.userId,
-      'app.membership_id': context.membershipId,
-      'app.actor_type': context.actorType,
-      'app.agent_run_id': context.actorType === 'agent' ? (context.agentRunId ?? '') : '',
-      // A trusted immutable runtime-version admission, never an authorization claim from user input.
-      'app.agent_input_protocol': context.actorType === 'agent' ? 'v1' : '',
-      'app.interactive_session_id': interactiveSessionOf(context)?.sessionId ?? '',
+    tenantBindings(context),
+    async (tx) => {
+      if (context.serving && context.serving !== 'full') await tx.execute(sql`set transaction read only`);
+      return fn(tx);
     },
+  );
+}
+
+/** Billing, support, export and leaving stay available in restricted standing (ADR-032 D5). */
+export async function withAccountTx<T>(database: AppDatabase, context: TenantContext, fn: (tx: Tx) => Promise<T>): Promise<T> {
+  if (context[brand] !== true) throw new TenantAccessDenied();
+  return database.transaction(
+    tenantBindings(context),
     fn,
   );
+}
+
+/**
+ * The same person, allowed to write, for one service another milestone wrote with withTenantTx that still has
+ * to work in any standing. That is M6's export, today (ADR-032 D5). Lint keeps it where withAccountTx is.
+ */
+export function accountContextOf(context: TenantContext): TenantContext {
+  if (context[brand] !== true) throw new TenantAccessDenied();
+  return { ...context, serving: 'full' };
+}
+
+/**
+ * A processor's event names a customer, and this binds only the hash of that reference, which reveals
+ * that one billing account, and from its row binds the tenant, so nothing about the tenant comes from the
+ * event (ADR-032 D4). Answers null, without calling `fn`, when nobody has that reference. Worker-only:
+ * `@ensemus/database/payment-routing`, and lint blocks the web tier.
+ */
+export function withPaymentCustomerTx<T>(
+  database: AppDatabase,
+  customerRefHash: string,
+  fn: (
+    tx: Tx,
+    scope: { account: typeof billingAccounts.$inferSelect; context: TenantContext },
+  ) => Promise<T>,
+): Promise<T | null> {
+  return database.transaction({ 'app.payment_customer_hash': customerRefHash }, async (tx) => {
+    const [account] = await tx
+      .select()
+      .from(billingAccounts)
+      .where(eq(billingAccounts.customerRefHash, customerRefHash));
+    if (!account) return null;
+    await tx.execute(
+      sql`select set_config('app.organization_id', ${account.organizationId}, true),
+        set_config('app.user_id','',true),set_config('app.membership_id','',true),
+        set_config('app.actor_type','service',true),set_config('app.agent_run_id','',true)`,
+    );
+    return fn(tx, { account, context: createServiceContext(account.organizationId) });
+  });
 }
 
 /** Binds a brand-new tenant, so row-level policies apply to its first inserts like any other. */
@@ -221,8 +285,10 @@ export async function resolveTenantContext(
         id: memberships.id,
         role: memberships.role,
         organizationId: memberships.organizationId,
+        lifecycle: organizations.lifecycle,
       })
       .from(memberships)
+      .innerJoin(organizations, eq(organizations.id, memberships.organizationId))
       .where(
         and(
           eq(memberships.organizationId, organizationId),
@@ -231,13 +297,15 @@ export async function resolveTenantContext(
         ),
       ),
   );
-  if (!membership) throw new TenantAccessDenied();
+  // A tenant that has gone is the same as one that never existed.
+  if (!membership || membership.lifecycle === 'deleted') throw new TenantAccessDenied();
   return {
     organizationId: membership.organizationId,
     userId,
     membershipId: membership.id,
     role: membership.role,
     actorType: 'user',
+    serving: membership.lifecycle === 'active' ? 'full' : (membership.lifecycle as TenantServing),
     [brand]: true,
   };
 }

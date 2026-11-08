@@ -8,7 +8,7 @@ import { artifactLineage, knowledgeSources, type AppDatabase, type Tx } from '@e
 import { createServiceContext } from '@ensemus/database/service';
 import { createKnowledgePurgePorts } from '../../workers/workflow/src/knowledge-ports';
 
-function fixture() {
+function fixture(unconfirmed=0) {
   const queries: string[] = [],
     context = createServiceContext(randomUUID());
   const chain = (rows: unknown[]): unknown =>
@@ -32,6 +32,7 @@ function fixture() {
     execute: async (query: SQL) => {
       const text = new PgDialect().sqlToQuery(query).sql;
       queries.push(text);
+      if (text.includes('lifecycle.object_delete_counts')) return {rows:[{unconfirmed}]};
       if (text.includes('knowledge.derived_artifacts_remaining'))
         return { rows: [{ remaining: 0 }] };
       if (text.includes('count(*) filter') && text.includes('artifact_lineage'))
@@ -125,6 +126,13 @@ describe('knowledge worker actual purge factory', () => {
       true,
     );
     expect(f.queries.some((query) => query.includes('sovereign.archive_file_counts'))).toBe(true);
+    expect(f.store.delete).not.toHaveBeenCalled();
+  });
+  it('refuses an old completed-job path when retained delete/restore debt remains',async()=>{
+    const f=fixture(1), unavailable={erase:async()=>({state:'unconfirmed' as const})};
+    const ports=createKnowledgePurgePorts({database:f.database,store:f.store,derivedLifecycle:unavailable,archiveLifecycle:unavailable});
+    await expect(ports.derivedArtifacts.confirmInTx(f.tx,f.context,{sourceId:randomUUID()})).rejects.toMatchObject({code:'OBJECT_DELETE_UNCONFIRMED'});
+    expect(f.queries.some((query)=>query.includes('knowledge.derived_artifacts_remaining'))).toBe(false);
     expect(f.store.delete).not.toHaveBeenCalled();
   });
 });

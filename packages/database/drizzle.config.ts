@@ -18,6 +18,7 @@ export default defineConfig({
     './src/schema-client-access.ts',
     './src/schema-product.ts',
     './src/schema-sovereign.ts',
+    './src/schema-saas.ts',
   ],
   out: './migrations',
   casing: 'snake_case',

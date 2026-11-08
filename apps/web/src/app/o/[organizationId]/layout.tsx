@@ -9,7 +9,7 @@ import { workspaceNavigation } from '@/components/navigation-model';
 import { SubmitButton } from '@/components/submit-button';
 import { signOutAction } from '@/server/actions';
 import { organizationsWithAccess } from '@/server/organizations';
-import { requireTenant } from '@/server/tenant';
+import { requireAccountTenant } from '@/server/tenant';
 
 export default async function OrganizationLayout({
   children,
@@ -19,7 +19,8 @@ export default async function OrganizationLayout({
   params: Promise<{ organizationId: string }>;
 }) {
   const { organizationId } = await params;
-  const { actor, context, database } = await requireTenant(organizationId);
+  // Around the account pages too, which a suspended tenant keeps, so the pages inside make the core check.
+  const { actor, context, database } = await requireAccountTenant(organizationId);
   const [organization, unread, pending, organizations] = await Promise.all([
     getOrganization(database, context),
     countUnread(database, context),

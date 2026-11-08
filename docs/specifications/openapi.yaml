@@ -1477,7 +1477,7 @@ paths:
       - $ref: '#/components/parameters/OrganizationID'
       - { name: model_profile_id, in: path, required: true, schema: { type: string, format: uuid } }
     get:
-      tags: [models]
+      tags: [ models ]
       summary: Read manager-only capability evidence, including stale versions and unknown outcomes
       parameters:
         - { name: after, in: query, schema: { type: string, format: uuid } }
@@ -1489,10 +1489,10 @@ paths:
               schema:
                 type: object
                 additionalProperties: false
-                required: [items, next_cursor]
+                required: [ items, next_cursor ]
                 properties:
                   items: { type: array, maxItems: 50, items: { $ref: '#/components/schemas/ModelCapabilityEvidence' } }
-                  next_cursor: { type: [string, 'null'], format: uuid }
+                  next_cursor: { type: [ string, 'null' ], format: uuid }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
@@ -1500,9 +1500,12 @@ paths:
         '500': { $ref: '#/components/responses/InternalError' }
         '503': { $ref: '#/components/responses/RestorePending' }
     post:
-      tags: [models]
+      tags: [ models ]
       summary: Queue one bounded synthetic capability qualification for the exact profile version
-      description: Native interactive identity, tenant required-SSO and model_profile.activate privilege are checked in the effect transaction. This HTTP process has no paid model transport. The worker derives the exact purpose protocol; text probe success cannot substitute for capability qualification.
+      description: Native interactive identity, tenant required-SSO and model_profile.activate privilege
+        are checked in the effect transaction. This HTTP process has no paid model transport. The
+        worker derives the exact purpose protocol; text probe success cannot substitute for
+        capability qualification.
       requestBody:
         required: true
         content:
@@ -1516,7 +1519,7 @@ paths:
               schema:
                 type: object
                 additionalProperties: false
-                required: [qualification_id, job_id]
+                required: [ qualification_id, job_id ]
                 properties:
                   qualification_id: { type: string, format: uuid }
                   job_id: { type: string, format: uuid }
@@ -1531,7 +1534,7 @@ paths:
     parameters:
       - $ref: '#/components/parameters/OrganizationID'
     get:
-      tags: [models]
+      tags: [ models ]
       summary: Read manager-only bounded workload approvals and current evidence availability
       parameters:
         - { name: after, in: query, schema: { type: string, format: uuid } }
@@ -1543,19 +1546,23 @@ paths:
               schema:
                 type: object
                 additionalProperties: false
-                required: [items, next_cursor]
+                required: [ items, next_cursor ]
                 properties:
                   items: { type: array, maxItems: 50, items: { $ref: '#/components/schemas/ModelWorkloadApproval' } }
-                  next_cursor: { type: [string, 'null'], format: uuid }
+                  next_cursor: { type: [ string, 'null' ], format: uuid }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '500': { $ref: '#/components/responses/InternalError' }
         '503': { $ref: '#/components/responses/RestorePending' }
     post:
-      tags: [models]
-      summary: Approve an expiring, explicitly bounded Knowledge workload against current qualification evidence
-      description: Requires native interactive identity, required-SSO and the model_workload.approve privileged action with fresh MFA. Every purpose needs passed evidence for its exact current profile version. Missing bounds, expiry or source/connection scope refuse. This endpoint grants no provider transport to the web tier.
+      tags: [ models ]
+      summary: Approve an expiring, explicitly bounded Knowledge workload against current qualification
+        evidence
+      description: Requires native interactive identity, required-SSO and the model_workload.approve
+        privileged action with fresh MFA. Every purpose needs passed evidence for its exact current
+        profile version. Missing bounds, expiry or source/connection scope refuse. This endpoint
+        grants no provider transport to the web tier.
       requestBody:
         required: true
         content:
@@ -1569,7 +1576,7 @@ paths:
               schema:
                 type: object
                 additionalProperties: false
-                required: [approval_id]
+                required: [ approval_id ]
                 properties:
                   approval_id: { type: string, format: uuid }
         '400': { $ref: '#/components/responses/BadRequest' }
@@ -1584,9 +1591,10 @@ paths:
       - $ref: '#/components/parameters/OrganizationID'
       - { name: approval_id, in: path, required: true, schema: { type: string, format: uuid } }
     delete:
-      tags: [models]
+      tags: [ models ]
       summary: Revoke workload authority conservatively without a new MFA challenge
-      description: Native tenant manager identity and required-SSO still apply. Repeating revocation is safe; unknown paid calls retain settlement obligations and are never automatically resent.
+      description: Native tenant manager identity and required-SSO still apply. Repeating revocation is
+        safe; unknown paid calls retain settlement obligations and are never automatically resent.
       responses:
         '204': { description: Revoked, or already revoked }
         '400': { $ref: '#/components/responses/BadRequest' }
@@ -2070,7 +2078,8 @@ paths:
     post:
       tags: [ knowledge ]
       summary: Request a durable, explicitly approved semantic query
-      description: Immediate lexical search remains available separately. This request commits a bounded job; the HTTP process cannot call a model or read its private payload.
+      description: Immediate lexical search remains available separately. This request commits a bounded
+        job; the HTTP process cannot call a model or read its private payload.
       requestBody:
         required: true
         content:
@@ -3831,7 +3840,8 @@ paths:
       tags:
         - studio
       summary: Cancel a pending or approved review
-      description: Closes the review without publishing. A new review is required to assign a different reviewer.
+      description: Closes the review without publishing. A new review is required to assign a different
+        reviewer.
       parameters:
         - $ref: "#/components/parameters/IfMatch"
       responses:
@@ -4152,10 +4162,10 @@ paths:
           $ref: "#/components/responses/RestorePending"
   /organizations/{organization_id}/object-types:
     {
-      'parameters': [{ '$ref': '#/components/parameters/OrganizationID' }],
+      'parameters': [ { '$ref': '#/components/parameters/OrganizationID' } ],
       'get':
         {
-          'tags': ['objects'],
+          'tags': [ 'objects' ],
           'summary': 'List custom types',
           'responses':
             {
@@ -4170,18 +4180,11 @@ paths:
                             {
                               'type': 'object',
                               'additionalProperties': false,
-                              'required': ['items'],
-                              'properties':
-                                {
-                                  'items':
-                                    {
-                                      'type': 'array',
-                                      'items': { '$ref': '#/components/schemas/ObjectType' },
-                                    },
-                                },
-                            },
-                        },
-                    },
+                              'required': [ 'items' ],
+                              'properties': { 'items': { 'type': 'array', 'items': { '$ref': '#/components/schemas/ObjectType' } } }
+                            }
+                        }
+                    }
                 },
               '400': { '$ref': '#/components/responses/BadRequest' },
               '401': { '$ref': '#/components/responses/Unauthorized' },
@@ -4189,24 +4192,20 @@ paths:
               '404': { '$ref': '#/components/responses/NotFound' },
               '409': { '$ref': '#/components/responses/Conflict' },
               '500': { '$ref': '#/components/responses/InternalError' },
-              '503': { '$ref': '#/components/responses/RestorePending' },
-            },
+              '503': { '$ref': '#/components/responses/RestorePending' }
+            }
         },
       'post':
         {
-          'tags': ['objects'],
+          'tags': [ 'objects' ],
           'summary': 'Define a custom type',
           'responses':
             {
               '201':
                 {
                   'description': 'Saved',
-                  'content':
-                    {
-                      'application/json':
-                        { 'schema': { '$ref': '#/components/schemas/ObjectType' } },
-                    },
-                  'headers': { 'ETag': { '$ref': '#/components/headers/ETag' } },
+                  'content': { 'application/json': { 'schema': { '$ref': '#/components/schemas/ObjectType' } } },
+                  'headers': { 'ETag': { '$ref': '#/components/headers/ETag' } }
                 },
               '400': { '$ref': '#/components/responses/BadRequest' },
               '401': { '$ref': '#/components/responses/Unauthorized' },
@@ -4216,19 +4215,15 @@ paths:
               '500': { '$ref': '#/components/responses/InternalError' },
               '503': { '$ref': '#/components/responses/RestorePending' },
               '413': { '$ref': '#/components/responses/PayloadTooLarge' },
-              '415': { '$ref': '#/components/responses/UnsupportedMediaType' },
+              '415': { '$ref': '#/components/responses/UnsupportedMediaType' }
             },
           'requestBody':
             {
               'required': true,
-              'content':
-                {
-                  'application/json':
-                    { 'schema': { '$ref': '#/components/schemas/CreateObjectType' } },
-                },
+              'content': { 'application/json': { 'schema': { '$ref': '#/components/schemas/CreateObjectType' } } }
             },
-          'parameters': [{ '$ref': '#/components/parameters/IdempotencyKey' }],
-        },
+          'parameters': [ { '$ref': '#/components/parameters/IdempotencyKey' } ]
+        }
     }
   /organizations/{organization_id}/object-types/{type_id}:
     {
@@ -4236,27 +4231,23 @@ paths:
         [
           { '$ref': '#/components/parameters/OrganizationID' },
           {
-            'name': 'type_id',
-            'in': 'path',
-            'required': true,
-            'schema': { 'type': 'string', 'format': 'uuid' },
-          },
+              'name': 'type_id',
+              'in': 'path',
+              'required': true,
+              'schema': { 'type': 'string', 'format': 'uuid' }
+            }
         ],
       'get':
         {
-          'tags': ['objects'],
+          'tags': [ 'objects' ],
           'summary': 'Read a custom type',
           'responses':
             {
               '200':
                 {
                   'description': 'Current authorized data',
-                  'content':
-                    {
-                      'application/json':
-                        { 'schema': { '$ref': '#/components/schemas/ObjectType' } },
-                    },
-                  'headers': { 'ETag': { '$ref': '#/components/headers/ETag' } },
+                  'content': { 'application/json': { 'schema': { '$ref': '#/components/schemas/ObjectType' } } },
+                  'headers': { 'ETag': { '$ref': '#/components/headers/ETag' } }
                 },
               '400': { '$ref': '#/components/responses/BadRequest' },
               '401': { '$ref': '#/components/responses/Unauthorized' },
@@ -4264,24 +4255,20 @@ paths:
               '404': { '$ref': '#/components/responses/NotFound' },
               '409': { '$ref': '#/components/responses/Conflict' },
               '500': { '$ref': '#/components/responses/InternalError' },
-              '503': { '$ref': '#/components/responses/RestorePending' },
-            },
+              '503': { '$ref': '#/components/responses/RestorePending' }
+            }
         },
       'patch':
         {
-          'tags': ['objects'],
+          'tags': [ 'objects' ],
           'summary': 'Raise the minimum sensitivity; lowering is refused',
           'responses':
             {
               '200':
                 {
                   'description': 'Current authorized data',
-                  'content':
-                    {
-                      'application/json':
-                        { 'schema': { '$ref': '#/components/schemas/ObjectType' } },
-                    },
-                  'headers': { 'ETag': { '$ref': '#/components/headers/ETag' } },
+                  'content': { 'application/json': { 'schema': { '$ref': '#/components/schemas/ObjectType' } } },
+                  'headers': { 'ETag': { '$ref': '#/components/headers/ETag' } }
                 },
               '400': { '$ref': '#/components/responses/BadRequest' },
               '401': { '$ref': '#/components/responses/Unauthorized' },
@@ -4292,9 +4279,9 @@ paths:
               '503': { '$ref': '#/components/responses/RestorePending' },
               '428': { '$ref': '#/components/responses/PreconditionRequired' },
               '413': { '$ref': '#/components/responses/PayloadTooLarge' },
-              '415': { '$ref': '#/components/responses/UnsupportedMediaType' },
+              '415': { '$ref': '#/components/responses/UnsupportedMediaType' }
             },
-          'parameters': [{ '$ref': '#/components/parameters/IfMatch' }],
+          'parameters': [ { '$ref': '#/components/parameters/IfMatch' } ],
           'requestBody':
             {
               'required': true,
@@ -4306,20 +4293,16 @@ paths:
                         {
                           'type': 'object',
                           'additionalProperties': false,
-                          'required': ['classification'],
+                          'required': [ 'classification' ],
                           'properties':
                             {
-                              'classification':
-                                {
-                                  'type': 'string',
-                                  'enum': ['public', 'internal', 'confidential', 'restricted'],
-                                },
-                            },
-                        },
-                    },
-                },
-            },
-        },
+                              'classification': { 'type': 'string', 'enum': [ 'public', 'internal', 'confidential', 'restricted' ] }
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
   /organizations/{organization_id}/object-types/{type_id}/versions:
     {
@@ -4327,26 +4310,22 @@ paths:
         [
           { '$ref': '#/components/parameters/OrganizationID' },
           {
-            'name': 'type_id',
-            'in': 'path',
-            'required': true,
-            'schema': { 'type': 'string', 'format': 'uuid' },
-          },
+              'name': 'type_id',
+              'in': 'path',
+              'required': true,
+              'schema': { 'type': 'string', 'format': 'uuid' }
+            }
         ],
       'post':
         {
-          'tags': ['objects'],
+          'tags': [ 'objects' ],
           'summary': 'Save a safe immutable shape and queue record migration',
           'responses':
             {
               '202':
                 {
                   'description': 'Saved',
-                  'content':
-                    {
-                      'application/json':
-                        { 'schema': { '$ref': '#/components/schemas/ObjectMigrationPlan' } },
-                    },
+                  'content': { 'application/json': { 'schema': { '$ref': '#/components/schemas/ObjectMigrationPlan' } } }
                 },
               '400': { '$ref': '#/components/responses/BadRequest' },
               '401': { '$ref': '#/components/responses/Unauthorized' },
@@ -4361,24 +4340,16 @@ paths:
               '200':
                 {
                   'description': 'Unchanged shape; no migration requested',
-                  'content':
-                    {
-                      'application/json':
-                        { 'schema': { '$ref': '#/components/schemas/ObjectMigrationPlan' } },
-                    },
-                },
+                  'content': { 'application/json': { 'schema': { '$ref': '#/components/schemas/ObjectMigrationPlan' } } }
+                }
             },
           'requestBody':
             {
               'required': true,
-              'content':
-                {
-                  'application/json':
-                    { 'schema': { '$ref': '#/components/schemas/AddObjectTypeVersion' } },
-                },
+              'content': { 'application/json': { 'schema': { '$ref': '#/components/schemas/AddObjectTypeVersion' } } }
             },
-          'parameters': [{ '$ref': '#/components/parameters/IfMatch' }],
-        },
+          'parameters': [ { '$ref': '#/components/parameters/IfMatch' } ]
+        }
     }
   /organizations/{organization_id}/object-types/{type_id}/records:
     {
@@ -4386,15 +4357,15 @@ paths:
         [
           { '$ref': '#/components/parameters/OrganizationID' },
           {
-            'name': 'type_id',
-            'in': 'path',
-            'required': true,
-            'schema': { 'type': 'string', 'format': 'uuid' },
-          },
+              'name': 'type_id',
+              'in': 'path',
+              'required': true,
+              'schema': { 'type': 'string', 'format': 'uuid' }
+            }
         ],
       'get':
         {
-          'tags': ['objects'],
+          'tags': [ 'objects' ],
           'summary': 'Page records after applying current access rules',
           'responses':
             {
@@ -4409,19 +4380,15 @@ paths:
                             {
                               'type': 'object',
                               'additionalProperties': false,
-                              'required': ['items', 'next'],
+                              'required': [ 'items', 'next' ],
                               'properties':
                                 {
-                                  'items':
-                                    {
-                                      'type': 'array',
-                                      'items': { '$ref': '#/components/schemas/ObjectRecord' },
-                                    },
-                                  'next': { 'type': ['string', 'null'], 'format': 'uuid' },
-                                },
-                            },
-                        },
-                    },
+                                  'items': { 'type': 'array', 'items': { '$ref': '#/components/schemas/ObjectRecord' } },
+                                  'next': { 'type': [ 'string', 'null' ], 'format': 'uuid' }
+                                }
+                            }
+                        }
+                    }
                 },
               '400': { '$ref': '#/components/responses/BadRequest' },
               '401': { '$ref': '#/components/responses/Unauthorized' },
@@ -4429,40 +4396,32 @@ paths:
               '404': { '$ref': '#/components/responses/NotFound' },
               '409': { '$ref': '#/components/responses/Conflict' },
               '500': { '$ref': '#/components/responses/InternalError' },
-              '503': { '$ref': '#/components/responses/RestorePending' },
+              '503': { '$ref': '#/components/responses/RestorePending' }
             },
           'parameters':
             [
               { 'name': 'after', 'in': 'query', 'schema': { 'type': 'string', 'format': 'uuid' } },
+              { 'name': 'limit', 'in': 'query', 'schema': { 'type': 'integer', 'minimum': 1, 'maximum': 100 } },
               {
-                'name': 'limit',
-                'in': 'query',
-                'schema': { 'type': 'integer', 'minimum': 1, 'maximum': 100 },
-              },
-              {
-                'name': 'field',
-                'in': 'query',
-                'description': 'Declared indexed field key; requires equals.',
-                'schema': { 'type': 'string' },
-              },
-              { 'name': 'equals', 'in': 'query', 'schema': { 'type': 'string' } },
-            ],
+                  'name': 'field',
+                  'in': 'query',
+                  'description': 'Declared indexed field key; requires equals.',
+                  'schema': { 'type': 'string' }
+                },
+              { 'name': 'equals', 'in': 'query', 'schema': { 'type': 'string' } }
+            ]
         },
       'post':
         {
-          'tags': ['objects'],
+          'tags': [ 'objects' ],
           'summary': 'Create a record owned by the current person',
           'responses':
             {
               '201':
                 {
                   'description': 'Saved',
-                  'content':
-                    {
-                      'application/json':
-                        { 'schema': { '$ref': '#/components/schemas/ObjectRecord' } },
-                    },
-                  'headers': { 'ETag': { '$ref': '#/components/headers/ETag' } },
+                  'content': { 'application/json': { 'schema': { '$ref': '#/components/schemas/ObjectRecord' } } },
+                  'headers': { 'ETag': { '$ref': '#/components/headers/ETag' } }
                 },
               '400': { '$ref': '#/components/responses/BadRequest' },
               '401': { '$ref': '#/components/responses/Unauthorized' },
@@ -4472,19 +4431,15 @@ paths:
               '500': { '$ref': '#/components/responses/InternalError' },
               '503': { '$ref': '#/components/responses/RestorePending' },
               '413': { '$ref': '#/components/responses/PayloadTooLarge' },
-              '415': { '$ref': '#/components/responses/UnsupportedMediaType' },
+              '415': { '$ref': '#/components/responses/UnsupportedMediaType' }
             },
           'requestBody':
             {
               'required': true,
-              'content':
-                {
-                  'application/json':
-                    { 'schema': { '$ref': '#/components/schemas/CreateObjectRecord' } },
-                },
+              'content': { 'application/json': { 'schema': { '$ref': '#/components/schemas/CreateObjectRecord' } } }
             },
-          'parameters': [{ '$ref': '#/components/parameters/IdempotencyKey' }],
-        },
+          'parameters': [ { '$ref': '#/components/parameters/IdempotencyKey' } ]
+        }
     }
   /organizations/{organization_id}/object-records/{record_id}:
     {
@@ -4492,27 +4447,23 @@ paths:
         [
           { '$ref': '#/components/parameters/OrganizationID' },
           {
-            'name': 'record_id',
-            'in': 'path',
-            'required': true,
-            'schema': { 'type': 'string', 'format': 'uuid' },
-          },
+              'name': 'record_id',
+              'in': 'path',
+              'required': true,
+              'schema': { 'type': 'string', 'format': 'uuid' }
+            }
         ],
       'get':
         {
-          'tags': ['objects'],
+          'tags': [ 'objects' ],
           'summary': 'Read a currently readable custom record',
           'responses':
             {
               '200':
                 {
                   'description': 'Current authorized data',
-                  'content':
-                    {
-                      'application/json':
-                        { 'schema': { '$ref': '#/components/schemas/ObjectRecord' } },
-                    },
-                  'headers': { 'ETag': { '$ref': '#/components/headers/ETag' } },
+                  'content': { 'application/json': { 'schema': { '$ref': '#/components/schemas/ObjectRecord' } } },
+                  'headers': { 'ETag': { '$ref': '#/components/headers/ETag' } }
                 },
               '400': { '$ref': '#/components/responses/BadRequest' },
               '401': { '$ref': '#/components/responses/Unauthorized' },
@@ -4520,24 +4471,20 @@ paths:
               '404': { '$ref': '#/components/responses/NotFound' },
               '409': { '$ref': '#/components/responses/Conflict' },
               '500': { '$ref': '#/components/responses/InternalError' },
-              '503': { '$ref': '#/components/responses/RestorePending' },
-            },
+              '503': { '$ref': '#/components/responses/RestorePending' }
+            }
         },
       'patch':
         {
-          'tags': ['objects'],
+          'tags': [ 'objects' ],
           'summary': 'Update exact record version; lowering scope requires recent native MFA',
           'responses':
             {
               '200':
                 {
                   'description': 'Current authorized data',
-                  'content':
-                    {
-                      'application/json':
-                        { 'schema': { '$ref': '#/components/schemas/ObjectRecord' } },
-                    },
-                  'headers': { 'ETag': { '$ref': '#/components/headers/ETag' } },
+                  'content': { 'application/json': { 'schema': { '$ref': '#/components/schemas/ObjectRecord' } } },
+                  'headers': { 'ETag': { '$ref': '#/components/headers/ETag' } }
                 },
               '400': { '$ref': '#/components/responses/BadRequest' },
               '401': { '$ref': '#/components/responses/Unauthorized' },
@@ -4548,22 +4495,18 @@ paths:
               '503': { '$ref': '#/components/responses/RestorePending' },
               '413': { '$ref': '#/components/responses/PayloadTooLarge' },
               '415': { '$ref': '#/components/responses/UnsupportedMediaType' },
-              '428': { '$ref': '#/components/responses/PreconditionRequired' },
+              '428': { '$ref': '#/components/responses/PreconditionRequired' }
             },
           'requestBody':
             {
               'required': true,
-              'content':
-                {
-                  'application/json':
-                    { 'schema': { '$ref': '#/components/schemas/UpdateObjectRecord' } },
-                },
+              'content': { 'application/json': { 'schema': { '$ref': '#/components/schemas/UpdateObjectRecord' } } }
             },
-          'parameters': [{ '$ref': '#/components/parameters/IfMatch' }],
+          'parameters': [ { '$ref': '#/components/parameters/IfMatch' } ]
         },
       'delete':
         {
-          'tags': ['objects'],
+          'tags': [ 'objects' ],
           'summary': 'Remove a record and retain its deletion marker',
           'responses':
             {
@@ -4575,10 +4518,10 @@ paths:
               '409': { '$ref': '#/components/responses/Conflict' },
               '500': { '$ref': '#/components/responses/InternalError' },
               '503': { '$ref': '#/components/responses/RestorePending' },
-              '428': { '$ref': '#/components/responses/PreconditionRequired' },
+              '428': { '$ref': '#/components/responses/PreconditionRequired' }
             },
-          'parameters': [{ '$ref': '#/components/parameters/IfMatch' }],
-        },
+          'parameters': [ { '$ref': '#/components/parameters/IfMatch' } ]
+        }
     }
   /organizations/{organization_id}/object-records/{record_id}/relations:
     {
@@ -4586,26 +4529,22 @@ paths:
         [
           { '$ref': '#/components/parameters/OrganizationID' },
           {
-            'name': 'record_id',
-            'in': 'path',
-            'required': true,
-            'schema': { 'type': 'string', 'format': 'uuid' },
-          },
+              'name': 'record_id',
+              'in': 'path',
+              'required': true,
+              'schema': { 'type': 'string', 'format': 'uuid' }
+            }
         ],
       'get':
         {
-          'tags': ['objects'],
+          'tags': [ 'objects' ],
           'summary': 'List readable outgoing relations',
           'responses':
             {
               '200':
                 {
                   'description': 'Current authorized data',
-                  'content':
-                    {
-                      'application/json':
-                        { 'schema': { '$ref': '#/components/schemas/ObjectRelationsPage' } },
-                    },
+                  'content': { 'application/json': { 'schema': { '$ref': '#/components/schemas/ObjectRelationsPage' } } }
                 },
               '400': { '$ref': '#/components/responses/BadRequest' },
               '401': { '$ref': '#/components/responses/Unauthorized' },
@@ -4613,14 +4552,13 @@ paths:
               '404': { '$ref': '#/components/responses/NotFound' },
               '409': { '$ref': '#/components/responses/Conflict' },
               '500': { '$ref': '#/components/responses/InternalError' },
-              '503': { '$ref': '#/components/responses/RestorePending' },
+              '503': { '$ref': '#/components/responses/RestorePending' }
             },
-          'parameters':
-            [{ 'name': 'after', 'in': 'query', 'schema': { 'type': 'string', 'format': 'uuid' } }],
+          'parameters': [ { 'name': 'after', 'in': 'query', 'schema': { 'type': 'string', 'format': 'uuid' } } ]
         },
       'post':
         {
-          'tags': ['objects'],
+          'tags': [ 'objects' ],
           'summary': 'Link readable records by a declared relation',
           'responses':
             {
@@ -4635,11 +4573,11 @@ paths:
                             {
                               'type': 'object',
                               'additionalProperties': false,
-                              'required': ['id'],
-                              'properties': { 'id': { 'type': 'string', 'format': 'uuid' } },
-                            },
-                        },
-                    },
+                              'required': [ 'id' ],
+                              'properties': { 'id': { 'type': 'string', 'format': 'uuid' } }
+                            }
+                        }
+                    }
                 },
               '400': { '$ref': '#/components/responses/BadRequest' },
               '401': { '$ref': '#/components/responses/Unauthorized' },
@@ -4649,18 +4587,14 @@ paths:
               '500': { '$ref': '#/components/responses/InternalError' },
               '503': { '$ref': '#/components/responses/RestorePending' },
               '413': { '$ref': '#/components/responses/PayloadTooLarge' },
-              '415': { '$ref': '#/components/responses/UnsupportedMediaType' },
+              '415': { '$ref': '#/components/responses/UnsupportedMediaType' }
             },
           'requestBody':
             {
               'required': true,
-              'content':
-                {
-                  'application/json':
-                    { 'schema': { '$ref': '#/components/schemas/LinkObjectRecords' } },
-                },
-            },
-        },
+              'content': { 'application/json': { 'schema': { '$ref': '#/components/schemas/LinkObjectRecords' } } }
+            }
+        }
     }
   /organizations/{organization_id}/object-records/{record_id}/relations/{relation_id}:
     {
@@ -4668,21 +4602,21 @@ paths:
         [
           { '$ref': '#/components/parameters/OrganizationID' },
           {
-            'name': 'record_id',
-            'in': 'path',
-            'required': true,
-            'schema': { 'type': 'string', 'format': 'uuid' },
-          },
+              'name': 'record_id',
+              'in': 'path',
+              'required': true,
+              'schema': { 'type': 'string', 'format': 'uuid' }
+            },
           {
-            'name': 'relation_id',
-            'in': 'path',
-            'required': true,
-            'schema': { 'type': 'string', 'format': 'uuid' },
-          },
+              'name': 'relation_id',
+              'in': 'path',
+              'required': true,
+              'schema': { 'type': 'string', 'format': 'uuid' }
+            }
         ],
       'delete':
         {
-          'tags': ['objects'],
+          'tags': [ 'objects' ],
           'summary': 'Unlink an authorized relation',
           'responses':
             {
@@ -4693,9 +4627,9 @@ paths:
               '404': { '$ref': '#/components/responses/NotFound' },
               '409': { '$ref': '#/components/responses/Conflict' },
               '500': { '$ref': '#/components/responses/InternalError' },
-              '503': { '$ref': '#/components/responses/RestorePending' },
-            },
-        },
+              '503': { '$ref': '#/components/responses/RestorePending' }
+            }
+        }
     }
   /organizations/{organization_id}/object-types/{type_id}/migrations/{migration_id}:
     {
@@ -4703,32 +4637,28 @@ paths:
         [
           { '$ref': '#/components/parameters/OrganizationID' },
           {
-            'name': 'type_id',
-            'in': 'path',
-            'required': true,
-            'schema': { 'type': 'string', 'format': 'uuid' },
-          },
+              'name': 'type_id',
+              'in': 'path',
+              'required': true,
+              'schema': { 'type': 'string', 'format': 'uuid' }
+            },
           {
-            'name': 'migration_id',
-            'in': 'path',
-            'required': true,
-            'schema': { 'type': 'string', 'format': 'uuid' },
-          },
+              'name': 'migration_id',
+              'in': 'path',
+              'required': true,
+              'schema': { 'type': 'string', 'format': 'uuid' }
+            }
         ],
       'get':
         {
-          'tags': ['objects'],
+          'tags': [ 'objects' ],
           'summary': 'Read actual migration progress; management authority required',
           'responses':
             {
               '200':
                 {
                   'description': 'Current durable metadata',
-                  'content':
-                    {
-                      'application/json':
-                        { 'schema': { '$ref': '#/components/schemas/ObjectMigration' } },
-                    },
+                  'content': { 'application/json': { 'schema': { '$ref': '#/components/schemas/ObjectMigration' } } }
                 },
               '400': { '$ref': '#/components/responses/BadRequest' },
               '401': { '$ref': '#/components/responses/Unauthorized' },
@@ -4736,9 +4666,9 @@ paths:
               '404': { '$ref': '#/components/responses/NotFound' },
               '409': { '$ref': '#/components/responses/Conflict' },
               '500': { '$ref': '#/components/responses/InternalError' },
-              '503': { '$ref': '#/components/responses/RestorePending' },
-            },
-        },
+              '503': { '$ref': '#/components/responses/RestorePending' }
+            }
+        }
     }
   /organizations/{organization_id}/object-types/{type_id}/migrations/{migration_id}/retry:
     {
@@ -4746,26 +4676,26 @@ paths:
         [
           { '$ref': '#/components/parameters/OrganizationID' },
           {
-            'name': 'type_id',
-            'in': 'path',
-            'required': true,
-            'schema': { 'type': 'string', 'format': 'uuid' },
-          },
+              'name': 'type_id',
+              'in': 'path',
+              'required': true,
+              'schema': { 'type': 'string', 'format': 'uuid' }
+            },
           {
-            'name': 'migration_id',
-            'in': 'path',
-            'required': true,
-            'schema': { 'type': 'string', 'format': 'uuid' },
-          },
+              'name': 'migration_id',
+              'in': 'path',
+              'required': true,
+              'schema': { 'type': 'string', 'format': 'uuid' }
+            }
         ],
       'post':
         {
-          'tags': ['objects'],
+          'tags': [ 'objects' ],
           'summary': 'Create a new retry intent for the exact current schema; prior results retained',
           'parameters':
             [
               { '$ref': '#/components/parameters/IfMatch' },
-              { '$ref': '#/components/parameters/IdempotencyKey' },
+              { '$ref': '#/components/parameters/IdempotencyKey' }
             ],
           'responses':
             {
@@ -4780,12 +4710,11 @@ paths:
                             {
                               'type': 'object',
                               'additionalProperties': false,
-                              'required': ['migration_id'],
-                              'properties':
-                                { 'migration_id': { 'type': 'string', 'format': 'uuid' } },
-                            },
-                        },
-                    },
+                              'required': [ 'migration_id' ],
+                              'properties': { 'migration_id': { 'type': 'string', 'format': 'uuid' } }
+                            }
+                        }
+                    }
                 },
               '428': { '$ref': '#/components/responses/PreconditionRequired' },
               '400': { '$ref': '#/components/responses/BadRequest' },
@@ -4794,9 +4723,9 @@ paths:
               '404': { '$ref': '#/components/responses/NotFound' },
               '409': { '$ref': '#/components/responses/Conflict' },
               '500': { '$ref': '#/components/responses/InternalError' },
-              '503': { '$ref': '#/components/responses/RestorePending' },
-            },
-        },
+              '503': { '$ref': '#/components/responses/RestorePending' }
+            }
+        }
     }
   /organizations/{organization_id}/packs:
     parameters:
@@ -5061,7 +4990,8 @@ paths:
       tags:
         - experience
       summary: Read evidence-linked signals the viewer can see
-      description: Bounded current-viewer projection with explicit partial codes for unavailable or capped sources. Includes no employee score or raw provider/model text.
+      description: Bounded current-viewer projection with explicit partial codes for unavailable or capped
+        sources. Includes no employee score or raw provider/model text.
       parameters:
         - name: include_dismissed
           in: query
@@ -5101,7 +5031,9 @@ paths:
       tags:
         - experience
       summary: Dismiss or snooze a signal, for this person only
-      description: The body is checked against setPulseSignalStateSchema. The signal must still be readable and current. Snoozes require a finite future end within 30 days; open or dismissed accepts no until field.
+      description: The body is checked against setPulseSignalStateSchema. The signal must still be
+        readable and current. Snoozes require a finite future end within 30 days; open or dismissed
+        accepts no until field.
       requestBody:
         required: true
         content:
@@ -5114,7 +5046,7 @@ paths:
               properties:
                 state:
                   type: string
-                  enum: [open, dismissed, snoozed]
+                  enum: [ open, dismissed, snoozed ]
                 until:
                   type: string
                   format: date-time
@@ -5186,7 +5118,8 @@ paths:
       summary: Read a sentence into a preview. Nothing runs
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
-      description: A private deterministic preview. Replays return only the identity and then recheck current draft access.
+      description: A private deterministic preview. Replays return only the identity and then recheck
+        current draft access.
       requestBody:
         required: true
         content:
@@ -6128,7 +6061,8 @@ paths:
       tags: [ commercial ]
       operationId: downloadImportedArchiveFile
       summary: Download an inert archived file for review by its current native custodian
-      description: Requires a finished verified write and current permission checks before and after storage I/O. No Work attachment or provenance promotion is created.
+      description: Requires a finished verified write and current permission checks before and after
+        storage I/O. No Work attachment or provenance promotion is created.
       responses:
         '200':
           description: The verified bytes as an attachment
@@ -6247,6 +6181,627 @@ paths:
           $ref: "#/components/responses/InternalError"
         "503":
           $ref: "#/components/responses/RestorePending"
+  /organizations/{organization_id}/billing:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+    get:
+      x-ensemus-status: planned
+      tags: [ commercial ]
+      summary: This organization's billing overview, in any standing
+      responses:
+        '200':
+          description: Standing, billing account and subscription. Holds no credential and no processor text.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BillingOverview' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
+        '503': { $ref: '#/components/responses/RestorePending' }
+  /organizations/{organization_id}/billing/account:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+    put:
+      x-ensemus-status: planned
+      tags: [ commercial ]
+      summary: Save who pays. Creating sends no If-Match, and changing one needs the version that was seen
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SaveBillingAccount' }
+      responses:
+        '200':
+          description: Saved
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SavedVersion' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '500': { $ref: '#/components/responses/InternalError' }
+        '503': { $ref: '#/components/responses/RestorePending' }
+  /organizations/{organization_id}/billing/plans:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+    get:
+      x-ensemus-status: planned
+      tags: [ commercial ]
+      summary: Approved plans for this organization's mode. Empty until the owner approves one.
+      responses:
+        '200':
+          description: Approved plan versions
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [ items ]
+                properties:
+                  items: { type: array, items: { $ref: '#/components/schemas/PlanVersion' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
+        '503': { $ref: '#/components/responses/RestorePending' }
+  /organizations/{organization_id}/billing/subscription:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+    post:
+      x-ensemus-status: planned
+      tags: [ commercial ]
+      summary: Start a subscription on an approved plan
+      parameters: [ { $ref: '#/components/parameters/IdempotencyKey' } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PlanChoice' }
+      responses:
+        '201':
+          description: Started
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [ subscription_id ]
+                properties:
+                  subscription_id: { type: string, format: uuid }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '500': { $ref: '#/components/responses/InternalError' }
+        '503': { $ref: '#/components/responses/RestorePending' }
+    patch:
+      x-ensemus-status: planned
+      tags: [ commercial ]
+      summary: Change plan. Never removes data, and anything over the new limits goes read-only.
+      parameters: [ { $ref: '#/components/parameters/IfMatch' } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PlanChoice' }
+      responses:
+        '200':
+          description: Changed, now or at the period's end
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [ effective, excess ]
+                properties:
+                  effective: { type: string, enum: [ now, period_end ] }
+                  excess: { type: object, additionalProperties: { type: integer, minimum: 0 } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '428': { $ref: '#/components/responses/PreconditionRequired' }
+        '500': { $ref: '#/components/responses/InternalError' }
+        '503': { $ref: '#/components/responses/RestorePending' }
+  /organizations/{organization_id}/billing/invoices:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+    get:
+      x-ensemus-status: planned
+      tags: [ commercial ]
+      summary: This organization's invoices
+      parameters:
+        - name: cursor
+          in: query
+          schema: { type: string, minLength: 1, maxLength: 512 }
+      responses:
+        '200':
+          description: One page
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [ items, next_cursor ]
+                properties:
+                  items: { type: array, items: { $ref: '#/components/schemas/InvoiceSummary' } }
+                  next_cursor: { type: [ string, 'null' ] }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
+        '503': { $ref: '#/components/responses/RestorePending' }
+  /organizations/{organization_id}/billing/invoices/{invoice_id}:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+      - $ref: '#/components/parameters/InvoiceID'
+    get:
+      x-ensemus-status: planned
+      tags: [ commercial ]
+      summary: One invoice and its lines
+      responses:
+        '200':
+          description: The invoice
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/InvoiceDetail' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
+        '503': { $ref: '#/components/responses/RestorePending' }
+  /organizations/{organization_id}/billing/invoices/{invoice_id}/payments:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+      - $ref: '#/components/parameters/InvoiceID'
+    post:
+      x-ensemus-status: planned
+      tags: [ commercial ]
+      summary: Ask to charge this invoice. A live payment is returned and no second one is made.
+      parameters: [ { $ref: '#/components/parameters/IdempotencyKey' } ]
+      responses:
+        '202':
+          description: Asked. Charging happens in a worker, and this says nothing about whether it worked.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [ payment_id, status ]
+                properties:
+                  payment_id: { type: string, format: uuid }
+                  status: { $ref: '#/components/schemas/PaymentStatus' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/InternalError' }
+        '503': { $ref: '#/components/responses/RestorePending' }
+  /organizations/{organization_id}/billing/credits:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+    get:
+      x-ensemus-status: planned
+      tags: [ commercial ]
+      summary: Remaining AI credits and what used them. Null for BYOM, whose provider bills it directly.
+      responses:
+        '200':
+          description: The balance
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CreditSummary' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
+        '503': { $ref: '#/components/responses/RestorePending' }
+  /organizations/{organization_id}/billing/top-ups:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+    get:
+      x-ensemus-status: planned
+      tags: [ commercial ]
+      summary: What can be bought now, each with the exact quote a request has to echo
+      responses:
+        '200':
+          description: Offers on the current card
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [ offers ]
+                properties:
+                  offers: { type: array, items: { $ref: '#/components/schemas/TopUpOffer' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
+        '503': { $ref: '#/components/responses/RestorePending' }
+    post:
+      x-ensemus-status: planned
+      tags: [ commercial ]
+      summary: Buy exactly the quote that was shown. A changed price buys nothing.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RequestTopUp' }
+      responses:
+        '201':
+          description: Requested. Credits arrive only after payment succeeds.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [ top_up_id, invoice_id ]
+                properties:
+                  top_up_id: { type: string, format: uuid }
+                  invoice_id: { type: string, format: uuid }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '500': { $ref: '#/components/responses/InternalError' }
+        '503': { $ref: '#/components/responses/RestorePending' }
+  /organizations/{organization_id}/retention-rules:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+    get:
+      x-ensemus-status: planned
+      tags: [ commercial ]
+      summary: Current retention rules. A category with none is never swept.
+      responses:
+        '200':
+          description: Current rules
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [ items ]
+                properties:
+                  items: { type: array, items: { $ref: '#/components/schemas/RetentionRule' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
+        '503': { $ref: '#/components/responses/RestorePending' }
+    post:
+      x-ensemus-status: planned
+      tags: [ commercial ]
+      summary: Set one rule, with the sign-off it rests on. It supersedes what was there.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SetRetentionRule' }
+      responses:
+        '201':
+          description: Set
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RetentionRule' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '500': { $ref: '#/components/responses/InternalError' }
+        '503': { $ref: '#/components/responses/RestorePending' }
+  /organizations/{organization_id}/legal-holds:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+    get:
+      x-ensemus-status: planned
+      tags: [ commercial ]
+      summary: Legal holds. Someone who may not manage them gets not found.
+      responses:
+        '200':
+          description: Every hold, active and released
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [ items ]
+                properties:
+                  items: { type: array, items: { $ref: '#/components/schemas/LegalHold' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
+        '503': { $ref: '#/components/responses/RestorePending' }
+    post:
+      x-ensemus-status: planned
+      tags: [ commercial ]
+      summary: Place a hold. Anything in its scope survives every deletion request until it is released.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PlaceLegalHold' }
+      responses:
+        '201':
+          description: Placed
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LegalHold' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '500': { $ref: '#/components/responses/InternalError' }
+        '503': { $ref: '#/components/responses/RestorePending' }
+  /organizations/{organization_id}/legal-holds/{legal_hold_id}/release:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+      - $ref: '#/components/parameters/LegalHoldID'
+    post:
+      x-ensemus-status: planned
+      tags: [ commercial ]
+      summary: Release a hold, with a reason. It stays released.
+      parameters: [ { $ref: '#/components/parameters/IfMatch' } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ReasonCode' }
+      responses:
+        '204': { description: Released }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '428': { $ref: '#/components/responses/PreconditionRequired' }
+        '500': { $ref: '#/components/responses/InternalError' }
+        '503': { $ref: '#/components/responses/RestorePending' }
+  /organizations/{organization_id}/offboarding:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+    get:
+      x-ensemus-status: planned
+      tags: [ commercial ]
+      summary: Where this organization's offboarding stands, and its report when there is one
+      responses:
+        '200':
+          description: The offboarding, or null
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [ offboarding ]
+                properties:
+                  offboarding:
+                    oneOf:
+                      - { $ref: '#/components/schemas/Offboarding' }
+                      - { type: 'null' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
+        '503': { $ref: '#/components/responses/RestorePending' }
+    post:
+      x-ensemus-status: planned
+      tags: [ commercial ]
+      summary: Ask to leave, by typing this organization's exact name. Nothing is erased by this.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RequestOffboarding' }
+      responses:
+        '202':
+          description: Started
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [ offboarding_id ]
+                properties:
+                  offboarding_id: { type: string, format: uuid }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '500': { $ref: '#/components/responses/InternalError' }
+        '503': { $ref: '#/components/responses/RestorePending' }
+  /organizations/{organization_id}/offboarding/cancellation:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+    post:
+      x-ensemus-status: planned
+      tags: [ commercial ]
+      summary: Stay after all. Only before erasure starts.
+      parameters: [ { $ref: '#/components/parameters/IfMatch' } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ReasonCode' }
+      responses:
+        '204': { description: Cancelled, and service is back }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '428': { $ref: '#/components/responses/PreconditionRequired' }
+        '500': { $ref: '#/components/responses/InternalError' }
+        '503': { $ref: '#/components/responses/RestorePending' }
+  /organizations/{organization_id}/support/tickets:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+    get:
+      x-ensemus-status: planned
+      tags: [ commercial ]
+      summary: Support tickets this person can see
+      responses:
+        '200':
+          description: Tickets
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [ items ]
+                properties:
+                  items: { type: array, items: { $ref: '#/components/schemas/TicketSummary' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
+        '503': { $ref: '#/components/responses/RestorePending' }
+    post:
+      x-ensemus-status: planned
+      tags: [ commercial ]
+      summary: Ask for help. Support reads what is written here, and nothing else of this organization's.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/OpenTicket' }
+      responses:
+        '201':
+          description: Opened
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [ ticket_id ]
+                properties:
+                  ticket_id: { type: string, format: uuid }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '500': { $ref: '#/components/responses/InternalError' }
+        '503': { $ref: '#/components/responses/RestorePending' }
+  /organizations/{organization_id}/support/tickets/{ticket_id}:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+      - $ref: '#/components/parameters/TicketID'
+    get:
+      x-ensemus-status: planned
+      tags: [ commercial ]
+      summary: One ticket and its messages
+      responses:
+        '200':
+          description: The ticket
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TicketDetail' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
+        '503': { $ref: '#/components/responses/RestorePending' }
+  /organizations/{organization_id}/support/tickets/{ticket_id}/messages:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+      - $ref: '#/components/parameters/TicketID'
+    post:
+      x-ensemus-status: planned
+      tags: [ commercial ]
+      summary: Reply to a ticket
+      parameters: [ { $ref: '#/components/parameters/IfMatch' } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ReplyTicket' }
+      responses:
+        '200':
+          description: Added
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SavedVersion' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '428': { $ref: '#/components/responses/PreconditionRequired' }
+        '500': { $ref: '#/components/responses/InternalError' }
+        '503': { $ref: '#/components/responses/RestorePending' }
+  /organizations/{organization_id}/support/break-glass:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+    get:
+      x-ensemus-status: planned
+      tags: [ commercial ]
+      summary: Requests for support access to content. The default is none.
+      responses:
+        '200':
+          description: Requests
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [ items ]
+                properties:
+                  items: { type: array, items: { $ref: '#/components/schemas/BreakGlassRequest' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
+        '503': { $ref: '#/components/responses/RestorePending' }
+  /organizations/{organization_id}/support/break-glass/{break_glass_id}/decision:
+    parameters:
+      - $ref: '#/components/parameters/OrganizationID'
+      - $ref: '#/components/parameters/BreakGlassID'
+    post:
+      x-ensemus-status: planned
+      tags: [ commercial ]
+      summary: Agree to or refuse a request. Agreeing still grants no read path in this release.
+      parameters: [ { $ref: '#/components/parameters/IfMatch' } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/DecideBreakGlass' }
+      responses:
+        '200':
+          description: Decided
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BreakGlassRequest' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '428': { $ref: '#/components/responses/PreconditionRequired' }
+        '500': { $ref: '#/components/responses/InternalError' }
+        '503': { $ref: '#/components/responses/RestorePending' }
 components:
   securitySchemes:
     sessionCookie:
@@ -6330,6 +6885,26 @@ components:
       schema:
         type: string
         format: uuid
+    InvoiceID:
+      name: invoice_id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    LegalHoldID:
+      name: legal_hold_id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    TicketID:
+      name: ticket_id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    BreakGlassID:
+      name: break_glass_id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
   schemas:
     CreateWorkUnit:
       type: object
@@ -7886,8 +8461,17 @@ components:
     KnowledgeModelJobBounds:
       type: object
       additionalProperties: false
-      description: Explicit caller ceilings within a current workload approval. Input and output ceilings must each fit max_total_tokens. No spend ceiling is supplied by default.
-      required: [ max_calls, max_input_tokens, max_output_tokens, max_total_tokens, max_cost_micros, timeout_seconds ]
+      description: Explicit caller ceilings within a current workload approval. Input and output ceilings
+        must each fit max_total_tokens. No spend ceiling is supplied by default.
+      required:
+        [
+          max_calls,
+          max_input_tokens,
+          max_output_tokens,
+          max_total_tokens,
+          max_cost_micros,
+          timeout_seconds
+        ]
       properties:
         max_calls: { type: integer, minimum: 1, maximum: 1000 }
         max_input_tokens: { type: integer, minimum: 1, maximum: 2147483647 }
@@ -7898,82 +8482,136 @@ components:
     RequestModelCapabilityQualification:
       type: object
       additionalProperties: false
-      required: [expected_profile_version, purpose, dimension, vector_space_version, request_key, bounds]
+      required: [ expected_profile_version, purpose, dimension, vector_space_version, request_key, bounds ]
       properties:
         expected_profile_version: { type: integer, minimum: 1 }
-        purpose: { type: string, enum: [embed, rerank, answer] }
-        dimension: { type: [integer, 'null'], minimum: 1, maximum: 8192 }
-        vector_space_version: { type: [string, 'null'], minLength: 1, maxLength: 256 }
+        purpose: { type: string, enum: [ embed, rerank, answer ] }
+        dimension: { type: [ integer, 'null' ], minimum: 1, maximum: 8192 }
+        vector_space_version: { type: [ string, 'null' ], minLength: 1, maxLength: 256 }
         request_key: { type: string, format: uuid }
         bounds: { $ref: '#/components/schemas/KnowledgeModelJobBounds' }
-      description: Exactly one call. Embedding requires explicit dimension and vector-space version; ranking and answers require both fields null. Protocol is derived server-side, not supplied by the requester.
+      description: Exactly one call. Embedding requires explicit dimension and vector-space version;
+        ranking and answers require both fields null. Protocol is derived server-side, not supplied
+        by the requester.
     ApproveModelWorkloadRequest:
       type: object
       additionalProperties: false
-      required: [kind, scope, source_id, connection_id, purposes, qualification_ids, max_classification, bounds, expires_at, request_key]
+      required:
+        [
+          kind,
+          scope,
+          source_id,
+          connection_id,
+          purposes,
+          qualification_ids,
+          max_classification,
+          bounds,
+          expires_at,
+          request_key
+        ]
       properties:
-        kind: { type: string, enum: [document_embed, query, answer, agent_context] }
-        scope: { type: string, enum: [organization, source, connection] }
-        source_id: { type: [string, 'null'], format: uuid }
-        connection_id: { type: [string, 'null'], format: uuid }
-        purposes: { type: array, minItems: 1, maxItems: 3, items: { type: string, enum: [embed, rerank, answer] } }
+        kind: { type: string, enum: [ document_embed, query, answer, agent_context ] }
+        scope: { type: string, enum: [ organization, source, connection ] }
+        source_id: { type: [ string, 'null' ], format: uuid }
+        connection_id: { type: [ string, 'null' ], format: uuid }
+        purposes:
+          {
+            type: array,
+            minItems: 1,
+            maxItems: 3,
+            items: { type: string, enum: [ embed, rerank, answer ] }
+          }
         qualification_ids: { type: array, minItems: 1, maxItems: 12, items: { type: string, format: uuid } }
-        max_classification: { type: string, enum: [public, internal, confidential, restricted] }
+        max_classification: { type: string, enum: [ public, internal, confidential, restricted ] }
         bounds: { $ref: '#/components/schemas/KnowledgeModelJobBounds' }
         expires_at: { type: string, format: date-time }
         request_key: { type: string, format: uuid }
-      description: Document indexing requires exactly one source or connection scope. Other workloads use organization scope with both reference fields null. Expiry and every spending ceiling are explicit; no default authority is granted.
+      description: Document indexing requires exactly one source or connection scope. Other workloads use
+        organization scope with both reference fields null. Expiry and every spending ceiling are
+        explicit; no default authority is granted.
     ModelCapabilityEvidence:
       type: object
       additionalProperties: false
-      required: [id, profile_id, profile_alias, profile_version, purpose, protocol, dimension, vector_space_version, state, current, usable, result_digest, qualified_at, created_at, bounds, job]
+      required:
+        [
+          id,
+          profile_id,
+          profile_alias,
+          profile_version,
+          purpose,
+          protocol,
+          dimension,
+          vector_space_version,
+          state,
+          current,
+          usable,
+          result_digest,
+          qualified_at,
+          created_at,
+          bounds,
+          job
+        ]
       properties:
         id: { type: string, format: uuid }
         profile_id: { type: string, format: uuid }
         profile_alias: { type: string }
         profile_version: { type: integer, minimum: 1 }
-        purpose: { type: string, enum: [embed, rerank, answer] }
-        protocol: { type: string, enum: [native_embedding_v1, structured_ranking_v1, text_answer_v1] }
-        dimension: { type: [integer, 'null'], minimum: 1, maximum: 8192 }
-        vector_space_version: { type: [string, 'null'] }
-        state: { type: string, enum: [requested, passed, failed] }
+        purpose: { type: string, enum: [ embed, rerank, answer ] }
+        protocol: { type: string, enum: [ native_embedding_v1, structured_ranking_v1, text_answer_v1 ] }
+        dimension: { type: [ integer, 'null' ], minimum: 1, maximum: 8192 }
+        vector_space_version: { type: [ string, 'null' ] }
+        state: { type: string, enum: [ requested, passed, failed ] }
         current: { type: boolean }
         usable: { type: boolean }
-        result_digest: { type: [string, 'null'], pattern: '^[0-9a-f]{64}$' }
-        qualified_at: { type: [string, 'null'], format: date-time }
+        result_digest: { type: [ string, 'null' ], pattern: '^[0-9a-f]{64}$' }
+        qualified_at: { type: [ string, 'null' ], format: date-time }
         created_at: { type: string, format: date-time }
         bounds: { $ref: '#/components/schemas/KnowledgeModelJobBounds' }
         job:
-          type: [object, 'null']
+          type: [ object, 'null' ]
           additionalProperties: false
-          required: [id, state, code, unknown_outcome]
+          required: [ id, state, code, unknown_outcome ]
           properties:
             id: { type: string, format: uuid }
-            state: { type: string, enum: [prepared, running, completed, refused, fenced] }
-            code: { type: [string, 'null'] }
+            state: { type: string, enum: [ prepared, running, completed, refused, fenced ] }
+            code: { type: [ string, 'null' ] }
             unknown_outcome: { type: boolean }
     ModelWorkloadApproval:
       type: object
       additionalProperties: false
-      required: [id, kind, scope, source_id, connection_id, purposes, max_classification, bounds, expires_at, revoked_at, created_at, qualifications]
+      required:
+        [
+          id,
+          kind,
+          scope,
+          source_id,
+          connection_id,
+          purposes,
+          max_classification,
+          bounds,
+          expires_at,
+          revoked_at,
+          created_at,
+          qualifications
+        ]
       properties:
         id: { type: string, format: uuid }
-        kind: { type: string, enum: [document_embed, query, answer, agent_context] }
-        scope: { type: string, enum: [organization, source, connection] }
-        source_id: { type: [string, 'null'], format: uuid }
-        connection_id: { type: [string, 'null'], format: uuid }
-        purposes: { type: array, items: { type: string, enum: [embed, rerank, answer] } }
-        max_classification: { type: string, enum: [public, internal, confidential, restricted] }
+        kind: { type: string, enum: [ document_embed, query, answer, agent_context ] }
+        scope: { type: string, enum: [ organization, source, connection ] }
+        source_id: { type: [ string, 'null' ], format: uuid }
+        connection_id: { type: [ string, 'null' ], format: uuid }
+        purposes: { type: array, items: { type: string, enum: [ embed, rerank, answer ] } }
+        max_classification: { type: string, enum: [ public, internal, confidential, restricted ] }
         bounds: { $ref: '#/components/schemas/KnowledgeModelJobBounds' }
         expires_at: { type: string, format: date-time }
-        revoked_at: { type: [string, 'null'], format: date-time }
+        revoked_at: { type: [ string, 'null' ], format: date-time }
         created_at: { type: string, format: date-time }
         qualifications:
           type: array
           items:
             type: object
             additionalProperties: false
-            required: [id, usable]
+            required: [ id, usable ]
             properties:
               id: { type: string, format: uuid }
               usable: { type: boolean }
@@ -9314,7 +9952,7 @@ components:
       {
         'type': 'object',
         'additionalProperties': false,
-        'required': ['key', 'label', 'kind', 'required', 'indexed'],
+        'required': [ 'key', 'label', 'kind', 'required', 'indexed' ],
         'properties':
           {
             'key': { 'type': 'string', 'pattern': '^[a-z][a-z0-9_]{0,62}$' },
@@ -9322,7 +9960,7 @@ components:
             'kind':
               {
                 'type': 'string',
-                'enum': ['text', 'long_text', 'number', 'boolean', 'date', 'enum', 'email', 'url'],
+                'enum': [ 'text', 'long_text', 'number', 'boolean', 'date', 'enum', 'email', 'url' ]
               },
             'required': { 'type': 'boolean' },
             'indexed': { 'type': 'boolean' },
@@ -9330,86 +9968,70 @@ components:
               {
                 'type': 'array',
                 'maxItems': 64,
-                'items': { 'type': 'string', 'minLength': 1, 'maxLength': 120 },
+                'items': { 'type': 'string', 'minLength': 1, 'maxLength': 120 }
               },
-            'maxLength': { 'type': 'integer', 'minimum': 1, 'maximum': 50000 },
-          },
+            'maxLength': { 'type': 'integer', 'minimum': 1, 'maximum': 50000 }
+          }
       }
     ObjectRelationDefinition:
       {
         'type': 'object',
         'additionalProperties': false,
-        'required': ['key', 'label', 'toTypeSlug', 'cardinality'],
+        'required': [ 'key', 'label', 'toTypeSlug', 'cardinality' ],
         'properties':
           {
             'key': { 'type': 'string', 'pattern': '^[a-z][a-z0-9_]{0,62}$' },
             'label': { 'type': 'string', 'minLength': 1, 'maxLength': 120 },
             'toTypeSlug': { 'type': 'string', 'pattern': '^[a-z][a-z0-9_]{1,63}$' },
-            'cardinality': { 'type': 'string', 'enum': ['one', 'many'] },
-          },
+            'cardinality': { 'type': 'string', 'enum': [ 'one', 'many' ] }
+          }
       }
     CreateObjectType:
       {
         'type': 'object',
         'additionalProperties': false,
-        'required': ['slug', 'display_name', 'classification', 'fields', 'relations'],
+        'required': [ 'slug', 'display_name', 'classification', 'fields', 'relations' ],
         'properties':
           {
             'slug': { 'type': 'string', 'pattern': '^[a-z][a-z0-9_]{1,63}$' },
             'display_name': { 'type': 'string', 'minLength': 1, 'maxLength': 120 },
-            'classification':
-              { 'type': 'string', 'enum': ['public', 'internal', 'confidential', 'restricted'] },
-            'fields':
-              {
-                'type': 'array',
-                'maxItems': 64,
-                'items': { '$ref': '#/components/schemas/ObjectField' },
-              },
+            'classification': { 'type': 'string', 'enum': [ 'public', 'internal', 'confidential', 'restricted' ] },
+            'fields': { 'type': 'array', 'maxItems': 64, 'items': { '$ref': '#/components/schemas/ObjectField' } },
             'relations':
               {
                 'type': 'array',
                 'maxItems': 16,
-                'items': { '$ref': '#/components/schemas/ObjectRelationDefinition' },
-              },
-          },
+                'items': { '$ref': '#/components/schemas/ObjectRelationDefinition' }
+              }
+          }
       }
     AddObjectTypeVersion:
       {
         'type': 'object',
         'additionalProperties': false,
-        'required': ['fields', 'relations'],
+        'required': [ 'fields', 'relations' ],
         'properties':
           {
-            'fields':
-              {
-                'type': 'array',
-                'maxItems': 64,
-                'items': { '$ref': '#/components/schemas/ObjectField' },
-              },
+            'fields': { 'type': 'array', 'maxItems': 64, 'items': { '$ref': '#/components/schemas/ObjectField' } },
             'relations':
               {
                 'type': 'array',
                 'maxItems': 16,
-                'items': { '$ref': '#/components/schemas/ObjectRelationDefinition' },
-              },
-          },
+                'items': { '$ref': '#/components/schemas/ObjectRelationDefinition' }
+              }
+          }
       }
     CreateObjectRecord:
       {
         'type': 'object',
         'additionalProperties': false,
-        'required': ['display_name', 'attributes'],
+        'required': [ 'display_name', 'attributes' ],
         'properties':
           {
             'display_name': { 'type': 'string', 'minLength': 1, 'maxLength': 120 },
-            'attributes':
-              {
-                'type': 'object',
-                'additionalProperties': { 'type': ['string', 'number', 'boolean', 'null'] },
-              },
-            'classification':
-              { 'type': 'string', 'enum': ['public', 'internal', 'confidential', 'restricted'] },
-          },
+            'attributes': { 'type': 'object', 'additionalProperties': { 'type': [ 'string', 'number', 'boolean', 'null' ] } },
+            'classification': { 'type': 'string', 'enum': [ 'public', 'internal', 'confidential', 'restricted' ] }
+          }
       }
     UpdateObjectRecord:
       {
@@ -9419,26 +10041,21 @@ components:
         'properties':
           {
             'display_name': { 'type': 'string', 'minLength': 1, 'maxLength': 120 },
-            'attributes':
-              {
-                'type': 'object',
-                'additionalProperties': { 'type': ['string', 'number', 'boolean', 'null'] },
-              },
-            'classification':
-              { 'type': 'string', 'enum': ['public', 'internal', 'confidential', 'restricted'] },
+            'attributes': { 'type': 'object', 'additionalProperties': { 'type': [ 'string', 'number', 'boolean', 'null' ] } },
+            'classification': { 'type': 'string', 'enum': [ 'public', 'internal', 'confidential', 'restricted' ] }
           },
-        'minProperties': 1,
+        'minProperties': 1
       }
     LinkObjectRecords:
       {
         'type': 'object',
         'additionalProperties': false,
-        'required': ['relation_key', 'to_record_id'],
+        'required': [ 'relation_key', 'to_record_id' ],
         'properties':
           {
             'relation_key': { 'type': 'string', 'pattern': '^[a-z][a-z0-9_]{0,62}$' },
-            'to_record_id': { 'type': 'string', 'format': 'uuid' },
-          },
+            'to_record_id': { 'type': 'string', 'format': 'uuid' }
+          }
       }
     ObjectType:
       {
@@ -9454,31 +10071,25 @@ components:
             'fields',
             'relations',
             'state',
-            'version',
+            'version'
           ],
         'properties':
           {
             'id': { 'type': 'string', 'format': 'uuid' },
             'slug': { 'type': 'string' },
             'display_name': { 'type': 'string' },
-            'classification':
-              { 'type': 'string', 'enum': ['public', 'internal', 'confidential', 'restricted'] },
+            'classification': { 'type': 'string', 'enum': [ 'public', 'internal', 'confidential', 'restricted' ] },
             'current_version_number': { 'type': 'integer' },
-            'fields':
-              {
-                'type': 'array',
-                'maxItems': 64,
-                'items': { '$ref': '#/components/schemas/ObjectField' },
-              },
+            'fields': { 'type': 'array', 'maxItems': 64, 'items': { '$ref': '#/components/schemas/ObjectField' } },
             'relations':
               {
                 'type': 'array',
                 'maxItems': 16,
-                'items': { '$ref': '#/components/schemas/ObjectRelationDefinition' },
+                'items': { '$ref': '#/components/schemas/ObjectRelationDefinition' }
               },
-            'state': { 'type': 'string', 'enum': ['active', 'archived'] },
-            'version': { 'type': 'integer' },
-          },
+            'state': { 'type': 'string', 'enum': [ 'active', 'archived' ] },
+            'version': { 'type': 'integer' }
+          }
       }
     ObjectRecord:
       {
@@ -9495,7 +10106,7 @@ components:
             'owner_membership_id',
             'can_change',
             'version',
-            'updated_at',
+            'updated_at'
           ],
         'properties':
           {
@@ -9503,32 +10114,27 @@ components:
             'type_id': { 'type': 'string', 'format': 'uuid' },
             'type_version_number': { 'type': 'integer' },
             'display_name': { 'type': 'string', 'minLength': 1, 'maxLength': 120 },
-            'attributes':
-              {
-                'type': 'object',
-                'additionalProperties': { 'type': ['string', 'number', 'boolean', 'null'] },
-              },
-            'classification':
-              { 'type': 'string', 'enum': ['public', 'internal', 'confidential', 'restricted'] },
+            'attributes': { 'type': 'object', 'additionalProperties': { 'type': [ 'string', 'number', 'boolean', 'null' ] } },
+            'classification': { 'type': 'string', 'enum': [ 'public', 'internal', 'confidential', 'restricted' ] },
             'owner_membership_id': { 'type': 'string', 'format': 'uuid' },
             'can_change': { 'type': 'boolean' },
             'version': { 'type': 'integer' },
-            'updated_at': { 'type': 'string', 'format': 'date-time' },
-          },
+            'updated_at': { 'type': 'string', 'format': 'date-time' }
+          }
       }
     ObjectMigrationPlan:
       {
         'type': 'object',
         'additionalProperties': false,
-        'required': ['migration_id', 'plan'],
+        'required': [ 'migration_id', 'plan' ],
         'properties':
           {
-            'migration_id': { 'type': ['string', 'null'], 'format': 'uuid' },
+            'migration_id': { 'type': [ 'string', 'null' ], 'format': 'uuid' },
             'plan':
               {
                 'type': 'object',
                 'additionalProperties': false,
-                'required': ['safe', 'steps'],
+                'required': [ 'safe', 'steps' ],
                 'properties':
                   {
                     'safe': { 'type': 'boolean' },
@@ -9539,27 +10145,23 @@ components:
                           {
                             'type': 'object',
                             'additionalProperties': false,
-                            'required': ['kind', 'key'],
+                            'required': [ 'kind', 'key' ],
                             'properties':
                               {
-                                'kind':
-                                  {
-                                    'type': 'string',
-                                    'enum': ['add_optional', 'change_index', 'widen_enum'],
-                                  },
-                                'key': { 'type': 'string' },
-                              },
-                          },
-                      },
-                  },
-              },
-          },
+                                'kind': { 'type': 'string', 'enum': [ 'add_optional', 'change_index', 'widen_enum' ] },
+                                'key': { 'type': 'string' }
+                              }
+                          }
+                      }
+                  }
+              }
+          }
       }
     ObjectRelationsPage:
       {
         'type': 'object',
         'additionalProperties': false,
-        'required': ['items', 'truncated', 'next'],
+        'required': [ 'items', 'truncated', 'next' ],
         'properties':
           {
             'items':
@@ -9569,19 +10171,19 @@ components:
                   {
                     'type': 'object',
                     'additionalProperties': false,
-                    'required': ['id', 'relation_key', 'to_record_id', 'to_display_name'],
+                    'required': [ 'id', 'relation_key', 'to_record_id', 'to_display_name' ],
                     'properties':
                       {
                         'id': { 'type': 'string', 'format': 'uuid' },
                         'relation_key': { 'type': 'string' },
                         'to_record_id': { 'type': 'string', 'format': 'uuid' },
-                        'to_display_name': { 'type': 'string' },
-                      },
-                  },
+                        'to_display_name': { 'type': 'string' }
+                      }
+                  }
               },
             'truncated': { 'type': 'boolean' },
-            'next': { 'type': ['string', 'null'], 'format': 'uuid' },
-          },
+            'next': { 'type': [ 'string', 'null' ], 'format': 'uuid' }
+          }
       }
     ObjectMigration:
       {
@@ -9596,7 +10198,7 @@ components:
             'status',
             'migrated_count',
             'failed_count',
-            'error_code',
+            'error_code'
           ],
         'properties':
           {
@@ -9604,15 +10206,11 @@ components:
             'type_id': { 'type': 'string', 'format': 'uuid' },
             'from_version_number': { 'type': 'integer' },
             'to_version_number': { 'type': 'integer' },
-            'status': { 'type': 'string', 'enum': ['queued', 'running', 'completed', 'failed'] },
+            'status': { 'type': 'string', 'enum': [ 'queued', 'running', 'completed', 'failed' ] },
             'migrated_count': { 'type': 'integer' },
             'failed_count': { 'type': 'integer' },
-            'error_code':
-              {
-                'type': ['string', 'null'],
-                'enum': ['MIGRATION_FAILED', 'OBJECT_RECORD_INVALID', null],
-              },
-          },
+            'error_code': { 'type': [ 'string', 'null' ], 'enum': [ 'MIGRATION_FAILED', 'OBJECT_RECORD_INVALID', null ] }
+          }
       }
     PackCatalogEntry:
       type: object
@@ -9697,7 +10295,7 @@ components:
         summary:
           type: object
           additionalProperties: false
-          required: [open_work, overdue, waiting_on_approval, needs_decision]
+          required: [ open_work, overdue, waiting_on_approval, needs_decision ]
           properties:
             open_work: { type: integer, minimum: 0 }
             overdue: { type: integer, minimum: 0 }
@@ -9707,7 +10305,7 @@ components:
           type: array
           items:
             type: string
-            enum: [work, approvals, external_actions, agent_runs, process_runs]
+            enum: [ work, approvals, external_actions, agent_runs, process_runs ]
     PulseSignal:
       type: object
       additionalProperties: false
@@ -9736,7 +10334,7 @@ components:
               external_action_unknown,
               external_action_failed,
               process_run_failed,
-              agent_run_stopped,
+              agent_run_stopped
             ]
         severity:
           type: string
@@ -9746,14 +10344,14 @@ components:
         scope:
           type: object
           additionalProperties: false
-          required: [project_id, client_id]
+          required: [ project_id, client_id ]
           properties:
-            project_id: { type: [string, 'null'], format: uuid }
-            client_id: { type: [string, 'null'], format: uuid }
+            project_id: { type: [ string, 'null' ], format: uuid }
+            client_id: { type: [ string, 'null' ], format: uuid }
         work:
           type: object
           additionalProperties: false
-          required: [id, title]
+          required: [ id, title ]
           properties:
             id: { type: string, format: uuid }
             title: { type: string }
@@ -9763,11 +10361,11 @@ components:
           items:
             type: object
             additionalProperties: false
-            required: [kind, id, reason_code, observed_at]
+            required: [ kind, id, reason_code, observed_at ]
             properties:
               kind:
                 type: string
-                enum: [work_unit, approval, external_action, process_run, agent_run]
+                enum: [ work_unit, approval, external_action, process_run, agent_run ]
               id: { type: string, format: uuid }
               reason_code: { type: string, pattern: '^[A-Z][A-Z0-9_]{0,63}$' }
               observed_at: { type: string, format: date-time }
@@ -9788,22 +10386,22 @@ components:
     ComposeOutcomeInput:
       type: object
       additionalProperties: false
-      required: [objective, today]
+      required: [ objective, today ]
       properties:
         objective: { type: string, minLength: 3, maxLength: 2000 }
         today: { type: string, format: date }
     AuthorizeOutcomeInput:
       type: object
       additionalProperties: false
-      required: [preview_sha256]
+      required: [ preview_sha256 ]
       properties:
         preview_sha256: { type: string, pattern: '^[0-9a-f]{64}$' }
     OnboardingDecision:
       type: object
       additionalProperties: false
-      required: [decision]
+      required: [ decision ]
       properties:
-        decision: { type: string, enum: [acknowledged, skipped] }
+        decision: { type: string, enum: [ acknowledged, skipped ] }
     OutcomePreview:
       type: object
       additionalProperties: false
@@ -9818,12 +10416,12 @@ components:
           suggestedProcessKey,
           classification,
           dataAccess,
-          uncertainties,
+          uncertainties
         ]
       properties:
         title: { type: string, minLength: 1, maxLength: 200 }
         objective: { type: string, minLength: 1, maxLength: 2000 }
-        dueAt: { type: [string, 'null'], format: date }
+        dueAt: { type: [ string, 'null' ], format: date }
         ownerMembershipId: { type: string, format: uuid }
         successCriteria:
           type: array
@@ -9831,17 +10429,17 @@ components:
           items:
             type: object
             additionalProperties: false
-            required: [kind, label]
+            required: [ kind, label ]
             properties:
-              kind: { type: string, enum: [artifact_named, reviewer_approved, none] }
+              kind: { type: string, enum: [ artifact_named, reviewer_approved, none ] }
               label: { type: string, minLength: 1, maxLength: 200 }
         dependencyWorkUnitIds: { type: array, maxItems: 20, items: { type: string, format: uuid } }
-        suggestedProcessKey: { type: [string, 'null'], maxLength: 64 }
-        classification: { type: string, enum: [public, internal, confidential, restricted] }
+        suggestedProcessKey: { type: [ string, 'null' ], maxLength: 64 }
+        classification: { type: string, enum: [ public, internal, confidential, restricted ] }
         dataAccess:
           type: object
           additionalProperties: false
-          required: [usesAgent, reachesExternalService, reasonCodes]
+          required: [ usesAgent, reachesExternalService, reasonCodes ]
           properties:
             usesAgent: { type: boolean }
             reachesExternalService: { type: boolean }
@@ -9850,7 +10448,7 @@ components:
           {
             type: array,
             maxItems: 3,
-            items: { type: string, enum: [due_date_unclear, owner_assumed, no_success_criteria] },
+            items: { type: string, enum: [ due_date_unclear, owner_assumed, no_success_criteria ] }
           }
     OutcomeDraft:
       type: object
@@ -9905,7 +10503,7 @@ components:
           items:
             type: object
             additionalProperties: false
-            required: [key, state, optional]
+            required: [ key, state, optional ]
             properties:
               key:
                 {
@@ -9919,10 +10517,10 @@ components:
                       model_provider,
                       second_factor,
                       first_simulation,
-                      first_work_unit,
-                    ],
+                      first_work_unit
+                    ]
                 }
-              state: { type: string, enum: [done, skipped, to_do, unavailable] }
+              state: { type: string, enum: [ done, skipped, to_do, unavailable ] }
               optional: { type: boolean }
         finished:
           type: boolean
@@ -9932,12 +10530,12 @@ components:
             - 'null'
         completion_recorded: { type: boolean }
         latest_simulation:
-          type: [object, 'null']
+          type: [ object, 'null' ]
           additionalProperties: false
-          required: [id, status, usable]
+          required: [ id, status, usable ]
           properties:
             id: { type: string, format: uuid }
-            status: { type: string, enum: [queued, running, passed, failed, errored] }
+            status: { type: string, enum: [ queued, running, passed, failed, errored ] }
             usable: { type: boolean }
     SecurityPolicy:
       type: object
@@ -10388,6 +10986,426 @@ components:
         membership_id:
           type: string
           format: uuid
+    MicrosAmount:
+      type: string
+      pattern: '^-?(0|[1-9][0-9]{0,18})$'
+      description: Whole millionths of a currency's main unit or of a credit, as digits, because JSON
+        numbers cannot hold every value.
+    SavedVersion:
+      type: object
+      additionalProperties: false
+      required: [ version ]
+      properties:
+        version: { type: integer, minimum: 1 }
+    ReasonCode:
+      type: object
+      additionalProperties: false
+      required: [ reason_code ]
+      properties:
+        reason_code: { type: string, pattern: '^[A-Z][A-Z0-9_]{0,63}$' }
+    BillingAccount:
+      type: object
+      additionalProperties: false
+      required: [ billing_name, billing_email, country_code, region_code, postal_code, tax_id, version ]
+      properties:
+        billing_name: { type: string }
+        billing_email: { type: string }
+        country_code: { type: string, pattern: '^[A-Z]{2}$' }
+        region_code: { type: string }
+        postal_code: { type: [ string, 'null' ] }
+        tax_id: { type: [ string, 'null' ] }
+        version: { type: integer, minimum: 1 }
+    SaveBillingAccount:
+      type: object
+      additionalProperties: false
+      required: [ billing_name, billing_email, country_code, region_code, postal_code, tax_id ]
+      properties:
+        billing_name: { type: string, minLength: 1, maxLength: 200 }
+        billing_email: { type: string, format: email, maxLength: 254 }
+        country_code: { type: string, pattern: '^[A-Z]{2}$' }
+        region_code: { type: string, pattern: '^[A-Z0-9-]{0,16}$' }
+        postal_code: { type: [ string, 'null' ], minLength: 1, maxLength: 32 }
+        tax_id: { type: [ string, 'null' ], minLength: 1, maxLength: 64 }
+    BillingOverview:
+      type: object
+      additionalProperties: false
+      required: [ lifecycle, billing_enabled, account, subscription ]
+      properties:
+        lifecycle: { type: string, enum: [ active, read_only, suspended, offboarding ] }
+        billing_enabled: { type: boolean }
+        account:
+          oneOf:
+            - { $ref: '#/components/schemas/BillingAccount' }
+            - { type: 'null' }
+        subscription:
+          oneOf:
+            - { $ref: '#/components/schemas/Subscription' }
+            - { type: 'null' }
+    Subscription:
+      type: object
+      additionalProperties: false
+      required:
+        [
+          id,
+          plan_version_id,
+          status,
+          current_period_start,
+          current_period_end,
+          cancel_at_period_end,
+          version
+        ]
+      properties:
+        id: { type: string, format: uuid }
+        plan_version_id: { type: string, format: uuid }
+        status: { type: string, enum: [ active, past_due, canceled ] }
+        current_period_start: { type: string, format: date-time }
+        current_period_end: { type: string, format: date-time }
+        cancel_at_period_end: { type: boolean }
+        version: { type: integer, minimum: 1 }
+    PlanVersion:
+      type: object
+      additionalProperties: false
+      required:
+        [
+          plan_version_id,
+          plan_code,
+          display_name,
+          currency,
+          billing_interval,
+          payment_terms_days,
+          platform_fee_micros,
+          included_microcredits,
+          overage_policy,
+          features,
+          max_active_members
+        ]
+      properties:
+        plan_version_id: { type: string, format: uuid }
+        plan_code: { type: string }
+        display_name: { type: string }
+        currency: { type: string, pattern: '^[A-Z]{3}$' }
+        billing_interval: { type: string, enum: [ month, year ] }
+        payment_terms_days: { type: integer, minimum: 0 }
+        platform_fee_micros: { $ref: '#/components/schemas/MicrosAmount' }
+        included_microcredits:
+          oneOf:
+            - { $ref: '#/components/schemas/MicrosAmount' }
+            - { type: 'null' }
+        overage_policy: { type: [ string, 'null' ], enum: [ pause, explicit_top_up, null ] }
+        features: { type: array, items: { type: string } }
+        max_active_members: { type: [ integer, 'null' ], minimum: 1 }
+    PlanChoice:
+      type: object
+      additionalProperties: false
+      required: [ plan_version_id ]
+      properties:
+        plan_version_id: { type: string, format: uuid }
+    InvoiceStatus:
+      type: string
+      enum: [ draft, open, paid, void, uncollectible ]
+    PaymentStatus:
+      type: string
+      enum: [ ready, sending, reconciling, succeeded, failed, unknown, cancelled ]
+    InvoiceSummary:
+      type: object
+      additionalProperties: false
+      required: [ id, invoice_number, kind, status, currency, total_micros, issued_at, due_at, paid_at ]
+      properties:
+        id: { type: string, format: uuid }
+        invoice_number: { type: [ integer, 'null' ], minimum: 1 }
+        kind: { type: string, enum: [ subscription, top_up ] }
+        status: { $ref: '#/components/schemas/InvoiceStatus' }
+        currency: { type: string, pattern: '^[A-Z]{3}$' }
+        total_micros: { $ref: '#/components/schemas/MicrosAmount' }
+        issued_at: { type: [ string, 'null' ], format: date-time }
+        due_at: { type: [ string, 'null' ], format: date-time }
+        paid_at: { type: [ string, 'null' ], format: date-time }
+    InvoiceDetail:
+      type: object
+      additionalProperties: false
+      required:
+        [
+          id,
+          invoice_number,
+          kind,
+          status,
+          currency,
+          subtotal_micros,
+          tax_micros,
+          total_micros,
+          minor_unit_exponent,
+          issued_at,
+          due_at,
+          paid_at,
+          lines,
+          version
+        ]
+      properties:
+        id: { type: string, format: uuid }
+        invoice_number: { type: [ integer, 'null' ], minimum: 1 }
+        kind: { type: string, enum: [ subscription, top_up ] }
+        status: { $ref: '#/components/schemas/InvoiceStatus' }
+        currency: { type: string, pattern: '^[A-Z]{3}$' }
+        subtotal_micros: { $ref: '#/components/schemas/MicrosAmount' }
+        tax_micros: { $ref: '#/components/schemas/MicrosAmount' }
+        total_micros: { $ref: '#/components/schemas/MicrosAmount' }
+        minor_unit_exponent: { type: [ integer, 'null' ], minimum: 0, maximum: 4 }
+        issued_at: { type: [ string, 'null' ], format: date-time }
+        due_at: { type: [ string, 'null' ], format: date-time }
+        paid_at: { type: [ string, 'null' ], format: date-time }
+        version: { type: integer, minimum: 1 }
+        lines:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [ line_no, kind, meter, quantity, unit, unit_price_micros, amount_micros ]
+            properties:
+              line_no: { type: integer, minimum: 1 }
+              kind: { type: string, enum: [ platform_fee, usage, top_up, tax, rounding ] }
+              meter: { type: [ string, 'null' ] }
+              quantity:
+                oneOf:
+                  - { $ref: '#/components/schemas/MicrosAmount' }
+                  - { type: 'null' }
+              unit: { type: [ string, 'null' ] }
+              unit_price_micros:
+                oneOf:
+                  - { $ref: '#/components/schemas/MicrosAmount' }
+                  - { type: 'null' }
+              amount_micros: { $ref: '#/components/schemas/MicrosAmount' }
+    CreditSummary:
+      type: object
+      additionalProperties: false
+      required: [ balance_microcredits, included_microcredits, overage_policy, recent ]
+      properties:
+        balance_microcredits:
+          oneOf:
+            - { $ref: '#/components/schemas/MicrosAmount' }
+            - { type: 'null' }
+        included_microcredits:
+          oneOf:
+            - { $ref: '#/components/schemas/MicrosAmount' }
+            - { type: 'null' }
+        overage_policy: { type: [ string, 'null' ], enum: [ pause, explicit_top_up, null ] }
+        recent:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [ kind, amount_microcredits, occurred_at ]
+            properties:
+              kind: { type: string, enum: [ allocation, top_up, consumption, expiry, correction ] }
+              amount_microcredits: { $ref: '#/components/schemas/MicrosAmount' }
+              occurred_at: { type: string, format: date-time }
+    TopUpOffer:
+      type: object
+      additionalProperties: false
+      required: [ offer_id, microcredits, price_micros, currency, quote_hash ]
+      properties:
+        offer_id: { type: string, format: uuid }
+        microcredits: { $ref: '#/components/schemas/MicrosAmount' }
+        price_micros: { $ref: '#/components/schemas/MicrosAmount' }
+        currency: { type: string, pattern: '^[A-Z]{3}$' }
+        quote_hash: { type: string, pattern: '^[0-9a-f]{64}$' }
+    RequestTopUp:
+      type: object
+      additionalProperties: false
+      required: [ offer_id, quote_hash, request_key ]
+      properties:
+        offer_id: { type: string, format: uuid }
+        quote_hash: { type: string, pattern: '^[0-9a-f]{64}$' }
+        request_key: { type: string, minLength: 16, maxLength: 128 }
+    RetentionRule:
+      type: object
+      additionalProperties: false
+      required: [ id, data_category, classification, retain_days, basis_ref, created_at ]
+      properties:
+        id: { type: string, format: uuid }
+        data_category: { type: string }
+        classification: { type: string, enum: [ '*', public, internal, confidential, restricted ] }
+        retain_days: { type: [ integer, 'null' ], minimum: 1 }
+        basis_ref: { type: string }
+        created_at: { type: string, format: date-time }
+    SetRetentionRule:
+      type: object
+      additionalProperties: false
+      required: [ data_category, classification, retain_days, basis_ref ]
+      properties:
+        data_category:
+          type: string
+          enum:
+            [
+              transaction_records,
+              work_unit_history,
+              raw_files,
+              search_indexes,
+              derived_embeddings,
+              model_outputs,
+              operational_traces,
+              audit_logs,
+              temporary_debug_captures
+            ]
+        classification: { type: string, enum: [ '*', public, internal, confidential, restricted ] }
+        retain_days: { type: [ integer, 'null' ], minimum: 1, maximum: 36500 }
+        basis_ref: { type: string, minLength: 1, maxLength: 200 }
+    HoldScope:
+      type: object
+      additionalProperties: false
+      required: [ type, id ]
+      properties:
+        type: { type: string, enum: [ organization, client, project, work_unit, artifact ] }
+        id: { type: [ string, 'null' ], format: uuid }
+    LegalHold:
+      type: object
+      additionalProperties: false
+      required: [ id, matter_ref, status, scopes, placed_at, released_at, release_reason_code, version ]
+      properties:
+        id: { type: string, format: uuid }
+        matter_ref: { type: string }
+        status: { type: string, enum: [ active, released ] }
+        scopes: { type: array, items: { $ref: '#/components/schemas/HoldScope' } }
+        placed_at: { type: string, format: date-time }
+        released_at: { type: [ string, 'null' ], format: date-time }
+        release_reason_code: { type: [ string, 'null' ] }
+        version: { type: integer, minimum: 1 }
+    PlaceLegalHold:
+      type: object
+      additionalProperties: false
+      required: [ matter_ref, scopes ]
+      properties:
+        matter_ref: { type: string, minLength: 1, maxLength: 120 }
+        scopes: { type: array, minItems: 1, maxItems: 100, items: { $ref: '#/components/schemas/HoldScope' } }
+    RequestOffboarding:
+      type: object
+      additionalProperties: false
+      required: [ confirm_name ]
+      properties:
+        confirm_name: { type: string, minLength: 1, maxLength: 120 }
+    Offboarding:
+      type: object
+      additionalProperties: false
+      required:
+        [
+          id,
+          state,
+          export_offered_at,
+          export_ref,
+          transition_ends_at,
+          active_holds,
+          unsettled_actions,
+          report,
+          version
+        ]
+      properties:
+        id: { type: string, format: uuid }
+        state:
+          {
+            type: string,
+            enum:
+              [
+                requested,
+                export_offered,
+                in_transition,
+                winding_down,
+                ready_for_erasure,
+                erasing,
+                verified,
+                reported,
+                cancelled
+              ]
+          }
+        export_offered_at: { type: [ string, 'null' ], format: date-time }
+        export_ref: { type: [ string, 'null' ] }
+        transition_ends_at: { type: [ string, 'null' ], format: date-time }
+        active_holds: { type: integer, minimum: 0 }
+        unsettled_actions: { type: integer, minimum: 0 }
+        report: { type: [ object, 'null' ], description: Counts and codes with no content. }
+        version: { type: integer, minimum: 1 }
+    TicketSummary:
+      type: object
+      additionalProperties: false
+      required: [ id, subject, category, status, created_at, updated_at, version ]
+      properties:
+        id: { type: string, format: uuid }
+        subject: { type: string }
+        category: { type: string, enum: [ account, billing, incident, security, other ] }
+        status: { type: string, enum: [ open, waiting_on_customer, waiting_on_support, resolved, closed ] }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        version: { type: integer, minimum: 1 }
+    TicketDetail:
+      type: object
+      additionalProperties: false
+      required: [ id, subject, category, status, created_at, updated_at, version, messages ]
+      properties:
+        id: { type: string, format: uuid }
+        subject: { type: string }
+        category: { type: string, enum: [ account, billing, incident, security, other ] }
+        status: { type: string, enum: [ open, waiting_on_customer, waiting_on_support, resolved, closed ] }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        version: { type: integer, minimum: 1 }
+        messages:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [ id, author_kind, body, created_at ]
+            properties:
+              id: { type: string, format: uuid }
+              author_kind: { type: string, enum: [ customer, support ] }
+              body: { type: string }
+              created_at: { type: string, format: date-time }
+    OpenTicket:
+      type: object
+      additionalProperties: false
+      required: [ subject, category, body ]
+      properties:
+        subject: { type: string, minLength: 1, maxLength: 200 }
+        category: { type: string, enum: [ account, billing, incident, security, other ] }
+        body: { type: string, minLength: 1, maxLength: 20000 }
+    ReplyTicket:
+      type: object
+      additionalProperties: false
+      required: [ body ]
+      properties:
+        body: { type: string, minLength: 1, maxLength: 20000 }
+    BreakGlassRequest:
+      type: object
+      additionalProperties: false
+      required:
+        [
+          id,
+          ticket_id,
+          reason_code,
+          scope_type,
+          scope_id,
+          requested_minutes,
+          state,
+          operator_authorized,
+          customer_authorized,
+          expires_at,
+          version
+        ]
+      properties:
+        id: { type: string, format: uuid }
+        ticket_id: { type: string, format: uuid }
+        reason_code: { type: string }
+        scope_type: { type: string, enum: [ work_unit, artifact, client, project ] }
+        scope_id: { type: string, format: uuid }
+        requested_minutes: { type: integer, minimum: 1 }
+        state: { type: string, enum: [ requested, authorized, denied, revoked, expired ] }
+        operator_authorized: { type: boolean }
+        customer_authorized: { type: boolean }
+        expires_at: { type: [ string, 'null' ], format: date-time }
+        version: { type: integer, minimum: 1 }
+    DecideBreakGlass:
+      type: object
+      additionalProperties: false
+      required: [ decision ]
+      properties:
+        decision: { type: string, enum: [ authorize, deny ] }
   responses:
     BadRequest:
       description: Malformed path, query, header or body. details.fields names the fields, never their values.
