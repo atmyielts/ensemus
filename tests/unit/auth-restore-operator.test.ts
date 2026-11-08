@@ -8,10 +8,13 @@ describe('restore operator review and denial-only inputs',()=>{
  it.each([
   [],[{kind:'activate_member',organizationId,id}],[{kind:'downgrade_member',organizationId,id,role:'owner'}],
   [{kind:'disable_member',organizationId,id,role:'member'}],[{kind:'disable_provider',organizationId,id,state:'active'}],
+  [{kind:'revoke_password',organizationId,id,password:'must-never-be-accepted'}],
+  [{kind:'revoke_oauth_tokens',organizationId,id,accessToken:'must-never-be-accepted'}],
   [{kind:'disable_member',organizationId:'foreign-unbounded',id}],Array.from({length:1001},()=>({kind:'disable_member',organizationId,id})),
  ])('refuses mutation authority not present in the closed revocation contract %#',value=>expect(()=>parseRestoreRevocations(value)).toThrow());
  it('retains exact tenant/target identity for allowed revocations without accepting role promotion',()=>{
-  const input=[{kind:'disable_member',organizationId,id},{kind:'downgrade_member',organizationId,id,role:'member'}];
+  const input=[{kind:'disable_member',organizationId,id},{kind:'downgrade_member',organizationId,id,role:'member'},
+   {kind:'revoke_password',organizationId,id},{kind:'revoke_oauth_tokens',organizationId,id}];
   expect(parseRestoreRevocations(input)).toEqual(input);
  });
  it.each([

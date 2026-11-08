@@ -21,7 +21,7 @@ DO $$ DECLARE target regclass;BEGIN
  END LOOP;
  FOREACH target IN ARRAY ARRAY['org.memberships'::regclass,'org.sso_connections'::regclass,
   'org.sso_member_links'::regclass,'org.scim_tokens'::regclass,'org.team_memberships'::regclass,
-  'org.invitations'::regclass,'identity.sso_providers'::regclass] LOOP
+  'org.invitations'::regclass,'identity.sso_providers'::regclass,'identity.accounts'::regclass] LOOP
   EXECUTE format('CREATE POLICY auth_restore_operator_revoke ON %s TO ensemus_migrator
    USING(session_user=''ensemus_migrator'' AND current_setting(''identity.auth_restore_operation'',true)=''reconcile'')
    WITH CHECK(session_user=''ensemus_migrator'' AND current_setting(''identity.auth_restore_operation'',true)=''reconcile'')',target);
@@ -162,7 +162,8 @@ DECLARE body jsonb;allowed boolean:=false;
 BEGIN
  IF TG_RELID NOT IN('org.memberships'::regclass,'org.security_policies'::regclass,
   'org.sso_connections'::regclass,'org.sso_member_links'::regclass,'org.scim_tokens'::regclass,
-  'org.team_memberships'::regclass,'org.invitations'::regclass,'identity.sso_providers'::regclass) THEN
+  'org.team_memberships'::regclass,'org.invitations'::regclass,'identity.sso_providers'::regclass,
+  'identity.accounts'::regclass) THEN
   RAISE EXCEPTION 'AUTH_RESTORE_RECONCILE_REFUSED' USING ERRCODE='EN422';END IF;
  body:=identity.auth_restore_control();
  IF body->>'phase'='admitted' THEN IF TG_OP='DELETE' THEN RETURN OLD;END IF;RETURN NEW;END IF;
@@ -196,6 +197,13 @@ BEGIN
     allowed:=to_jsonb(NEW)-ARRAY['domain_verified','updated_at']
       IS NOT DISTINCT FROM to_jsonb(OLD)-ARRAY['domain_verified','updated_at']
      AND NOT NEW.domain_verified;
+   ELSIF TG_RELID='identity.accounts'::regclass THEN
+    allowed:=(OLD.provider_id='credential' AND NEW.password IS NULL
+      AND to_jsonb(NEW)-ARRAY['password','updated_at'] IS NOT DISTINCT FROM to_jsonb(OLD)-ARRAY['password','updated_at'])
+     OR (OLD.provider_id<>'credential' AND NEW.access_token IS NULL AND NEW.refresh_token IS NULL
+      AND NEW.id_token IS NULL AND NEW.access_token_expires_at IS NULL AND NEW.refresh_token_expires_at IS NULL
+      AND to_jsonb(NEW)-ARRAY['access_token','refresh_token','id_token','access_token_expires_at','refresh_token_expires_at','updated_at']
+       IS NOT DISTINCT FROM to_jsonb(OLD)-ARRAY['access_token','refresh_token','id_token','access_token_expires_at','refresh_token_expires_at','updated_at']);
    END IF;
   END IF;
  END IF;
@@ -206,7 +214,8 @@ REVOKE ALL ON FUNCTION identity.guard_restore_authority_change() FROM PUBLIC;
 DO $$ DECLARE target regclass;BEGIN
  FOREACH target IN ARRAY ARRAY['org.memberships'::regclass,'org.security_policies'::regclass,
   'org.sso_connections'::regclass,'org.sso_member_links'::regclass,'org.scim_tokens'::regclass,
-  'org.team_memberships'::regclass,'org.invitations'::regclass,'identity.sso_providers'::regclass] LOOP
+  'org.team_memberships'::regclass,'org.invitations'::regclass,'identity.sso_providers'::regclass,
+  'identity.accounts'::regclass] LOOP
   EXECUTE format('CREATE TRIGGER authority_restore_0422_write BEFORE INSERT OR UPDATE OR DELETE ON %s
    FOR EACH ROW EXECUTE FUNCTION identity.guard_restore_authority_change()',target);
  END LOOP;
@@ -258,6 +267,16 @@ BEGIN
      WHERE organization_id=org_id AND id=row_id;
    ELSIF kind='revoke_invitation' THEN
     UPDATE org.invitations SET revoked_at=coalesce(revoked_at,clock_timestamp()) WHERE organization_id=org_id AND id=row_id;
+   ELSIF kind='revoke_password' THEN
+    UPDATE identity.accounts a SET password=NULL,updated_at=clock_timestamp()
+     WHERE a.id=row_id AND a.provider_id='credential' AND EXISTS(
+      SELECT 1 FROM org.memberships m WHERE m.organization_id=org_id AND m.user_id=a.user_id);
+   ELSIF kind='revoke_oauth_tokens' THEN
+    -- Token material only. This DOES NOT disable the retained provider-account login binding.
+    UPDATE identity.accounts a SET access_token=NULL,refresh_token=NULL,id_token=NULL,
+     access_token_expires_at=NULL,refresh_token_expires_at=NULL,updated_at=clock_timestamp()
+     WHERE a.id=row_id AND a.provider_id<>'credential' AND EXISTS(
+      SELECT 1 FROM org.memberships m WHERE m.organization_id=org_id AND m.user_id=a.user_id);
    ELSIF kind='remove_team_access' AND NOT (action ? 'role') THEN
     -- id selects the membership; all of its tenant team access is removed, never broadened.
     DELETE FROM org.team_memberships WHERE organization_id=org_id AND membership_id=row_id;

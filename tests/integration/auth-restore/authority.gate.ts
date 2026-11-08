@@ -1,7 +1,7 @@
 // Dedicated disposable-DB profile ONLY: pending admission is deliberately never cleared by a
 // shortcut/test clock. The operator supplies a separately migrated owned DB, then discards it.
 // No password/account/session/assurance/factor authority is seeded: native HTTP enrolls the person.
-import {randomBytes,randomUUID} from 'node:crypto';
+import {createHash,randomBytes,randomUUID} from 'node:crypto';
 import pg from 'pg';
 import {afterAll,beforeAll,describe,expect,it} from 'vitest';
 import {parseSetCookieHeader} from 'better-auth/cookies';
@@ -28,7 +28,7 @@ const cookieJar=(original:string,setCookie:string|null)=>{
 describe.sequential('0422 actual-role isolated restore barrier (unrun source)',()=>{
  const secret=randomBytes(48).toString('base64url'),base='https://generated-restore.example.invalid',password='generated restore owner password long enough';
  const manifestSha256='a'.repeat(64),backupId=randomUUID();
- let generation:string,organizationId:string,membershipId:string,userId:string,cookie:string;
+ let generation:string,organizationId:string,membershipId:string,userId:string,accountId:string,cookie:string;
  let beforeFactor:{secret:string;verified:boolean;enabled:boolean;failed:number},beforeRates:string;
  let runtime:ReturnType<typeof createAuth>|undefined;
  const client=async(role:Role)=>{const connection=new pg.Client({connectionString:url(role)});await connection.connect();return connection;};
@@ -57,6 +57,7 @@ describe.sequential('0422 actual-role isolated restore barrier (unrun source)',(
    return(await connection.query("select encode(sha256(convert_to(f.secret,'UTF8')),'hex') as secret,f.verified,u.two_factor_enabled as enabled,f.failed_verification_count as failed from identity.two_factors f join identity.users u on u.id=f.user_id where f.user_id=$1",[userId])).rows[0];
   });
   beforeRates=await asRole('AUTH',async connection=>JSON.stringify((await connection.query('select key,count,last_request from identity.rate_limits order by key')).rows));
+  accountId=await asRole('AUTH',async connection=>{const rows=(await connection.query("select id from identity.accounts where user_id=$1 and provider_id='credential'",[userId])).rows;if(rows.length!==1)throw new Error('NATIVE_ACCOUNT_REQUIRED');return rows[0].id as string;});
   // No live native/application pool is permitted at begin. The real helper checks actual logins.
   await runtime.close();runtime=undefined;
  },120000);
@@ -112,6 +113,19 @@ describe.sequential('0422 actual-role isolated restore barrier (unrun source)',(
   runtime=createAuth({databaseUrl:url('AUTH'),secret,baseURL:base,allowSignup:true});
   const response=await runtime.auth.handler(new Request(base+'/api/auth/get-session',{headers:{cookie}}));expect(response.status).toBe(503);expect(await response.json()).toMatchObject({code:'RESTORE_PENDING'});
   await runtime.close();runtime=undefined;
+ });
+ it('revokes only an explicitly selected native password, refuses wrong tenant and cannot install a replacement credential',async()=>{
+  const snapshot=await inspectAuthenticationRestore(url('MIGRATOR'),generation);
+  await expect(reconcileAuthenticationRestore(url('MIGRATOR'),{generation,securitySha256:snapshot.securitySha256,actions:[{kind:'revoke_password',organizationId:randomUUID(),id:accountId}]})).rejects.toBeDefined();
+  expect((await inspectAuthenticationRestore(url('MIGRATOR'),generation)).securitySha256).toBe(snapshot.securitySha256);
+  const revoked=await reconcileAuthenticationRestore(url('MIGRATOR'),{generation,securitySha256:snapshot.securitySha256,actions:[{kind:'revoke_password',organizationId,id:accountId}]});expect(revoked.changed).toBe(1);
+  const after=await inspectAuthenticationRestore(url('MIGRATOR'),generation);
+  const account=(after.security.accounts as {id:string;userId:string;providerId:string;credentialSha256:string}[]).find(row=>row.id===accountId);
+  expect(account).toMatchObject({id:accountId,userId,providerId:'credential',credentialSha256:createHash('sha256').update('').digest('hex')});
+  await asRole('MIGRATOR',async connection=>{
+   await connection.query("select set_config('identity.auth_restore_operation','reconcile',false),set_config('identity.auth_restore_generation',$1,false)",[generation]);
+   await expect(connection.query('update identity.accounts set password=$1 where id=$2',['not-a-native-credential',accountId])).rejects.toMatchObject({code:'EN422'});
+  });
  });
  it('refuses stale review and direct authority elevation, and permits exact owner revocation without inventing a replacement',async()=>{
   const snapshot=await inspectAuthenticationRestore(url('MIGRATOR'),generation);

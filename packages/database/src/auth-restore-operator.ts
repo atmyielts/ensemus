@@ -12,11 +12,11 @@ export type AuthRestoreInspection={
  cutoff:string;notBefore:string;invalidation:unknown;security:Record<string,unknown>;securitySha256:string;
 };
 export type RestoreRevocation=
- |{kind:'disable_member'|'disable_provider'|'deprovision_member'|'revoke_scim'|'revoke_invitation'|'remove_team_access';organizationId:string;id:string}
+ |{kind:'disable_member'|'disable_provider'|'deprovision_member'|'revoke_scim'|'revoke_invitation'|'remove_team_access'|'revoke_password'|'revoke_oauth_tokens';organizationId:string;id:string}
  |{kind:'downgrade_member';organizationId:string;id:string;role:'member'|'admin'};
 export function parseRestoreRevocations(value:unknown):readonly RestoreRevocation[]{
  if(!Array.isArray(value)||value.length<1||value.length>1000)throw new Error('AUTH_RESTORE_RECONCILE_REFUSED');
- const kinds=['disable_member','disable_provider','deprovision_member','revoke_scim','revoke_invitation','remove_team_access','downgrade_member'];
+ const kinds=['disable_member','disable_provider','deprovision_member','revoke_scim','revoke_invitation','remove_team_access','downgrade_member','revoke_password','revoke_oauth_tokens'];
  return value.map(item=>{
   if(!item||typeof item!=='object'||Array.isArray(item))throw new Error('AUTH_RESTORE_RECONCILE_REFUSED');
   const row=item as Record<string,unknown>;

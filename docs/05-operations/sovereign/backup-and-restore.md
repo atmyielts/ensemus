@@ -133,7 +133,12 @@ revocations. Large inventories refuse instead of silently truncating.
 If real revocations are needed, prepare a strict JSON array of exact tenant/target IDs. Supported kinds
 are disable_member, downgrade_member (role member/admin only), disable_provider,
 deprovision_member, revoke_scim, revoke_invitation and remove_team_access (all that person's team
-access in the named tenant). Reconcile requires the current snapshot hash; stale input rolls back:
+access in the named tenant). Exact selected-account actions revoke_password and revoke_oauth_tokens
+only clear the selected credential/token material after checking that account's person belongs to the
+named tenant. They preserve user/account identity and TOTP. They cannot install a new credential or
+relink an account. Clearing tokens does NOT disable a retained provider-account login binding;
+its current authorization remains a separate explicit external-authority review/revocation gate.
+Reconcile requires the current snapshot hash; stale input rolls back:
 
     docker compose run --rm --no-deps -v "$PRIVATE_REVIEW_DIRECTORY:/review:ro" migrate \
       node dist/auth-restore.js reconcile --generation "$GENERATION" \

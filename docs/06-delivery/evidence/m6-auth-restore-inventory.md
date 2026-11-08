@@ -171,5 +171,11 @@ unexpected policy. This helper is source only; currently unregistered coverage i
 
 Preserved native password/account history can also be older than the last real credential change.
 Snapshot hashes bind exactly what was reviewed; they do not prove a restored password or provider
-account link is still current. External-authority review must address that uncertainty. A specific
-deny-only credential/token revocation seam is under root review, not silently assumed available.
+account link is still current. External-authority review must address that uncertainty. Root approved
+the separate bounded follow-up: exact selected-account password NULL or OAuth token-material NULL
+under the same pending generation/locked fingerprint, with real membership-to-account tenant
+association. All other account/user/TOTP identity stays intact; no insert/relink/activation/new
+credential is accepted. Native-password/cross-tenant/elevation role cases are authored, unrun.
+Clearing OAuth tokens does NOT disable its retained provider-account login binding or prove historical
+link authorization. That separate live-authority/revocation gate remains explicit, never an implicit
+result of this tool. No source/runtime checks have run for this follow-up.
