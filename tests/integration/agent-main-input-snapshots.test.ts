@@ -397,7 +397,7 @@ describe('exact main attempt inputs and accepted proposal origin (0416)', () => 
         signal: AbortSignal.timeout(10000),
       },
     );
-    if (!compiled.ok) throw new Error('TEST_COMPILE_REFUSED');
+    if (!compiled.ok) throw new Error(`TEST_COMPILE_REFUSED:${compiled.code}`);
     expect(
       await withTenantTx(agent.db, f.context, (tx) =>
         tx.select({ id: workUnits.id }).from(workUnits).where(eq(workUnits.id, f.work.id)),
