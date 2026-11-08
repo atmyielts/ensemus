@@ -1,6 +1,31 @@
 -- Real delegated title/file sinks. Source in progress; not registered or enabled independently.
 -- Requires0417 plus0416's actual pre-network/paid-result/proposal identity. Existing quarantines
 -- remain closed; nullable old transform fields are not a historical repair or completeness claim.
+-- The lifetime-safe anchor is added by0515. Before that coherent join, missing generation is
+-- explicit unavailable proof, never an inferred initial restore or a legacy-certificate promotion.
+CREATE POLICY material_generation_exact_metadata ON org.organizations FOR SELECT TO ensemus_migrator
+  USING(id=app.current_organization_id() AND id::text=current_setting('ai.material_restore_org',true));
+CREATE POLICY material_generation_exact_lock ON org.organizations FOR UPDATE TO ensemus_migrator
+  USING(id=app.current_organization_id() AND id::text=current_setting('ai.material_restore_org',true)) WITH CHECK(false);
+CREATE FUNCTION ai.current_material_restore_generation() RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
+DECLARE previous_org text:=current_setting('ai.material_restore_org',true);generation uuid;
+BEGIN
+  IF current_user<>'ensemus_migrator' OR session_user NOT IN('ensemus_app','ensemus_agent','ensemus_eraser','ensemus_migrator')
+    OR app.current_organization_id() IS NULL THEN RETURN NULL;END IF;
+  IF NOT EXISTS(SELECT 1 FROM pg_attribute WHERE attrelid='org.organizations'::regclass AND attname='material_restore_generation' AND NOT attisdropped) THEN RETURN NULL;END IF;
+  PERFORM set_config('ai.material_restore_org',app.current_organization_id()::text,true);
+  BEGIN
+    SELECT actual.material_restore_generation INTO generation FROM org.organizations actual
+      WHERE actual.id=app.current_organization_id() FOR SHARE NOWAIT;
+  EXCEPTION WHEN lock_not_available THEN generation:=NULL;END;
+  PERFORM set_config('ai.material_restore_org',coalesce(previous_org,''),true);RETURN generation;
+EXCEPTION WHEN OTHERS THEN PERFORM set_config('ai.material_restore_org',coalesce(previous_org,''),true);RAISE;
+END $$;
+REVOKE ALL ON FUNCTION ai.current_material_restore_generation() FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION ai.current_material_restore_generation() TO ensemus_app,ensemus_agent;
+ALTER TABLE ai.run_input_checkpoints ADD COLUMN purged_restore_generation uuid;
+GRANT UPDATE(purged_restore_generation) ON ai.run_input_checkpoints TO ensemus_agent;
+--> statement-breakpoint
 ALTER TABLE ai.model_proposal_inputs ADD COLUMN transform_version text;
 ALTER TABLE ai.model_proposal_inputs ADD COLUMN derived_body_sha256 text;
 ALTER TABLE ai.model_proposal_inputs ADD CONSTRAINT model_proposal_inputs_title_transform CHECK(
@@ -1676,8 +1701,9 @@ $$;
 -- separate. No financial/provider settlement or earlier source-version observation is asserted.
 CREATE TABLE ai.source_run_closures (
   organization_id uuid NOT NULL,source_id uuid NOT NULL,source_version bigint NOT NULL,run_id uuid NOT NULL,
+  restore_generation uuid NOT NULL DEFAULT ai.current_material_restore_generation(),
   terminal_version bigint NOT NULL,fence_generation integer NOT NULL,terminal_status text NOT NULL,closed_at timestamptz NOT NULL DEFAULT now(),
-  CONSTRAINT source_run_closures_pk PRIMARY KEY(organization_id,source_id,source_version,run_id,terminal_version,fence_generation),
+  CONSTRAINT source_run_closures_pk PRIMARY KEY(organization_id,source_id,source_version,restore_generation,run_id,terminal_version,fence_generation),
   CONSTRAINT source_run_closures_source_fk FOREIGN KEY(organization_id,source_id) REFERENCES knowledge.sources(organization_id,id),
   CONSTRAINT source_run_closures_run_fk FOREIGN KEY(organization_id,run_id) REFERENCES ai.agent_runs(organization_id,id),
   CONSTRAINT source_run_closures_checkpoint_fk FOREIGN KEY(organization_id,run_id) REFERENCES ai.run_input_checkpoints(organization_id,run_id),
@@ -1699,14 +1725,17 @@ BEGIN
   IF TG_RELID<>'ai.source_run_closures'::regclass OR TG_OP<>'INSERT' OR current_user<>'ensemus_agent' OR session_user<>'ensemus_agent'
     OR app.current_actor_type() IS DISTINCT FROM 'service' OR NEW.organization_id IS DISTINCT FROM app.current_organization_id() THEN
     RAISE EXCEPTION 'SOURCE_CONTROL_CLOSURE_TARGET' USING ERRCODE='42501';END IF;
+  IF NEW.restore_generation IS NULL OR NEW.restore_generation IS DISTINCT FROM ai.current_material_restore_generation() THEN
+    RAISE EXCEPTION 'SOURCE_CONTROL_RESTORE_UNCONFIRMED' USING ERRCODE='EN119';END IF;
   SELECT stored.state,stored.version INTO source FROM knowledge.sources stored WHERE stored.organization_id=NEW.organization_id AND stored.id=NEW.source_id FOR SHARE NOWAIT;
   IF NOT FOUND OR source.state NOT IN('revoked','deleted') OR source.version IS DISTINCT FROM NEW.source_version
     OR NEW.run_id NOT IN(SELECT ai.source_input_runs(NEW.source_id)) THEN
     RAISE EXCEPTION 'SOURCE_CONTROL_CLOSURE_STALE' USING ERRCODE='EN119';END IF;
-  SELECT stored.fenced_at,stored.fence_generation,stored.payloads_purged_at,stored.purged_fence_generation INTO checkpoint FROM ai.run_input_checkpoints stored
+  SELECT stored.fenced_at,stored.fence_generation,stored.payloads_purged_at,stored.purged_fence_generation,stored.purged_restore_generation INTO checkpoint FROM ai.run_input_checkpoints stored
     WHERE stored.organization_id=NEW.organization_id AND stored.run_id=NEW.run_id FOR SHARE NOWAIT;
   IF NOT FOUND OR checkpoint.fenced_at IS NULL OR checkpoint.fence_generation IS DISTINCT FROM NEW.fence_generation
-    OR checkpoint.payloads_purged_at IS NULL OR checkpoint.purged_fence_generation IS DISTINCT FROM NEW.fence_generation THEN
+    OR checkpoint.payloads_purged_at IS NULL OR checkpoint.purged_fence_generation IS DISTINCT FROM NEW.fence_generation
+    OR checkpoint.purged_restore_generation IS DISTINCT FROM NEW.restore_generation THEN
     RAISE EXCEPTION 'SOURCE_CONTROL_FENCE_UNCONFIRMED' USING ERRCODE='EN119';END IF;
   SELECT stored.status,stored.version INTO run FROM ai.agent_runs stored WHERE stored.organization_id=NEW.organization_id AND stored.id=NEW.run_id FOR SHARE NOWAIT;
   IF NOT FOUND OR run.status IS DISTINCT FROM NEW.terminal_status OR run.version IS DISTINCT FROM NEW.terminal_version
@@ -1727,14 +1756,16 @@ END $$;
 REVOKE ALL ON FUNCTION ai.guard_fenced_terminal_revival() FROM PUBLIC;
 CREATE TRIGGER fenced_terminal_run_no_revival BEFORE UPDATE ON ai.agent_runs FOR EACH ROW EXECUTE FUNCTION ai.guard_fenced_terminal_revival();
 CREATE FUNCTION ai.source_run_closure_remaining(p_source uuid,p_version bigint) RETURNS integer LANGUAGE sql STABLE SET search_path=pg_catalog AS $$
-  SELECT CASE WHEN NOT EXISTS(SELECT 1 FROM knowledge.sources source WHERE source.organization_id=app.current_organization_id()
+  SELECT CASE WHEN ai.current_material_restore_generation() IS NULL OR NOT EXISTS(SELECT 1 FROM knowledge.sources source WHERE source.organization_id=app.current_organization_id()
     AND source.id=p_source AND source.state IN('revoked','deleted') AND source.version=p_version) THEN 1 ELSE(
     SELECT count(*)::integer FROM ai.source_input_runs(p_source) actual(run_id) LEFT JOIN ai.agent_runs run ON run.organization_id=app.current_organization_id() AND run.id=actual.run_id
       LEFT JOIN ai.run_input_checkpoints checkpoint ON checkpoint.organization_id=app.current_organization_id() AND checkpoint.run_id=actual.run_id
     WHERE run.id IS NULL OR checkpoint.run_id IS NULL OR checkpoint.fenced_at IS NULL OR checkpoint.payloads_purged_at IS NULL
       OR checkpoint.purged_fence_generation IS DISTINCT FROM checkpoint.fence_generation
+      OR checkpoint.purged_restore_generation IS DISTINCT FROM ai.current_material_restore_generation()
       OR run.status NOT IN('completed','failed','cancelled','budget_exhausted','policy_denied','timed_out','outcome_unverified')
       OR NOT EXISTS(SELECT 1 FROM ai.source_run_closures closure WHERE closure.organization_id=app.current_organization_id() AND closure.source_id=p_source AND closure.source_version=p_version
+        AND closure.restore_generation=ai.current_material_restore_generation()
         AND closure.run_id=actual.run_id AND closure.fence_generation=checkpoint.fence_generation AND closure.terminal_version<=run.version)) END
 $$;
 REVOKE ALL ON FUNCTION ai.source_run_closure_remaining(uuid,bigint) FROM PUBLIC;
@@ -1766,6 +1797,7 @@ ALTER TABLE knowledge.purge_jobs ADD COLUMN delegated_work_removed integer NOT N
   ADD COLUMN prior_completed_at timestamptz,
   ADD COLUMN delegated_work_remaining integer,ADD COLUMN delegated_work_unknown integer,ADD COLUMN delegated_work_controls_remaining integer,
   ADD COLUMN delegated_work_checked_at timestamptz,ADD COLUMN delegated_work_source_version bigint,ADD COLUMN delegated_work_receipts_sha256 text,
+  ADD COLUMN delegated_work_restore_generation uuid,ADD COLUMN transcript_restore_generation uuid,
   ADD COLUMN delegated_work_cursor_source_version bigint,ADD COLUMN delegated_work_after_run uuid,ADD COLUMN delegated_work_after_child uuid,
   ADD CONSTRAINT knowledge_purge_delegated_work_counts CHECK(delegated_work_removed>=0 AND(delegated_work_remaining IS NULL OR delegated_work_remaining>=0)
     AND(delegated_work_unknown IS NULL OR delegated_work_unknown>=0) AND(delegated_work_controls_remaining IS NULL OR delegated_work_controls_remaining>=0)),
@@ -1789,11 +1821,16 @@ BEGIN
       -- One migration-only demotion preserves the earlier certificate's date. Runtime actors have
       -- no column grant, and neither a copied GUC nor SET ROLE app can create this evidence.
       IF current_user<>'ensemus_migrator' OR session_user<>'ensemus_migrator'
-        OR current_setting('app.work_purge_requalification',true) IS DISTINCT FROM 'row'
-        OR current_setting('app.work_purge_requalification_job',true) IS DISTINCT FROM OLD.id::text
-        OR app.current_actor_type() IS DISTINCT FROM 'service' OR OLD.state<>'completed' OR OLD.prior_completed_at IS NOT NULL OR OLD.delegated_work_checked_at IS NOT NULL
+        OR NOT coalesce((current_setting('app.work_purge_requalification',true)='row'
+          AND current_setting('app.work_purge_requalification_job',true)=OLD.id::text AND OLD.delegated_work_checked_at IS NULL
+          AND NEW.last_error_code='WORK_CONTROL_PROOF_REQUIRED') OR(current_setting('sovereign.material_restore_mode',true)='row'
+          AND current_setting('sovereign.material_restore_org',true)=OLD.organization_id::text
+          AND current_setting('sovereign.material_restore_generation',true)=ai.current_material_restore_generation()::text
+          AND OLD.delegated_work_restore_generation IS DISTINCT FROM ai.current_material_restore_generation()
+          AND NEW.last_error_code='RESTORE_MATERIAL_REQUALIFICATION_REQUIRED'),false)
+        OR app.current_actor_type() IS DISTINCT FROM 'service' OR OLD.state<>'completed' OR OLD.prior_completed_at IS NOT NULL
         OR OLD.completed_at IS NULL OR NEW.prior_completed_at IS DISTINCT FROM OLD.completed_at
-        OR NEW.state<>'failed' OR NEW.completed_at IS NOT NULL OR NEW.last_error_code IS DISTINCT FROM 'WORK_CONTROL_PROOF_REQUIRED'
+        OR NEW.state<>'failed' OR NEW.completed_at IS NOT NULL
         OR (to_jsonb(NEW)-ARRAY['state','completed_at','prior_completed_at','last_error_code'])
           IS DISTINCT FROM (to_jsonb(OLD)-ARRAY['state','completed_at','prior_completed_at','last_error_code']) THEN
         RAISE EXCEPTION 'PURGE_PRIOR_COMPLETION_IMMUTABLE' USING ERRCODE='42501';END IF;
@@ -1827,6 +1864,9 @@ BEGIN
     validate_proof:=validate_proof OR NEW.delegated_work_checked_at IS NOT NULL;
   END IF;
   IF validate_proof THEN
+    IF ai.current_material_restore_generation() IS NULL OR NEW.transcript_restore_generation IS DISTINCT FROM ai.current_material_restore_generation()
+      OR NEW.delegated_work_restore_generation IS DISTINCT FROM ai.current_material_restore_generation() THEN
+      RAISE EXCEPTION 'DELEGATED_PURGE_RESTORE_UNCONFIRMED' USING ERRCODE='EN119';END IF;
     SELECT stored.state,stored.version INTO source FROM knowledge.sources stored WHERE stored.organization_id=NEW.organization_id AND stored.id=NEW.source_id;
     SELECT * INTO counts FROM ai.source_delegated_work_counts(NEW.source_id);
     controls:=ai.source_run_closure_remaining(NEW.source_id,source.version);
@@ -1950,7 +1990,7 @@ GRANT EXECUTE ON FUNCTION ai.lock_record_purge_snapshot(text,uuid) TO ensemus_ap
 CREATE TABLE ai.record_purge_jobs (
   organization_id uuid NOT NULL,record_kind text NOT NULL,record_id uuid NOT NULL,snapshot_sha256 text NOT NULL,
   after_run uuid,after_child uuid,work_removed integer NOT NULL DEFAULT 0,work_remaining integer,unknown_work integer,controls_remaining integer,
-  checked_at timestamptz,receipts_sha256 text,created_at timestamptz NOT NULL DEFAULT now(),updated_at timestamptz NOT NULL DEFAULT now(),
+  checked_at timestamptz,receipts_sha256 text,restore_generation uuid,created_at timestamptz NOT NULL DEFAULT now(),updated_at timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT record_purge_jobs_pk PRIMARY KEY(organization_id,record_kind,record_id,snapshot_sha256),
   CONSTRAINT record_purge_jobs_catalog_fk FOREIGN KEY(organization_id,record_kind,record_id) REFERENCES knowledge.structured_record_catalog(organization_id,record_kind,record_id),
   CONSTRAINT record_purge_jobs_scope CHECK(record_kind IN('work_unit','project','client','object_record') AND snapshot_sha256 ~ '^[0-9a-f]{64}$'),
@@ -1960,8 +2000,9 @@ CREATE TABLE ai.record_purge_jobs (
 );
 CREATE TABLE ai.record_run_closures (
   organization_id uuid NOT NULL,record_kind text NOT NULL,record_id uuid NOT NULL,snapshot_sha256 text NOT NULL,run_id uuid NOT NULL,
+  restore_generation uuid NOT NULL DEFAULT ai.current_material_restore_generation(),
   terminal_version bigint NOT NULL,fence_generation integer NOT NULL,terminal_status text NOT NULL,closed_at timestamptz NOT NULL DEFAULT now(),
-  CONSTRAINT record_run_closures_pk PRIMARY KEY(organization_id,record_kind,record_id,snapshot_sha256,run_id,terminal_version,fence_generation),
+  CONSTRAINT record_run_closures_pk PRIMARY KEY(organization_id,record_kind,record_id,snapshot_sha256,restore_generation,run_id,terminal_version,fence_generation),
   CONSTRAINT record_run_closures_job_fk FOREIGN KEY(organization_id,record_kind,record_id,snapshot_sha256) REFERENCES ai.record_purge_jobs(organization_id,record_kind,record_id,snapshot_sha256),
   CONSTRAINT record_run_closures_run_fk FOREIGN KEY(organization_id,run_id) REFERENCES ai.agent_runs(organization_id,id),
   CONSTRAINT record_run_closures_checkpoint_fk FOREIGN KEY(organization_id,run_id) REFERENCES ai.run_input_checkpoints(organization_id,run_id),
@@ -2050,14 +2091,16 @@ $$;
 REVOKE ALL ON FUNCTION ai.record_work_counts(text,uuid) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION ai.record_work_counts(text,uuid) TO ensemus_app;
 CREATE FUNCTION ai.record_run_closure_remaining(p_kind text,p_id uuid,p_snapshot text) RETURNS integer LANGUAGE sql STABLE SET search_path=pg_catalog AS $$
-  SELECT count(*)::integer FROM ai.record_input_runs(p_kind,p_id) actual(run_id) LEFT JOIN ai.agent_runs run
+  SELECT CASE WHEN ai.current_material_restore_generation() IS NULL THEN 1 ELSE(count(*)::integer) END FROM ai.record_input_runs(p_kind,p_id) actual(run_id) LEFT JOIN ai.agent_runs run
     ON run.organization_id=app.current_organization_id() AND run.id=actual.run_id LEFT JOIN ai.run_input_checkpoints checkpoint
       ON checkpoint.organization_id=app.current_organization_id() AND checkpoint.run_id=actual.run_id
     WHERE run.id IS NULL OR checkpoint.run_id IS NULL OR checkpoint.fenced_at IS NULL OR checkpoint.payloads_purged_at IS NULL
       OR checkpoint.purged_fence_generation IS DISTINCT FROM checkpoint.fence_generation
+      OR checkpoint.purged_restore_generation IS DISTINCT FROM ai.current_material_restore_generation()
       OR run.status NOT IN('completed','failed','cancelled','budget_exhausted','policy_denied','timed_out','outcome_unverified')
       OR NOT EXISTS(SELECT 1 FROM ai.record_run_closures closure WHERE closure.organization_id=app.current_organization_id() AND closure.record_kind=p_kind
         AND closure.record_id=p_id AND closure.snapshot_sha256=p_snapshot AND closure.run_id=actual.run_id
+        AND closure.restore_generation=ai.current_material_restore_generation()
         AND closure.fence_generation=checkpoint.fence_generation AND closure.terminal_version<=run.version)
 $$;
 REVOKE ALL ON FUNCTION ai.record_run_closure_remaining(text,uuid,text) FROM PUBLIC;
@@ -2068,13 +2111,16 @@ BEGIN
   IF TG_RELID<>'ai.record_run_closures'::regclass OR TG_OP<>'INSERT' OR current_user<>'ensemus_agent' OR session_user<>'ensemus_agent'
     OR app.current_actor_type() IS DISTINCT FROM 'service' OR NEW.organization_id IS DISTINCT FROM app.current_organization_id() THEN
     RAISE EXCEPTION 'RECORD_CONTROL_CLOSURE_TARGET' USING ERRCODE='42501';END IF;
+  IF NEW.restore_generation IS NULL OR NEW.restore_generation IS DISTINCT FROM ai.current_material_restore_generation() THEN
+    RAISE EXCEPTION 'RECORD_CONTROL_RESTORE_UNCONFIRMED' USING ERRCODE='EN119';END IF;
   current_snapshot:=ai.lock_record_purge_snapshot(NEW.record_kind,NEW.record_id);
   IF current_snapshot IS NULL OR current_snapshot IS DISTINCT FROM NEW.snapshot_sha256 OR NEW.run_id NOT IN(SELECT ai.record_input_runs(NEW.record_kind,NEW.record_id)) THEN
     RAISE EXCEPTION 'RECORD_CONTROL_CLOSURE_STALE' USING ERRCODE='EN119';END IF;
-  SELECT stored.fenced_at,stored.fence_generation,stored.payloads_purged_at,stored.purged_fence_generation INTO checkpoint FROM ai.run_input_checkpoints stored
+  SELECT stored.fenced_at,stored.fence_generation,stored.payloads_purged_at,stored.purged_fence_generation,stored.purged_restore_generation INTO checkpoint FROM ai.run_input_checkpoints stored
     WHERE stored.organization_id=NEW.organization_id AND stored.run_id=NEW.run_id FOR SHARE NOWAIT;
   IF NOT FOUND OR checkpoint.fenced_at IS NULL OR checkpoint.fence_generation IS DISTINCT FROM NEW.fence_generation
-    OR checkpoint.payloads_purged_at IS NULL OR checkpoint.purged_fence_generation IS DISTINCT FROM NEW.fence_generation THEN
+    OR checkpoint.payloads_purged_at IS NULL OR checkpoint.purged_fence_generation IS DISTINCT FROM NEW.fence_generation
+    OR checkpoint.purged_restore_generation IS DISTINCT FROM NEW.restore_generation THEN
     RAISE EXCEPTION 'RECORD_CONTROL_FENCE_UNCONFIRMED' USING ERRCODE='EN119';END IF;
   SELECT stored.status,stored.version INTO run FROM ai.agent_runs stored WHERE stored.organization_id=NEW.organization_id AND stored.id=NEW.run_id FOR SHARE NOWAIT;
   IF NOT FOUND OR run.status IS DISTINCT FROM NEW.terminal_status OR run.version IS DISTINCT FROM NEW.terminal_version
@@ -2093,6 +2139,7 @@ BEGIN
   current_snapshot:=ai.lock_record_purge_snapshot(NEW.record_kind,NEW.record_id);
   IF current_snapshot IS NULL OR current_snapshot IS DISTINCT FROM NEW.snapshot_sha256 THEN RAISE EXCEPTION 'RECORD_PURGE_SNAPSHOT_STALE' USING ERRCODE='EN119';END IF;
   IF TG_OP='INSERT' THEN
+    IF NEW.restore_generation IS NOT NULL THEN RAISE EXCEPTION 'RECORD_RESTORE_PROOF_AT_BIRTH' USING ERRCODE='42501';END IF;
     IF ROW(NEW.work_removed,NEW.work_remaining,NEW.unknown_work,NEW.controls_remaining,NEW.checked_at,NEW.receipts_sha256,NEW.after_run,NEW.after_child)
       IS DISTINCT FROM ROW(0,NULL::integer,NULL::integer,NULL::integer,NULL::timestamptz,NULL::text,NULL::uuid,NULL::uuid) THEN
       RAISE EXCEPTION 'RECORD_PURGE_PROOF_AT_BIRTH' USING ERRCODE='42501';END IF;
@@ -2111,11 +2158,13 @@ BEGIN
     END IF;
   END IF;
   IF NEW.checked_at IS NOT NULL THEN
+    NEW.restore_generation:=ai.current_material_restore_generation();
+    IF NEW.restore_generation IS NULL THEN RAISE EXCEPTION 'RECORD_RESTORE_AUTHORITY_UNAVAILABLE' USING ERRCODE='EN119';END IF;
     IF to_regprocedure('lifecycle.record_purge_hold_free(text,uuid,text)') IS NULL THEN RAISE EXCEPTION 'RECORD_HOLD_AUTHORITY_UNAVAILABLE' USING ERRCODE='EN119';END IF;
     IF NOT lifecycle.record_purge_hold_free(NEW.record_kind,NEW.record_id,NEW.snapshot_sha256) OR counts.remaining<>0 OR counts.unproven<>0 OR controls<>0
       OR NEW.receipts_sha256 IS DISTINCT FROM counts.receipts_sha256 THEN RAISE EXCEPTION 'RECORD_PURGE_PROOF_UNCONFIRMED' USING ERRCODE='EN119';END IF;
     NEW.checked_at:=clock_timestamp();
-  END IF;
+  ELSE NEW.restore_generation:=NULL;END IF;
   NEW.updated_at:=clock_timestamp();RETURN NEW;
 END $$;
 REVOKE ALL ON FUNCTION ai.guard_record_purge_job() FROM PUBLIC;
@@ -2130,7 +2179,7 @@ BEGIN
   IF NOT lifecycle.record_purge_hold_free(p_kind,p_id,current_snapshot) THEN RETURN false;END IF;
   SELECT * INTO job FROM ai.record_purge_jobs actual WHERE actual.organization_id=app.current_organization_id()
     AND actual.record_kind=p_kind AND actual.record_id=p_id AND actual.snapshot_sha256=current_snapshot;
-  IF NOT FOUND OR job.checked_at IS NULL THEN RETURN false;END IF;
+  IF NOT FOUND OR job.checked_at IS NULL OR job.restore_generation IS DISTINCT FROM ai.current_material_restore_generation() THEN RETURN false;END IF;
   SELECT * INTO counts FROM ai.record_work_counts(p_kind,p_id);
   controls:=ai.record_run_closure_remaining(p_kind,p_id,current_snapshot);
   RETURN counts.remaining=0 AND counts.unproven=0 AND controls=0 AND job.work_removed=counts.removed

@@ -78,6 +78,7 @@ export function createRunTranscriptPurge(): RunTranscriptPurge {
           .set({
             payloadsPurgedAt: sql`coalesce(${runInputCheckpoints.payloadsPurgedAt},clock_timestamp())`,
             purgedFenceGeneration: runInputCheckpoints.fenceGeneration,
+            purgedRestoreGeneration: sql`ai.current_material_restore_generation()`,
           })
           .where(inArray(runInputCheckpoints.runId, runIds));
       return { removed: removed.length, remaining };

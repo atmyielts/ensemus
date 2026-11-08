@@ -57,7 +57,10 @@ async function sourceState(tx: Tx, sourceId: string) {
     .from(knowledgePurgeJobs)
     .where(eq(knowledgePurgeJobs.sourceId, sourceId));
   if (!job) throw new AppError('NOT_FOUND');
-  return { source, job };
+  const generation = await tx.execute<{ generation: string | null }>(sql`select ai.current_material_restore_generation() generation`);
+  const restoreGeneration = generation.rows[0]?.generation;
+  if (!restoreGeneration) throw new AppError('CAPABILITY_UNAVAILABLE');
+  return { source, job, restoreGeneration };
 }
 async function countsInTx(tx: Tx, state: SourceState) {
   const result =
@@ -126,7 +129,9 @@ export async function confirmDelegatedWorkPurgeInTx(
     state.job.delegatedWorkCheckedAt !== null &&
     state.job.delegatedWorkSourceVersion === state.source.version &&
     state.job.delegatedWorkReceiptsSha256 === counts.receiptsSha256 &&
+    state.job.delegatedWorkRestoreGeneration === state.restoreGeneration &&
     state.job.transcriptsCheckedAt !== null &&
+    state.job.transcriptRestoreGeneration === state.restoreGeneration &&
     state.job.transcriptSourceVersion === state.source.version;
   return {
     removed: counts.removed,
@@ -164,19 +169,19 @@ export function createDelegatedWorkPurge(deps: {
         const state = await sourceState(tx, sourceId),
           counts = await countsInTx(tx, state);
         if (
-          state.job.state === 'completed' &&
+          state.job.delegatedWorkRestoreGeneration !== state.restoreGeneration ||
+          (state.job.state === 'completed' &&
           (counts.remaining !== 0 ||
             counts.controlsRemaining !== 0 ||
             counts.unproven !== 0 ||
             state.job.delegatedWorkCheckedAt === null ||
             state.job.delegatedWorkSourceVersion !== state.source.version ||
-            state.job.delegatedWorkReceiptsSha256 !== counts.receiptsSha256)
+            state.job.delegatedWorkReceiptsSha256 !== counts.receiptsSha256))
         )
           await tx
             .update(knowledgePurgeJobs)
             .set({
-              state: 'failed',
-              completedAt: null,
+              ...(state.job.state === 'completed' ? { state: 'failed',completedAt: null } : {}),
               delegatedWorkCheckedAt: null,
               delegatedWorkSourceVersion: null,
               delegatedWorkReceiptsSha256: null,
@@ -193,9 +198,11 @@ export function createDelegatedWorkPurge(deps: {
           left join ai.run_input_checkpoints checkpoint on checkpoint.organization_id=${context.organizationId}::uuid and checkpoint.run_id=actual.run_id
           where (${cursor.after}::uuid is null or actual.run_id>${cursor.after}::uuid) and(run.id is null or checkpoint.run_id is null or checkpoint.fenced_at is null
             or checkpoint.payloads_purged_at is null or checkpoint.purged_fence_generation is distinct from checkpoint.fence_generation
+            or checkpoint.purged_restore_generation is distinct from ai.current_material_restore_generation()
             or run.status not in('completed','failed','cancelled','budget_exhausted','policy_denied','timed_out','outcome_unverified')
             or not exists(select 1 from ai.source_run_closures closure where closure.organization_id=${context.organizationId}::uuid
               and closure.source_id=${sourceId}::uuid and closure.source_version=${state.source.version}::bigint and closure.run_id=actual.run_id
+              and closure.restore_generation=ai.current_material_restore_generation()
               and closure.fence_generation=checkpoint.fence_generation and closure.terminal_version<=run.version)) order by actual.run_id limit ${input.limit}`);
         if (!rows.rows.length && cursor.after !== null) await advance(tx, cursor, null);
         return { cursor, rows: rows.rows };
@@ -286,6 +293,7 @@ export function createDelegatedWorkPurge(deps: {
           counts.unproven === 0 &&
           counts.controlsRemaining === 0 &&
           state.job.transcriptsCheckedAt !== null &&
+          state.job.transcriptRestoreGeneration === state.restoreGeneration &&
           state.job.transcriptSourceVersion === state.source.version;
         await tx
           .update(knowledgePurgeJobs)

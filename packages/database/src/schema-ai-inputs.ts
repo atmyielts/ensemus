@@ -25,6 +25,7 @@ export const runInputCheckpoints = aiSchema.table(
     fenceGeneration: bigint({ mode: 'number' }).notNull().default(0),
     payloadsPurgedAt: timestamp({ withTimezone: true }),
     purgedFenceGeneration: bigint({ mode: 'number' }),
+    purgedRestoreGeneration: uuid(),
   },
   (t) => [
     primaryKey({ name: 'run_input_checkpoints_pk', columns: [t.organizationId, t.runId] }),
@@ -34,6 +35,7 @@ export const runInputCheckpoints = aiSchema.table(
       foreignColumns: [agentRuns.organizationId, agentRuns.id],
     }),
     check('run_input_checkpoint_protocol', sql`${t.protocolVersion}='v1'`),
+    check('run_input_restore_proof',sql`${t.purgedRestoreGeneration} is null or (${t.payloadsPurgedAt} is not null and ${t.purgedFenceGeneration}=1 and ${t.fenceGeneration}=1 and ${t.fencedAt} is not null)`),
     check(
       'run_input_checkpoint_receipt',
       sql`((${t.fencedAt} is null and ${t.fenceGeneration}=0) or (${t.fencedAt} is not null and ${t.fenceGeneration}=1)) and ((${t.payloadsPurgedAt} is null and ${t.purgedFenceGeneration} is null) or (${t.payloadsPurgedAt} is not null and ${t.purgedFenceGeneration} is not null and ${t.purgedFenceGeneration}=${t.fenceGeneration} and ${t.fenceGeneration}=1))`,

@@ -930,6 +930,7 @@ export const knowledgePurgeJobs = knowledgeSchema.table(
     delegatedWorkCheckedAt: timestamp({ withTimezone: true }),
     delegatedWorkSourceVersion: bigint({ mode: 'number' }),
     delegatedWorkReceiptsSha256: text(),
+    delegatedWorkRestoreGeneration: uuid(),
     delegatedWorkCursorSourceVersion: bigint({ mode: 'number' }),
     delegatedWorkAfterRun: uuid(),
     delegatedWorkAfterChild: uuid(),
@@ -938,6 +939,7 @@ export const knowledgePurgeJobs = knowledgeSchema.table(
     transcriptsCheckedAt: timestamp({ withTimezone: true }),
     transcriptSourceVersion: bigint({ mode: 'number' }),
     transcriptRunsSha256: text(),
+    transcriptRestoreGeneration: uuid(),
     attempts: integer().notNull().default(0),
     /** Scheduled workflow restart requests, independent of projection Activity attempts. */
     retryRequests: integer().notNull().default(0),

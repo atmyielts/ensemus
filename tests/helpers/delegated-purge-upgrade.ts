@@ -7,14 +7,16 @@ import { knowledgePurgeJobs, withTenantTx, type AppDatabase } from '@ensemus/dat
 import { createServiceContext } from '@ensemus/database/service';
 import { createKnowledgeCallStore } from '@ensemus/application/ai-knowledge-call-store';
 import { createHaltCheck } from '@ensemus/application/ai-halt';
+import { createRunTranscriptPurge } from '@ensemus/application/ai-input-ledger';
 import { createDelegatedWorkPurge } from '@ensemus/application/knowledge/delegated-work-purge';
-import { getPurgeStatus } from '@ensemus/application/knowledge/purge';
+import { getPurgeStatus, purgeRunTranscriptsForSource } from '@ensemus/application/knowledge/purge';
 import { pgCode } from '../../packages/application/src/errors';
-import { seedAiTenant } from './ai/fixtures';
+import type { AiTenant } from './ai/fixtures';
 import { seedSearchableSource } from './knowledge';
 
-export async function seedCompletedPurgeBeforeDelegatedProofMigration(app: AppDatabase) {
-  const tenant = await seedAiTenant(app, { commercialMode: 'sovereign' });
+export async function seedCompletedPurgeBeforeDelegatedProofMigration(app: AppDatabase, tenant: AiTenant) {
+  // The caller creates this actual tenant through the binary matching the pre-0419 schema.
+  // Current organization INSERT projections include0515's protected generation column.
   const source = await seedSearchableSource(app, tenant.owner, {
     passages: ['Actual generated passage removed by the previous worker.'],
     grants: [{ kind: 'organization' }],
@@ -150,6 +152,7 @@ export async function assertCompletedPurgeAfterDelegatedProofMigration(
     database: agent,
     accounting: createKnowledgeCallStore(agent, { halt: createHaltCheck() }),
   });
+  await purgeRunTranscriptsForSource(agent,service,{ transcripts: createRunTranscriptPurge() },{ sourceId });
   const proof = await adapter.purgeSource(service, { sourceId, limit: 25 });
   assert.deepEqual(proof, {
     confirmed: true,

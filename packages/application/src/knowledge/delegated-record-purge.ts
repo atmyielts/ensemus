@@ -100,9 +100,11 @@ export function createDelegatedRecordPurge(deps: {
           left join ai.run_input_checkpoints checkpoint on checkpoint.organization_id=${context.organizationId}::uuid and checkpoint.run_id=actual.run_id
           where (${page.after}::uuid is null or actual.run_id>${page.after}::uuid) and(run.id is null or checkpoint.run_id is null or checkpoint.fenced_at is null
             or checkpoint.payloads_purged_at is null or checkpoint.purged_fence_generation is distinct from checkpoint.fence_generation
+            or checkpoint.purged_restore_generation is distinct from ai.current_material_restore_generation()
             or run.status not in('completed','failed','cancelled','budget_exhausted','policy_denied','timed_out','outcome_unverified')
             or not exists(select 1 from ai.record_run_closures closure where closure.organization_id=${context.organizationId}::uuid
               and closure.record_kind=${scope.kind} and closure.record_id=${scope.id}::uuid and closure.snapshot_sha256=${scope.snapshot}
+              and closure.restore_generation=ai.current_material_restore_generation()
               and closure.run_id=actual.run_id and closure.fence_generation=checkpoint.fence_generation and closure.terminal_version<=run.version))
           order by actual.run_id limit ${input.limit}`);
         if (!rows.rows.length && page.after !== null) await advance(tx,page,null);
