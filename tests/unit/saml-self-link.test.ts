@@ -130,6 +130,11 @@ describe('explicit native SAML self-link protocol', () => {
     '/sign-in/email',
     '/sign-up/email',
     '/callback/:id',
+    '/oauth2/callback/:providerId',
+    '/callback/company-sso',
+    '/oauth2/callback/company-sso',
+    '/sso/saml2/sp/acs/generated-provider',
+    '/callback/company%3Asso',
     '/two-factor/verify-totp',
     '/two-factor/verify-backup-code',
   ])(
@@ -160,6 +165,31 @@ describe('explicit native SAML self-link protocol', () => {
       ).toEqual([`${SAML_BROWSER_COOKIE}=; Path=/; Max-Age=0; Secure; HttpOnly; SameSite=None`]);
     },
   );
+  it.each([
+    '/get-session',
+    '/callback/',
+    '/callback/x/extra',
+    '/oauth2/callback/x?userId=other',
+    '/oauth2/callback/x#fragment',
+    '/callbacks/company-sso',
+    '/callback/%ZZ',
+    '/sso/saml2/sp/acs/x/other',
+    `/callback/${'x'.repeat(201)}`,
+  ])('does not treat unrelated or malformed native path %s as primary admission', async (path) => {
+    const f = fixture(),
+      response = await f.flow.run(
+        new Request('https://ensemus.example.invalid/api/auth/get-session', {
+          headers: { cookie: `${SAML_BROWSER_COOKIE}=${f.cookie}` },
+        }),
+        undefined,
+        async () => {
+          f.flow.observeNativeSession(path, randomUUID());
+          return new Response(null);
+        },
+      );
+    expect(response.headers.has('set-cookie')).toBe(false);
+    expect(f.nativeRead).not.toHaveBeenCalled();
+  });
   it.each(['same-person', 'background-refresh', 'unobserved', 'invalid-proof'])(
     'preserves unrelated attempts for %s',
     async (kind) => {

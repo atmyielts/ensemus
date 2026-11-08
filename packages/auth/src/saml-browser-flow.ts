@@ -42,10 +42,40 @@ const PRIMARY_SESSION_PATHS = new Set([
   '/sign-in/email',
   '/sign-up/email',
   '/callback/:id',
+  '/oauth2/callback/:providerId',
   '/sso/saml2/sp/acs/:providerId',
   '/two-factor/verify-totp',
   '/two-factor/verify-backup-code',
 ]);
+function nativePrimaryPath(path: string | undefined): boolean {
+  if (typeof path !== 'string' || path.length > 2048) return false;
+  if (PRIMARY_SESSION_PATHS.has(path)) return true;
+  const prefix = ['/callback/', '/oauth2/callback/', '/sso/saml2/sp/acs/'].find((prefix) =>
+    path.startsWith(prefix),
+  );
+  if (!prefix) return false;
+  const segment = path.slice(prefix.length);
+  if (
+    !segment ||
+    /[/\\?#]/.test(segment) ||
+    [...segment].some(
+      (character) => character.charCodeAt(0) <= 32 || character.charCodeAt(0) === 127,
+    )
+  )
+    return false;
+  try {
+    const provider = decodeURIComponent(segment);
+    return (
+      provider.length > 0 &&
+      provider.length <= 200 &&
+      ![...provider].some(
+        (character) => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127,
+      )
+    );
+  } catch {
+    return false;
+  }
+}
 function withCookie(response: Response, cookie: string): Response {
   const headers = new Headers(Array.from(response.headers.entries()));
   headers.append('set-cookie', cookie);
@@ -165,8 +195,7 @@ export function createSamlBrowserFlow(options: {
     bindStart,
     /** Called only by Better Auth's actual native session.create.after hook. No selection effect. */
     observeNativeSession(path: string | undefined, userId: string) {
-      if (path && PRIMARY_SESSION_PATHS.has(path))
-        storage.getStore()?.createdPrincipals.add(userId);
+      if (nativePrimaryPath(path)) storage.getStore()?.createdPrincipals.add(userId);
     },
     run(
       request: Request,
