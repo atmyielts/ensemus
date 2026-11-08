@@ -9,6 +9,7 @@ import {
 } from '@ensemus/database';
 import { createServiceContext } from '@ensemus/database/service';
 import { setTenantStandingInTx } from '@ensemus/application/saas/standing';
+import { createStandingAgentHaltPort } from '@ensemus/application/saas/standing-agent-port';
 import { eq, sql } from 'drizzle-orm';
 import { urls } from './stack';
 export async function setGeneratedAccountStanding(
@@ -32,6 +33,7 @@ export async function setGeneratedAccountStanding(
         if (found.rows[0]?.total !== 0)
           throw new Error('GENERATED_ACCOUNT_MUST_HAVE_NO_AGENT_RUNS');
       };
+      await noRuns(tx, context);
       await setTenantStandingInTx(
         tx,
         context,
@@ -40,7 +42,7 @@ export async function setGeneratedAccountStanding(
           reasonCode: 'GENERATED_ACCOUNT_EXPORT_TEST',
           actor: { type: 'operator', ref: 'generated-account-export-test' },
         },
-        { haltTenantAgents: noRuns, releaseTenantAgents: noRuns },
+        createStandingAgentHaltPort(),
       );
     });
   } finally {

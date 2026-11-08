@@ -29,7 +29,9 @@ test.describe('custom record native forms', () => {
       await expect(page.getByRole('group', { name: /^Field \d+$/ })).toHaveCount(2);
       const second = page.getByRole('group', { name: 'Field 2', exact: true });
       await second.getByLabel('Label', { exact: true }).fill('Count');
-      await second.getByLabel('Field type', { exact: true }).selectOption('number');
+      await second
+        .getByRole('combobox', { name: 'Field type', exact: true })
+        .selectOption('number');
       await page.getByRole('button', { name: 'Create type', exact: true }).click();
       await expect(page.getByRole('heading', { name: typeName, exact: true })).toBeVisible();
       await page.getByRole('link', { name: 'Create record', exact: true }).click();
@@ -97,7 +99,7 @@ test.describe('custom record native forms', () => {
       expect(changed.status()).toBe(200);
       for (let attempt = 0; attempt < 2; attempt++) {
         await page.getByRole('button', { name: 'Save record', exact: true }).click();
-        await expect(page.getByRole('alert')).toHaveText(
+        await expect(page.getByRole('main').getByRole('alert')).toHaveText(
           'Someone else changed this first. Check the latest version and try again.',
         );
         await expect(page.getByLabel('Record name', { exact: true })).toHaveValue(
@@ -186,7 +188,9 @@ test.describe('custom record native forms', () => {
       .getByLabel('Verification code', { exact: true })
       .fill(totpCode(secret, Date.now() - 30000));
     await verify.getByRole('button', { name: 'Confirm and turn on', exact: true }).click();
-    await expect(verify.getByRole('status')).toHaveText('Two-step sign-in is on.');
+    await expect(
+      verify.getByRole('main').getByRole('status').filter({ hasText: 'Two-step sign-in is on.' }),
+    ).toHaveText('Two-step sign-in is on.');
     await expect(page.getByLabel('Record name', { exact: true })).toHaveValue(
       'My retained record name',
     );

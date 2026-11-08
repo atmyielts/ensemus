@@ -232,6 +232,7 @@ small,
   text-transform: uppercase;
 }
 .nav a {
+  position: relative;
   display: flex;
   justify-content: flex-start;
   align-items: center;
@@ -346,6 +347,9 @@ textarea[aria-invalid='true'] {
   grid-column: 2;
 }
 .account-name {
+  display: block;
+  min-height: var(--control-height);
+  padding-block: var(--space-2);
   font-weight: 560;
 }
 .account-email {

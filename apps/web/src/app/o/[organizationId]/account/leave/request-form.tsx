@@ -43,8 +43,8 @@ export function OffboardingRequestForm({
           defaultValue={state.values.confirmName}
           aria-describedby="leave-name-help"
         />
-        <small id="leave-name-help">Type {organizationName} exactly to confirm.</small>
       </label>
+      <small id="leave-name-help">Type {organizationName} exactly to confirm.</small>
       <label className="check">
         <input type="checkbox" name="confirm" value="yes" required />I understand that new work will
         stop and offboarding will begin. This request does not erase data automatically.

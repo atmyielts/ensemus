@@ -38,3 +38,16 @@ The stack MFA and Studio fixtures now post the actual **Confirm and turn on** fo
 Scoped Prettier formatting and ESLint passed for all six changed TypeScript files. `git diff --check` passed. No unit, type, build, database or browser suite was run for this repair checkpoint. The renderer and decoder results above are bounded diagnostics, not a browser acceptance claim.
 
 Root will join this repair, run current web/tests types and rebuild clean production output with the normal build configuration and a new owned preview action key. Process-only instrumentation must be removed. Actual JavaScript-disabled setup and confirmation, recovery regeneration, SCIM issuance and the SSO recovery journeys remain unqualified until exercised against that clean build. Provider/operator qualification remains open. The original timeout and failed webpack comparison are retained above.
+
+## Joined runtime checkpoint, 2026-11-08
+
+The joined source passed all workspace type checks and the normal production build. The clean
+standalone runtime used a new task-owned action-encryption key and no diagnostic preload. A bounded
+native HTTP fixture completed actual MFA setup and confirmation, SSO configuration, exact operator
+review, activation and member admission without the former postback suspension. These results
+qualify the repaired bootstrap path only. The subsequent callback exposed separate request-replay
+and explicit-account-linking work; see [the SAML runtime evidence](saml-fixture-runtime.md).
+
+Complete JavaScript/no-JavaScript enrollment, recovery regeneration, SCIM and SSO browser
+qualification remains open. The full joined unit checkpoint passed 5,548 tests with two explicit
+skips across 244 files; that count is not browser or provider acceptance.

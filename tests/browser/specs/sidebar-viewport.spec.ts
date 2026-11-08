@@ -57,9 +57,18 @@ for (const javaScriptEnabled of [true, false])
         expect(metrics.client).toBeGreaterThan(100);
         expect(metrics.scroll).toBeGreaterThan(metrics.client);
         expect(metrics.overflow).toBe('auto');
-        expect(
-          await inner.evaluate((element) => element.scrollHeight - element.clientHeight),
-        ).toBeLessThanOrEqual(1);
+        const frame = await inner.evaluate((element) => ({
+          client: element.clientHeight,
+          scroll: element.scrollHeight,
+          children: Array.from(element.children, (child) => ({
+            className: child.className,
+            top: child.getBoundingClientRect().top,
+            height: child.getBoundingClientRect().height,
+            scroll: child.scrollHeight,
+            overflow: getComputedStyle(child).overflowY,
+          })),
+        }));
+        expect(frame.scroll - frame.client, JSON.stringify(frame)).toBeLessThanOrEqual(1);
         const text = await email.evaluate((element) => ({
           whiteSpace: getComputedStyle(element).whiteSpace,
           overflow: getComputedStyle(element).overflow,

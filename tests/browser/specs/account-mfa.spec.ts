@@ -53,7 +53,7 @@ async function submitOriginalRequest(page: Page, name: string) {
   await page.getByLabel('Organization name', { exact: true }).fill(name);
   await page.getByLabel('I understand that new work will stop', { exact: false }).check();
   await page.getByRole('button', { name: 'Request offboarding', exact: true }).click();
-  await expect(page.getByRole('alert')).toHaveText(
+  await expect(page.getByRole('main').getByRole('alert')).toHaveText(
     'Confirm it is you with your authenticator app, then try again.',
   );
   await expect(page.getByLabel('Organization name', { exact: true })).toHaveValue(name);

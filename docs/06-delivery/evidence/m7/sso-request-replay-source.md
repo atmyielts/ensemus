@@ -28,3 +28,13 @@ The granted exclusive source slot completed, one heavy process at a time:
 - `git diff --check` passed before the source checkpoint.
 
 All commands passed on the first attempt; no install, repair or rerun was needed. The slot was explicitly released after the final typecheck. No full suite, database, build or browser command ran for this checkpoint. Root must remove instrumentation, rebuild cleanly and exercise the real callback separately. The previous actual callback failures remain open until that clean result is observed; unit transport/envelope success is not signed assertion or provider acceptance.
+
+## Joined clean runtime checkpoint, 2026-11-08
+
+The joined source passed all workspace types and the normal production build. The clean standalone
+runtime had no diagnostic preload. Its real generated-provider browser callback passed the former
+cross-implementation replay failure and reached the native `account_not_linked` refusal. The library
+refused implicit linking to an existing password account whose local email is unverified, as its
+default requires. This is not successful SSO recovery. Explicit authenticated self-linking and
+callback-browser correlation remain separate implementation and acceptance work; no global
+account-linking flag or email-verification seed was added.
