@@ -186,7 +186,13 @@ GRANT UPDATE(state,input_tokens,output_tokens,cost_micros,status,reason_code,res
 CREATE POLICY person_request ON ai.model_operation_qualifications FOR INSERT TO ensemus_app WITH CHECK(organization_id=app.current_organization_id() and app.current_actor_type()='user' and requested_by_membership_id=app.current_membership_id());
 CREATE POLICY agent_result ON ai.model_operation_qualifications FOR UPDATE TO ensemus_agent USING(organization_id=app.current_organization_id()) WITH CHECK(organization_id=app.current_organization_id());
 CREATE POLICY person_approval ON ai.model_workload_approvals FOR INSERT TO ensemus_app WITH CHECK(organization_id=app.current_organization_id() and app.current_actor_type()='user' and approved_by_membership_id=app.current_membership_id());
-CREATE POLICY person_revoke ON ai.model_workload_approvals FOR UPDATE TO ensemus_app USING(organization_id=app.current_organization_id() and app.current_actor_type()='user') WITH CHECK(organization_id=app.current_organization_id());
+-- PostgreSQL FOR SHARE also applies UPDATE USING: actual model workers must be able to pin the
+-- same tenant metadata already visible to SELECT. Mutation remains actual app-login/user only;
+-- guard_model_approval additionally rechecks the current active manager and immutable revoke shape.
+CREATE POLICY person_revoke ON ai.model_workload_approvals FOR UPDATE TO ensemus_app
+  USING(organization_id=app.current_organization_id())
+  WITH CHECK(organization_id=app.current_organization_id() and app.current_actor_type()='user'
+    and current_user='ensemus_app' and session_user='ensemus_app');
 CREATE POLICY person_profile ON ai.model_workload_profiles FOR INSERT TO ensemus_app WITH CHECK(organization_id=app.current_organization_id() and app.current_actor_type()='user');
 CREATE POLICY job_request ON ai.model_jobs FOR INSERT TO ensemus_app WITH CHECK(organization_id=app.current_organization_id());
 CREATE POLICY job_agent ON ai.model_jobs FOR UPDATE TO ensemus_agent USING(organization_id=app.current_organization_id()) WITH CHECK(organization_id=app.current_organization_id());
@@ -202,7 +208,8 @@ CREATE POLICY query_agent ON ai.model_job_payloads FOR SELECT TO ensemus_agent U
 CREATE POLICY query_purge ON ai.model_job_payloads FOR DELETE TO ensemus_agent USING(organization_id=app.current_organization_id());
 --> statement-breakpoint
 CREATE FUNCTION ai.model_manager() RETURNS boolean LANGUAGE sql STABLE AS $$
-  SELECT coalesce(app.current_actor_type()='user' and EXISTS(SELECT 1 FROM org.memberships m
+  SELECT coalesce(current_user='ensemus_app' and session_user='ensemus_app'
+    and app.current_actor_type()='user' and EXISTS(SELECT 1 FROM org.memberships m
     WHERE m.organization_id=app.current_organization_id() and m.id=app.current_membership_id()
       and m.status='active' and m.role in('owner','admin')),false)
 $$;

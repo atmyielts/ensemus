@@ -120,3 +120,11 @@ adapter and synthetic provider output; they are not native-session/MFA/provider 
   still require independent physical proof. Missing cleanup binding must leave nonzero remaining work.
 - Complete fresh-role receipt/revocation/contention/eraser gates, full integration, workflow replay,
   browser, worker image/offline and actual provider tests. No source result is a runtime gate.
+# Approval locking-read repair (source only, 2026-11-08)
+
+The parent's fresh 55-migration run reported 109 cases: 90 passed and 19 failed. Fourteen model-job failures reached `ai.assert_model_call` but the approval lookup returned no row: PostgreSQL applies UPDATE USING to `FOR SHARE`, and the approval policy allowed that locking visibility only for `actor_type=user`.
+
+The 0216 repair aligns UPDATE USING with the existing tenant metadata SELECT. WITH CHECK now requires the actual app login/role and user actor. `ai.model_manager` independently requires both `current_user` and `session_user` to be `ensemus_app`, preserving fresh active owner/admin checks and preventing an agent login from obtaining mutation authority with SET ROLE plus mutable actor bindings. Conservative revocation still needs no fresh MFA proof; qualification and approval creation retain their separate native admission backstops.
+
+The authored real-role regression pins approval metadata as delegated, agent and service workers, rejects their mutation and an agent login impersonating the app role, denies foreign-tenant lookup/mutation, and verifies ordinary app-owner conservative revocation. No format, lint, type, unit, SQL or database command was run for this repair while the parent's serialized verification slot was occupied. The migration and regression require the parent's fresh database gate; the earlier aggregate result is diagnosis evidence, not repair acceptance.
+
