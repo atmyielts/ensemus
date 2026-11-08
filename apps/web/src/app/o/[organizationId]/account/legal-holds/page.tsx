@@ -1,6 +1,7 @@
 import { listLegalHolds, listLegalHoldTargets } from '@ensemus/application/saas/legal-holds';
 import Link from 'next/link';
 import { ConfirmForm } from '@/components/confirm-form';
+import { AccountReasonSelect } from '@/components/account-reason-select';
 import { Empty, ErrorNotice, PageHead, formatDateTime } from '@/components/ui';
 import { releaseLegalHoldAction } from '@/server/lifecycle-actions';
 import { orNotFound, requireAccountTenant } from '@/server/tenant';
@@ -62,15 +63,7 @@ export default async function LegalHoldsPage({
                         <input type="hidden" name="organizationId" value={organizationId} />
                         <input type="hidden" name="holdId" value={hold.id} />
                         <input type="hidden" name="version" value={hold.version} />
-                        <label>
-                          Release reason code
-                          <input
-                            name="reasonCode"
-                            required
-                            pattern="[A-Z][A-Z0-9_]{0,63}"
-                            maxLength={64}
-                          />
-                        </label>
+                        <AccountReasonSelect forAction="release_hold"/>
                       </>
                     }
                   />

@@ -3,6 +3,7 @@ import { getOrganization } from '@ensemus/database';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { ConfirmForm } from '@/components/confirm-form';
+import { AccountReasonSelect } from '@/components/account-reason-select';
 import { ErrorNotice, PageHead, formatDateTime } from '@/components/ui';
 import { cancelOffboardingAction } from '@/server/offboarding-actions';
 import { getOffboardingAgents } from '@/server/offboarding-bindings';
@@ -122,15 +123,7 @@ export default async function LeavePage({
                 <>
                   <input type="hidden" name="organizationId" value={organizationId} />
                   <input type="hidden" name="version" value={offboarding.version} />
-                  <label>
-                    Reason code
-                    <input
-                      name="reasonCode"
-                      required
-                      pattern="[A-Z][A-Z0-9_]{0,63}"
-                      maxLength={64}
-                    />
-                  </label>
+                  <AccountReasonSelect forAction="cancel_offboarding"/>
                 </>
               }
             />
