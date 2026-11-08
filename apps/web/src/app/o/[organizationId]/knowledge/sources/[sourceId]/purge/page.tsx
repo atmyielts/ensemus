@@ -30,13 +30,13 @@ export default async function PurgePage({
           ? 'The worker confirmed removal of the source projections, related transcripts, generated files and copied work for this source. Retained audit records contain IDs and hashes.'
           : job.priorCompletedAt !== null
             ? 'Verification is required again for copied work and run closures. Earlier confirmed removal counts are retained; any unknown work or control proof still prevents completion.'
-          : job.counts.unprovenWorkUnits !== null && job.counts.unprovenWorkUnits > 0
-            ? 'Some older delegated work still needs an administrator to verify its removal. The source remains closed.'
-            : job.heldArtifacts
-              ? 'Some generated files are on hold. Removal cannot be confirmed while those holds apply.'
-              : job.retryExhausted
-                ? 'Automatic repair has reached its limit. An administrator needs to investigate; the source remains closed.'
-                : 'Removal is still being checked. Unknown writes, storage failures or unavailable workers prevent a completed result.'}
+            : job.counts.unprovenWorkUnits !== null && job.counts.unprovenWorkUnits > 0
+              ? 'Some older delegated work still needs an administrator to verify its removal. The source remains closed.'
+              : job.heldArtifacts
+                ? 'Some generated files are on hold. Removal cannot be confirmed while those holds apply.'
+                : job.retryExhausted
+                  ? 'Automatic repair has reached its limit. An administrator needs to investigate; the source remains closed.'
+                  : 'Removal is still being checked. Unknown writes, storage failures or unavailable workers prevent a completed result.'}
       </p>
       <dl className="facts">
         {Object.entries(job.counts).map(([name, count]) => (
