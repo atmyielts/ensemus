@@ -10,7 +10,7 @@ import { createServiceContext } from '@ensemus/database/service';
 import { pgCode, type ObjectStore } from '@ensemus/application';
 import { addUploadedSource, openDocumentBytes } from '@ensemus/application/knowledge/sources';
 import { deleteSource, purgeRunTranscriptsForSource } from '@ensemus/application/knowledge/purge';
-import { createRunTranscriptPurge } from '@ensemus/application/ai/input-ledger';
+import { createRunTranscriptPurge } from '@ensemus/application/ai-input-ledger';
 import { recoverObjectWrites } from '@ensemus/application/knowledge/object-writes';
 import { rawSourceMaterialCompleteInTx, withRawKnowledgeObjects } from '@ensemus/application/knowledge/raw-objects';
 import { placeLegalHold, releaseLegalHold } from '@ensemus/application/saas/legal-holds';
