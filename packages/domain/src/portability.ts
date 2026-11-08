@@ -264,6 +264,7 @@ export const PORTABILITY_INVENTORY = [
   inventory('billing.payment_execution_bindings', 'history', 'operational_excluded'),
   inventory('billing.payment_customer_bindings', 'history', 'operational_excluded'),
   inventory('billing.payment_webhook_bindings', 'history', 'operational_excluded'),
+  inventory('billing.payment_webhook_attestations', 'history', 'operational_excluded'),
   inventory('billing.collection_cases', 'history', 'operational_excluded'),
   inventory('lifecycle.retention_rules', 'history', 'operational_excluded'),
   inventory('lifecycle.retention_runs', 'history', 'operational_excluded'),

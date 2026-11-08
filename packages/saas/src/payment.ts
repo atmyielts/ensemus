@@ -241,7 +241,7 @@ export function paymentWebhookFactCanonical(event: PaymentEventFact, observed: {
   const { processor, providerEventId, kind, customerRefHash, processorPaymentRef, paymentId,
     amountMicros, currency, occurredAtSeconds } = event;
   return canonicalJson({ event: { processor, providerEventId, kind, customerRefHash, processorPaymentRef,
-    paymentId: paymentId?.toLowerCase() ?? null, amountMicros, currency, occurredAtSeconds },
+    paymentId: paymentId?.toLowerCase() ?? null, amountMicros: amountMicros === null ? null : BigInt(amountMicros).toString(), currency, occurredAtSeconds },
     accountNamespaceSha256: observed.accountNamespaceSha256, executionIdentitySha256: observed.executionIdentitySha256 });
 }
 

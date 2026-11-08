@@ -157,8 +157,8 @@ export async function recordPaymentEventInTx(
       providerOccurredAt: new Date(event.occurredAtSeconds * 1000),
     })
     .returning({ id: paymentWebhookEvents.id });
-  if (row)
-    await emit(tx, context, {
+  if (!row) throw new Error('PAYMENT_WEBHOOK_VERIFICATION_UNAVAILABLE');
+  await emit(tx, context, {
       eventType: PAYMENT_EVENT_RECEIVED,
       aggregateType: AGGREGATE_PAYMENT_WEBHOOK_EVENT,
       aggregateId: row.id,

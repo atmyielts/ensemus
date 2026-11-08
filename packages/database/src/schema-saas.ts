@@ -19,7 +19,7 @@ import {
   uuid,
   type AnyPgColumn,
 } from 'drizzle-orm/pg-core';
-import { organizations, sealedSecrets } from './schema';
+import { organizations, sealedSecrets, inboxEvents } from './schema';
 import { connections, webhookDeliveries, webhookEndpoints } from './schema-integrations';
 import { killSwitches } from './schema-ai';
 
@@ -849,11 +849,38 @@ export const paymentWebhookBindings = billingSchema.table('payment_webhook_bindi
   check('payment_webhook_binding_hashes', sql`${t.configSha256} ~ '^[0-9a-f]{64}$' and ${t.authoritySha256} ~ '^[0-9a-f]{64}$' and ${t.identitySha256} ~ '^[0-9a-f]{64}$' and ${t.accountNamespaceSha256} ~ '^[0-9a-f]{64}$' and ${t.bindingSha256} ~ '^[0-9a-f]{64}$'`),
 ]);
 
+/** Native signature/control hashes only. Minted by secrets role, consumed by an actual inbox INSERT. */
+export const paymentWebhookAttestations = billingSchema.table('payment_webhook_attestations', {
+  organizationId:uuid().notNull(),id:uuid().notNull().defaultRandom(),tokenSha256:text().notNull().unique('payment_webhook_attestations_token_sha256_key'),
+  deliveryId:uuid().notNull(),rowVersion:text().notNull(),endpointId:uuid().notNull(),connectionId:uuid().notNull(),signingSecretId:uuid().notNull(),
+  processor:text().notNull(),adapterVersion:text().notNull(),providerEventId:text().notNull(),bodySha256:text().notNull(),requestDigest:text().notNull(),
+  headersSha256:text().notNull(),factSha256:text().notNull(),accountNamespaceSha256:text(),executionIdentitySha256:text(),
+  issuedAt:timestamp({withTimezone:true}).notNull().default(sql`clock_timestamp()`),expiresAt:timestamp({withTimezone:true}).notNull(),
+  inboxTransaction:text(),inboxConsumerId:text(),inboxEventId:uuid(),consumedEventId:uuid(),consumedTransaction:text(),consumedAt:when(),
+  consumedReplay:boolean().notNull().default(false),consumedQualified:boolean(),consumedFactSha256:text(),
+},(t)=>[
+  primaryKey({name:'payment_webhook_attestation_pk',columns:[t.organizationId,t.id]}),
+  foreignKey({name:'payment_webhook_attestation_delivery',columns:[t.organizationId,t.deliveryId],foreignColumns:[webhookDeliveries.organizationId,webhookDeliveries.id]}),
+  foreignKey({name:'payment_webhook_attestation_endpoint',columns:[t.organizationId,t.endpointId],foreignColumns:[webhookEndpoints.organizationId,webhookEndpoints.id]}),
+  foreignKey({name:'payment_webhook_attestation_connection',columns:[t.organizationId,t.connectionId],foreignColumns:[connections.organizationId,connections.id]}),
+  foreignKey({name:'payment_webhook_attestation_signing',columns:[t.organizationId,t.signingSecretId],foreignColumns:[sealedSecrets.organizationId,sealedSecrets.id]}),
+  foreignKey({name:'payment_webhook_attestation_inbox',columns:[t.organizationId,t.inboxConsumerId,t.inboxEventId],foreignColumns:[inboxEvents.organizationId,inboxEvents.consumerId,inboxEvents.eventId]}),
+  paymentWebhookConsumedFK(t.organizationId,t.consumedEventId),
+  check('payment_webhook_attestation_hashes',sql`${t.tokenSha256} ~ '^[0-9a-f]{64}$' and ${t.bodySha256} ~ '^[0-9a-f]{64}$' and ${t.requestDigest} ~ '^[0-9a-f]{64}$' and ${t.headersSha256} ~ '^[0-9a-f]{64}$' and ${t.factSha256} ~ '^[0-9a-f]{64}$' and ((${t.accountNamespaceSha256} is null)=(${t.executionIdentitySha256} is null)) and (${t.accountNamespaceSha256} is null or (${t.accountNamespaceSha256} ~ '^[0-9a-f]{64}$' and ${t.executionIdentitySha256} ~ '^[0-9a-f]{64}$'))`),
+  check('payment_webhook_attestation_window',sql`${t.expiresAt}>${t.issuedAt} and ${t.expiresAt}<=${t.issuedAt}+interval '60 seconds'`),
+  check('payment_webhook_attestation_inbox_complete',sql`(${t.inboxTransaction} is null and ${t.inboxConsumerId} is null and ${t.inboxEventId} is null) or (${t.inboxTransaction} is not null and ${t.inboxConsumerId} is not null and ${t.inboxEventId} is not null)`),
+  check('payment_webhook_attestation_consumption',sql`(${t.consumedEventId} is null and ${t.consumedTransaction} is null and ${t.consumedAt} is null and ${t.consumedQualified} is null and ${t.consumedFactSha256} is null and not ${t.consumedReplay}) or (${t.consumedEventId} is not null and ${t.consumedTransaction} is not null and ${t.consumedAt} is not null and ${t.consumedQualified} is not null and ${t.consumedFactSha256} is not null and ${t.consumedFactSha256} ~ '^[0-9a-f]{64}$' and ${t.inboxTransaction} is not null and ${t.inboxTransaction}=${t.consumedTransaction})`),
+]);
+function paymentWebhookConsumedFK(organizationId:AnyPgColumn,eventId:AnyPgColumn):ReturnType<typeof foreignKey> {
+  return foreignKey({name:'payment_webhook_attestation_event',columns:[organizationId,eventId],foreignColumns:[paymentWebhookEvents.organizationId,paymentWebhookEvents.id]});
+}
+
 export const paymentWebhookEvents = billingSchema.table(
   'payment_webhook_events',
   {
     organizationId: tenantId(),
     id: uuid().notNull().defaultRandom(),
+    verificationId:uuid(),
     processor: text().notNull(),
     providerEventId: text().notNull(),
     sourceDeliveryId: uuid(), sourceEndpointId: uuid(), sourceConnectionId: uuid(), sourceConnectionVersion: bigint({ mode: 'bigint' }),
@@ -872,6 +899,7 @@ export const paymentWebhookEvents = billingSchema.table(
   },
   (t) => [
     primaryKey({ name: 'payment_webhook_events_pk', columns: [t.organizationId, t.id] }),
+    foreignKey({name:'payment_webhook_verification',columns:[t.organizationId,t.verificationId],foreignColumns:[paymentWebhookAttestations.organizationId,paymentWebhookAttestations.id]}),
     uniqueIndex('payment_webhook_events_provider').on(t.organizationId, t.processor, t.accountNamespaceSha256, t.providerEventId).where(sql`${t.accountNamespaceSha256} is not null`),
     uniqueIndex('payment_webhook_events_unqualified_delivery').on(t.organizationId,t.sourceDeliveryId).where(sql`${t.accountNamespaceSha256} is null and ${t.sourceDeliveryId} is not null`),
     uniqueIndex('payment_webhook_events_legacy_provider').on(t.organizationId,t.processor,t.providerEventId).where(sql`${t.accountNamespaceSha256} is null and ${t.sourceDeliveryId} is null`),
