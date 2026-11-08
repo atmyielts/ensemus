@@ -395,6 +395,48 @@ export const standingChanges = billingSchema.table(
   ],
 );
 
+/** Private witnesses of real standing INSERTs and their separately owned M4 stop. No runtime table grants. */
+export const standingStopReceipts = lifecycleSchema.table(
+  'standing_stop_receipts',
+  {
+    organizationId: uuid().notNull(),
+    standingChangeId: uuid().notNull(),
+    birthTransaction: text().notNull(),
+    appliedTransaction: text(),
+    appliedAt: when(),
+    requiresEffect: boolean().notNull().default(false),
+    releaseRequested: boolean(),
+    switchId: uuid().unique('standing_stop_switch_unique'),
+    settledAt: when(),
+  },
+  (t) => [
+    primaryKey({
+      name: 'standing_stop_receipts_pk',
+      columns: [t.organizationId, t.standingChangeId],
+    }),
+    foreignKey({
+      name: 'standing_stop_org',
+      columns: [t.organizationId],
+      foreignColumns: [organizations.id],
+    }),
+    foreignKey({
+      name: 'standing_stop_switch',
+      columns: [t.switchId],
+      foreignColumns: [killSwitches.id],
+    }),
+    foreignKey({
+      name: 'standing_stop_source',
+      columns: [t.organizationId, t.standingChangeId],
+      foreignColumns: [standingChanges.organizationId, standingChanges.id],
+    }),
+    check('standing_stop_applied', sql`(${t.appliedTransaction} is null)=(${t.appliedAt} is null)`),
+    check(
+      'standing_stop_settlement',
+      sql`${t.settledAt} is null or ${t.appliedTransaction} is not null`,
+    ),
+  ],
+);
+
 export const billingPeriods = billingSchema.table(
   'billing_periods',
   {
@@ -428,7 +470,9 @@ export const creditAccounts = billingSchema.table('credit_accounts', {
   organizationId: uuid()
     .primaryKey()
     .references(() => organizations.id),
-  balanceMicrocredits: bigint({ mode: 'bigint' }).notNull().default(sql`0`),
+  balanceMicrocredits: bigint({ mode: 'bigint' })
+    .notNull()
+    .default(sql`0`),
   /** How far M4's ledger has been read, in the port's own terms. Losing it only repeats safe work. */
   usageCursor: text(),
   version: version(),
@@ -519,9 +563,15 @@ export const invoices = billingSchema.table(
     kind: text().notNull(),
     status: text().notNull().default('draft'),
     currency: text().notNull(),
-    subtotalMicros: micros().notNull().default(sql`0`),
-    taxMicros: micros().notNull().default(sql`0`),
-    totalMicros: micros().notNull().default(sql`0`),
+    subtotalMicros: micros()
+      .notNull()
+      .default(sql`0`),
+    taxMicros: micros()
+      .notNull()
+      .default(sql`0`),
+    totalMicros: micros()
+      .notNull()
+      .default(sql`0`),
     subscriptionId: uuid(),
     billingPeriodId: uuid(),
     topUpId: uuid(),

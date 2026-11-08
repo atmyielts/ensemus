@@ -16,6 +16,7 @@ export function createTaxActivities(deps: PaymentConnectorDeps) {
     async computeTaxAndIssue(
       input: BillingCycleInput & { invoiceId: string },
     ): Promise<'issued' | 'already_issued' | 'refused'> {
+      if (deps.billingEnabled !== true) throw new AppError('BILLING_NOT_ENABLED');
       const { organizationId, invoiceId } = billingCycleInputSchema
         .extend({ invoiceId: idSchema })
         .parse(input);

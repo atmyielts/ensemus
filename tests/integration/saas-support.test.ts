@@ -27,6 +27,7 @@ import {
   SupportContentBusy,
 } from '@ensemus/application/saas/support-desk';
 import { setTenantStandingInTx } from '@ensemus/application/saas/standing';
+import { createStandingAgentHaltPort } from '@ensemus/application/saas/standing-agent-port';
 import { eq } from 'drizzle-orm';
 import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -371,7 +372,7 @@ describe('support reads only what a customer deliberately supplies', () => {
           reasonCode: 'TEST_SUSPENDED',
           actor: { type: 'operator', ref: TEST_OPERATOR },
         },
-        { haltTenantAgents: async () => undefined, releaseTenantAgents: async () => undefined },
+        createStandingAgentHaltPort(),
       ),
     );
     expect(

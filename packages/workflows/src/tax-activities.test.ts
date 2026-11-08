@@ -29,13 +29,25 @@ const question: TaxQuestion = {
   },
 };
 const deps = (tax: PaymentConnectorDeps['tax']) =>
-  ({ database: {}, tax }) as unknown as PaymentConnectorDeps;
+  ({ database: {}, tax, billingEnabled: true }) as unknown as PaymentConnectorDeps;
 beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(loadTaxQuestion).mockResolvedValue(question);
   vi.mocked(issueInvoice).mockResolvedValue('issued');
 });
 describe('tax stays inside a connector activity', () => {
+  it('disabled billing reaches neither database nor tax transport, including replayed invoice IDs', async () => {
+    const compute = vi.fn();
+    await expect(
+      createTaxActivities({
+        ...deps({ provider: 'test', compute }),
+        billingEnabled: false,
+      }).computeTaxAndIssue(input),
+    ).rejects.toMatchObject({ code: 'BILLING_NOT_ENABLED' });
+    expect(loadTaxQuestion).not.toHaveBeenCalled();
+    expect(compute).not.toHaveBeenCalled();
+    expect(issueInvoice).not.toHaveBeenCalled();
+  });
   it('missing provider leaves a draft and never attempts issuance', async () => {
     expect(await createTaxActivities(deps(null)).computeTaxAndIssue(input)).toBe('refused');
     expect(issueInvoice).not.toHaveBeenCalled();

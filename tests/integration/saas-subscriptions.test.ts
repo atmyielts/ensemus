@@ -8,6 +8,7 @@ import {
   type TenantContext,
 } from '@ensemus/database';
 import { createServiceContext } from '@ensemus/database/service';
+import { createStandingAgentHaltPort } from '@ensemus/application/saas/standing-agent-port';
 import {
   getBillingOverview,
   saveBillingAccount,
@@ -185,10 +186,7 @@ describe('subscriptions in the application role', () => {
       (await getBillingOverview(db.db, who, { billingEnabled: true })).subscription!
         .currentPeriodEnd,
     ).toEqual(input.now);
-    const agents = {
-      haltTenantAgents: async () => undefined,
-      releaseTenantAgents: async () => undefined,
-    };
+    const agents = createStandingAgentHaltPort();
     expect(
       await withTenantTx(db.db, service, (tx) =>
         advanceSubscriptionInTx(tx, service, input, agents),

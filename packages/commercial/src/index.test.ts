@@ -7,6 +7,7 @@ import { describe, expect, expectTypeOf, it } from 'vitest';
 import {
   capacitiesOf,
   decideEntitlement,
+  displayedCapacities,
   entitledFeatures,
   FEATURE_AGENT_RUN,
   FEATURE_MODEL_CALL,
@@ -97,6 +98,22 @@ describe('decideEntitlement', () => {
 });
 
 describe('what a tenant is shown', () => {
+  it('does not round exact account capacities into the old numeric wire format', () => {
+    expect(
+      displayedCapacities({
+        balanceMicrocredits: '9007199254740993',
+        includedMicrocredits: '9007199254740991',
+        maxActiveMembers: 12,
+        absent: null,
+        malformed: '1.5',
+        negative: '-9007199254740993',
+      }),
+    ).toEqual({ includedMicrocredits: Number.MAX_SAFE_INTEGER, maxActiveMembers: 12 });
+    expect(displayedCapacities({ zero: '0', debt: '-100', unsafe: 9007199254740992 })).toEqual({
+      zero: 0,
+      debt: -100,
+    });
+  });
   it('lists the mode features, or what the row grants', () => {
     expect(entitledFeatures('byom', null, PERIOD)).toEqual([FEATURE_AGENT_RUN, FEATURE_MODEL_CALL]);
     expect(entitledFeatures('cloud', null, PERIOD)).toEqual([]);

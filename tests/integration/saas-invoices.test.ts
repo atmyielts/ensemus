@@ -11,6 +11,7 @@ import {
   type TenantContext,
 } from '@ensemus/database';
 import { createServiceContext } from '@ensemus/database/service';
+import { createStandingAgentHaltPort } from '@ensemus/application/saas/standing-agent-port';
 import { startSubscription, saveBillingAccount } from '@ensemus/application/saas/subscriptions';
 import {
   draftDuePeriodInvoices,
@@ -40,10 +41,7 @@ const empty: UsageLedgerPort = {
   listSince: async () => ({ entries: [], nextCursor: null }),
   sumForPeriod: async () => [],
 };
-const agents = {
-  haltTenantAgents: async () => undefined,
-  releaseTenantAgents: async () => undefined,
-};
+const agents = createStandingAgentHaltPort();
 describe('invoices use pinned terms and immutable exact monetary totals', () => {
   const database = openAppDatabase(urls.app());
   const auth = new pg.Client({ connectionString: urls.auth() });

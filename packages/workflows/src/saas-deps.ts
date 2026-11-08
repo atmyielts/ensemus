@@ -12,6 +12,8 @@ import type { TaxPort } from '@ensemus/saas/tax';
 import type { ConnectorActivityDeps } from './connector-deps';
 
 export type BillingActivityDeps = {
+  /** Actual server deployment configuration. Missing is disabled, including queued/replayed workflows. */
+  billingEnabled?: boolean;
   database: AppDatabase;
   usage: UsageLedgerPort;
   agents: AgentHaltPort;
@@ -32,6 +34,9 @@ export type PaymentPlatformDeps = { database: AppDatabase };
 
 /** The connector queue's side: what holds a credential and leaves the process. */
 export type PaymentConnectorDeps = ConnectorActivityDeps & {
+  billingEnabled?: boolean;
+  /** Selected by server configuration, never the workflow or customer payload. */
+  paymentProcessor?: string | null;
   /** Empty until the owner chooses a processor, and `get` answers null, so a charge is refused. */
   processors: PaymentProcessorRegistry;
   /** The operator's own organization and connection, which hold the processor's credential. */

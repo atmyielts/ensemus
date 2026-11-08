@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { createStandingAgentHaltPort } from '@ensemus/application/saas/standing-agent-port';
 import {
   connections,
   domainEvents,
@@ -128,7 +129,7 @@ describe('owner-authorized offboarding preserves independent restrictions and un
               reasonCode: 'TEST_EXISTING_RESTRICTION',
               actor: { type: 'operator', ref: 'test-operator@example.invalid' },
             },
-            { haltTenantAgents: async () => undefined, releaseTenantAgents: async () => undefined },
+            createStandingAgentHaltPort(),
           ),
         );
       const [first, second] = await Promise.all([

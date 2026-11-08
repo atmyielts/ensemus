@@ -1,3 +1,4 @@
+import { loadSaasConfig } from '@ensemus/config';
 import {
   getStopDiagnostics,
   getUsageSummary,
@@ -54,7 +55,7 @@ export default async function BudgetsPage({
   const [summary, rows, entitlements, stops, versions] = await Promise.all([
     getUsageSummary(database, context, { period }),
     listBudgets(database, context, { period }),
-    getEntitlementsView(database, context),
+    getEntitlementsView(database, context, { billingEnabled: loadSaasConfig().billingEnabled }),
     getStopDiagnostics(database, context, { period }),
     canManage ? listBudgetableVersions(database, context) : Promise.resolve([]),
   ]);
@@ -186,6 +187,23 @@ export default async function BudgetsPage({
         <section className="card" aria-labelledby="entitlements-heading">
           <h2 id="entitlements-heading">What this organization has</h2>
           <p>{MODE_WORDS[entitlements.mode]}</p>
+          <dl>
+            <dt>Account balance in microcredits</dt>
+            <dd>
+              {entitlements.capacity.balanceMicrocredits?.toLocaleString('en-US') ?? 'Unavailable'}
+            </dd>
+            <dt>Included microcredits</dt>
+            <dd>
+              {entitlements.capacity.includedMicrocredits?.toLocaleString('en-US') ?? 'Unavailable'}
+            </dd>
+            <dt>Active member limit</dt>
+            <dd>
+              {entitlements.capacity.maxActiveMembers?.toLocaleString('en-US') ?? 'Unavailable'}
+            </dd>
+          </dl>
+          <p className="muted">
+            Unavailable amounts are never shown as zero. Billing shows exact account balances.
+          </p>
           {entitlements.features.length === 0 ? (
             <Empty>Nothing is included yet, so agents cannot run.</Empty>
           ) : (

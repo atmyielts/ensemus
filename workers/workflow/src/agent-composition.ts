@@ -28,7 +28,7 @@ import type {
 } from '@ensemus/application/ai-knowledge-ports';
 import type { CompileDeps } from '@ensemus/application/knowledge/compiler';
 import { createEntitlements } from '@ensemus/commercial';
-import { loadModelEgressSettings } from '@ensemus/config';
+import { loadModelEgressSettings, loadSaasConfig } from '@ensemus/config';
 import { withTenantTx, type AgentContext, type AppDatabase } from '@ensemus/database';
 import { AGENT_TURN_PURPOSE, strongestClassification } from '@ensemus/domain/ai';
 import { createServiceContext } from '@ensemus/database/service';
@@ -73,6 +73,9 @@ export function createAgentServices(deps: {
   const { database, objects, log } = deps;
   const env = deps.env ?? process.env;
   const settings = loadModelEgressSettings(env);
+  const entitlements = createEntitlements(database, {
+    billingEnabled: loadSaasConfig(env).billingEnabled,
+  });
   const canaries = loadAgentCanaries(env);
   const halt = createHaltCheck();
   const ledger = createUsageLedger(database);
@@ -87,7 +90,7 @@ export function createAgentServices(deps: {
   });
   const router = createModelRouter({ profiles, egress, bundle });
   const gateway = createInferenceGateway({
-    entitlements: createEntitlements(database),
+    entitlements,
     ledger,
     withTx: (context, use) => withTenantTx(database, context, use),
     router,
@@ -109,7 +112,7 @@ export function createAgentServices(deps: {
   });
   const knowledgeGateway = createKnowledgeModelGateway({
     store: knowledgeCalls,
-    entitlements: createEntitlements(database),
+    entitlements,
     credentials,
     guard,
     adapter,

@@ -18,6 +18,7 @@ import {
   type TenantProvisioningPort,
 } from '@ensemus/application/saas/standing';
 import type { AgentHaltPort } from '@ensemus/application/saas/ports';
+import { createStandingAgentHaltPort } from '@ensemus/application/saas/standing-agent-port';
 import { readSecret } from '@ensemus/config';
 import { openAppDatabase, withTenantTx } from '@ensemus/database';
 import { createServiceContext } from '@ensemus/database/service';
@@ -28,6 +29,7 @@ export async function tenantCommand(
   args: string[],
   bindings: { agents?: AgentHaltPort; provisioner?: TenantProvisioningPort } = {},
 ): Promise<number> {
+  const agents = bindings.agents ?? createStandingAgentHaltPort();
   let parsed:
     | { command: 'provision'; input: Parameters<typeof provisionTenant>[1]; invitationFile: string }
     | {
@@ -67,8 +69,7 @@ export async function tenantCommand(
         invitationFile: values['invitation-file'][0],
       };
     } else {
-      if (values['invitation-file'] || !bindings.agents)
-        throw new Error('PREREQUISITES_INCOMPLETE');
+      if (values['invitation-file']) throw new Error('PREREQUISITES_INCOMPLETE');
       parsed = { command, input: tenantCommandInputSchemas.standing.parse(data) };
     }
   } catch {
@@ -106,7 +107,7 @@ export async function tenantCommand(
             reasonCode: standing.input.reasonCode,
             actor: { type: 'operator', ref: standing.input.operatorRef },
           },
-          bindings.agents!,
+          agents,
         ),
       );
       log.info('tenant.standing_changed', { organizationId: context.organizationId });

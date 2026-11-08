@@ -3,6 +3,7 @@ import type { BillingActivityDeps } from './saas-deps';
 import type { BillingCycleInput } from './saas-schemas';
 import { billingCycleInputSchema } from './saas-schemas';
 import { consumeUsage } from '@ensemus/application/saas/credits';
+import { AppError } from '@ensemus/application';
 import { createServiceContext } from '@ensemus/database/service';
 
 export function createCreditActivities(deps: BillingActivityDeps) {
@@ -11,6 +12,7 @@ export function createCreditActivities(deps: BillingActivityDeps) {
     async consumeUsagePage(
       input: BillingCycleInput,
     ): Promise<{ entries: number; exhausted: boolean; more: boolean }> {
+      if (deps.billingEnabled !== true) throw new AppError('BILLING_NOT_ENABLED');
       const value = billingCycleInputSchema.parse(input);
       const result = await consumeUsage(
         deps.database,

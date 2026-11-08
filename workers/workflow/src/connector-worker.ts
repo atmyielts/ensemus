@@ -57,6 +57,8 @@ async function main() {
   const saas = loadSaasConfig();
   const paymentDeps = {
     ...deps,
+    billingEnabled: saas.billingEnabled,
+    paymentProcessor: saas.paymentProcessor,
     processors: { get: () => null },
     billingOrganizationId: saas.billingOrganizationId,
     billingConnectionId: saas.billingConnectionId,
