@@ -154,7 +154,7 @@ export type PaymentGatewayBinding = Readonly<{
   paymentId: string;
   authority: PaymentConnectionAuthority;
   phase: 'identity' | 'customer' | 'customer_lookup' | 'charge' | 'lookup';
-  executionBinding?: Readonly<{ id: string; identitySha256: string; bindingSha256: string }>;
+  executionBinding?: Readonly<{ id: string; identitySha256: string; accountNamespaceSha256: string; bindingSha256: string }>;
   identityProof?: unknown;
   attemptId?: string;
   customerToken?: string;
@@ -164,7 +164,7 @@ export type PaymentGatewayBinding = Readonly<{
 export function paymentExecutionIdentity(
   value: unknown,
   manifest: Pick<ProcessorManifest, 'processor' | 'version'>,
-): { identity: PaymentExecutionIdentity; sha256: string } | null {
+): { identity: PaymentExecutionIdentity; sha256: string; accountNamespaceSha256: string } | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const v = value as Record<string, unknown>;
   if (Object.keys(v).sort().join(',') !== 'adapterVersion,apiOrigins,environment,merchantAccountSha256,processor,version'
@@ -185,7 +185,11 @@ export function paymentExecutionIdentity(
     environment: v.environment, merchantAccountSha256: v.merchantAccountSha256,
     apiOrigins: [...v.apiOrigins as string[]].sort(),
   };
-  return { identity, sha256: createHash('sha256').update(canonicalJson(identity)).digest('hex') };
+  return { identity, sha256: createHash('sha256').update(canonicalJson(identity)).digest('hex'),
+    // Merchant/environment namespace survives credential, connection, adapter and API-origin rotation.
+    accountNamespaceSha256: createHash('sha256').update(canonicalJson({ processor: identity.processor,
+      environment: identity.environment, merchantAccountSha256: identity.merchantAccountSha256 })).digest('hex'),
+  };
 }
 
 /**

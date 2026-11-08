@@ -81,7 +81,7 @@ export function createPaymentConnector(processor: PaymentProcessor): Connector<u
           )
             throw new MalformedWebhook();
           return [{ kind: 'payment_event', event,
-            ...(identity ? { executionIdentitySha256: identity.sha256 } : {}),
+            ...(identity ? { executionIdentitySha256: identity.sha256, accountNamespaceSha256: identity.accountNamespaceSha256 } : {}),
           }];
         } catch {
           throw new MalformedWebhook();

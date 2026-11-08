@@ -13,7 +13,7 @@ import {
   type Tx,
 } from '@ensemus/database';
 import { withAccountTx } from '@ensemus/database/account';
-import { withVerifiedPaymentEventTx } from '@ensemus/database/payment-routing';
+import { withVerifiedPaymentEventTx, verifiedPaymentEventRoute, type VerifiedPaymentEventRoute } from '@ensemus/database/payment-routing';
 import { PAYMENT_EVENT_KINDS } from '@ensemus/domain/webhook';
 import {
   AGGREGATE_INVOICE,
@@ -28,7 +28,7 @@ import {
   invoiceTargetRef,
   paymentTargetRef,
 } from '@ensemus/saas/events';
-import { and, desc, eq, sql } from 'drizzle-orm';
+import { and, desc, eq, isNull, sql } from 'drizzle-orm';
 import { AppError } from '../errors';
 import { idSchema } from '../ids';
 import { emit } from '../events';
@@ -45,9 +45,10 @@ export type PaymentWebhookBinding = {
   deliveryId?: string;
   endpointId?: string;
   observedExecutionIdentitySha256?: string | null;
+  observedAccountNamespaceSha256?: string | null;
 };
 export type PaymentRoutingBinding = { billingOrganizationId: string };
-type PaymentWebhookCapture = { connectionVersion: string; credentialSecretId: string; configSha256: string; identitySha256: string; bindingSha256: string };
+type PaymentWebhookCapture = { connectionVersion: string; credentialSecretId: string; configSha256: string; identitySha256: string; accountNamespaceSha256: string; bindingSha256: string };
 const ref = (value: unknown): value is string =>
   typeof value === 'string' && value.length > 0 && value.length <= 256 && !/[\r\n\0]/.test(value);
 const requireService = (context: TenantContext) => {
@@ -107,16 +108,18 @@ export async function recordPaymentEventInTx(
   let proof: PaymentWebhookCapture | undefined;
   if (binding.deliveryId && binding.endpointId) {
     if (!idSchema.safeParse(binding.deliveryId).success || !idSchema.safeParse(binding.endpointId).success
-      || (binding.observedExecutionIdentitySha256 != null && !/^[0-9a-f]{64}$/.test(binding.observedExecutionIdentitySha256)))
+      || ((binding.observedExecutionIdentitySha256 == null) !== (binding.observedAccountNamespaceSha256 == null))
+      || (binding.observedExecutionIdentitySha256 != null && !/^[0-9a-f]{64}$/.test(binding.observedExecutionIdentitySha256))
+      || (binding.observedAccountNamespaceSha256 != null && !/^[0-9a-f]{64}$/.test(binding.observedAccountNamespaceSha256)))
       throw new AppError('INVALID_INPUT');
     const captured = await tx.execute<PaymentWebhookCapture>(sql`select * from billing.capture_payment_webhook(
       ${binding.deliveryId}::uuid,${binding.endpointId}::uuid,${binding.connectionId}::uuid,
-      ${event.providerEventId},${binding.observedExecutionIdentitySha256 ?? null})`);
+      ${event.processor},${binding.observedAccountNamespaceSha256 ?? null})`);
     if (captured.rows.length > 1) throw new AppError('PREREQUISITES_INCOMPLETE');
     proof = captured.rows[0];
     if (proof && (!/^[1-9][0-9]*$/.test(proof.connectionVersion) || BigInt(proof.connectionVersion) > 9223372036854775807n
       || !idSchema.safeParse(proof.credentialSecretId).success
-      || [proof.configSha256, proof.identitySha256, proof.bindingSha256].some((value) => !/^[0-9a-f]{64}$/.test(value))))
+      || [proof.configSha256, proof.identitySha256, proof.accountNamespaceSha256, proof.bindingSha256].some((value) => !/^[0-9a-f]{64}$/.test(value))))
       throw new AppError('PREREQUISITES_INCOMPLETE');
   }
   const [row] = await tx
@@ -132,6 +135,7 @@ export async function recordPaymentEventInTx(
       sourceApiSecretId: proof?.credentialSecretId ?? null,
       sourceConfigSha256: proof?.configSha256 ?? null,
       executionIdentitySha256: proof?.identitySha256 ?? null,
+      accountNamespaceSha256: proof?.accountNamespaceSha256 ?? null,
       executionBindingSha256: proof?.bindingSha256 ?? null,
       kind: event.kind,
       customerRefHash: event.customerRefHash,
@@ -207,7 +211,7 @@ export async function routePaymentEvent(
       row.id,
       async (tx, scope) => {
         if (scope.account.processor !== fact.processor) return null;
-        const result = await applyPaymentFactInTx(tx, scope.context, fact, agents);
+        const result = await applyPaymentFactInTx(tx, scope.context, fact, agents, scope.proof);
         return { organizationId: scope.context.organizationId, result };
       },
     );
@@ -249,9 +253,13 @@ export async function applyPaymentFactInTx(
   context: TenantContext,
   fact: PaymentEventFact,
   agents?: AgentHaltPort,
+  source?: VerifiedPaymentEventRoute,
 ): Promise<'applied' | 'already_applied' | 'no_matching_payment'> {
   requireService(context);
   validate(fact);
+  const proof = verifiedPaymentEventRoute(source, tx, { organizationId: context.organizationId, processor: fact.processor,
+    providerEventId: fact.providerEventId, customerRefHash: fact.customerRefHash });
+  if (!proof) return 'no_matching_payment';
   // Serialize all financial mutations before choosing a payment or accepting evidence for it.
   const [org] = await tx
     .select({ id: organizations.id, lifecycle: organizations.lifecycle })
@@ -266,9 +274,13 @@ export async function applyPaymentFactInTx(
   if (
     !account ||
     account.processor !== fact.processor ||
-    account.customerRefHash !== fact.customerRefHash
+    account.customerRefHash !== fact.customerRefHash || account.id !== proof.accountId
+    || account.processorAccountNamespaceSha256 !== proof.accountNamespaceSha256
   )
     return 'no_matching_payment';
+  const [legacy] = await tx.select({ id: paymentEvents.id }).from(paymentEvents).where(and(
+    eq(paymentEvents.processor,fact.processor),eq(paymentEvents.providerEventId,fact.providerEventId),isNull(paymentEvents.accountNamespaceSha256)));
+  if (legacy) return 'no_matching_payment';
   const [prior] = await tx
     .select({ id: paymentEvents.id })
     .from(paymentEvents)
@@ -276,6 +288,7 @@ export async function applyPaymentFactInTx(
       and(
         eq(paymentEvents.processor, fact.processor),
         eq(paymentEvents.providerEventId, fact.providerEventId),
+        eq(paymentEvents.accountNamespaceSha256, proof.accountNamespaceSha256),
       ),
     );
   if (prior) return 'already_applied';
@@ -298,7 +311,7 @@ export async function applyPaymentFactInTx(
           .for('update')
       : [];
   const payment = candidates[0];
-  if (!payment || candidates.length !== 1) return 'no_matching_payment';
+  if (!payment || candidates.length !== 1 || payment.id !== proof.paymentId) return 'no_matching_payment';
   if (
     payment.processorPaymentRef &&
     fact.processorPaymentRef &&
@@ -347,6 +360,12 @@ export async function applyPaymentFactInTx(
       organizationId: context.organizationId,
       processor: fact.processor,
       providerEventId: fact.providerEventId,
+      accountNamespaceSha256: proof.accountNamespaceSha256,
+      executionBindingId: proof.executionBindingId,
+      executionBindingSha256: proof.bindingSha256,
+      sourceExecutionBindingSha256: proof.webhookBindingSha256,
+      sourceWebhookOrganizationId: proof.sourceOrganizationId,
+      sourceWebhookEventId: proof.sourceEventId,
       kind: fact.kind,
       paymentId: payment.id,
       invoiceId: payment.invoiceId,

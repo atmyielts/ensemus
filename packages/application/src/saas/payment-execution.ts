@@ -16,7 +16,7 @@ export const paymentAuthoritySchema = z.strictObject({
   configSha256: sha, authoritySha256: sha,
 });
 const bindingSchema = z.strictObject({
-  id: idSchema, authoritySha256: sha, identitySha256: sha, bindingSha256: sha,
+  id: idSchema, authoritySha256: sha, identitySha256: sha, accountNamespaceSha256: sha, bindingSha256: sha,
   customerState: z.enum(['new','sending','confirmed','unknown']), customerRefHash: sha.nullable(),
 });
 export type PaymentExecutionBinding = z.infer<typeof bindingSchema>;

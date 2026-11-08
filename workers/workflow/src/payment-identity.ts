@@ -17,7 +17,7 @@ export function createPaymentIdentityAttester(database: ReturnType<typeof openSe
       await tx.execute(sql`select set_config('app.organization_id',${authority.billingOrganizationId},true)`);
       const result = await tx.execute<{ token: string; expiresAt: Date }>(sql`select * from billing.attest_payment_identity(${organizationId}::uuid,
         ${paymentId}::uuid,${authority.billingOrganizationId}::uuid,${authority.connectionId}::uuid,${authority.processor},${authority.adapterVersion},${authority.apiOrigin},
-        ${authority.authoritySha256},${proof.sha256},${proof.readReceiptSha256})`);
+        ${authority.authoritySha256},${proof.sha256},${proof.accountNamespaceSha256},${proof.readReceiptSha256})`);
       const row = result.rows[0];
       if (result.rows.length !== 1 || !row || !/^[0-9a-f]{64}$/.test(row.token)
         || !(row.expiresAt instanceof Date) || !Number.isFinite(row.expiresAt.getTime())) throw new AppError('PREREQUISITES_INCOMPLETE');

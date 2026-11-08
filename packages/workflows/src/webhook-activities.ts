@@ -133,7 +133,6 @@ export function createWebhookEffectHandlers(
           id: connections.id,
           state: connections.state,
           connectorType: connections.connectorType,
-          credentialSecretId: connections.credentialSecretId,
         })
         .from(connections)
         .where(
@@ -149,8 +148,7 @@ export function createWebhookEffectHandlers(
         endpoint.connectionId !== source.connectionId ||
         !connection ||
         connection.state !== 'active' ||
-        connection.connectorType !== PAYMENT_CONNECTOR_PREFIX + payment.processor ||
-        !connection.credentialSecretId
+        connection.connectorType !== PAYMENT_CONNECTOR_PREFIX + payment.processor
       )
         throw new AppError('NOT_FOUND');
       await recordPaymentEventInTx(tx, context, effect.event, {
@@ -161,6 +159,7 @@ export function createWebhookEffectHandlers(
         deliveryId: source.deliveryId,
         endpointId: source.endpointId,
         observedExecutionIdentitySha256: effect.executionIdentitySha256 ?? null,
+        observedAccountNamespaceSha256: effect.accountNamespaceSha256 ?? null,
       });
     },
   };

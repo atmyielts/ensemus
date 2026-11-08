@@ -147,7 +147,7 @@ export function createPaymentConnectorActivities(
     });
     const base = { organizationId: input.organizationId, paymentId: input.paymentId, authority };
     const proof = await identifyPaymentExecution(processor, callFor({ ...base, phase: 'identity' }), authority.authoritySha256);
-    if (!proof || (existing && existing.identitySha256 !== proof.sha256)) return null;
+    if (!proof || (existing && (existing.identitySha256 !== proof.sha256 || existing.accountNamespaceSha256 !== proof.accountNamespaceSha256))) return null;
     let binding: PaymentExecutionBinding;
     try {
       const attestation = await options.attestIdentity!({ ...input, authority, proof });
@@ -160,7 +160,7 @@ export function createPaymentConnectorActivities(
         });
     } catch { return null; }
     if ((existing && existing.id !== binding.id) || binding.authoritySha256 !== authority.authoritySha256
-      || binding.identitySha256 !== proof.sha256) return null;
+      || binding.identitySha256 !== proof.sha256 || binding.accountNamespaceSha256 !== proof.accountNamespaceSha256) return null;
     return {
       processor, binding, authority,
       call: (phase: Exclude<PaymentGatewayBinding['phase'], 'identity'>, ids: { attemptId?: string; customerToken?: string } = {}) =>

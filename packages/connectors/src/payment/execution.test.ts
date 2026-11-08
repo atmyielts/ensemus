@@ -43,7 +43,7 @@ async function fixture() {
     request: (value) => gateway(binding, value, new AbortController().signal) });
   const proof = await identifyPaymentExecution(processor, call({ ...base, phase: 'identity' }), authority.authoritySha256);
   if (!proof) { await server.close(); throw new Error('TEST_NATIVE_IDENTITY_MISSING'); }
-  const binding = { id: randomUUID(), identitySha256: proof.sha256, bindingSha256: sha('generated-binding') };
+  const binding = { id: randomUUID(), identitySha256: proof.sha256, accountNamespaceSha256: proof.accountNamespaceSha256, bindingSha256: sha('generated-binding') };
   return { server, admission, proof, binding, call, native: (phase: 'customer' | 'charge' | 'lookup') => call({ ...base, phase,
     identityProof: proof, executionBinding: binding, attemptId: randomUUID(), customerToken: randomUUID() }) };
 }

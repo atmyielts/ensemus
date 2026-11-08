@@ -17,6 +17,7 @@ const identityProofs = new WeakSet<object>();
 export type VerifiedPaymentExecutionIdentity = Readonly<{
   identity: PaymentExecutionIdentity;
   sha256: string;
+  accountNamespaceSha256: string;
   readReceiptSha256: string;
   authoritySha256: string;
   verifiedAtEpochMs: number;
@@ -133,6 +134,7 @@ export async function identifyPaymentExecution(
     if (!parsed || observedOrigins.size !== 1 || [...observedOrigins].some((origin) => !parsed.identity.apiOrigins.includes(origin))) return null;
     const proof = Object.freeze({
       identity: Object.freeze({ ...parsed.identity, apiOrigins: Object.freeze([...parsed.identity.apiOrigins]) }), sha256: parsed.sha256,
+      accountNamespaceSha256: parsed.accountNamespaceSha256,
       readReceiptSha256: createHash('sha256').update(canonicalJson(reads)).digest('hex'),
       authoritySha256,
       verifiedAtEpochMs: observedAt,

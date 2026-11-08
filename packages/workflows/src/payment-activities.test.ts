@@ -16,10 +16,10 @@ vi.mock('@ensemus/connectors/payment', async (original) => ({ ...await original<
 const input = { organizationId: randomUUID(), paymentId: randomUUID(), runId: randomUUID() };
 const authority: PaymentConnectionAuthority = { billingOrganizationId: randomUUID(), connectionId: randomUUID(), connectionVersion: '1', credentialSecretId: randomUUID(), processor: 'test_scripted', adapterVersion: '1.0.0',
   apiOrigin: 'https://generated.mcp.invalid', configSha256: 'a'.repeat(64), authoritySha256: 'b'.repeat(64) };
-const binding = { id: randomUUID(), authoritySha256: authority.authoritySha256, identitySha256: 'c'.repeat(64), bindingSha256: 'd'.repeat(64), customerState: 'confirmed' as const, customerRefHash: 'e'.repeat(64) };
+const binding = { id: randomUUID(), authoritySha256: authority.authoritySha256, identitySha256: 'c'.repeat(64), accountNamespaceSha256: '8'.repeat(64), bindingSha256: 'd'.repeat(64), customerState: 'confirmed' as const, customerRefHash: 'e'.repeat(64) };
 // Explicit Activity-control test double only. Real opaque identity and actual local TLS are tested in
 // connectors/payment/execution.test.ts; this suite does not qualify broker, SQL, native parsing or provider I/O.
-const proof = { sha256: binding.identitySha256 } as unknown as VerifiedPaymentExecutionIdentity;
+const proof = { sha256: binding.identitySha256, accountNamespaceSha256: binding.accountNamespaceSha256 } as unknown as VerifiedPaymentExecutionIdentity;
 const processor = { manifest: { processor: 'test_scripted', version: '1.0.0', nativeIdempotency: true, lookup: 'authoritative' }, identifyExecution: vi.fn() } as unknown as PaymentProcessor;
 const execution = { processor: 'test_scripted', status: 'ready' as const, preflightCode: null,
   account: { id: randomUUID(), billingName: 'Generated', billingEmail: 'generated@example.invalid', processor: 'test_scripted', customerRef: 'generated-customer' } };

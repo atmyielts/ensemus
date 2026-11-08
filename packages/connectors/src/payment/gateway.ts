@@ -49,6 +49,7 @@ export function createPaymentHttpGateway(deps: {
       if (!isVerifiedPaymentExecutionIdentity(proof) || !binding.executionBinding
         || proof.authoritySha256 !== authority.authoritySha256
         || proof.sha256 !== binding.executionBinding.identitySha256
+        || proof.accountNamespaceSha256 !== binding.executionBinding.accountNamespaceSha256
         || proof.apiOrigin !== deps.apiOrigin
         || !proof.identity.apiOrigins.includes(deps.apiOrigin)
         || Date.now() - proof.verifiedAtEpochMs < 0 || Date.now() - proof.verifiedAtEpochMs > 60000)

@@ -3,12 +3,12 @@
 import { randomUUID } from 'node:crypto';
 import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { billingAccounts, connections, openAppDatabase, paymentAttempts, paymentWebhookEvents, webhookDeliveries, withTenantTx } from '@ensemus/database';
+import { billingAccounts, connections, openAppDatabase, paymentAttempts, paymentEvents, paymentWebhookEvents, webhookDeliveries, withTenantTx } from '@ensemus/database';
 import { openSecretsDatabase } from '@ensemus/database/secrets';
 import { createServiceContext } from '@ensemus/database/service';
 import { bindPaymentExecution, beginPaymentCustomerRegistration, finishPaymentCustomerRegistration, preflightPaymentExecution, qualifyPaymentWebhookExecution, readPaymentExecutionBinding } from '@ensemus/application/saas/payment-execution';
 import { beginPaymentAttempt, finishPaymentAttempt, readPaymentOutcome } from '@ensemus/application/saas/payments';
-import { routePaymentEvent } from '@ensemus/application/saas/payment-events';
+import { routePaymentEvent, applyPaymentFactInTx } from '@ensemus/application/saas/payment-events';
 import { ingestWebhookDelivery, pgCode } from '@ensemus/application';
 import { createConnectorRegistry, signWebhook } from '@ensemus/connectors/runtime';
 import { runBoundCharge, runBoundCustomerRegistration } from '@ensemus/connectors/payment';
@@ -49,8 +49,8 @@ describe('original payment identity and customer namespace under real roles', ()
       await agent.query("select set_config('app.organization_id',$1,true),set_config('app.actor_type','service',true),set_config('billing.payment_org',$1,true)",[f.who.owner.organizationId]);
       await expect(agent.query('select * from billing.payment_execution_bindings')).rejects.toMatchObject({ code: '42501' });
       await agent.query('rollback'); await agent.query('begin'); await agent.query('set local role ensemus_app');
-      await expect(agent.query('select * from billing.attest_payment_identity($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)', [f.who.owner.organizationId, f.payment.paymentId, f.operator.organizationId, f.connection.id,
-        'test_scripted','1.0.0',q.authority.apiOrigin,q.authority.authoritySha256,q.proof.sha256,q.proof.readReceiptSha256])).rejects.toMatchObject({ code: '42501' });
+      await expect(agent.query('select * from billing.attest_payment_identity($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)', [f.who.owner.organizationId, f.payment.paymentId, f.operator.organizationId, f.connection.id,
+        'test_scripted','1.0.0',q.authority.apiOrigin,q.authority.authoritySha256,q.proof.sha256,q.proof.accountNamespaceSha256,q.proof.readReceiptSha256])).rejects.toMatchObject({ code: '42501' });
       await agent.query('rollback');
     } finally { await agent.end(); await f.close(); }
   });
@@ -63,6 +63,26 @@ describe('original payment identity and customer namespace under real roles', ()
       expect(f.server.requests.map((request) => request.method)).toEqual(['GET']);
     } finally { await f.close(); }
   });
+  it('rejects an invented verified source and a serialized route proof before any financial effect', async () => {
+    const f = await fixture();
+    try {
+      const q = await f.qualify();
+      const event: PaymentEventFact = { processor: 'test_scripted', providerEventId: randomUUID(), kind: 'payment_succeeded', customerRefHash: 'a'.repeat(64),
+        processorPaymentRef: 'generated-payment', paymentId:f.payment.paymentId, amountMicros:f.who.invoice.totalMicros.toString(), currency:f.who.invoice.currency, occurredAtSeconds:Math.floor(Date.now()/1000) };
+      await expect(withTenantTx(app.db,f.who.service,(tx) => tx.insert(paymentEvents).values({ organizationId:f.who.owner.organizationId,
+        processor:event.processor,providerEventId:event.providerEventId,kind:event.kind,paymentId:f.payment.paymentId,invoiceId:f.who.invoice.id,
+        amountMicros:f.who.invoice.totalMicros,currency:event.currency,providerOccurredAt:new Date(event.occurredAtSeconds*1000),
+        accountNamespaceSha256:q.binding.accountNamespaceSha256,executionBindingId:q.binding.id,executionBindingSha256:q.binding.bindingSha256,
+        sourceExecutionBindingSha256:q.binding.bindingSha256,sourceWebhookOrganizationId:f.operator.organizationId,sourceWebhookEventId:randomUUID(),
+      })))).rejects.toSatisfy((error:unknown) => pgCode(error)==='EN850');
+      const invented = {organizationId:f.who.owner.organizationId,paymentId:f.payment.paymentId,processor:event.processor,providerEventId:event.providerEventId,customerRefHash:event.customerRefHash};
+      expect(await withTenantTx(app.db,f.who.service,(tx) => applyPaymentFactInTx(tx,f.who.service,event,agents,
+        invented as Parameters<typeof applyPaymentFactInTx>[4]))).toBe('no_matching_payment');
+      expect(await withTenantTx(app.db,f.who.service,(tx) => tx.select({id:paymentEvents.id}).from(paymentEvents))).toEqual([]);
+      expect(f.server.requests.every((request) => request.method==='GET')).toBe(true);
+    } finally { await f.close(); }
+  });
+
   it('uses actual customer and single charge transports and preserves the original success on replay', async () => {
     const f = await fixture();
     try {
@@ -157,14 +177,20 @@ describe('original payment identity and customer namespace under real roles', ()
       const wrong = await deliver(true);
       expect(wrong.receipt.executionIdentitySha256).toBeNull();
       expect(await routePaymentEvent(app.db,f.operatorContext,{paymentWebhookEventId:wrong.receipt.id},{billingOrganizationId:f.operator.organizationId},agents)).toBe('unmatched');
+      // Receipt-only capture preserves a genuine original signed ACK after unrelated API replacement.
+      // It does not qualify that replacement for a lookup or a new charge.
+      await withTenantTx(app.db,f.operator,(tx) => tx.update(connections).set({version:f.connection.version+1}).where(eq(connections.id,f.connection.id)));
+      const networkBeforeCallback = f.server.requests.length;
       const valid = await deliver(false);
       expect(valid.receipt.executionIdentitySha256).toBe(q.binding.identitySha256);
+      expect(valid.receipt.sourceConnectionVersion).toBe(BigInt(f.connection.version));
+      expect(f.server.requests).toHaveLength(networkBeforeCallback);
       expect(await routePaymentEvent(app.db,f.operatorContext,{paymentWebhookEventId:valid.receipt.id},{billingOrganizationId:f.operator.organizationId},agents)).toBe('applied');
       expect(await routePaymentEvent(app.db,f.operatorContext,{paymentWebhookEventId:valid.receipt.id},{billingOrganizationId:f.operator.organizationId},agents)).toBe('already_done');
       expect(await readPaymentOutcome(app.db,f.who.service,{paymentId:f.payment.paymentId})).toBe('succeeded');
       expect(await webhook.processWebhookDelivery({organizationId:f.operator.organizationId,deliveryId:valid.delivery.id})).toBe('skipped');
-      const [account] = await withTenantTx(app.db,f.who.owner,(tx) => tx.select({identity:billingAccounts.processorExecutionSha256}).from(billingAccounts));
-      expect(account?.identity).toBe(q.binding.identitySha256);
+      const [account] = await withTenantTx(app.db,f.who.owner,(tx) => tx.select({identity:billingAccounts.processorAccountNamespaceSha256}).from(billingAccounts));
+      expect(account?.identity).toBe(q.binding.accountNamespaceSha256);
     } finally { await f.close(); }
   });
 });
