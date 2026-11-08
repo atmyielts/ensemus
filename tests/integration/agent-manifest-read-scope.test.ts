@@ -284,7 +284,7 @@ describe('immutable agent source/company-data scope and rolling protocol', () =>
     const above = await seedSearchableSource(app.db, a.owner, {
       classification: 'confidential',
       passages: Array.from({ length: 70 }, () => `${word} ${word} ${excluded}`),
-      grants: [{ kind: 'organization' }],
+      grants: [{ kind: 'membership', membershipId: a.owner.membershipId }],
     });
     const f = await fixture(
       [

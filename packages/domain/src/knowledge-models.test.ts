@@ -45,6 +45,14 @@ describe('explicit Knowledge model authority', () => {
       validModelJobBounds({ ...bounds, timeoutSeconds: MAX_MODEL_JOB_TIMEOUT_SECONDS + 1 }),
     ).toBe(false);
   });
+  it('compares all six bounds on real job/approval rows without interpreting metadata as a limit', () => {
+    const job = { ...bounds, id: 'generated-job', requesterMembershipId: 'generated-requester', state: 'prepared', deadlineAt: new Date('2099-01-01T00:00:00Z') };
+    const approval = { ...bounds, id: 'generated-approval', kind: 'query', approvedByMembershipId: 'generated-approver' };
+    expect(modelBoundsWithin(job, approval)).toBe(true);
+    for (const key of Object.keys(bounds) as (keyof ModelJobBounds)[])
+      expect(modelBoundsWithin({ ...job, [key]: bounds[key] + 1 }, approval), key).toBe(false);
+    expect(modelBoundsWithin({ ...job, maxCostMicros: Number.NaN }, approval)).toBe(false);
+  });
   it('pins purpose, protocol, actual profile version and embedding identity', () => {
     expect(qualifiedFor(q, p, 'embed')).toBe(true);
     for (const changed of [
