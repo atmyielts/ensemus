@@ -17,12 +17,15 @@ import { AppError, pgCode } from '../errors';
 import { idSchema } from '../ids';
 import type { ArtifactInputInventory } from '../knowledge/artifact-provenance';
 import { assertWithinAgentCeiling, loadAgentReadScopeInTx } from './read-scope';
+import { captureReadAuthoritiesInTx } from './read-authority';
 
 export type ObservedInput = {
   kind: 'work_unit' | 'project' | 'client' | 'artifact';
   id: string;
   sha256: string;
   classification: AiClassification;
+  /** Trusted actual Work link used by an artifact body read, never a model citation or argument. */
+  authorizationWorkUnitId?: string;
 };
 class RunInputClosed extends AppError {
   constructor() {
@@ -143,6 +146,7 @@ export async function recordRunInputs(
         })),
     )
     .onConflictDoNothing();
+  await captureReadAuthoritiesInTx(tx, context, input);
   const classification = input.reduce(
     (current, row) => strongestClassification(current, row.classification),
     run.classification as AiClassification,
@@ -211,6 +215,12 @@ export function createRunInputInventory(): ArtifactInputInventory {
         context.agentRunId !== input.execution.id
       )
         return { known: false };
+      const authority = await tx.execute<{ protocol: string | null }>(
+        sql`select ai.run_authority_protocol_version(${context.agentRunId}::uuid) protocol`,
+      );
+      // 0419 must carry the genuine read-time closures into retained file lineage/serving/purge.
+      // A normal Work-only inventory cannot discard an original parent after reparenting.
+      if (authority.rows[0]?.protocol !== 'legacy') return { known: false };
       const [run] = await tx
         .select()
         .from(agentRuns)

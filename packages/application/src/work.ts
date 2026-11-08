@@ -27,7 +27,9 @@ import {
   reviewCovers,
   WORK_REVIEW_TOOL,
   workReviewAction,
+  workReviewActionFromContentHash,
 } from '@ensemus/domain/approval';
+import { isTerminalWorkControl, type TerminalWorkControl } from './ai/terminal-work-control';
 import {
   can,
   canChangeWork,
@@ -99,6 +101,9 @@ export const updateWorkInput = z.strictObject({
 });
 
 export type WorkRow = typeof workUnits.$inferSelect;
+/** Status-only facts. No title, objective, plan text, criteria or fabricated full Work row. */
+export type WorkTransitionMetadata = Pick<WorkRow, 'id' | 'status' | 'version' | 'classification' | 'ownerMembershipId' | 'runId' | 'runRequestedAt' | 'runRequestedByMembershipId'>;
+type WorkTransitionPatch = Pick<WorkRow, 'status' | 'version' | 'updatedAt' | 'runId'> & { runRequestedAt?: null };
 
 async function isOnWork(tx: Tx, workUnitId: string, membershipId: string) {
   const rows = await tx
@@ -703,7 +708,7 @@ const CLOSED_WITH_THE_WORK = {
 async function closeApprovals(
   tx: Tx,
   context: TenantContext,
-  work: WorkRow,
+  work: Pick<WorkRow, 'id' | 'version' | 'classification'>,
   statuses: readonly string[],
   reason: keyof typeof CLOSED_WITH_THE_WORK,
 ) {
@@ -745,6 +750,16 @@ async function closeApprovals(
  * reviewer, so that run fails, and paused manual work stays paused for someone to ask another person.
  */
 export async function closeOutdatedReviews(tx: Tx, context: TenantContext, work: WorkRow) {
+  return closeOutdatedReviewsByHash(tx, context, work, async () => actionHash(await currentReviewAction(tx, work)), () => failRun(tx, context, work));
+}
+
+async function closeOutdatedReviewsByHash(
+  tx: Tx,
+  context: TenantContext,
+  work: WorkTransitionMetadata,
+  currentHash: () => Promise<string>,
+  pause?: () => Promise<WorkTransitionMetadata>,
+) {
   const open = await tx
     .select({
       id: approvals.id,
@@ -761,7 +776,7 @@ export async function closeOutdatedReviews(tx: Tx, context: TenantContext, work:
       ),
     );
   if (open.length === 0) return;
-  const hash = actionHash(await currentReviewAction(tx, work));
+  const hash = await currentHash();
   for (const review of open) {
     if (review.hash === hash) continue;
     await tx
@@ -769,7 +784,8 @@ export async function closeOutdatedReviews(tx: Tx, context: TenantContext, work:
       .set({ status: 'cancelled', decidedAt: new Date() })
       .where(eq(approvals.id, review.id));
     const paused = review.holdsWork && work.status === 'awaiting_approval';
-    const now = paused && work.runId ? await failRun(tx, context, work) : work;
+    if (paused && work.runId && !pause) throw new AppError('INVALID_STATE');
+    const now = paused && work.runId && pause ? await pause() : work;
     await recordApprovalClosed(tx, context, now, review.id, {
       reason: 'CONTENT_CHANGED',
       kind: 'approval.outdated',
@@ -859,10 +875,30 @@ export async function applyTransition(
   });
   if (!decision.ok) throw new AppError(decision.reason);
 
+  return persistWorkTransition(tx, context, current, to, {
+    ...options, reason, hasExecutionPlan: Boolean(current.executionPlan),
+    basis: to === 'completed' ? completionBasis(current.completionCriteria as CompletionCriterion[]) : null,
+  }, async (patch) => {
+    const [row] = await tx.update(workUnits).set(patch).where(and(eq(workUnits.id, current.id), eq(workUnits.version, current.version))).returning();
+    if (!row) throw new AppError('VERSION_CONFLICT');
+    return row;
+  });
+}
+
+/** One shared set of transition/history/review/notification/event effects for ordinary and fixed
+ * terminal control writers. The latter can return only real metadata, never a fake WorkRow. */
+async function persistWorkTransition<Row extends WorkTransitionMetadata>(
+  tx: Tx,
+  context: TenantContext,
+  current: WorkTransitionMetadata,
+  to: WorkState,
+  options: { reason?: string; correlationId?: string; causationId?: string; runId?: string; hasExecutionPlan: boolean; basis: 'owner_confirmed' | 'evidence' | null },
+  write: (patch: WorkTransitionPatch) => Promise<Row>,
+): Promise<Row> {
+  const reason = options.reason;
+
   const nextVersion = current.version + 1;
-  const [row] = await tx
-    .update(workUnits)
-    .set({
+  const row = await write({
       status: to,
       version: nextVersion,
       updatedAt: new Date(),
@@ -872,10 +908,7 @@ export async function applyTransition(
       // A run holds the work only while it is running or waiting on its own review.
       runId:
         to === 'running' || to === 'awaiting_approval' ? (options.runId ?? current.runId) : null,
-    })
-    .where(and(eq(workUnits.id, current.id), eq(workUnits.version, current.version)))
-    .returning();
-  if (!row) throw new AppError('VERSION_CONFLICT');
+    });
 
   // The reason is free text, so it stays here, under the Work Unit's own access rules. It goes into
   // no event, no audit entry and nothing that travels to Temporal.
@@ -887,10 +920,7 @@ export async function applyTransition(
     toStatus: to,
     actorMembershipId: context.actorType === 'service' ? null : context.membershipId,
     reason: reason ?? null,
-    completionBasis:
-      to === 'completed'
-        ? completionBasis(current.completionCriteria as CompletionCriterion[])
-        : null,
+    completionBasis: options.basis,
   });
 
   await emit(tx, context, {
@@ -914,7 +944,7 @@ export async function applyTransition(
 
   // A person stopping work must also stop any workflow running it. Activities check status too, so
   // nothing further happens even if this signal is delayed.
-  if (to === 'cancelled' && context.actorType === 'user' && current.executionPlan) {
+  if (to === 'cancelled' && context.actorType === 'user' && options.hasExecutionPlan) {
     await emit(tx, context, {
       eventType: 'work.stop_requested',
       aggregateType: 'work_unit',
@@ -952,6 +982,27 @@ export async function applyTransition(
 
   if (to === 'completed') await promoteDependents(tx, context, current.id);
   return row;
+}
+
+/** Genuine exact-run capability only. It cannot mark completed or restart arbitrary Work. */
+export async function releaseTerminalWorkInTx(tx: Tx, context: TenantContext, control: TerminalWorkControl) {
+  if (!isTerminalWorkControl(control, tx, context)) throw new AppError('FORBIDDEN');
+  const transition = async (to: 'running' | 'failed' | 'verifying') => {
+    const current = control.current;
+    // These conservative status transitions never consult completion evidence or owner-confirmed
+    // criteria. A positive completion still goes through the ordinary human kernel above.
+    const decision = decideTransition({ from: current.status as WorkState, to, incompletePrerequisites: 0, criteria: [], evidence: emptyEvidence, actorIsAccountableOwner: false });
+    if (!decision.ok) throw new AppError(decision.reason);
+    return persistWorkTransition(tx, context, current, to, { hasExecutionPlan: control.hasExecutionPlan, basis: null }, (patch) => control.write(patch));
+  };
+  if (control.runStatus === 'completed' || control.runStatus === 'outcome_unverified') {
+    if (control.current.status !== 'running') return;
+    const checking = await transition('verifying');
+    await closeOutdatedReviewsByHash(tx, context, checking, async () => actionHash(workReviewActionFromContentHash(checking.id, control.contentSha256, await control.visibleArtifactIds())));
+    return;
+  }
+  if (['ready','awaiting_approval','verifying'].includes(control.current.status)) await transition('running');
+  if (control.current.status === 'running') await transition('failed');
 }
 
 const emptyEvidence = { artifactCount: 0, approvedReviewCount: 0, verifiedReceiptCount: 0 };

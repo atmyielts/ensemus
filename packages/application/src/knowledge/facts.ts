@@ -34,6 +34,7 @@ import { rowLockTarget } from '../row-lock';
 import { factClaim, factPage, factReason, factSubject } from './fact-input';
 import { workInputClassInTx, type ObservedInput } from '../ai/input-observations';
 import { loadAgentReadScopeInTx } from '../ai/read-scope';
+import { lockReadAuthorityBeforeBody } from '../ai/read-authority';
 
 export type FactEvidenceInput = { chunkId: string; quoteStart: number; quoteEnd: number };
 /** Internal trusted compiler seam. Called once, after all body locks and before this read commits. */
@@ -652,6 +653,10 @@ async function subjectRecord(
   role: string,
   observations?: ObservedInput[],
 ): Promise<{ name: string | null; classification: Classification }> {
+  if (context.actorType === 'agent' && ['work_unit','project','client'].includes(subject.type)) {
+    if (!context.agentRunId) throw new AppError('FORBIDDEN');
+    await lockReadAuthorityBeforeBody(tx, { ...context, actorType: 'agent', agentRunId: context.agentRunId }, { kind: subject.type, id: subject.id });
+  }
   if (subject.type === 'client') {
     const [row] = await tx.select().from(clients).where(eq(clients.id, subject.id)).for('share');
     // 0209's central client RLS includes the creator and explicitly named readers, even for restricted.

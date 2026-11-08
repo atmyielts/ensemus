@@ -23,6 +23,9 @@ export async function currentRunCompanyClassInTx(
   if (context.actorType !== 'agent') throw new AppError('FORBIDDEN');
   const inventory = sql`with observations as(
     select input_kind kind,input_id id from ai.run_input_observations where organization_id=${context.organizationId}::uuid and run_id=${context.agentRunId}::uuid
+  ), read_authorities as(
+    select i->>'kind' kind,(i->>'id')::uuid id from ai.run_read_authorities a cross join lateral jsonb_array_elements(a.authority_inventory) i
+      where a.organization_id=${context.organizationId}::uuid and a.run_id=${context.agentRunId}::uuid
   ), nodes as(
     select id from observations where kind='artifact'
     union select i.input_artifact_id from knowledge.artifact_lineage_inputs i join observations o on o.kind='artifact' and o.id=i.artifact_id where i.organization_id=${context.organizationId}::uuid
@@ -38,6 +41,7 @@ export async function currentRunCompanyClassInTx(
     union select id from call_inputs where kind='chunk'
   ), all_refs as(
     select kind,id from observations
+    union select kind,id from read_authorities
     union select 'artifact',id from nodes
     union select r.record_kind,r.record_id from observations o cross join lateral knowledge.artifact_required_records(o.id) r where o.kind='artifact'
     union select kind,id from call_inputs where kind<>'chunk'
@@ -77,7 +81,7 @@ export async function currentRunCompanyClassInTx(
     chunks = byKind('chunk');
   if (sources.length) {
     const result = await tx.execute<{ classification: string; readable: boolean }>(
-      sql`select s.classification,s.state='active' and s.id in(select knowledge.readable_source_ids(${context.membershipId}::uuid)) readable from knowledge.sources s where s.organization_id=${context.organizationId}::uuid and s.id in(${ids(sources)}) order by s.id ${options.lockRun ? sql`for share nowait` : sql``}`,
+      sql`select s.classification,s.state='active' and s.id in(select knowledge.readable_source_ids(${context.membershipId}::uuid)) readable from knowledge.sources s where s.organization_id=${context.organizationId}::uuid and s.id in(${ids(sources)}) order by s.id for share nowait`,
     );
     if (result.rows.length !== sources.length || result.rows.some((row) => !row.readable))
       throw new AppError('POLICY_DENIED');
@@ -85,7 +89,7 @@ export async function currentRunCompanyClassInTx(
   }
   if (documents.length) {
     const result = await tx.execute<{ classification: string }>(
-      sql`select d.classification from knowledge.documents d where d.organization_id=${context.organizationId}::uuid and d.id in(${ids(documents)}) order by d.id ${options.lockRun ? sql`for share nowait` : sql``}`,
+      sql`select d.classification from knowledge.documents d where d.organization_id=${context.organizationId}::uuid and d.id in(${ids(documents)}) order by d.id for share nowait`,
     );
     if (result.rows.length !== documents.length) throw new AppError('POLICY_DENIED');
     for (const row of result.rows) add(row.classification);
@@ -98,8 +102,7 @@ export async function currentRunCompanyClassInTx(
     for (const row of result.rows) add(row.classification);
   }
   for (const artifactId of byKind('artifact')) {
-    if (options.lockRun)
-      await tx.execute(sql`select knowledge.lock_artifact_catalog(${artifactId}::uuid)`);
+    await tx.execute(sql`select knowledge.lock_artifact_catalog(${artifactId}::uuid)`);
     const result = await tx.execute<{ classification: string; readable: boolean }>(
       sql`select a.classification,a.alive and knowledge.artifact_readable(a.artifact_id,${context.membershipId}::uuid) readable from knowledge.artifact_acl_catalog a where a.organization_id=${context.organizationId}::uuid and a.artifact_id=${artifactId}::uuid`,
     );
@@ -109,7 +112,9 @@ export async function currentRunCompanyClassInTx(
   for (const ref of refs.rows.filter(
     (ref) => !['source', 'document', 'chunk', 'artifact'].includes(ref.kind),
   )) {
-    if (options.lockRun) {
+    {
+      // Ordinary transcript/body reads need the same retained authority fence as dispatch. Only
+      // checkpoint/run serialization is optional; a fresh proof cannot race a parent revocation.
       const locked = await tx.execute<{ locked: boolean }>(
         sql`select knowledge.lock_structured_record(${ref.kind},${ref.id}::uuid) locked`,
       );
@@ -149,6 +154,7 @@ export async function currentRunCompanyClassInTx(
       union select p.id from knowledge.evidence_packages p join knowledge.artifact_lineage l on l.organization_id=p.organization_id and l.execution_kind='agent_run' and l.execution_id=p.run_id join nodes n on n.id=l.artifact_id where p.organization_id=${context.organizationId}::uuid
     ) select distinct classification from(
       select classification from ai.run_input_observations where organization_id=${context.organizationId}::uuid and run_id=${context.agentRunId}::uuid
+      union all select i->>'classification' from ai.run_read_authorities a cross join lateral jsonb_array_elements(a.authority_inventory) i where a.organization_id=${context.organizationId}::uuid and a.run_id=${context.agentRunId}::uuid
       union all select i.classification from ai.model_call_inputs i join ai.model_call_attempts c on c.organization_id=i.organization_id and c.id=i.call_id where c.organization_id=${context.organizationId}::uuid and c.run_id=${context.agentRunId}::uuid
       union all select i.classification from knowledge.evidence_items i join packages p on p.id=i.package_id where i.organization_id=${context.organizationId}::uuid
       union all select f.classification from knowledge.evidence_package_facts f join packages p on p.id=f.package_id where f.organization_id=${context.organizationId}::uuid

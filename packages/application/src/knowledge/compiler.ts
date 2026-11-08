@@ -51,6 +51,7 @@ import {
   loadAgentReadScope,
   loadAgentReadScopeInTx,
 } from '../ai/read-scope';
+import { lockReadAuthorityBeforeBody } from '../ai/read-authority';
 
 export type CompileDeps = {
   model: KnowledgeModelPort;
@@ -165,6 +166,7 @@ export async function compileEvidence(
     // authorize this transaction's Work body read after withTenantTx has cleared its marker.
     if (agentContext) await loadAgentReadScopeInTx(tx, agentContext);
     if (!workUnitId) return { classification: queryClass, subjects: [] as string[] };
+    if (agentContext) await lockReadAuthorityBeforeBody(tx, agentContext, { kind: 'work_unit', id: workUnitId });
     const result = await tx.execute<{
       classification: Classification;
       projectId: string | null;
@@ -586,8 +588,9 @@ export async function compileEvidence(
       }
     }
     if (workUnitId) {
+      if (agentContext) await lockReadAuthorityBeforeBody(tx, agentContext, { kind: 'work_unit', id: workUnitId });
       const work = await tx.execute<{ classification: Classification }>(
-        sql`select knowledge.structured_record_class('work_unit',w.id) classification from work.work_units w where w.organization_id=${context.organizationId}::uuid and w.id=${workUnitId}::uuid and knowledge.can_read_work(w.id,app.current_membership_id()) for share`,
+        sql`select knowledge.structured_record_class('work_unit',w.id) classification from work.work_units w where w.organization_id=${context.organizationId}::uuid and w.id=${workUnitId}::uuid and knowledge.can_read_work(w.id,app.current_membership_id()) for share nowait`,
       );
       if (
         !work.rows[0] ||
