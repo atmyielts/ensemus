@@ -18,7 +18,8 @@ export type KnowledgeWorkerDeps = {
   database: AppDatabase;
   store: ObjectStore;
   ingest: IngestDeps;
-  derivedArtifacts?: DerivedArtifactPurge & Partial<Pick<StructuredRecordPurge, 'purgeRecord' | 'confirmRecordInTx'>>;
+  derivedArtifacts?: DerivedArtifactPurge &
+    Partial<Pick<StructuredRecordPurge, 'purgeRecord' | 'confirmRecordInTx'>>;
   delegatedWorks?: Pick<DelegatedWorkPurge, 'confirmInTx'>;
   recordWorks?: Pick<DelegatedRecordPurge, 'confirmRecordInTx'>;
 };

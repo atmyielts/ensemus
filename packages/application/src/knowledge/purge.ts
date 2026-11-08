@@ -258,9 +258,12 @@ async function allRunsHash(tx: Tx, context: TenantContext, sourceId: string) {
   return hash.digest('hex');
 }
 async function proofValid(tx: Tx, context: TenantContext, source: Source, job: Job) {
-  const generation = await tx.execute<{ generation: string | null }>(sql`select ai.current_material_restore_generation() generation`);
+  const generation = await tx.execute<{ generation: string | null }>(
+    sql`select ai.current_material_restore_generation() generation`,
+  );
   return (
-    generation.rows[0]?.generation !== null && generation.rows[0]?.generation !== undefined &&
+    generation.rows[0]?.generation !== null &&
+    generation.rows[0]?.generation !== undefined &&
     job.transcriptRestoreGeneration === generation.rows[0]?.generation &&
     job.transcriptsCheckedAt !== null &&
     job.transcriptSourceVersion === source.version &&
@@ -811,7 +814,11 @@ export async function getPurgeStatus(
       ai.source_run_closure_remaining(${sourceId}::uuid,${source.version}::bigint) "controlsRemaining"
       from ai.source_delegated_work_counts(${sourceId}::uuid)`)
           ).rows[0];
-    const generation = (await tx.execute<{ generation: string | null }>(sql`select ai.current_material_restore_generation() generation`)).rows[0]?.generation;
+    const generation = (
+      await tx.execute<{ generation: string | null }>(
+        sql`select ai.current_material_restore_generation() generation`,
+      )
+    ).rows[0]?.generation;
     const workProof =
       work !== null &&
       work !== undefined &&
@@ -821,7 +828,8 @@ export async function getPurgeStatus(
       job.delegatedWorkCheckedAt !== null &&
       job.delegatedWorkSourceVersion === source.version &&
       job.delegatedWorkReceiptsSha256 === work.receiptsSha256 &&
-      job.delegatedWorkRestoreGeneration !== null && job.delegatedWorkRestoreGeneration === generation &&
+      job.delegatedWorkRestoreGeneration !== null &&
+      job.delegatedWorkRestoreGeneration === generation &&
       job.transcriptRestoreGeneration === generation;
     const state =
       recordedState === 'completed' &&

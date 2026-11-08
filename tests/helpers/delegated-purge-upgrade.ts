@@ -14,7 +14,10 @@ import { pgCode } from '../../packages/application/src/errors';
 import type { AiTenant } from './ai/fixtures';
 import { seedSearchableSource } from './knowledge';
 
-export async function seedCompletedPurgeBeforeDelegatedProofMigration(app: AppDatabase, tenant: AiTenant) {
+export async function seedCompletedPurgeBeforeDelegatedProofMigration(
+  app: AppDatabase,
+  tenant: AiTenant,
+) {
   // The caller creates this actual tenant through the binary matching the pre-0419 schema.
   // Current organization INSERT projections include0515's protected generation column.
   const source = await seedSearchableSource(app, tenant.owner, {
@@ -152,7 +155,12 @@ export async function assertCompletedPurgeAfterDelegatedProofMigration(
     database: agent,
     accounting: createKnowledgeCallStore(agent, { halt: createHaltCheck() }),
   });
-  await purgeRunTranscriptsForSource(agent,service,{ transcripts: createRunTranscriptPurge() },{ sourceId });
+  await purgeRunTranscriptsForSource(
+    agent,
+    service,
+    { transcripts: createRunTranscriptPurge() },
+    { sourceId },
+  );
   const proof = await adapter.purgeSource(service, { sourceId, limit: 25 });
   assert.deepEqual(proof, {
     confirmed: true,

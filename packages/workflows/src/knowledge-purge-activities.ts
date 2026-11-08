@@ -2,7 +2,10 @@
 // worker. `purgeRunTranscripts` runs in M4's agent worker, because only its role can reach prompts.
 import type { KnowledgeTranscriptDeps, KnowledgeWorkerDeps } from './knowledge-deps';
 import type { KnowledgePurgeInput, KnowledgePurgeResult } from './knowledge-schemas';
-import { knowledgeRecordPurgeInputSchema, type KnowledgeRecordPurgeInput } from './knowledge-schemas';
+import {
+  knowledgeRecordPurgeInputSchema,
+  type KnowledgeRecordPurgeInput,
+} from './knowledge-schemas';
 import {
   failSourcePurge,
   purgeRunTranscriptsForSource,
@@ -22,14 +25,16 @@ export function createKnowledgePurgeActivities(deps: KnowledgeWorkerDeps) {
     },
     async confirmRecordPurge(raw: KnowledgeRecordPurgeInput) {
       const input = knowledgeRecordPurgeInputSchema.parse(raw);
-      if (!deps.recordWorks || !deps.derivedArtifacts?.confirmRecordInTx) throw new Error('RECORD_PURGE_CONFIRM_UNAVAILABLE');
+      if (!deps.recordWorks || !deps.derivedArtifacts?.confirmRecordInTx)
+        throw new Error('RECORD_PURGE_CONFIRM_UNAVAILABLE');
       const context = createServiceContext(input.organizationId);
-      const records = deps.recordWorks,files = deps.derivedArtifacts.confirmRecordInTx;
-      return withTenantTx(deps.database,context,async tx => {
-        const work = await records.confirmRecordInTx(tx,context,input);
-        if (!work.confirmed) return { work,filesRemaining: null };
-        const fileProof = await files(tx,context,input);
-        return { work,filesRemaining: fileProof.remaining };
+      const records = deps.recordWorks,
+        files = deps.derivedArtifacts.confirmRecordInTx;
+      return withTenantTx(deps.database, context, async (tx) => {
+        const work = await records.confirmRecordInTx(tx, context, input);
+        if (!work.confirmed) return { work, filesRemaining: null };
+        const fileProof = await files(tx, context, input);
+        return { work, filesRemaining: fileProof.remaining };
       });
     },
     async claimSourcePurgeRetries(input: {
@@ -82,7 +87,7 @@ export function createKnowledgeTranscriptActivities(deps: KnowledgeTranscriptDep
     async purgeRecordMaterials(raw: KnowledgeRecordPurgeInput) {
       const input = knowledgeRecordPurgeInputSchema.parse(raw);
       if (!deps.delegatedRecords) throw new Error('RECORD_WORK_PURGE_UNAVAILABLE');
-      return deps.delegatedRecords.purgeRecord(createServiceContext(input.organizationId),input);
+      return deps.delegatedRecords.purgeRecord(createServiceContext(input.organizationId), input);
     },
     /** Counts only. No prompt, and no run's content, comes back across Temporal. */
     async purgeRunTranscripts(input: KnowledgePurgeInput): Promise<{ removed: number }> {

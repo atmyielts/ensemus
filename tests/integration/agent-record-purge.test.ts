@@ -8,7 +8,11 @@ import { transitionWorkUnit } from '@ensemus/application';
 import { createDelegatedRecordPurge } from '@ensemus/application/knowledge/delegated-record-purge';
 import { createKnowledgeCallStore } from '@ensemus/application/ai-knowledge-call-store';
 import { createHaltCheck } from '@ensemus/application/ai-halt';
-import { createRunTranscriptPurge, recordRunInputs, workInputHash } from '@ensemus/application/ai-input-ledger';
+import {
+  createRunTranscriptPurge,
+  recordRunInputs,
+  workInputHash,
+} from '@ensemus/application/ai-input-ledger';
 import { claimQueuedRun } from '@ensemus/application/ai-runs';
 import {
   openAppDatabase,
@@ -24,7 +28,14 @@ import {
 import { createServiceContext } from '@ensemus/database/service';
 import { pgCode } from '../../packages/application/src/errors';
 import { loadAgentReadScopeInTx } from '../../packages/application/src/ai/read-scope';
-import { openAgentTestDatabase, prepareRunInputContext, seedAgentVersion, seedAiTenant, seedQueuedRun, testAgentSpec } from '../helpers/ai/fixtures';
+import {
+  openAgentTestDatabase,
+  prepareRunInputContext,
+  seedAgentVersion,
+  seedAiTenant,
+  seedQueuedRun,
+  testAgentSpec,
+} from '../helpers/ai/fixtures';
 import { urls } from '../helpers/stack';
 
 function barrier() {
@@ -82,8 +93,12 @@ describe('typed-record purge snapshot and hold authority (0419/0514)', () => {
     tx.execute<{ allowed: boolean }>(
       sql`select lifecycle.record_purge_hold_free('work_unit',${id}::uuid,${snapshot}) allowed`,
     );
-  const adapter = () => createDelegatedRecordPurge({ database: agent.db,transcripts: createRunTranscriptPurge(),
-    accounting: createKnowledgeCallStore(agent.db,{ halt: createHaltCheck() }) });
+  const adapter = () =>
+    createDelegatedRecordPurge({
+      database: agent.db,
+      transcripts: createRunTranscriptPurge(),
+      accounting: createKnowledgeCallStore(agent.db, { halt: createHaltCheck() }),
+    });
 
   it('requires an actual checked empty set and returns only the genuine file count', async () => {
     const f = await fixture();
@@ -94,8 +109,15 @@ describe('typed-record purge snapshot and hold authority (0419/0514)', () => {
         ),
       ),
     ).rejects.toSatisfy((error: unknown) => pgCode(error) === 'EN119');
-    expect(await adapter().purgeRecord(f.service,{ kind: 'work_unit',id: f.work.id,limit: 25 })).toEqual({
-      confirmed: true,removed: 0,remaining: 0,controlsRemaining: 0,unproven: 0 });
+    expect(
+      await adapter().purgeRecord(f.service, { kind: 'work_unit', id: f.work.id, limit: 25 }),
+    ).toEqual({
+      confirmed: true,
+      removed: 0,
+      remaining: 0,
+      controlsRemaining: 0,
+      unproven: 0,
+    });
     await withTenantTx(app.db, f.service, async (tx) => {
       expect(
         (
@@ -238,45 +260,104 @@ describe('typed-record purge snapshot and hold authority (0419/0514)', () => {
   });
 
   it('serializes genuine uncommitted body reads before record closure and consumes them exactly once', async () => {
-    const tenant = await seedAiTenant(app.db,{ commercialMode: 'sovereign' });
-    const input = await createWorkUnit(app.db,tenant.owner,{ title: 'Actual earlier material read' });
-    const work = await createWorkUnit(app.db,tenant.owner,{ title: 'Actual consuming run' });
-    await transitionWorkUnit(app.db,tenant.owner,{ id: work.id,expectedVersion: work.version,to: 'ready' });
-    const version = await seedAgentVersion(app.db,tenant.owner,testAgentSpec());
-    const runId = await seedQueuedRun(app.db,tenant.owner,{ workUnitId: work.id,version });
-    if (!(await claimQueuedRun(agent.db,{ organizationId: tenant.organizationId,workUnitId: work.id,temporalRunId: randomUUID() }))) throw new Error('TEST_RUN_NOT_CLAIMED');
-    const context = await prepareRunInputContext(agent.db,tenant.organizationId,runId);
-    await withTenantTx(agent.db,context,tx => tx.update(agentRuns).set({ status: 'running' }).where(eq(agentRuns.id,runId)));
-    const read = barrier(),release = barrier();
-    const consuming = withTenantTx(agent.db,context,async tx => {
-      await loadAgentReadScopeInTx(tx,context);
-      const lock = await tx.execute<{ locked: boolean }>(sql`select knowledge.lock_structured_record('work_unit',${input.id}::uuid) locked`);
+    const tenant = await seedAiTenant(app.db, { commercialMode: 'sovereign' });
+    const input = await createWorkUnit(app.db, tenant.owner, {
+      title: 'Actual earlier material read',
+    });
+    const work = await createWorkUnit(app.db, tenant.owner, { title: 'Actual consuming run' });
+    await transitionWorkUnit(app.db, tenant.owner, {
+      id: work.id,
+      expectedVersion: work.version,
+      to: 'ready',
+    });
+    const version = await seedAgentVersion(app.db, tenant.owner, testAgentSpec());
+    const runId = await seedQueuedRun(app.db, tenant.owner, { workUnitId: work.id, version });
+    if (
+      !(await claimQueuedRun(agent.db, {
+        organizationId: tenant.organizationId,
+        workUnitId: work.id,
+        temporalRunId: randomUUID(),
+      }))
+    )
+      throw new Error('TEST_RUN_NOT_CLAIMED');
+    const context = await prepareRunInputContext(agent.db, tenant.organizationId, runId);
+    await withTenantTx(agent.db, context, (tx) =>
+      tx.update(agentRuns).set({ status: 'running' }).where(eq(agentRuns.id, runId)),
+    );
+    const read = barrier(),
+      release = barrier();
+    const consuming = withTenantTx(agent.db, context, async (tx) => {
+      await loadAgentReadScopeInTx(tx, context);
+      const lock = await tx.execute<{ locked: boolean }>(
+        sql`select knowledge.lock_structured_record('work_unit',${input.id}::uuid) locked`,
+      );
       if (lock.rows[0]?.locked !== true) throw new Error('TEST_ACTUAL_RECORD_LOCK_REFUSED');
-      const [body] = await tx.select({ title: workUnits.title,objective: workUnits.objective }).from(workUnits).where(eq(workUnits.id,input.id)).for('share');
+      const [body] = await tx
+        .select({ title: workUnits.title, objective: workUnits.objective })
+        .from(workUnits)
+        .where(eq(workUnits.id, input.id))
+        .for('share');
       if (!body) throw new Error('TEST_ACTUAL_BODY_HIDDEN');
-      const actualClass = await tx.execute<{ classification: string | null }>(sql`select knowledge.structured_record_class('work_unit',${input.id}::uuid) classification`);
-      if (actualClass.rows[0]?.classification !== 'internal') throw new Error('TEST_ACTUAL_CLASS_CHANGED');
-      await recordRunInputs(tx,context,[{ kind: 'work_unit',id: input.id,sha256: workInputHash(body),classification: 'internal' }]);
-      read.resolve();await release.promise;
+      const actualClass = await tx.execute<{ classification: string | null }>(
+        sql`select knowledge.structured_record_class('work_unit',${input.id}::uuid) classification`,
+      );
+      if (actualClass.rows[0]?.classification !== 'internal')
+        throw new Error('TEST_ACTUAL_CLASS_CHANGED');
+      await recordRunInputs(tx, context, [
+        {
+          kind: 'work_unit',
+          id: input.id,
+          sha256: workInputHash(body),
+          classification: 'internal',
+        },
+      ]);
+      read.resolve();
+      await release.promise;
     });
-    const close = () => withTenantTx(app.db,tenant.owner,async tx => {
-      await tx.execute(sql`set local statement_timeout='2s'`);
-      await tx.insert(tombstones).values({ organizationId: tenant.organizationId,targetType: 'work_unit',targetId: input.id,reasonCode: 'USER_DELETED' });
-    });
-    try {
-      await Promise.race([read.promise,consuming]);
-      await expect(close()).rejects.toSatisfy((error: unknown) => pgCode(error)==='55P03');
-      await withTenantTx(app.db,createServiceContext(tenant.organizationId),async tx => {
-        expect((await tx.execute<{ hash: string | null }>(sql`select ai.lock_record_purge_snapshot('work_unit',${input.id}::uuid) hash`)).rows[0]?.hash).toBeNull();
+    const close = () =>
+      withTenantTx(app.db, tenant.owner, async (tx) => {
+        await tx.execute(sql`set local statement_timeout='2s'`);
+        await tx.insert(tombstones).values({
+          organizationId: tenant.organizationId,
+          targetType: 'work_unit',
+          targetId: input.id,
+          reasonCode: 'USER_DELETED',
+        });
       });
-    } finally { release.resolve();await consuming; }
+    try {
+      await Promise.race([read.promise, consuming]);
+      await expect(close()).rejects.toSatisfy((error: unknown) => pgCode(error) === '55P03');
+      await withTenantTx(app.db, createServiceContext(tenant.organizationId), async (tx) => {
+        expect(
+          (
+            await tx.execute<{ hash: string | null }>(
+              sql`select ai.lock_record_purge_snapshot('work_unit',${input.id}::uuid) hash`,
+            )
+          ).rows[0]?.hash,
+        ).toBeNull();
+      });
+    } finally {
+      release.resolve();
+      await consuming;
+    }
     await close();
-    const service = createServiceContext(tenant.organizationId),purge = adapter();
-    expect(await purge.purgeRecord(service,{ kind: 'work_unit',id: input.id,limit: 1 })).toMatchObject({ confirmed: true,controlsRemaining: 0 });
-    const witnesses = () => withTenantTx(app.db,tenant.owner,tx => tx.select().from(recordRunClosures)
-      .where(and(eq(recordRunClosures.recordId,input.id),eq(recordRunClosures.runId,runId))));
-    const original = await witnesses();expect(original).toHaveLength(1);
-    expect(await purge.purgeRecord(service,{ kind: 'work_unit',id: input.id,limit: 1 })).toMatchObject({ confirmed: true,controlsRemaining: 0 });
+    const service = createServiceContext(tenant.organizationId),
+      purge = adapter();
+    expect(
+      await purge.purgeRecord(service, { kind: 'work_unit', id: input.id, limit: 1 }),
+    ).toMatchObject({ confirmed: true, controlsRemaining: 0 });
+    const witnesses = () =>
+      withTenantTx(app.db, tenant.owner, (tx) =>
+        tx
+          .select()
+          .from(recordRunClosures)
+          .where(and(eq(recordRunClosures.recordId, input.id), eq(recordRunClosures.runId, runId))),
+      );
+    const original = await witnesses();
+    expect(original).toHaveLength(1);
+    expect(
+      await purge.purgeRecord(service, { kind: 'work_unit', id: input.id, limit: 1 }),
+    ).toMatchObject({ confirmed: true, controlsRemaining: 0 });
     expect(await witnesses()).toEqual(original);
   });
 });

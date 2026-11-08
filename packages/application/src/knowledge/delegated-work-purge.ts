@@ -57,7 +57,9 @@ async function sourceState(tx: Tx, sourceId: string) {
     .from(knowledgePurgeJobs)
     .where(eq(knowledgePurgeJobs.sourceId, sourceId));
   if (!job) throw new AppError('NOT_FOUND');
-  const generation = await tx.execute<{ generation: string | null }>(sql`select ai.current_material_restore_generation() generation`);
+  const generation = await tx.execute<{ generation: string | null }>(
+    sql`select ai.current_material_restore_generation() generation`,
+  );
   const restoreGeneration = generation.rows[0]?.generation;
   if (!restoreGeneration) throw new AppError('CAPABILITY_UNAVAILABLE');
   return { source, job, restoreGeneration };
@@ -171,17 +173,17 @@ export function createDelegatedWorkPurge(deps: {
         if (
           state.job.delegatedWorkRestoreGeneration !== state.restoreGeneration ||
           (state.job.state === 'completed' &&
-          (counts.remaining !== 0 ||
-            counts.controlsRemaining !== 0 ||
-            counts.unproven !== 0 ||
-            state.job.delegatedWorkCheckedAt === null ||
-            state.job.delegatedWorkSourceVersion !== state.source.version ||
-            state.job.delegatedWorkReceiptsSha256 !== counts.receiptsSha256))
+            (counts.remaining !== 0 ||
+              counts.controlsRemaining !== 0 ||
+              counts.unproven !== 0 ||
+              state.job.delegatedWorkCheckedAt === null ||
+              state.job.delegatedWorkSourceVersion !== state.source.version ||
+              state.job.delegatedWorkReceiptsSha256 !== counts.receiptsSha256))
         )
           await tx
             .update(knowledgePurgeJobs)
             .set({
-              ...(state.job.state === 'completed' ? { state: 'failed',completedAt: null } : {}),
+              ...(state.job.state === 'completed' ? { state: 'failed', completedAt: null } : {}),
               delegatedWorkCheckedAt: null,
               delegatedWorkSourceVersion: null,
               delegatedWorkReceiptsSha256: null,

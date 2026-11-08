@@ -126,7 +126,11 @@ export function createAgentServices(deps: {
     database,
     transcripts: createRunTranscriptPurge(),
     delegatedWorks: createDelegatedWorkPurge({ database, accounting: knowledgeCalls }),
-    delegatedRecords: createDelegatedRecordPurge({ database, accounting: knowledgeCalls, transcripts: createRunTranscriptPurge() }),
+    delegatedRecords: createDelegatedRecordPurge({
+      database,
+      accounting: knowledgeCalls,
+      transcripts: createRunTranscriptPurge(),
+    }),
   });
   const source = createContextSource({
     database,

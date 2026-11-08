@@ -73,7 +73,9 @@ export const recordRunClosures = ai.table(
     recordId: uuid().notNull(),
     snapshotSha256: text().notNull(),
     runId: uuid().notNull(),
-    restoreGeneration: uuid().notNull().default(sql`ai.current_material_restore_generation()`),
+    restoreGeneration: uuid()
+      .notNull()
+      .default(sql`ai.current_material_restore_generation()`),
     terminalVersion: bigint({ mode: 'number' }).notNull(),
     fenceGeneration: integer().notNull(),
     terminalStatus: text().notNull(),
