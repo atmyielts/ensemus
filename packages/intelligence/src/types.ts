@@ -183,6 +183,8 @@ export type TurnOutcome = {
   text: string | null;
   /** Present for `tool_proposed`. Unvalidated: this is the model's claim. */
   toolCall: { toolId: string; args: unknown } | null;
+  /** Trusted metadata receipt, in memory only; never a model argument or a Temporal result body. */
+  inputSnapshotId?: string;
 };
 
 /**

@@ -6,6 +6,7 @@
 // Up to the model call, anything that fails stops the turn as a refusal. After it, a ledger write that fails
 // throws, on purpose: the Activity retries, and `TurnStore.beginTurn` finds this attempt still in flight and
 // charges it as an estimate (FD-12). Returning an outcome instead would lose what the call cost.
+import { randomUUID } from 'node:crypto';
 import type {
   AgentContext,
   EgressLog,
@@ -52,6 +53,8 @@ import type {
   TurnOutcome,
 } from './types';
 import type { MainModelAdmission } from '@ensemus/application/ai-model-admission';
+import { generationRequestHash } from './adapters';
+import { mainResultHash } from './main-input-snapshot';
 
 export type GatewayDeps = {
   entitlements: Entitlements;
@@ -71,6 +74,18 @@ export type GatewayDeps = {
     context: AgentContext,
     input: MainModelAdmission,
   ) => Promise<AiReasonCode | null>;
+  /** Actual validated response receipt. This never accepts provider text or model-selected refs. */
+  receiveInputSnapshotInTx?: (
+    tx: Tx,
+    context: AgentContext,
+    input: {
+      snapshotId: string;
+      writerToken: string;
+      kind: 'final' | 'tool_call';
+      toolId: string | null;
+      payloadHash: string;
+    },
+  ) => Promise<void>;
   /** The operator's list, read by the caller. */
   privateEndpoints: readonly string[];
   /** Strings no output or prompt may hold, for this tenant. Empty is fine. */
@@ -160,6 +175,7 @@ export function createInferenceGateway(deps: GatewayDeps): InferenceGateway {
     async turn(context, step, compiled, signal) {
       const spent = { inputTokens: 0, outputTokens: 0, costMicros: 0 };
       let servedBy: { id: string; version: number } | null = null;
+      let inputSnapshotId: string | undefined;
 
       const finish = (
         outcome: ModelOutcome,
@@ -172,6 +188,7 @@ export function createInferenceGateway(deps: GatewayDeps): InferenceGateway {
         decisionCode,
         usage: { ...spent },
         profile: servedBy,
+        ...(inputSnapshotId ? { inputSnapshotId } : {}),
         ...answer,
       });
       const refuse = (code: AiReasonCode) => {
@@ -183,6 +200,14 @@ export function createInferenceGateway(deps: GatewayDeps): InferenceGateway {
       };
       // Whoever asked for the stop knows why, and the run's own directive says who that was.
       const stopped = () => finish('stopped', null, null);
+
+      // Take the actual trusted request values before any asynchronous provider/credential work.
+      // A caller retaining a messages/schema reference cannot change material after it was hashed.
+      try {
+        compiled = structuredClone(compiled);
+      } catch {
+        return refuse('POLICY_UNREADABLE');
+      }
 
       if (signal.aborted) return stopped();
 
@@ -280,6 +305,20 @@ export function createInferenceGateway(deps: GatewayDeps): InferenceGateway {
         const isLast = index === chain.length - 1;
         const callAttempt = step.attempt + index * FALLBACK_ATTEMPT_STRIDE;
         const maxOutputTokens = Math.min(compiled.maxOutputTokens, profile.limits.maxOutputTokens);
+        const snapshot = {
+          id: randomUUID(),
+          writerToken: randomUUID(),
+          requestHash: generationRequestHash({
+            providerKind: profile.providerKind,
+            modelId: profile.modelId,
+            endpointUrl: profile.endpointUrl,
+            messages,
+            tools: compiled.tools,
+            responseSchema: compiled.responseSchema,
+            maxOutputTokens,
+            timeoutMs: compiled.timeoutMs,
+          }),
+        };
         const ceiling = ceilingFor({
           messages,
           tools: compiled.tools,
@@ -305,6 +344,7 @@ export function createInferenceGateway(deps: GatewayDeps): InferenceGateway {
                 costMicros: reservedMicros,
                 priorUsage: { ...spent },
                 reservationAttempt: callAttempt,
+                snapshot: { ...snapshot, phase: 'prepare' },
               });
               if (denial) throw new AdmissionRefused(denial);
             }
@@ -441,6 +481,7 @@ export function createInferenceGateway(deps: GatewayDeps): InferenceGateway {
                   costMicros: reservedMicros,
                   priorUsage: { ...spent },
                   reservationAttempt: callAttempt,
+                  snapshot: { ...snapshot, phase: 'dispatch' },
                 });
               } catch {
                 throw new AdmissionRefused('POLICY_UNREADABLE');
@@ -601,6 +642,18 @@ export function createInferenceGateway(deps: GatewayDeps): InferenceGateway {
         }
 
         if (!check.ok) return finish('invalid_output', 'INVALID_OUTPUT', check.decisionCode);
+        if (deps.receiveInputSnapshotInTx) {
+          // Accounting has already committed. A receipt failure discards content, never releases a
+          // paid hold or retries the provider. The original attempt remains unavailable to children.
+          await deps.withTx(context, (tx) =>
+            deps.receiveInputSnapshotInTx!(tx, context, {
+              snapshotId: snapshot.id,
+              writerToken: snapshot.writerToken,
+              ...mainResultHash(result),
+            }),
+          );
+          inputSnapshotId = snapshot.id;
+        }
         if (result.kind === 'tool_call') {
           return finish('tool_proposed', null, 'ALLOWED', {
             text: null,

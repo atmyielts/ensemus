@@ -168,6 +168,36 @@ export function generationInputBytes(
   );
 }
 
+/** Full trusted SDK request identity. Keep separate from the historical message-only audit hash and
+ * the unchanged token-envelope serialization. No key, guarded fetch or cancellation object is stored. */
+export function generationRequestHash(
+  input: Pick<
+    AdapterCall,
+    | 'providerKind'
+    | 'endpointUrl'
+    | 'modelId'
+    | 'messages'
+    | 'tools'
+    | 'responseSchema'
+    | 'maxOutputTokens'
+    | 'timeoutMs'
+  >,
+): string {
+  return createHash('sha256')
+    .update(
+      JSON.stringify({
+        protocol: 'sdk-main-v1',
+        providerKind: input.providerKind,
+        endpointUrl: input.endpointUrl,
+        model: input.modelId,
+        timeoutMs: input.timeoutMs,
+        toolVersions: input.tools.map(({ id, version }) => ({ id, version })),
+        ...callOptions(input, wireNames(input.tools).toWire, new AbortController().signal),
+      }),
+    )
+    .digest('hex');
+}
+
 function usageOf(result: LanguageModelV4GenerateResult): AdapterUsage {
   const input = result.usage?.inputTokens?.total;
   const output = result.usage?.outputTokens?.total;

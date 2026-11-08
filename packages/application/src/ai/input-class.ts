@@ -151,6 +151,7 @@ export async function currentRunCompanyClassInTx(
       select classification from ai.run_input_observations where organization_id=${context.organizationId}::uuid and run_id=${context.agentRunId}::uuid
       union all select i.classification from ai.model_call_inputs i join ai.model_call_attempts c on c.organization_id=i.organization_id and c.id=i.call_id where c.organization_id=${context.organizationId}::uuid and c.run_id=${context.agentRunId}::uuid
       union all select i.classification from knowledge.evidence_items i join packages p on p.id=i.package_id where i.organization_id=${context.organizationId}::uuid
+      union all select f.classification from knowledge.evidence_package_facts f join packages p on p.id=f.package_id where f.organization_id=${context.organizationId}::uuid
       union all select r.classification from knowledge.artifact_lineage_records r join nodes n on n.id=r.artifact_id where r.organization_id=${context.organizationId}::uuid
     ) h`);
   for (const row of historical.rows) add(row.classification);

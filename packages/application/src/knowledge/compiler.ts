@@ -5,6 +5,9 @@ import { createHash, randomUUID } from 'node:crypto';
 import {
   knowledgeEvidenceItems,
   knowledgeEvidencePackages,
+  evidencePackageFacts,
+  agentRuns,
+  runInputCheckpoints,
   withTenantTx,
   type AppDatabase,
   type AgentContext,
@@ -30,7 +33,7 @@ import {
 import { operationKey } from '@ensemus/knowledge/model-operations';
 import type { ModelResultConsumer } from '../ai/knowledge-ports';
 import { ANSWER_PROMPT_VERSION } from '@ensemus/knowledge/prompt';
-import { sql } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { AppError } from '../errors';
 import { idSchema } from '../ids';
 import { embedQuery, recordModelCall } from './embeddings';
@@ -486,20 +489,20 @@ export async function compileEvidence(
     ...selection.items.map((item) => item.classification),
     ...facts.map((fact) => fact.classification),
   ]);
+  // Hash the actual in-memory claims read above, once. These exact hashes are both in the package
+  // digest and the retained fact receipt; no later lookup reconstructs a historical claim read.
+  const factReceipts = facts.map((fact) => ({
+    factId: fact.id,
+    contentSha256: digest(
+      JSON.stringify({ subjectRef: fact.subjectRef, predicate: fact.predicate, claim: fact.claim }),
+    ),
+    classification: fact.classification,
+  }));
   const evidenceHash = packageHash({
     querySha256,
     policyVersion,
     items: selection.items,
-    facts: facts.map((fact) => ({
-      factId: fact.id,
-      contentSha256: digest(
-        JSON.stringify({
-          subjectRef: fact.subjectRef,
-          predicate: fact.predicate,
-          claim: fact.claim,
-        }),
-      ),
-    })),
+    facts: factReceipts,
   });
   const persisted = await withTenantTx(database, context, async (tx) => {
     await requireSearchPerson(tx, context);
@@ -539,6 +542,39 @@ export async function compileEvidence(
         )}) and f.trust_state='verified'
         and (f.valid_from is null or f.valid_from<=now()) and (f.valid_until is null or f.valid_until>now()) order by f.id for share`);
       if (valid.rows.length !== facts.length) return false;
+      // A later addition/replacement is stale, not evidence that was read earlier. Pin the exact
+      // already-read set, and require its hashes in the selected passages before publishing.
+      const backing = await tx.execute<{
+        fact_id: string;
+        chunk_id: string;
+        source_id: string;
+        content_sha256: string;
+      }>(sql`select e.fact_id,e.chunk_id,e.source_id,e.content_sha256 from knowledge.fact_evidence e
+        where e.organization_id=${context.organizationId}::uuid and e.fact_id in(${sql.join(
+          facts.map((fact) => sql`${fact.id}::uuid`),
+          sql`,`,
+        )}) order by e.fact_id,e.chunk_id`);
+      for (const fact of facts) {
+        const current = backing.rows.filter((row) => row.fact_id === fact.id);
+        if (
+          current.length !== fact.evidence.length ||
+          fact.evidence.some(
+            (evidence) =>
+              !current.some(
+                (row) =>
+                  row.chunk_id === evidence.chunkId &&
+                  row.source_id === evidence.sourceId &&
+                  selection.items.some(
+                    (item) =>
+                      item.chunkId === row.chunk_id &&
+                      item.sourceId === row.source_id &&
+                      item.contentSha256 === row.content_sha256,
+                  ),
+              ),
+          )
+        )
+          return false;
+      }
     }
     if (workUnitId) {
       const work = await tx.execute<{ classification: Classification }>(
@@ -550,6 +586,21 @@ export async function compileEvidence(
           state.classification
       )
         return false;
+    }
+    if (agentContext) {
+      // Same order as actual observations and main dispatch: body/source locks, checkpoint, run.
+      // A main snapshot either precedes this publication or includes it, never guesses by time.
+      await tx
+        .select({ id: runInputCheckpoints.runId })
+        .from(runInputCheckpoints)
+        .where(eq(runInputCheckpoints.runId, agentContext.agentRunId))
+        .for('share');
+      await tx
+        .select({ id: agentRuns.id })
+        .from(agentRuns)
+        .where(eq(agentRuns.id, agentContext.agentRunId))
+        .for('update', { noWait: true });
+      await assertRunInputsReadable(tx, agentContext);
     }
     await tx.insert(knowledgeEvidencePackages).values({
       organizationId: context.organizationId,
@@ -583,6 +634,16 @@ export async function compileEvidence(
           vectorRank: item.vectorRank,
         })),
       );
+    if (factReceipts.length)
+      await tx
+        .insert(evidencePackageFacts)
+        .values(
+          factReceipts.map((fact) => ({
+            organizationId: context.organizationId,
+            packageId,
+            ...fact,
+          })),
+        );
     for (const usage of usedModelResults) {
       if (usage.callId) {
         if (!deps.acceptResultInTx) throw new ModelCallFailed('MODEL_UNAVAILABLE');

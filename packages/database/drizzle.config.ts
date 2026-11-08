@@ -10,6 +10,7 @@ export default defineConfig({
     './src/schema-ai.ts',
     './src/schema-ai-inputs.ts',
     './src/schema-ai-child-inputs.ts',
+    './src/schema-ai-main-inputs.ts',
     './src/schema-knowledge.ts',
     './src/schema-artifact-provenance.ts',
     './src/schema-client-access.ts',

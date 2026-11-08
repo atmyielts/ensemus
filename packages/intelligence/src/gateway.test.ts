@@ -174,6 +174,82 @@ describe('the fixed order (FD-8)', () => {
     expect(harness.log).toContain('ledger.release');
     expect(harness.log).not.toContain('ledger.record');
   });
+  it('prepares the full input identity before money and claims it once before dispatch, then records a validated result after charging', async () => {
+    const phases: string[] = [];
+    const inputs: Parameters<NonNullable<GatewayDeps['admitInTx']>>[2][] = [];
+    const admit = vi.fn<NonNullable<GatewayDeps['admitInTx']>>(async (_tx, _context, input) => {
+      inputs.push(input);
+      phases.push(input.snapshot?.phase ?? 'missing');
+      return null;
+    });
+    const receive = vi.fn<NonNullable<GatewayDeps['receiveInputSnapshotInTx']>>(async () => {
+      expect(harness.log).toContain('ledger.record');
+      phases.push('received');
+    });
+    const harness = setup({ deps: { admitInTx: admit, receiveInputSnapshotInTx: receive } });
+    const result = await harness.run();
+    expect(phases).toEqual(['prepare', 'dispatch', 'received']);
+    const prepared = inputs[0]?.snapshot,
+      dispatched = inputs[1]?.snapshot;
+    expect(prepared?.requestHash).toMatch(/^[0-9a-f]{64}$/);
+    expect(dispatched).toEqual({ ...prepared, phase: 'dispatch' });
+    expect(result.inputSnapshotId).toBe(prepared?.id);
+    expect(receive.mock.calls[0]?.[2]).toMatchObject({
+      snapshotId: prepared?.id,
+      writerToken: prepared?.writerToken,
+      kind: 'final',
+      toolId: null,
+    });
+  });
+  it('a losing duplicate attempt refuses before borrowing or releasing the original writer hold', async () => {
+    let winner: string | undefined;
+    const admit = vi.fn<NonNullable<GatewayDeps['admitInTx']>>(async (_tx, _context, input) => {
+      if (input.snapshot?.phase === 'prepare') {
+        if (winner) return 'POLICY_UNREADABLE';
+        winner = input.snapshot.writerToken;
+      }
+      return input.snapshot?.writerToken === winner ? null : 'POLICY_UNREADABLE';
+    });
+    const harness = setup({ deps: { admitInTx: admit } });
+    expect((await harness.run()).outcome).toBe('final_output');
+    const count = harness.log.filter((entry) => entry === 'ledger.reserve').length;
+    expect((await harness.run()).decisionCode).toBe('POLICY_UNREADABLE');
+    expect(harness.log.filter((entry) => entry === 'ledger.reserve')).toHaveLength(count);
+    expect(harness.log).not.toContain('ledger.release');
+    expect(harness.adapter.hits).toBe(1);
+  });
+  it('a retained caller reference cannot change the actual prompt after its trusted snapshot hash', async () => {
+    const input = message({ text: 'Original actual material' });
+    const harness = setup({
+      canaries: async () => {
+        input.text = 'Later caller mutation';
+        return [];
+      },
+    });
+    expect((await harness.run(compiledTurn({ messages: [input] }))).outcome).toBe('final_output');
+    expect(harness.adapter.calls[0]?.messages[0]?.text).toBe('Original actual material');
+  });
+  it('unknown paid responses never acquire a child-input result receipt', async () => {
+    const receive = vi.fn<NonNullable<GatewayDeps['receiveInputSnapshotInTx']>>();
+    const harness = setup({
+      script: [{ kind: 'failure', failure: 'unknown', mayHaveBilled: true }],
+      deps: { receiveInputSnapshotInTx: receive },
+    });
+    const result = await harness.run();
+    expect(result.inputSnapshotId).toBeUndefined();
+    expect(receive).not.toHaveBeenCalled();
+    expect(harness.log).toContain('ledger.record');
+  });
+  it('a refused result receipt discards content after charge without releasing or resending the paid attempt', async () => {
+    const receive = vi.fn<NonNullable<GatewayDeps['receiveInputSnapshotInTx']>>(async () => {
+      throw new Error('TEST_RESULT_FENCED');
+    });
+    const harness = setup({ deps: { receiveInputSnapshotInTx: receive } });
+    await expect(harness.run()).rejects.toThrow('TEST_RESULT_FENCED');
+    expect(harness.adapter.hits).toBe(1);
+    expect(harness.log).toContain('ledger.settle');
+    expect(harness.log).not.toContain('ledger.release');
+  });
   it('includes actual evidence-role fences and full tool/schema framing in the conservative money envelope', () => {
     const input = {
       messages: [message({ role: 'evidence', text: 'Generated evidence' })],

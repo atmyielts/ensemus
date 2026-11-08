@@ -9,6 +9,7 @@ import { createEgressLog, loadTenantPolicyBundle } from '@ensemus/application/ai
 import {
   admitMainModelDispatchInTx,
   currentRunInputClass,
+  receiveMainInputSnapshotInTx,
 } from '@ensemus/application/ai-model-admission';
 import { externalActionPort } from '@ensemus/application/ai-external-action-port';
 import { createHaltCheck } from '@ensemus/application/ai-halt';
@@ -91,6 +92,7 @@ export function createAgentServices(deps: {
     withTx: (context, use) => withTenantTx(database, context, use),
     router,
     admitInTx: admitMainModelDispatchInTx,
+    receiveInputSnapshotInTx: receiveMainInputSnapshotInTx,
     egress,
     guard,
     credentials,
