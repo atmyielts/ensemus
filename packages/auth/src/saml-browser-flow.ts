@@ -36,6 +36,16 @@ import {
 
 type Database = ReturnType<typeof openAuthDatabase>['db'];
 const refuse = () => new APIError('FORBIDDEN', { code: 'SSO_REFUSED' });
+// These are native endpoint templates, not a browser's claimed actor or arbitrary URL field.
+// A real session.create.after observation is still required. Refresh/update reads are excluded.
+const PRIMARY_SESSION_PATHS = new Set([
+  '/sign-in/email',
+  '/sign-up/email',
+  '/callback/:id',
+  '/sso/saml2/sp/acs/:providerId',
+  '/two-factor/verify-totp',
+  '/two-factor/verify-backup-code',
+]);
 function withCookie(response: Response, cookie: string): Response {
   const headers = new Headers(Array.from(response.headers.entries()));
   headers.append('set-cookie', cookie);
@@ -57,6 +67,7 @@ export function createSamlBrowserFlow(options: {
       headers: Headers;
       envelope?: SamlEnvelope;
       matched: boolean;
+      createdPrincipals: Set<string>;
     }>();
   const bindStart = async (
     request: Request,
@@ -152,6 +163,11 @@ export function createSamlBrowserFlow(options: {
   };
   return {
     bindStart,
+    /** Called only by Better Auth's actual native session.create.after hook. No selection effect. */
+    observeNativeSession(path: string | undefined, userId: string) {
+      if (path && PRIMARY_SESSION_PATHS.has(path))
+        storage.getStore()?.createdPrincipals.add(userId);
+    },
     run(
       request: Request,
       envelope: SamlEnvelope | undefined,
@@ -161,10 +177,41 @@ export function createSamlBrowserFlow(options: {
         headers: new Headers(Array.from(request.headers.entries())),
         ...(envelope ? { envelope } : {}),
         matched: false,
+        createdPrincipals: new Set<string>(),
       };
       return storage.run(scope, async () => {
         const response = await operation();
-        return scope.matched ? withCookie(response, samlBrowserCookie('', 0)) : response;
+        let expire = scope.matched;
+        if (!expire && scope.createdPrincipals.size) {
+          const proof = readSamlBrowserProof(
+            options.secret,
+            samlBrowserCookieValue(scope.headers.get('cookie')),
+          );
+          if (proof?.mode === 'self_link') {
+            try {
+              const row = await db.query.verifications.findFirst({
+                  where: (row, { eq }) => eq(row.id, proof.id),
+                }),
+                intent = row ? parseSamlIntent(row.value) : null;
+              if (
+                !row ||
+                !intent ||
+                !matchesSamlBrowserProof(proof, intent, row.id) ||
+                !intent.source
+              )
+                expire = true;
+              else if (intent.mode === 'self_link' && intent.phase === 'prepared')
+                expire = [...scope.createdPrincipals].some(
+                  (userId) => userId !== intent.source!.userId,
+                );
+            } catch {
+              // A genuine new primary session cannot keep an unknown previously signed selection.
+              // This expires just that purpose cookie; it does not select/revoke any native session.
+              expire = true;
+            }
+          }
+        }
+        return expire ? withCookie(response, samlBrowserCookie('', 0)) : response;
       });
     },
     async resolve(

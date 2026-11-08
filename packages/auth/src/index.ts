@@ -30,6 +30,7 @@ import { createOperatorOidcFlow, type OidcTrust } from './oidc-primary';
 import { createIdpChallenges } from './idp-challenge';
 import { createSamlBrowserFlow } from './saml-browser-flow';
 import { createSamlSelfLinkPlugin } from './saml-self-link';
+import { SAML_BROWSER_COOKIE, samlBrowserCookieValue } from './saml-browser-binding';
 
 export type OidcProvider = {
   providerId: string;
@@ -153,6 +154,15 @@ export function createAuth(options: AuthOptions) {
         disableSignUp: !allowSignup,
       },
       session: { expiresIn: 60 * 60 * 24 * 7, updateAge: 60 * 60 * 24 },
+      databaseHooks: {
+        session: {
+          create: {
+            after: async (session, context) => {
+              samlBrowser.observeNativeSession(context?.path, session.userId);
+            },
+          },
+        },
+      },
       // Provider tokens are not kept readable in the identity tables.
       account: { encryptOAuthTokens: true },
       rateLimit: {
@@ -282,6 +292,10 @@ export function createAuth(options: AuthOptions) {
       const value = incoming.get(name);
       if (value) headers.set(name, value);
     }
+    // Preserve only the pending SAML browser proof across this native form adapter. Native
+    // password/signup still receives no previous session or arbitrary browser cookies.
+    const pendingSaml = samlBrowserCookieValue(incoming.get('cookie'));
+    if (pendingSaml) headers.set('cookie', `${SAML_BROWSER_COOKIE}=${pendingSaml}`);
     const response = await auth.handler(
       new Request(new URL(`/api/auth${form.path}`, options.baseURL), {
         method: 'POST',
@@ -338,7 +352,7 @@ export function createAuth(options: AuthOptions) {
   let factorManagement: typeof auth | undefined;
   const factorRouter = (request: Request) => {
     factorManagement ??= build(false, true);
-    return factorManagement.handler(request);
+    return samlBrowser.run(request, undefined, () => factorManagement!.handler(request));
   };
   const mfa = createMfaOperations({
     handler: factorRouter,

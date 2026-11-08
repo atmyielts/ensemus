@@ -1,12 +1,39 @@
 // Authored built-runtime journeys. All identity/credential/factor/link effects use actual HTTP;
 // the only operator mutation is the existing exact reviewed generated-provider setup.
 import type { Page } from '@playwright/test';
+import { randomUUID } from 'node:crypto';
 import { expect, test } from '../support/fixtures';
-import { BASE, PASSWORD } from '../../helpers/forms';
-import { ssoStackFixture } from '../../helpers/sso-stack-fixture';
+import { BASE, PASSWORD, assembled, bringIn, formsIn, post, submit } from '../../helpers/forms';
+import { ssoStackFixture, generatedHttpPerson } from '../../helpers/sso-stack-fixture';
 import { totpFromUri } from '../../helpers/totp';
 import { axeFindings } from '../support/look';
+import { SAML_BROWSER_COOKIE } from '../../../packages/auth/src/saml-browser-binding';
 type Fixture = Awaited<ReturnType<typeof ssoStackFixture>>;
+async function originalSourceStillLive(f: Fixture, id: string) {
+  const response = await fetch(`${BASE}/api/auth/get-session?disableCookieCache=true`, {
+    headers: { cookie: f.member.jar.cookie },
+    redirect: 'manual',
+  });
+  expect(response.status).toBe(200);
+  expect((await response.json()).user.id).toBe(id);
+}
+async function enrollNative(
+  person: Awaited<ReturnType<typeof generatedHttpPerson>>,
+  organization: string,
+) {
+  const path = `/o/${organization}/security/two-factor`,
+    setup = await submit(path, person.jar, /Set up authenticator app/, { password: PASSWORD }),
+    html = assembled(await setup.text());
+  const uri = /href="(otpauth:\/\/[^"]+)"/.exec(html)?.[1]?.replaceAll('&amp;', '&');
+  if (!uri || setup.status !== 200) throw new Error('NATIVE_SWITCH_FACTOR_REQUIRED');
+  const confirmation = formsIn(html).filter((form) => /Confirm and turn on/.test(form.html));
+  if (confirmation.length !== 1) throw new Error('NATIVE_SWITCH_CONFIRMATION_REQUIRED');
+  const confirmed = await post(path, person.jar, confirmation[0]!, {
+    code: totpFromUri(uri, Date.now() - 30000),
+  });
+  expect(confirmed.headers.get('location')).toBe(`/o/${organization}/security?notice=enrolled`);
+  return uri;
+}
 const esc = (value: string) =>
   value.replaceAll('&', '&amp;').replaceAll('"', '&quot;').replaceAll('<', '&lt;');
 async function provider(page: Page, f: Fixture, email = f.member.email) {
@@ -30,6 +57,90 @@ async function start(page: Page) {
   ).toBeVisible();
   return page.url();
 }
+for (const mode of ['sign-in', 'sign-up', 'factor-sign-in'] as const)
+  test(`a genuine same-browser ${mode} as B invalidates A’s pending connection`, async ({
+    open,
+  }) => {
+    const f = await ssoStackFixture(),
+      other =
+        mode === 'sign-up'
+          ? null
+          : await generatedHttpPerson(f.domain, 'Generated other native person');
+    let uri: string | undefined;
+    if (mode === 'factor-sign-in' && other) {
+      await bringIn(f.owner, f.organization, other);
+      uri = await enrollNative(other, f.organization);
+    }
+    const page = await open(f.member, { javaScriptEnabled: false });
+    await provider(page, f);
+    const original = await (await page.request.get('/api/auth/get-session')).json();
+    await start(page);
+    expect(
+      (await page.context().cookies(BASE)).some((cookie) => cookie.name === SAML_BROWSER_COOKIE),
+    ).toBe(true);
+    const switched = await page.context().newPage(),
+      email = other?.email ?? `signup-${randomUUID()}@${f.domain}`;
+    await switched.goto(mode === 'sign-up' ? '/sign-up' : '/sign-in');
+    if (mode === 'sign-up')
+      await switched.getByLabel('Name', { exact: true }).fill('Generated new native person');
+    await switched.getByLabel('Email', { exact: true }).fill(email);
+    await switched.getByLabel('Password', { exact: false }).fill(PASSWORD);
+    await switched
+      .getByRole('button', { name: mode === 'sign-up' ? 'Create account' : 'Sign in', exact: true })
+      .click();
+    if (uri) {
+      await expect(
+        switched.getByRole('heading', { name: 'Confirm your sign-in', exact: true }),
+      ).toBeVisible();
+      await switched.getByLabel('Verification code', { exact: true }).fill(totpFromUri(uri));
+      await switched.getByRole('button', { name: 'Confirm sign-in', exact: true }).click();
+    }
+    await expect
+      .poll(
+        async () =>
+          (await (await switched.request.get('/api/auth/get-session')).json())?.user.email,
+      )
+      .toBe(email);
+    const personB = await (await switched.request.get('/api/auth/get-session')).json();
+    expect(personB.user.id).not.toBe(original.user.id);
+    expect(
+      (await page.context().cookies(BASE)).some((cookie) => cookie.name === SAML_BROWSER_COOKIE),
+    ).toBe(false);
+    await originalSourceStillLive(f, original.user.id);
+    // A's genuine signed form was already open. Its request/relay/assertion remain authentic, but
+    // that earlier selection must never switch the newly admitted B back into A.
+    await page.getByRole('button', { name: 'Continue to Ensemus', exact: true }).click();
+    await expect.poll(() => new URL(page.url()).searchParams.get('error')).toBe('SSO_REFUSED');
+    expect((await (await switched.request.get('/api/auth/get-session')).json()).user.id).toBe(
+      personB.user.id,
+    );
+  });
+test('same-person reauthentication and background session reads preserve a pending connection', async ({
+  open,
+}) => {
+  const f = await ssoStackFixture(),
+    page = await open(f.member, { javaScriptEnabled: false });
+  await provider(page, f);
+  await start(page);
+  const before = (await page.context().cookies(BASE)).find(
+    (cookie) => cookie.name === SAML_BROWSER_COOKIE,
+  );
+  if (!before) throw new Error('PENDING_NATIVE_PROOF_REQUIRED');
+  expect((await page.request.get('/api/auth/get-session?disableCookieCache=true')).status()).toBe(
+    200,
+  );
+  const again = await page.context().newPage();
+  await again.goto('/sign-in');
+  await again.getByLabel('Email', { exact: true }).fill(f.member.email);
+  await again.getByLabel('Password', { exact: true }).fill(PASSWORD);
+  await again.getByRole('button', { name: 'Sign in', exact: true }).click();
+  expect(
+    (await page.context().cookies(BASE)).find((cookie) => cookie.name === SAML_BROWSER_COOKIE)
+      ?.value,
+  ).toBe(before.value);
+  await page.getByRole('button', { name: 'Continue to Ensemus', exact: true }).click();
+  await expect(page).toHaveURL(new RegExp(`/o/${f.organization}$`));
+});
 for (const javaScriptEnabled of [true, false])
   test(`an existing password member explicitly connects with their profile preserved (${javaScriptEnabled ? 'JavaScript' : 'no JavaScript'})`, async ({
     open,

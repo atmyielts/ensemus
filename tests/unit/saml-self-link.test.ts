@@ -73,8 +73,11 @@ function fixture() {
       }),
       expiresAt: row.expiresAt,
     }));
+  const nativeRead = vi.fn(async () => row);
   const flow = createSamlBrowserFlow({
-    database: {} as Parameters<typeof createSamlBrowserFlow>[0]['database'],
+    database: { query: { verifications: { findFirst: nativeRead } } } as unknown as Parameters<
+      typeof createSamlBrowserFlow
+    >[0]['database'],
     secret: key,
     baseURL: 'https://ensemus.example.invalid',
   });
@@ -120,9 +123,80 @@ function fixture() {
           ),
         ),
     );
-  return { intent, id, cookie, row, input, provider, findOne, update, resolve };
+  return { intent, id, cookie, row, input, provider, findOne, update, resolve, flow, nativeRead };
 }
 describe('explicit native SAML self-link protocol', () => {
+  it.each([
+    '/sign-in/email',
+    '/sign-up/email',
+    '/callback/:id',
+    '/two-factor/verify-totp',
+    '/two-factor/verify-backup-code',
+  ])(
+    'expires a different person’s pending proof only after a native %s session observation',
+    async (path) => {
+      const f = fixture(),
+        response = await f.flow.run(
+          new Request('https://ensemus.example.invalid/api/auth/sign-in/email', {
+            headers: { cookie: `${SAML_BROWSER_COOKIE}=${f.cookie}` },
+          }),
+          undefined,
+          async () => {
+            f.flow.observeNativeSession(path, randomUUID());
+            return new Response(null, {
+              headers: {
+                'set-cookie': 'native-session=person-b; Path=/; Secure; HttpOnly; SameSite=Lax',
+              },
+            });
+          },
+        );
+      expect(response.headers.getSetCookie()).toContain(
+        'native-session=person-b; Path=/; Secure; HttpOnly; SameSite=Lax',
+      );
+      expect(
+        response.headers
+          .getSetCookie()
+          .filter((value) => value.startsWith(`${SAML_BROWSER_COOKIE}=`)),
+      ).toEqual([`${SAML_BROWSER_COOKIE}=; Path=/; Max-Age=0; Secure; HttpOnly; SameSite=None`]);
+    },
+  );
+  it.each(['same-person', 'background-refresh', 'unobserved', 'invalid-proof'])(
+    'preserves unrelated attempts for %s',
+    async (kind) => {
+      const f = fixture(),
+        cookie = kind === 'invalid-proof' ? `${f.cookie}!` : f.cookie;
+      const response = await f.flow.run(
+        new Request('https://ensemus.example.invalid/api/auth/get-session', {
+          headers: { cookie: `${SAML_BROWSER_COOKIE}=${cookie}` },
+        }),
+        undefined,
+        async () => {
+          if (kind !== 'unobserved')
+            f.flow.observeNativeSession(
+              kind === 'background-refresh' ? '/get-session' : '/sign-in/email',
+              kind === 'same-person' ? f.intent.source!.userId : randomUUID(),
+            );
+          return new Response(null);
+        },
+      );
+      expect(response.headers.has('set-cookie')).toBe(false);
+    },
+  );
+  it('expires only its verified pending selection when metadata is unavailable after a new native primary', async () => {
+    const f = fixture();
+    f.nativeRead.mockRejectedValueOnce(new Error('GENERATED_METADATA_OUTAGE'));
+    const response = await f.flow.run(
+      new Request('https://ensemus.example.invalid/api/auth/sign-in/email', {
+        headers: { cookie: `${SAML_BROWSER_COOKIE}=${f.cookie}` },
+      }),
+      undefined,
+      async () => {
+        f.flow.observeNativeSession('/sign-in/email', randomUUID());
+        return new Response(null);
+      },
+    );
+    expect(response.headers.get('set-cookie')).toContain('Max-Age=0');
+  });
   it('selects only the source native person with preserved profile through the native adapter', async () => {
     const f = fixture(),
       response = await f.resolve();

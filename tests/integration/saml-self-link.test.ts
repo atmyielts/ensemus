@@ -274,6 +274,48 @@ describe('explicit native SAML self-link authority (0421)', () => {
     );
     expect(await state(f)).toBe(0);
   });
+  it.each(['sign-in', 'sign-up'] as const)(
+    'a genuine native credential-form %s as B invalidates the pending A proof while A remains live',
+    async (mode) => {
+      const f = await fixture(),
+        email = `native-switch-${randomUUID()}@${f.connection.domain}`;
+      if (mode === 'sign-in')
+        expect(
+          (await request('/sign-up/email', { name: 'Other native person', email, password }))
+            .status,
+        ).toBe(200);
+      const attempt = await start(f),
+        incoming = new Headers({
+          cookie: attempt.cookie,
+          'user-agent': 'Generated real native switch',
+          'x-forwarded-for': `192.0.2.${1 + Math.floor(Math.random() * 200)}`,
+        });
+      const outcome = await runtime.submitCredentials(
+        mode === 'sign-in'
+          ? { path: '/sign-in/email', body: { email, password } }
+          : { path: '/sign-up/email', body: { name: 'Other native person', email, password } },
+        incoming,
+      );
+      expect(outcome.outcome).toBe('accepted');
+      expect(outcome.setCookie).toContain(`${SAML_BROWSER_COOKIE}=;`);
+      expect(outcome.setCookie).toContain('Max-Age=0');
+      const cookie = fixtureCookies(outcome.setCookie),
+        personB = await runtime.readInteractiveSession(new Headers({ cookie }));
+      expect(personB?.user.email).toBe(email);
+      expect(personB?.user.id).not.toBe(f.native.user.id);
+      expect(
+        (await runtime.readInteractiveSession(new Headers({ cookie: f.cookie })))?.user.id,
+      ).toBe(f.native.user.id);
+      const refused = await callback(f, attempt, cookie);
+      expect(new URL(refused.headers.get('location')!, base).searchParams.get('error')).toBe(
+        'SSO_REFUSED',
+      );
+      expect(await state(f)).toBe(0);
+      expect((await runtime.readInteractiveSession(new Headers({ cookie })))?.user.id).toBe(
+        personB?.user.id,
+      );
+    },
+  );
   it.each([
     'missing-browser',
     'other-native-person',
