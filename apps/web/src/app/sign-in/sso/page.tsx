@@ -1,5 +1,7 @@
 import Link from 'next/link';
 import { headers } from 'next/headers';
+import { redirect } from 'next/navigation';
+import { isRestoreAdmissionDenied } from '@ensemus/database';
 import { SubmitButton } from '@/components/submit-button';
 import { Wordmark } from '@/components/ui';
 import { safeReturnPath, withReturnPath } from '@/lib/return-path';
@@ -13,7 +15,12 @@ export default async function SsoSignInPage({
 }) {
   const query = await searchParams,
     next = safeReturnPath(query.next),
-    current = await getRuntime().readInteractiveSession(await headers());
+    current = await getRuntime()
+      .readInteractiveSession(await headers())
+      .catch((error: unknown) => {
+        if (isRestoreAdmissionDenied(error)) redirect('/restoring');
+        throw error;
+      });
   return (
     <main className="centered">
       <Wordmark />

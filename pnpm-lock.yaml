@@ -494,6 +494,9 @@ importers:
       "@ensemus/application":
         specifier: workspace:*
         version: link:../../packages/application
+      "@ensemus/auth":
+        specifier: workspace:*
+        version: link:../../packages/auth
       "@ensemus/commercial":
         specifier: workspace:*
         version: link:../../packages/commercial

@@ -17,6 +17,7 @@
   "devDependencies": {
     "@ensemus/agent-runtime": "workspace:*",
     "@ensemus/application": "workspace:*",
+    "@ensemus/auth": "workspace:*",
     "@ensemus/commercial": "workspace:*",
     "@ensemus/config": "workspace:*",
     "@ensemus/connectors": "workspace:*",

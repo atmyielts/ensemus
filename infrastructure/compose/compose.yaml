@@ -335,6 +335,25 @@ services:
       objects: { condition: service_healthy }
       provision-roles: { condition: service_completed_successfully }
 
+  # One-shot offline invalidation only. Ordinary workers never receive the native auth DB/key.
+  # Run only after migrator begin has closed admission. No Temporal, object, vault or provider key.
+  auth-restore:
+    profiles: ['ops']
+    build:
+      context: ../..
+      dockerfile: infrastructure/containers/Dockerfile.worker
+    image: ${ENSEMUS_WORKER_IMAGE:-ensemus/worker:local}
+    command: ['node', 'dist/auth-restore.js', 'invalidate']
+    read_only: true
+    tmpfs: ['/tmp']
+    networks: [data]
+    extra_hosts:
+      - postgres:${ENSEMUS_NETWORK_PREFIX:-172.30}.2.10
+    environment:
+      DATABASE_URL_AUTH_FILE: /run/secrets/db_auth_url
+      AUTH_SECRET_FILE: /run/secrets/auth_secret
+    secrets: [db_auth_url, auth_secret]
+
   postgres:
     <<: *restart
     image: pgvector/pgvector:pg17@sha256:7d0a41464797aeb9862dfdc0bbf1526b82cfd324cdd8036df19e3545f4a9ccb8
