@@ -1,7 +1,12 @@
 // Generated, in-process IdP. Real pinned samlify signing/parsing, no listener, hosted account or key.
 import { randomUUID } from 'node:crypto';
+import { createRequire } from 'node:module';
 import { generate } from 'selfsigned';
-import { IdentityProvider, ServiceProvider, SamlLib } from 'samlify';
+// Pinned samlify is CommonJS with getter exports; load its actual module identically in native
+// ESM, Playwright and tsx/Vitest transforms. No default/namespace interop heuristic.
+const { IdentityProvider, ServiceProvider, SamlLib } = createRequire(import.meta.url)(
+  'samlify',
+) as typeof import('samlify');
 const SHA256 = 'http://www.w3.org/2001/04/xmldsig-more#rsa-sha256';
 const esc = (value: string) =>
   value
