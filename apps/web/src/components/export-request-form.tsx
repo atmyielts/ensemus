@@ -1,7 +1,11 @@
 'use client';
 
 import { useActionState } from 'react';
-import { requestExportAction, type RequestExportState } from '@/server/sovereign-actions';
+import {
+  requestExportAction,
+  requestAccountExportAction,
+  type RequestExportState,
+} from '@/server/sovereign-actions';
 import { SubmitButton } from './submit-button';
 import { ErrorNotice } from './ui';
 
@@ -11,8 +15,17 @@ const INITIAL: RequestExportState = {};
  * Asks for a public key, and only that. The field is never kept as a draft and never given back after a
  * refusal, because the wrong half of a key pair may be what someone pasted.
  */
-export function ExportRequestForm({ organizationId }: { organizationId: string }) {
-  const [state, action] = useActionState(requestExportAction, INITIAL);
+export function ExportRequestForm({
+  organizationId,
+  account = false,
+}: {
+  organizationId: string;
+  account?: boolean;
+}) {
+  const [state, action] = useActionState(
+    account ? requestAccountExportAction : requestExportAction,
+    INITIAL,
+  );
   return (
     <>
       <ErrorNotice code={state.code} />

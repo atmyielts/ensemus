@@ -1,7 +1,6 @@
 import { getTenantStanding } from '@ensemus/application/saas/standing';
-import { can } from '@ensemus/domain/policy';
-import Link from 'next/link';
-import { PageHead, formatDateTime } from '@/components/ui';
+import { DestinationList, PageHead, formatDateTime } from '@/components/ui';
+import { accountDestinations } from '@/lib/account-destinations';
 import { orNotFound, requireAccountTenant } from '@/server/tenant';
 
 export const metadata = { title: 'Account | Ensemus' };
@@ -18,12 +17,12 @@ const standingText: Record<string, { title: string; detail: string }> = {
   suspended: {
     title: 'Your organization is suspended',
     detail:
-      'Work and agent activity are paused. Your data is kept, and billing, support, export and leaving remain available.',
+      'Work and agent activity are paused. Your data is kept. The account options below remain available according to your role.',
   },
   offboarding: {
     title: 'Your organization is leaving',
     detail:
-      'Work is paused while offboarding progresses. Billing, support and data retrieval remain available.',
+      'Work is paused during the transition. The account options available to your role appear below.',
   },
 };
 export default async function AccountPage({
@@ -35,7 +34,7 @@ export default async function AccountPage({
   const tenant = await requireAccountTenant(organizationId);
   const status = await orNotFound(getTenantStanding(tenant.database, tenant.context));
   const words = standingText[status.lifecycle]!;
-  const base = `/o/${organizationId}/account`;
+  const destinations = accountDestinations(organizationId, tenant.context.role);
   return (
     <div className="stack">
       <PageHead
@@ -53,34 +52,7 @@ export default async function AccountPage({
         )}
       </section>
       <nav aria-label="Account settings">
-        <ul className="list">
-          {can(tenant.context.role, 'billing.view') && (
-            <li>
-              <div>
-                <Link href={`${base}/billing`}>Billing and subscription</Link>
-                <p>Billing details, plan changes and cancellation.</p>
-              </div>
-            </li>
-          )}
-          <li>
-            <div>
-              <Link href={`${base}/support`}>Support</Link>
-              <p>Ask for help with your account or its standing.</p>
-            </div>
-          </li>
-          <li>
-            <div>
-              <Link href={`${base}/exports`}>Export your data</Link>
-              <p>Retrieve your organization’s data, including while service is paused.</p>
-            </div>
-          </li>
-          <li>
-            <div>
-              <Link href={`${base}/offboarding`}>Leave Ensemus</Link>
-              <p>Review offboarding and the steps before erasure.</p>
-            </div>
-          </li>
-        </ul>
+        <DestinationList items={destinations} label="Account destinations" />
       </nav>
     </div>
   );
