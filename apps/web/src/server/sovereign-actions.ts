@@ -12,7 +12,6 @@ import {
   isAuditedRefusal,
   linkImportedPerson,
   refusalCode,
-  requestOrganizationExport,
   requestOrganizationImport,
 } from '@ensemus/application';
 import {
@@ -26,7 +25,8 @@ import { redirect } from 'next/navigation';
 import { getRuntime } from './runtime';
 import { readRecipientKeyField } from './sovereign-dto';
 import { getSovereignRuntime } from './sovereign-runtime';
-import { requireTenant } from './tenant';
+import { requireTenant, requireAccountTenant } from './tenant';
+import { requestAccountExport } from '@ensemus/application/saas/exports';
 
 export type InstallDocumentState = {
   code?: string;
@@ -124,27 +124,35 @@ export async function installSignedDocumentAction(
   }
 }
 
-export async function requestExportAction(
+async function requestExport(
+  account: boolean,
   _previous: RequestExportState,
   form: FormData,
 ): Promise<RequestExportState> {
   const org = orgOf(form);
-  const tenant = await requireTenant(org);
+  const tenant = account ? await requireAccountTenant(org) : await requireTenant(org);
   const { context, database } = tenant;
   const field = readRecipientKeyField(text(form, 'recipientPublicKey'));
   if (!field.ok) {
     return field.reason === 'private_key' ? { privateKeyRefused: true } : { code: 'INVALID_INPUT' };
   }
   try {
-    await requestOrganizationExport(database, context, {
+    await requestAccountExport(database, context, {
       recipientPublicKey: field.key,
       sourceRelease: getSovereignRuntime().sourceRelease,
     });
-    revalidatePath(`/o/${org}/data`);
+    revalidatePath(`/o/${org}/${account ? 'account/exports' : 'data'}`);
     return { requested: true };
   } catch (error) {
     return { code: await codeOf(tenant, error) };
   }
+}
+
+export async function requestExportAction(previous: RequestExportState, form: FormData) {
+  return requestExport(false, previous, form);
+}
+export async function requestAccountExportAction(previous: RequestExportState, form: FormData) {
+  return requestExport(true, previous, form);
 }
 
 export async function requestImportAction(form: FormData) {

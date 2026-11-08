@@ -43,13 +43,19 @@ const count = (value: number, one: string, many: string) => `${value} ${value ==
 function LeftOut({ excluded }: { excluded: OrganizationExportView['excluded'] }) {
   const { restrictedWork, restrictedArtifacts, restrictedClients } = excluded;
   if (restrictedWork + restrictedArtifacts + restrictedClients === 0) {
-    return <>Nothing restricted was found to leave out.</>;
+    return (
+      <>
+        No restricted work, files or clients were recorded in these counts. Other section omissions
+        are recorded in the archive.
+      </>
+    );
   }
   return (
     <>
       {count(restrictedWork, 'piece of restricted work', 'pieces of restricted work')},{' '}
       {count(restrictedArtifacts, 'restricted file', 'restricted files')} and{' '}
-      {count(restrictedClients, 'restricted client', 'restricted clients')}.
+      {count(restrictedClients, 'restricted client', 'restricted clients')}. Other section omissions
+      are recorded in the archive.
     </>
   );
 }
