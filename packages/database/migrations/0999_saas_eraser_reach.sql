@@ -7,3 +7,7 @@ SELECT lifecycle.extend_eraser_reach();
 SELECT lifecycle.install_erasure_count_projection();
 --> statement-breakpoint
 GRANT EXECUTE ON FUNCTION knowledge.certify_artifact_erasure(uuid,boolean) TO ensemus_eraser;
+--> statement-breakpoint
+-- AFTER every contributing schema and eraser grant. Restrictive restore admission adds no body
+-- grant; missing/unregistered 0422 or uncovered actual role reach must refuse this composition.
+SELECT identity.extend_auth_restore_admission();

@@ -3,6 +3,7 @@
 import { and, asc, eq, inArray, lte, sql } from 'drizzle-orm';
 import { openDatabase, type EnsemusDrizzle } from './connection';
 import { domainEvents, outboxEvents } from './schema';
+import { assertRestoreAdmission, isRestoreAdmissionDenied } from './restore-authority';
 
 export type DispatchableEvent = {
   organizationId: string;
@@ -24,6 +25,7 @@ export async function processWakeTargets(
   db: EnsemusDrizzle,
   event: DispatchableEvent,
 ): Promise<string[]> {
+  await assertRestoreAdmission(db);
   const relevant =
     event.aggregateType === 'work_unit'
       ? [
@@ -107,6 +109,7 @@ export type DispatchOptions = {
  */
 async function claimDueEvents(db: EnsemusDrizzle, limit: number, leaseUntil: Date) {
   return db.transaction(async (tx) => {
+    await assertRestoreAdmission(tx);
     const due = await tx
       .select({
         organizationId: outboxEvents.organizationId,
@@ -173,6 +176,7 @@ export async function dispatchDueEvents(
   let holding = false;
 
   for (const event of metadata) {
+    await assertRestoreAdmission(db);
     const attempts = attemptsById.get(key(event.organizationId, event.id));
     if (attempts === undefined) continue;
     const where = and(
@@ -200,6 +204,7 @@ export async function dispatchDueEvents(
         occurredAt: event.occurredAt,
         attempts,
       });
+      await assertRestoreAdmission(db);
       await db
         .update(outboxEvents)
         .set({ state: 'published', attempts: attempts + 1 })
@@ -207,6 +212,8 @@ export async function dispatchDueEvents(
       result.handled += 1;
       options.onEvent?.();
     } catch (error) {
+      // Restore is neither a failed event nor a reason to consume its retry budget.
+      if (isRestoreAdmissionDenied(error)) throw error;
       options.onEvent?.(error);
       const failure = classify(error);
       if (failure === 'outage' || failure === 'partial_outage') {
@@ -245,6 +252,7 @@ export async function redriveDeadEvents(
   db: EnsemusDrizzle,
   options: { organizationId?: string } = {},
 ): Promise<number> {
+  await assertRestoreAdmission(db);
   const redriven = await db
     .update(outboxEvents)
     .set({ state: 'queued', attempts: 0, nextAttemptAt: sql`now()` })
@@ -262,6 +270,7 @@ export async function redriveDeadEvents(
 
 /** Every organization ever created, from event metadata alone, so its schedule can be checked. */
 export async function listOrganizationIds(db: EnsemusDrizzle): Promise<string[]> {
+  await assertRestoreAdmission(db);
   const rows = await db
     .selectDistinct({ organizationId: domainEvents.organizationId })
     .from(domainEvents)
@@ -271,6 +280,7 @@ export async function listOrganizationIds(db: EnsemusDrizzle): Promise<string[]>
 
 /** Operators' view of the backlog: a number and an age, with no tenant content. */
 export async function outboxBacklog(db: EnsemusDrizzle) {
+  await assertRestoreAdmission(db);
   const [row] = await db
     .select({
       queued: sql<number>`count(*) filter (where ${outboxEvents.state} = 'queued')::int`,
@@ -285,6 +295,7 @@ export async function outboxBacklog(db: EnsemusDrizzle) {
  * the tombstone ledger this is exactly the deletions a restore could not bring back (ADR-026).
  */
 export async function eventBacklog(db: EnsemusDrizzle, eventType: string) {
+  await assertRestoreAdmission(db);
   const [row] = await db
     .select({
       queued: sql<number>`count(*) filter (where ${outboxEvents.state} = 'queued')::int`,

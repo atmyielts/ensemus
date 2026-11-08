@@ -2,10 +2,16 @@ import 'server-only';
 import { headers } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { getRuntime } from './runtime';
+import { isRestoreAdmissionDenied } from '@ensemus/database';
 
 /** The signed-in person, always resolved on the server. Client input never decides this. */
 export async function requireActor() {
-  const session = await getRuntime().readInteractiveSession(await headers());
+  const session = await getRuntime()
+    .readInteractiveSession(await headers())
+    .catch((error: unknown) => {
+      if (isRestoreAdmissionDenied(error)) redirect('/restoring');
+      throw error;
+    });
   if (!session) redirect('/sign-in');
   return {
     userId: session.user.id,

@@ -50,13 +50,173 @@ const OPTIONS = {
  * running can serve for a while before it notices (ADR-026). The connector worker comes down with the rest,
  * and it is the last thing anyone should start again.
  */
-const STOPPED_FIRST = ['proxy', 'web', 'connector-worker', 'worker', 'dispatcher', 'temporal'];
+const STOPPED_FIRST = [
+  'proxy',
+  'web',
+  'connector-worker',
+  'agent-worker',
+  'knowledge-worker',
+  'worker',
+  'dispatcher',
+  'temporal',
+];
+
+/** Stop every configured project reader, including overlay replicas; retain only restore stores. */
+export function restoreServicesToStop(knownServices, alsoStop = []) {
+  const known = new Set(knownServices);
+  if (
+    !known.has('postgres') ||
+    !known.has('objects') ||
+    alsoStop.some((name) => !known.has(name) || ['postgres', 'objects'].includes(name))
+  ) {
+    throw Object.assign(new Error('RESTORE_SERVICE_INVENTORY_REFUSED'), {
+      code: 'RESTORE_SERVICE_INVENTORY_REFUSED',
+    });
+  }
+  const services = [...known].filter((name) => !['postgres', 'objects'].includes(name));
+  return [
+    ...STOPPED_FIRST.filter((name) => services.includes(name)),
+    ...services.filter((name) => !STOPPED_FIRST.includes(name)).sort(),
+  ];
+}
 
 function stopEverything(values) {
-  const known = new Set(compose(values, 'config', '--services').split('\n').filter(Boolean));
-  const services = [...STOPPED_FIRST, ...values['also-stop']].filter((name) => known.has(name));
-  compose(values, 'stop', ...services);
+  const known = compose(values, '--profile', '*', 'config', '--services')
+    .split('\n')
+    .map((name) => name.trim())
+    .filter(Boolean);
+  const services = restoreServicesToStop(known, values['also-stop']);
+  compose(values, '--profile', '*', 'stop', '--timeout', '60', ...services);
+  const stillRunning = compose(values, '--profile', '*', 'ps', '--services', '--status', 'running')
+    .split('\n')
+    .map((name) => name.trim())
+    .filter(Boolean);
+  if (stillRunning.some((name) => !['postgres', 'objects'].includes(name)))
+    stop('RESTORE_READERS_STILL_RUNNING');
+  // Process exit is a local reader fence, not evidence that a previously sent remote effect ended.
   say({ event: 'sovereign_restore.stopped', services, finished_at: new Date().toISOString() });
+}
+
+export function authRestoreResult(output, event) {
+  const matches = [];
+  for (const line of output.split('\n')) {
+    let value;
+    try {
+      value = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    if (value && typeof value === 'object' && value.event === event) matches.push(value);
+  }
+  if (matches.length !== 1)
+    throw Object.assign(new Error('AUTH_RESTORE_RESULT_UNAVAILABLE'), {
+      code: 'AUTH_RESTORE_RESULT_UNAVAILABLE',
+    });
+  const value = matches[0];
+  if (
+    event !== 'auth_restore.schema_ready' &&
+    (typeof value.generation !== 'string' ||
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(value.generation))
+  ) {
+    throw Object.assign(new Error('AUTH_RESTORE_RESULT_UNAVAILABLE'), {
+      code: 'AUTH_RESTORE_RESULT_UNAVAILABLE',
+    });
+  }
+  if (event === 'auth_restore.invalidated') {
+    const countKeys = [
+      'sessionsRemoved',
+      'assurancesRemoved',
+      'verificationsRemoved',
+      'setupTokensRevoked',
+      'backupCodeSetsRevoked',
+    ];
+    const keys = [
+      'event',
+      'generation',
+      'already_invalidated',
+      'version',
+      'completedAt',
+      'emptyBackupCipherSha256',
+      ...countKeys,
+    ];
+    if (
+      value.version !== 1 ||
+      typeof value.already_invalidated !== 'boolean' ||
+      typeof value.completedAt !== 'string' ||
+      !Number.isFinite(Date.parse(value.completedAt)) ||
+      typeof value.emptyBackupCipherSha256 !== 'string' ||
+      !/^[0-9a-f]{64}$/.test(value.emptyBackupCipherSha256) ||
+      countKeys.some((key) => !Number.isSafeInteger(value[key]) || value[key] < 0) ||
+      Object.keys(value).length !== keys.length ||
+      Object.keys(value).some((key) => !keys.includes(key))
+    ) {
+      throw Object.assign(new Error('AUTH_RESTORE_RESULT_UNAVAILABLE'), {
+        code: 'AUTH_RESTORE_RESULT_UNAVAILABLE',
+      });
+    }
+  }
+  return value;
+}
+
+/** No serving process resumes. A missing helper/job, native key error or incomplete result stops. */
+export function fenceRestoredAuthentication(values, manifest, verified) {
+  authRestoreResult(
+    compose(
+      values,
+      'run',
+      '--rm',
+      '--no-deps',
+      'migrate',
+      'node',
+      'dist/auth-restore.js',
+      'migrate',
+    ),
+    'auth_restore.schema_ready',
+  );
+  const begin = authRestoreResult(
+    compose(
+      values,
+      'run',
+      '--rm',
+      '--no-deps',
+      'migrate',
+      'node',
+      'dist/auth-restore.js',
+      'begin',
+      '--backup',
+      manifest.backup_id,
+      '--manifest',
+      verified.manifest_sealed_sha256,
+    ),
+    'auth_restore.pending',
+  );
+  // begin rotates 0515's protected material UUID in the same committed SQL transaction, BEFORE
+  // any object bytes or reapply. A partial restore retry always begins with fresh generations.
+  const invalidated = authRestoreResult(
+    compose(
+      values,
+      '--profile',
+      'ops',
+      'run',
+      '--rm',
+      '--no-deps',
+      'auth-restore',
+      'node',
+      'dist/auth-restore.js',
+      'invalidate',
+      '--generation',
+      begin.generation,
+    ),
+    'auth_restore.invalidated',
+  );
+  if (invalidated.generation !== begin.generation) stop('AUTH_RESTORE_GENERATION_CHANGED');
+  say({
+    event: 'sovereign_restore.authentication_pending',
+    generation: begin.generation,
+    backup_id: manifest.backup_id,
+    manifest_sealed_sha256: verified.manifest_sealed_sha256,
+  });
+  return begin.generation;
 }
 
 /** One transaction, so a failure changes nothing, as the runbook's own restore does. */
@@ -175,14 +335,16 @@ async function main() {
     'postgres_temporal_visibility',
     'temporal_visibility',
   );
+  const authGeneration = fenceRestoredAuthentication(values, manifest, verified);
   const counts = await restoreObjects(values, tools, manifest, key, store);
 
   say({
     event: 'sovereign_restore.finished',
     backup_id: manifest.backup_id,
     manifest_sealed_sha256: verified.manifest_sealed_sha256,
-    next: 'RUN_MIGRATIONS_START_TEMPORAL_THEN_RESTORE_RECONCILE_REPORT',
-    connector_worker: 'STAYS_STOPPED_UNTIL_REVIEWED_NOT_ENFORCED_BY_CODE',
+    auth_restore_generation: authGeneration,
+    next: 'INSPECT_RECONCILE_REVIEW_ACKNOWLEDGE_AUTHORITY_THEN_RECONCILE_MATERIAL',
+    readers_and_workers: 'STAY_STOPPED_NO_AUTOMATIC_RESUME',
     finished_at: new Date().toISOString(),
   });
   if (counts.refused_by_key > 0) stop('BACKUP_HELD_KEYS_NEVER_RESTORED');

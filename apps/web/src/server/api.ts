@@ -1,4 +1,5 @@
 import 'server-only';
+import { isRestoreAdmissionDenied } from '@ensemus/database';
 import { randomBytes, randomUUID } from 'node:crypto';
 import {
   AppError,
@@ -140,6 +141,10 @@ function errorResponse(
 }
 
 function toErrorResponse(error: unknown, requestId: string) {
+  if (isRestoreAdmissionDenied(error)) {
+    const pending = new AppError('RESTORE_PENDING');
+    return errorResponse(HTTP_STATUS.RESTORE_PENDING, requestId, pending.code, pending.message);
+  }
   if (error instanceof ApiFailure) {
     return errorResponse(error.status, requestId, error.code, error.message, error.details);
   }

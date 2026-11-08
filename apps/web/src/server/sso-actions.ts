@@ -65,6 +65,16 @@ export async function startSsoSignInAction(form: FormData) {
       }),
     );
     if (response.status === 429) redirect('/sign-in/sso?error=rate');
+    if (
+      response.status === 503 &&
+      (
+        await response
+          .clone()
+          .json()
+          .catch(() => null)
+      )?.code === 'RESTORE_PENDING'
+    )
+      redirect('/restoring');
     if (response.ok) {
       const result = (await response.json()) as { url?: unknown };
       if (typeof result.url === 'string') {
@@ -116,6 +126,16 @@ export async function startSsoSelfLinkAction(form: FormData) {
       }),
     );
     if (response.status === 429) redirect('/sign-in/sso?error=rate');
+    if (
+      response.status === 503 &&
+      (
+        await response
+          .clone()
+          .json()
+          .catch(() => null)
+      )?.code === 'RESTORE_PENDING'
+    )
+      redirect('/restoring');
     if (response.ok) {
       const result = (await response.json()) as { url?: unknown };
       if (typeof result.url === 'string') {
