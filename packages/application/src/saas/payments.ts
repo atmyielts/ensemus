@@ -11,7 +11,7 @@ import {
   paymentAttempts,
   payments,
   planVersions,
-  rateCards,
+  billingRateCards,
   standingChanges,
   subscriptions,
   type AppDatabase,
@@ -539,9 +539,9 @@ export async function beginPaymentAttempt(
       minorUnitExponent = plan?.precision ?? null;
     } else if (invoice.rateCardId) {
       const [card] = await tx
-        .select({ precision: rateCards.minorUnitExponent })
-        .from(rateCards)
-        .where(eq(rateCards.id, invoice.rateCardId));
+        .select({ precision: billingRateCards.minorUnitExponent })
+        .from(billingRateCards)
+        .where(eq(billingRateCards.id, invoice.rateCardId));
       minorUnitExponent = card?.precision ?? null;
     }
     const refusal = !check.ok

@@ -497,10 +497,26 @@ export async function applyVerifiedDelivery(
             eq(webhookEndpoints.id, delivery.endpointId),
           ),
         );
+      if (!endpoint) throw new EffectRefused();
       try {
         for (const effect of input.effects) {
           if (effect.kind === 'action_proposed') await handlers.proposeAction(tx, context, effect);
-          else await handlers.requestSync(tx, context, endpoint?.connectionId as string);
+          else if (effect.kind === 'sync_requested')
+            await handlers.requestSync(tx, context, endpoint.connectionId);
+          else if (effect.kind === 'payment_event') {
+            if (!effect.event || effect.event.providerEventId !== input.providerEventId)
+              throw new AppError('INVALID_INPUT');
+            await handlers.recordPaymentEvent(
+              tx,
+              context,
+              effect,
+              Object.freeze({
+                endpointId: delivery.endpointId,
+                connectionId: endpoint.connectionId,
+                providerEventId: input.providerEventId,
+              }),
+            );
+          } else throw new AppError('INVALID_INPUT');
         }
       } catch (error) {
         if (isRefusal(error)) throw new EffectRefused();

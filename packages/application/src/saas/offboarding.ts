@@ -203,7 +203,7 @@ async function rowsIn(tx: Tx, offboardingId: string, table: { schema: string; ta
   // Only begin/finishErasure call this, after service() and the branded withAccountTx check.
   // This metadata capability reads no secret column and lasts only for this transaction.
   const result = await tx.execute(
-    sql`select lifecycle.erasure_table_rows(${table.schema+'.'+table.table},${offboardingId}::uuid)::text as n`,
+    sql`select lifecycle.erasure_table_rows(${table.schema + '.' + table.table},${offboardingId}::uuid)::text as n`,
   );
   return count(result.rows[0]?.n);
 }
@@ -311,7 +311,7 @@ export async function requestOffboarding(
   manager(context);
   if (!interactiveSessionOf(context)) throw new AppError('MFA_REQUIRED');
   return withAccountTx(database, context, async (tx) => {
-    await assertInteractivePrivilege(tx,context,'organization.manage');
+    await assertInteractivePrivilege(tx, context, 'organization.manage');
     const org = await lockTenant(tx, context);
     if (input.confirmName !== org.name) throw new AppError('OFFBOARDING_CONFIRMATION_MISMATCH');
     const [live] = await tx
@@ -693,19 +693,35 @@ export async function beginErasure(
         .set({ erasureStartedByRef: input.operatorRef })
         .where(eq(offboardings.id, id));
     let tombstoned = 0;
-    const files = (await tx.execute<{ artifact_id:string;classification:string;added:boolean }>(
-      sql`select * from lifecycle.prepare_erasure_artifacts(${id}::uuid,100)`,
-    )).rows;
+    const files = (
+      await tx.execute<{ artifact_id: string; classification: string; added: boolean }>(
+        sql`select * from lifecycle.prepare_erasure_artifacts(${id}::uuid,100)`,
+      )
+    ).rows;
     for (const file of files) {
       if (file.added) tombstoned += 1;
-      const [event] = await tx.select({id:domainEvents.id}).from(domainEvents).where(and(
-        eq(domainEvents.organizationId,context.organizationId),eq(domainEvents.aggregateType,'artifact'),
-        eq(domainEvents.aggregateId,file.artifact_id),eq(domainEvents.eventType,TOMBSTONE_RECORDED),
-      )).limit(1);
-      if (!event) await emit(tx,context,{ eventType:TOMBSTONE_RECORDED,aggregateType:'artifact',
-        aggregateId:file.artifact_id,aggregateVersion:1,classification:file.classification as 'public'|'internal'|'confidential'|'restricted',
-        payload:{artifact_id:file.artifact_id},
-      });
+      const [event] = await tx
+        .select({ id: domainEvents.id })
+        .from(domainEvents)
+        .where(
+          and(
+            eq(domainEvents.organizationId, context.organizationId),
+            eq(domainEvents.aggregateType, 'artifact'),
+            eq(domainEvents.aggregateId, file.artifact_id),
+            eq(domainEvents.eventType, TOMBSTONE_RECORDED),
+          ),
+        )
+        .limit(1);
+      if (!event)
+        await emit(tx, context, {
+          eventType: TOMBSTONE_RECORDED,
+          aggregateType: 'artifact',
+          aggregateId: file.artifact_id,
+          aggregateVersion: 1,
+          classification: file.classification as
+            'public' | 'internal' | 'confidential' | 'restricted',
+          payload: { artifact_id: file.artifact_id },
+        });
     }
     await auditAction(
       tx,
@@ -733,7 +749,7 @@ export async function finishErasure(
     operatorRef: string;
   },
   agents?: OffboardingAgentHaltPort,
-  objects?: Pick<ReturnType<typeof createTenantObjectErasure>,'confirm'>,
+  objects?: Pick<ReturnType<typeof createTenantObjectErasure>, 'confirm'>,
 ): Promise<{ state: OffboardingState; report: ErasureReport | null }> {
   service(context);
   const id = idOf(input.offboardingId);
@@ -753,15 +769,17 @@ export async function finishErasure(
     throw new AppError('INVALID_INPUT');
   // Provider/prefix I/O finishes before the final SQL transaction. Missing composition never means
   // zero bytes. The final transaction rechecks exact retained receipts under the tenant barrier.
-  if(!objects || !(await objects.confirm(context,{offboardingId:id})).confirmed)
+  if (!objects || !(await objects.confirm(context, { offboardingId: id })).confirmed)
     throw new AppError('PREREQUISITES_INCOMPLETE');
   return withAccountTx(database, context, async (tx) => {
     const { row } = await locked(tx, context, id, true);
-    const physical=await tx.execute<{ready:boolean}>(sql`select lifecycle.erasure_object_proofs(${id}::uuid) as ready`);
-    if(physical.rows[0]?.ready!==true) throw new AppError('PREREQUISITES_INCOMPLETE');
+    const physical = await tx.execute<{ ready: boolean }>(
+      sql`select lifecycle.erasure_object_proofs(${id}::uuid) as ready`,
+    );
+    if (physical.rows[0]?.ready !== true) throw new AppError('PREREQUISITES_INCOMPLETE');
     if (row.state === 'reported') {
-      for(const table of await contentTables(tx)) {
-        if(await rowsIn(tx,id,table)!==0) throw new AppError('PREREQUISITES_INCOMPLETE');
+      for (const table of await contentTables(tx)) {
+        if ((await rowsIn(tx, id, table)) !== 0) throw new AppError('PREREQUISITES_INCOMPLETE');
       }
       return { state: 'reported', report: row.report as ErasureReport };
     }

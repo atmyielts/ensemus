@@ -8,7 +8,7 @@ import {
   planVersions,
   providerBills,
   rateCardLines,
-  rateCards,
+  billingRateCards,
   taxTreatments,
   topUpOffers,
 } from '@ensemus/database';
@@ -167,12 +167,12 @@ export async function draftRateCard(
   return catalogWrite(db, async (tx) => {
     await lock(tx, `card:${value.code}`);
     const [latest] = await tx
-      .select({ version: sql<number>`coalesce(max(${rateCards.version}), 0)::int` })
-      .from(rateCards)
-      .where(eq(rateCards.code, value.code));
+      .select({ version: sql<number>`coalesce(max(${billingRateCards.version}), 0)::int` })
+      .from(billingRateCards)
+      .where(eq(billingRateCards.code, value.code));
     const version = (latest?.version ?? 0) + 1;
     const [card] = await tx
-      .insert(rateCards)
+      .insert(billingRateCards)
       .values({
         code: value.code,
         version,
@@ -180,7 +180,7 @@ export async function draftRateCard(
         minorUnitExponent: value.minorUnitExponent,
         draftedBy: value.operatorRef,
       })
-      .returning({ id: rateCards.id });
+      .returning({ id: billingRateCards.id });
     if (!card) throw new AppError('INVALID_STATE');
     if (value.lines.length)
       await tx
@@ -203,15 +203,15 @@ export async function approveRateCard(
   const value = inputOf(catalogInputSchemas.approveRateCard, input);
   return catalogWrite(db, async (tx) => {
     const [identity] = await tx
-      .select({ code: rateCards.code })
-      .from(rateCards)
-      .where(eq(rateCards.id, value.rateCardId));
+      .select({ code: billingRateCards.code })
+      .from(billingRateCards)
+      .where(eq(billingRateCards.id, value.rateCardId));
     if (!identity) throw new AppError('NOT_FOUND');
     await lock(tx, `card:${identity.code}`);
     const [card] = await tx
       .select()
-      .from(rateCards)
-      .where(eq(rateCards.id, value.rateCardId))
+      .from(billingRateCards)
+      .where(eq(billingRateCards.id, value.rateCardId))
       .for('update');
     if (!card || card.status !== 'draft') throw new AppError('INVALID_STATE');
     const [line] = await tx
@@ -222,18 +222,20 @@ export async function approveRateCard(
     if (!line) throw new AppError('RATE_CARD_NOT_APPROVED');
     const now = new Date();
     await tx
-      .update(rateCards)
+      .update(billingRateCards)
       .set({ status: 'retired', retiredAt: now })
-      .where(and(eq(rateCards.code, identity.code), eq(rateCards.status, 'approved')));
+      .where(
+        and(eq(billingRateCards.code, identity.code), eq(billingRateCards.status, 'approved')),
+      );
     await tx
-      .update(rateCards)
+      .update(billingRateCards)
       .set({
         status: 'approved',
         effectiveFrom: value.effectiveFrom,
         approvedBy: value.operatorRef,
         approvedAt: now,
       })
-      .where(eq(rateCards.id, card.id));
+      .where(eq(billingRateCards.id, card.id));
     await audit(tx, value.operatorRef, 'catalog.rate_card.approved', `rate_card:${card.id}`);
   });
 }

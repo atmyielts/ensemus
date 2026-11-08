@@ -1,6 +1,6 @@
 // Durable deletion admission is separate from storage I/O. A rejected DELETE can still complete
 // at the provider: an unknown claim is retained and never retried or promoted by a later HEAD.
-import { withTenantTx, type AppDatabase, type TenantContext,type Tx } from '@ensemus/database';
+import { withTenantTx, type AppDatabase, type TenantContext, type Tx } from '@ensemus/database';
 import { sql } from 'drizzle-orm';
 import type { ObjectStore } from '../artifacts';
 import type { DerivedArtifactLifecycle } from '../knowledge/artifact-provenance';
@@ -10,12 +10,15 @@ import { AppError } from '../errors';
 /** Existing raw Knowledge deletes lack durable operation/hold admission. Keep their writer debt
  * rather than letting a retry silently erase an earlier ambiguous provider operation. Exact admitted
  * lifecycle adapters receive the underlying store at composition, never this ordinary delete path. */
-export function refuseUnadmittedDeletes<T extends ObjectStore>(store:T):T {
-  return new Proxy(store,{
-    get(target,key) {
-      if(key==='delete'||key==='deleteForPurge') return async()=>{throw new AppError('OBJECT_DELETE_UNCONFIRMED');};
-      const value:unknown=Reflect.get(target,key,target);
-      return typeof value==='function'?value.bind(target):value;
+export function refuseUnadmittedDeletes<T extends ObjectStore>(store: T): T {
+  return new Proxy(store, {
+    get(target, key) {
+      if (key === 'delete' || key === 'deleteForPurge')
+        return async () => {
+          throw new AppError('OBJECT_DELETE_UNCONFIRMED');
+        };
+      const value: unknown = Reflect.get(target, key, target);
+      return typeof value === 'function' ? value.bind(target) : value;
     },
   });
 }
@@ -25,15 +28,20 @@ export type DeletionTarget =
   | { kind: 'ordinary'; artifactId: string }
   | { kind: 'archive'; importId: string; sourceArtifactId: string; writeToken: string };
 export type DeletionAdmission =
-  | { state: 'held' | 'unconfirmed' }
-  | { state: 'admitted' | 'deleted'; claimId: string; objectKey: string };
+  | { state: 'held' }
+  | { state: 'unconfirmed' }
+  | { state: 'admitted'; claimId: string; objectKey: string }
+  | { state: 'deleted'; claimId: string; objectKey: string };
 export interface ObjectDeletionAuthority {
   begin(context: TenantContext, target: DeletionTarget): Promise<DeletionAdmission>;
   terminal(context: TenantContext, claimId: string, outcome: 'deleted' | 'unknown'): Promise<void>;
   proveAbsent(context: TenantContext, claimId: string): Promise<boolean>;
 }
 type Result = { state: 'purged'; quiescent: true } | { state: 'held' | 'unconfirmed' };
-type DeletionStore = Pick<ObjectStore, 'delete' | 'exists' | 'deleteForPurge' | 'isPhysicallyAbsent'>;
+type DeletionStore = Pick<
+  ObjectStore,
+  'delete' | 'exists' | 'deleteForPurge' | 'isPhysicallyAbsent'
+>;
 
 /** A testable state machine around the actual SQL authority, never a successful default port. */
 export function createObjectDeletionExecutor(deps: {
@@ -44,7 +52,8 @@ export function createObjectDeletionExecutor(deps: {
     if (context.actorType !== 'service' && target.kind !== 'ordinary')
       throw new AppError('FORBIDDEN');
     // Old/test adapters that only expose HEAD cannot certify that prior object versions are gone.
-    if (!deps.store.deleteForPurge || !deps.store.isPhysicallyAbsent) return { state: 'unconfirmed' };
+    if (!deps.store.deleteForPurge || !deps.store.isPhysicallyAbsent)
+      return { state: 'unconfirmed' };
     const claim = await deps.authority.begin(context, target);
     if (claim.state === 'held' || claim.state === 'unconfirmed') return claim;
     if (claim.state === 'admitted') {
@@ -71,7 +80,9 @@ export function createObjectDeletionExecutor(deps: {
     // failure. Neither this check nor any later successful request clears an UNKNOWN operation.
     try {
       if (!(await deps.store.isPhysicallyAbsent(claim.objectKey))) return { state: 'unconfirmed' };
-    } catch { return { state: 'unconfirmed' }; }
+    } catch {
+      return { state: 'unconfirmed' };
+    }
     return (await deps.authority.proveAbsent(context, claim.claimId))
       ? { state: 'purged', quiescent: true }
       : { state: 'unconfirmed' };
@@ -83,20 +94,26 @@ export function createSqlObjectDeletionAuthority(database: AppDatabase): ObjectD
     async begin(context, target) {
       return withTenantTx(database, context, async (tx) => {
         const result = await tx.execute<{
-          state: string; claim_id: string | null; object_key: string | null;
+          state: string;
+          claim_id: string | null;
+          object_key: string | null;
         }>(sql`select * from lifecycle.begin_object_deletion(${JSON.stringify(target)}::jsonb)`);
         const row = result.rows[0];
         if (!row) throw new AppError('PREREQUISITES_INCOMPLETE');
         if (row.state === 'held' || row.state === 'unconfirmed') return { state: row.state };
-        if ((row.state !== 'admitted' && row.state !== 'deleted') || !row.claim_id || !row.object_key)
+        if (
+          (row.state !== 'admitted' && row.state !== 'deleted') ||
+          !row.claim_id ||
+          !row.object_key
+        )
           throw new AppError('PREREQUISITES_INCOMPLETE');
         return { state: row.state, claimId: row.claim_id, objectKey: row.object_key };
       });
     },
     async terminal(context, claimId, outcome) {
-      await withTenantTx(database, context, (tx) => tx.execute(
-        sql`select lifecycle.object_delete_terminal(${claimId}::uuid,${outcome})`,
-      ));
+      await withTenantTx(database, context, (tx) =>
+        tx.execute(sql`select lifecycle.object_delete_terminal(${claimId}::uuid,${outcome})`),
+      );
     },
     async proveAbsent(context, claimId) {
       return withTenantTx(database, context, async (tx) => {
@@ -110,40 +127,62 @@ export function createSqlObjectDeletionAuthority(database: AppDatabase): ObjectD
 }
 
 /** M5's completed-job fast path must recheck retained operation/restore debt, not only headers. */
-export async function assertNoUnresolvedObjectDeletes(tx:Tx,context:TenantContext) {
-  if(context.actorType!=='service') throw new AppError('FORBIDDEN');
-  const result=await tx.execute<{unconfirmed:number}>(sql`select unconfirmed from lifecycle.object_delete_counts()`);
-  if(result.rows[0]?.unconfirmed!==0) throw new AppError('OBJECT_DELETE_UNCONFIRMED');
+export async function assertNoUnresolvedObjectDeletes(tx: Tx, context: TenantContext) {
+  if (context.actorType !== 'service') throw new AppError('FORBIDDEN');
+  const result = await tx.execute<{ unconfirmed: number }>(
+    sql`select unconfirmed from lifecycle.object_delete_counts()`,
+  );
+  if (result.rows[0]?.unconfirmed !== 0) throw new AppError('OBJECT_DELETE_UNCONFIRMED');
 }
 
 export function createObjectDeletionLifecycle(deps: {
-  database: AppDatabase; store: DeletionStore;
+  database: AppDatabase;
+  store: DeletionStore;
 }): { derived: DerivedArtifactLifecycle; archive: ArchiveQuarantineLifecycle } {
   const erase = createObjectDeletionExecutor({
-    authority: createSqlObjectDeletionAuthority(deps.database), store: deps.store,
+    authority: createSqlObjectDeletionAuthority(deps.database),
+    store: deps.store,
   });
   return {
-    derived: { erase: (context, input) => erase(context, {
-      kind: 'derived', artifactId: input.artifactId, writeId: input.writeId,
-      generation: input.generation,
-    }) },
-    archive: { erase: (context, input) => erase(context, {
-      kind: 'archive', importId: input.importId, sourceArtifactId: input.sourceArtifactId,
-      writeToken: input.writeToken,
-    }) },
+    derived: {
+      erase: (context, input) =>
+        erase(context, {
+          kind: 'derived',
+          artifactId: input.artifactId,
+          writeId: input.writeId,
+          generation: input.generation,
+        }),
+    },
+    archive: {
+      erase: (context, input) =>
+        erase(context, {
+          kind: 'archive',
+          importId: input.importId,
+          sourceArtifactId: input.sourceArtifactId,
+          writeToken: input.writeToken,
+        }),
+    },
   };
 }
 
 /** Select the actual retained writer; callers never label a generated file ordinary. */
-export async function eraseTombstonedArtifact(deps: {
-  database: AppDatabase; store: DeletionStore;
-}, context: TenantContext, artifactId: string): Promise<Result> {
+export async function eraseTombstonedArtifact(
+  deps: {
+    database: AppDatabase;
+    store: DeletionStore;
+  },
+  context: TenantContext,
+  artifactId: string,
+): Promise<Result> {
   const target = await withTenantTx(deps.database, context, async (tx) => {
     const result = await tx.execute<{ target: DeletionTarget | null }>(
       sql`select lifecycle.artifact_delete_target(${artifactId}::uuid) as target`,
     );
     return result.rows[0]?.target ?? null;
   });
-  if (!target) return {state:'unconfirmed'};
-  return createObjectDeletionExecutor({ authority:createSqlObjectDeletionAuthority(deps.database), store:deps.store })(context,target);
+  if (!target) return { state: 'unconfirmed' };
+  return createObjectDeletionExecutor({
+    authority: createSqlObjectDeletionAuthority(deps.database),
+    store: deps.store,
+  })(context, target);
 }

@@ -161,22 +161,21 @@ export async function withTenantTx<T>(
   fn: (tx: Tx) => Promise<T>,
 ): Promise<T> {
   if (context[brand] !== true) throw new TenantAccessDenied();
-  return database.transaction(
-    tenantBindings(context),
-    async (tx) => {
-      if (context.serving && context.serving !== 'full') await tx.execute(sql`set transaction read only`);
-      return fn(tx);
-    },
-  );
+  return database.transaction(tenantBindings(context), async (tx) => {
+    if (context.serving && context.serving !== 'full')
+      await tx.execute(sql`set transaction read only`);
+    return fn(tx);
+  });
 }
 
 /** Billing, support, export and leaving stay available in restricted standing (ADR-032 D5). */
-export async function withAccountTx<T>(database: AppDatabase, context: TenantContext, fn: (tx: Tx) => Promise<T>): Promise<T> {
+export async function withAccountTx<T>(
+  database: AppDatabase,
+  context: TenantContext,
+  fn: (tx: Tx) => Promise<T>,
+): Promise<T> {
   if (context[brand] !== true) throw new TenantAccessDenied();
-  return database.transaction(
-    tenantBindings(context),
-    fn,
-  );
+  return database.transaction(tenantBindings(context), fn);
 }
 
 /**

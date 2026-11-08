@@ -153,7 +153,7 @@ describe('restricted erasure independently verifies every tenant-content table',
       ready.service,
       { ...ready, tables: retry, blobsRemoved: 0, operatorRef: 'test-operator@example.invalid' },
       ready.ports.offboardingAgents,
-      createTenantObjectErasure({database:database.db,store}),
+      createTenantObjectErasure({ database: database.db, store }),
     );
     expect(finished.state).toBe('reported');
     expect(finished.report!.rowsRemoved).toBeGreaterThan(0);
@@ -190,7 +190,8 @@ describe('restricted erasure independently verifies every tenant-content table',
   it('keeps metadata tenant-scoped after membership deletion and refuses new bodies after erasure', async () => {
     const owner = await lifecycleTenant(database.db, auth),
       other = await lifecycleTenant(database.db, auth),
-      service = createServiceContext(owner.organizationId),store=new LifecycleMemoryStore();
+      service = createServiceContext(owner.organizationId),
+      store = new LifecycleMemoryStore();
     const insert = () =>
       withAccountTx(database.db, service, (tx) =>
         tx.insert(sealedSecrets).values({
@@ -232,7 +233,7 @@ describe('restricted erasure independently verifies every tenant-content table',
       service,
       { ...ready, tables, blobsRemoved: 0, operatorRef: 'test-operator@example.invalid' },
       ready.ports.offboardingAgents,
-      createTenantObjectErasure({database:database.db,store}),
+      createTenantObjectErasure({ database: database.db, store }),
     );
     // A stale service context cannot resurrect content after the final count and closed tenant.
     await expect(insert()).rejects.toThrow();

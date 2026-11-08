@@ -69,12 +69,12 @@ export function createKnowledgePurgePorts(deps: {
       ...combined,
       async confirmInTx(tx, context, input) {
         requireLifecycleBindings();
-        await assertNoUnresolvedObjectDeletes(tx,context);
+        await assertNoUnresolvedObjectDeletes(tx, context);
         return combined.confirmInTx(tx, context, input);
       },
       async confirmRecordInTx(tx, context, input) {
         requireLifecycleBindings();
-        await assertNoUnresolvedObjectDeletes(tx,context);
+        await assertNoUnresolvedObjectDeletes(tx, context);
         return combined.confirmRecordInTx(tx, context, input);
       },
     },

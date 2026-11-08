@@ -34,9 +34,7 @@ async function entitlementFacts(
   if (!['cloud', 'byom', 'sovereign'].includes(org.commercialMode)) throw new AppError('NOT_FOUND');
   const commercialMode = org.commercialMode as EntitlementFacts['commercialMode'];
   const facts =
-    commercialMode === 'sovereign'
-      ? null
-      : await loadEntitlementMetadataInTx(tx,context);
+    commercialMode === 'sovereign' ? null : await loadEntitlementMetadataInTx(tx, context);
   const plan = facts?.planVersionId ? await loadPlanTerms(tx, facts.planVersionId) : null;
   const balanceMicrocredits =
     balance &&

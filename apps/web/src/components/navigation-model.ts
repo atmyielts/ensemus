@@ -280,7 +280,11 @@ export function workspaceNavigation(input: {
         },
       ],
     });
-  if (can(role, 'support.use')) groups.push({ label: 'Account', items: [{ href: `${base}/account`, label: 'Account and support', icon: 'usage' }] });
+  if (can(role, 'support.use'))
+    groups.push({
+      label: 'Account',
+      items: [{ href: `${base}/account`, label: 'Account and support', icon: 'usage' }],
+    });
   return groups;
 }
 

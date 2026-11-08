@@ -135,7 +135,13 @@ describe('bounded object reads for model context', () => {
 
 describe('physical absence requires an actual unversioned S3 protocol response', () => {
   const empty = '<VersioningConfiguration xmlns="http://s3.amazonaws.com/doc/2006-03-01/"/>';
-  type Reply = { status?: number; body?: string | Buffer; contentType?: string; stall?: boolean; headers?: Record<string,string> };
+  type Reply = {
+    status?: number;
+    body?: string | Buffer;
+    contentType?: string;
+    stall?: boolean;
+    headers?: Record<string, string>;
+  };
   let server: Server;
   let store: S3ObjectStore;
   let versioning: Reply[];
@@ -151,14 +157,21 @@ describe('physical absence requires an actual unversioned S3 protocol response',
     server = createServer((request, response) => {
       request.resume();
       const url = new URL(request.url ?? '', 'http://store');
-      const operation = request.method === 'GET' && url.searchParams.has('versioning')
-        ? 'versioning' : request.method ?? 'unknown';
+      const operation =
+        request.method === 'GET' && url.searchParams.has('versioning')
+          ? 'versioning'
+          : (request.method ?? 'unknown');
       requests.push(operation);
-      const reply: Reply = operation === 'versioning' ? versioning.shift() ?? { body: empty }
-        : operation === 'HEAD' ? { status: headStatus } : deletion;
+      const reply: Reply =
+        operation === 'versioning'
+          ? (versioning.shift() ?? { body: empty })
+          : operation === 'HEAD'
+            ? { status: headStatus }
+            : deletion;
       response.statusCode = reply.status ?? 200;
       response.setHeader('content-type', reply.contentType ?? 'application/xml');
-      for (const [name,value] of Object.entries(reply.headers ?? {})) response.setHeader(name,value);
+      for (const [name, value] of Object.entries(reply.headers ?? {}))
+        response.setHeader(name, value);
       if (reply.stall) {
         response.write(reply.body ?? '<VersioningConfiguration');
         return;
@@ -166,9 +179,14 @@ describe('physical absence requires an actual unversioned S3 protocol response',
       response.end(reply.body ?? '');
     });
     await new Promise<void>((listening) => server.listen(0, '127.0.0.1', listening));
-    store = new S3ObjectStore({ endpoint: `http://127.0.0.1:${(server.address() as AddressInfo).port}`,
-      bucket: 'generated-fixture-bucket', accessKey: 'generated-fixture-key', secretKey: 'generated-fixture-secret',
-      maxAttempts: 3, requestTimeoutMs: 250 });
+    store = new S3ObjectStore({
+      endpoint: `http://127.0.0.1:${(server.address() as AddressInfo).port}`,
+      bucket: 'generated-fixture-bucket',
+      accessKey: 'generated-fixture-key',
+      secretKey: 'generated-fixture-secret',
+      maxAttempts: 3,
+      requestTimeoutMs: 250,
+    });
   });
 
   afterEach(async () => {
@@ -180,42 +198,81 @@ describe('physical absence requires an actual unversioned S3 protocol response',
   it('checks capability around one DELETE and around its independent absence probe', async () => {
     await store.delete('generated-fixture-object');
     expect(await store.isPhysicallyAbsent('generated-fixture-object')).toBe(true);
-    expect(requests).toEqual(['versioning','DELETE','versioning','versioning','HEAD','versioning']);
+    expect(requests).toEqual([
+      'versioning',
+      'DELETE',
+      'versioning',
+      'versioning',
+      'HEAD',
+      'versioning',
+    ]);
   });
 
   it('accepts the explicit empty configuration returned by the real operation', async () => {
-    versioning.push({ body: '<?xml version="1.0" encoding="UTF-8"?>\n<VersioningConfiguration xmlns="http://s3.amazonaws.com/doc/2006-03-01/">\n</VersioningConfiguration>' });
+    versioning.push({
+      body: '<?xml version="1.0" encoding="UTF-8"?>\n<VersioningConfiguration xmlns="http://s3.amazonaws.com/doc/2006-03-01/">\n</VersioningConfiguration>',
+    });
     expect(await store.isPhysicallyAbsent('generated-fixture-object')).toBe(true);
-    expect(requests).toEqual(['versioning','HEAD','versioning']);
+    expect(requests).toEqual(['versioning', 'HEAD', 'versioning']);
   });
 
   it.each([
-    ['versioning enabled', '<VersioningConfiguration xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><Status>Enabled</Status></VersioningConfiguration>'],
-    ['versioning suspended', '<VersioningConfiguration xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><Status>Suspended</Status></VersioningConfiguration>'],
-    ['unknown status', '<VersioningConfiguration xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><Status>Unknown</Status></VersioningConfiguration>'],
-    ['ignored versioning query', '<ListBucketResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><IsTruncated>false</IsTruncated></ListBucketResult>'],
+    [
+      'versioning enabled',
+      '<VersioningConfiguration xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><Status>Enabled</Status></VersioningConfiguration>',
+    ],
+    [
+      'versioning suspended',
+      '<VersioningConfiguration xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><Status>Suspended</Status></VersioningConfiguration>',
+    ],
+    [
+      'unknown status',
+      '<VersioningConfiguration xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><Status>Unknown</Status></VersioningConfiguration>',
+    ],
+    [
+      'ignored versioning query',
+      '<ListBucketResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><IsTruncated>false</IsTruncated></ListBucketResult>',
+    ],
     ['empty response', ''],
     ['wrong namespace', '<VersioningConfiguration xmlns="http://unsupported.invalid/"/>'],
     ['missing namespace', '<VersioningConfiguration/>'],
-    ['unexpected field', '<VersioningConfiguration xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><Unexpected/></VersioningConfiguration>'],
-    ['duplicate field', '<VersioningConfiguration xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><Status/><Status/></VersioningConfiguration>'],
-    ['unexpected attribute', '<VersioningConfiguration xmlns="http://s3.amazonaws.com/doc/2006-03-01/" Status="Enabled"/>'],
+    [
+      'unexpected field',
+      '<VersioningConfiguration xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><Unexpected/></VersioningConfiguration>',
+    ],
+    [
+      'duplicate field',
+      '<VersioningConfiguration xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><Status/><Status/></VersioningConfiguration>',
+    ],
+    [
+      'unexpected attribute',
+      '<VersioningConfiguration xmlns="http://s3.amazonaws.com/doc/2006-03-01/" Status="Enabled"/>',
+    ],
     ['truncated XML', '<VersioningConfiguration xmlns="http://s3.amazonaws.com/doc/2006-03-01/">'],
     ['multiple roots', `${empty}${empty}`],
-    ['external declaration', `<!DOCTYPE VersioningConfiguration SYSTEM "http://unsupported.invalid/entity">${empty}`],
+    [
+      'external declaration',
+      `<!DOCTYPE VersioningConfiguration SYSTEM "http://unsupported.invalid/entity">${empty}`,
+    ],
     ['oversized response', `${' '.repeat(4097)}${empty}`],
-    ['invalid UTF-8', Buffer.from([0xff,0xfe,0xff])],
-  ])('sends zero DELETEs for %s rather than treating missing native Status as proof', async (_label, body) => {
-    versioning.push({ body });
-    await expect(store.delete('generated-fixture-object')).rejects.toThrow();
-    expect(requests).toEqual(['versioning']);
-  });
+    ['invalid UTF-8', Buffer.from([0xff, 0xfe, 0xff])],
+  ])(
+    'sends zero DELETEs for %s rather than treating missing native Status as proof',
+    async (_label, body) => {
+      versioning.push({ body });
+      await expect(store.delete('generated-fixture-object')).rejects.toThrow();
+      expect(requests).toEqual(['versioning']);
+    },
+  );
 
-  it.each([403, 404, 500, 501])('refuses a capability operation returning HTTP %s', async (status) => {
-    versioning.push({ status, body: empty });
-    await expect(store.delete('generated-fixture-object')).rejects.toThrow();
-    expect(requests).toEqual(['versioning']);
-  });
+  it.each([403, 404, 500, 501])(
+    'refuses a capability operation returning HTTP %s',
+    async (status) => {
+      versioning.push({ status, body: empty });
+      await expect(store.delete('generated-fixture-object')).rejects.toThrow();
+      expect(requests).toEqual(['versioning']);
+    },
+  );
 
   it('does not interpret an HTML success as a capability response', async () => {
     versioning.push({ body: empty, contentType: 'text/html' });
@@ -234,57 +291,83 @@ describe('physical absence requires an actual unversioned S3 protocol response',
   it('does not retry a failed destructive transport', async () => {
     deletion = { status: 503, body: '<Error><Code>ServiceUnavailable</Code></Error>' };
     await expect(store.delete('generated-fixture-object')).rejects.toThrow();
-    expect(requests).toEqual(['versioning','DELETE']);
+    expect(requests).toEqual(['versioning', 'DELETE']);
   });
 
   it('retains ambiguity when the DELETE endpoint returns an unrelated HTTP 200 response', async () => {
     deletion = { status: 200, body: '<ListBucketResult/>' };
-    expect(await store.deleteForPurge('generated-fixture-object')).toEqual({ transport: 'unknown', capabilityVerified: false });
-    expect(requests).toEqual(['versioning','DELETE']);
+    expect(await store.deleteForPurge('generated-fixture-object')).toEqual({
+      transport: 'unknown',
+      capabilityVerified: false,
+    });
+    expect(requests).toEqual(['versioning', 'DELETE']);
   });
 
   it('keeps known completion separate from a refused post-DELETE capability', async () => {
-    versioning.push({ body: empty }, { body: '<VersioningConfiguration xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><Status>Suspended</Status></VersioningConfiguration>' });
-    expect(await store.deleteForPurge('generated-fixture-object')).toEqual({ transport: 'deleted', capabilityVerified: false });
-    expect(requests).toEqual(['versioning','DELETE','versioning']);
+    versioning.push(
+      { body: empty },
+      {
+        body: '<VersioningConfiguration xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><Status>Suspended</Status></VersioningConfiguration>',
+      },
+    );
+    expect(await store.deleteForPurge('generated-fixture-object')).toEqual({
+      transport: 'deleted',
+      capabilityVerified: false,
+    });
+    expect(requests).toEqual(['versioning', 'DELETE', 'versioning']);
   });
 
   it('raw deletion cannot report success when its capability post-check fails', async () => {
     versioning.push({ body: empty }, { body: '<ListBucketResult/>' });
-    await expect(store.delete('generated-fixture-object')).rejects.toThrow('OBJECT_PHYSICAL_ABSENCE_UNPROVEN');
-    expect(requests).toEqual(['versioning','DELETE','versioning']);
+    await expect(store.delete('generated-fixture-object')).rejects.toThrow(
+      'OBJECT_PHYSICAL_ABSENCE_UNPROVEN',
+    );
+    expect(requests).toEqual(['versioning', 'DELETE', 'versioning']);
   });
 
-  it.each([
-    { 'x-amz-delete-marker': 'true' },
-    { 'x-amz-version-id': 'generated-fixture-version' },
-  ])('refuses byte qualification when the actual DELETE returned version metadata %j', async (headers) => {
-    deletion = { status: 204, headers };
-    expect(await store.deleteForPurge('generated-fixture-object')).toEqual({ transport: 'deleted', capabilityVerified: false });
-    expect(requests).toEqual(['versioning','DELETE','versioning']);
-  });
+  it.each([{ 'x-amz-delete-marker': 'true' }, { 'x-amz-version-id': 'generated-fixture-version' }])(
+    'refuses byte qualification when the actual DELETE returned version metadata %j',
+    async (headers) => {
+      deletion = { status: 204, headers };
+      expect(await store.deleteForPurge('generated-fixture-object')).toEqual({
+        transport: 'deleted',
+        capabilityVerified: false,
+      });
+      expect(requests).toEqual(['versioning', 'DELETE', 'versioning']);
+    },
+  );
 
   it('reports a capability refusal before transport without inventing UNKNOWN', async () => {
     versioning.push({ body: '<ListBucketResult/>' });
-    expect(await store.deleteForPurge('generated-fixture-object')).toEqual({ transport: 'not_attempted', capabilityVerified: false });
+    expect(await store.deleteForPurge('generated-fixture-object')).toEqual({
+      transport: 'not_attempted',
+      capabilityVerified: false,
+    });
     expect(requests).toEqual(['versioning']);
   });
 
   it('refuses physical absence for a now-versioned known-terminal retry before HEAD', async () => {
-    versioning.push({ body: '<VersioningConfiguration xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><Status>Enabled</Status></VersioningConfiguration>' });
+    versioning.push({
+      body: '<VersioningConfiguration xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><Status>Enabled</Status></VersioningConfiguration>',
+    });
     await expect(store.isPhysicallyAbsent('generated-fixture-object')).rejects.toThrow();
     expect(requests).toEqual(['versioning']);
   });
 
   it('refuses a versioning change after the independent HEAD', async () => {
-    versioning.push({ body: empty }, { body: '<VersioningConfiguration xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><Status>Suspended</Status></VersioningConfiguration>' });
+    versioning.push(
+      { body: empty },
+      {
+        body: '<VersioningConfiguration xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><Status>Suspended</Status></VersioningConfiguration>',
+      },
+    );
     await expect(store.isPhysicallyAbsent('generated-fixture-object')).rejects.toThrow();
-    expect(requests).toEqual(['versioning','HEAD','versioning']);
+    expect(requests).toEqual(['versioning', 'HEAD', 'versioning']);
   });
 
   it('cannot bless a still-present current object', async () => {
     headStatus = 200;
     expect(await store.isPhysicallyAbsent('generated-fixture-object')).toBe(false);
-    expect(requests).toEqual(['versioning','HEAD','versioning']);
+    expect(requests).toEqual(['versioning', 'HEAD', 'versioning']);
   });
 });

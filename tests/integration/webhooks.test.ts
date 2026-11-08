@@ -90,6 +90,9 @@ describe('webhooks', () => {
   let effectFailure: (() => unknown) | undefined;
 
   const recording: WebhookEffectHandlers = {
+    async recordPaymentEvent() {
+      throw new AppError('INVALID_INPUT');
+    },
     async proposeAction(_tx, context, effect) {
       if (effectFailure) throw effectFailure();
       proposed.push({ organizationId: context.organizationId, workUnitId: effect.workUnitId });

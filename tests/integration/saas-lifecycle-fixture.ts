@@ -28,16 +28,21 @@ export class LifecycleMemoryStore implements ObjectStore {
     return this.objects.has(key);
   }
   // Explicit test-only unversioned map model. This proves orchestration/SQL, never S3 capability.
-  async deleteForPurge(key:string):Promise<{transport:'deleted'|'unknown';capabilityVerified:boolean}> {
-    try { await this.delete(key); }
-    catch { return {transport:'unknown',capabilityVerified:false}; }
-    return {transport:'deleted',capabilityVerified:true};
+  async deleteForPurge(
+    key: string,
+  ): Promise<{ transport: 'deleted' | 'unknown'; capabilityVerified: boolean }> {
+    try {
+      await this.delete(key);
+    } catch {
+      return { transport: 'unknown', capabilityVerified: false };
+    }
+    return { transport: 'deleted', capabilityVerified: true };
   }
-  async isPhysicallyAbsent(key:string) {
+  async isPhysicallyAbsent(key: string) {
     return !this.objects.has(key);
   }
-  async *listPages(prefix:string) {
-    yield [...this.objects.keys()].filter((key)=>key.startsWith(prefix));
+  async *listPages(prefix: string) {
+    yield [...this.objects.keys()].filter((key) => key.startsWith(prefix));
   }
 }
 export async function lifecycleTenant(database: AppDatabase, auth: pg.Client) {
