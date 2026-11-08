@@ -4,7 +4,7 @@ import { useActionState } from 'react';
 import type { BillingAccountInput } from '@ensemus/application/saas/subscriptions';
 import { saveBillingAccountFormAction } from '@/server/billing-actions';
 import { SubmitButton } from './submit-button';
-import { ErrorNotice } from './ui';
+import { AccountActionNotice } from './account-action-notice';
 
 export type BillingAccountFormState = {
   values: BillingAccountInput;
@@ -40,7 +40,11 @@ export function BillingAccountForm({
     <form className="fields form-width" action={action}>
       <input type="hidden" name="organizationId" value={organizationId} />
       <input type="hidden" name="version" value={state.version ?? ''} />
-      <ErrorNotice code={state.code} />
+      <AccountActionNotice
+        code={state.code}
+        organizationId={organizationId}
+        returnTo={`/o/${organizationId}/account/billing`}
+      />
       {state.saved && (
         <p className="notice good" role="status">
           Billing details saved.

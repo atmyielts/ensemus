@@ -1,7 +1,7 @@
 'use client';
 import { useActionState } from 'react';
 import { requestOffboardingFormAction } from '@/server/offboarding-actions';
-import { ErrorNotice } from '@/components/ui';
+import { AccountActionNotice } from '@/components/account-action-notice';
 import { SubmitButton } from '@/components/submit-button';
 export type OffboardingFormState = {
   values: { confirmName: string };
@@ -23,7 +23,11 @@ export function OffboardingRequestForm({
   return (
     <form className="fields form-width" action={action}>
       <input type="hidden" name="organizationId" value={organizationId} />
-      <ErrorNotice code={state.code} />
+      <AccountActionNotice
+        code={state.code}
+        organizationId={organizationId}
+        returnTo={`/o/${organizationId}/account/leave`}
+      />
       {state.requested && (
         <p className="notice" role="status">
           Your offboarding request is recorded. Review its current status above.

@@ -1,7 +1,7 @@
 'use client';
 import { useActionState } from 'react';
 import { placeLegalHoldFormAction } from '@/server/lifecycle-actions';
-import { ErrorNotice } from '@/components/ui';
+import { AccountActionNotice } from '@/components/account-action-notice';
 import { SubmitButton } from '@/components/submit-button';
 export type LegalHoldFormState = {
   values: { matterRef: string; scopeTokens: string[] };
@@ -23,7 +23,11 @@ export function LegalHoldForm({
   return (
     <form className="fields form-width" action={action}>
       <input type="hidden" name="organizationId" value={organizationId} />
-      <ErrorNotice code={state.code} />
+      <AccountActionNotice
+        code={state.code}
+        organizationId={organizationId}
+        returnTo={`/o/${organizationId}/account/legal-holds`}
+      />
       {state.saved && (
         <p className="notice good" role="status">
           Legal hold placed. Records within its scope must be preserved until it is released.
