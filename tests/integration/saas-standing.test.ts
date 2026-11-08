@@ -12,6 +12,7 @@ import {
   auditRefusal,
   isAuditedRefusal,
   refusalFromDatabase,
+  pgCode,
 } from '@ensemus/application';
 import { getBillingOverview } from '@ensemus/application/saas/subscriptions';
 import {
@@ -124,6 +125,10 @@ describe('standing and trusted provisioning', () => {
       ),
     );
     expect(counts.rows[0]).toMatchObject({ changes: 1, events: 1, notices: 1 });
+    const refusalRows = () => withTenantTx(database.db, service, (tx) => tx.execute(
+      sql`select count(*)::int as n from platform.audit_events where action='access.refused.web' and safe_reason='TENANT_READ_ONLY'`,
+    ));
+    const refusalRowsBefore = (await refusalRows()).rows;
     let refusal: unknown;
     try {
       await withTenantTx(database.db, current, (tx) =>
@@ -133,12 +138,16 @@ describe('standing and trusted provisioning', () => {
       refusal = refusalFromDatabase(error);
     }
     expect(refusal).toMatchObject({ code: 'TENANT_READ_ONLY' });
-    expect(isAuditedRefusal(refusal)).toBe(true);
-    // Audit failure in a read-only transaction never grants the original write.
-    await auditRefusal(database.db, current, {
+    // Classification does not persist an audit, and this direct failed transaction has no web/API
+    // refusal wrapper. The read-only standing code is intentionally outside that classifier's set.
+    expect(isAuditedRefusal(refusal)).toBe(false);
+    // An explicit audit attempt also remains read-only: denial is not a durable committed receipt.
+    await expect(auditRefusal(database.db, current, {
       code: (refusal as AppError).code,
       surface: 'web',
-    }).catch(() => undefined);
+    })).rejects.toSatisfy((error: unknown) => pgCode(error) === '25006');
+    expect((await refusalRows()).rows).toEqual(refusalRowsBefore);
+    expect((await getTenantStanding(database.db, owner)).lifecycle).toBe('suspended');
   });
   it('provisioning refuses without a trusted lookup and refuses an unregistered person before tenant writes', async () => {
     const plan = await seedPlan({ mode: 'byom' });
