@@ -90,6 +90,7 @@ import {
   seedAgentVersion,
   seedAiTenant,
   seedQueuedRun,
+  testAgentSpec,
   type AiTenant,
 } from '../helpers/ai/fixtures';
 import { urls } from '../helpers/stack';
@@ -207,7 +208,7 @@ describe('bounded Knowledge model jobs and principal-bound result receipts (0216
       purpose: 'embed',
       classification: 'internal',
     });
-    if (route.decision !== 'allow') throw new Error('TEST_ROUTE_REFUSED');
+    if (route.decision !== 'allow') throw new Error(`TEST_ROUTE_REFUSED:${route.reasonCode}`);
     const metadata: ModelCallMetadata = { operationKey: operationKey([query]), inputs: [] };
     const embed = (refs = metadata) =>
       bound.model.embed(a.organizationId, route.route, [query], signal(), refs);
@@ -264,9 +265,20 @@ describe('bounded Knowledge model jobs and principal-bound result receipts (0216
       )
     )[0];
 
+  async function knowledgeAgentVersion(sourceId?: string | null) {
+    if (sourceId === null) return seedAgentVersion(app.db, a.owner);
+    const declaredSourceId = sourceId ?? (await seedSearchableSource(app.db, a.owner, {
+      passages: ['Generated explicitly declared Knowledge source.'],
+      grants: [{ kind: 'membership', membershipId: a.owner.membershipId }],
+    })).sourceId;
+    return seedAgentVersion(app.db, a.owner, testAgentSpec({
+      context: { allowed_scopes: ['data.restricted.read', `knowledge.${declaredSourceId}.read`], memory_write_policy: 'none' },
+    }));
+  }
   async function actualAuxiliaryRun(
     limits: { maxCostMicros?: number; maxTotalTokens?: number } = {},
     projectId?: string,
+    knowledgeSourceId?: string | null,
   ) {
     await approval('agent_context');
     const work = await createWorkUnit(app.db, a.owner, {
@@ -279,7 +291,7 @@ describe('bounded Knowledge model jobs and principal-bound result receipts (0216
       expectedVersion: work.version,
       to: 'ready',
     });
-    const version = await seedAgentVersion(app.db, a.owner),
+    const version = await knowledgeAgentVersion(knowledgeSourceId),
       runId = await seedQueuedRun(app.db, a.owner, { workUnitId: work.id, version, limits }),
       temporalRunId = randomUUID();
     const claim = await claimQueuedRun(agent.db, {
@@ -364,12 +376,18 @@ describe('bounded Knowledge model jobs and principal-bound result receipts (0216
       ).toHaveLength(1);
     },
   );
+  it('refuses auxiliary spending without an explicit immutable Knowledge source scope, even with workload approval', async () => {
+    const f = await actualAuxiliaryRun({}, undefined, null);
+    await expect(f.calls.prepare(f.principal, f.input)).rejects.toMatchObject({ code: 'EGRESS_DENIED' });
+    expect(await withTenantTx(app.db, a.owner, (tx) => tx.select().from(modelCallAttempts).where(eq(modelCallAttempts.runId, f.runId)))).toEqual([]);
+    expect(await withTenantTx(app.db, a.owner, (tx) => tx.select().from(budgetReservations).where(eq(budgetReservations.runId, f.runId)))).toEqual([]);
+  });
   it('rechecks the current class of a discarded earlier input document, independently of its source class', async () => {
-    const f = await actualAuxiliaryRun(),
-      source = await seedSearchableSource(app.db, a.owner, {
+    const source = await seedSearchableSource(app.db, a.owner, {
         passages: ['Generated earlier candidate'],
         grants: [{ kind: 'membership', membershipId: a.owner.membershipId }],
       });
+    const f = await actualAuxiliaryRun({}, undefined, source.sourceId);
     const [chunk] = await withTenantTx(app.db, a.owner, (tx) =>
       tx.select().from(knowledgeChunks).where(eq(knowledgeChunks.id, source.chunkIds[0]!)),
     );
@@ -990,7 +1008,7 @@ describe('bounded Knowledge model jobs and principal-bound result receipts (0216
         title: 'Generated auxiliary run',
         objective: 'Read and compile.',
       }),
-      version = await seedAgentVersion(app.db, a.owner),
+      version = await knowledgeAgentVersion(),
       runId = await seedQueuedRun(app.db, a.owner, { workUnitId: work.id, version });
     const context = await prepareRunInputContext(agent.db, a.organizationId, runId);
     await withTenantTx(agent.db, context, async (tx) => {

@@ -53,7 +53,7 @@ export function modelBoundsWithin(request: ModelJobBounds, approval: ModelJobBou
   return (
     validModelJobBounds(request) &&
     validModelJobBounds(approval) &&
-    (Object.keys(request) as (keyof ModelJobBounds)[]).every((key) => request[key] <= approval[key])
+    (['maxCalls','maxInputTokens','maxOutputTokens','maxTotalTokens','maxCostMicros','timeoutSeconds'] as const).every((key) => request[key] <= approval[key])
   );
 }
 
