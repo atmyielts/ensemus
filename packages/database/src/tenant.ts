@@ -104,6 +104,7 @@ export class AppDatabase {
         'app.process_step_key': '',
         'app.payment_customer_hash': '',
         'lifecycle.erasure_count_org': '',
+        'lifecycle.standing_org': '',
         'billing.entitlement_org': '',
         'sovereign.archive_source_proof': '',
         'lifecycle.delegated_hold_org': '',
