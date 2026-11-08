@@ -35,6 +35,7 @@ export {
   type WebhookEndpointRow,
 } from './tenant';
 export type { VerifiedInteractiveIdentity } from './interactive-identity';
+export {RestoreAdmissionDenied,assertRestoreAdmission,isRestoreAdmissionDenied} from './restore-authority';
 export {
   auditEvents,
   domainEvents,

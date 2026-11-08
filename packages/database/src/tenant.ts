@@ -8,6 +8,7 @@ import {
   type VerifiedInteractiveIdentity,
 } from './interactive-identity';
 import { billingAccounts } from './schema-saas';
+import {assertRestoreAdmission} from './restore-authority';
 
 const brand: unique symbol = Symbol('TenantContext');
 
@@ -85,6 +86,8 @@ export class AppDatabase {
   }
   transaction<T>(bindings: Record<string, string>, fn: (tx: Tx) => Promise<T>): Promise<T> {
     return this.#db.transaction(async (tx) => {
+      // Includes unbound user/catalog reads and cached-context workers; RLS also guards tenant IDs.
+      await assertRestoreAdmission(tx);
       // set_config because SET LOCAL cannot take a bind parameter (ADR-024 D4).
       for (const [name, value] of Object.entries({
         'app.agent_input_protocol': '',
