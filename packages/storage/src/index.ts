@@ -2,6 +2,7 @@
 import {
   CreateBucketCommand,
   DeleteObjectCommand,
+  GetBucketVersioningCommand,
   GetObjectCommand,
   HeadBucketCommand,
   HeadObjectCommand,
@@ -29,14 +30,49 @@ export type StorageConfig = {
 export const REQUEST_TIMEOUT_MS = 30_000;
 export const MAX_ATTEMPTS = 3;
 
+const VERSIONING_RESPONSE_LIMIT = 4096;
+// This is an intentionally narrow protocol recognizer, not a general XML parser. A genuinely
+// unversioned S3 bucket returns an empty VersioningConfiguration. Reject alternative roots,
+// attributes, children, entities and DTD declarations rather than guessing a compatible capability.
+const EMPTY_VERSIONING_CONFIGURATION = /^(?:<\?xml[\t\r\n ]+version=(?:"1\.0"|'1\.0')(?:[\t\r\n ]+encoding=(?:"UTF-8"|'UTF-8'))?[\t\r\n ]*\?>[\t\r\n ]*)?<VersioningConfiguration[\t\r\n ]+xmlns=(?:"http:\/\/s3\.amazonaws\.com\/doc\/2006-03-01\/"|'http:\/\/s3\.amazonaws\.com\/doc\/2006-03-01\/')[\t\r\n ]*(?:\/>|>[\t\r\n ]*<\/VersioningConfiguration[\t\r\n ]*>)[\t\r\n ]*$/u;
+const physicalAbsenceUnproven = () => new Error('OBJECT_PHYSICAL_ABSENCE_UNPROVEN');
+
+async function versioningResponseBytes(body: unknown, signal: AbortSignal): Promise<Buffer> {
+  if (!body || typeof body !== 'object' || !(Symbol.asyncIterator in body) ||
+    !('destroy' in body) || typeof body.destroy !== 'function')
+    throw physicalAbsenceUnproven();
+  const stream = body as AsyncIterable<unknown> & { destroy: (error?: Error) => void };
+  const chunks: Buffer[] = [];
+  let size = 0;
+  const abort = () => stream.destroy(physicalAbsenceUnproven());
+  signal.addEventListener('abort', abort, { once: true });
+  try {
+    if (signal.aborted) throw physicalAbsenceUnproven();
+    for await (const chunk of stream) {
+      if (!(chunk instanceof Uint8Array)) throw physicalAbsenceUnproven();
+      size += chunk.byteLength;
+      if (size > VERSIONING_RESPONSE_LIMIT) throw physicalAbsenceUnproven();
+      chunks.push(Buffer.from(chunk));
+    }
+  } finally {
+    signal.removeEventListener('abort', abort);
+    stream.destroy();
+  }
+  return Buffer.concat(chunks, size);
+}
+
 /** Implements the ObjectStore port from @ensemus/application. */
 export class S3ObjectStore {
   readonly #client: S3Client;
   readonly #deleteClient: S3Client;
   readonly #bucket: string;
+  readonly #capabilityTimeoutMs: number;
 
   constructor(config: StorageConfig) {
     this.#bucket = config.bucket;
+    const timeout = config.requestTimeoutMs ?? REQUEST_TIMEOUT_MS;
+    if (!Number.isSafeInteger(timeout) || timeout <= 0) throw new Error('INVALID_STORAGE_TIMEOUT');
+    this.#capabilityTimeoutMs = Math.min(timeout, REQUEST_TIMEOUT_MS);
     const options = {
       endpoint: config.endpoint,
       region: 'us-east-1', // Required by the SDK, and unused by self-hosted stores.
@@ -114,7 +150,80 @@ export class S3ObjectStore {
   }
 
   async delete(key: string): Promise<void> {
-    await this.#deleteClient.send(new DeleteObjectCommand({ Bucket: this.#bucket, Key: key }));
+    const result = await this.deleteForPurge(key);
+    if (result.transport !== 'deleted' || !result.capabilityVerified) throw physicalAbsenceUnproven();
+  }
+
+  async deleteForPurge(key: string): Promise<{
+    transport: 'not_attempted' | 'deleted' | 'unknown'; capabilityVerified: boolean;
+  }> {
+    try { await this.#assertUnversionedBucket(); }
+    catch { return { transport: 'not_attempted', capabilityVerified: false }; }
+    let result;
+    try {
+      result = await this.#deleteClient.send(new DeleteObjectCommand({ Bucket: this.#bucket, Key: key }));
+    } catch {
+      // A timeout, SDK/HTTP error or disconnected response may still have removed bytes. No retry.
+      return { transport: 'unknown', capabilityVerified: false };
+    }
+    // The modeled operation is HTTP 204. An unrelated 2xx response is not a known completed DELETE.
+    if (result.$metadata.httpStatusCode !== 204)
+      return { transport: 'unknown', capabilityVerified: false };
+    let capabilityVerified = result.DeleteMarker !== true && result.VersionId === undefined;
+    try { await this.#assertUnversionedBucket(); }
+    catch { capabilityVerified = false; }
+    // Enabling versioning cannot later return to the never-enabled state in S3: suspended is also
+    // refused. Keep the genuine completed transport separate from a failed capability post-check.
+    return { transport: 'deleted', capabilityVerified };
+  }
+
+  /** A current-key HEAD is insufficient in versioned stores, where old versions retain the bytes. */
+  async isPhysicallyAbsent(key: string): Promise<boolean> {
+    await this.#assertUnversionedBucket();
+    const absent = !(await this.exists(key));
+    await this.#assertUnversionedBucket();
+    return absent;
+  }
+
+  async #assertUnversionedBucket(): Promise<void> {
+    const command = new GetBucketVersioningCommand({ Bucket: this.#bucket });
+    const abort = new AbortController();
+    // The Node HTTP handler can return after headers. Bound the complete small protocol response,
+    // including a backend that sends headers/partial XML and then never finishes its body.
+    const timer = setTimeout(() => abort.abort(), this.#capabilityTimeoutMs);
+    let recognizedResponse = false;
+    // The pinned SDK discards the XML root before mapping known children. Without this raw check,
+    // a backend that ignores ?versioning and returns ListBucketResult can look like Status absent.
+    command.middlewareStack.addRelativeTo(
+      (next) => async (args) => {
+        recognizedResponse = false;
+        const result = await next(args);
+        const response = result.response as {
+          statusCode?: number;
+          headers?: Record<string, string>;
+          body?: unknown;
+        };
+        if (response.statusCode !== 200 ||
+          !/^(?:application|text)\/xml(?:\s*;|$)/iu.test(response.headers?.['content-type'] ?? '')) {
+          (response.body as { destroy?: () => void } | undefined)?.destroy?.();
+          throw physicalAbsenceUnproven();
+        }
+        const bytes = await versioningResponseBytes(response.body, abort.signal);
+        let xml: string;
+        try { xml = new TextDecoder('utf-8', { fatal: true }).decode(bytes); }
+        catch { throw physicalAbsenceUnproven(); }
+        if (!EMPTY_VERSIONING_CONFIGURATION.test(xml)) throw physicalAbsenceUnproven();
+        response.body = bytes;
+        recognizedResponse = true;
+        return result;
+      },
+      { name: 'validateVersioningConfiguration', relation: 'after', toMiddleware: 'deserializerMiddleware' },
+    );
+    try {
+      const result = await this.#deleteClient.send(command, { abortSignal: abort.signal });
+      if (!recognizedResponse || result.$metadata.httpStatusCode !== 200 ||
+        result.Status !== undefined || result.MFADelete !== undefined) throw physicalAbsenceUnproven();
+    } finally { clearTimeout(timer); }
   }
 
   /** The keys under a prefix, a page at a time, so a caller holds at most one page in memory. */
@@ -133,7 +242,7 @@ export class S3ObjectStore {
     } while (token);
   }
 
-  /** Only a clear "not there" counts as gone. Any other failure is thrown, and retried later. */
+  /** Current-key visibility only. Physical purge must use isPhysicallyAbsent, never HEAD alone. */
   async exists(key: string): Promise<boolean> {
     try {
       await this.#client.send(new HeadObjectCommand({ Bucket: this.#bucket, Key: key }));

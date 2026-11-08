@@ -13,7 +13,7 @@ import { AppError } from '../errors';
 export function refuseUnadmittedDeletes<T extends ObjectStore>(store:T):T {
   return new Proxy(store,{
     get(target,key) {
-      if(key==='delete') return async()=>{throw new AppError('OBJECT_DELETE_UNCONFIRMED');};
+      if(key==='delete'||key==='deleteForPurge') return async()=>{throw new AppError('OBJECT_DELETE_UNCONFIRMED');};
       const value:unknown=Reflect.get(target,key,target);
       return typeof value==='function'?value.bind(target):value;
     },
@@ -33,31 +33,45 @@ export interface ObjectDeletionAuthority {
   proveAbsent(context: TenantContext, claimId: string): Promise<boolean>;
 }
 type Result = { state: 'purged'; quiescent: true } | { state: 'held' | 'unconfirmed' };
+type DeletionStore = Pick<ObjectStore, 'delete' | 'exists' | 'deleteForPurge' | 'isPhysicallyAbsent'>;
 
 /** A testable state machine around the actual SQL authority, never a successful default port. */
 export function createObjectDeletionExecutor(deps: {
   authority: ObjectDeletionAuthority;
-  store: Pick<ObjectStore, 'delete' | 'exists'>;
+  store: DeletionStore;
 }) {
   return async (context: TenantContext, target: DeletionTarget): Promise<Result> => {
     if (context.actorType !== 'service' && target.kind !== 'ordinary')
       throw new AppError('FORBIDDEN');
+    // Old/test adapters that only expose HEAD cannot certify that prior object versions are gone.
+    if (!deps.store.deleteForPurge || !deps.store.isPhysicallyAbsent) return { state: 'unconfirmed' };
     const claim = await deps.authority.begin(context, target);
     if (claim.state === 'held' || claim.state === 'unconfirmed') return claim;
     if (claim.state === 'admitted') {
+      let result;
       try {
         // The production transport performs exactly one attempt. Never retry an ambiguous request.
-        await deps.store.delete(claim.objectKey);
+        result = await deps.store.deleteForPurge(claim.objectKey);
       } catch {
         // Even a failed SQL write leaves an admitted claim unresolved. It cannot admit another DELETE.
         await deps.authority.terminal(context, claim.claimId, 'unknown');
         return { state: 'unconfirmed' };
       }
+      // The admitted claim remains unconfirmed/nonreplayable. A capability refusal cannot forge a
+      // successful cancellation or become a claim that an actual DELETE reached the provider.
+      if (result.transport === 'not_attempted') return { state: 'unconfirmed' };
+      if (result.transport !== 'deleted') {
+        await deps.authority.terminal(context, claim.claimId, 'unknown');
+        return { state: 'unconfirmed' };
+      }
       await deps.authority.terminal(context, claim.claimId, 'deleted');
+      if (!result.capabilityVerified) return { state: 'unconfirmed' };
     }
     // A known terminal DELETE may retry only this independent absence check after a transient read
     // failure. Neither this check nor any later successful request clears an UNKNOWN operation.
-    if (await deps.store.exists(claim.objectKey)) return { state: 'unconfirmed' };
+    try {
+      if (!(await deps.store.isPhysicallyAbsent(claim.objectKey))) return { state: 'unconfirmed' };
+    } catch { return { state: 'unconfirmed' }; }
     return (await deps.authority.proveAbsent(context, claim.claimId))
       ? { state: 'purged', quiescent: true }
       : { state: 'unconfirmed' };
@@ -103,7 +117,7 @@ export async function assertNoUnresolvedObjectDeletes(tx:Tx,context:TenantContex
 }
 
 export function createObjectDeletionLifecycle(deps: {
-  database: AppDatabase; store: Pick<ObjectStore, 'delete' | 'exists'>;
+  database: AppDatabase; store: DeletionStore;
 }): { derived: DerivedArtifactLifecycle; archive: ArchiveQuarantineLifecycle } {
   const erase = createObjectDeletionExecutor({
     authority: createSqlObjectDeletionAuthority(deps.database), store: deps.store,
@@ -122,7 +136,7 @@ export function createObjectDeletionLifecycle(deps: {
 
 /** Select the actual retained writer; callers never label a generated file ordinary. */
 export async function eraseTombstonedArtifact(deps: {
-  database: AppDatabase; store: Pick<ObjectStore, 'delete' | 'exists'>;
+  database: AppDatabase; store: DeletionStore;
 }, context: TenantContext, artifactId: string): Promise<Result> {
   const target = await withTenantTx(deps.database, context, async (tx) => {
     const result = await tx.execute<{ target: DeletionTarget | null }>(
