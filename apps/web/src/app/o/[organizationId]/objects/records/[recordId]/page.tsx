@@ -106,17 +106,14 @@ export default async function RecordPage({
         })}
       </dl>
       {record.canChange && type.state === 'active' && (
-        <details>
-          <summary>Edit record</summary>
-          <ObjectRecordForm
-            organizationId={organizationId}
-            typeId={type.id}
-            fields={shape.fields}
-            floor={type.classification}
-            record={record}
-            canLowerSensitivity={canProduct(context.role, 'object_type.manage')}
-          />
-        </details>
+        <ObjectRecordForm
+          organizationId={organizationId}
+          typeId={type.id}
+          fields={shape.fields}
+          floor={type.classification}
+          record={record}
+          canLowerSensitivity={canProduct(context.role, 'object_type.manage')}
+        />
       )}
       <h2 id="related-records">Related records</h2>
       {relations.items.length ? (

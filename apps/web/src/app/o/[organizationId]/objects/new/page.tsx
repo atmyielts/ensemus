@@ -18,7 +18,7 @@ export default async function NewObjectType({
       <Link href={`/o/${organizationId}/objects`}>Back to custom records</Link>
       <PageHead
         title="Create type"
-        description="Define a stable shape for company records. Type sensitivity can be raised later; lowering it requires a different type."
+        description="Choose a name and the fields your team needs, such as suppliers, equipment or opportunities. You can add more fields later."
       />
       {canProduct(context.role, 'object_type.manage') ? (
         <ObjectTypeForm

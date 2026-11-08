@@ -14,13 +14,20 @@ export function SubmitButton({
   className,
   label,
   working = 'Working on it',
+  name,
+  value,
+  formNoValidate,
 }: {
   children: ReactNode;
   className?: string | undefined;
   label?: string | undefined;
   working?: string | undefined;
+  name?: string | undefined;
+  value?: string | undefined;
+  formNoValidate?: boolean | undefined;
 }) {
-  const { pending } = useFormStatus();
+  const { pending, data } = useFormStatus();
+  const submitting = pending && (!name || data?.get(name) === value);
   const held = useActionGate(pending);
   return (
     <>
@@ -28,13 +35,16 @@ export function SubmitButton({
         className={className}
         type="submit"
         disabled={pending || held}
-        aria-busy={pending}
+        aria-busy={submitting}
         aria-label={label}
+        name={name}
+        value={value}
+        formNoValidate={formNoValidate}
       >
         {children}
       </button>
       <span className="pending" role="status">
-        {pending ? working : ''}
+        {submitting ? working : ''}
       </span>
     </>
   );

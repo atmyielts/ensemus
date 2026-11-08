@@ -197,18 +197,31 @@ export function ActionLink({
   href,
   children,
   variant = 'primary',
+  target,
 }: {
   href: string;
   children: ReactNode;
   variant?: 'primary' | 'secondary' | 'quiet';
+  target?: '_blank' | undefined;
 }) {
   return (
     <Link
       className={`button${variant === 'primary' ? '' : ` ${variant === 'quiet' ? 'ghost' : variant}`}`}
       href={href}
+      target={target}
+      rel={target === '_blank' ? 'noopener' : undefined}
     >
       {children}
     </Link>
+  );
+}
+
+/** An explicit GET discards a stale form only after the person chooses to reload it. */
+export function ReloadLink({ href, children }: { href: string; children: ReactNode }) {
+  return (
+    <a className="button secondary" href={href}>
+      {children}
+    </a>
   );
 }
 

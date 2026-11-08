@@ -5,7 +5,7 @@ import type { ObjectField } from '@ensemus/domain/custom-object';
 import type { ObjectFormState } from '@/lib/object-input';
 import { saveObjectRecordAction } from '@/server/object-actions';
 import { SubmitButton } from '../submit-button';
-import { ErrorNotice } from '../ui';
+import { ActionLink, ErrorNotice, ReloadLink } from '../ui';
 
 export function ObjectRecordForm({
   organizationId,
@@ -32,10 +32,26 @@ export function ObjectRecordForm({
   }, [state]);
   const classes = ['public', 'internal', 'confidential', 'restricted'],
     value = (key: string, initial = '') => state.values?.[key] ?? initial;
-  return (
+  const contents = (
     <>
       <div tabIndex={-1} ref={notice}>
         <ErrorNotice code={state.code} />
+        {state.code === 'VERSION_CONFLICT' && record && (
+          <p className="notice">
+            Your unsaved values are still below. Reload to discard them and open the current record.{' '}
+            <ReloadLink href={`/o/${organizationId}/objects/records/${record.id}`}>
+              Reload current version
+            </ReloadLink>
+          </p>
+        )}
+        {state.reauthHref && (
+          <p className="notice">
+            <ActionLink variant="secondary" href={state.reauthHref} target="_blank">
+              Verify identity in another tab
+            </ActionLink>{' '}
+            Then return here and save. Your typed values stay on this page.
+          </p>
+        )}
       </div>
       <form key={state.revision ?? 0} action={action} className="card fields">
         <input type="hidden" name="organizationId" value={organizationId} />
@@ -43,7 +59,7 @@ export function ObjectRecordForm({
         {record ? (
           <>
             <input type="hidden" name="recordId" value={record.id} />
-            <input type="hidden" name="version" value={record.version} />
+            <input type="hidden" name="version" value={value('version', String(record.version))} />
           </>
         ) : (
           <input type="hidden" name="requestKey" value={value('requestKey', requestKey)} />
@@ -173,5 +189,15 @@ export function ObjectRecordForm({
         <SubmitButton working="Saving">{record ? 'Save record' : 'Create record'}</SubmitButton>
       </form>
     </>
+  );
+  // A full no-script action response must reopen the editor so its retained values and error are
+  // visible. Keeping this disclosure with its action state also avoids a client-only recovery path.
+  return record ? (
+    <details open={Boolean(state.code)}>
+      <summary>Edit record</summary>
+      {contents}
+    </details>
+  ) : (
+    contents
   );
 }

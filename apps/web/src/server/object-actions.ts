@@ -23,6 +23,9 @@ import {
   type ObjectFormState,
 } from '@/lib/object-input';
 import { stepUpPath } from '@/lib/step-up';
+import { objectEditorRows, withGeneratedObjectKeys } from '@/lib/object-editor';
+import { OBJECT_LIMITS } from '@ensemus/domain/custom-object';
+import { canProduct } from '@ensemus/domain/product-policy';
 import { requireTenant } from './tenant';
 import { getRuntime } from './runtime';
 import { createObjectOnce } from './object-api';
@@ -40,13 +43,15 @@ type Tenant = Awaited<ReturnType<typeof requireTenant>>;
 async function run(
   state: ObjectFormState,
   form: FormData,
-  effect: (t: Tenant, org: string) => Promise<string>,
+  effect: (t: Tenant, org: string) => Promise<string | ObjectFormState>,
 ): Promise<ObjectFormState> {
   const org = identifier(form, 'organizationId'),
     tenant = await requireTenant(org);
   let path: string;
   try {
-    path = await effect(tenant, org);
+    const outcome = await effect(tenant, org);
+    if (typeof outcome !== 'string') return outcome;
+    path = outcome;
     revalidatePath(`/o/${org}/objects`, 'layout');
   } catch (error) {
     if (isAuditedRefusal(error))
@@ -54,17 +59,25 @@ async function run(
         surface: 'web',
         code: refusalCode(error),
       }).catch((e) => getRuntime().log.error('audit.refusal_failed', { errorCode: errorCode(e) }));
-    if (error instanceof AppError && error.code === 'SSO_REQUIRED') redirect('/sign-in/sso');
-    if (error instanceof AppError && error.code === 'MFA_REQUIRED') {
+    if (
+      error instanceof AppError &&
+      (error.code === 'MFA_REQUIRED' || error.code === 'SSO_REQUIRED')
+    ) {
       const record = objectText(form, 'recordId');
-      redirect(
-        stepUpPath(
-          org,
-          record && idSchema.safeParse(record).success
-            ? `/o/${org}/objects/records/${record}`
-            : `/o/${org}/objects`,
-        ),
-      );
+      return {
+        code: error.code,
+        values: objectFormValues(form),
+        revision: (state.revision ?? 0) + 1,
+        reauthHref:
+          error.code === 'SSO_REQUIRED'
+            ? '/sign-in/sso'
+            : stepUpPath(
+                org,
+                record && idSchema.safeParse(record).success
+                  ? `/o/${org}/objects/records/${record}`
+                  : `/o/${org}/objects`,
+              ),
+      };
     }
     if (!(error instanceof AppError)) throw error;
     return {
@@ -77,8 +90,36 @@ async function run(
 }
 export async function saveObjectTypeAction(state: ObjectFormState, form: FormData) {
   return run(state, form, async ({ database, context }, org) => {
-    const shape = objectShapeInput(form),
-      typeId = objectText(form, 'typeId');
+    const typeId = objectText(form, 'typeId'),
+      intent = objectText(form, 'intent') || 'save';
+    if (intent === 'add-field' || intent === 'add-relation') {
+      if (!canProduct(context.role, 'object_type.manage')) throw new AppError('FORBIDDEN');
+      const current = typeId
+        ? await objects.getObjectType(database, context, identifier(form, 'typeId'))
+        : null;
+      const values = objectFormValues(form),
+        rows = objectEditorRows(
+          values,
+          current?.fields.length ?? 1,
+          current?.relations.length ?? 0,
+        );
+      if (
+        (intent === 'add-field' && rows.fields >= OBJECT_LIMITS.maxFields) ||
+        (intent === 'add-relation' && rows.relations >= OBJECT_LIMITS.maxRelations)
+      )
+        throw new AppError('INVALID_INPUT');
+      return {
+        values: {
+          ...values,
+          fieldRows: String(rows.fields + (intent === 'add-field' ? 1 : 0)),
+          relationRows: String(rows.relations + (intent === 'add-relation' ? 1 : 0)),
+        },
+        notice: intent === 'add-field' ? ('field_added' as const) : ('relation_added' as const),
+        revision: (state.revision ?? 0) + 1,
+      };
+    }
+    if (intent !== 'save') throw new AppError('INVALID_INPUT');
+    const shape = objectShapeInput(withGeneratedObjectKeys(form));
     if (typeId) {
       await objects.addObjectTypeVersion(database, context, {
         typeId: identifier(form, 'typeId'),
@@ -88,7 +129,8 @@ export async function saveObjectTypeAction(state: ObjectFormState, form: FormDat
       return `/o/${org}/objects/types/${identifier(form, 'typeId')}?saved=1`;
     }
     const parsed = createObjectTypeSchema.safeParse({
-      slug: objectText(form, 'slug'),
+      slug:
+        objectText(form, 'slug') || `record_${identifier(form, 'requestKey').replaceAll('-', '')}`,
       display_name: objectText(form, 'displayName'),
       classification: objectText(form, 'classification'),
       ...shape,
@@ -157,6 +199,7 @@ export async function saveObjectRecordAction(state: ObjectFormState, form: FormD
 }
 async function native(form: FormData, effect: (t: Tenant, org: string) => Promise<string>) {
   const state = await run({}, form, effect);
+  if (state.reauthHref) redirect(state.reauthHref);
   const org = identifier(form, 'organizationId');
   redirect(`/o/${org}/objects?error=${encodeURIComponent(state.code ?? 'INVALID_INPUT')}`);
 }

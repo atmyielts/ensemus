@@ -54,7 +54,7 @@ export default async function TypePage({
       <Link href={base}>Back to custom records</Link>
       <PageHead
         title={type.displayName}
-        description={`Records use immutable schema versions. Current version: ${type.currentVersionNumber}.`}
+        description={`Keep related company records in one place. Field layout version ${type.currentVersionNumber}.`}
         actions={
           <>
             {type.state === 'active' && (
