@@ -3,7 +3,13 @@ import { useActionState, useEffect, useId, useRef } from 'react';
 import type { ObjectTypeView } from '@ensemus/application/custom-objects';
 import { saveObjectTypeAction } from '@/server/object-actions';
 import type { ObjectFormState } from '@/lib/object-input';
-import { objectEditorRows } from '@/lib/object-editor';
+import {
+  objectEditorRows,
+  objectTypeEditorScope,
+  objectEditorPermalink,
+  type ObjectEditorScope,
+} from '@/lib/object-editor';
+import { ObjectSignInHold } from './sign-in-hold';
 import { OBJECT_LIMITS } from '@ensemus/domain/custom-object';
 import { SubmitButton } from '../submit-button';
 import { ActionLink, ErrorNotice, ReloadLink } from '../ui';
@@ -19,18 +25,24 @@ const kindLabels = {
   email: 'Email',
   url: 'Web address',
 };
-export function ObjectTypeForm({
-  organizationId,
-  type,
-  types,
-  requestKey,
-}: {
-  organizationId: string;
-  type?: ObjectTypeView;
-  types: readonly { slug: string; displayName: string }[];
-  requestKey?: string;
-}) {
-  const [state, action] = useActionState<ObjectFormState, FormData>(saveObjectTypeAction, {}),
+type TypeFormProps = { organizationId: string } & (
+  | { admission: 'sso-required'; scope: ObjectEditorScope }
+  | {
+      admission?: undefined;
+      type?: ObjectTypeView;
+      types: readonly { slug: string; displayName: string }[];
+      requestKey?: string;
+    }
+);
+export function ObjectTypeForm(props: TypeFormProps) {
+  const { organizationId } = props,
+    scope = props.admission === 'sso-required' ? props.scope : objectTypeEditorScope(props),
+    type = props.admission === 'sso-required' ? undefined : props.type;
+  const [state, action] = useActionState<ObjectFormState, FormData>(
+      saveObjectTypeAction,
+      {},
+      objectEditorPermalink(scope),
+    ),
     prefix = useId(),
     notice = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -48,6 +60,9 @@ export function ObjectTypeForm({
       document.getElementById(`${prefix}-${key}-label`)?.focus();
     }
   }, [state, prefix, type?.fields.length, type?.relations.length]);
+  if (props.admission === 'sso-required' || state.code === 'SSO_REQUIRED')
+    return <ObjectSignInHold scope={scope} state={state} action={action} />;
+  const { types, requestKey } = props;
   const value = (key: string, initial = '') => state.values?.[key] ?? initial;
   const rows = objectEditorRows(
     state.values,

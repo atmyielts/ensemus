@@ -33,11 +33,13 @@ export function objectFormValues(form: FormData) {
   const values: Record<string, string> = {};
   let bytes = 0;
   const retained =
-    /^(organizationId|typeId|recordId|version|requestKey|displayName|slug|classification|fieldRows|relationRows|field_\d{1,2}_(key|label|kind|required|indexed|options|maxLength)|relation_\d{1,2}_(key|label|toTypeSlug|cardinality)|attribute_[a-z][a-z0-9_]{0,62})$/;
+    /^(organizationId|typeId|recordId|version|requestKey|displayName|slug|classification|intent|fieldRows|relationRows|field_\d{1,2}_(key|label|kind|required|indexed|options|maxLength)|relation_\d{1,2}_(key|label|toTypeSlug|cardinality)|attribute_[a-z][a-z0-9_]{0,62})$/;
   for (const [key, value] of form)
     if (retained.test(key) && typeof value === 'string') {
       bytes += key.length + value.length;
       if (bytes > 300000) throw new AppError('INVALID_INPUT');
+      if (key === 'intent' && !['save', 'add-field', 'add-relation'].includes(value))
+        throw new AppError('INVALID_INPUT');
       values[key] = value;
     }
   return values;

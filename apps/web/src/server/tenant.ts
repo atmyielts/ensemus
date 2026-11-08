@@ -13,7 +13,11 @@ import { getRestoreGate, getRuntime } from './runtime';
  * Who this request is, in this tenant. React's `cache` lasts for one request only, so a revoked
  * membership takes effect on the very next request. A tenant someone may not see looks missing.
  */
-const resolveFor = async (organizationId: string, surface: AccountSurface) => {
+const resolveFor = async (
+  organizationId: string,
+  surface: AccountSurface,
+  sso: 'redirect' | 'throw' = 'redirect',
+) => {
   const actor = await requireActor();
   const { app } = getRuntime();
   try {
@@ -33,7 +37,8 @@ const resolveFor = async (organizationId: string, surface: AccountSurface) => {
       notFound();
     }
     if (error instanceof AppError && error.code === 'RESTORE_PENDING') redirect('/restoring');
-    if (error instanceof AppError && error.code === 'SSO_REQUIRED') redirect('/sign-in/sso');
+    if (error instanceof AppError && error.code === 'SSO_REQUIRED' && sso === 'redirect')
+      redirect('/sign-in/sso');
     // Someone suspended still has a way to see why, pay, export and ask for help (ADR-032 D5).
     if (error instanceof AppError && error.code === 'TENANT_SUSPENDED') {
       redirect(`/o/${organizationId}/account`);
@@ -47,6 +52,12 @@ export const requireTenant = cache((organizationId: string) => resolveFor(organi
 /** For billing, support, export and leaving, and the layout around them, which work in any standing. */
 export const requireAccountTenant = cache((organizationId: string) =>
   resolveFor(organizationId, 'account'),
+);
+
+/** Same admission, with a typed SSO refusal for submitted-only editor recovery. No context is
+ * returned on refusal. The joined core-standing assertion remains before the successful return. */
+export const requireTenantForAction = cache((organizationId: string) =>
+  resolveFor(organizationId, 'core', 'throw'),
 );
 
 /**

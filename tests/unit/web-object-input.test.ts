@@ -5,7 +5,15 @@ import {
   objectFormValues,
   objectFieldsInput,
 } from '../../apps/web/src/lib/object-input';
-import { objectEditorRows, withGeneratedObjectKeys } from '../../apps/web/src/lib/object-editor';
+import {
+  objectEditorRows,
+  withGeneratedObjectKeys,
+  objectEditorPermalink,
+  objectEditorDestination,
+  objectSubmissionMatches,
+  objectRecordEditorScope,
+  objectTypeEditorScope,
+} from '../../apps/web/src/lib/object-editor';
 describe('native custom object inputs', () => {
   it('omits absent contract options from the normalized domain field', () => {
     const f = objectFieldsInput([
@@ -144,5 +152,82 @@ describe('native custom object inputs', () => {
       fields: 64,
       relations: 16,
     });
+  });
+});
+
+describe('submitted-only object sign-in recovery', () => {
+  const org = '00000000-0000-4000-8000-000000000001',
+    id = '00000000-0000-4000-8000-000000000002',
+    typeId = '00000000-0000-4000-8000-000000000003';
+  it('uses the exact real editor/request identity in a body-free permalink for all four modes', () => {
+    const scopes = [
+      objectRecordEditorScope({ organizationId: org, typeId, record: { id } }),
+      objectRecordEditorScope({ organizationId: org, typeId, requestKey: id }),
+      objectTypeEditorScope({ organizationId: org, type: { id } }),
+      objectTypeEditorScope({ organizationId: org, requestKey: id }),
+    ];
+    expect(scopes.map(objectEditorPermalink)).toEqual([
+      `/object-editor/${org}/record/${id}`,
+      `/object-editor/${org}/new-record/${id}?type=${typeId}`,
+      `/object-editor/${org}/type/${id}`,
+      `/object-editor/${org}/new-type/${id}`,
+    ]);
+    expect(scopes.map(objectEditorDestination)).toEqual([
+      `/o/${org}/objects/records/${id}`,
+      `/o/${org}/objects/types/${typeId}/new`,
+      `/o/${org}/objects/types/${id}/edit`,
+      `/o/${org}/objects/new`,
+    ]);
+  });
+  it('refuses missing create request identity rather than inventing an object or nonce', () => {
+    expect(() => objectRecordEditorScope({ organizationId: org, typeId })).toThrow();
+    expect(() => objectTypeEditorScope({ organizationId: org })).toThrow();
+  });
+  it('does not show no-state, another org/object or an edit payload as a new-create submission', () => {
+    const scope = objectRecordEditorScope({ organizationId: org, typeId, record: { id } }),
+      values = {
+        organizationId: org,
+        recordId: id,
+        typeId,
+        version: '3',
+        displayName: 'Own submitted value',
+      };
+    expect(objectSubmissionMatches(scope, values)).toBe(true);
+    expect(objectSubmissionMatches(scope, undefined)).toBe(false);
+    expect(objectSubmissionMatches(scope, { ...values, organizationId: typeId })).toBe(false);
+    expect(objectSubmissionMatches(scope, { ...values, recordId: typeId })).toBe(false);
+    expect(objectSubmissionMatches(scope, { ...values, requestKey: id })).toBe(false);
+    const fresh = objectRecordEditorScope({ organizationId: org, typeId, requestKey: id });
+    expect(objectSubmissionMatches(fresh, { organizationId: org, typeId, requestKey: id })).toBe(
+      true,
+    );
+    expect(
+      objectSubmissionMatches(fresh, { organizationId: org, typeId: id, requestKey: id }),
+    ).toBe(false);
+  });
+  it('retains the exact original version and explicit Add intent in a plain serializable safe-key payload', () => {
+    for (const intent of ['save', 'add-field', 'add-relation']) {
+      const form = new FormData();
+      for (const [key, value] of Object.entries({
+        organizationId: org,
+        typeId: id,
+        version: '3',
+        intent,
+        field_0_label: 'Own draft',
+      }))
+        form.set(key, value);
+      form.set('__proto__', 'refuse');
+      form.set('constructor', 'refuse');
+      const values = objectFormValues(form);
+      expect(Object.getPrototypeOf(values)).toBe(Object.prototype);
+      expect(values.intent).toBe(intent);
+      expect(values.version).toBe('3');
+      expect(Object.hasOwn(values, '__proto__')).toBe(false);
+      expect(Object.hasOwn(values, 'constructor')).toBe(false);
+      expect(JSON.parse(JSON.stringify(values))).toEqual(values);
+    }
+    const invalid = new FormData();
+    invalid.set('intent', 'delete-something');
+    expect(() => objectFormValues(invalid)).toThrow();
   });
 });

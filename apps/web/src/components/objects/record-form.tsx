@@ -6,30 +6,42 @@ import type { ObjectFormState } from '@/lib/object-input';
 import { saveObjectRecordAction } from '@/server/object-actions';
 import { SubmitButton } from '../submit-button';
 import { ActionLink, ErrorNotice, ReloadLink } from '../ui';
+import {
+  objectRecordEditorScope,
+  objectEditorPermalink,
+  type ObjectEditorScope,
+} from '@/lib/object-editor';
+import { ObjectSignInHold } from './sign-in-hold';
 
-export function ObjectRecordForm({
-  organizationId,
-  typeId,
-  fields,
-  floor,
-  record,
-  requestKey,
-  canLowerSensitivity = false,
-}: {
-  organizationId: string;
-  typeId: string;
-  fields: readonly ObjectField[];
-  floor: string;
-  record?: ObjectRecordView;
-  requestKey?: string;
-  canLowerSensitivity?: boolean;
-}) {
-  const [state, action] = useActionState<ObjectFormState, FormData>(saveObjectRecordAction, {}),
+type RecordFormProps = { organizationId: string } & (
+  | { admission: 'sso-required'; scope: ObjectEditorScope }
+  | {
+      admission?: undefined;
+      typeId: string;
+      fields: readonly ObjectField[];
+      floor: string;
+      record?: ObjectRecordView;
+      requestKey?: string;
+      canLowerSensitivity?: boolean;
+    }
+);
+export function ObjectRecordForm(props: RecordFormProps) {
+  const { organizationId } = props,
+    scope = props.admission === 'sso-required' ? props.scope : objectRecordEditorScope(props),
+    record = props.admission === 'sso-required' ? undefined : props.record;
+  const [state, action] = useActionState<ObjectFormState, FormData>(
+      saveObjectRecordAction,
+      {},
+      objectEditorPermalink(scope),
+    ),
     prefix = useId(),
     notice = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (state.code) notice.current?.focus();
   }, [state]);
+  if (props.admission === 'sso-required' || state.code === 'SSO_REQUIRED')
+    return <ObjectSignInHold scope={scope} state={state} action={action} />;
+  const { typeId, fields, floor, requestKey, canLowerSensitivity = false } = props;
   const classes = ['public', 'internal', 'confidential', 'restricted'],
     value = (key: string, initial = '') => state.values?.[key] ?? initial;
   const contents = (

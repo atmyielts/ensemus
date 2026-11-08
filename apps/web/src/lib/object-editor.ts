@@ -65,3 +65,55 @@ export function withGeneratedObjectKeys(form: FormData): FormData {
   }
   return result;
 }
+
+export type ObjectEditorScope = { organizationId: string; id: string } & (
+  { mode: 'record' | 'type' | 'new-type' } | { mode: 'new-record'; typeId: string }
+);
+export const objectEditorPermalink = (scope: ObjectEditorScope) =>
+  `/object-editor/${scope.organizationId}/${scope.mode}/${scope.id}${scope.mode === 'new-record' ? `?type=${scope.typeId}` : ''}`;
+export function objectEditorDestination(scope: ObjectEditorScope): string {
+  const base = `/o/${scope.organizationId}/objects`;
+  if (scope.mode === 'record') return `${base}/records/${scope.id}`;
+  if (scope.mode === 'type') return `${base}/types/${scope.id}/edit`;
+  if (scope.mode === 'new-record') return `${base}/types/${scope.typeId}/new`;
+  return `${base}/new`;
+}
+/** This matches only the submitted form identity; it never grants schema/body authority. */
+export function objectSubmissionMatches(
+  scope: ObjectEditorScope,
+  values: Readonly<Record<string, string>> | undefined,
+): boolean {
+  if (!values || values.organizationId?.toLowerCase() !== scope.organizationId) return false;
+  const equal = (name: string, value: string) => values[name]?.toLowerCase() === value;
+  if (scope.mode === 'record') return equal('recordId', scope.id) && !values.requestKey;
+  if (scope.mode === 'type')
+    return equal('typeId', scope.id) && !values.recordId && !values.requestKey;
+  if (scope.mode === 'new-record')
+    return equal('requestKey', scope.id) && equal('typeId', scope.typeId) && !values.recordId;
+  return equal('requestKey', scope.id) && !values.recordId && !values.typeId;
+}
+export function objectRecordEditorScope(props: {
+  organizationId: string;
+  typeId: string;
+  record?: { id: string };
+  requestKey?: string;
+}): ObjectEditorScope {
+  if (props.record)
+    return { organizationId: props.organizationId, mode: 'record', id: props.record.id };
+  if (!props.requestKey) throw new Error('OBJECT_EDITOR_REQUEST_MISSING');
+  return {
+    organizationId: props.organizationId,
+    mode: 'new-record',
+    id: props.requestKey,
+    typeId: props.typeId,
+  };
+}
+export function objectTypeEditorScope(props: {
+  organizationId: string;
+  type?: { id: string };
+  requestKey?: string;
+}): ObjectEditorScope {
+  if (props.type) return { organizationId: props.organizationId, mode: 'type', id: props.type.id };
+  if (!props.requestKey) throw new Error('OBJECT_EDITOR_REQUEST_MISSING');
+  return { organizationId: props.organizationId, mode: 'new-type', id: props.requestKey };
+}
