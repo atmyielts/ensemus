@@ -17,7 +17,7 @@ import { createKnowledgeIngestActivities } from '@ensemus/workflows/knowledge-in
 import { createKnowledgePurgeActivities } from '@ensemus/workflows/knowledge-purge-activities';
 import { createTemporalLogger } from '@ensemus/workflows/safe-logger';
 import { NativeConnection, Runtime, Worker } from '@temporalio/worker';
-import { createKnowledgeRuntimePorts } from './knowledge-ports';
+import { createKnowledgeRuntimePorts, createKnowledgePurgePorts } from './knowledge-ports';
 
 const log = createLogger('knowledge-worker');
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -38,7 +38,12 @@ async function main() {
     accessKey: readSecret('OBJECT_STORAGE_ACCESS_KEY'),
     secretKey: readSecret('OBJECT_STORAGE_SECRET_KEY'),
   });
-  const deps = { database: app.db, store, ...createKnowledgeRuntimePorts() };
+  const deps = {
+    database: app.db,
+    store,
+    ...createKnowledgeRuntimePorts(),
+    ...createKnowledgePurgePorts({ database: app.db, store }),
+  };
   const worker = await Worker.create({
     connection,
     namespace: process.env.TEMPORAL_NAMESPACE ?? 'default',
