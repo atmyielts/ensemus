@@ -200,6 +200,113 @@ describe('native raw object orchestration', () => {
     expect(f.execute).toHaveBeenCalledTimes(1);
     expect(f.ordinaryDelete).not.toHaveBeenCalled();
   });
+  // 0532: a purge count is evidence. The port records once, before its single admitted DELETE,
+  // whether the bytes are there; it never re-observes after that DELETE, which would report bytes
+  // this purge removed as already gone.
+  function erasable(f: ReturnType<typeof fixture>) {
+    const target = {
+      kind: 'raw_source',
+      sourceId: f.write.sourceId,
+      sourceVersion: '2',
+      purgeJobId: randomUUID(),
+      documentId: f.write.documentId,
+      writeId: f.write.writeId,
+      generation: 1,
+      materialRestoreGeneration: randomUUID(),
+      authRestoreGeneration: randomUUID(),
+    };
+    const claimId = randomUUID(),
+      steps: string[] = [];
+    let observed: boolean | null = null,
+      claim: 'admitted' | 'deleted' = 'admitted';
+    f.execute.mockImplementation((async (query: SQL) => {
+      const compiled = dialect.sqlToQuery(query);
+      f.calls.push(compiled);
+      if (compiled.sql.includes('raw_document_delete_target')) return { rows: [{ target }] };
+      if (compiled.sql.includes('update knowledge.documents set object_present_before_purge')) {
+        steps.push(`observe:${String(compiled.params[0])}`);
+        if (observed === null) observed = compiled.params[0] as boolean;
+        return { rows: [] };
+      }
+      if (compiled.sql.includes('d.object_present_before_purge observed'))
+        return { rows: [{ observed, state: 'deleted' }] };
+      if (compiled.sql.includes('begin_object_deletion')) {
+        steps.push(`begin:${claim}`);
+        return { rows: [{ state: claim, claim_id: claimId, object_key: f.key }] };
+      }
+      if (compiled.sql.includes('object_delete_terminal')) {
+        claim = 'deleted';
+        return { rows: [] };
+      }
+      if (compiled.sql.includes('object_delete_absent')) return { rows: [{ proven: true }] };
+      throw new Error('GENERATED_UNSCRIPTED_SQL');
+    }) as never);
+    let present = true;
+    const exists = vi.fn(async () => {
+      steps.push('head');
+      return present;
+    });
+    const deleteForPurge = vi.fn(async () => {
+      steps.push('delete');
+      present = false;
+      return { transport: 'deleted' as const, capabilityVerified: true };
+    });
+    const isPhysicallyAbsent = vi.fn(async () => !present);
+    Object.assign(f.store, { exists, deleteForPurge, isPhysicallyAbsent });
+    return {
+      steps,
+      exists,
+      deleteForPurge,
+      observed: () => observed,
+      vanish: () => {
+        present = false;
+      },
+    };
+  }
+  it('observes presence once before the single admitted DELETE and never after it', async () => {
+    const f = fixture(),
+      e = erasable(f),
+      port = createRawKnowledgeObjectPort(f);
+    expect(await port.erase(f.service, { documentId: f.write.documentId })).toEqual({
+      state: 'purged',
+      quiescent: true,
+    });
+    expect(await port.erase(f.service, { documentId: f.write.documentId })).toEqual({
+      state: 'purged',
+      quiescent: true,
+    });
+    expect(e.steps).toEqual(['head', 'observe:true', 'begin:admitted', 'delete', 'begin:deleted']);
+    expect(e.observed()).toBe(true);
+    expect(e.deleteForPurge).toHaveBeenCalledTimes(1);
+    expect(f.ordinaryDelete).not.toHaveBeenCalled();
+  });
+  it('records bytes already gone before the DELETE as absent, never as present', async () => {
+    const f = fixture(),
+      e = erasable(f);
+    e.vanish();
+    expect(
+      (await createRawKnowledgeObjectPort(f).erase(f.service, { documentId: f.write.documentId }))
+        .state,
+    ).toBe('purged');
+    expect(e.steps).toEqual(['head', 'observe:false', 'begin:admitted', 'delete']);
+    expect(e.observed()).toBe(false);
+  });
+  it('admits no DELETE while the store cannot answer the presence read', async () => {
+    const f = fixture(),
+      e = erasable(f);
+    e.exists.mockRejectedValueOnce(new Error('Generated unavailable store'));
+    const port = createRawKnowledgeObjectPort(f);
+    await expect(port.erase(f.service, { documentId: f.write.documentId })).rejects.toThrow(
+      'STORE_UNAVAILABLE',
+    );
+    expect(e.exists).toHaveBeenCalledTimes(1);
+    expect(e.steps).toEqual([]); // No observation recorded, no claim admitted, no DELETE sent.
+    expect(f.calls.some((call) => call.sql.includes('begin_object_deletion'))).toBe(false);
+    expect(e.deleteForPurge).not.toHaveBeenCalled();
+    expect((await port.erase(f.service, { documentId: f.write.documentId })).state).toBe('purged');
+    expect(e.deleteForPurge).toHaveBeenCalledTimes(1);
+    expect(e.observed()).toBe(true);
+  });
   it('denies person capture/erase and invalid source versions before SQL', async () => {
     const f = fixture(),
       port = createRawKnowledgeObjectPort(f);

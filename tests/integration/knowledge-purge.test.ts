@@ -57,16 +57,27 @@ describe('closed sources purge only after durable writer and transcript fences',
   let owner: TenantContext, reader: TenantContext, reviewer: TenantContext, foreign: TenantContext;
   const bytes = new Map<string, Buffer>();
   let deletes = 0,
-    absenceUnavailable = false;
+    absenceUnavailable = false,
+    presenceUnavailable = false,
+    deleteOutage: 'request' | 'refused' | null = null;
   // The memory transport under the runtime's native raw Knowledge port (see knowledge-native): an
   // upload or purge of raw bytes goes only through SQL admission, as apps/web and the worker wire it.
-  // While "unavailable", the store cannot answer the physical-absence read that must follow a
-  // completed DELETE before the purge may certify it.
+  // Three generated outages: the presence read the port takes before its one admitted DELETE
+  // (0532), the DELETE itself (the request fails in flight, or the S3 adapter's capability preflight
+  // refuses it before transport), and the physical-absence read that must follow a completed DELETE
+  // before the purge may certify it.
   const memory = memoryTransport(bytes);
   const transport: MemoryTransport = {
     ...memory,
+    exists: async (key) => {
+      if (presenceUnavailable) throw new Error('Generated unavailable store');
+      return memory.exists(key);
+    },
     deleteForPurge: async (key) => {
       deletes++;
+      if (deleteOutage === 'request') throw new Error('Generated unavailable store');
+      if (deleteOutage === 'refused')
+        return { transport: 'not_attempted', capabilityVerified: false };
       return memory.deleteForPurge(key);
     },
     isPhysicallyAbsent: async (key) => {
@@ -211,7 +222,13 @@ describe('closed sources purge only after durable writer and transcript fences',
     ).rejects.toThrow('TRANSCRIPT_PURGE_UNCONFIRMED');
     await proof(source.sourceId);
     const completed = await purge(source.sourceId);
-    expect(completed).toMatchObject({ state: 'completed', documents: 1, answers: 1, blobs: 1 });
+    expect(completed).toMatchObject({
+      state: 'completed',
+      documents: 1,
+      answers: 1,
+      blobs: 1,
+      blobsAbsent: 0,
+    });
     expect(completed.chunks).toBeGreaterThan(0);
     expect(await purge(source.sourceId)).toEqual(completed);
     const events = await withTenantTx(database.db, service(), (tx) =>
@@ -238,8 +255,8 @@ describe('closed sources purge only after durable writer and transcript fences',
     await proof(source.sourceId);
     // The outage is the read that must prove the bytes physically absent after the one admitted
     // DELETE. 0508/0516's executor retries only that absence read after a known terminal DELETE;
-    // it never resends the DELETE. (A refused capability preflight, by contrast, leaves its
-    // admitted claim unconfirmed for ever and is never retried: object-deletion.test.ts.)
+    // it never resends the DELETE. (An outage of the DELETE itself leaves its admitted claim
+    // unconfirmed for ever and is never retried: the last test in this file.)
     const before = deletes;
     absenceUnavailable = true;
     let failed;
@@ -258,9 +275,46 @@ describe('closed sources purge only after durable writer and transcript fences',
       state: 'completed',
       documents: 1,
       blobs: 1,
+      blobsAbsent: 0,
       chunks: failed!.chunks,
     });
     expect(deletes - before).toBe(1);
+  });
+  it('fails a store outage before the DELETE as STORE_UNAVAILABLE, admits nothing, then resumes with one DELETE', async () => {
+    const source = await upload();
+    const key = `${owner.organizationId}/knowledge/${source.documentId}`;
+    await deleteSource(database.db, owner, {
+      sourceId: source.sourceId,
+      expectedVersion: 1,
+      reason: 'Generated deletion',
+    });
+    await proof(source.sourceId);
+    // The store cannot answer the presence read the native port takes before admitting its DELETE
+    // (0532). Nothing destructive has been admitted, so the purge fails and a retry starts cleanly.
+    const before = deletes;
+    presenceUnavailable = true;
+    let failed;
+    try {
+      failed = await purge(source.sourceId);
+    } finally {
+      presenceUnavailable = false;
+    }
+    expect(failed).toMatchObject({ state: 'failed', documents: 0, blobs: 0, blobsAbsent: 0 });
+    expect((await getPurgeStatus(database.db, owner, source.sourceId)).lastErrorCode).toBe(
+      'STORE_UNAVAILABLE',
+    );
+    expect(deletes).toBe(before);
+    expect(bytes.has(key)).toBe(true);
+    await proof(source.sourceId);
+    expect(await purge(source.sourceId)).toMatchObject({
+      state: 'completed',
+      documents: 1,
+      blobs: 1,
+      blobsAbsent: 0,
+      chunks: failed!.chunks,
+    });
+    expect(deletes - before).toBe(1);
+    expect(bytes.has(key)).toBe(false);
   });
   it('cannot report completion while a put is in flight; late publication cleans up and settles its own generation', async () => {
     let release!: () => void, start!: () => void;
@@ -362,6 +416,57 @@ describe('closed sources purge only after durable writer and transcript fences',
       writeId: writer!.writeId,
       generation: writer!.generation,
     });
+  });
+  // The positive recovery the protocol does allow: a writer that crashed after its intent and before
+  // its PUT was admitted (here, a transport without the single-attempt PUT, so admission is never
+  // reached). The purge's own recovery closes that never-admitted intent through 0516's
+  // close_unadmitted_raw_write and settles the writer, without consulting any legacy fence; the purge
+  // then erases through one admitted DELETE and completes. 0523's supersede is for the same upload's
+  // retry while its source is active; after closure nothing of an admitted unknown PUT recovers (above).
+  it('recovers a crashed writer whose PUT was never admitted and completes its purge end to end', async () => {
+    const { putSingleAttempt: _neverSent, ...unsendable } = transport;
+    const title = `Generated crashed upload ${randomUUID()}`;
+    await expect(
+      addUploadedSource(database.db, nativeKnowledgeStore(database.db, unsendable), owner, {
+        title,
+        mediaType: 'text/plain',
+        body: Buffer.from('Generated never-sent bytes'),
+        classification: 'internal',
+        grants: [],
+      }),
+    ).rejects.toEqual(new AppError('INVALID_STATE'));
+    const [document] = await withTenantTx(database.db, service(), (tx) =>
+      tx.select().from(knowledgeDocuments).where(eq(knowledgeDocuments.title, title)),
+    );
+    const writers = () =>
+      withTenantTx(database.db, service(), (tx) =>
+        tx
+          .select()
+          .from(knowledgeObjectWriters)
+          .where(eq(knowledgeObjectWriters.documentId, document!.id)),
+      );
+    expect(await writers()).toMatchObject([{ state: 'active', generation: 1 }]);
+    await close(document!.sourceId);
+    await proof(document!.sourceId);
+    let fenced = 0;
+    const objects: RecoverableKnowledgeStore = nativeKnowledgeStore(database.db, {
+      ...transport,
+      fenceKnowledgeWrite: async () => {
+        fenced++;
+        return { quiescent: true };
+      },
+    });
+    const before = deletes;
+    expect(await purge(document!.sourceId, objects)).toMatchObject({
+      state: 'completed',
+      documents: 1,
+      blobs: 0,
+      blobsAbsent: 1,
+    });
+    expect(fenced).toBe(0);
+    expect(deletes - before).toBe(1);
+    expect(await writers()).toEqual([]);
+    expect((await getPurgeStatus(database.db, owner, document!.sourceId)).state).toBe('completed');
   });
   it('demotes a verified multi-source fact atomically and deletes a fact with no surviving evidence', async () => {
     const a = await upload(),
@@ -472,7 +577,7 @@ describe('closed sources purge only after durable writer and transcript fences',
       )[0]?.state,
     ).toBe('revoked');
   });
-  it('never deletes a different object named by a damaged document row, and counts a blob by its finished native write', async () => {
+  it('never deletes a different object named by a damaged document row and never counts absent bytes as removed', async () => {
     const source = await upload();
     const canonical = `${owner.organizationId}/knowledge/${source.documentId}`;
     const foreignKey = `${foreign.organizationId}/knowledge/${randomUUID()}`;
@@ -496,13 +601,15 @@ describe('closed sources purge only after durable writer and transcript fences',
     // The bytes vanish in storage itself; the native port refuses any raw delete outside a purge.
     bytes.delete(canonical);
     await proof(source.sourceId);
-    // 0516's lifecycle.object_delete_absent counts a removed blob from the retained native history
-    // (a finished generation-1 PUT), never from whether the bytes happened to be present at DELETE:
-    // a provider DELETE cannot say. This upload's PUT finished, so its blob counts once.
+    // Purge counts are evidence (ADR-029 D3). This upload's PUT finished, so 0516's native history
+    // alone would call its blob removed, yet this purge removed nothing: the bytes were gone before
+    // its DELETE, and a provider DELETE cannot say so. The port's presence read before that DELETE
+    // (0532) counts the blob as already absent, never as removed.
     expect(await purge(source.sourceId)).toMatchObject({
       state: 'completed',
       documents: 1,
-      blobs: 1,
+      blobs: 0,
+      blobsAbsent: 1,
     });
     expect(bytes.has(canonical)).toBe(false);
     expect(bytes.has(foreignKey)).toBe(true);
@@ -543,4 +650,54 @@ describe('closed sources purge only after durable writer and transcript fences',
     expect(completed).toMatchObject({ state: 'completed', artifacts: 3, documents: 1 });
     expect(await purge(source.sourceId, store, derived)).toEqual(completed);
   });
+  // Last, because each source here stays unconfirmed for ever by design. A DELETE whose request
+  // failed in flight may still have reached the provider, and a DELETE the capability preflight
+  // refused leaves its admitted claim unresolved; 0508/0516 never resend either, and no later read
+  // can turn them into a completed purge.
+  it.each(['request', 'refused'] as const)(
+    'keeps a store outage during the admitted DELETE (%s) failed and blocked: never resent, never completed',
+    async (outage) => {
+      const source = await upload();
+      const key = `${owner.organizationId}/knowledge/${source.documentId}`;
+      await deleteSource(database.db, owner, {
+        sourceId: source.sourceId,
+        expectedVersion: 1,
+        reason: 'Generated deletion',
+      });
+      await proof(source.sourceId);
+      const before = deletes;
+      deleteOutage = outage;
+      let failed;
+      try {
+        failed = await purge(source.sourceId);
+      } finally {
+        deleteOutage = null;
+      }
+      expect(failed).toMatchObject({ state: 'failed', documents: 0, blobs: 0, blobsAbsent: 0 });
+      expect(deletes - before).toBe(1);
+      for (let retry = 0; retry < 2; retry++) {
+        await proof(source.sourceId);
+        expect(await purge(source.sourceId)).toMatchObject({
+          state: 'failed',
+          documents: 0,
+          blobs: 0,
+          blobsAbsent: 0,
+        });
+        expect(await getPurgeStatus(database.db, owner, source.sourceId)).toMatchObject({
+          state: 'failed',
+          lastErrorCode: 'RAW_OBJECT_UNCONFIRMED',
+        });
+      }
+      expect(deletes - before).toBe(1);
+      expect(bytes.has(key)).toBe(true);
+      expect(
+        await withTenantTx(database.db, service(), (tx) =>
+          tx
+            .select({ id: knowledgeDocuments.id })
+            .from(knowledgeDocuments)
+            .where(eq(knowledgeDocuments.id, source.documentId)),
+        ),
+      ).toEqual([{ id: source.documentId }]);
+    },
+  );
 });

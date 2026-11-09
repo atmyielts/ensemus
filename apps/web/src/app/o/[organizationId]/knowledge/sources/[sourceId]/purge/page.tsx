@@ -50,6 +50,7 @@ export default async function PurgePage({
                   facts: 'Facts removed or invalidated',
                   answers: 'Answers',
                   blobs: 'Source files',
+                  blobsAbsent: 'Source files already gone before removal',
                   transcripts: 'Run transcripts',
                   artifacts: 'Generated files',
                   workUnits: 'Copied work redacted',

@@ -235,6 +235,8 @@ export type PurgeOutcome = {
   facts: number;
   answers: number;
   blobs: number;
+  /** Source files whose bytes were already gone before this purge's DELETE (0532), never in `blobs`. */
+  blobsAbsent: number;
   transcripts: number;
   artifacts: number;
   workUnits: number;
@@ -250,6 +252,7 @@ const outcome = (job: Job): PurgeOutcome => ({
   facts: job.factsRemoved,
   answers: job.answersRemoved,
   blobs: job.blobsRemoved,
+  blobsAbsent: job.blobsAbsent,
   transcripts: job.transcriptsRemoved,
   artifacts: job.derivedArtifactsRemoved,
   workUnits: job.delegatedWorkRemoved,
@@ -726,15 +729,24 @@ export async function runSourcePurge(
             .returning({
               id: knowledgeDocuments.id,
               observed: knowledgeDocuments.objectPurgeObserved,
+              present: knowledgeDocuments.objectPresentBeforePurge,
             });
-          if (removed.length)
+          if (removed.length) {
+            // Counts are evidence (0532). A blob counts as removed only when its bytes were seen
+            // before this purge's DELETE, and as absent when they were already gone. A header whose
+            // erasure began before 0532 has no observation and keeps 0516's native-history count.
+            const { observed, present } = removed[0]!;
+            const blob =
+              present === null ? (observed ? 'removed' : null) : present ? 'removed' : 'absent';
             await tx
               .update(knowledgePurgeJobs)
               .set({
                 documentsRemoved: sql`${knowledgePurgeJobs.documentsRemoved}+1`,
-                blobsRemoved: sql`${knowledgePurgeJobs.blobsRemoved}+${removed[0]!.observed ? 1 : 0}`,
+                blobsRemoved: sql`${knowledgePurgeJobs.blobsRemoved}+${blob === 'removed' ? 1 : 0}`,
+                blobsAbsent: sql`${knowledgePurgeJobs.blobsAbsent}+${blob === 'absent' ? 1 : 0}`,
               })
               .where(eq(knowledgePurgeJobs.sourceId, sourceId));
+          }
         });
       }
     }

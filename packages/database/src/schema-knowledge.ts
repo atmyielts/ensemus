@@ -189,8 +189,11 @@ export const knowledgeDocuments = knowledgeSchema.table(
     sizeBytes: bigint({ mode: 'number' }).notNull(),
     mediaType: text().notNull(),
     objectKey: text(),
-    /** Purge observed the tracked object's presence before deleting it; retained across retries. */
+    /** Set by 0516's absence proof from the native history: a finished PUT of this document exists. */
     objectPurgeObserved: boolean().notNull().default(false),
+    /** 0532: whether the bytes were present when the native port first reached this document for
+     * erasure, before its one admitted DELETE. NULL until observed; a count, never deletion proof. */
+    objectPresentBeforePurge: boolean(),
     classification: text().notNull(),
     /** `not_scanned` is what it says. Nothing here claims a scan that did not run (ADR-029 D4). */
     scanState: text().notNull().default('not_scanned'),
@@ -919,6 +922,8 @@ export const knowledgePurgeJobs = knowledgeSchema.table(
     factsRemoved: integer().notNull().default(0),
     answersRemoved: integer().notNull().default(0),
     blobsRemoved: integer().notNull().default(0),
+    /** 0532: documents whose bytes were already gone before this purge's DELETE; never in blobsRemoved. */
+    blobsAbsent: integer().notNull().default(0),
     transcriptsRemoved: integer().notNull().default(0),
     derivedArtifactsRemoved: integer().notNull().default(0),
     derivedArtifactsHeld: integer().notNull().default(0),

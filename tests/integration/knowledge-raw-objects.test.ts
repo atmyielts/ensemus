@@ -38,6 +38,7 @@ import { beginErasure } from '@ensemus/application/saas/offboarding';
 import { lifecycleTenant, LifecycleMemoryStore } from './saas-lifecycle-fixture';
 import { publishErasureLedger, readyToErase } from './saas-offboarding-fixture';
 import { createKnowledgePurgePorts } from '../../workers/workflow/src/knowledge-ports';
+import { exportEpochMatches } from '../../packages/application/src/portability-epoch';
 import { proveSecondFactor } from '../helpers/product';
 import { purgeAgentMaterialsForSource } from '../helpers/knowledge-native';
 import { urls } from '../helpers/stack';
@@ -651,5 +652,86 @@ describe('native raw source material authority', () => {
       await eraser.query('reset session authorization');
       await eraser.end();
     }
+  });
+  // 0524 lets the restricted eraser delete an erasing tenant's source grants without 0201's
+  // acl_revision bump, which it may not write. That bump feeds nothing but 0303's export epoch, so
+  // the skip must not leave a reader or an export on the old ACL: reads resolve live grants under
+  // RLS, and each grant row's own epoch trigger still supersedes any export pinned before.
+  it('lets the eraser drop source grants without the ACL revision, while reads stop and the export epoch moves on', async () => {
+    const owner = await lifecycleTenant(app.db, auth),
+      identity = interactiveSessionOf(owner);
+    if (!identity) throw new Error('TEST_NATIVE_IDENTITY_REQUIRED');
+    await proveSecondFactor(identity);
+    const native = new NativeRawMap(),
+      store = withRawKnowledgeObjects({ database: app.db, store: native });
+    const { sourceId } = await addUploadedSource(app.db, store, owner, {
+      title: 'Generated granted source',
+      body: Buffer.from(`generated granted ${randomUUID()}`),
+      mediaType: 'text/plain',
+      classification: 'internal',
+      grants: [{ kind: 'organization' }],
+    });
+    const service = createServiceContext(owner.organizationId);
+    // The one ACL every Knowledge read filters through (0201 acl_read), for the owner's membership.
+    const readable = async () =>
+      (
+        await withTenantTx(app.db, service, (tx) =>
+          tx.execute<{ id: string }>(
+            sql`select id from knowledge.readable_source_ids(${owner.membershipId}::uuid) id`,
+          ),
+        )
+      ).rows.map((row) => row.id);
+    const recorded = async () =>
+      (
+        await observer.query<{ revision: string; epoch: string | null; grants: number }>(
+          `select (select acl_revision::text from knowledge.sources where organization_id=$1 and id=$2) revision,
+          (select epoch::text from sovereign.export_epochs where organization_id=$1) epoch,
+          (select count(*)::integer from knowledge.source_grants where organization_id=$1 and source_id=$2) grants`,
+          [owner.organizationId, sourceId],
+        )
+      ).rows[0]!;
+    expect(await readable()).toContain(sourceId);
+    const ready = await readyToErase(app.db, owner);
+    await beginErasure(app.db, ready.service, {
+      offboardingId: ready.offboardingId,
+      operatorRef: 'generated-grant-review@example.invalid',
+    });
+    const before = await recorded();
+    expect(before.grants).toBeGreaterThan(0);
+    expect(before.epoch).not.toBeNull();
+    expect(await readable()).toContain(sourceId);
+    const eraser = new pg.Client({ connectionString: urls.superuser() });
+    await eraser.connect();
+    try {
+      await eraser.query('set session authorization ensemus_eraser');
+      await eraser.query('begin');
+      try {
+        await eraser.query(
+          "select set_config('app.organization_id',$1,true),set_config('app.actor_type','service',true)",
+          [owner.organizationId],
+        );
+        const removed = await eraser.query(
+          'delete from knowledge.source_grants where organization_id=$1',
+          [owner.organizationId],
+        );
+        expect(removed.rowCount).toBe(before.grants);
+        await eraser.query('commit');
+      } catch (error) {
+        await eraser.query('rollback');
+        throw error;
+      }
+    } finally {
+      await eraser.query('reset session authorization');
+      await eraser.end();
+    }
+    const after = await recorded();
+    // The skipped bump: the eraser could not write the source row, and did not.
+    expect(after).toMatchObject({ revision: before.revision, grants: 0 });
+    // Not skipped: the grant deletions advanced the epoch, so an export pinned to the earlier epoch
+    // fails the same predicate every export reader applies (isExportEpochCurrent).
+    expect(exportEpochMatches(before.epoch, after.epoch)).toBe(false);
+    expect(after.epoch === null || BigInt(after.epoch) > BigInt(before.epoch!)).toBe(true);
+    // Reads never consult acl_revision: the source is unreadable the moment its grants are gone.
+    expect(await readable()).not.toContain(sourceId);
   });
 });
