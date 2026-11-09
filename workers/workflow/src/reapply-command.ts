@@ -11,7 +11,7 @@
 // restore left in restore debt, for the service to re-prove once the restore was admitted (0543, 0545):
 // it observes the object and records that observation; the deletion is still proven by the ordinary
 // lifecycle (the generated-file one runs in the re-apply below). --delete-raw-survivor names one raw
-// object whose bytes survived the restore (0548, FLAGGED FOR HUMAN SECURITY REVIEW, not yet reviewed
+// object whose bytes survived the restore (0547, FLAGGED FOR HUMAN SECURITY REVIEW, not yet reviewed
 // by a person): the ordinary lifecycle deletes and proves it, and only then is its source re-proven.
 import { readFileSync } from 'node:fs';
 import { parseArgs } from 'node:util';
@@ -78,7 +78,7 @@ export function readConfirmFile(path: string): string[] {
 
 /**
  * One restored object or tenant an operator names for re-proof after an admitted restore (0543,
- * 0545), or one raw object that survived it, to delete (0548).
+ * 0545), or one raw object that survived it, to delete (0547).
  */
 export type RestoreRequalificationRequest =
   | { kind: 'artifact'; organizationId: string; artifactId: string }
@@ -191,7 +191,7 @@ export type RequalificationStore = RawRestoreSurvivorStore;
  * The organization marker goes first, since it is what lets new raw births be native again. Nothing is
  * deleted by a re-proof: each only lets the ordinary lifecycle (the ledger re-apply that follows, or a
  * source's purge) prove the deletion itself. A named raw survivor is deleted through that same
- * lifecycle, and its source re-proven only after the deletion is proven (0548). A refusal is reported
+ * lifecycle, and its source re-proven only after the deletion is proven (0547). A refusal is reported
  * and leaves its debt in place.
  */
 export async function runRequalifications(

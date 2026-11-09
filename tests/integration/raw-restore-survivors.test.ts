@@ -1,4 +1,4 @@
-// Raw Knowledge objects that survived a restore (0548, ADR-026 D3a), against real RLS, the real
+// Raw Knowledge objects that survived a restore (0547, ADR-026 D3a), against real RLS, the real
 // object-deletion authority and the native raw object port. FLAGGED FOR HUMAN SECURITY REVIEW, not yet
 // reviewed by a person. The material restore generation is rotated the way the native restore rotates
 // it, which is global: this file runs serially, as the whole integration project does
@@ -94,7 +94,7 @@ const refusal = (work: Promise<unknown>) =>
     }),
   );
 
-describe('raw objects that survived a restore (0548)', () => {
+describe('raw objects that survived a restore (0547)', () => {
   let app: ReturnType<typeof openAppDatabase>,
     agent: ReturnType<typeof openAgentDatabase>,
     migrator: pg.Client,

@@ -1,9 +1,9 @@
 -- REVIEWED SECURITY SQL (ADR-024 D4, ADR-026, ADR-029). Changes here need human review, never agent approval.
 -- FLAGGED FOR HUMAN SECURITY REVIEW, not yet reviewed by a person
 -- Written by an agent in CI repair round 7 (G2, check finding 7, F16 part 2). It adds one deletion
--- admission to the raw Knowledge object authority. Provisional number: renumbered at merge.
+-- admission to the raw Knowledge object authority. Written as 0548, renumbered to 0547 at merge.
 --
--- 0548 (r7 restore survivors): additive. 0508, 0516, 0520, 0539, 0543, 0544 and 0545 are registered
+-- 0547 (r7 restore survivors): additive. 0508, 0516, 0520, 0539, 0543, 0544 and 0545 are registered
 -- and pushed, so none of them is edited; the two fixed public entry points are cloned and wrapped the
 -- way 0516, 0539 and 0544 did, keeping their OIDs and ACLs.
 --

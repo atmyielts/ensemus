@@ -865,7 +865,7 @@ export async function requalifyGeneratedRestoreDebt(
  * when each is physically absent does one service-only SQL call record the proof, naming exactly
  * those objects, and the source's purge job can then complete under 0516's own guard. A surviving
  * object is reported and nothing is recorded: `deleteRawRestoreSurvivor` deletes it, one object at
- * a time (0548). Running it again changes nothing.
+ * a time (0547). Running it again changes nothing.
  */
 export async function requalifyRawRestoreSource(
   database: AppDatabase,
@@ -908,7 +908,7 @@ export async function requalifyRawRestoreSource(
 }
 
 /**
- * What deleting one raw object that survived a restore found (0548). `deleted` means its deletion
+ * What deleting one raw object that survived a restore found (0547). `deleted` means its deletion
  * was proven, and carries what re-proving its source then found: `requalified` once every object of
  * the source is absent, `present` while others survive. `held` and `unconfirmed` deleted nothing
  * that was proven, and the source stays in debt.
@@ -925,7 +925,7 @@ export type RawRestoreSurvivorStore = Pick<
   'isPhysicallyAbsent' | 'deleteForPurge' | 'assertPurgeCapability'
 >;
 
-/** 0548's exact target, as SQL returns it and as begin_object_deletion compares it, key for key. */
+/** 0547's exact target, as SQL returns it and as begin_object_deletion compares it, key for key. */
 const survivorTarget = z.strictObject({
   kind: z.literal('raw_restore_survivor'),
   sourceId: idSchema,
@@ -945,7 +945,7 @@ const refuseUnadmitted = async (): Promise<never> => {
 
 /**
  * Deletes one raw Knowledge object whose bytes survived an admitted restore, named by its source and
- * document IDs (0548, ADR-026 D3a). FLAGGED FOR HUMAN SECURITY REVIEW, not yet reviewed by a person.
+ * document IDs (0547, ADR-026 D3a). FLAGGED FOR HUMAN SECURITY REVIEW, not yet reviewed by a person.
  *
  * There is no pattern and no source-wide or tenant-wide form, the same as `requalifyRawRestoreSource`.
  * SQL names the exact target only for a closed source whose inventory a restore left in debt, every
@@ -993,7 +993,7 @@ export async function deleteRawRestoreSurvivor(
     },
   });
   // The executor hands the target to lifecycle.begin_object_deletion as it is. Its 'raw_restore_survivor'
-  // kind is 0548's, which DeletionTarget does not list; SQL checks every key of it again.
+  // kind is 0547's, which DeletionTarget does not list; SQL checks every key of it again.
   const result = await erase(context, target.data as unknown as DeletionTarget);
   if (result.state !== 'purged') return { state: result.state };
   return {
