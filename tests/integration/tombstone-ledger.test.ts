@@ -108,6 +108,7 @@ describe('the tombstone ledger', () => {
       email: user.email,
       role: 'admin',
     });
+    await auth.query('update identity.users set email_verified=true where id=$1', [user.id]);
     await acceptInvitation(db(), {
       token,
       userId: user.id,

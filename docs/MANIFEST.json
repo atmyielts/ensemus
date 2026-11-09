@@ -407,8 +407,8 @@
     },
     {
       "path": "06-delivery/evidence/CI-replay-captures-2026-11-09.md",
-      "size_bytes": 3016,
-      "sha256": "3ead57c79b1968bee65266ac2305dc81b93e9e4d2e496c45ac4565aeda7e5da9"
+      "size_bytes": 3537,
+      "sha256": "3870741a8df50ece64ede6c0d577cc4e79d49466f304b796e7a48d7adf594b33"
     },
     {
       "path": "06-delivery/evidence/M1-report.md",
@@ -572,8 +572,8 @@
     },
     {
       "path": "06-delivery/evidence/branch-consolidation-2026-11-09.json",
-      "size_bytes": 17487,
-      "sha256": "8401efc56cf66566593593f4f85e94b350f30eef4f8281745884363fd1b8da65"
+      "size_bytes": 17076,
+      "sha256": "400775a8ff121aba3c05457192f6c105f42b966aca9e9caeae0455588a19860d"
     },
     {
       "path": "06-delivery/evidence/m4/assurance.md",

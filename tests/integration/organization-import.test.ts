@@ -111,6 +111,7 @@ describe('importing an organization archive', () => {
   const joinAs = async (owner: TenantContext, role: 'admin' | 'member') => {
     const user = await makeUser(role);
     const invitation = await createInvitation(db(), owner, { email: user.email, role });
+    await auth.query('update identity.users set email_verified=true where id=$1', [user.id]);
     await acceptInvitation(db(), {
       userId: user.id,
       email: user.email,

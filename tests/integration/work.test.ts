@@ -90,19 +90,18 @@ describe('work', () => {
   let auth: pg.Client;
   const db = () => app.db;
 
-  async function makeUser(label: string) {
+  async function makeUser(label: string, emailVerified = false) {
     const id = randomUUID();
     const email = `${label}-${id}@example.invalid`;
-    await auth.query('insert into identity.users (id, name, email) values ($1, $2, $3)', [
-      id,
-      label,
-      email,
-    ]);
+    await auth.query(
+      'insert into identity.users (id, name, email, email_verified) values ($1, $2, $3, $4)',
+      [id, label, email, emailVerified],
+    );
     return { id, email };
   }
 
   async function join(context: TenantContext, label: string, role: 'admin' | 'member' = 'member') {
-    const user = await makeUser(label);
+    const user = await makeUser(label, true);
     const { token } = await createInvitation(db(), context, { email: user.email, role });
     await acceptInvitation(db(), {
       token,
@@ -658,6 +657,43 @@ describe('work', () => {
   });
 
   describe('resource permissions', () => {
+    it.each(['public', 'internal', 'confidential', 'restricted'] as const)(
+      'preserves the native %s Work viewer matrix',
+      async (classification) => {
+        const owner = await newOrg();
+        const admin = await join(owner, 'admin', 'admin');
+        const author = await join(owner, 'author');
+        const assigned = await join(owner, 'assigned');
+        const uninvolved = await join(owner, 'uninvolved');
+        const foreign = await newOrg();
+        const work = await createWorkUnit(db(), author, { title: 'Viewer matrix', classification });
+        await assignContributor(db(), author, { id: work.id, membershipId: assigned.membershipId });
+        for (const [viewer, allowed] of [
+          [author, true],
+          [assigned, true],
+          [owner, classification !== 'restricted'],
+          [admin, classification !== 'restricted'],
+          [uninvolved, classification === 'public' || classification === 'internal'],
+          [foreign, false],
+        ] as const) {
+          const projection = await withTenantTx(db(), viewer, (tx) =>
+            tx.execute<{ readable: boolean }>(
+              sql`select knowledge.can_read_work(${work.id}::uuid,${viewer.membershipId}::uuid) as readable`,
+            ),
+          );
+          expect(projection.rows[0]?.readable).toBe(allowed);
+          if (allowed) {
+            expect((await getWorkUnit(db(), viewer, work.id)).id).toBe(work.id);
+          } else {
+            await expect(getWorkUnit(db(), viewer, work.id)).rejects.toEqual(code('NOT_FOUND'));
+          }
+          expect(
+            (await listWorkUnits(db(), viewer)).items.some((item) => item.id === work.id),
+          ).toBe(allowed);
+        }
+      },
+    );
+
     it('lets a member read internal work but not change it', async () => {
       const a = await newOrg();
       const member = await join(a, 'member');
@@ -1104,7 +1140,7 @@ describe('work', () => {
     it('joins the stated organization only, in the stated role', async () => {
       const a = await newOrg();
       const b = await newOrg();
-      const user = await makeUser('invitee');
+      const user = await makeUser('invitee', true);
       const { token } = await createInvitation(db(), a, { email: user.email, role: 'admin' });
       await acceptInvitation(db(), {
         token,
@@ -1119,7 +1155,7 @@ describe('work', () => {
 
     it('works once', async () => {
       const a = await newOrg();
-      const user = await makeUser('invitee');
+      const user = await makeUser('invitee', true);
       const { token } = await createInvitation(db(), a, { email: user.email });
       await acceptInvitation(db(), {
         token,
@@ -2251,13 +2287,28 @@ describe('work', () => {
   });
 
   describe('invitations and the person who sent them', () => {
-    const invite = async (by: TenantContext, role: 'admin' | 'member' = 'admin') => {
-      const user = await makeUser('invitee');
+    const invite = async (
+      by: TenantContext,
+      role: 'admin' | 'member' = 'admin',
+      emailVerified = true,
+    ) => {
+      const user = await makeUser('invitee', emailVerified);
       const { id, token } = await createInvitation(db(), by, { email: user.email, role });
       return { user, id, token };
     };
     const accept = (user: { id: string; email: string }, token: string, emailVerified = true) =>
       acceptInvitation(db(), { token, userId: user.id, email: user.email, emailVerified });
+
+    it('cannot substitute a caller verification flag for the native verified address', async () => {
+      const a = await newOrg();
+      const { user, id, token } = await invite(a, 'member', false);
+      await expect(accept(user, token, true)).rejects.toMatchObject({ cause: { code: 'EN405' } });
+      await expect(resolveTenantContext(db(), user.id, a.organizationId)).rejects.toThrow();
+      const listed = (await listInvitations(db(), a)).find((i) => i.id === id);
+      expect(listed?.acceptedAt).toBeNull();
+      expect(listed?.claimedAt).toBeNull();
+      expect(await accept(user, token, false)).toEqual({ status: 'awaiting_confirmation' });
+    });
 
     it('stop working when the inviter is disabled', async () => {
       const a = await newOrg();
@@ -2309,7 +2360,7 @@ describe('work', () => {
 
     it('make an unverified account ask, and join nothing until confirmed', async () => {
       const a = await newOrg();
-      const { user, id, token } = await invite(a);
+      const { user, id, token } = await invite(a, 'admin', false);
       expect(await accept(user, token, false)).toEqual({ status: 'awaiting_confirmation' });
       await expect(resolveTenantContext(db(), user.id, a.organizationId)).rejects.toThrow();
       const listed = (await listInvitations(db(), a)).find((i) => i.id === id);
@@ -2327,7 +2378,7 @@ describe('work', () => {
     it('cannot be confirmed by someone who cannot invite, or with no one asking', async () => {
       const a = await newOrg();
       const member = await join(a, 'member');
-      const { user, id, token } = await invite(a);
+      const { user, id, token } = await invite(a, 'admin', false);
       await expect(confirmInvitation(db(), a, { invitationId: id })).rejects.toEqual(
         code('INVITATION_INVALID'),
       );
@@ -2339,7 +2390,7 @@ describe('work', () => {
 
     it('cannot be confirmed once withdrawn', async () => {
       const a = await newOrg();
-      const { user, id, token } = await invite(a);
+      const { user, id, token } = await invite(a, 'admin', false);
       await accept(user, token, false);
       await revokeInvitation(db(), a, { invitationId: id });
       await expect(confirmInvitation(db(), a, { invitationId: id })).rejects.toEqual(

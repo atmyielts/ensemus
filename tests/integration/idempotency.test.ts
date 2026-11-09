@@ -49,6 +49,7 @@ describe('idempotency keys', () => {
   async function join(context: TenantContext) {
     const user = await makeUser('member');
     const { token } = await createInvitation(db(), context, { email: user.email, role: 'member' });
+    await auth.query('update identity.users set email_verified=true where id=$1', [user.id]);
     await acceptInvitation(db(), {
       token,
       userId: user.id,

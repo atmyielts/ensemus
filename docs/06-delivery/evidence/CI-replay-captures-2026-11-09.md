@@ -37,6 +37,13 @@ logs are `.local-ci-replay-capture-20261109.log` and
 `.local-ci-replay-content-audit-formatted-20261109.log`; the owned-resource and content receipts are
 `.local/ci-replay-owned-resources.json` and `.local/ci-replay-capture-content-proof.json`.
 
-At this frozen fixture checkpoint, scoped Docker cleanup and the new full replay rerun are pending.
-The earlier replay run passed 158 cases and failed these 23 missing-file checks; it is not a passing
-replay result for the repaired corpus. The next check is `pnpm test:replay` with capture mode unset.
+After capture, cleanup rechecked the saved container IDs, exclusive volume use and project network
+membership before removing exactly those five containers, one volume and five networks. Post-cleanup
+inventory was zero containers, zero volumes and zero networks for this project. No image, cache or
+other project was removed. Receipt: `.local/ci-replay-cleanup-proof.json`.
+
+The full `pnpm test:replay` rerun with capture mode unset passed **204 tests**, with 50 explicit skips
+and six existing todos across 32 files (11 passed, 21 skipped), in 135.87 seconds. Log:
+`.local-ci-quality-replay-final-20261109.log`. The earlier 158-pass/23-missing-file failure checkpoint
+is superseded for this local corpus check. This local result does not claim that the new Linux CI
+run or any database/provider milestone exit has passed.

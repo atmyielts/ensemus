@@ -146,6 +146,7 @@ describe('joined portable definitions and restore audits', () => {
       email,
     ]);
     const invitation = await createInvitation(app.db, a, { email, role: 'member' });
+    await auth.query('update identity.users set email_verified=true where id=$1', [user]);
     await acceptInvitation(app.db, {
       userId: user,
       email,

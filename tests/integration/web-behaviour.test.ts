@@ -82,6 +82,7 @@ describe('web behaviour', () => {
   async function join(context: TenantContext, label: string, role: 'admin' | 'member' = 'member') {
     const user = await makeUser(label);
     const { token } = await createInvitation(db(), context, { email: user.email, role });
+    await auth.query('update identity.users set email_verified=true where id=$1', [user.id]);
     await acceptInvitation(db(), {
       token,
       userId: user.id,
