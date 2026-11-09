@@ -588,6 +588,9 @@ describe('the Sovereign API', () => {
       expect(downloaded.text).toBe(bytes.toString());
       expect(downloaded.headers.get('content-type')).toBe('application/octet-stream');
       expect(downloaded.headers.get('content-length')).toBe(String(bytes.length));
+      // Next.js drops the route's Content-Length; the proxy restores it from the length the app declared,
+      // and that internal header never reaches a client (apps/web/src/lib/declared-length.ts).
+      expect(downloaded.headers.get('x-ensemus-body-length')).toBeNull();
       expect(downloaded.headers.get('content-disposition')).toMatch(/^attachment;/);
       expect(downloaded.headers.get('cache-control')).toContain('no-store');
       expect(downloaded.headers.get('x-content-type-options')).toBe('nosniff');
