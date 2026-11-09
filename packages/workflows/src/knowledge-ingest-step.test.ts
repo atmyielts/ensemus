@@ -118,4 +118,60 @@ describe('ingest orchestration', () => {
     expect(result.purges).toHaveLength(5);
     expect(result.purges?.[0]).toEqual({ sourceId: '0', state: 'failed' });
   });
+
+  // ADR-028 open question 12, lifecycle item 8a: the typed-record purge restart.
+  describe('typed-record purge restarts', () => {
+    const quiet = {
+      close: async () => ({ closed: 0 }),
+      list: async () => [],
+      fetch: async () => ({ outcome: 'unchanged' as const, bytes: 0 }),
+      mcp: async () => [],
+      refresh: async () => undefined,
+    };
+    const org = '00000000-0000-4000-8000-000000000001';
+    const record = (i: number) => ({
+      organizationId: org,
+      kind: 'work_unit' as const,
+      id: `00000000-0000-4000-8000-${String(i).padStart(12, '0')}`,
+      limit: 25,
+    });
+    it('restarts each claimed record, at most five, and one failure does not stop the others', async () => {
+      const retried: string[] = [];
+      const result = await runKnowledgeSweep({
+        ...quiet,
+        recordPurges: async () => Array.from({ length: 8 }, (_, i) => record(i)),
+        retryRecordPurge: async (child) => {
+          retried.push(child.id);
+          if (retried.length === 2) throw new Error('TEST_RECORD_PURGE_FAILED');
+          return { state: retried.length === 3 ? 'unconfirmed' : 'completed' };
+        },
+      });
+      expect(retried).toEqual([0, 1, 2, 3, 4].map((i) => record(i).id));
+      expect(result.failed).toBe(1);
+      expect(result.recordPurges).toEqual([
+        { kind: 'work_unit', id: record(0).id, state: 'completed' },
+        { kind: 'work_unit', id: record(1).id, state: 'failed' },
+        { kind: 'work_unit', id: record(2).id, state: 'unconfirmed' },
+        { kind: 'work_unit', id: record(3).id, state: 'completed' },
+        { kind: 'work_unit', id: record(4).id, state: 'completed' },
+      ]);
+    });
+    it('counts a failed claim once and still reports the other work', async () => {
+      const retry = vi.fn();
+      const result = await runKnowledgeSweep({
+        ...quiet,
+        recordPurges: async () => {
+          throw new Error('TEST_CLAIM_FAILED');
+        },
+        retryRecordPurge: retry,
+      });
+      expect(retry).not.toHaveBeenCalled();
+      expect(result).toEqual({ fetched: 0, closed: 0, failed: 1, recordPurges: [] });
+    });
+    it('calls nothing when the ports are absent, as on a history recorded before the patch', async () => {
+      const result = await runKnowledgeSweep(quiet);
+      expect(result).toEqual({ fetched: 0, closed: 0, failed: 0 });
+      expect(result).not.toHaveProperty('recordPurges');
+    });
+  });
 });

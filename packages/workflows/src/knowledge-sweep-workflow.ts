@@ -3,6 +3,7 @@
 import {
   ActivityFailure,
   executeChild,
+  patched,
   proxyActivities,
   TimeoutFailure,
 } from '@temporalio/workflow';
@@ -14,7 +15,13 @@ import type { KnowledgeConnectorActivities } from './knowledge-connector-activit
 import type { McpActivities } from './mcp-activities';
 import { runKnowledgeSweep } from './knowledge-ingest-step';
 import { knowledgePurgeWorkflow } from './knowledge-purge-workflow';
-import { knowledgePurgeWorkflowIdFor } from './knowledge-schemas';
+import {
+  knowledgePurgeWorkflowIdFor,
+  knowledgeRecordPurgeWorkflowIdFor,
+  type KnowledgeRecordPurgeInput,
+} from './knowledge-schemas';
+import { knowledgeRecordPurgeWorkflow } from './knowledge-record-purge-workflow';
+import type { RecordPurgeResult } from './knowledge-record-purge-step';
 import type { KnowledgePurgeActivities } from './knowledge-purge-activities';
 import { restartKnowledgePurge } from './knowledge-purge-step';
 
@@ -41,7 +48,32 @@ export async function knowledgeSweepWorkflow(input: TenantInput): Promise<Knowle
     scheduleToStartTimeout: '30 seconds',
     retry: { maximumAttempts: 1 },
   });
+  const alreadyRunning = (error: unknown) =>
+    error instanceof Error && error.name === 'WorkflowExecutionAlreadyStartedError';
+  // ADR-028 lifecycle item 8a: restart every typed-record purge PostgreSQL does not yet prove. Behind a
+  // patch, so histories recorded before it replay without the new Activity.
+  const recordPurgeRestart = patched('record-purge-restart-v1')
+    ? {
+        recordPurges: () => local.claimRecordPurgeRestarts(input),
+        retryRecordPurge: (child: KnowledgeRecordPurgeInput) =>
+          restartKnowledgePurge<RecordPurgeResult>({
+            start: () =>
+              executeChild(knowledgeRecordPurgeWorkflow, {
+                args: [child],
+                workflowId: knowledgeRecordPurgeWorkflowIdFor(child),
+                taskQueue: 'ensemus-platform',
+                // Per record, not per pass: a pass after a restore must prove again from PostgreSQL.
+                workflowIdReusePolicy: 'ALLOW_DUPLICATE',
+                parentClosePolicy: 'ABANDON',
+                cancellationType: 'ABANDON',
+              }),
+            existing: () => local.readRecordPurgeState(child),
+            alreadyRunning,
+          }),
+      }
+    : {};
   return runKnowledgeSweep({
+    ...recordPurgeRestart,
     purges: () => local.claimSourcePurgeRetries(input),
     retryPurge: async (sourceId) => {
       const child = { organizationId: input.organizationId, sourceId };
@@ -59,8 +91,7 @@ export async function knowledgeSweepWorkflow(input: TenantInput): Promise<Knowle
             cancellationType: 'ABANDON',
           }),
         existing: () => local.readSourcePurgeState(child),
-        alreadyRunning: (error) =>
-          error instanceof Error && error.name === 'WorkflowExecutionAlreadyStartedError',
+        alreadyRunning,
       });
     },
     close: () => local.closeOrphanedSources(input),

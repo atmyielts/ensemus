@@ -30,6 +30,28 @@ describe('knowledge purge sequencing', () => {
       }),
     ).rejects.toBe(failed);
   });
+  it('reads a typed-record purge state when its per-record workflow is already running (ADR-028 8a)', async () => {
+    const started = Object.assign(new Error('Generated already started'), {
+      name: 'WorkflowExecutionAlreadyStartedError',
+    });
+    const proof = {
+      state: 'unconfirmed' as const,
+      work: { removed: 0, remaining: 1, controlsRemaining: 0, unproven: 0, confirmed: false },
+      filesRemoved: null,
+      filesRemaining: null,
+      filesHeld: null,
+    };
+    expect(
+      await restartKnowledgePurge({
+        start: async () => {
+          throw started;
+        },
+        existing: async () => proof,
+        alreadyRunning: (error) =>
+          error instanceof Error && error.name === 'WorkflowExecutionAlreadyStartedError',
+      }),
+    ).toBe(proof);
+  });
   it('never cleans projections or certifies completion without the transcript worker', async () => {
     const calls: string[] = [];
     const result = await runKnowledgePurge({

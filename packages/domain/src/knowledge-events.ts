@@ -40,3 +40,17 @@ export const NOTIFY_KNOWLEDGE_FACT_DISPUTED = 'knowledge.fact_disputed';
 export const knowledgeAnswerTargetRef = (id: string) => `knowledge_answer:${id}`;
 export const knowledgeFactTargetRef = (id: string) => `knowledge_fact:${id}`;
 export const knowledgeSourceTargetRef = (id: string) => `knowledge_source:${id}`;
+
+/**
+ * A typed record (a Work Unit, project, client or custom object record) was deleted or tombstoned, so
+ * whatever a delegated child copied from it must be purged (ADR-028 open question 12, lifecycle item 8a).
+ * The aggregate type is the record kind and the aggregate ID the record's ID; the payload holds those two
+ * IDs only. The dispatcher starts knowledgeRecordPurgeWorkflow. The tenant's knowledge sweep restarts any
+ * record whose purge PostgreSQL does not yet prove, so a lost event delays a purge but never skips it.
+ */
+export const KNOWLEDGE_RECORD_CLOSED = 'knowledge.record_closed';
+/** The record kinds a typed-record purge covers. Artifacts and knowledge sources have their own purges. */
+export const RECORD_PURGE_KINDS = ['work_unit', 'project', 'client', 'object_record'] as const;
+export type RecordPurgeKind = (typeof RECORD_PURGE_KINDS)[number];
+export const isRecordPurgeKind = (value: unknown): value is RecordPurgeKind =>
+  typeof value === 'string' && (RECORD_PURGE_KINDS as readonly string[]).includes(value);

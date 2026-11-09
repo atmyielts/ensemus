@@ -1,7 +1,11 @@
 import type { ParseStep } from './knowledge-ingest-activities';
 import type { EmbedStepResult } from './knowledge-embed-activities';
 import type { FetchOutcome } from './knowledge-connector-activities';
-import type { KnowledgeIngestResult, KnowledgeSweepResult } from './knowledge-schemas';
+import type {
+  KnowledgeIngestResult,
+  KnowledgeRecordPurgeInput,
+  KnowledgeSweepResult,
+} from './knowledge-schemas';
 
 /** Pure orchestration shared by the workflows and fault tests. No content or provider call lives here. */
 export async function runKnowledgeIngest(ports: {
@@ -36,6 +40,11 @@ export async function runKnowledgeSweep(ports: {
   modelWorkerAbsent?(error: unknown): boolean;
   purges?(): Promise<readonly { sourceId: string }[]>;
   retryPurge?(sourceId: string): Promise<{ state: 'pending' | 'running' | 'completed' | 'failed' }>;
+  /** Typed records PostgreSQL does not prove purged (ADR-028 lifecycle item 8a). Absent on old histories. */
+  recordPurges?(): Promise<readonly KnowledgeRecordPurgeInput[]>;
+  retryRecordPurge?(
+    record: KnowledgeRecordPurgeInput,
+  ): Promise<{ state: 'completed' | 'unconfirmed' }>;
 }): Promise<KnowledgeSweepResult> {
   let closed = 0;
   let failed = 0;
@@ -116,5 +125,27 @@ export async function runKnowledgeSweep(ports: {
     } catch {
       failed++;
     }
-  return { fetched, closed, failed, ...(ports.purges ? { purges } : {}) };
+  const recordPurges: NonNullable<KnowledgeSweepResult['recordPurges']>[number][] = [];
+  if (ports.recordPurges && ports.retryRecordPurge)
+    try {
+      for (const record of (await ports.recordPurges()).slice(0, 5)) {
+        try {
+          const result = await ports.retryRecordPurge(record);
+          recordPurges.push({ kind: record.kind, id: record.id, state: result.state });
+        } catch {
+          // One record's failure never stops the others; the next sweep proves it again.
+          recordPurges.push({ kind: record.kind, id: record.id, state: 'failed' });
+          failed++;
+        }
+      }
+    } catch {
+      failed++;
+    }
+  return {
+    fetched,
+    closed,
+    failed,
+    ...(ports.purges ? { purges } : {}),
+    ...(ports.recordPurges ? { recordPurges } : {}),
+  };
 }

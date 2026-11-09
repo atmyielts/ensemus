@@ -28,6 +28,9 @@ import { ledgerKeyFor, TOMBSTONE_RECORDED } from '@ensemus/domain/tombstone-ledg
 import { and, asc, eq, sql } from 'drizzle-orm';
 import { pgCode } from './errors';
 import { emit } from './events';
+import { isRecordPurgeKind } from '@ensemus/domain/knowledge-events';
+import { emitRecordClosedInTx } from './knowledge/record-closure';
+import { idSchema } from './ids';
 import { idFromRequest } from './request-id';
 import type { ImportedPage, ImportScope, PortabilitySection } from './sovereign-ports';
 import { auditAction } from './work';
@@ -251,6 +254,10 @@ export async function recordImportedTombstone(
       payload: { [`${targetType}_id`]: targetId },
     });
   }
+  // A record kind a delegated child may have copied from starts its typed-record purge (ADR-028 item 8a).
+  // An ID the event cannot carry is still reached by the knowledge sweep, so it never fails the import.
+  if (isRecordPurgeKind(targetType) && idSchema.safeParse(targetId).success)
+    await emitRecordClosedInTx(tx, context, { kind: targetType, id: targetId });
   await auditAction(tx, context, 'tombstone.imported', `${targetType}:${targetId}`);
   return true;
 }

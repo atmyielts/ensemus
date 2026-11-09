@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { RECORD_PURGE_KINDS } from '@ensemus/domain/knowledge-events';
 
 // M5 (ADR-029). ADR-024 D2's rule: only identifiers, enums and counters cross Temporal. A question, a
 // passage, a title or a vector never does, and an Activity reads them from PostgreSQL by ID.
@@ -27,9 +28,13 @@ export const knowledgePurgeWorkflowIdFor = (input: KnowledgePurgeInput) =>
   `knowledge-purge-${input.organizationId}-${input.sourceId}`;
 export type KnowledgePurgeResult = { state: 'completed' | 'failed'; chunks: number };
 
+/** The typed-record kinds, from the domain, so the event, the route and the purge cannot drift. */
+export const knowledgeRecordKindSchema = z.enum(RECORD_PURGE_KINDS);
+/** One record purge pass, as the dispatcher and the sweep start it (ADR-028 lifecycle item 8a). */
+export const RECORD_PURGE_PAGE_LIMIT = 25;
 export const knowledgeRecordPurgeInputSchema = z.strictObject({
   organizationId: z.uuid(),
-  kind: z.enum(['work_unit', 'project', 'client', 'object_record']),
+  kind: knowledgeRecordKindSchema,
   id: z.uuid(),
   limit: z.number().int().min(1).max(100),
 });
@@ -57,6 +62,12 @@ export type KnowledgeSweepResult = {
   closed: number;
   failed: number;
   purges?: readonly { sourceId: string; state: 'pending' | 'running' | 'completed' | 'failed' }[];
+  /** Typed-record purges the sweep restarted, present only once the record-purge-restart-v1 patch runs. */
+  recordPurges?: readonly {
+    kind: KnowledgeRecordPurgeInput['kind'];
+    id: string;
+    state: 'completed' | 'unconfirmed' | 'failed';
+  }[];
 };
 
 export const clientOnboardingInputSchema = z.strictObject({

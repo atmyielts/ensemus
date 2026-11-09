@@ -3,6 +3,7 @@
 // doubles, in tests/helpers/knowledge.ts. A port with no implementation fails closed where it is used.
 import type { TenantContext, Tx } from '@ensemus/database';
 import type { EgressWorkload } from '@ensemus/knowledge/ports';
+import type { RecordPurgeKind } from '@ensemus/domain/knowledge-events';
 
 /** One row of AGENT-10's ledger. The same shape whichever table it came from, and it holds no content. */
 export type EgressLedgerRow = {
@@ -97,7 +98,8 @@ export interface DelegatedWorkPurge {
   ): Promise<DelegatedWorkPurgeCounts>;
 }
 
-export type RecordPurgeKind = 'work_unit' | 'project' | 'client' | 'object_record';
+// One definition, in the domain, so the outbox event, the dispatcher route and the purge cannot drift.
+export type { RecordPurgeKind };
 /** Actual closed-record snapshots and Work/control proof are separate from generated-file counts. */
 export interface DelegatedRecordPurge {
   purgeRecord(
