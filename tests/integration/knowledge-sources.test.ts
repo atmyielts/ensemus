@@ -32,6 +32,7 @@ import { createServiceContext } from '@ensemus/database/service';
 import { parseDocument } from '@ensemus/knowledge/parsing';
 import { eq, sql } from 'drizzle-orm';
 import { seedMember } from '../helpers/knowledge';
+import { memoryTransport, nativeKnowledgeStore } from '../helpers/knowledge-native';
 import { urls } from '../helpers/stack';
 
 describe('knowledge uploads and source authority', () => {
@@ -41,20 +42,9 @@ describe('knowledge uploads and source authority', () => {
   let other: TenantContext;
   let reader: TenantContext;
   const objects = new Map<string, Buffer>();
-  const store: ObjectStore = {
-    put: async (key, body) => {
-      objects.set(key, Buffer.from(body));
-    },
-    get: async (key) => {
-      const body = objects.get(key);
-      if (!body) throw new Error('MISSING');
-      return Buffer.from(body);
-    },
-    delete: async (key) => {
-      objects.delete(key);
-    },
-    exists: async (key) => objects.has(key),
-  };
+  // The runtime's native raw Knowledge composition over a memory transport (see knowledge-native).
+  const transport = memoryTransport(objects);
+  let store: ObjectStore;
   const upload = (grants: Parameters<typeof addUploadedSource>[3]['grants'] = []) =>
     addUploadedSource(database.db, store, owner, {
       title: `Uploaded ${randomUUID()}`,
@@ -76,6 +66,7 @@ describe('knowledge uploads and source authority', () => {
     );
   beforeAll(async () => {
     database = openAppDatabase(urls.app());
+    store = nativeKnowledgeStore(database.db, transport);
     auth = new pg.Client({ connectionString: urls.auth() });
     await auth.connect();
     const makeOwner = async () => {
@@ -134,12 +125,16 @@ describe('knowledge uploads and source authority', () => {
     const source = await upload([{ kind: 'membership', membershipId: reader.membershipId }]);
     await ingest(source.documentId);
     let puts = 0;
-    const observed = {
-      ...store,
+    const observed = nativeKnowledgeStore(database.db, {
+      ...transport,
       put: async () => {
         puts++;
       },
-    };
+      putSingleAttempt: async () => {
+        puts++;
+        return { transport: 'written' as const };
+      },
+    });
     await expect(
       addDocumentVersion(database.db, observed, reader, {
         sourceId: source.sourceId,
@@ -183,17 +178,18 @@ describe('knowledge uploads and source authority', () => {
     });
     await ingest(staged.documentId);
     let key = '';
-    const delayed = {
-      ...store,
-      put: async (target: string, bytes: Buffer, mediaType: string) => {
+    const delayed = nativeKnowledgeStore(database.db, {
+      ...transport,
+      putSingleAttempt: async (target: string, bytes: Buffer, mediaType: string) => {
         key = target;
-        await store.put(target, bytes, mediaType);
+        const written = await transport.putSingleAttempt(target, bytes, mediaType);
         await setMemberRole(database.db, owner, {
           membershipId: manager.membershipId,
           role: 'member',
         });
+        return written;
       },
-    };
+    });
     await expect(
       addDocumentVersion(database.db, delayed, manager, {
         sourceId: source.sourceId,
@@ -204,7 +200,10 @@ describe('knowledge uploads and source authority', () => {
       }),
     ).rejects.toEqual(new AppError('FORBIDDEN'));
     expect(key).not.toBe('');
-    expect(await store.exists(key)).toBe(false);
+    // 0516: once the admitted native PUT completed, its bytes stay durably inventoried (the writer is
+    // settled) and only the native closed-source purge may delete them. The refused revision is never
+    // announced or made current, which the assertions below hold exactly as before.
+    expect(await store.exists(key)).toBe(true);
     expect((await getSource(database.db, manager, source.sourceId)).canManage).toBe(false);
     const current = await getSource(database.db, reader, source.sourceId);
     expect(current.documentId).toBe(staged.documentId);
@@ -413,14 +412,14 @@ describe('knowledge uploads and source authority', () => {
     const reading = new Promise<void>((done) => {
       entered = done;
     });
-    const delayed = {
-      ...store,
+    const delayed = nativeKnowledgeStore(database.db, {
+      ...transport,
       get: async (key: string) => {
         entered();
         await waiting;
-        return store.get(key);
+        return transport.get(key);
       },
-    };
+    });
     const opened = openDocumentBytes(database.db, delayed, reader, source.documentId);
     const result = expect(opened).rejects.toEqual(new AppError('NOT_FOUND'));
     await reading;

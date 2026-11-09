@@ -36,28 +36,25 @@ import { knowledgeObjectKey } from '@ensemus/domain/knowledge';
 import { parseDocument } from '@ensemus/knowledge/parsing';
 import { and, eq, sql } from 'drizzle-orm';
 import { urls } from '../helpers/stack';
+import {
+  memoryTransport,
+  nativeKnowledgeStore,
+  runNativeKnowledgePurge,
+} from '../helpers/knowledge-native';
+import { revokeSource } from '@ensemus/application/knowledge/purge';
+import { openAgentDatabase } from '@ensemus/database/agent';
 import { recoverObjectWrites } from '../../packages/application/src/knowledge/object-writes';
 
 describe('knowledge ingestion, retries and closure', () => {
   let database: ReturnType<typeof openAppDatabase>;
+  let agent: ReturnType<typeof openAgentDatabase>;
   let auth: pg.Client;
   let owner: TenantContext;
   let other: TenantContext;
   const objects = new Map<string, Buffer>();
-  const store: ObjectStore = {
-    put: async (key, body) => {
-      objects.set(key, Buffer.from(body));
-    },
-    get: async (key) => {
-      const body = objects.get(key);
-      if (!body) throw new Error('MISSING');
-      return Buffer.from(body);
-    },
-    delete: async (key) => {
-      objects.delete(key);
-    },
-    exists: async (key) => objects.has(key),
-  };
+  // The runtime's native raw Knowledge composition over a memory transport (see knowledge-native).
+  const transport = memoryTransport(objects);
+  let store: ObjectStore;
   const deps: IngestDeps = {
     parse: async (bytes, mediaType) => parseDocument(bytes, mediaType),
     contentScan: { scan: () => ({ raiseTo: null, codes: [] }) },
@@ -79,6 +76,8 @@ describe('knowledge ingestion, retries and closure', () => {
     );
   beforeAll(async () => {
     database = openAppDatabase(urls.app());
+    store = nativeKnowledgeStore(database.db, transport);
+    agent = openAgentDatabase(urls.agent());
     auth = new pg.Client({ connectionString: urls.auth() });
     await auth.connect();
     const makeOwner = async () => {
@@ -100,6 +99,7 @@ describe('knowledge ingestion, retries and closure', () => {
   });
   afterAll(async () => {
     await auth.end();
+    await agent.close();
     await database.close();
   });
 
@@ -242,14 +242,22 @@ describe('knowledge ingestion, retries and closure', () => {
       },
     });
     await entering;
-    await withTenantTx(database.db, owner, (tx) =>
-      tx
-        .update(knowledgeSources)
-        .set({ state: 'revoked' })
-        .where(eq(knowledgeSources.id, source.sourceId)),
-    );
-    // A purge finishing while the parser was stopped must not be undone by its eventual return.
-    await store.delete(knowledgeObjectKey(owner.organizationId, source.documentId));
+    await revokeSource(database.db, owner, {
+      sourceId: source.sourceId,
+      expectedVersion: 1,
+      reason: 'Generated closure during parsing',
+    });
+    // A purge finishing while the parser was stopped must not be undone by its eventual return. This
+    // is the actual workflow order and composition, including the native raw-object deletion.
+    expect(
+      await runNativeKnowledgePurge({
+        app: database.db,
+        agent: agent.db,
+        store,
+        organizationId: owner.organizationId,
+        sourceId: source.sourceId,
+      }),
+    ).toMatchObject({ state: 'completed' });
     release();
     expect(await running).toMatchObject({ outcome: 'closed', code: 'SOURCE_CLOSED' });
     expect(await chunksFor(source.documentId)).toHaveLength(0);
@@ -262,12 +270,12 @@ describe('knowledge ingestion, retries and closure', () => {
     expect(
       await ingestDocument(
         database.db,
-        {
-          ...store,
+        nativeKnowledgeStore(database.db, {
+          ...transport,
           get: async () => {
             throw new Error('STORE_DOWN');
           },
-        },
+        }),
         service(),
         deps,
         source,
@@ -284,32 +292,54 @@ describe('knowledge ingestion, retries and closure', () => {
       grants: [],
       requestKey: randomUUID(),
     };
-    const crashing = {
-      ...store,
-      put: async (key: string, body: Buffer, type: string) => {
-        await store.put(key, body, type);
+    const crashing = nativeKnowledgeStore(database.db, {
+      ...transport,
+      putSingleAttempt: async (key: string, body: Buffer, type: string) => {
+        await transport.putSingleAttempt(key, body, type);
         throw new Error('INTERRUPTED');
       },
-    };
+    });
     await expect(addUploadedSource(database.db, crashing, owner, input)).rejects.toEqual(
       new AppError('INVALID_STATE'),
     );
-    // An unknown write outcome cannot be retried just because its object now exists. The generated
-    // in-process store explicitly proves that its interrupted writer can no longer issue a write.
+    // An unknown write outcome cannot be retried just because its object now exists. Under 0516's
+    // native protocol an admitted PUT whose response was lost is never resent or certified, not even
+    // after a legacy fence Boolean or recovery sweep, so the same request stays refused.
     await expect(addUploadedSource(database.db, store, owner, input)).rejects.toEqual(
       new AppError('INVALID_STATE'),
     );
+    let fenced = false;
     await recoverObjectWrites(
       database.db,
-      { ...store, fenceKnowledgeWrite: async () => ({ quiescent: true }) },
+      nativeKnowledgeStore(database.db, {
+        ...transport,
+        fenceKnowledgeWrite: async () => {
+          fenced = true;
+          return { quiescent: true };
+        },
+      }),
       service(),
     );
-    const result = await addUploadedSource(database.db, store, owner, input);
-    const events = await withTenantTx(database.db, owner, (tx) =>
-      tx.select().from(domainEvents).where(eq(domainEvents.aggregateId, result.documentId)),
+    expect(fenced).toBe(false);
+    await expect(addUploadedSource(database.db, store, owner, input)).rejects.toEqual(
+      new AppError('INVALID_STATE'),
     );
-    expect(events).toHaveLength(1);
-    expect(await ingest(result.documentId)).toMatchObject({ outcome: 'searchable' });
+    // No retry duplicated the source, and the unconfirmed bytes were never announced.
+    const sources = await withTenantTx(database.db, owner, (tx) =>
+      tx.execute<{ document_id: string }>(
+        sql`select d.id document_id from knowledge.sources s join knowledge.documents d
+          on d.organization_id=s.organization_id and d.source_id=s.id
+          where s.organization_id=${owner.organizationId}::uuid and d.title=${input.title}`,
+      ),
+    );
+    expect(sources.rows).toHaveLength(1);
+    const events = await withTenantTx(database.db, owner, (tx) =>
+      tx
+        .select()
+        .from(domainEvents)
+        .where(eq(domainEvents.aggregateId, sources.rows[0]!.document_id)),
+    );
+    expect(events).toHaveLength(0);
   });
   it('reserves one upload key across changed bodies and concurrent retries', async () => {
     const input = {
@@ -337,13 +367,17 @@ describe('knowledge ingestion, retries and closure', () => {
       ),
     ).toBe(true);
     let puts = 0;
-    const counted = {
-      ...store,
+    const counted = nativeKnowledgeStore(database.db, {
+      ...transport,
       put: async (key: string, bytes: Buffer, type: string) => {
         puts++;
-        await store.put(key, bytes, type);
+        await transport.put(key, bytes, type);
       },
-    };
+      putSingleAttempt: async (key: string, bytes: Buffer, type: string) => {
+        puts++;
+        return transport.putSingleAttempt(key, bytes, type);
+      },
+    });
     await expect(
       addUploadedSource(database.db, counted, owner, {
         ...input,
@@ -377,16 +411,20 @@ describe('knowledge ingestion, retries and closure', () => {
       removeGrantIds: detail.grants.map((grant) => grant.id),
     });
     let touched = false;
-    const counted = {
-      ...store,
+    const counted = nativeKnowledgeStore(database.db, {
+      ...transport,
       put: async () => {
         touched = true;
+      },
+      putSingleAttempt: async () => {
+        touched = true;
+        return { transport: 'written' as const };
       },
       exists: async () => {
         touched = true;
         return true;
       },
-    };
+    });
     await expect(addUploadedSource(database.db, counted, owner, input)).rejects.toEqual(
       new AppError('NOT_FOUND'),
     );

@@ -39,6 +39,7 @@ import { lifecycleTenant, LifecycleMemoryStore } from './saas-lifecycle-fixture'
 import { publishErasureLedger, readyToErase } from './saas-offboarding-fixture';
 import { createKnowledgePurgePorts } from '../../workers/workflow/src/knowledge-ports';
 import { proveSecondFactor } from '../helpers/product';
+import { purgeAgentMaterialsForSource } from '../helpers/knowledge-native';
 import { urls } from '../helpers/stack';
 
 class NativeRawMap extends LifecycleMemoryStore {
@@ -516,6 +517,12 @@ describe('native raw source material authority', () => {
       'purged',
     );
     await removeHeaders(f);
+    // The agent worker's actual transcript + delegated-Work activity runs before the knowledge
+    // worker's purge, as in production; 0419 refuses completion without its fresh proof.
+    await purgeAgentMaterialsForSource(agent.db, {
+      organizationId: f.owner.organizationId,
+      sourceId: f.input.sourceId,
+    });
     const lifecycle = createObjectDeletionLifecycle({ database: app.db, store: f.store });
     const purged = await runSourcePurge(
       app.db,

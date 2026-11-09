@@ -19,7 +19,10 @@ import type {
   RunTranscriptPurge,
   DerivedArtifactPurge,
 } from '@ensemus/application/knowledge/ports';
-import type { RecoverableKnowledgeStore } from '../../packages/application/src/knowledge/object-writes';
+import type {
+  KnowledgeWriteFence,
+  RecoverableKnowledgeStore,
+} from '../../packages/application/src/knowledge/object-writes';
 import {
   createOrganization,
   knowledgeAnswers,
@@ -38,6 +41,11 @@ import { createServiceContext } from '@ensemus/database/service';
 import { parseDocument } from '@ensemus/knowledge/parsing';
 import { eq, sql } from 'drizzle-orm';
 import { seedMember } from '../helpers/knowledge';
+import {
+  memoryTransport,
+  nativeKnowledgeStore,
+  type MemoryTransport,
+} from '../helpers/knowledge-native';
 import { urls } from '../helpers/stack';
 import { pgCode } from '../../packages/application/src/errors';
 
@@ -46,21 +54,23 @@ describe('closed sources purge only after durable writer and transcript fences',
   let owner: TenantContext, reader: TenantContext, reviewer: TenantContext, foreign: TenantContext;
   const bytes = new Map<string, Buffer>();
   let deleteUnavailable = false;
-  const store: ObjectStore = {
-    put: async (key, body) => {
-      bytes.set(key, Buffer.from(body));
-    },
-    get: async (key) => {
-      const body = bytes.get(key);
-      if (!body) throw new Error('MISSING');
-      return Buffer.from(body);
-    },
+  // The memory transport under the runtime's native raw Knowledge port (see knowledge-native): an
+  // upload or purge of raw bytes goes only through SQL admission, as apps/web and the worker wire it.
+  // While "unavailable", the store answers as the S3 adapter does when its capability preflight
+  // fails: a plain DELETE throws, and a purge DELETE is never attempted.
+  const memory = memoryTransport(bytes);
+  const transport: MemoryTransport = {
+    ...memory,
     delete: async (key) => {
       if (deleteUnavailable) throw new Error('Generated unavailable store');
-      bytes.delete(key);
+      await memory.delete(key);
     },
-    exists: async (key) => bytes.has(key),
+    deleteForPurge: async (key) =>
+      deleteUnavailable
+        ? { transport: 'not_attempted', capabilityVerified: false }
+        : memory.deleteForPurge(key),
   };
+  let store: ObjectStore;
   const service = () => createServiceContext(owner.organizationId);
   const transcripts: RunTranscriptPurge = {
     fenceUsing: async () => ({ fenced: true }),
@@ -102,6 +112,7 @@ describe('closed sources purge only after durable writer and transcript fences',
     revokeSource(database.db, owner, { sourceId, expectedVersion: 1, reason: 'Generated reason' });
   beforeAll(async () => {
     database = openAppDatabase(urls.app());
+    store = nativeKnowledgeStore(database.db, transport);
     auth = new pg.Client({ connectionString: urls.auth() });
     await auth.connect();
     const makeOwner = async () => {
@@ -236,14 +247,14 @@ describe('closed sources purge only after durable writer and transcript fences',
     const pause = new Promise<void>((resolve) => {
       release = resolve;
     });
-    const delayed: ObjectStore = {
-      ...store,
-      put: async (key, body) => {
+    const delayed = nativeKnowledgeStore(database.db, {
+      ...transport,
+      putSingleAttempt: async (key: string, body: Buffer, type: string) => {
         start();
         await pause;
-        await store.put(key, body, 'text/plain');
+        return transport.putSingleAttempt(key, body, type);
       },
-    };
+    });
     const request = addUploadedSource(database.db, delayed, owner, {
       title: 'Generated delayed upload',
       mediaType: 'text/plain',
@@ -275,12 +286,12 @@ describe('closed sources purge only after durable writer and transcript fences',
     await expect(
       addUploadedSource(
         database.db,
-        {
-          ...store,
-          put: async () => {
+        nativeKnowledgeStore(database.db, {
+          ...transport,
+          putSingleAttempt: async () => {
             throw new Error('Unknown write outcome');
           },
-        },
+        }),
         owner,
         {
           title: 'Generated interrupted upload',
@@ -296,12 +307,13 @@ describe('closed sources purge only after durable writer and transcript fences',
     );
     await close(writer!.sourceId);
     await proof(writer!.sourceId);
-    const objects: RecoverableKnowledgeStore = {
-      ...store,
-      fenceKnowledgeWrite: async () => ({ quiescent: false }),
-    };
+    let fence: KnowledgeWriteFence['fenceKnowledgeWrite'] = async () => ({ quiescent: false });
+    const objects: RecoverableKnowledgeStore = nativeKnowledgeStore(database.db, {
+      ...transport,
+      fenceKnowledgeWrite: (input: Parameters<typeof fence>[0]) => fence(input),
+    });
     expect((await purge(writer!.sourceId, objects)).state).toBe('failed');
-    objects.fenceKnowledgeWrite = async (input) => {
+    fence = async (input) => {
       expect(input.writeId).toBe(writer!.writeId);
       expect(input.generation).toBe(writer!.generation);
       return { quiescent: true };
@@ -438,7 +450,8 @@ describe('closed sources purge only after durable writer and transcript fences',
         .set({ objectKey: canonical })
         .where(eq(knowledgeDocuments.id, source.documentId)),
     );
-    await store.delete(canonical);
+    // The bytes vanish in storage itself; the native port refuses any raw delete outside a purge.
+    bytes.delete(canonical);
     await proof(source.sourceId);
     expect(await purge(source.sourceId)).toMatchObject({
       state: 'completed',

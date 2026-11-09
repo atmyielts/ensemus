@@ -44,6 +44,7 @@ import { withRunLookupTx } from '@ensemus/database/agent';
 import { AGENT_RUN_REQUESTED } from '@ensemus/domain/ai-events';
 import { EMAIL_CONNECTOR_TYPE } from '@ensemus/domain/external-action';
 import {
+  makeTestUser,
   openAgentTestDatabase,
   prepareRunInputContext,
   seedActiveProfile,
@@ -422,6 +423,14 @@ describe('onboarding uses one authorized actual M4 run', () => {
 
   it('rereads current member authority rather than trusting a previously created delegated context', async () => {
     const f = await fixture();
+    // 0404 keeps at least one active owner (LAST_OWNER), so a second owner is added first, by the
+    // current owner, before this owner is demoted; the delegated context was created beforehand.
+    const successor = await makeTestUser('gateway-successor-owner');
+    await withTenantTx(app.db, f.owner, (tx) =>
+      tx
+        .insert(memberships)
+        .values({ organizationId: f.organizationId, userId: successor, role: 'owner' }),
+    );
     await withTenantTx(app.db, f.owner, (tx) =>
       tx
         .update(memberships)
