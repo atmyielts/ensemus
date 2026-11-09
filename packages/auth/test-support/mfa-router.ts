@@ -19,7 +19,11 @@ export function privateFactorRouter(
     secret,
     baseURL,
     trustedOrigins: [baseURL],
-    advanced: { database: { generateId: 'uuid' }, useSecureCookies: false },
+    // Same cookie naming as createAuth for this baseURL, so a fixture's HTTPS runtime cookies are read.
+    advanced: {
+      database: { generateId: 'uuid' },
+      useSecureCookies: baseURL.startsWith('https://'),
+    },
     plugins: mfaPlugins(),
     rateLimit: { enabled: true, storage: 'database' },
     telemetry: { enabled: false },

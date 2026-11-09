@@ -3,9 +3,10 @@
 import pg from 'pg';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { openAppDatabase } from '@ensemus/database';
+import { openAppDatabase, withTenantTx } from '@ensemus/database';
 import { eraseTenantRows } from '@ensemus/database/eraser';
 import { beginErasure } from '@ensemus/application/saas/offboarding';
+import { sealDelegatedErasureInTx } from '@ensemus/application/knowledge/delegated-erasure';
 import { urls } from '../helpers/stack';
 import { lifecycleTenant } from './saas-lifecycle-fixture';
 import { readyToErase } from './saas-offboarding-fixture';
@@ -27,6 +28,13 @@ describe('restore authority invoker target validation preserves least privilege'
       offboardingId: ready.offboardingId,
       operatorRef: 'generated-restore-invoker-operator@example.invalid',
     });
+    // The erasure worker (ops-erase) persists the native material/raw witness before any metadata
+    // deletion; 0516 refuses raw inventory cleanup without that same current birth seal.
+    expect(
+      await withTenantTx(application.db, ready.service, (tx) =>
+        sealDelegatedErasureInTx(tx, ready.service, ready),
+      ),
+    ).toBe(true);
     const connection = new pg.Client({ connectionString: urls.superuser() });
     await connection.connect();
     try {
