@@ -13,7 +13,7 @@ import { randomUUID } from 'node:crypto';
 import { cpSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL, URL } from 'node:url';
 import { assertDiskHeadroom } from './disk-headroom.mjs';
 import { cleanupUpgradeScratch } from './upgrade-cleanup.mjs';
 
@@ -350,12 +350,40 @@ async function main() {
       (form) => form.hidden.get('decision') === 'approve',
     );
     expectEqual(decided.status, 303, 'The decision');
+    // A refused decision redirects too, back to the approval with its code, so the redirect alone
+    // proves nothing. Say which refusal it was, rather than waiting for a run that was never released.
+    const decidedTo = new URL(decided.headers.get('location') ?? '', BASE_URL);
+    const refusal =
+      decidedTo.searchParams.get('error') ??
+      (decidedTo.pathname.startsWith(approval) ? null : decidedTo.pathname);
+    if (refusal) throw new Error(`The new release refused the decision: ${refusal}`);
+    expectEqual(
+      sql(`select status from work.approvals where id = '${approvalId}'`),
+      'approved',
+      'The approval after the decision',
+    );
 
     step('Waiting for the run the old release started to carry on');
-    await until('the run to reach checking', async () => {
-      const { html } = await forms.read(page, owner.jar);
-      return statusOn(html) === 'Checking';
-    });
+    try {
+      await until('the run to reach checking', async () => {
+        const { html } = await forms.read(page, owner.jar);
+        return statusOn(html) === 'Checking';
+      });
+    } catch (error) {
+      // Where it stopped: the work, the run holding it, and whether the wake-up left the outbox.
+      const facts = sql(
+        `select w.status, w.run_id,
+                (select string_agg(e.event_type || ':' || o.state || ':' || o.attempts, ',')
+                   from platform.domain_events e
+                   join platform.outbox_events o
+                     on o.organization_id = e.organization_id and o.event_id = e.id
+                  where e.aggregate_id = w.id and e.event_type = 'approval.resolved')
+           from work.work_units w where w.id = '${id}'`,
+      );
+      throw new Error(`${error instanceof Error ? error.message : String(error)} (${facts})`, {
+        cause: error,
+      });
+    }
     // Only that run can have moved it: nothing else sends work for checking, and that step only acts
     // for the run holding the work. The same one review, and no second checklist, so nothing restarted.
     const moved = sql(

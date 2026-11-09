@@ -83,8 +83,9 @@ describe('MFA through actual protected HTTP forms and tenant API', () => {
       mfa_max_age_seconds: 300,
       version: 2,
     });
+    // The owner still reaches the rules and the form that changes them (the page's own words).
     expect((await read(`/o/${value.organization}/security`, value.person.jar)).html).toContain(
-      'Security settings',
+      'Save security settings',
     );
   });
   it('password sign-in yields only a challenge, then a current app code grants the session', async () => {

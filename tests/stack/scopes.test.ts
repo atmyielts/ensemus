@@ -26,6 +26,7 @@ import {
   submit,
   visit,
 } from '../helpers/forms';
+import { inFixtureTenant } from '../helpers/fixture-tenant';
 import { urls } from '../helpers/stack';
 
 describe('who may do what', () => {
@@ -171,9 +172,10 @@ describe('who may do what', () => {
     it('leaves it to an admin, and refuses someone in another tenant outright', async () => {
       const { id, page } = await assigned();
       const admin = await join(owner, org, 'Ada Admin');
-      await su.query(`update org.memberships set role = 'admin' where id = $1`, [
-        await membershipOf(su, admin, org),
-      ]);
+      const adminMembership = await membershipOf(su, admin, org);
+      await inFixtureTenant(su, org, () =>
+        su.query(`update org.memberships set role = 'admin' where id = $1`, [adminMembership]),
+      );
       expect(mainOf((await read(page, admin.jar)).html)).toContain('Stop this work');
 
       const form = await formOn(page, owner.jar, /Change owner/);
@@ -542,9 +544,11 @@ describe('who may do what', () => {
     it('records a project from another tenant, on the form that names it', async () => {
       const forger = await join(owner, org, 'Fay Forger');
       const actor = await membershipOf(su, forger, org);
-      const { rows: theirs } = await su.query(
-        `insert into work.projects (organization_id, name) values ($1, 'Theirs') returning id`,
-        [rivalOrg],
+      const { rows: theirs } = await inFixtureTenant(su, rivalOrg, () =>
+        su.query(
+          `insert into work.projects (organization_id, name) values ($1, 'Theirs') returning id`,
+          [rivalOrg],
+        ),
       );
       const title = `Forged ${randomUUID()}`;
       const page = `/o/${org}/work/new`;

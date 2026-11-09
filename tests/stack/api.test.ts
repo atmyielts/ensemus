@@ -23,6 +23,7 @@ import {
   signUp,
   submit,
 } from '../helpers/forms';
+import { inFixtureTenant } from '../helpers/fixture-tenant';
 import { urls } from '../helpers/stack';
 
 type WorkUnit = components['schemas']['WorkUnit'];
@@ -786,9 +787,11 @@ describe('public API', () => {
     it('records a project from another tenant, and answers as for any bad input', async () => {
       const forger = await join(owner, org, 'Fred Forger');
       const membership = await membershipOf(forger);
-      const { rows: theirs } = await su.query(
-        `insert into work.projects (organization_id, name) values ($1, 'Theirs') returning id`,
-        [rivalOrg],
+      const { rows: theirs } = await inFixtureTenant(su, rivalOrg, () =>
+        su.query(
+          `insert into work.projects (organization_id, name) values ($1, 'Theirs') returning id`,
+          [rivalOrg],
+        ),
       );
       const title = `Forged ${randomUUID()}`;
       for (const project of [theirs[0].id as string, randomUUID()]) {

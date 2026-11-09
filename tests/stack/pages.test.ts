@@ -27,6 +27,7 @@ import {
   signUp,
   submit,
 } from '../helpers/forms';
+import { inFixtureTenant } from '../helpers/fixture-tenant';
 import { secret, urls } from '../helpers/stack';
 
 describe('what the pages say', () => {
@@ -346,12 +347,14 @@ describe('what the pages say', () => {
          where target_ref = $1`,
         [`approval:${approvalId}`],
       );
-      await su.query(
-        `insert into platform.notifications
-           (organization_id, recipient_membership_id, kind, target_ref)
-         select $1, $2, 'work.assigned', 'work_unit:' || gen_random_uuid()
-         from generate_series(1, 55)`,
-        [org, recipient],
+      await inFixtureTenant(su, org, () =>
+        su.query(
+          `insert into platform.notifications
+             (organization_id, recipient_membership_id, kind, target_ref)
+           select $1, $2, 'work.assigned', 'work_unit:' || gen_random_uuid()
+           from generate_series(1, 55)`,
+          [org, recipient],
+        ),
       );
       const inbox = `/o/${org}/inbox`;
       // The inbox streams in after its loading state, so these read the whole response. The rows are
