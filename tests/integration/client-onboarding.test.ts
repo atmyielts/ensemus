@@ -43,10 +43,11 @@ import type { AgentRuns } from '@ensemus/application/knowledge/ports';
 import {
   approvals,
   clientOnboardings,
+  clients,
   connections,
-  createOrganization,
   externalActions,
   openAppDatabase,
+  projects,
   resolveTenantContext,
   withTenantTx,
   workArtifacts,
@@ -69,6 +70,7 @@ describe('deal won to one verified onboarding', () => {
     reader: TenantContext,
     foreign: TenantContext,
     connectionId: string,
+    foreignConnectionId: string,
     profileId: string,
     briefSource: Awaited<ReturnType<typeof seedSearchableSource>>;
   const briefText = 'Generated cited client brief.';
@@ -78,39 +80,33 @@ describe('deal won to one verified onboarding', () => {
     agent = openAgentTestDatabase();
     auth = new pg.Client({ connectionString: urls.auth() });
     await auth.connect();
-    const makeOwner = async () => {
-      const userId = randomUUID();
-      await auth.query('insert into identity.users(id,name,email) values($1,$2,$3)', [
-        userId,
-        'Generated onboarding person',
-        `${userId}@example.invalid`,
-      ]);
-      const org = await createOrganization(database.db, {
-        userId,
-        name: 'Generated onboarding company',
-        commercialMode: 'sovereign',
-      });
-      return resolveTenantContext(database.db, userId, org.organizationId);
-    };
     // This owner activates a model profile and publishes the onboarding agent below. 0404 requires
     // a fresh native second factor of any real person for both, so it is an actual native session
-    // with a proven factor, not a bare resolved context. The foreign owner publishes nothing.
+    // with a proven factor, not a bare resolved context. The foreign owner publishes nothing, but it
+    // makes an email connection of its own, the other tenant's row a start must not reach, and 0404
+    // (integrations.guard_connection_management) requires the same proven factor for that.
     owner = await nativeMfaOwner(database.db, 'generated-onboarding-person', 'sovereign');
-    foreign = await makeOwner();
+    foreign = await nativeMfaOwner(database.db, 'generated-onboarding-foreign', 'sovereign');
     const admin = await seedMember(database.db, owner, auth, 'member');
     reviewer = await resolveTenantContext(database.db, admin.userId, owner.organizationId);
-    const member = await seedMember(database.db, owner, auth);
+    // A plain member: the role that may not start an onboarding (packages/domain/src/policy.ts).
+    const member = await seedMember(database.db, owner, auth, 'member');
     reader = await resolveTenantContext(database.db, member.userId, owner.organizationId);
-    connectionId = randomUUID();
-    await withTenantTx(database.db, owner, (tx) =>
-      tx.insert(connections).values({
-        organizationId: owner.organizationId,
-        id: connectionId,
-        connectorType: EMAIL_CONNECTOR_TYPE,
-        displayName: 'Generated email connection',
-        config: { fromAddress: 'sender@example.invalid' },
-      }),
-    );
+    const emailConnection = async (tenant: TenantContext) => {
+      const id = randomUUID();
+      await withTenantTx(database.db, tenant, (tx) =>
+        tx.insert(connections).values({
+          organizationId: tenant.organizationId,
+          id,
+          connectorType: EMAIL_CONNECTOR_TYPE,
+          displayName: 'Generated email connection',
+          config: { fromAddress: 'sender@example.invalid' },
+        }),
+      );
+      return id;
+    };
+    connectionId = await emailConnection(owner);
+    foreignConnectionId = await emailConnection(foreign);
     // The brief's turn is authorized by the runtime's own egress decision below, which routes through
     // the main router: an active profile with no rate card is refused there (RATE_CARD_MISSING).
     profileId = await seedActiveProfile(database.db, agent.db, owner);
@@ -207,7 +203,23 @@ describe('deal won to one verified onboarding', () => {
   const advance = (id: string, port: AgentRuns) =>
     advanceClientOnboarding(database.db, service(), { agentRuns: port }, { onboardingId: id });
 
-  it('refuses unauthorized, foreign, self-review and unsafe address requests atomically', async () => {
+  /**
+   * Everything a start writes in one tenant, all in its one transaction: the onboarding, its client and
+   * project, and its four Work units. The service context reads every row of the tenant in each of them
+   * (0209/0211: a service actor passes client and project visibility).
+   */
+  const footprint = (tenant: TenantContext) =>
+    withTenantTx(database.db, createServiceContext(tenant.organizationId), async (tx) => ({
+      onboardings: (await tx.select({ id: clientOnboardings.id }).from(clientOnboardings)).length,
+      clients: (await tx.select({ id: clients.id }).from(clients)).length,
+      projects: (await tx.select({ id: projects.id }).from(projects)).length,
+      work: (await tx.select({ id: workUnits.id }).from(workUnits)).length,
+    }));
+
+  it('refuses unauthorized, foreign, self-review, missing-connection and unsafe address requests atomically', async () => {
+    const before = { here: await footprint(owner), there: await footprint(foreign) };
+    // A plain member may not start one, even naming someone else to review it. Over HTTP this is the
+    // connectors job's (tests/stack/slice-2.test.ts); the main gate refuses every start first.
     await expect(startClientOnboarding(database.db, reader, input())).rejects.toEqual(
       new AppError('FORBIDDEN'),
     );
@@ -233,12 +245,34 @@ describe('deal won to one verified onboarding', () => {
         reviewerMembershipId: foreign.membershipId,
       }),
     ).rejects.toEqual(new AppError('NOT_FOUND'));
+    // An email connection that does not exist, and one that does but is another tenant's, are both
+    // missing to this tenant: its policies never show it the other row.
+    await expect(
+      startClientOnboarding(database.db, owner, { ...input(), emailConnectionId: randomUUID() }),
+    ).rejects.toEqual(new AppError('NOT_FOUND'));
+    await expect(
+      startClientOnboarding(database.db, owner, {
+        ...input(),
+        emailConnectionId: foreignConnectionId,
+      }),
+    ).rejects.toEqual(new AppError('NOT_FOUND'));
+    // That row is real and its own tenant's, so the refusal above is tenancy, not a missing ID.
+    expect(
+      await withTenantTx(database.db, foreign, (tx) =>
+        tx
+          .select({ id: connections.id })
+          .from(connections)
+          .where(eq(connections.id, foreignConnectionId)),
+      ),
+    ).toEqual([{ id: foreignConnectionId }]);
     await expect(
       startClientOnboarding(database.db, owner, {
         ...input(),
         contactEmail: 'client@example.invalid\r\nBcc:other@example.invalid',
       }),
     ).rejects.toEqual(new AppError('INVALID_INPUT'));
+    // No refusal kept anything, in this tenant or the other one.
+    expect({ here: await footprint(owner), there: await footprint(foreign) }).toEqual(before);
   });
   it('creates one atomic hierarchy and one run; a repeated deal or lost Activity response creates nothing extra', async () => {
     const request = input(),

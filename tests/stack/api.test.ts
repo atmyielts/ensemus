@@ -1157,9 +1157,19 @@ describe('public API', () => {
   // connectors would start one and leave it waiting for a worker that is not coming, so it refuses to start one,
   // over the API and on the page, before anything is read or written: CONNECTOR_NOT_AVAILABLE, as a connection,
   // a proposal and a sync are refused (docs/06-delivery/m3-slices.md). The main gate runs no connector worker,
-  // so it proves that refusal here. Starting one, reading it back and every refusal past this one are
-  // tests/stack/slice-2.test.ts's, in the connectors job, which is where API-12's coverage of the two
-  // operations is asserted too. The request is otherwise one that would start an onboarding: its email
+  // so it proves that refusal here. That refusal comes before any membership, role, reviewer or connection
+  // check (apps/web/src/server/knowledge-api.ts, onboardingPOST), so the only other negative this gate can
+  // reach over HTTP is a stranger's 404, which the route's membership check answers first. Every negative is
+  // still asserted, each where it can be reached:
+  //   - here, on the main gate: the 409 refusal (and again on its idempotency key), the page's refusal, and
+  //     the stranger's 404 on both POST and GET;
+  //   - tests/integration/client-onboarding.test.ts, in the integration shards, at the application layer
+  //     with nothing written: a plain member's 403 FORBIDDEN (and a service actor's), APPROVAL_SELF_APPROVAL,
+  //     a foreign reviewer's 404, and the 404 for an email connection that is missing or another tenant's;
+  //   - tests/stack/slice-2.test.ts, in the connectors job, which also runs on every push: all of them over
+  //     HTTP (member 403, stranger 404, self-review 403, missing connection 404), with starting one and
+  //     reading it back, which is where API-12's coverage of the two operations is asserted too.
+  // The request is otherwise one that would start an onboarding: its email
   // connection is the one row that needs connectors on to be made over HTTP, and a deployment keeps the
   // connections it made while connectors were on, so the row is written as the app role writes it, in its own
   // tenant and through its own policies, as tests/integration/client-onboarding.test.ts does. The company is
