@@ -20,15 +20,51 @@ import {
 const nextRequire = createRequire(new URL('../../apps/web/package.json', import.meta.url));
 type Middleware = (req: http.IncomingMessage, res: http.ServerResponse, next: () => void) => void;
 const compression = nextRequire('next/dist/compiled/compression') as () => Middleware;
+// The last steps Next.js itself takes to turn React's HTML into the document it sends.
+const { continueFizzStream } = nextRequire('next/dist/server/app-render/stream-ops.node') as {
+  continueFizzStream: (
+    render: ReadableStream<Uint8Array>,
+    options: {
+      deploymentId?: string;
+      waitForAllReady: boolean;
+      getServerInsertedHTML: () => Promise<string>;
+      getServerInsertedMetadata: () => Promise<string>;
+      validateRootLayout?: boolean;
+    },
+  ) => Promise<AsyncIterable<Buffer | string>>;
+};
 
 // What Next.js 16.4.5 sends for a page that calls notFound(), trimmed to its shape.
 const SHELL =
   '<!DOCTYPE html><html id="__next_error__"><head><meta charSet="utf-8"/>' +
   '<meta name="robots" content="noindex"/><title>Not found | Ensemus</title></head>' +
   '<body><div hidden=""><!--$--><!--/$--></div><script>self.__next_f=[]</script></body></html>';
+// The same shell from a built image. Every image build sets ENSEMUS_RELEASE, which next.config.ts makes
+// the deployment ID, and Next.js then writes data-dpl-id straight after `<html` (stream-ops.node.js).
+const BUILT_SHELL = SHELL.replace('<html id=', '<html data-dpl-id="local" id=');
 const PAGE =
   '<!DOCTYPE html><html lang="en"><head><title>Ensemus</title></head>' +
   '<body><main><h1>Page not found</h1></main></body></html>';
+
+/** The shell as Next.js finishes it, with or without a deployment ID. */
+async function finishedByNext(html: string, deploymentId?: string) {
+  const render = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(new TextEncoder().encode(html));
+      controller.close();
+    },
+  });
+  const finished = await continueFizzStream(render, {
+    ...(deploymentId ? { deploymentId } : {}),
+    waitForAllReady: false,
+    getServerInsertedHTML: () => Promise.resolve(''),
+    getServerInsertedMetadata: () => Promise.resolve(''),
+    validateRootLayout: false,
+  });
+  let text = '';
+  for await (const chunk of finished) text += chunk.toString();
+  return text;
+}
 
 describe('the document it changes', () => {
   it('writes the not-found page into the error shell, for browsers without JavaScript only', () => {
@@ -46,6 +82,53 @@ describe('the document it changes', () => {
     expect(fallback).not.toContain('<script');
     // Nothing of the shell is lost: removing what was added gives it back exactly.
     expect(html.replace(fallback, '').replace(' lang="en"', '')).toBe(SHELL);
+  });
+
+  it('finds the shell a built image sends, whose id is not the first thing on <html>', async () => {
+    // Next.js's own last steps, given a deployment ID as every image has, write the shell this way.
+    const sent = await finishedByNext(SHELL, 'local');
+    expect(
+      sent.startsWith('<!DOCTYPE html><html data-dpl-id="local" id="__next_error__"><head>'),
+    ).toBe(true);
+    for (const shell of [sent, BUILT_SHELL]) {
+      const html = withNoScriptNotFound(shell) ?? '';
+      expect(
+        html.startsWith(
+          '<!DOCTYPE html><html data-dpl-id="local" id="__next_error__" lang="en"><head>',
+        ),
+      ).toBe(true);
+      const body = html.indexOf('<body>') + '<body>'.length;
+      expect(html.slice(body).startsWith('<noscript>')).toBe(true);
+      const fallback = html.slice(body, html.indexOf('</noscript>') + '</noscript>'.length);
+      expect(fallback).toContain(`<h1>${NOT_FOUND_COPY.title}</h1>`);
+      expect(html.replace(fallback, '').replace(' lang="en"', '')).toBe(shell);
+    }
+    // And without one, as `next start` sends it, the shell is still found.
+    expect(withNoScriptNotFound(await finishedByNext(SHELL))).toContain('<noscript>');
+  });
+
+  it('takes the shell only from its own id on <html>, wherever that stands', () => {
+    // An ordinary page from a built image carries the same deployment ID, and is not the shell.
+    const built = PAGE.replace('<html lang="en">', '<html data-dpl-id="local" lang="en">');
+    expect(withNoScriptNotFound(built)).toBeNull();
+    for (const tag of [
+      '<html data-dpl-id="local" data-id="__next_error__">',
+      '<html data-dpl-id="local" id="__next_error__x">',
+      '<html data-dpl-id="local" xid="__next_error__">',
+      '<html data-note="a id=&quot;__next_error__&quot;">',
+      '<html>',
+    ]) {
+      expect(
+        withNoScriptNotFound(SHELL.replace('<html id="__next_error__">', tag)),
+        tag,
+      ).toBeNull();
+    }
+    // The id on some later element is not the document's.
+    expect(
+      withNoScriptNotFound(
+        SHELL.replace('<html id="__next_error__">', '<html><div id="__next_error__">'),
+      ),
+    ).toBeNull();
   });
 
   it('says the same as the not-found page itself', () => {
@@ -180,6 +263,17 @@ describe('over HTTP, behind the compression Next.js uses', () => {
       expect(reply.headers['x-frame-options']).toBe('DENY');
       expect(reply.headers['cache-control']).toContain('no-store');
       expect(reply.body.toString()).toBe(withNoScriptNotFound(SHELL));
+    }
+  });
+
+  it('sends the shell a built image makes with the not-found page too', async () => {
+    const port = await serve(nextLike(404, 'text/html; charset=utf-8', BUILT_SHELL));
+    for (const encoding of ['gzip', undefined]) {
+      const reply = await request(port, encoding ? { encoding } : {});
+      expect(reply.status).toBe(404);
+      expect(reply.headers['content-encoding']).toBeUndefined();
+      expect(reply.body.toString()).toBe(withNoScriptNotFound(BUILT_SHELL));
+      expect(reply.body.toString()).toContain(`<h1>${NOT_FOUND_COPY.title}</h1>`);
     }
   });
 
