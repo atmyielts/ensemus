@@ -2,7 +2,7 @@
 
 The operator's procedure for `OPS-02`: a backup set across PostgreSQL, Temporal and the object store, a restore from it, and a command that reconciles what the stores disagree about. Why it works this way is in [ADR-026](../../00-foundation/adr/ADR-026-tombstones-survive-restore.md), [ADR-027](../../00-foundation/adr/ADR-027-verified-external-actions.md) D2 and [ADR-030](../../00-foundation/adr/ADR-030-sovereign-license-and-bundle.md) D11.
 
-**What has been shown so far.** These scripts have been written and have not been run. The unit tests of the sealing, the key rule and the command's arguments have run. The integration test and the stack drill have been written and not run, because they need containers. Nothing here should be relied on until someone has run [the drill](restore-drill-record.md) on their own install.
+**What has been shown so far.** The unit tests of the sealing, the key rule, the command's arguments and the drill's helpers have run. In CI (run 42657525639, on commit 503b3c6), on Linux and with outbound traffic blocked, the reconcile's integration test (`tests/integration/restore-reconcile.test.ts`) and the stack drill (`tests/stack/restore-drill.test.ts`) passed. The stack drill runs `sovereign-backup.mjs` and `sovereign-restore.mjs` over the running stack, then takes the 0422 steps below itself, with their commands: inspect, a revocation, the review, a reconcile refused before the acknowledgment, the real cooldown, the acknowledgment, and then the reconcile. It does not re-prove restore debt or delete raw survivors (step 7), and `tests/integration/raw-restore-requalify.test.ts` and `tests/integration/raw-restore-survivors.test.ts` failed in that run. `restore-drill.mjs` itself has not been run through: in that run it was only started with a project name that does not say `drill`, and it stopped there. Nothing here should be relied on until someone has run [the drill](restore-drill-record.md) on their own install.
 
 **No recovery time or data-loss limit is stated, here or anywhere.** Those depend on your data, your hardware and how often you take a backup, and only your own drills can tell you. Nothing is scheduled. You run these when you decide to.
 
@@ -65,10 +65,10 @@ The reverse order would make different gaps, and worse ones. Objects taken befor
 ## Restore, in this order
 
 Do this with every reader/worker stopped, including overlay replicas, and keep the connector worker
-stopped throughout. The 0422/0515 auth/material restore additions below are **unregistered,
-runtime-unqualified source**; 0422 has focused unit/static checks only. Previous backup/restore
-evidence does not qualify them; do not use this revised
-procedure until the composed migrations, native-role gate and actual isolated drill pass.
+stopped throughout. The 0422/0515 auth/material restore additions below are in the migration journal,
+and what has run of them is stated at the top of this page. Earlier backup/restore evidence does not
+qualify them; do not rely on this revised procedure until someone has run [the drill](restore-drill-record.md)
+on their own install.
 
 1. **Check that the ledger is still there.** It is what stands between an old database and everything deleted since. If the store you are restoring into is the one that was running, it is. If you are restoring into a new store, copy `tombstone-ledger/` from the old store at its newest state, if any of it survives, before going further. **If the ledger is lost with the store, deletions made after this backup cannot be put back**, and those files return. Tell the people affected.
 2. **Restore.** It checks every part before mutation, enumerates and stops all configured project readers
@@ -127,7 +127,7 @@ procedure until the composed migrations, native-role gate and actual isolated dr
    actual material reconciliation.** Then, after explicit intent/charge/send review, start the connector
    worker last. No command here restarts serving processes automatically.
 
-### Authentication and external-authority review (0422 source, unqualified)
+### Authentication and external-authority review (0422, not yet drilled on an install)
 
 The reviewed migration must preserve the original tenant-helper OID and be composed with the final
 0999 admission extension after all actual SaaS tables/eraser grants. Missing/uncovered RLS or an
@@ -234,4 +234,13 @@ It prints one line of JSON for each thing, with counts, IDs, codes and keys Ense
 
 ## Drills
 
-`restore-drill.mjs` runs all of this from a clean instance and writes [the record](restore-drill-record.md). The plan's exit needs someone other than the owner to have run it. It asks who that was, and code cannot answer for them.
+`restore-drill.mjs` runs this from a clean instance and writes [the record](restore-drill-record.md). The plan's exit needs someone other than the owner to have run it. It asks who that was, and code cannot answer for them.
+
+It takes the authority review above in its order, before any reconcile: inspect into the review folder, the revocations if the review found any and a second inspect, `review.json` from what the person answers, a reconcile that must be refused before the acknowledgment, 0422's cooldown, and the acknowledgment through the `migrate` one-shot. Only then does it start Temporal and run the reconcile: a report, `--apply`, and `--apply` again. It does not decide about whole files (step 6), re-prove restore debt or delete raw survivors (step 7), or start anything that serves.
+
+So it needs two things the commands above do not:
+
+- **`--review-directory`**, an empty folder that is yours alone. It is mounted at `/review` in each one-shot, read-write for `inspect` and read-only for the rest, and the one-shot runs as your own user and group (`--user <uid>:<gid>`) where the system has them.
+- **A person at a terminal.** It asks there who is running it, whether anything needs revoking, who reviewed the authority and against which reports. With no terminal it stops with `DRILL_NEEDS_A_PERSON_AT_A_TERMINAL` before it changes anything.
+
+[The record](restore-drill-record.md) lists its questions, the files it leaves in the review folder, and every field it writes.

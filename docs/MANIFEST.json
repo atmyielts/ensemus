@@ -317,8 +317,8 @@
     },
     {
       "path": "05-operations/sovereign/backup-and-restore.md",
-      "size_bytes": 21961,
-      "sha256": "a7f62882d1c5930318b77fea4f02bbd67632d2589859e494ce2815e8ece38de4"
+      "size_bytes": 23982,
+      "sha256": "79944fc87ab4710391b9b056821f7444dd522622e2df0ece90b0961025ed2a94"
     },
     {
       "path": "05-operations/sovereign/diagnostics.md",
@@ -352,8 +352,8 @@
     },
     {
       "path": "05-operations/sovereign/restore-drill-record.md",
-      "size_bytes": 5293,
-      "sha256": "b8a03c8562c20a780fb7293cdf70ef110ea09da8780523bd65dd88acdbc67b23"
+      "size_bytes": 12029,
+      "sha256": "8cba95213c8052cfa7bcc059c6bdc491e711fdd633d11c1722c6ec962cb409b1"
     },
     {
       "path": "05-operations/sovereign/supported-branches.md",
