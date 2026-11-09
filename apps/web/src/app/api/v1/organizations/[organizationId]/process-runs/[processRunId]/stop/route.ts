@@ -14,10 +14,8 @@ export const POST = apiRoute(processRunParams, async ({ database, context, param
     request.headers.get('idempotency-key') ?? '',
     'process-run.stop',
     input,
-    async (db) => {
-      await requestStopProcessRun(db, context, input);
-      return { id: input.runId };
-    },
+    // The stored response comes from the service's own transaction result, which names the run.
+    (db) => requestStopProcessRun(db, context, input),
     202,
   );
   const row = await getProcessRun(database, context, webProductPorts(), id);

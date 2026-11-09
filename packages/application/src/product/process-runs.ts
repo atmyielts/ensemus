@@ -349,12 +349,15 @@ export async function startProcessRun(
   });
 }
 
-/** Installs a catalog workflow as a spec this tenant can run, once per version. Needs `studio.publish`. */
+/**
+ * Installs a catalog workflow as a spec this tenant can run, once per version. Needs `studio.publish`.
+ * The transaction's result also names the spec as `id`, which is what an idempotent key stores.
+ */
 export async function installBundledWorkflow(
   database: AppDatabase,
   context: TenantContext,
   input: { processKey: string },
-): Promise<{ specId: string; versionNumber: number }> {
+): Promise<{ id: string; specId: string; versionNumber: number }> {
   if (!canProduct(context.role, 'studio.publish')) throw new AppError('FORBIDDEN');
   const workflow = findBundledWorkflow(input.processKey);
   if (!workflow) throw new AppError('NOT_FOUND');
@@ -385,7 +388,7 @@ export async function installBundledWorkflow(
       .select({ specId: processSpecs.id, versionNumber: processSpecs.versionNumber })
       .from(processSpecs)
       .where(and(eq(processSpecs.processKey, workflow.key), eq(processSpecs.sourceRef, sourceRef)));
-    if (existing) return existing;
+    if (existing) return { id: existing.specId, ...existing };
     const published = await publishProcessSpecInTx(tx, context, {
       processKey: workflow.key,
       name: workflow.name,
@@ -396,7 +399,7 @@ export async function installBundledWorkflow(
       sourceRef,
     });
     await auditAction(tx, context, 'process_spec.installed', `process_spec:${published.specId}`);
-    return published;
+    return { id: published.specId, ...published };
   });
 }
 
@@ -620,17 +623,21 @@ export async function getProcessRun(
   return { ...view, cost: await measuredCost(context, ports, workUnitIds) };
 }
 
-/** Needs `canManageWork` on the root. Commits the stop first, and the next step finds it in PostgreSQL. */
+/**
+ * Needs `canManageWork` on the root. Commits the stop first, and the next step finds it in PostgreSQL.
+ * Its transaction's result names the run, because `runIdempotent` stores the key's response from that
+ * result inside the same transaction; a caller's later return value never reaches the key.
+ */
 export async function requestStopProcessRun(
   database: AppDatabase,
   context: TenantContext,
   input: { runId: string; expectedVersion: number },
-): Promise<void> {
+): Promise<{ id: string }> {
   const id = idSchema.safeParse(input.runId);
   if (!id.success) throw new AppError('NOT_FOUND');
   if (!Number.isSafeInteger(input.expectedVersion) || input.expectedVersion < 1)
     throw new AppError('INVALID_INPUT');
-  await withStudioTx(database, context, async (tx) => {
+  return withStudioTx(database, context, async (tx) => {
     // No new MFA rule: a real current person who manages this root may stop it. Lock the
     // interactive policy and membership BEFORE the run/root, as deprovisioning does.
     const person = await experiencePerson(tx, context);
@@ -653,6 +660,7 @@ export async function requestStopProcessRun(
       payload: { process_run_id: run.id },
     });
     await auditAction(tx, context, 'process_run.stop_requested', processRunTargetRef(run.id));
+    return { id: run.id };
   });
 }
 
@@ -1534,13 +1542,14 @@ const emailDetails = z.strictObject({
 /**
  * A person writes what an external step sends. A spec holds no recipients or words, so they arrive here, from
  * someone who answers for the run, and go through M3 as that person: M3 checks them against its own schema,
- * freezes them, and asks for its own approval from someone else. Nothing is sent by this.
+ * freezes them, and asks for its own approval from someone else. Nothing is sent by this. Like a stop,
+ * its transaction's result names the run, which is what an idempotent key stores.
  */
 export async function proposeProcessStepAction(
   database: AppDatabase,
   context: TenantContext,
   raw: { runId: string; stepKey: string; to: readonly string[]; subject: string; textBody: string },
-): Promise<void> {
+): Promise<{ id: string }> {
   if (context.actorType !== 'user') throw new AppError('FORBIDDEN');
   const { runId: rawRunId, stepKey, ...details } = raw;
   const id = idSchema.safeParse(rawRunId);
@@ -1548,7 +1557,7 @@ export async function proposeProcessStepAction(
   const parsed = emailDetails.safeParse(details);
   if (!parsed.success) throw new AppError('INVALID_INPUT');
   const runId = id.data;
-  await withStudioTx(database, context, async (tx) => {
+  return withStudioTx(database, context, async (tx) => {
     const person = await experiencePerson(tx, context);
     const run = await lockRun(tx, runId);
     const root = await loadReadable(tx, person, run.rootWorkUnitId);
@@ -1616,5 +1625,6 @@ export async function proposeProcessStepAction(
       payload: { process_run_id: runId },
     });
     await auditAction(tx, context, 'process_run.step_proposed', processRunTargetRef(runId));
+    return { id: runId };
   });
 }
