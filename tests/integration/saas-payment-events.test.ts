@@ -449,6 +449,11 @@ describe('native verified payment events keep source, merchant and financial eff
     try {
       const first = await capture(who);
       expect(await route(who, first.receipt.id)).toBe('applied');
+      // 0541: a validly signed but changed fact for an event ID whose inbox row already exists is a
+      // conflict, refused rather than deduplicated, on the original endpoint as on a rotated one.
+      const changedOriginal = await who.webhook.post({ ...who.fact, amountMicros: '1' });
+      await expect(who.webhook.process(changedOriginal)).rejects.toThrow();
+      expect(await financialRows(who)).toHaveLength(1);
       const rotated = await createWebhookEndpoint(database.db, who.f.operator, {
         connectionId: who.f.connection.id,
         signingSecretId: who.f.signing.secretRef,
@@ -473,6 +478,12 @@ describe('native verified payment events keep source, merchant and financial eff
         { endpoint: rotated },
       );
       await expect(who.webhook.process(changed)).rejects.toThrow();
+      expect(await financialRows(who)).toHaveLength(1);
+      // The same signed fact again is still an ordinary duplicate. A new timestamp header makes it a
+      // new delivery rather than the same bytes at the door.
+      await new Promise((resolve) => setTimeout(resolve, 1100));
+      const repeat = await who.webhook.post(who.fact, { endpoint: rotated });
+      expect(await who.webhook.process(repeat)).toBe('duplicate');
       expect(await financialRows(who)).toHaveLength(1);
     } finally {
       await who.f.close();

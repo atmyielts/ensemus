@@ -876,6 +876,20 @@ export async function finishErasure(
         updatedAt: new Date(),
       })
       .where(eq(offboardings.id, id));
+    // The standing change keeps the offboarding-owned agent stop engaged, and 0508's
+    // lifecycle.offboarding_agent_stop refuses that halt once the intent is reported (or cancelled).
+    // 0501's check_lifecycle_change already admits `deleted` from `verified`, so the tenant is
+    // deleted while the intent is verified, and reporting is the last step.
+    await setTenantStandingInTx(
+      tx,
+      context,
+      {
+        to: 'deleted',
+        reasonCode: 'OFFBOARDING_ERASURE_VERIFIED',
+        actor: { type: 'operator', ref: input.operatorRef },
+      },
+      binding,
+    );
     const [reported] = await tx
       .update(offboardings)
       .set({
@@ -888,16 +902,6 @@ export async function finishErasure(
       .returning();
     await event(tx, context, reported!, OFFBOARDING_REPORTED);
     await tellOwners(tx, context, id);
-    await setTenantStandingInTx(
-      tx,
-      context,
-      {
-        to: 'deleted',
-        reasonCode: 'OFFBOARDING_ERASURE_VERIFIED',
-        actor: { type: 'operator', ref: input.operatorRef },
-      },
-      binding,
-    );
     await auditAction(
       tx,
       context,
