@@ -43,6 +43,7 @@ import {
   delegatedWorkBirths,
   mainInputSnapshots,
   knowledgePurgeJobs,
+  policyBundles,
   sourceRunClosures,
   runInputCheckpoints,
   tombstones,
@@ -936,7 +937,11 @@ describe('delegated material birth evidence (0419)', () => {
       () => null,
       (error: unknown) => error,
     );
-    expect(pgCode(refused)).toBe('23503');
+    // Compared with the raised message beside it, so a refusal by any earlier guard names itself.
+    expect({
+      code: pgCode(refused),
+      message: (refused as { cause?: { message?: string } } | null)?.cause?.message,
+    }).toMatchObject({ code: '23503' });
     expect(
       await withTenantTx(app.db, a.owner, (tx) =>
         tx.select({ id: workUnits.id }).from(workUnits).where(eq(workUnits.id, f.childWorkId)),
@@ -973,6 +978,36 @@ describe('delegated material birth evidence (0419)', () => {
     ).toEqual([]);
   });
 
+  // With no active policy bundle an organization allows no delegation at all (ADR-028 question 10,
+  // NO_DELEGATION), and createChildRun refuses DELEGATION_DEPTH before any other rule. A genuine
+  // child is born only under an owner's active bundle that grants a depth and a fan-out, written as
+  // an owner writes one. It is withdrawn again after the call, so no other case runs under it.
+  let bundleVersion = 0;
+  async function underDelegationPolicy<T>(action: () => Promise<T>): Promise<T> {
+    bundleVersion += 1;
+    const document = {
+      organization_policy: { agent_limits: { max_delegation_depth: 3, max_delegation_fan_out: 2 } },
+    };
+    await withTenantTx(app.db, a.owner, async (tx) => {
+      await tx.update(policyBundles).set({ active: false }).where(eq(policyBundles.active, true));
+      await tx.insert(policyBundles).values({
+        organizationId: a.organizationId,
+        version: bundleVersion,
+        sha256: hash(JSON.stringify(document)),
+        document,
+        active: true,
+        createdByMembershipId: a.owner.membershipId,
+      });
+    });
+    try {
+      return await action();
+    } finally {
+      await withTenantTx(app.db, a.owner, (tx) =>
+        tx.update(policyBundles).set({ active: false }).where(eq(policyBundles.active, true)),
+      );
+    }
+  }
+
   // These are genuine full-composition gates, not expected passes while0414/0417 readiness stays
   // false. Root must review/qualify the complete lifecycle before enabling and running them.
   async function genuineChildWithRecord() {
@@ -987,10 +1022,9 @@ describe('delegated material birth evidence (0419)', () => {
         },
       }).loadWork(context, input.id);
     });
-    const created = await createChildRun(agent.db, f.context, {
-      parentRunId: f.runId,
-      stepNumber: 2,
-    });
+    const created = await underDelegationPolicy(() =>
+      createChildRun(agent.db, f.context, { parentRunId: f.runId, stepNumber: 2 }),
+    );
     if (created.kind !== 'created') {
       // The refusal's safe reason is audited; name it so a failure says which gate refused.
       const denials = await withTenantTx(app.db, a.owner, (tx) =>
