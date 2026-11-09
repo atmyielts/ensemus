@@ -15,7 +15,7 @@ import {
 } from '@ensemus/database';
 import { openSecretsDatabase } from '@ensemus/database/secrets';
 import { withVerifiedPaymentEventTx } from '@ensemus/database/payment-routing';
-import { createWebhookEndpoint, pgCode } from '@ensemus/application';
+import { createWebhookEndpoint, pgCode, type WebhookEffectHandlers } from '@ensemus/application';
 import {
   applyPaymentFactInTx,
   listUnmatchedPaymentEvents,
@@ -27,7 +27,11 @@ import { getInvoice } from '@ensemus/application/saas/invoices';
 import { runBoundCharge } from '@ensemus/connectors/payment';
 import { storeSecret } from '@ensemus/secrets/seal';
 import { SECRET_PURPOSE_PAYMENT_PROCESSOR } from '@ensemus/connectors/payment';
-import { hashCustomerRef, type PaymentEventFact } from '@ensemus/saas/payment';
+import {
+  hashCustomerRef,
+  paymentWebhookFactCanonical,
+  type PaymentEventFact,
+} from '@ensemus/saas/payment';
 import { webhookInboxConsumer, webhookInboxEventId } from '@ensemus/domain/webhook';
 import { nativePaymentFixture } from '../helpers/native-payment';
 import { nativePaymentWebhook } from '../helpers/native-payment-webhook';
@@ -119,6 +123,41 @@ describe('native verified payment events keep source, merchant and financial eff
     withTenantTx(database.db, who.f.who.service, (tx) => tx.select().from(paymentEvents));
   /** A refusal raised by a payment webhook guard in SQL (0512, 0541), reached through Drizzle. */
   const refusedBy = (message: string) => ({ cause: { code: 'EN850', message } });
+  /**
+   * recordPaymentEventInTx answers every refusal from 0512's billing.consume_payment_webhook with one
+   * plain PAYMENT_WEBHOOK_VERIFICATION_UNAVAILABLE and no cause, so the delivery stays `received` and
+   * its genuine proof can still be applied, rather than being rejected as a refused effect. To name the
+   * SQL guard a case reaches as well, these handlers first make the very same consume call in a savepoint
+   * that is always rolled back, keep what PostgreSQL said, and then run the real handler unchanged.
+   */
+  function consumeProbe(who: Fixture) {
+    const seen: { code: string | undefined; message: string | undefined }[] = [];
+    const handlers: WebhookEffectHandlers = {
+      ...who.webhook.handlers,
+      async recordPaymentEvent(tx, context, effect, source) {
+        const canonical = paymentWebhookFactCanonical(effect.event, {
+          executionIdentitySha256: effect.executionIdentitySha256 ?? null,
+          accountNamespaceSha256: effect.accountNamespaceSha256 ?? null,
+        });
+        const outcome: unknown = await tx
+          .transaction(async (save) => {
+            await save.execute(sql`select * from billing.consume_payment_webhook(
+              ${source.paymentVerificationToken ?? null},${randomUUID()}::uuid,${source.deliveryId}::uuid,
+              ${source.endpointId}::uuid,${source.connectionId}::uuid,${canonical})`);
+            throw new Error('TEST_PROBE_CONSUMED');
+          })
+          .catch((error: unknown) => error);
+        seen.push({
+          code: pgCode(outcome),
+          message: (outcome as { cause?: { message?: string } }).cause?.message,
+        });
+        return who.webhook.handlers.recordPaymentEvent(tx, context, effect, source);
+      },
+    };
+    return { handlers, seen };
+  }
+  /** The 0512 consume guard's refusal of a token whose attestation does not match this call. */
+  const consumeRefused = [{ code: 'EN850', message: 'PAYMENT_WEBHOOK_VERIFICATION_REQUIRED' }];
   const inboxRows = (who: Fixture, endpointId: string, providerEventId: string) =>
     withTenantTx(database.db, who.f.operatorContext, (tx) =>
       tx
@@ -302,7 +341,23 @@ describe('native verified payment events keep source, merchant and financial eff
           { ...who.fact, providerEventId: randomUUID() },
           { endpoint },
         );
-        await expect(who.webhook.apply({ ...verified, deliveryId: second.id })).rejects.toThrow();
+        const probe = consumeProbe(who);
+        if (differentEndpoint) {
+          // 0541 refuse_payment_webhook_inbox_conflict: the inbox key is the other endpoint's, not the
+          // one the token was attested for, so the inbox INSERT is refused before any effect runs.
+          await expect(
+            who.webhook.apply({ ...verified, deliveryId: second.id }, probe.handlers),
+          ).rejects.toMatchObject(refusedBy('PAYMENT_WEBHOOK_INBOX_MISMATCH'));
+          expect(probe.seen).toEqual([]);
+        } else {
+          // Same endpoint and event ID, so the inbox key matches and the inbox row is born; 0512's
+          // consume_payment_webhook then refuses the token, whose attestation names the first delivery.
+          await expect(
+            who.webhook.apply({ ...verified, deliveryId: second.id }, probe.handlers),
+          ).rejects.toThrow(/^PAYMENT_WEBHOOK_VERIFICATION_UNAVAILABLE$/);
+          expect(probe.seen).toEqual(consumeRefused);
+        }
+        expect(await deliveryState(who, second.id)).toBe('received');
         expect(await financialRows(who)).toEqual([]);
         expect(await who.webhook.apply(verified)).toBe('applied');
         const [receipt] = await withTenantTx(database.db, who.f.operatorContext, (tx) =>
@@ -326,9 +381,11 @@ describe('native verified payment events keep source, merchant and financial eff
       expect(await who.webhook.process(bad)).toBe('rejected');
       const source = await who.webhook.post(who.fact),
         verified = await who.webhook.verify(source);
+      // 0541 refuse_payment_webhook_inbox_conflict: the changed event ID makes an inbox key the token
+      // was not attested for.
       await expect(
         who.webhook.apply({ ...verified, providerEventId: randomUUID() }),
-      ).rejects.toThrow();
+      ).rejects.toMatchObject(refusedBy('PAYMENT_WEBHOOK_INBOX_MISMATCH'));
       expect(await who.webhook.apply(verified)).toBe('applied');
       expect(await financialRows(who)).toEqual([]);
     } finally {
@@ -437,9 +494,11 @@ describe('native verified payment events keep source, merchant and financial eff
       second = await setup();
       const a = await first.webhook.verify(await first.webhook.post(first.fact));
       const b = await second.webhook.verify(await second.webhook.post(second.fact));
+      // 0541 refuse_payment_webhook_inbox_conflict looks the token up in this tenant only, and the
+      // attestation's owner policy (0512) hides the other tenant's row, so it finds none.
       await expect(
         second.webhook.apply({ ...b, paymentVerificationToken: a.paymentVerificationToken }),
-      ).rejects.toThrow();
+      ).rejects.toMatchObject(refusedBy('PAYMENT_WEBHOOK_VERIFICATION_REQUIRED'));
       expect(await first.webhook.apply(a)).toBe('applied');
       expect(await second.webhook.apply(b)).toBe('applied');
       expect(await financialRows(first)).toEqual([]);
@@ -455,25 +514,33 @@ describe('native verified payment events keep source, merchant and financial eff
       const who = await setup();
       try {
         const delivery = await who.webhook.post(who.fact),
-          verified = await who.webhook.verify(delivery);
+          verified = await who.webhook.verify(delivery),
+          probe = consumeProbe(who);
+        // The changed fact no longer hashes to the attested fact_sha256, so 0512's
+        // consume_payment_webhook refuses the token inside the payment effect.
         await expect(
-          who.webhook.apply({
-            ...verified,
-            effects: verified.effects.map((effect) =>
-              effect.kind === 'payment_event'
-                ? changed === 'amount'
-                  ? {
-                      ...effect,
-                      event: {
-                        ...effect.event,
-                        amountMicros: (BigInt(who.fact.amountMicros!) + 1n).toString(),
-                      },
-                    }
-                  : { ...effect, accountNamespaceSha256: '0'.repeat(64) }
-                : effect,
-            ),
-          }),
-        ).rejects.toThrow();
+          who.webhook.apply(
+            {
+              ...verified,
+              effects: verified.effects.map((effect) =>
+                effect.kind === 'payment_event'
+                  ? changed === 'amount'
+                    ? {
+                        ...effect,
+                        event: {
+                          ...effect.event,
+                          amountMicros: (BigInt(who.fact.amountMicros!) + 1n).toString(),
+                        },
+                      }
+                    : { ...effect, accountNamespaceSha256: '0'.repeat(64) }
+                  : effect,
+              ),
+            },
+            probe.handlers,
+          ),
+        ).rejects.toThrow(/^PAYMENT_WEBHOOK_VERIFICATION_UNAVAILABLE$/);
+        expect(probe.seen).toEqual(consumeRefused);
+        expect(await deliveryState(who, delivery.id)).toBe('received');
         expect(
           await withTenantTx(database.db, who.f.operatorContext, (tx) =>
             tx.select().from(inboxEvents),
@@ -532,12 +599,15 @@ describe('native verified payment events keep source, merchant and financial eff
     try {
       const delivery = await who.webhook.post(who.fact),
         verified = await who.webhook.verify(delivery);
+      // The inbox row births the attestation, nothing consumes it, and 0512's deferred
+      // payment_webhook_atomic_receipt refuses the commit.
       await expect(
         who.webhook.apply(verified, {
           ...who.webhook.handlers,
           recordPaymentEvent: async () => undefined,
         }),
-      ).rejects.toThrow();
+      ).rejects.toMatchObject(refusedBy('PAYMENT_WEBHOOK_ATOMIC_RECEIPT_REQUIRED'));
+      expect(await deliveryState(who, delivery.id)).toBe('received');
       expect(await who.webhook.apply(verified)).toBe('applied');
     } finally {
       await who.f.close();
@@ -714,7 +784,14 @@ describe('native verified payment events keep source, merchant and financial eff
       const source = await who.webhook.post({ ...who.fact, providerEventId: randomUUID() });
       const verified = await who.webhook.verify(source);
       await who.f.broker.revoke(who.f.operator.organizationId, who.f.signing.secretRef);
-      await expect(who.webhook.apply(verified)).rejects.toThrow();
+      // 0512's check_payment_webhook_envelope, run by consume_payment_webhook, requires the signing
+      // secret unrevoked, so the token is refused inside the payment effect.
+      const probe = consumeProbe(who);
+      await expect(who.webhook.apply(verified, probe.handlers)).rejects.toThrow(
+        /^PAYMENT_WEBHOOK_VERIFICATION_UNAVAILABLE$/,
+      );
+      expect(probe.seen).toEqual(consumeRefused);
+      expect(await deliveryState(who, source.id)).toBe('received');
       expect(await route(who, committed.receipt.id)).toBe('applied');
       expect(await financialRows(who)).toHaveLength(1);
       expect(
