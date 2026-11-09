@@ -170,15 +170,21 @@ Each has a safe default already in the code, and each can be changed later.
 9. **Does M3's email connector count as M4's side effect?** Default: yes, once M3's slices merge. Tests use a fake connector meanwhile.
 10. **Organization limits on agents?** Default: a `governance.policy_bundles` document may set them, and with none, the spec's own ranges apply and delegation depth is 0.
 11. **Should each worker get its own sealing key?** See "What changed" above. The review should decide. Default: one key, as ADR-027 has it.
-12. **When may a delegated child be born?** Default: never, because `ai.delegation_influence_ready` returns `false`. See the proposal below. The owner and the security owner must define the predicate before any migration changes it.
+12. **When may a delegated child be born?** Decided 2026-11-09 by the project owner ("build it now"). See "Decision: defining `ai.delegation_influence_ready`" below. Until a reviewed migration records part 1, delegation stays closed in every deployed database.
 
-### Proposal: defining `ai.delegation_influence_ready` (open question 12)
+### Decision: defining `ai.delegation_influence_ready` (open question 12)
 
-**Status:** Proposed, not decided. No migration implements it. Raised in CI repair round 6 (finding F15).
+**Status:** Decided by the project owner on 2026-11-09. The security owner is not yet named. `0590_delegation_birth_readiness_deleg.sql` (a reserved number, renumbered at merge) implements part 2 and the empty part-1 store. Part 1 is recorded by `0591_delegation_birth_capability_record_deleg.sql` only after a CI run in which every qualification test below passed. Both files carry "FLAGGED FOR HUMAN SECURITY REVIEW, not yet reviewed by a person". Raised in CI repair round 6 (finding F15).
 
-**What exists.** 0414 created `ai.delegation_influence_ready(p_parent uuid, p_child uuid)` as `SELECT false`. Its comment says that "0416 replaces this OID only when a real immutable delegation-birth dependency is available". 0416, 0417 and 0419 never replaced it. 0419's `ai.guard_delegation_input_birth()` raises `DELEGATION_INPUT_PROOF_UNAVAILABLE` (EN119) for every child `ai.agent_runs` INSERT unless both `ai.delegation_influence_ready(parent, child)` and `ai.validate_delegation_birth(NEW)` are true. 0540 left that unchanged. So `createChildRun` audits `DELEGATION_WIDENED` with the reason `DELEGATION_INPUT_PROOF_UNAVAILABLE`, and FD-16 delegation cannot happen in any organization, even under a policy bundle that allows depth and fan-out.
+**What existed.** 0414 created `ai.delegation_influence_ready(p_parent uuid, p_child uuid)` as `SELECT false`. Its comment says that "0416 replaces this OID only when a real immutable delegation-birth dependency is available". 0416, 0417 and 0419 never replaced it. 0419's `ai.guard_delegation_input_birth()` raises `DELEGATION_INPUT_PROOF_UNAVAILABLE` (EN119) for every child `ai.agent_runs` INSERT unless both `ai.delegation_influence_ready(parent, child)` and `ai.validate_delegation_birth(NEW)` are true. 0540 left that unchanged. So `createChildRun` audited `DELEGATION_WIDENED` with the reason `DELEGATION_INPUT_PROOF_UNAVAILABLE`, and FD-16 delegation could not happen in any organization, even under a policy bundle that allows depth and fan-out.
 
-**What is missing.** Nothing defines what the predicate tests. This ADR, `docs/03-intelligence/02-agent-runtime.md` and `08-agent-safety.md` describe delegation only as depth, budget and scope limits. The evidence pages `docs/06-delivery/evidence/m5/agent-manifest-scope.md`, `delegated-material-authority.md` and `delegated-material-join.md` say only that it stays false until root qualifies the whole 0419 lifecycle. They then list what that qualification needs, without saying which of those conditions the function itself checks:
+**Owner decisions (2026-11-09).**
+
+- (a) The two-part definition is confirmed.
+- (b) Every listed lifecycle item is qualified (bound, and tested with a genuine delegated child) before part 1 is recorded. That includes the typed-record deletion outbox and the `sealDelegatedErasureInTx` offboarding binding.
+- (c) The security reviewer is not yet named.
+
+**The lifecycle items, as they stand.** Each is bound in code or SQL, and each is tagged with the test that qualifies it (the map below).
 
 - inherited serving for named viewers, through the 0414 unproven-input fence and the 0419 graph;
 - generated-file authority capture and serving, publication and put binding;
@@ -186,46 +192,52 @@ Each has a safe default already in the code, and each can be changed later.
 - the mandatory 0510 hold helper `lifecycle.delegated_work_hold_free` on the redaction path;
 - transcript purge and version proof for the child and parent runs (FD-5 and 0515);
 - restricted eraser ordering and positive physical disposition (0515 and 0516);
-- the 0417 new-v1 output guard, which also stays closed;
-- the canonical typed-record deletion outbox binding and the `sealDelegatedErasureInTx` offboarding binding, both listed as unbound in `delegated-material-join.md`.
+- the 0417 new-v1 output guard. Correction: it no longer "stays closed". 0525 lifted it for a running, unstopped native run writing its own Work at or above its own class. A child gets exactly that bound and nothing wider.
+- (8a) the canonical typed-record deletion outbox: `knowledge.record_closed`, written by `emitRecordClosedInTx` (`deleteObjectRecord`, `recordImportedTombstone` and the offboarding input closure), routed by the dispatcher to `knowledgeRecordPurgeWorkflow`, and restarted by the tenant's knowledge sweep (`claimRecordPurgeRestarts`, behind the `record-purge-restart-v1` patch) for every dead or tombstoned record PostgreSQL does not yet prove purged;
+- (8b) the `sealDelegatedErasureInTx` offboarding binding (`ops-erase.ts`), preceded by the delegated input closure. Correction: 0515's `lifecycle.current_delegated_material_proof` needs every child receipt redacted, redaction needs a closed scope, and 0533 refuses new tombstones once an offboarding is erasing. So `closeDelegatedRecordInputsInTx` tombstones every record an unredacted receipt names (the parent's Work included) after the admission `beginErasure` checks and strictly before erasing, and starts each record's purge. Until those purges prove, the seal returns false and the command reports `MATERIAL_PURGE_PENDING`; the operator runs it again.
 
-The function also cannot be defined in the abstract. The question is whether readiness means a property of one parent/child pair, or a deployment capability that a reviewed migration turns on once the lifecycle has been qualified.
+**Definition as built.** Readiness has two parts, and both must hold.
 
-**Proposed definition, for decision.** Readiness has two parts, and both must hold.
+1. **A reviewed deployment capability.** `ai.delegation_birth_capabilities` is append-only. Only a non-superuser `ensemus_migrator` login session can append (FORCE RLS, an INSERT policy and a trigger that also refuse superuser, BYPASSRLS and nested writes); UPDATE, DELETE and TRUNCATE are refused (`DELEGATION_CAPABILITY_APPEND_ONLY`). No runtime role holds any grant on it, and it is read only through `ai.delegation_birth_capability_on()`, a zero-argument SECURITY DEFINER boolean that only `ensemus_agent` may execute. The latest row wins, and an appended `revoked` row is the reversal. A `deployment_migration` row must cite a `github-actions:` run, a 40-character commit and the full tag set below. 0590 writes no row. CI enables birth for the suites that need a genuine child with a `qualification_fixture` row appended through the migrator, and appends the prior state back afterwards.
+2. **A per-birth check that the parent can bear a child.** Pure metadata; it never reads a body. All of these must hold:
+   - the caller is `current_user = session_user = ensemus_agent`, acting as `agent`, with a tenant bound;
+   - `p_parent` and `p_child` are present and distinct, `p_parent` is the transaction's own `app.agent_run_id`, and `app.agent_scope_protocol` is exactly `scoped-v1:<p_parent>` (checked for every run, not only scope-required ones);
+   - the capability above is on;
+   - the parent is in this tenant, its initiator is the current membership, and its status is live: `running` or `waiting_for_child`, the two statuses `ai.delegation_birth_candidate` admits;
+   - the parent's `ai.run_input_checkpoints` row is `history_complete`, `v1` and not fenced;
+   - no `ai.unproven_child_work_inputs` row names the parent's Work. 0414 recorded each legacy child's own Work there, so this refuses a legacy pre-0414 child acting as a parent;
+   - `p_child` does not exist yet. Inside the 0419 BEFORE INSERT guard the child row does not exist, so this clause only does work when the function is called on its own.
 
-1. **A reviewed deployment capability.** A single migration records that the lifecycle above was qualified on a fresh database, citing the CI run and the human review. It must carry the header "REVIEWED SECURITY SQL (ADR-024 D4, ADR-028)". No runtime role can write this record, and nothing can derive it from data.
-2. **A per-birth check that the parent can bear a child.** This check is pure metadata and never reads a body:
-   - `p_parent` is the transaction's own `app.agent_run_id`, and `app.agent_scope_protocol` is `scoped-v1:<p_parent>`, so only the parent's own admitted transaction qualifies;
-   - the parent's `ai.run_input_checkpoints` row exists and is not fenced;
-   - the parent is in a live status;
-   - `p_child` does not exist yet;
-   - no `ai.unproven_child_work_inputs` row names the parent's Work.
+   `ai.validate_delegation_birth(NEW)` stays a separate condition and is not folded into this function. The function keeps 0414's OID, owner, invoker rights, `STABLE` and its only grant (to `ensemus_agent`); 0590's own checks verify that before and after the replacement.
 
-   `ai.validate_delegation_birth(NEW)` stays a separate condition and is not folded into this function.
+**Out of scope, and unchanged.** `ai.validate_delegation_birth`, `ai.guard_delegation_input_birth`, 0414's unproven-input inventory and its keep triggers, and every purge or serving guard.
 
-**Out of scope for this proposal.** Changing `ai.validate_delegation_birth`, 0414's unproven-input inventory, or any purge or serving guard.
+**Qualification map.** Each tag is required on the capability row, and a unit test (`tests/unit/delegation-readiness-migration.test.ts`) fails unless each titles a plain, unskipped integration case.
 
-**Owner decisions needed.**
+| Tag | Item | Test file: case |
+|---|---|---|
+| ADR028-Q12-L1 | inherited serving | `delegated-child-lifecycle.test.ts`: "full lifecycle: inherited serving admits only named viewers of the copied child Work"; `agent-delegated-materials.test.ts`: "full lifecycle: captures actual inheritance and permanently redacts copied Work once after real closure" |
+| ADR028-Q12-L2 | generated-file authority | `delegated-child-lifecycle.test.ts`: "full lifecycle: a child’s generated file retains its inherited read authority" |
+| ADR028-Q12-L3 | purge confirmation with separate Work counts (record and source) | `agent-delegated-materials.test.ts`: "full lifecycle: captures actual inheritance and permanently redacts copied Work once after real closure"; `delegated-child-lifecycle.test.ts`: "full lifecycle: source closure redacts copied Work with separate Work counts" |
+| ADR028-Q12-L4 | 0510 hold helper | `agent-delegated-materials.test.ts`: "full lifecycle: an actual hold preserves the copied body debt until a genuine release" |
+| ADR028-Q12-L5 | transcript purge and version proof, child and parent | `agent-delegated-materials.test.ts`: "full lifecycle: unavailable transcript completion cannot clear real Work/control debt"; `delegated-child-lifecycle.test.ts`: "full lifecycle: child and parent transcripts are purged with a current version proof" |
+| ADR028-Q12-L6 | eraser ordering and positive disposition | `agent-delegated-offboarding.test.ts`: "closes delegated inputs before erasing, seals once the purges prove, then erases" |
+| ADR028-Q12-L7 | output guard | `delegated-child-lifecycle.test.ts`: "full lifecycle: a running child writes only its own Work, and not after a stop" |
+| ADR028-Q12-L8a | typed-record outbox, dispatcher start, sweep restart | `record-deletion-outbox.test.ts` (five cases); unit: `workers/workflow/src/record-purge-route.test.ts`, `packages/workflows/src/knowledge-ingest-step.test.ts` |
+| ADR028-Q12-L8b | offboarding input closure plus seal | `agent-delegated-offboarding.test.ts` (three cases); unit: `workers/workflow/src/ops-erase-seal.test.ts` |
+| ADR028-Q12-P2 | per-birth negatives | `delegation-birth-readiness.test.ts` (nine cases) |
 
-- (a) Confirm or replace the two-part definition.
-- (b) Name which lifecycle items must be qualified before part 1 may be recorded. The default is every item listed above.
-- (c) Name the security reviewer for the migration that implements it.
+**Effect now.** Part 2 and the bindings are live once 0590 is applied. No capability row exists, so `createChildRun` still audits `DELEGATION_INPUT_PROOF_UNAVAILABLE` in every deployed database. The three acceptance cases in `agent-delegated-materials.test.ts` (now tagged L1/L3, L4 and L5) run with the suite's fixture capability and must pass. `tests/helpers/agent-scope-upgrade.ts` keeps expecting `false` for a legacy child: under the decided definition that expectation is correct, so it was not changed (this section earlier said it must change). It now also asserts that a legacy child cannot act as a parent.
 
-**Effect until decided.** Delegation stays closed. Three integration cases are the only known failing tests that depend on this. Each fails at `genuineChildWithRecord` with `TEST_GENUINE_CHILD_NOT_ADMITTED:DELEGATION_WIDENED:DELEGATION_INPUT_PROOF_UNAVAILABLE:delegation_influence_ready=false`. They are deliberately not skipped, because they are the acceptance gate for this decision:
-
-- `tests/integration/agent-delegated-materials.test.ts`: "full lifecycle: captures actual inheritance and permanently redacts copied Work once after real closure"
-- `tests/integration/agent-delegated-materials.test.ts`: "full lifecycle: an actual hold preserves the copied body debt until a genuine release"
-- `tests/integration/agent-delegated-materials.test.ts`: "full lifecycle: unavailable transcript completion cannot clear real Work/control debt"
-
-`tests/helpers/agent-scope-upgrade.ts` asserts the function is `false` today. The migration that implements the decision must change that helper's expectation and cite this section.
+**What records part 1.** `0591_delegation_birth_capability_record_deleg.sql` appends the one `deployment_migration` row, citing the green run and commit. It refuses to run if any row already exists. It is written only after a CI run on the commit carrying 0590 and the 8a/8b bindings in which every tagged test passed, and preferably after a named security reviewer has read 0590 and 0591. Writing it before that review is a risk the owner accepted by decision (c).
 
 ## Reversal
 
-No event starts a run unless someone asks for one, and until a person creates an active profile with a budget, every path refuses. Stop `agent-worker` and runs wait in their queue with a `WORKER_UNAVAILABLE` stop after the schedule-to-start limit. The ledger and egress history are append-only by design and should be kept. FD-1 and the workflow's shape become expensive to change once real runs exist, because they are in Temporal history.
+No event starts a run unless someone asks for one, and until a person creates an active profile with a budget, every path refuses. Stop `agent-worker` and runs wait in their queue with a `WORKER_UNAVAILABLE` stop after the schedule-to-start limit. The ledger and egress history are append-only by design and should be kept. FD-1 and the workflow's shape become expensive to change once real runs exist, because they are in Temporal history. Delegated birth closes again when a reviewed migration appends a `revoked` row to `ai.delegation_birth_capabilities`.
 
 ## Approvals
 
 | Role | Name | Decision | Date |
 |---|---|---|---|
-| Project owner | | | |
-| Security owner (FD-3, FD-4, FD-10, FD-14, FD-21) | | | |
+| Project owner | | Decided open question 12 only: (a) two-part definition confirmed; (b) every listed lifecycle item, including the typed-record deletion outbox and the sealDelegatedErasureInTx offboarding binding, qualified before part 1 is recorded; (c) security reviewer not yet named ("build it now") | 2026-11-09 |
+| Security owner (FD-3, FD-4, FD-10, FD-14, FD-21) | | Pending: not yet named. 0590_deleg (and 0591_deleg when written) FLAGGED FOR HUMAN SECURITY REVIEW | |
