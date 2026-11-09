@@ -12,6 +12,7 @@ import {
 import { createProfileStore } from '@ensemus/application/ai-model-profiles';
 import type { AgentContext, UsageLedger } from '@ensemus/application/ai-ports';
 import {
+  agentRuns,
   egressDecisions,
   modelProfiles,
   openAppDatabase,
@@ -202,6 +203,43 @@ describe('routing, as the real roles', () => {
           expiresAt: null,
         }),
       ).rejects.toThrow();
+    });
+
+    it('writes an allow only behind the run’s own admission, and still records a closed run’s deny', async () => {
+      const tenant = await seedAiTenant(app.db);
+      const profileId = await activeProfile(tenant);
+      const { runId, context } = await runFor(tenant);
+      const entry = (decision: 'allow' | 'deny') => ({
+        runId,
+        stepId: null,
+        profileId: decision === 'allow' ? profileId : null,
+        dataClass: 'internal' as const,
+        purpose: 'reason' as const,
+        destinationHost: null,
+        decision,
+        reasonCode: decision === 'allow' ? ('ALLOWED' as const) : ('NO_CANDIDATE' as const),
+        policyVersion: 'test',
+        requestHash: null,
+        expiresAt: null,
+      });
+      // Admitted: 0417's authority_egress_write refuses an allow row for an authority-v1 run unless
+      // this transaction holds the run's own admission, which the log now takes for allow rows.
+      await expect(createEgressLog(agent.db).record(context, entry('allow'))).resolves.toBe(
+        undefined,
+      );
+      // Closed: the run ends, so it can no longer be admitted. An allow is refused before it is
+      // written, and nothing may leave; a deny needs no admission and is still recorded.
+      await withRunLookupTx(agent.db, tenant.organizationId, (tx) =>
+        tx.update(agentRuns).set({ status: 'cancelled' }).where(eq(agentRuns.id, runId)),
+      );
+      await expect(createEgressLog(agent.db).record(context, entry('allow'))).rejects.toMatchObject(
+        { code: 'POLICY_DENIED' },
+      );
+      await expect(createEgressLog(agent.db).record(context, entry('deny'))).resolves.toBe(
+        undefined,
+      );
+      const rows = await rowsFor(tenant, runId);
+      expect(rows.map((row) => row.decision).sort()).toEqual(['allow', 'deny']);
     });
 
     it('a plain member cannot read decisions', async () => {

@@ -489,6 +489,51 @@ describe('delegated material birth evidence (0419)', () => {
     ).rejects.toThrow();
   });
 
+  it('refuses reviving a terminal run in 0419 itself, not only in the 0101 state machine', async () => {
+    const f = await fixture();
+    await finishRun(agent.db, f.context, {
+      agentRunId: f.runId,
+      status: 'cancelled',
+      stopCode: 'STOPPED_BY_PERSON',
+    });
+    // BEFORE triggers fire in name order, so 0101's agent_runs_check_change refuses every move out
+    // of a terminal status (EN006, the case above) before 0419's fenced_terminal_run_no_revival is
+    // reached, for every role. To prove 0419's own guard, only the 0101 trigger is switched off,
+    // inside a superuser transaction that is always rolled back: the schema never changes for
+    // anyone else, and integration files run one at a time (fileParallelism: false).
+    const su = new pg.Client({ connectionString: urls.superuser() });
+    await su.connect();
+    let refusal: { code?: unknown; message?: unknown } | null = null;
+    try {
+      await su.query('begin');
+      try {
+        await su.query("select set_config('app.organization_id',$1,true)", [a.organizationId]);
+        await su.query('alter table ai.agent_runs disable trigger agent_runs_check_change');
+        await su.query(
+          "update ai.agent_runs set status='running' where organization_id=$1 and id=$2",
+          [a.organizationId, f.runId],
+        );
+      } catch (error) {
+        refusal = error as { code?: unknown; message?: unknown };
+      } finally {
+        await su.query('rollback');
+      }
+      // The rollback restored the 0101 trigger.
+      const enabled = await su.query<{ tgenabled: string }>(
+        `select tgenabled from pg_trigger
+          where tgrelid='ai.agent_runs'::regclass and tgname='agent_runs_check_change'`,
+      );
+      expect(enabled.rows).toEqual([{ tgenabled: 'O' }]);
+    } finally {
+      await su.end();
+    }
+    expect(refusal).toMatchObject({ code: 'EN119', message: 'TERMINAL_RUN_PERMANENTLY_FENCED' });
+    const [stored] = await withTenantTx(agent.db, f.context, (tx) =>
+      tx.select({ status: agentRuns.status }).from(agentRuns).where(eq(agentRuns.id, f.runId)),
+    );
+    expect(stored?.status).toBe('cancelled');
+  });
+
   it('closes a genuine compiler consumer once and retains a purge-time control witness without double charging', async () => {
     const source = await seedSearchableSource(app.db, a.owner, {
       passages: ['closureanchor is an actual lexical input.'],

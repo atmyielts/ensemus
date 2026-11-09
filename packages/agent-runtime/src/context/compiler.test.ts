@@ -187,6 +187,27 @@ describe('whose access decides', () => {
     expect(asked.artifacts).toEqual([]);
   });
 
+  it('stops the whole turn when the source rejects a file read, rather than leaving the file out', async () => {
+    // The real source rejects with POLICY_DENIED when the run's retained inputs close (0414's
+    // run-level proof), which can land between the Work read and a file read. A rejection is not a
+    // per-file refusal: the turn must not go on with whatever else was readable.
+    const { source, asked } = doubleSource({
+      work: work({ artifactIds: [IDS.artifactA, IDS.artifactB] }),
+      artifacts: new Map([[IDS.artifactB, artifact(IDS.artifactB, 'later words', 'internal')]]),
+    });
+    const closing: RunContextSource = {
+      ...source,
+      async loadArtifactText(context, input) {
+        asked.artifacts.push({ artifactId: input.artifactId, maxBytes: input.maxBytes });
+        if (input.artifactId === IDS.artifactA)
+          throw Object.assign(new Error('Policy denied.'), { code: 'POLICY_DENIED' });
+        return source.loadArtifactText(context, input);
+      },
+    };
+    await expect(compile(closing)).rejects.toMatchObject({ code: 'POLICY_DENIED' });
+    expect(asked.artifacts.map((read) => read.artifactId)).toEqual([IDS.artifactA]);
+  });
+
   it('reads everything with the one context it was given, never another', async () => {
     const context = contextFor();
     const { source, asked } = doubleSource({
