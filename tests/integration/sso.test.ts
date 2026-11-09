@@ -52,7 +52,9 @@ import { totpFromUri } from '../helpers/totp';
 import { generatedSamlIdp, tamperSaml } from '../helpers/saml-idp';
 import { makePerson, makeTwoTenants, proveSecondFactor } from '../helpers/product';
 import { urls } from '../helpers/stack';
-const baseURL = 'http://127.0.0.1:3998',
+// The native SAML start binds its browser proof in a Secure __Host- cookie and refuses a
+// non-HTTPS installation (saml-browser-flow bindStart), so this runtime uses an HTTPS origin.
+const baseURL = 'https://generated-ensemus-sso.example.invalid',
   secret = 'generated-sso-auth-key-that-is-never-a-real-installation';
 const incoming = (cookie = '') =>
   new Headers({
@@ -138,7 +140,9 @@ describe('SAML admission, company isolation and SCIM on actual roles', () => {
   ) {
     const current = await makePerson('generated-sso-person'),
       email = `person-${current.userId}@${f.domain}`;
-    await authDriver.query('update identity.users set email=$1 where id=$2', [
+    // An existing person whose address is already verified, the established seed for a real
+    // account. Native SAML links only to a verified local email; an unverified one stays refused.
+    await authDriver.query('update identity.users set email=$1, email_verified=true where id=$2', [
       email,
       current.userId,
     ]);
@@ -675,10 +679,14 @@ describe('SAML admission, company isolation and SCIM on actual roles', () => {
       }
       for (const actor of ['agent', 'service']) {
         await humanTx(control, f.owner.context, actor);
-        await control.query("update org.memberships set status='disabled' where id=$1", [
-          p.context!.membershipId,
-        ]);
-        await control.query('commit');
+        // 0404 org.guard_membership_management: a non-user actor holds no member.manage
+        // privilege, so the change itself is refused and no human intent can be recorded.
+        await expect(
+          control.query("update org.memberships set status='disabled' where id=$1", [
+            p.context!.membershipId,
+          ]),
+        ).rejects.toMatchObject({ code: 'EN405', message: 'MFA_REQUIRED' });
+        await control.query('rollback');
         const receipt = await driver.query(
           'select deprovisioned_at from org.sso_member_links where organization_id=$1 and membership_id=$2',
           [f.owner.context.organizationId, p.context!.membershipId],
