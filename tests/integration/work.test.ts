@@ -16,6 +16,7 @@ import {
   createWorkUnit,
   decideApproval,
   deleteArtifact,
+  deleteArtifactInTx,
   disableMember,
   expireApproval,
   expireApprovalStatus,
@@ -33,6 +34,7 @@ import {
   listTeams,
   listWorkUnits,
   markRead,
+  objectKey,
   purgeDueBlobs,
   readArtifact,
   removeDependency,
@@ -63,6 +65,7 @@ import type { WorkState } from '@ensemus/domain/work-unit';
 import { createServiceContext } from '@ensemus/database/service';
 import { createActivities } from '@ensemus/workflows/activities';
 import { sql } from 'drizzle-orm';
+import { inFixtureTenant } from '../helpers/fixture-tenant';
 import { urls } from '../helpers/stack';
 
 class MemoryStore implements ObjectStore {
@@ -81,6 +84,36 @@ class MemoryStore implements ObjectStore {
   async exists(key: string) {
     return this.objects.has(key);
   }
+  // Explicit test-only unversioned map model, as in saas-lifecycle-fixture. Purging needs these two,
+  // as it does from the production S3 adapter; without them nothing can certify the bytes are gone.
+  async deleteForPurge(key: string) {
+    try {
+      await this.delete(key);
+    } catch {
+      return { transport: 'unknown' as const, capabilityVerified: false };
+    }
+    return { transport: 'deleted' as const, capabilityVerified: true };
+  }
+  async isPhysicallyAbsent(key: string) {
+    return !this.objects.has(key);
+  }
+}
+
+/** The same bytes while the store is unreachable, answering as the production S3 adapter does: its
+ * capability preflight fails, so a purge DELETE is never attempted and absence cannot be read. */
+function downStore(store: MemoryStore): ObjectStore {
+  return {
+    put: store.put.bind(store),
+    get: store.get.bind(store),
+    exists: store.exists.bind(store),
+    delete: async () => {
+      throw new Error('storage down');
+    },
+    deleteForPurge: async () => ({ transport: 'not_attempted', capabilityVerified: false }),
+    isPhysicallyAbsent: async () => {
+      throw new Error('storage down');
+    },
+  };
 }
 
 const code = (name: string) => expect.objectContaining({ code: name });
@@ -1054,6 +1087,8 @@ describe('work', () => {
       try {
         // Disabled, but not committed yet. A plain read here would still see them as active.
         await su.query('begin');
+        // Bound to the row's tenant, as the export-epoch trigger requires of every writer.
+        await su.query("select set_config('app.organization_id',$1,true)", [a.organizationId]);
         await su.query(`update org.memberships set status = 'disabled' where id = $1`, [
           approver.membershipId,
         ]);
@@ -1324,14 +1359,7 @@ describe('work', () => {
       const store = new MemoryStore();
       const work = await createWorkUnit(db(), a, { title: 'W' });
       const { id } = await upload(a, store, work.id);
-      const broken: ObjectStore = {
-        put: store.put.bind(store),
-        get: store.get.bind(store),
-        exists: store.exists.bind(store),
-        delete: async () => {
-          throw new Error('storage down');
-        },
-      };
+      const broken = downStore(store);
       // The person is done once access is blocked: the bytes are recorded as still to remove.
       await deleteArtifact(db(), broken, a, { workUnitId: work.id, artifactId: id });
       await expect(
@@ -1344,14 +1372,7 @@ describe('work', () => {
       const store = new MemoryStore();
       const work = await createWorkUnit(db(), a, { title: 'W' });
       const { id } = await upload(a, store, work.id);
-      const broken: ObjectStore = {
-        put: store.put.bind(store),
-        get: store.get.bind(store),
-        exists: store.exists.bind(store),
-        delete: async () => {
-          throw new Error('storage down');
-        },
-      };
+      const broken = downStore(store);
       await deleteArtifact(db(), broken, a, { workUnitId: work.id, artifactId: id });
       expect(store.objects.size).toBe(1);
 
@@ -1379,26 +1400,35 @@ describe('work', () => {
     it('does not let rows that keep failing keep the others waiting', async () => {
       const a = await newOrg();
       const store = new MemoryStore();
+      const work = await createWorkUnit(db(), a, { title: 'W' });
+      // Real deleted files, so that every row has the tombstone and catalog entry a purge needs.
+      // Deleted in-transaction, as retention does, so no purge has been attempted yet.
+      const ids: string[] = [];
+      for (let i = 0; i < 51; i++) {
+        const { id } = await upload(a, store, work.id);
+        await withTenantTx(db(), a, (tx) =>
+          deleteArtifactInTx(tx, a, { workUnitId: work.id, artifactId: id }),
+        );
+        ids.push(id);
+      }
+      const goodId = ids.pop()!;
+      const good = objectKey(a.organizationId, goodId);
+      const stuck = new Set(ids.map((id) => objectKey(a.organizationId, id)));
       const su = await superuser();
-      const stuck = `${a.organizationId}/artifacts/stuck-`;
-      const good = `${a.organizationId}/artifacts/${randomUUID()}`;
-      store.objects.set(good, Buffer.from('bytes that have to go'));
       try {
         // A full batch of rows that fail, all older than the one that would succeed.
-        for (let i = 0; i < 50; i++) {
+        await inFixtureTenant(su, a.organizationId, async () => {
           await su.query(
-            `insert into platform.blob_lifecycle
-               (organization_id, artifact_id, object_key, state, purge_after)
-             values ($1, $2, $3, 'deleting', now() - interval '2 days')`,
-            [a.organizationId, randomUUID(), `${stuck}${i}`],
+            `update platform.blob_lifecycle set purge_after = now() - interval '2 days'
+             where organization_id = $1 and artifact_id = any($2::uuid[])`,
+            [a.organizationId, ids],
           );
-        }
-        await su.query(
-          `insert into platform.blob_lifecycle
-             (organization_id, artifact_id, object_key, state, purge_after)
-           values ($1, $2, $3, 'deleting', now() - interval '1 day')`,
-          [a.organizationId, randomUUID(), good],
-        );
+          await su.query(
+            `update platform.blob_lifecycle set purge_after = now() - interval '1 day'
+             where organization_id = $1 and artifact_id = $2`,
+            [a.organizationId, goodId],
+          );
+        });
       } finally {
         await su.end();
       }
@@ -1407,9 +1437,15 @@ describe('work', () => {
         get: store.get.bind(store),
         exists: store.exists.bind(store),
         delete: async (key) => {
-          if (key.startsWith(stuck)) throw new Error('storage refused this one');
+          if (stuck.has(key)) throw new Error('storage refused this one');
           await store.delete(key);
         },
+        // A refused DELETE request is an unknown outcome, as the production adapter reports it.
+        deleteForPurge: async (key) =>
+          stuck.has(key)
+            ? { transport: 'unknown', capabilityVerified: false }
+            : store.deleteForPurge(key),
+        isPhysicallyAbsent: store.isPhysicallyAbsent.bind(store),
       };
       const now = new Date();
       expect(await purgeDueBlobs(db(), flaky, a, now)).toEqual({ purged: 0, failed: 50 });
@@ -1437,6 +1473,9 @@ describe('work', () => {
         get: store.get.bind(store),
         exists: store.exists.bind(store),
         delete: async () => undefined,
+        // Claims a completed DELETE, while an independent read still finds the bytes.
+        deleteForPurge: async () => ({ transport: 'deleted', capabilityVerified: true }),
+        isPhysicallyAbsent: store.isPhysicallyAbsent.bind(store),
       };
       await deleteArtifact(db(), lying, a, { workUnitId: work.id, artifactId: id });
       expect(await purgeDueBlobs(db(), lying, a)).toEqual({ purged: 0, failed: 1 });
@@ -1459,6 +1498,8 @@ describe('work', () => {
         get: store.get.bind(store),
         exists: store.exists.bind(store),
         delete: store.delete.bind(store),
+        deleteForPurge: store.deleteForPurge.bind(store),
+        isPhysicallyAbsent: store.isPhysicallyAbsent.bind(store),
       };
       await expect(upload(a, failing, work.id)).rejects.toEqual(code('INVALID_STATE'));
       expect(store.objects.size).toBe(1);
@@ -2757,9 +2798,11 @@ describe('work', () => {
       await su.connect();
       for (const micros of ['900', '400', '100']) {
         const work = await createWorkUnit(db(), a, { title: `At .123${micros}` });
-        await su.query(
-          `update work.work_units set created_at = '2030-01-01 12:00:00.123${micros}+00'
-           where id = '${work.id}'`,
+        await inFixtureTenant(su, a.organizationId, () =>
+          su.query(
+            `update work.work_units set created_at = '2030-01-01 12:00:00.123${micros}+00'
+             where id = '${work.id}'`,
+          ),
         );
         ids.push(work.id);
       }
@@ -2979,6 +3022,8 @@ describe('work', () => {
           get: store.get.bind(store),
           exists: store.exists.bind(store),
           delete: store.delete.bind(store),
+          deleteForPurge: store.deleteForPurge.bind(store),
+          isPhysicallyAbsent: store.isPhysicallyAbsent.bind(store),
         };
         return { store, stalling, stalled, release };
       }
@@ -3068,10 +3113,12 @@ describe('work', () => {
     describe('a request nothing has claimed', () => {
       const backdate = async (context: TenantContext, id: string) => {
         const su = await superuser();
-        await su.query(
-          `update work.work_units set run_requested_at = now() - interval '1 hour'
-           where id = $1 and organization_id = $2`,
-          [id, context.organizationId],
+        await inFixtureTenant(su, context.organizationId, () =>
+          su.query(
+            `update work.work_units set run_requested_at = now() - interval '1 hour'
+             where id = $1 and organization_id = $2`,
+            [id, context.organizationId],
+          ),
         );
         await su.end();
       };
@@ -3362,9 +3409,11 @@ describe('work', () => {
       await started.prepareWork(input(a, live.id));
       const su = new pg.Client({ connectionString: urls.superuser() });
       await su.connect();
-      await su.query(
-        `update work.work_units set updated_at = now() - interval '1 hour'
-         where organization_id = '${a.organizationId}'`,
+      await inFixtureTenant(su, a.organizationId, () =>
+        su.query(
+          `update work.work_units set updated_at = now() - interval '1 hour'
+           where organization_id = '${a.organizationId}'`,
+        ),
       );
       await su.end();
       await started.sendReminders({ organizationId: a.organizationId });
@@ -3434,9 +3483,11 @@ describe('work', () => {
       });
       await started.prepareWork(input(a, held.id));
       const su = await superuser();
-      await su.query(
-        `update work.work_units set updated_at = now() - interval '1 hour' where id = $1`,
-        [held.id],
+      await inFixtureTenant(su, a.organizationId, () =>
+        su.query(
+          `update work.work_units set updated_at = now() - interval '1 hour' where id = $1`,
+          [held.id],
+        ),
       );
       await su.end();
       const work = await createWorkUnit(db(), a, { title: 'W' });
@@ -3479,10 +3530,12 @@ describe('work', () => {
     describe('the sweep of runs Temporal says are over', () => {
       const quieten = async (context: TenantContext, ids: string[], interval: string) => {
         const su = await superuser();
-        await su.query(
-          `update work.work_units set updated_at = now() - $1::interval
-           where organization_id = $2 and id = any($3::uuid[])`,
-          [interval, context.organizationId, ids],
+        await inFixtureTenant(su, context.organizationId, () =>
+          su.query(
+            `update work.work_units set updated_at = now() - $1::interval
+             where organization_id = $2 and id = any($3::uuid[])`,
+            [interval, context.organizationId, ids],
+          ),
         );
         await su.end();
       };
@@ -3529,10 +3582,12 @@ describe('work', () => {
           ids.push(work.id);
         }
         const su = await superuser();
-        await su.query(
-          `update work.work_units set updated_at = '2030-01-01 00:00:00.123456+00'
-           where id = any($1::uuid[])`,
-          [ids],
+        await inFixtureTenant(su, a.organizationId, () =>
+          su.query(
+            `update work.work_units set updated_at = '2030-01-01 00:00:00.123456+00'
+             where id = any($1::uuid[])`,
+            [ids],
+          ),
         );
         await su.end();
         const service = createServiceContext(a.organizationId);

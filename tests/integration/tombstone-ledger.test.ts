@@ -67,6 +67,19 @@ class MemoryStore implements ObjectStore, LedgerReader {
   async exists(key: string) {
     return this.objects.has(key);
   }
+  // Explicit test-only unversioned map model, as in saas-lifecycle-fixture. The ordinary purge needs
+  // these two, as it does from the production S3 adapter, to certify that bytes are gone.
+  async deleteForPurge(key: string) {
+    try {
+      await this.delete(key);
+    } catch {
+      return { transport: 'unknown' as const, capabilityVerified: false };
+    }
+    return { transport: 'deleted' as const, capabilityVerified: true };
+  }
+  async isPhysicallyAbsent(key: string) {
+    return !this.objects.has(key);
+  }
   async *listPages(prefix: string) {
     const keys = [...this.objects.keys()].filter((key) => key.startsWith(prefix));
     // Two to a page, so that nothing here can pass by reading only the first.
