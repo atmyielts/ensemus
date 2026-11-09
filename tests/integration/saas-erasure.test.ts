@@ -1,4 +1,5 @@
 import { createTenantObjectErasure } from '@ensemus/application/saas/tenant-object-erasure';
+import { createOffboardingAgentHaltPort } from '@ensemus/application/saas/offboarding-agent-port';
 import { sealDelegatedErasureInTx } from '@ensemus/application/knowledge/delegated-erasure';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { drizzle } from 'drizzle-orm/node-postgres';
@@ -169,6 +170,33 @@ describe('restricted erasure independently verifies every tenant-content table',
       createTenantObjectErasure({ database: database.db, store }),
     );
     expect(finished.state).toBe('reported');
+    // The deletion standing change ran while the intent was verified, so the offboarding-owned stop
+    // was kept, not released, and 0508 still refuses a later halt once the intent is reported.
+    const observer = new pg.Client({ connectionString: urls.superuser() });
+    await observer.connect();
+    try {
+      expect(
+        (
+          await observer.query<{ engaged: boolean }>(
+            'select k.released_at is null as engaged from lifecycle.offboarding_agent_stops s join governance.kill_switches k on k.organization_id=s.organization_id and k.id=s.switch_id where s.organization_id=$1 and s.offboarding_id=$2',
+            [who.owner.organizationId, ready.offboardingId],
+          )
+        ).rows,
+      ).toEqual([{ engaged: true }]);
+    } finally {
+      await observer.end();
+    }
+    await expect(
+      withAccountTx(database.db, ready.service, (tx) =>
+        createOffboardingAgentHaltPort().haltOffboardingAgents(
+          tx,
+          ready.service,
+          ready.offboardingId,
+        ),
+      ),
+    ).rejects.toMatchObject({
+      cause: { code: 'EN850', message: 'OFFBOARDING_STOP_NOT_ALLOWED' },
+    });
     expect(finished.report!.rowsRemoved).toBeGreaterThan(0);
     expect(finished.report!.leftOver).toEqual([]);
     expect(JSON.stringify(finished.report)).not.toContain(canary);
@@ -251,6 +279,85 @@ describe('restricted erasure independently verifies every tenant-content table',
       ).toEqual([]);
     } finally {
       await admin.query(`drop function if exists ${probe}(uuid)`);
+      await admin.end();
+    }
+  });
+  it('refuses a forged erasure tombstone scope from app and agent sessions, and keeps the fixed path (0541)', async () => {
+    const owner = await lifecycleTenant(database.db, auth),
+      file = await lifecycleArtifact(database.db, owner, new LifecycleMemoryStore()),
+      admin = new pg.Client({ connectionString: urls.superuser() }),
+      agent = new pg.Client({ connectionString: urls.agent() }),
+      probe = `public.test_erasure_tombstone_forge_${randomUUID().replaceAll('-', '')}`,
+      tombstoneOf = async (target: string) =>
+        (
+          await admin.query(
+            "select reason_code from platform.tombstones where organization_id=$1 and target_type='artifact' and target_id=$2",
+            [owner.organizationId, target],
+          )
+        ).rows;
+    await admin.connect();
+    await agent.connect();
+    try {
+      // Any other migrator-owned SECURITY DEFINER writer an app or agent session can reach.
+      await admin.query(
+        `create function ${probe}(p_target uuid) returns void language sql security definer set search_path=pg_catalog as $$ insert into platform.tombstones(organization_id,target_type,target_id,reason_code) values(app.current_organization_id(),'artifact',p_target,'TENANT_ERASURE') $$`,
+      );
+      await admin.query(`alter function ${probe}(uuid) owner to ensemus_migrator`);
+      await admin.query(`revoke all on function ${probe}(uuid) from public`);
+      await admin.query(`grant execute on function ${probe}(uuid) to ensemus_app, ensemus_agent`);
+      const ready = await readyToErase(database.db, owner);
+      await beginErasure(database.db, ready.service, {
+        offboardingId: ready.offboardingId,
+        operatorRef: 'test-operator@example.invalid',
+      });
+      // The legitimate path: prepare_erasure_artifacts mints its own grant and consumes it.
+      expect(await tombstoneOf(file.artifactId)).toEqual([{ reason_code: 'TENANT_ERASURE' }]);
+      expect(
+        (
+          await admin.query(
+            'select count(*)::int as n from lifecycle.erasure_tombstone_grants where tenant_id=$1',
+            [owner.organizationId],
+          )
+        ).rows,
+      ).toEqual([{ n: 0 }]);
+      // The app service actor sets the 0534 scope GUC and a guessed token, as any session may.
+      const appStray = randomUUID();
+      await expect(
+        withAccountTx(database.db, ready.service, async (tx) => {
+          await tx.execute(
+            sql`select set_config('lifecycle.erasure_tombstone_org',${owner.organizationId},true),set_config('lifecycle.erasure_tombstone_token',${'a'.repeat(64)},true)`,
+          );
+          return tx.execute(sql`select ${sql.raw(probe)}(${appStray}::uuid)`);
+        }),
+      ).rejects.toMatchObject({
+        cause: {
+          code: '42501',
+          message: expect.stringMatching(/row-level security policy for table "tombstones"/),
+        },
+      });
+      expect(await tombstoneOf(appStray)).toEqual([]);
+      // The grant table itself is not reachable from the app login.
+      await expect(
+        withAccountTx(database.db, ready.service, (tx) =>
+          tx.execute(sql`select count(*) from lifecycle.erasure_tombstone_grants`),
+        ),
+      ).rejects.toMatchObject({ cause: { code: '42501' } });
+      // An agent login with the same forged settings is refused as well.
+      const agentStray = randomUUID();
+      await agent.query('begin');
+      try {
+        await agent.query(
+          "select set_config('app.organization_id',$1,true),set_config('app.actor_type','service',true),set_config('app.user_id','',true),set_config('app.membership_id','',true),set_config('app.agent_run_id','',true),set_config('lifecycle.erasure_tombstone_org',$1,true),set_config('lifecycle.erasure_tombstone_token',$2,true)",
+          [owner.organizationId, 'b'.repeat(64)],
+        );
+        await expect(agent.query(`select ${probe}($1::uuid)`, [agentStray])).rejects.toThrow();
+      } finally {
+        await agent.query('rollback');
+      }
+      expect(await tombstoneOf(agentStray)).toEqual([]);
+    } finally {
+      await admin.query(`drop function if exists ${probe}(uuid)`);
+      await agent.end();
       await admin.end();
     }
   });
