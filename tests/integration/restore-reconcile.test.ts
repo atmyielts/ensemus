@@ -9,13 +9,16 @@ import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
   addArtifact,
+  createRestoreContributors,
   createRestoreGate,
   createWorkUnit,
   getWorkUnit,
   objectKey,
   readArtifact,
   reconcileAfterRestore,
+  REQUIRED_RESTORE_CONTRIBUTORS,
   requestExecution,
+  transitionWorkUnit,
   type ContributorReport,
   type LedgerReader,
   type ObjectStore,
@@ -69,6 +72,8 @@ class MemoryStore implements ObjectStore, LedgerReader {
     for (let at = 0; at < keys.length; at += 2) yield keys.slice(at, at + 2);
   }
 }
+
+type RequiredContributor = (typeof REQUIRED_RESTORE_CONTRIBUTORS)[number];
 
 describe('reconciling after a restore', () => {
   let app: ReturnType<typeof openAppDatabase>;
@@ -161,10 +166,26 @@ describe('reconciling after a restore', () => {
         'select id, outcome, basis from integrations.external_action_receipts where organization_id = $1 order by 1',
       ),
       notifications: await rows(
-        'select count(*)::int as n from work.notifications where organization_id = $1',
+        'select count(*)::int as n from platform.notifications where organization_id = $1',
       ),
     };
   };
+
+  /**
+   * reconcileAfterRestore refuses to run without exactly the five registered contributors, as the
+   * command does in production. Tests about something else get five that report nothing to do, so
+   * the attention they count is only what the step under test found. `overrides` replaces one by name.
+   */
+  const inventory = (
+    overrides: Partial<Record<RequiredContributor, RestoreContributor>> = {},
+  ): RestoreContributor[] =>
+    REQUIRED_RESTORE_CONTRIBUTORS.map(
+      (name) =>
+        overrides[name] ?? {
+          name,
+          reconcile: async () => ({ name, checked: 0, changed: 0, needsAttention: 0 }),
+        },
+    );
 
   const reconcile = (
     store: MemoryStore,
@@ -181,7 +202,7 @@ describe('reconciling after a restore', () => {
       organizationIds,
       contextFor: createServiceContext,
       probeRun: extra.probeRun ?? (async () => 'open'),
-      contributors: extra.contributors ?? [],
+      contributors: extra.contributors ?? inventory(),
       mode,
       ledgerOptions: { confirmed: extra.confirmed ?? new Set() },
       onFinding: (finding) => extra.findings?.push(finding),
@@ -336,7 +357,13 @@ describe('reconciling after a restore', () => {
 
   describe('runs', () => {
     async function heldRun(context: TenantContext, store: MemoryStore) {
-      const work = await createWorkUnit(db(), context, { title: 'Run' });
+      // A run is only asked for on planned work that a person has marked ready, as in the product.
+      const work = await createWorkUnit(db(), context, { title: 'Run', executionPlan: 'checklist' });
+      await transitionWorkUnit(db(), context, {
+        id: work.id,
+        expectedVersion: work.version,
+        to: 'ready',
+      });
       await requestExecution(db(), context, work.id);
       const runId = randomUUID();
       await createActivities({ database: db(), store }).prepareWork({
@@ -417,10 +444,12 @@ describe('reconciling after a restore', () => {
     ];
 
     async function oneInEachStatus(context: TenantContext) {
-      const work = await createWorkUnit(db(), context, { title: 'Sends' });
       const connectionId = await seedConnection(db(), context);
       const seeded = new Map<ExternalActionStatus, string>();
       for (const status of ALL) {
+        // One work unit each: a work unit holds at most one open approval
+        // (approvals_one_open_per_work), and both awaiting_approval and cancelled leave theirs open.
+        const work = await createWorkUnit(db(), context, { title: `Sends ${status}` });
         const { id } = await seedExternalAction(db(), context, {
           workUnitId: work.id,
           connectionId,
@@ -429,7 +458,7 @@ describe('reconciling after a restore', () => {
         });
         seeded.set(status, id);
       }
-      return { work, connectionId, seeded };
+      return { connectionId, seeded };
     }
 
     const statusOf = async (context: TenantContext, id: string) => {
@@ -648,10 +677,21 @@ describe('reconciling after a restore', () => {
       const mine = await withFile(a, store);
       const theirs = await withFile(b, store);
       const theirKey = objectKey(b.organizationId, theirs.id);
-      await su.query('update work.artifacts set object_key = $1 where id = $2', [
-        theirKey,
-        mine.id,
-      ]);
+      // A corrupt backup, not a caller: no role may rewrite an artifact's identity
+      // (IMMUTABLE_ARTIFACT_IDENTITY), so the row is planted the way pg_restore --disable-triggers
+      // would load it, with triggers off for this one statement only.
+      await su.query('begin');
+      try {
+        await su.query('set local session_replication_role = replica');
+        await su.query('update work.artifacts set object_key = $1 where id = $2', [
+          theirKey,
+          mine.id,
+        ]);
+        await su.query('commit');
+      } catch (error) {
+        await su.query('rollback');
+        throw error;
+      }
       store.read.length = 0;
       const result = await reconcile(store, [a.organizationId], 'report');
       expect(store.read).not.toContain(theirKey);
@@ -721,7 +761,7 @@ describe('reconciling after a restore', () => {
   });
 
   describe('contributors', () => {
-    const counting = (name: string, answer: Partial<ContributorReport> = {}) => {
+    const counting = (name: RequiredContributor, answer: Partial<ContributorReport> = {}) => {
       const calls: string[] = [];
       const contributor: RestoreContributor = {
         name,
@@ -735,12 +775,12 @@ describe('reconciling after a restore', () => {
 
     it('runs each once per tenant when applying, and counts what they need', async () => {
       const [a, b] = [await newOrg(), await newOrg()];
-      const { contributor, calls } = counting('test', { needsAttention: 2 });
+      const { contributor, calls } = counting('m5-derived-artifacts', { needsAttention: 2 });
       const result = await reconcile(
         new MemoryStore(),
         [a.organizationId, b.organizationId],
         'apply',
-        { contributors: [contributor] },
+        { contributors: inventory({ 'm5-derived-artifacts': contributor }) },
       );
       expect(calls.sort()).toEqual([a.organizationId, b.organizationId].sort());
       expect(result.needsAttention).toBe(4);
@@ -749,28 +789,46 @@ describe('reconciling after a restore', () => {
 
     it('runs none in report mode, because the port has no way to ask one to change nothing, and says so', async () => {
       const a = await newOrg();
-      const { contributor, calls } = counting('test');
+      const { contributor, calls } = counting('m5-derived-artifacts');
       const result = await reconcile(new MemoryStore(), [a.organizationId], 'report', {
-        contributors: [contributor],
+        contributors: inventory({ 'm5-derived-artifacts': contributor }),
       });
       expect(calls).toEqual([]);
-      expect(result.contributorsNotRun).toEqual(['test']);
+      expect(result.contributorsNotRun).toEqual([...REQUIRED_RESTORE_CONTRIBUTORS]);
     });
 
     it('counts one that throws, and carries on', async () => {
       const a = await newOrg();
-      const { contributor, calls } = counting('after');
+      const { contributor, calls } = counting('m6-archive-quarantine');
       const broken: RestoreContributor = {
-        name: 'broken',
+        name: 'm4-runs-and-budgets',
         async reconcile() {
           throw new Error('Could not rebuild');
         },
       };
       const result = await reconcile(new MemoryStore(), [a.organizationId], 'apply', {
-        contributors: [broken, contributor],
+        contributors: inventory({
+          'm4-runs-and-budgets': broken,
+          'm6-archive-quarantine': contributor,
+        }),
       });
       expect(calls).toHaveLength(1);
       expect(result.needsAttention).toBe(1);
+    });
+
+    it('refuses to start without the whole registered inventory', async () => {
+      const a = await newOrg();
+      const store = new MemoryStore();
+      const before = await stateOf(a.organizationId);
+      for (const contributors of [
+        [],
+        inventory().slice(1),
+        [...inventory(), counting('m4-runs-and-budgets').contributor],
+      ])
+        await expect(
+          reconcile(store, [a.organizationId], 'apply', { contributors }),
+        ).rejects.toThrow('RESTORE_CONTRIBUTOR_INVENTORY_INCOMPLETE');
+      expect(await stateOf(a.organizationId)).toEqual(before);
     });
   });
 
@@ -789,9 +847,16 @@ describe('reconciling after a restore', () => {
         const code = await restoreReconcileCommand(args, {
           database: db(),
           store,
-          listOrganizations: () => listOrganizationIds(dispatcher.db),
+          // The dispatcher's real listing, narrowed to this test's tenant: the suite shares one
+          // database, and every other file's tenants would otherwise be reconciled here too.
+          listOrganizations: async () => {
+            const all = await listOrganizationIds(dispatcher.db);
+            expect(all).toContain(a.organizationId);
+            return all.filter((id) => id === a.organizationId);
+          },
           probeRun: async () => 'open',
-          contributors: [],
+          // The registered inventory the worker passes, with no recovery ports bound.
+          contributors: createRestoreContributors(),
           write: (line) => lines.push(line),
         });
         return { code, output: lines.join('') };

@@ -39,7 +39,16 @@ import {
   purgeRunTranscriptsForSource,
   runSourcePurge,
 } from '@ensemus/application/knowledge/purge';
-import { makePerson, nativePersonContext } from '../helpers/product';
+import { createKnowledgeCallStore } from '@ensemus/application/ai-knowledge-call-store';
+import { createHaltCheck } from '@ensemus/application/ai-halt';
+import {
+  confirmDelegatedWorkPurgeInTx,
+  createDelegatedWorkPurge,
+} from '@ensemus/application/knowledge/delegated-work-purge';
+import { withRawKnowledgeObjects } from '@ensemus/application/knowledge/raw-objects';
+import { placeLegalHold, releaseLegalHold } from '@ensemus/application/saas/legal-holds';
+import { createObjectDeletionLifecycle } from '@ensemus/application/saas/object-deletion';
+import { makePerson, nativePersonContext, proveSecondFactor } from '../helpers/product';
 import { testRecipient } from '../helpers/sovereign';
 import { urls } from '../helpers/stack';
 import { buildArchive } from './fixtures/archive-builder';
@@ -80,6 +89,19 @@ class PrivateStore {
   async delete(key: string) {
     this.objects.delete(key);
   }
+  // Test-only single-attempt memory transports for the native raw-Knowledge and admitted-deletion
+  // protocols, as in saas-lifecycle-fixture. They prove orchestration and SQL, never S3 capability.
+  async putSingleAttempt(key: string, body: Buffer): Promise<{ transport: 'written' }> {
+    this.objects.set(key, Buffer.from(body));
+    return { transport: 'written' };
+  }
+  async deleteForPurge(key: string): Promise<{ transport: 'deleted'; capabilityVerified: true }> {
+    this.objects.delete(key);
+    return { transport: 'deleted', capabilityVerified: true };
+  }
+  async isPhysicallyAbsent(key: string) {
+    return !this.objects.has(key);
+  }
   async *listPages(prefix: string) {
     yield [...this.objects.keys()].filter((key) => key.startsWith(prefix));
   }
@@ -118,7 +140,8 @@ describe('inert archive file custody', () => {
   const fixture = async (profile: string | null = null) => {
     const person = await owner(),
       view = await requestOrganizationImport(app.db, person.context),
-      store = new PrivateStore(),
+      // Composed as the worker composes its store: raw Knowledge bytes only through the native port.
+      store = withRawKnowledgeObjects({ database: app.db, store: new PrivateStore() }),
       recipient = testRecipient();
     const sourceId = randomUUID(),
       bytes = Buffer.from('GENERATED archive bytes, with no assertion of trusted original inputs.'),
@@ -197,18 +220,10 @@ describe('inert archive file custody', () => {
       classification: 'internal',
       grants: [{ kind: 'membership', membershipId: input.person.context.membershipId }],
     });
-  const lifecycle = (
-    store: PrivateStore,
-    held: () => boolean = () => false,
-  ): ArchiveQuarantineLifecycle => ({
-    erase: async (_context, input) => {
-      if (held()) return { state: 'held' };
-      // This explicit fake knows only completed puts; an active/unknown writer has no fence proof.
-      if (input.writeState === 'active') return { state: 'unconfirmed' };
-      await store.delete(input.objectKey);
-      return { state: 'purged', quiescent: true };
-    },
-  });
+  // The production archive lifecycle: SQL deletion admission, legal-hold check, one DELETE and an
+  // independent absence check, which together leave the retained proof the purge receipt requires.
+  const lifecycle = (store: PrivateStore): ArchiveQuarantineLifecycle =>
+    createObjectDeletionLifecycle({ database: app.db, store }).archive;
   const closedSource = async (f: Awaited<ReturnType<typeof fixture>>) => {
     const added = await source(f);
     await deleteSource(app.db, f.person.context, {
@@ -225,6 +240,14 @@ describe('inert archive file custody', () => {
       },
       { sourceId: added.sourceId },
     );
+    // The actual agent-role delegated-Work purge records its current-generation proof, as the
+    // knowledge worker does before the source purge. Nothing here is seeded or stubbed.
+    expect(
+      await createDelegatedWorkPurge({
+        database: agent.db,
+        accounting: createKnowledgeCallStore(agent.db, { halt: createHaltCheck() }),
+      }).purgeSource(f.service, { sourceId: added.sourceId, limit: 25 }),
+    ).toMatchObject({ confirmed: true, remaining: 0, controlsRemaining: 0 });
     // Deliberately optimistic older-runtime double: it knows nothing about the new private archive
     // table. These tests require SQL to refuse its false zero, never accept it as lifecycle evidence.
     const oldArtifactPort = {
@@ -239,7 +262,10 @@ describe('inert archive file custody', () => {
         {
           sourceId: added.sourceId,
         },
-        { derivedArtifacts: oldArtifactPort },
+        {
+          derivedArtifacts: oldArtifactPort,
+          delegatedWorks: { confirmInTx: confirmDelegatedWorkPurgeInTx },
+        },
       );
     const job = async () =>
       (
@@ -394,18 +420,28 @@ describe('inert archive file custody', () => {
   it('honors a hold and requires independent absence before retaining positive deletion proof', async () => {
     const f = await fixture();
     await f.run();
-    let held = true;
+    // A real tenant-wide legal hold, placed and released by the owner after MFA step-up.
+    await proveSecondFactor(f.person);
+    const hold = await placeLegalHold(app.db, f.person.context, {
+      matterRef: randomUUID(),
+      scopes: [{ type: 'organization', id: null }],
+    });
     const purge = createImportedArchivePurge({
       database: app.db,
       store: f.store,
-      lifecycle: lifecycle(f.store, () => held),
+      lifecycle: lifecycle(f.store),
     });
     expect(await purge.purgeTenant(f.service, { limit: 25 })).toMatchObject({
       held: 1,
       remaining: 1,
       confirmed: false,
     });
-    held = false;
+    expect(f.store.objects.has((await f.headers())[0]!.object_key)).toBe(true);
+    await releaseLegalHold(app.db, f.person.context, {
+      holdId: hold.holdId,
+      expectedVersion: 1,
+      reasonCode: 'GENERATED_TEST_RELEASE',
+    });
     expect(await purge.purgeTenant(f.service, { limit: 25 })).toMatchObject({
       held: 0,
       remaining: 0,

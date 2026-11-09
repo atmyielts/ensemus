@@ -74,6 +74,7 @@ import {
   testRecipient,
   nativeSovereignContext,
 } from '../helpers/sovereign';
+import { inFixtureTenant } from '../helpers/fixture-tenant';
 import { seedConnection, seedExternalAction } from '../helpers/integrations';
 import { urls } from '../helpers/stack';
 
@@ -617,9 +618,12 @@ describe('organization export', () => {
         status: 'sent',
         payload: { to: ['recipient@example.invalid'], subject: RESTRICTED_PAYLOAD },
       });
-      await su.query(
-        `update work.work_units set classification = 'restricted' where organization_id = $1 and id = $2`,
-        [organizationId, madeRestricted.id],
+      // Bound to its tenant, as 0303's export-epoch trigger requires of every writer. It still fires.
+      await inFixtureTenant(su, organizationId, () =>
+        su.query(
+          `update work.work_units set classification = 'restricted' where organization_id = $1 and id = $2`,
+          [organizationId, madeRestricted.id],
+        ),
       );
 
       // The other tenant has the same names, and its own words.
@@ -1052,10 +1056,17 @@ describe('organization export', () => {
       const service = worker(owner);
       await beginExport(db(), service, { exportId }, deps);
       let failure: unknown;
-      for (let i = 0; i < 40 && !failure; i += 1) {
-        await exportNextBatch(db(), down, service, { exportId }, deps).catch((caught: unknown) => {
-          failure = caught;
-        });
+      // Every section page before the files is its own batch, and each joined reader (M7 kinds
+      // included) takes at least one, so the bound is generous. It stops at the first failure, and
+      // a run that got past the files without one is caught by the assertion below.
+      for (let i = 0; i < 500 && !failure; i += 1) {
+        const step = await exportNextBatch(db(), down, service, { exportId }, deps).catch(
+          (caught: unknown) => {
+            failure = caught;
+            return null;
+          },
+        );
+        if (step && step.state !== 'continue') break;
       }
       expect(failure).toBeInstanceOf(ExportStoreUnavailable);
       expect((await getOrganizationExport(db(), owner, exportId)).status).toBe('running');
@@ -1183,10 +1194,13 @@ describe('organization export', () => {
     it('in flight when the tombstones were read is still caught, by the count', async () => {
       expect((await drive(owner, store, exportId)).state).toBe('finished');
       // Written with an old time, as a deletion that committed late looks, or a ledger re-apply.
-      await su.query(
-        `insert into platform.tombstones (organization_id, target_type, target_id, reason_code, created_at)
-         values ($1, 'artifact', $2, 'USER_DELETED', '2020-01-01T00:00:00Z')`,
-        [owner.organizationId, randomUUID()],
+      // Bound to its tenant, as the 0303 epoch and 0508 birth triggers require; neither is bypassed.
+      await inFixtureTenant(su, owner.organizationId, () =>
+        su.query(
+          `insert into platform.tombstones (organization_id, target_type, target_id, reason_code, created_at)
+           values ($1, 'artifact', $2, 'USER_DELETED', '2020-01-01T00:00:00Z')`,
+          [owner.organizationId, randomUUID()],
+        ),
       );
       await expect(openExportArchive(db(), store, owner, exportId)).rejects.toMatchObject({
         code: 'EXPORT_SUPERSEDED',
@@ -1296,7 +1310,12 @@ describe('organization export', () => {
     });
 
     it('loses its bytes and keeps its row', async () => {
-      const keptFiles = [...store.objects.keys()].filter((key) => key.includes('/artifacts/'));
+      // The tenant's own file objects. Sealed archive parts live under `artifacts/` inside the
+      // export prefix too, and those are exactly what must go.
+      const keptFiles = [...store.objects.keys()].filter((key) =>
+        key.startsWith(`${owner.organizationId}/artifacts/`),
+      );
+      expect(keptFiles.length).toBeGreaterThan(0);
       expect(store.exportKeys().length).toBeGreaterThan(0);
       expect(await purgeExpiredExports(db(), store, worker(owner), new Date())).toBe(1);
       expect(store.exportKeys()).toEqual([]);
