@@ -13,6 +13,7 @@ import { join, relative, sep } from 'node:path';
 import { Ajv2020, type ValidateFunction } from 'ajv/dist/2020.js';
 import addFormats from 'ajv-formats';
 import ts from 'typescript';
+import { expect, TestRunner } from 'vitest';
 import { parse } from 'yaml';
 import { repoRoot } from './stack';
 
@@ -184,51 +185,114 @@ export type ObservedResponse = {
 const API_PREFIX = '/api/v1';
 
 /**
- * API-12's record: every operation a real response under 400 has been seen for, matching the spec. Each stack
- * test file runs in a worker of its own, so a record kept in memory holds what one file saw and nothing more.
- * With ENSEMUS_API_RECORD_DIR set, as infrastructure/scripts/air-gap-gate.mjs sets it for one run, every file
- * appends to the same record, and validatedOperations() reads them all back. In the stack project,
- * tests/helpers/api-record-setup.ts passes every real public-API response a suite receives through
- * contractProblems, so a call made only to set something up is recorded as well, once it matches the spec.
+ * API-12's record: every operation a real response under 400 has been seen for, matching the spec, with the test
+ * file that saw it and whether a test was running. Each stack test file runs in a worker of its own, so a record
+ * kept in memory holds what one file saw and nothing more. With ENSEMUS_API_RECORD_DIR set, as
+ * infrastructure/scripts/air-gap-gate.mjs sets it for one run, every file appends to the same record, and
+ * validatedOperations() reads them all back. In the stack project, tests/helpers/api-record-setup.ts passes every
+ * real public-API response a suite receives through contractProblems, so a call made only to set something up
+ * is recorded as well, once it matches the spec. A response that arrives while no test is running (in
+ * beforeAll, afterAll or while a file loads) is recorded as `setup`: it proves the operation answered, but no test
+ * of it ran, so API-12's final check in tests/stack/api.test.ts does not count it as tested.
  */
 const RECORD_FILE = 'validated-operations.txt';
 const recordedHere = new Set<string>();
 
-function recordValidated(operation: string) {
-  if (recordedHere.has(operation)) return;
-  recordedHere.add(operation);
+/** Where a response was seen: a test running (its beforeEach and afterEach included), or a suite's setup. */
+export type RecordPhase = 'test' | 'setup';
+export type RecordCaller = { phase: RecordPhase; file: string };
+
+/**
+ * Who is asking, now. Read when the request is made, because a body is read later, when the test that asked
+ * may already have ended. Outside a vitest worker this is `setup` in an unknown file, which counts as nothing.
+ */
+export function currentCaller(): RecordCaller {
+  try {
+    const path = expect.getState().testPath;
+    return {
+      phase: TestRunner.getCurrentTest() ? 'test' : 'setup',
+      file: path ? relative(repoRoot, path).split(sep).join('/') : 'unknown',
+    };
+  } catch {
+    return { phase: 'setup', file: 'unknown' };
+  }
+}
+
+/** One record line. Tabs separate the fields, and no field can hold one or a line break. */
+export function recordLine(operation: string, caller: RecordCaller) {
+  const clean = (value: string) => value.replaceAll(/[\t\r\n]/g, ' ');
+  return `${clean(operation)}\t${caller.phase}\t${clean(caller.file)}`;
+}
+
+function recordValidated(operation: string, caller: RecordCaller) {
+  const line = recordLine(operation, caller);
+  if (recordedHere.has(line)) return;
+  recordedHere.add(line);
   const folder = process.env.ENSEMUS_API_RECORD_DIR;
   if (!folder) return;
   mkdirSync(folder, { recursive: true });
   // One short line per append, so files writing at once cannot interleave within a line.
-  appendFileSync(join(folder, RECORD_FILE), `${operation}\n`);
+  appendFileSync(join(folder, RECORD_FILE), `${line}\n`);
+}
+
+export type ValidatedOperations = {
+  /** Every operation a matching response under 400 was seen for, by a test or by setup. */
+  operations: Set<string>;
+  /** The operations a matching response was seen for while a test was running. */
+  tested: Set<string>;
+  /** For an operation seen only during setup, the files that saw it. */
+  setupOnly: Map<string, string[]>;
+  shared: boolean;
+};
+
+/** Reads record lines. A line from before the phase was recorded proves the operation answered, not that it was tested. */
+export function readRecord(lines: Iterable<string>): Omit<ValidatedOperations, 'shared'> {
+  const operations = new Set<string>();
+  const tested = new Set<string>();
+  const setupFiles = new Map<string, Set<string>>();
+  for (const line of lines) {
+    if (!line) continue;
+    const [operation = '', phase, file = 'unknown'] = line.split('\t');
+    if (!operation) continue;
+    operations.add(operation);
+    if (phase === 'test') tested.add(operation);
+    else setupFiles.set(operation, (setupFiles.get(operation) ?? new Set()).add(file));
+  }
+  const setupOnly = new Map(
+    [...setupFiles]
+      .filter(([operation]) => !tested.has(operation))
+      .map(([operation, files]) => [operation, [...files].sort()]),
+  );
+  return { operations, tested, setupOnly };
 }
 
 /**
  * The operations validated so far: in this file, and, with a shared record, in every file of this run. `shared`
  * says which, so a check can say why it saw so little.
  */
-export function validatedOperations(): { operations: Set<string>; shared: boolean } {
-  const operations = new Set(recordedHere);
+export function validatedOperations(): ValidatedOperations {
+  const lines = [...recordedHere];
   const folder = process.env.ENSEMUS_API_RECORD_DIR;
   const file = folder ? join(folder, RECORD_FILE) : undefined;
-  if (file && existsSync(file)) {
-    for (const line of readFileSync(file, 'utf8').split('\n')) if (line) operations.add(line);
-  }
-  return { operations, shared: Boolean(folder) };
+  if (file && existsSync(file)) lines.push(...readFileSync(file, 'utf8').split('\n'));
+  return { ...readRecord(lines), shared: Boolean(folder) };
 }
 
 /**
  * What is wrong with this response, by the spec. An empty list means it matches, and a matching response
- * under 400 is recorded as validated for its operation.
+ * under 400 is recorded as validated for its operation, with who asked. `caller` is for a check made later than
+ * the request, as tests/helpers/api-record-setup.ts makes it. Anyone else leaves it out, and it is read now.
  */
-export function contractProblems(observed: ObservedResponse): {
+export function contractProblems(
+  observed: ObservedResponse,
+  caller?: RecordCaller,
+): {
   operation?: string;
   problems: string[];
 } {
   const result = checkResponse(observed);
   if (result.operation && result.problems.length === 0 && observed.status < 400) {
-    recordValidated(result.operation);
+    recordValidated(result.operation, caller ?? currentCaller());
   }
   return result;
 }

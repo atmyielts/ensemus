@@ -86,8 +86,11 @@ export async function seedQualifiedKnowledgeRoute(
     dimension?: number;
     vectorSpaceVersion?: string;
     modelId?: string;
+    /** A private endpoint the stack's own workers may reach, such as the in-subnet fake model. */
+    endpointUrl?: string;
   } = {},
 ): Promise<ModelRoute> {
+  const endpoint = input.endpointUrl ?? GENERATED_MODEL_ENDPOINT;
   const purpose = input.purpose ?? 'embed',
     dimension = purpose === 'embed' ? (input.dimension ?? 4) : null;
   owner = await nativeModelContext(database, owner);
@@ -98,7 +101,7 @@ export async function seedQualifiedKnowledgeRoute(
       provider_kind: 'local_openai_compatible',
       model_id: input.modelId ?? `generated-${randomUUID()}`,
       alias: `Generated ${randomUUID()}`,
-      endpoint_url: GENERATED_MODEL_ENDPOINT,
+      endpoint_url: endpoint,
       billing_owner: 'customer',
       region: null,
       capabilities: ['text', 'structured_output'],
@@ -109,7 +112,7 @@ export async function seedQualifiedKnowledgeRoute(
       contract_ref: null,
       fallback_profile_ids: [],
     },
-    { privateEndpoints: [GENERATED_MODEL_ENDPOINT] },
+    { privateEndpoints: [endpoint] },
   );
   await addRateCard(database, owner, {
     profileId: profile.id,
@@ -168,7 +171,7 @@ export async function seedQualifiedKnowledgeRoute(
           usage: { inputTokens: 7, outputTokens: 5 },
         },
       ]),
-      privateEndpoints: [GENERATED_MODEL_ENDPOINT],
+      privateEndpoints: [endpoint],
       canaries: async () => [],
       bundle: async () => null,
     });
@@ -192,7 +195,7 @@ export async function seedQualifiedKnowledgeRoute(
       qualificationId: request.qualificationId,
       modelId: profile.model_id,
       providerKind: 'local_openai_compatible',
-      destinationHost: new URL(GENERATED_MODEL_ENDPOINT).hostname,
+      destinationHost: new URL(endpoint).hostname,
       policyVersion: 'generated-policy',
       purpose,
       classification: 'internal',

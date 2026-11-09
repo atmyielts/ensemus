@@ -6897,7 +6897,10 @@ export interface paths {
         /** List provisioning-token metadata without returning a token or hash */
         get: operations["listScimTokens"];
         put?: never;
-        /** Issue a provisioning token, shown once. Needs recent MFA */
+        /**
+         * Issue a provisioning token, shown once. Needs recent MFA
+         * @description The body is an empty JSON object. The token is in this answer and nowhere else, and later reads list its metadata only.
+         */
         post: {
             parameters: {
                 query?: never;
@@ -6909,14 +6912,24 @@ export interface paths {
                 };
                 cookie?: never;
             };
-            requestBody?: never;
+            requestBody: {
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
             responses: {
-                /** @description Done */
+                /** @description The token, shown this once. */
                 201: {
                     headers: {
                         [name: string]: unknown;
                     };
-                    content?: never;
+                    content: {
+                        "application/json": {
+                            /** Format: uuid */
+                            token_id: string;
+                            token: string;
+                        };
+                    };
                 };
                 400: components["responses"]["BadRequest"];
                 401: components["responses"]["Unauthorized"];
@@ -10766,15 +10779,13 @@ export interface operations {
                     "application/json": components["schemas"]["SsoConnection"];
                 };
             };
-            /** @description A fixed refusal or unavailable response. */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["RestorePending"];
         };
     };
     listScimTokens: {
@@ -10810,15 +10821,13 @@ export interface operations {
                     };
                 };
             };
-            /** @description A fixed refusal or unavailable response. */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["RestorePending"];
         };
     };
     replaceSsoMetadata: {
@@ -10860,15 +10869,17 @@ export interface operations {
                     };
                 };
             };
-            /** @description A fixed refusal or unavailable response. */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            413: components["responses"]["PayloadTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
+            422: components["responses"]["Validation"];
+            428: components["responses"]["PreconditionRequired"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["RestorePending"];
         };
     };
     revokeScimToken: {
@@ -10892,15 +10903,13 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description A fixed refusal or unavailable response. */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["RestorePending"];
         };
     };
     downloadImportedArchiveFile: {

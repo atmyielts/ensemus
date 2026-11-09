@@ -200,8 +200,26 @@ describe('operations no other stack suite reaches (API-12)', () => {
       const read = await call(owner, 'GET', `pack-installations/${id}`);
       expect(read.status, read.text).toBe(200);
       let current = read;
+      const capabilities = read.json.capabilities as { key: string }[];
+      // Both decisions are recorded in the audit log as codes. Before the fix, either one answered 500 there.
+      if (capabilities[0]) {
+        const accepted = await call(owner, 'POST', `pack-installations/${id}/capabilities`, {
+          body: { capability_key: capabilities[0].key, decision: 'accepted' },
+        });
+        expect(accepted.status, accepted.text).toBe(200);
+        expect(
+          (accepted.json.capabilities as { key: string; decision: string }[]).find(
+            (item) => item.key === capabilities[0]!.key,
+          )?.decision,
+        ).toBe('accepted');
+      }
+      // Something the pack never asked for is missing, and decides nothing.
+      const unknown = await call(owner, 'POST', `pack-installations/${id}/capabilities`, {
+        body: { capability_key: `generated.not.asked.${randomUUID()}`, decision: 'declined' },
+      });
+      expect(unknown.status, unknown.text).toBe(404);
       // Declining grants nothing and still decides each capability, which activation requires.
-      for (const capability of read.json.capabilities as { key: string }[]) {
+      for (const capability of capabilities) {
         current = await call(owner, 'POST', `pack-installations/${id}/capabilities`, {
           body: { capability_key: capability.key, decision: 'declined' },
         });
