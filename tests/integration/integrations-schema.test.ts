@@ -498,21 +498,22 @@ describe('external action rules in the database', () => {
         withTenantTx(database.db, ctxA, (tx) => tx.delete(externalActions).where(sql`true`)),
       ).rejects.toEqual(denied);
 
-      // 0508's lifecycle guard now answers first with its own append-only refusal, before 0013's.
-      const appendOnly = /append-only|APPEND_ONLY_CHANGE_REFUSED/;
+      // 0013's statement triggers call app.reject_change(), which 0508 redefined: every role but the
+      // restricted eraser of an erasing tenant meets APPEND_ONLY_CHANGE_REFUSED (42501).
+      const appendOnly = { code: '42501', message: 'APPEND_ONLY_CHANGE_REFUSED' };
       const owner = await client(urls.migrator());
       for (const table of [
         'external_action_receipts',
         'external_actions',
         'external_action_attempts',
       ]) {
-        await expect(owner.query(`delete from integrations.${table}`), table).rejects.toThrow(
+        await expect(owner.query(`delete from integrations.${table}`), table).rejects.toMatchObject(
           appendOnly,
         );
       }
       await expect(
         owner.query(`update integrations.external_action_receipts set code = 'x'`),
-      ).rejects.toThrow(appendOnly);
+      ).rejects.toMatchObject(appendOnly);
       await owner.end();
     });
 
@@ -549,7 +550,7 @@ describe('external action rules in the database', () => {
       expect(ours).toEqual([]);
     });
 
-    it('refuses an intent on another tenant, by row security and by foreign key', async () => {
+    it('refuses an intent on another tenant, by the tenant birth fence and by foreign key', async () => {
       const id = randomUUID();
       const values = {
         id,
@@ -574,12 +575,14 @@ describe('external action rules in the database', () => {
           }),
         ),
       ).rejects.toEqual(
-        // 0508's BEFORE INSERT tenant-birth guard refuses it before the row-security check runs.
-        // Either way it is an insufficient-privilege refusal for the wrong tenant.
+        // Row security's WITH CHECK runs after BEFORE INSERT row triggers. 0013's
+        // external_actions_check_new accepts this well-formed intent, then 0508's
+        // lifecycle_erasure_birth_fence (lifecycle.refuse_erasing_birth, as 0515 left it) refuses a
+        // row for a tenant other than the transaction's, so that is the guard that answers.
         expect.objectContaining({
           cause: expect.objectContaining({
             code: '42501',
-            message: expect.stringMatching(/row-level security|INVALID_ERASURE_BIRTH_TENANT/),
+            message: 'INVALID_ERASURE_BIRTH_TENANT',
           }),
         }),
       );

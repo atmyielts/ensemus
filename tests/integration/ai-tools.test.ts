@@ -763,6 +763,44 @@ describe('tool gateway, as the real roles', () => {
     });
   });
 
+  describe('opening a tool step', () => {
+    it('returns an existing step without admission, and opens no new step for a run that was refused', async () => {
+      const unit = await work(a.owner);
+      const run = await startRun(a.owner, { workUnitId: unit });
+      await propose(run, 'work.read', { work_unit_id: unit }, 1);
+      const store = createToolStepStore({ database: agent.db, objects });
+      const open = (stepNumber: number) =>
+        store.withTx(run.agentContext, (tx) =>
+          store.openStep(tx, run.agentContext, {
+            runId: run.runId,
+            stepNumber,
+            toolId: 'work.read',
+          }),
+        );
+      const opened = await open(1);
+      expect(opened).toEqual({ stepId: expect.any(String) });
+      // A repeat finds the same tool step, and the model turn's own number is never a tool step.
+      expect(await open(1)).toEqual(opened);
+      expect(await open(0)).toBeNull();
+      // Cancelled since its facts were read: an existing step is still returned, so the gateway can
+      // settle it, but the run's admission refuses a new step, which is then never written.
+      await moveRun(a.organizationId, run.runId, 'cancelled');
+      expect(await open(1)).toEqual(opened);
+      expect(await open(2)).toBeNull();
+      const steps = await withRunLookupTx(agent.db, a.organizationId, (tx) =>
+        tx
+          .select({ stepNumber: executionSteps.stepNumber, kind: executionSteps.kind })
+          .from(executionSteps)
+          .where(eq(executionSteps.runId, run.runId))
+          .orderBy(executionSteps.stepNumber),
+      );
+      expect(steps).toEqual([
+        { stepNumber: 0, kind: 'model_turn' },
+        { stepNumber: 1, kind: 'tool_call' },
+      ]);
+    });
+  });
+
   describe('email.send, with M3', () => {
     const scripted = async (context: TenantContext, workUnitId: string) => {
       const connectionId = await seedConnection(app.db, context);

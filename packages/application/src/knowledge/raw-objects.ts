@@ -213,6 +213,15 @@ export async function rawSourceMaterialCompleteInTx(
   return result.rows.length === 1 && result.rows[0]?.complete === true;
 }
 
+/** An active writer whose admitted native PUT lost its response (0523). Its row stays unknown; only
+ * its next generation may replace it, with a fresh single-attempt PUT of the same document bytes. */
+export async function rawWriteSupersedableInTx(tx: Tx, write: ObjectWrite): Promise<boolean> {
+  const result = await tx.execute<{ supersedable: boolean }>(
+    sql`select lifecycle.raw_write_supersedable(${write.documentId}::uuid,${write.writeId}::uuid,${write.generation}::bigint) supersedable`,
+  );
+  return result.rows.length === 1 && result.rows[0]?.supersedable === true;
+}
+
 export async function assertRawWriteQuiescentInTx(tx: Tx, write: ObjectWrite) {
   const result = await tx.execute<{ quiescent: boolean }>(sql`select lifecycle.raw_write_quiescent(
     ${write.documentId}::uuid,${write.writeId}::uuid,${write.generation}::bigint) or lifecycle.close_unadmitted_raw_write(
