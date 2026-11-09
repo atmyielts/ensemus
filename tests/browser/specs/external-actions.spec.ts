@@ -55,6 +55,8 @@ async function seedAction(
   };
   try {
     await su.query('begin');
+    // Rows are born in their own tenant, as the app role writes them (0508 erasure birth fence).
+    await su.query("select set_config('app.organization_id', $1, true)", [organization]);
     await su.query(
       `insert into integrations.connections (organization_id, id, connector_type, display_name, config)
        values ($1, $2, 'email_smtp', 'Team mail', $3)`,

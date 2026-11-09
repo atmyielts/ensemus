@@ -71,11 +71,11 @@ describe('durable work execution', () => {
     await auth.connect();
     const userId = randomUUID();
     const email = `${userId}@example.invalid`;
-    await auth.query('insert into identity.users (id, name, email) values ($1, $2, $3)', [
-      userId,
-      'Reviewer',
-      email,
-    ]);
+    // An invitation is only accepted by an address its owner has proven, as sign-up would record.
+    await auth.query(
+      'insert into identity.users (id, name, email, email_verified) values ($1, $2, $3, true)',
+      [userId, 'Reviewer', email],
+    );
     await auth.end();
     const { token } = await createInvitation(app.db, context, { email, role: 'admin' });
     await acceptInvitation(app.db, { token, userId, email, emailVerified: true });

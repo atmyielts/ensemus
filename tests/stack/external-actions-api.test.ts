@@ -11,6 +11,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { components } from '../../packages/contracts/generated/openapi';
+import { inFixtureTenant } from '../helpers/fixture-tenant';
 import { BASE, createOrganization, join, signUp, type Person } from '../helpers/forms';
 import { contractProblems, operationName, operations } from '../helpers/openapi';
 import { urls } from '../helpers/stack';
@@ -124,6 +125,8 @@ describe('external actions API', () => {
     };
     await su.query('begin');
     try {
+      // Rows are born in their own tenant, as the app role writes them (0508 erasure birth fence).
+      await su.query("select set_config('app.organization_id', $1, true)", [org]);
       await su.query(
         `insert into work.approvals (organization_id, id, work_unit_id, tool_name, action, action_hash,
            target_ref, approver_membership_id, expires_at)
@@ -184,10 +187,12 @@ describe('external actions API', () => {
     rival = await signUp('Ron Rival');
     rivalOrg = await createOrganization(rival, `Rival ${randomUUID()}`);
     connection = randomUUID();
-    await su.query(
-      `insert into integrations.connections (organization_id, id, connector_type, display_name, config)
-       values ($1, $2, 'email_smtp', 'Test mail', $3)`,
-      [org, connection, { fromAddress: 'sender@example.invalid' }],
+    await inFixtureTenant(su, org, () =>
+      su.query(
+        `insert into integrations.connections (organization_id, id, connector_type, display_name, config)
+         values ($1, $2, 'email_smtp', 'Test mail', $3)`,
+        [org, connection, { fromAddress: 'sender@example.invalid' }],
+      ),
     );
   });
 
@@ -473,10 +478,12 @@ describe('external actions API', () => {
 
     it('revokes with the version, for who may manage them only', async () => {
       const gone = randomUUID();
-      await su.query(
-        `insert into integrations.connections (organization_id, id, connector_type, display_name, config)
-         values ($1, $2, 'email_smtp', 'To revoke', '{}')`,
-        [org, gone],
+      await inFixtureTenant(su, org, () =>
+        su.query(
+          `insert into integrations.connections (organization_id, id, connector_type, display_name, config)
+           values ($1, $2, 'email_smtp', 'To revoke', '{}')`,
+          [org, gone],
+        ),
       );
       const path = `${root()}/connections/${gone}`;
       expectError(await call(owner, 'DELETE', path), 428, 'PRECONDITION_REQUIRED');
@@ -491,10 +498,12 @@ describe('external actions API', () => {
 
     it('makes a callback address once, or says it is not available', async () => {
       const inbound = randomUUID();
-      await su.query(
-        `insert into integrations.connections (organization_id, id, connector_type, display_name, config)
-         values ($1, $2, 'inbound_webhook', 'Callback', '{}')`,
-        [org, inbound],
+      await inFixtureTenant(su, org, () =>
+        su.query(
+          `insert into integrations.connections (organization_id, id, connector_type, display_name, config)
+           values ($1, $2, 'inbound_webhook', 'Callback', '{}')`,
+          [org, inbound],
+        ),
       );
       const path = `${root()}/connections/${inbound}/webhook-endpoints`;
       expectError(await call(member, 'POST', path), 403, 'FORBIDDEN');
