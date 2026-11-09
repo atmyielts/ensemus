@@ -4,6 +4,10 @@ import { beforeAll, describe, it, expect } from 'vitest';
 import { BASE, signUp, createOrganization, type Person } from '../helpers/forms';
 import { contractProblems, operationName, operations } from '../helpers/openapi';
 
+/** Bounds the resend of a write refused only because a background purge held the tenant's row. */
+const BUSY_ATTEMPTS = 20;
+const BUSY_DELAY_MS = 500;
+
 describe('custom object HTTP contracts through the proxy', () => {
   let owner: Person, outsider: Person, organization: string;
   const validated = new Set<string>();
@@ -49,6 +53,39 @@ describe('custom object HTTP contracts through the proxy', () => {
       headers: response.headers,
       text,
     };
+  }
+  /**
+   * The owner's write with If-Match, which is expected to succeed, sent again while the busy refusal
+   * below is all that stood in its way. Deleting a record starts its typed-record purge in the stack's
+   * workers (ADR-028 lifecycle item 8a), which holds this tenant's organization row FOR NO KEY UPDATE
+   * NOWAIT (0514 lifecycle.record_purge_hold_free). Every objects.* table is under the erasure birth
+   * fence (0508), which takes the same row FOR SHARE NOWAIT (0533) on each insert its triggers make, so
+   * such a write is refused at once with 55P03, which custom-objects.ts reports as VERSION_CONFLICT
+   * (CI run 42692158422: a correct If-Match answered 409 right after the previous test's deletion).
+   * A 409 is taken for that refusal only while `resource` still carries the exact version the request
+   * named. A real version conflict has moved it on, and that 409 is returned at once, so no assertion
+   * on a stale or a current If-Match changes.
+   */
+  async function preconditioned(
+    method: string,
+    suffix: string,
+    body: unknown,
+    ifMatch: string,
+    resource: string,
+    extra: Record<string, string> = {},
+  ) {
+    for (let attempt = 1; ; attempt++) {
+      const answer = await call(owner, method, suffix, body, { ...extra, 'if-match': ifMatch });
+      if (
+        answer.status !== 409 ||
+        answer.body?.code !== 'VERSION_CONFLICT' ||
+        attempt >= BUSY_ATTEMPTS
+      )
+        return answer;
+      const current = await call(owner, 'GET', resource);
+      if (current.status !== 200 || current.headers.get('etag') !== ifMatch) return answer;
+      await new Promise((resolve) => setTimeout(resolve, BUSY_DELAY_MS));
+    }
   }
   const typeInput = () => {
     const slug = `kind_${randomUUID().replaceAll('-', '')}`;
@@ -106,9 +143,13 @@ describe('custom object HTTP contracts through the proxy', () => {
     expect((await call(outsider, 'GET', `object-records/${id}`)).status).toBe(404);
     expect(
       (
-        await call(owner, 'DELETE', `object-records/${id}`, undefined, {
-          'if-match': first.headers.get('etag') ?? '',
-        })
+        await preconditioned(
+          'DELETE',
+          `object-records/${id}`,
+          undefined,
+          first.headers.get('etag') ?? '',
+          `object-records/${id}`,
+        )
       ).status,
     ).toBe(204);
     const replay = await call(owner, 'POST', `object-types/${typeId}/records`, input, {
@@ -149,14 +190,14 @@ describe('custom object HTTP contracts through the proxy', () => {
     expect((await call(owner, 'PATCH', apath, { display_name: 'Missing version' })).status).toBe(
       428,
     );
-    const edited = await call(
-      owner,
+    const edited = await preconditioned(
       'PATCH',
       apath,
       { display_name: 'Edited One' },
-      { 'if-match': first.headers.get('etag') ?? '' },
+      first.headers.get('etag') ?? '',
+      apath,
     );
-    expect(edited.status).toBe(200);
+    expect(edited.status, edited.text).toBe(200);
     expect(
       (
         await call(
@@ -178,29 +219,29 @@ describe('custom object HTTP contracts through the proxy', () => {
       (await call(owner, 'DELETE', `${apath}/relations/${String(relation.body?.id)}`)).status,
     ).toBe(204);
     expect(
-      (
-        await call(owner, 'DELETE', apath, undefined, {
-          'if-match': edited.headers.get('etag') ?? '',
-        })
-      ).status,
+      (await preconditioned('DELETE', apath, undefined, edited.headers.get('etag') ?? '', apath))
+        .status,
     ).toBe(204);
     expect(
       (
-        await call(owner, 'DELETE', `object-records/${b}`, undefined, {
-          'if-match': second.headers.get('etag') ?? '',
-        })
+        await preconditioned(
+          'DELETE',
+          `object-records/${b}`,
+          undefined,
+          second.headers.get('etag') ?? '',
+          `object-records/${b}`,
+        )
       ).status,
     ).toBe(204);
-    const raised = await call(
-      owner,
+    const raised = await preconditioned(
       'PATCH',
       tpath,
       { classification: 'confidential' },
-      { 'if-match': created.headers.get('etag') ?? '' },
+      created.headers.get('etag') ?? '',
+      tpath,
     );
-    expect(raised.status).toBe(200);
-    const queued = await call(
-      owner,
+    expect(raised.status, raised.text).toBe(200);
+    const queued = await preconditioned(
       'POST',
       `${tpath}/versions`,
       {
@@ -209,9 +250,10 @@ describe('custom object HTTP contracts through the proxy', () => {
         ],
         relations: definition.relations,
       },
-      { 'if-match': raised.headers.get('etag') ?? '' },
+      raised.headers.get('etag') ?? '',
+      tpath,
     );
-    expect(queued.status).toBe(202);
+    expect(queued.status, queued.text).toBe(202);
     expect(queued.body?.migration_id).toEqual(expect.any(String));
   });
   it('keeps failed row receipts and retries corrected records through a new durable intent', async () => {
@@ -233,14 +275,16 @@ describe('custom object HTTP contracts through the proxy', () => {
         },
         { 'idempotency-key': randomUUID() },
       ),
-      queued = await call(
-        owner,
+      queued = await preconditioned(
         'POST',
         `${tpath}/versions`,
         { fields: [{ ...fields[0], indexed: true }], relations: [] },
-        { 'if-match': created.headers.get('etag') ?? '' },
-      ),
-      migrationPath = `${tpath}/migrations/${String(queued.body?.migration_id)}`;
+        created.headers.get('etag') ?? '',
+        tpath,
+      );
+    expect(record.status, record.text).toBe(201);
+    expect(queued.status, queued.text).toBe(202);
+    const migrationPath = `${tpath}/migrations/${String(queued.body?.migration_id)}`;
     async function settled(path: string, expected: string) {
       for (let n = 0; n < 60; n++) {
         const current = await call(owner, 'GET', path);
@@ -255,21 +299,26 @@ describe('custom object HTTP contracts through the proxy', () => {
     const recordPath = `object-records/${String(record.body?.id)}`;
     expect(
       (
-        await call(
-          owner,
+        await preconditioned(
           'PATCH',
           recordPath,
           { attributes: { name: 'corrected' } },
-          { 'if-match': record.headers.get('etag') ?? '' },
+          record.headers.get('etag') ?? '',
+          recordPath,
         )
       ).status,
     ).toBe(200);
+    // One idempotency key for every send: a refused send stored nothing under it.
     const current = await call(owner, 'GET', tpath),
-      retry = await call(owner, 'POST', `${migrationPath}/retry`, undefined, {
-        'if-match': current.headers.get('etag') ?? '',
-        'idempotency-key': randomUUID(),
-      });
-    expect(retry.status).toBe(202);
+      retry = await preconditioned(
+        'POST',
+        `${migrationPath}/retry`,
+        undefined,
+        current.headers.get('etag') ?? '',
+        tpath,
+        { 'idempotency-key': randomUUID() },
+      );
+    expect(retry.status, retry.text).toBe(202);
     expect(retry.body?.migration_id).not.toBe(queued.body?.migration_id);
     expect(
       (await settled(`${tpath}/migrations/${String(retry.body?.migration_id)}`, 'completed')).body

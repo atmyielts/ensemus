@@ -89,6 +89,28 @@ describe('every gate runs in both places', () => {
     expect(rest).toBeGreaterThan(stop);
   });
 
+  // Each @agent-worker test runs exactly once, and its failure fails the run: the tagged run is never
+  // sharded, so it cannot be split or repeated across shards; every other browser run leaves the tag
+  // out, so no shard runs it again with the agent worker stopped; and nothing swallows its exit status.
+  it.each([
+    ['CI', ci],
+    ['one machine', local],
+  ])('runs each @agent-worker browser test once, and fails when it does (%s)', (_, file) => {
+    const runs = file.split('\n').filter((line) => /pnpm test:browser\b/.test(line));
+    const tagged = runs.filter((line) => /--grep @agent-worker\b/.test(line));
+    expect(tagged).toHaveLength(1);
+    expect(tagged[0]).not.toMatch(/--shard|--grep-invert|\|\||;\s*true|--pass-with-no-tests/);
+    const others = runs.filter((line) => !tagged.includes(line));
+    expect(others.length).toBeGreaterThan(0);
+    for (const line of others) expect(line).toMatch(/--grep-invert @agent-worker\b/);
+  });
+
+  it('lets no step of the CI browser job continue past a failure', () => {
+    const browserJob = ci.slice(ci.indexOf('\n  browser:'), ci.indexOf('\n  upgrade:'));
+    expect(browserJob).toContain('pnpm test:browser --grep @agent-worker');
+    expect(browserJob).not.toMatch(/continue-on-error/);
+  });
+
   it('enables the real AI contract and canary cases in the offline CI stack job', () => {
     const stackJob = ci.slice(ci.indexOf('\n  stack:'), ci.indexOf('\n  connectors:'));
     expect(stackJob).toMatch(/ENSEMUS_AI_ENABLED:\s*'true'/);

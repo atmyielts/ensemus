@@ -51,6 +51,40 @@ export async function nativeModelContext(database: AppDatabase, owner: TenantCon
   return nativePersonContext(database, person, owner.organizationId);
 }
 
+/** PostgreSQL's lock_not_available: a NOWAIT row lock found the row held by another transaction. */
+const LOCK_NOT_AVAILABLE = '55P03';
+const BUSY_ATTEMPTS = 20;
+const BUSY_DELAY_MS = 500;
+
+function lockNotAvailable(error: unknown): boolean {
+  let current: unknown = error;
+  for (let depth = 0; depth < 5 && current && typeof current === 'object'; depth++) {
+    if ((current as { code?: unknown }).code === LOCK_NOT_AVAILABLE) return true;
+    current = (current as { cause?: unknown }).cause;
+  }
+  return false;
+}
+
+/**
+ * Sends one fixture write again while PostgreSQL refuses it as busy, a bounded number of times. The
+ * erasure birth fence (lifecycle.refuse_erasing_birth, 0515 and 0533) takes the tenant's organization
+ * row FOR SHARE NOWAIT on every insert it guards, so such a write is refused at once (55P03) while a
+ * background job in the same tenant holds that row FOR NO KEY UPDATE, as a source purge does
+ * (0514-0516; CI run 42692158422: the qualification insert, right after a revocation). The refused
+ * write's transaction rolled back, so the same write is sent again. Any other error, and a row still
+ * busy after the last attempt, fails the fixture exactly as before; the fence itself is unchanged.
+ */
+async function whileBusy<T>(write: () => Promise<T>): Promise<T> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await write();
+    } catch (error) {
+      if (!lockNotAvailable(error) || attempt >= BUSY_ATTEMPTS) throw error;
+      await new Promise((done) => setTimeout(done, BUSY_DELAY_MS));
+    }
+  }
+}
+
 /**
  * ADR-032: a hosted BYOM tenant is entitled to model calls only by a current subscription on a
  * deployment with billing enabled; the mode alone grants nothing. Start one the way an owner does
@@ -67,7 +101,9 @@ async function entitleHostedByom(database: AppDatabase, owner: TenantContext) {
   if (org?.mode !== 'byom') return;
   const plan = await seedPlan({ mode: 'byom', features: [FEATURE_MODEL_CALL, FEATURE_AGENT_RUN] });
   try {
-    await startSubscription(database, owner, { planVersionId: plan.planVersionId });
+    await whileBusy(() =>
+      startSubscription(database, owner, { planVersionId: plan.planVersionId }),
+    );
   } catch (error) {
     if (!(error instanceof AppError && error.code === 'SUBSCRIPTION_EXISTS')) throw error;
   }
@@ -146,39 +182,43 @@ export async function seedQualifiedKnowledgeRoute(
   const purpose = input.purpose ?? 'embed',
     dimension = purpose === 'embed' ? (input.dimension ?? 4) : null;
   owner = await nativeModelContext(database, owner);
-  const profile = await createModelProfile(
-    database,
-    owner,
-    {
-      provider_kind: 'local_openai_compatible',
-      model_id: input.modelId ?? `generated-${randomUUID()}`,
-      alias: `Generated ${randomUUID()}`,
-      endpoint_url: endpoint,
-      billing_owner: 'customer',
-      region: null,
-      capabilities: ['text', 'structured_output'],
-      limits: { max_input_tokens: 64000, max_output_tokens: 256 },
-      allowed_classes: ['public', 'internal', 'confidential', 'restricted'],
-      allowed_purposes: [purpose],
-      retention_basis: 'self_hosted',
-      contract_ref: null,
-      fallback_profile_ids: [],
-    },
-    { privateEndpoints: [endpoint] },
+  const context = owner;
+  // Every write below is built once, so a write refused as busy is sent again unchanged (whileBusy).
+  const definition: Parameters<typeof createModelProfile>[2] = {
+    provider_kind: 'local_openai_compatible',
+    model_id: input.modelId ?? `generated-${randomUUID()}`,
+    alias: `Generated ${randomUUID()}`,
+    endpoint_url: endpoint,
+    billing_owner: 'customer',
+    region: null,
+    capabilities: ['text', 'structured_output'],
+    limits: { max_input_tokens: 64000, max_output_tokens: 256 },
+    allowed_classes: ['public', 'internal', 'confidential', 'restricted'],
+    allowed_purposes: [purpose],
+    retention_basis: 'self_hosted',
+    contract_ref: null,
+    fallback_profile_ids: [],
+  };
+  const profile = await whileBusy(() =>
+    createModelProfile(database, context, definition, { privateEndpoints: [endpoint] }),
   );
-  await addRateCard(database, owner, {
-    profileId: profile.id,
-    inputMicrosPerMtok: 11,
-    outputMicrosPerMtok: 17,
-  });
-  await entitleHostedByom(database, owner);
-  await setBudget(database, owner, {
+  await whileBusy(() =>
+    addRateCard(database, context, {
+      profileId: profile.id,
+      inputMicrosPerMtok: 11,
+      outputMicrosPerMtok: 17,
+    }),
+  );
+  await entitleHostedByom(database, context);
+  const budget: Parameters<typeof setBudget>[2] = {
     scope: 'organization',
     agent_version_id: null,
     period: new Date().toISOString().slice(0, 7),
     limit_micros: 1000000,
-  });
-  const request = await requestModelQualification(database, owner, {
+  };
+  await whileBusy(() => setBudget(database, context, budget));
+  // One request key for every attempt: a qualification request is idempotent on it.
+  const qualification = {
     profileId: profile.id,
     expectedProfileVersion: profile.version,
     purpose,
@@ -186,7 +226,10 @@ export async function seedQualifiedKnowledgeRoute(
     vectorSpaceVersion: purpose === 'embed' ? (input.vectorSpaceVersion ?? 'generated-v1') : null,
     requestKey: randomUUID(),
     bounds: GENERATED_MODEL_BOUNDS,
-  });
+  };
+  const request = await whileBusy(() =>
+    requestModelQualification(database, context, qualification),
+  );
   const route: ModelRoute = {
     modelProfileRef: profile.id,
     modelProfileVersion: profile.version,
