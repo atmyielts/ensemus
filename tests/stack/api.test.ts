@@ -2,6 +2,13 @@
 // Every response goes through call(), which validates it against docs/specifications/openapi.yaml at
 // run time (see tests/helpers/openapi.ts). The generated types then only name what was validated.
 import { randomUUID } from 'node:crypto';
+import {
+  connections,
+  openAppDatabase,
+  resolveTenantContext,
+  withTenantTx,
+} from '@ensemus/database';
+import { EMAIL_CONNECTOR_TYPE } from '@ensemus/domain/external-action';
 import pg from 'pg';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import type { components } from '../../packages/contracts/generated/openapi';
@@ -1143,6 +1150,125 @@ describe('public API', () => {
       if (!id) throw new Error('Work not created');
       expectError(await call(member, 'GET', events(org, id)), 404, 'NOT_FOUND');
       expectError(await call(owner, 'GET', events(org, randomUUID())), 404, 'NOT_FOUND');
+    });
+  });
+
+  // Starting an onboarding writes rows and an event in one transaction; the welcome message it ends with goes
+  // out later, through the connector worker, after a person approves it. So the two operations answer on a
+  // stack with no `connectors` profile, and the main gate proves them here, where nothing can leave. The email
+  // connection is the one row that needs the profile's web setting to be made over HTTP (POST /connections
+  // answers CONNECTOR_NOT_AVAILABLE without it). A deployment keeps the connections it made while connectors
+  // were on, so the row is written as the app role writes it, in its own tenant and through its own policies,
+  // as tests/integration/client-onboarding.test.ts does. Everything is a generated test value.
+  describe('client onboarding', () => {
+    const app = openAppDatabase(urls.app());
+    const onboardings = (organization: string) =>
+      `/api/v1/organizations/${organization}/client-onboardings`;
+    let company: string;
+    let colleague: Person;
+    let connectionId: string;
+    let ownerMembership: string;
+    let colleagueMembership: string;
+
+    beforeAll(async () => {
+      company = await createOrganization(owner, `Onboarding ${randomUUID()}`);
+      colleague = await join(owner, company, 'Oli Onboarding Reviewer');
+      ownerMembership = await membershipOf(owner, company);
+      colleagueMembership = await membershipOf(colleague, company);
+      const { rows } = await su.query('select id from identity.users where email = $1', [
+        owner.email,
+      ]);
+      const context = await resolveTenantContext(app.db, rows[0].id as string, company);
+      connectionId = randomUUID();
+      await withTenantTx(app.db, context, (tx) =>
+        tx.insert(connections).values({
+          organizationId: company,
+          id: connectionId,
+          connectorType: EMAIL_CONNECTOR_TYPE,
+          displayName: 'Generated email connection',
+          config: { fromAddress: 'sender@example.invalid' },
+        }),
+      );
+    });
+    afterAll(() => app.close());
+
+    const start = (dealRef: string) => ({
+      deal_ref: dealRef,
+      client_name: 'Generated client',
+      project_name: 'Generated project',
+      owner_membership_id: ownerMembership,
+      reviewer_membership_id: colleagueMembership,
+      email_connection_id: connectionId,
+      contact_email: 'client@example.invalid',
+    });
+
+    it('starts one onboarding per deal, replays its key, and reads it back', async () => {
+      const body = start(`deal-${randomUUID()}`);
+      const key = randomUUID();
+      const started = await call(owner, 'POST', onboardings(company), { body, key });
+      expect(started.status, started.text).toBe(201);
+      const onboarding = started.json as components['schemas']['ClientOnboarding'];
+      expect(onboarding).toMatchObject({
+        deal_ref: body.deal_ref,
+        reviewer_membership_id: colleagueMembership,
+        version: 1,
+      });
+      const again = await call(owner, 'POST', onboardings(company), { body, key });
+      expect(again.status, again.text).toBe(201);
+      expect((again.json as { id: string }).id).toBe(onboarding.id);
+      // The same deal under a new key is refused, not a second onboarding.
+      expectError(
+        await call(owner, 'POST', onboardings(company), { body, key: randomUUID() }),
+        409,
+        'CLIENT_ONBOARDING_EXISTS',
+      );
+      const read = await call(owner, 'GET', `${onboardings(company)}/${onboarding.id}`);
+      expect(read.status, read.text).toBe(200);
+      expect(read.headers.get('etag')).toMatch(/^"[1-9]\d*"$/);
+      expect((read.json as { id: string; deal_ref: string }).id).toBe(onboarding.id);
+      expect((read.json as { deal_ref: string }).deal_ref).toBe(body.deal_ref);
+    });
+
+    it('is refused to a member, a stranger, a self-review and a missing connection', async () => {
+      // A member may not start one, even naming someone else to review it.
+      const third = await join(owner, company, 'Tam Third Member');
+      expectError(
+        await call(third, 'POST', onboardings(company), {
+          body: start(`deal-${randomUUID()}`),
+          key: randomUUID(),
+        }),
+        403,
+        'FORBIDDEN',
+      );
+      expectError(
+        await call(rival, 'POST', onboardings(company), {
+          body: start(`deal-${randomUUID()}`),
+          key: randomUUID(),
+        }),
+        404,
+        'NOT_FOUND',
+      );
+      expectError(
+        await call(owner, 'POST', onboardings(company), {
+          body: { ...start(`deal-${randomUUID()}`), reviewer_membership_id: ownerMembership },
+          key: randomUUID(),
+        }),
+        403,
+        'APPROVAL_SELF_APPROVAL',
+      );
+      expectError(
+        await call(owner, 'POST', onboardings(company), {
+          body: { ...start(`deal-${randomUUID()}`), email_connection_id: randomUUID() },
+          key: randomUUID(),
+        }),
+        404,
+        'NOT_FOUND',
+      );
+      expectError(
+        await call(rival, 'GET', `${onboardings(company)}/${randomUUID()}`),
+        404,
+        'NOT_FOUND',
+      );
     });
   });
 

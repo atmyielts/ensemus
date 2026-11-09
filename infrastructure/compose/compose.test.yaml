@@ -26,6 +26,15 @@ services:
       # The generated test trust root (ADR-030 D3), so signed documents can be checked and installed.
       # tests/stack/sovereign-api.test.ts signs with the key it names, which never enters a container.
       ENSEMUS_LICENSE_TRUST_ROOT_FILE: /run/secrets/license_trust_root
+      # Hosted settings, for the air-gap gate's hosted phase only (infrastructure/scripts/air-gap-gate.mjs), which
+      # sets them while it recreates web and web-2 as a hosted deployment. No value here: unset in the shell and in
+      # .env, each is unset in the container, which is every other phase, every other job and every deployment
+      # (an empty value would not be: the config would refuse it and web would not start). compose.yaml
+      # names none of them. The processor is the generated test processor's name (tests/helpers/native-payment.ts),
+      # with no credential or adapter behind it, and break-glass is off unless named, with a limit (ADR-032 D8).
+      ENSEMUS_PAYMENT_PROCESSOR:
+      ENSEMUS_BREAK_GLASS_ENABLED:
+      ENSEMUS_BREAK_GLASS_MAX_MINUTES:
     secrets: [license_trust_root]
   worker:
     environment:
@@ -87,6 +96,10 @@ services:
       ENSEMUS_CONNECTORS_ENABLED: ${ENSEMUS_CONNECTORS_ENABLED:-false}
       ENSEMUS_PRIVATE_MODEL_ENDPOINTS: http://fake-model:8000
       ENSEMUS_LICENSE_TRUST_ROOT_FILE: /run/secrets/license_trust_root
+      # The same hosted-phase settings as web above, so both replicas answer alike.
+      ENSEMUS_PAYMENT_PROCESSOR:
+      ENSEMUS_BREAK_GLASS_ENABLED:
+      ENSEMUS_BREAK_GLASS_MAX_MINUTES:
     # Added to what it extends from web, like the variable above.
     secrets: [license_trust_root]
   proxy:
