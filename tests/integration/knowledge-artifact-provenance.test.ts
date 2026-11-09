@@ -10,9 +10,19 @@ import {
   readArtifact,
   purgeDueBlobs,
   assignContributor,
+  requestExecution,
+  transitionWorkUnit,
   unassign,
   type ObjectStore,
 } from '@ensemus/application';
+import { workInputHash } from '@ensemus/application/ai-input-ledger';
+import {
+  CHECKLIST_TEMPLATE,
+  completionChecklist,
+  createChecklistInputInventory,
+} from '@ensemus/application/knowledge/checklist-template';
+import { createActivities } from '@ensemus/workflows/activities';
+import type { CompletionCriterion } from '@ensemus/domain/work-unit';
 import {
   artifactAclCatalog,
   artifactLineage,
@@ -45,6 +55,7 @@ import {
   prepareRunInputContext,
   seedAgentVersion,
   testAgentSpec,
+  withAdmittedRunTx,
 } from '../helpers/ai/fixtures';
 import { nativeMfaOwner } from '../helpers/knowledge-native';
 import {
@@ -81,6 +92,43 @@ describe('generated artifact all-input privacy and erasure protocol (0208)', () 
   afterAll(async () => {
     await Promise.all([auth?.end(), database?.close(), agent?.close()]);
   });
+  const refuseObjectIo = async (): Promise<never> => {
+    throw new Error('TEST_UNEXPECTED_OBJECT_IO');
+  };
+  /** The real M2 checklist plan up to its claimed run: ready, requested, then prepareWork. */
+  async function startChecklistRun(
+    owner: TenantContext,
+    work: Awaited<ReturnType<typeof createWorkUnit>>,
+    runId: string,
+  ) {
+    await transitionWorkUnit(database.db, owner, {
+      id: work.id,
+      expectedVersion: work.version,
+      to: 'ready',
+    });
+    await requestExecution(database.db, owner, work.id);
+    const activities = createActivities({
+      database: database.db,
+      store: {
+        put: refuseObjectIo,
+        get: refuseObjectIo,
+        delete: refuseObjectIo,
+        exists: refuseObjectIo,
+      },
+    });
+    expect(
+      await activities.prepareWork({
+        organizationId: owner.organizationId,
+        workUnitId: work.id,
+        runId,
+      }),
+    ).toMatchObject({ status: 'running' });
+    const [current] = await withTenantTx(database.db, owner, (tx) =>
+      tx.select().from(workUnits).where(eq(workUnits.id, work.id)),
+    );
+    if (!current) throw new Error('TEST_CHECKLIST_WORK_MISSING');
+    return current;
+  }
   async function fixture(
     options: {
       noPackages?: boolean;
@@ -94,19 +142,30 @@ describe('generated artifact all-input privacy and erasure protocol (0208)', () 
     const seeded = await seedMember(database.db, owner, auth);
     const member = await resolveTenantContext(database.db, seeded.userId, owner.organizationId);
     const service = createServiceContext(owner.organizationId);
-    const text = 'Synthetic private input and a generated output.';
-    const work = await createWorkUnit(database.db, owner, {
+    const sourceText = 'Synthetic private input and a generated output.';
+    const execution: ArtifactExecution = options.system
+      ? { kind: 'system', id: randomUUID(), template: CHECKLIST_TEMPLATE }
+      : { kind: 'agent_run', id: randomUUID() };
+    const created = await createWorkUnit(database.db, owner, {
       title: 'Generated privacy work',
       objective: 'Check this exact synthetic output.',
       classification: options.classification ?? 'internal',
+      ...(options.system ? { executionPlan: 'checklist' as const } : {}),
     });
+    // 0419: the only explicit no-knowledge system output is the exact M2 completion checklist of a
+    // Work its run holds (knowledge.known_checklist_authority). A claimed template label or body is
+    // refused at lineage birth, so the system case runs the real plan: ready, requested, claimed.
+    const work = options.system ? await startChecklistRun(owner, created, execution.id) : created;
+    const text = options.system
+      ? completionChecklist({
+          id: work.id,
+          completionCriteria: work.completionCriteria as CompletionCriterion[],
+        })
+      : sourceText;
     const source = await seedSearchableSource(database.db, owner, {
-      passages: [text],
+      passages: [sourceText],
       grants: [{ kind: 'membership', membershipId: owner.membershipId }],
     });
-    const execution: ArtifactExecution = options.system
-      ? { kind: 'system', id: randomUUID(), template: 'test/checklist/v1' }
-      : { kind: 'agent_run', id: randomUUID() };
     // The run's evidence package below names this source, so its manifest declares it, as a real
     // agent reading that source must: read admission refuses a run whose actual package names an
     // undeclared source (loadAgentReadScopeInTx, POLICY_DENIED).
@@ -156,9 +215,24 @@ describe('generated artifact all-input privacy and erasure protocol (0208)', () 
       // 0417: a run born under authority-v1 records its Work input only through the runtime's own
       // read admission (protocol binding, authority lock, then the observation), which is what the
       // context source does. A bare recordRunInputs is refused RUN_AUTHORITY_PROTOCOL_REQUIRED.
-      return prepareRunInputContext(agent.db, owner.organizationId, execution.id);
+      const context = await prepareRunInputContext(agent.db, owner.organizationId, execution.id);
+      // 0525: an agent writes a file only while its run is running. The agent worker moves its own
+      // run through preparing to running under the run's agent context, as here.
+      if (!found.length)
+        await withTenantTx(agent.db, context, async (tx) => {
+          await tx
+            .update(agentRuns)
+            .set({ status: 'preparing' })
+            .where(eq(agentRuns.id, execution.id));
+          await tx
+            .update(agentRuns)
+            .set({ status: 'running' })
+            .where(eq(agentRuns.id, execution.id));
+        });
+      return context;
     };
-    const writer = (await ensureRun(execution)) ?? service;
+    const agentWriter = await ensureRun(execution);
+    const writer = agentWriter ?? service;
     if (!options.noPackages && !options.system)
       await withTenantTx(database.db, service, async (tx) => {
         const packageId = randomUUID();
@@ -183,7 +257,7 @@ describe('generated artifact all-input privacy and erasure protocol (0208)', () 
           chunkId: source.chunkIds[0]!,
           documentId: source.documentId,
           sourceId: source.sourceId,
-          contentSha256: sha256(text),
+          contentSha256: sha256(sourceText),
           classification: 'internal',
           tokenEstimate: 12,
         });
@@ -224,27 +298,31 @@ describe('generated artifact all-input privacy and erasure protocol (0208)', () 
     };
     const inputs: { artifactId: string; sha256: string }[] = [];
     // Each structured read carries its actual captured read-time class, as the runtime inventory
-    // supplies it; a classless record is refused INVALID_STATE before any object I/O.
+    // supplies it; a classless record is refused INVALID_STATE before any object I/O. The target
+    // Work's hash is the one its run actually read (the context source's workInputHash): 0419's
+    // artifact_authority_bindings_complete binds every retained record to the run's frozen read.
     const records: StructuredArtifactInput[] = [
       {
         kind: 'work_unit',
         id: work.id,
-        sha256: sha256(JSON.stringify(work)),
+        sha256: workInputHash(work),
         classification: options.classification ?? 'internal',
       },
     ];
-    const inventory: ArtifactInputInventory = {
-      inspectInTx: async (_tx, _context, input) => ({
-        known: true,
-        execution: input.execution,
-        workUnitId: work.id,
-        viewerMembershipId: options.system ? null : owner.membershipId,
-        classification: 'internal',
-        noKnowledge: !!options.system,
-        artifactInputs: inputs,
-        recordInputs: records,
-      }),
-    };
+    const inventory: ArtifactInputInventory = options.system
+      ? createChecklistInputInventory()
+      : {
+          inspectInTx: async (_tx, _context, input) => ({
+            known: true,
+            execution: input.execution,
+            workUnitId: work.id,
+            viewerMembershipId: owner.membershipId,
+            classification: 'internal',
+            noKnowledge: false,
+            artifactInputs: inputs,
+            recordInputs: records,
+          }),
+        };
     const input = {
       workUnitId: work.id,
       name: 'generated.txt',
@@ -316,6 +394,7 @@ describe('generated artifact all-input privacy and erasure protocol (0208)', () 
       control,
       lifecycle,
       writer,
+      agentWriter,
     };
   }
   type Fixture = Awaited<ReturnType<typeof fixture>>;
@@ -514,10 +593,14 @@ describe('generated artifact all-input privacy and erasure protocol (0208)', () 
     );
   });
   it('requires a pending header to register its upload in the same transaction', async () => {
-    const value = await fixture();
+    const value = await fixture(),
+      writer = value.agentWriter;
+    if (!writer) throw new Error('TEST_AGENT_WRITER_MISSING');
+    // The tool gate admits the run's read scope and authority-v1 binding in the transaction before
+    // noteDraftUpload calls beginInTx (0414, 0417); only the missing upload row differs here.
     await deniedSql(
-      withTenantTx(agent.db, value.writer, (tx) =>
-        createArtifactProvenance({ inventory: value.inventory }).beginInTx(tx, value.writer, {
+      withAdmittedRunTx(agent.db, writer, (tx) =>
+        createArtifactProvenance({ inventory: value.inventory }).beginInTx(tx, writer, {
           execution: value.execution,
           artifactId: randomUUID(),
           workUnitId: value.work.id,
@@ -1041,9 +1124,12 @@ describe('generated artifact all-input privacy and erasure protocol (0208)', () 
     );
     if (!header) throw new Error('TEST_HEADER_MISSING');
     const id = randomUUID(),
-      objectKey = `${value.owner.organizationId}/artifacts/${id}`;
+      objectKey = `${value.owner.organizationId}/artifacts/${id}`,
+      writer = value.agentWriter;
+    if (!writer) throw new Error('TEST_AGENT_WRITER_MISSING');
+    // Under the run's own admission (0414, 0417), so the refusal is the missing structured binding.
     await deniedSql(
-      withTenantTx(agent.db, value.writer, async (tx) => {
+      withAdmittedRunTx(agent.db, writer, async (tx) => {
         await tx.insert(artifactLineage).values({
           ...header,
           artifactId: id,

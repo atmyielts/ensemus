@@ -38,6 +38,7 @@ import { closeOutdatedReviews, loadChangeable, loadReadable } from '../work';
 import { verificationHash } from './verification-proof';
 import type { DerivedArtifactPurge } from './ports';
 import { claimGeneratedPut, registerGeneratedWriter, settleGeneratedPut } from './generated-writer';
+import { assertRunInputsOpen } from '../ai/input-observations';
 export type { DerivedArtifactPurge } from './ports';
 
 export type ArtifactExecution =
@@ -333,6 +334,17 @@ const executionKey = (value: ArtifactExecution) =>
 const requireWorker = (context: TenantContext) => {
   if (context.actorType === 'user') throw new AppError('FORBIDDEN');
 };
+/**
+ * An agent's generated writer reads its run's Work and inventory only inside a transaction that holds
+ * the run's own read-scope and authority-v1 admission (0414 agent_scope_protocol_read, 0417
+ * authority_work_body, 0419/0525 lineage birth). The tool gate admits before noteDraftUpload and
+ * insertDraft; addGeneratedArtifact opens its own transactions, so it admits in each of them.
+ */
+async function admitGeneratedWriterInTx(tx: Tx, context: TenantContext) {
+  if (context.actorType !== 'agent') return;
+  if (!context.agentRunId) throw new AppError('FORBIDDEN');
+  await assertRunInputsOpen(tx, { ...context, actorType: 'agent', agentRunId: context.agentRunId });
+}
 type Header = typeof artifactLineage.$inferSelect;
 type InventoryInput = {
   execution: ArtifactExecution;
@@ -812,6 +824,7 @@ export async function addGeneratedArtifact(
   ]);
   const provenance = createArtifactProvenance(deps);
   const first = await withTenantTx(database, context, async (tx) => {
+    await admitGeneratedWriterInTx(tx, context);
     const started = await provenance.beginInTx(tx, context, {
       execution: input.execution,
       artifactId,
@@ -840,6 +853,7 @@ export async function addGeneratedArtifact(
     await settleGeneratedPut(database, context, first.write);
   try {
     return await withTenantTx(database, context, async (tx) => {
+      await admitGeneratedWriterInTx(tx, context);
       await provenance.publishInTx(tx, context, first.write);
       const work = await loadChangeable(tx, context, input.workUnitId);
       if (!canChangeContent(work.status as WorkState)) throw new AppError('INVALID_STATE');

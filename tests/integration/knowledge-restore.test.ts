@@ -1,5 +1,5 @@
 // Real RLS with a simulated older database: the independent ledger must keep restored sources closed.
-import { randomUUID, createHash } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
@@ -10,6 +10,8 @@ import {
   createWorkUnit,
   readArtifact,
   reapplyTombstoneLedger,
+  requestExecution,
+  transitionWorkUnit,
   type LedgerReader,
   type ObjectStore,
 } from '@ensemus/application';
@@ -37,11 +39,10 @@ import { eq, sql } from 'drizzle-orm';
 import { urls } from '../helpers/stack';
 import { nativeKnowledgeStore } from '../helpers/knowledge-native';
 import {
-  addGeneratedArtifact,
   eraseDerivedArtifactMetadata,
-  type ArtifactInputInventory,
   type DerivedArtifactLifecycle,
 } from '../../packages/application/src/knowledge/artifact-provenance';
+import { createActivities } from '@ensemus/workflows/activities';
 
 describe('knowledge source ledger reapply', () => {
   let database: ReturnType<typeof openAppDatabase>, auth: pg.Client, owner: TenantContext;
@@ -219,53 +220,22 @@ describe('knowledge source ledger reapply', () => {
         title: 'Generated restore work',
         objective: 'Check a synthetic template output.',
         classification: 'internal',
+        executionPlan: 'checklist',
       }),
-      service = createServiceContext(owner.organizationId),
-      body = Buffer.from('Generated exact template text.'),
-      execution = {
-        kind: 'system' as const,
-        id: randomUUID(),
-        template: 'test/restore-template/v1',
-      };
-    const inventory: ArtifactInputInventory = {
-      inspectInTx: async (_tx, _context, input) =>
-        input.artifactSha256 === createHash('sha256').update(body).digest('hex') &&
-        input.workUnitId === work.id &&
-        input.execution.id === execution.id
-          ? {
-              known: true,
-              execution: input.execution,
-              workUnitId: work.id,
-              viewerMembershipId: null,
-              classification: 'internal',
-              noKnowledge: true,
-              artifactInputs: [],
-              recordInputs: [
-                {
-                  kind: 'work_unit',
-                  id: work.id,
-                  // The actual captured read-time class, which every new generated write supplies.
-                  classification: 'internal',
-                  sha256: createHash('sha256').update(JSON.stringify(work)).digest('hex'),
-                },
-              ],
-            }
-          : { known: false },
-    };
-    const artifact = await addGeneratedArtifact(
-      database.db,
-      store,
-      service,
-      {
-        workUnitId: work.id,
-        name: 'restore-template.txt',
-        mimeType: 'text/plain',
-        body,
-        execution,
-        requestKey: randomUUID(),
-      },
-      { inventory },
-    );
+      service = createServiceContext(owner.organizationId);
+    // 0419: the only explicit no-knowledge system output is the exact M2 completion checklist of a
+    // Work its run holds (knowledge.known_checklist_authority); a claimed template label or body is
+    // refused at lineage birth. So this generated file comes from the real plan and its activity.
+    await transitionWorkUnit(database.db, owner, {
+      id: work.id,
+      expectedVersion: work.version,
+      to: 'ready',
+    });
+    await requestExecution(database.db, owner, work.id);
+    const run = { organizationId: owner.organizationId, workUnitId: work.id, runId: randomUUID() },
+      activities = createActivities({ database: database.db, store });
+    expect(await activities.prepareWork(run)).toMatchObject({ status: 'running' });
+    const artifact = { id: (await activities.produceChecklistArtifact(run)).artifactId };
     const entry: LedgerEntry = {
       organizationId: owner.organizationId,
       targetType: 'artifact',
