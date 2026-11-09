@@ -187,6 +187,60 @@ describe('restricted erasure independently verifies every tenant-content table',
       ),
     ).rejects.toThrow();
   });
+  it('admits a migrator erasure tombstone only from inside prepare_erasure_artifacts (0534)', async () => {
+    const owner = await lifecycleTenant(database.db, auth),
+      file = await lifecycleArtifact(database.db, owner, new LifecycleMemoryStore()),
+      admin = new pg.Client({ connectionString: urls.superuser() }),
+      probe = `public.test_erasure_tombstone_probe_${randomUUID().replaceAll('-', '')}`;
+    await admin.connect();
+    try {
+      // Stands in for any other migrator-owned SECURITY DEFINER function a service actor can call.
+      // It writes exactly the row prepare_erasure_artifacts writes, for a fresh target.
+      await admin.query(
+        `create function ${probe}(p_target uuid) returns void language sql security definer set search_path=pg_catalog as $$ insert into platform.tombstones(organization_id,target_type,target_id,reason_code) values(app.current_organization_id(),'artifact',p_target,'TENANT_ERASURE') $$`,
+      );
+      await admin.query(`alter function ${probe}(uuid) owner to ensemus_migrator`);
+      await admin.query(`revoke all on function ${probe}(uuid) from public`);
+      await admin.query(`grant execute on function ${probe}(uuid) to ensemus_app`);
+      const ready = await readyToErase(database.db, owner);
+      await beginErasure(database.db, ready.service, {
+        offboardingId: ready.offboardingId,
+        operatorRef: 'test-operator@example.invalid',
+      });
+      // The fixed function's own write still passes the scoped policy.
+      expect(
+        (
+          await admin.query(
+            "select reason_code from platform.tombstones where organization_id=$1 and target_type='artifact' and target_id=$2",
+            [owner.organizationId, file.artifactId],
+          )
+        ).rows,
+      ).toEqual([{ reason_code: 'TENANT_ERASURE' }]);
+      // Same tenant, same service actor, same open erasure, but outside the fixed function's scope.
+      const stray = randomUUID();
+      await expect(
+        withAccountTx(database.db, ready.service, (tx) =>
+          tx.execute(sql`select ${sql.raw(probe)}(${stray}::uuid)`),
+        ),
+      ).rejects.toMatchObject({
+        cause: {
+          code: '42501',
+          message: expect.stringMatching(/row-level security policy for table "tombstones"/),
+        },
+      });
+      expect(
+        (
+          await admin.query(
+            "select 1 from platform.tombstones where organization_id=$1 and target_type='artifact' and target_id=$2",
+            [owner.organizationId, stray],
+          )
+        ).rows,
+      ).toEqual([]);
+    } finally {
+      await admin.query(`drop function if exists ${probe}(uuid)`);
+      await admin.end();
+    }
+  });
   it('advances an erasing tenant’s export epoch, and leaves a removed epoch row missing (0522)', async () => {
     const owner = await lifecycleTenant(database.db, auth),
       organizationId = owner.organizationId,

@@ -652,6 +652,20 @@
       "when": 1794201807494,
       "tag": "0532_knowledge_purge_absent_blobs_hknowledge",
       "breakpoints": true
+    },
+    {
+      "idx": 93,
+      "version": "7",
+      "when": 1794201807495,
+      "tag": "0533_support_birth_tenant_binding_hsaas",
+      "breakpoints": true
+    },
+    {
+      "idx": 94,
+      "version": "7",
+      "when": 1794201807496,
+      "tag": "0534_erasure_tombstone_scope_hsaas",
+      "breakpoints": true
     }
   ]
 }
