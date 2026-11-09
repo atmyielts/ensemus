@@ -19,6 +19,8 @@ export const SHIPPED_CONNECTIONS: Record<string, string[]> = {
   proxy: ['web'],
   web: dataPeers,
   worker: [...dataPeers, 'temporal'],
+  // Parsing and ingestion: the database, files and Temporal, and nothing outbound or in the cache.
+  'knowledge-worker': ['postgres', 'objects', 'temporal'],
   'agent-worker': ['postgres', 'temporal', 'objects'],
   dispatcher: [...dataPeers, 'temporal'],
   migrate: dataPeers,
