@@ -225,6 +225,59 @@ describe('the tombstone ledger', () => {
       ]);
     });
 
+    it('refuses a deletion whose row another deleter removed first, and records nothing', async () => {
+      const a = await newOrg();
+      const store = new MemoryStore();
+      const work = await createWorkUnit(db(), a, { title: 'W' });
+      const { id } = await file(a, store, work.id);
+      // A stand-in for a deleter that does not serialize on this Work Unit (a ledger re-apply, an
+      // erasure): it holds the row, waits until this deletion is queued behind it, then removes it.
+      // Replica mode only skips this stand-in's own triggers; the deletion under test runs normally.
+      const other = new pg.Client({ connectionString: urls.superuser() });
+      await other.connect();
+      let deleting: Promise<unknown> | undefined;
+      try {
+        await other.query('begin');
+        await other.query('select id from work.artifacts where id=$1 for update', [id]);
+        const holder = (await other.query<{ pid: number }>('select pg_backend_pid() pid')).rows[0]!
+          .pid;
+        deleting = deleteArtifact(db(), store, a, { workUnitId: work.id, artifactId: id }).catch(
+          (error: unknown) => error,
+        );
+        const deadline = Date.now() + 5000;
+        let queued = false;
+        while (Date.now() < deadline && !queued) {
+          const waiting = await su.query<{ queued: boolean }>(
+            'select exists(select 1 from pg_stat_activity where $1=any(pg_blocking_pids(pid))) queued',
+            [holder],
+          );
+          queued = waiting.rows[0]?.queued === true;
+          if (!queued) await new Promise((resolve) => setTimeout(resolve, 10));
+        }
+        expect(queued, 'Observe the deletion waiting on the row, not a timing assumption').toBe(
+          true,
+        );
+        await other.query('set local session_replication_role = replica');
+        await other.query('delete from work.work_artifacts where artifact_id=$1', [id]);
+        await other.query('delete from work.artifacts where id=$1', [id]);
+        await other.query('commit');
+        // Its DELETE now matches no row. That must not pass as a deletion.
+        expect(await deleting).toEqual(expect.objectContaining({ code: 'NOT_FOUND' }));
+      } finally {
+        await other.query('rollback').catch(() => undefined);
+        await other.end();
+        await deleting;
+      }
+      // No tombstone and no deletion or ledger event for a deletion that removed nothing.
+      const recorded = await su.query(
+        `select 'tombstone' as kind from platform.tombstones where organization_id=$1 and target_id=$2
+         union all select e.event_type from platform.domain_events e
+          where e.organization_id=$1 and e.event_type in ($3,'work.artifact_deleted')`,
+        [a.organizationId, id, TOMBSTONE_RECORDED],
+      );
+      expect(recorded.rows).toEqual([]);
+    });
+
     it('queues nothing when the deletion is refused, including across tenants', async () => {
       const a = await newOrg();
       const b = await newOrg();

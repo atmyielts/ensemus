@@ -33,7 +33,11 @@ import {
   withTenantTx,
   type AgentContext,
 } from '@ensemus/database';
+import { withAccountTx } from '@ensemus/database/account';
 import { createAgentContext, withRunLookupTx } from '@ensemus/database/agent';
+import { createServiceContext } from '@ensemus/database/service';
+import { setTenantStandingInTx } from '@ensemus/application/saas/standing';
+import { startSubscription } from '@ensemus/application/saas/subscriptions';
 import { modelLedgerKey } from '@ensemus/domain/ai';
 import { createInferenceGateway, type ModelRouter } from '@ensemus/intelligence';
 import { RecordingLender, ScriptedModelAdapter } from '@ensemus/intelligence/testing';
@@ -54,7 +58,9 @@ import {
   type AiTenant,
   type SeededAgentVersion,
 } from '../helpers/ai/fixtures';
+import { seedPlan, seedRateCard as seedBillingRateCard } from '../helpers/saas';
 import { urls } from '../helpers/stack';
+import { createSaasPorts } from '../../workers/workflow/src/saas-ports';
 
 describe('usage and budgets, as the real roles', () => {
   let app: ReturnType<typeof openAppDatabase>;
@@ -716,6 +722,19 @@ describe('usage and budgets, as the real roles', () => {
       }
     };
 
+    /** An operator's standing change, as the SaaS worker records it (ADR-032 D5). */
+    const moveStanding = (tenant: AiTenant, to: 'active' | 'read_only', reasonCode: string) => {
+      const service = createServiceContext(tenant.organizationId);
+      return withAccountTx(app.db, service, (tx) =>
+        setTenantStandingInTx(
+          tx,
+          service,
+          { to, reasonCode, actor: { type: 'operator', ref: 'test-operator@example.invalid' } },
+          createSaasPorts({}).agents,
+        ),
+      );
+    };
+
     it('entitles sovereign with nothing billable, and no row', async () => {
       const tenant = await freshTenant('sovereign');
       await expect(
@@ -728,17 +747,67 @@ describe('usage and budgets, as the real roles', () => {
       });
     });
 
-    // ADR-032 D5 (M8): hosted BYOM and Cloud are entitled only by an actual subscription with billing
-    // enabled; saas-standing-runtime covers the subscribed case. Neither mode nor a legacy row grants.
-    it('refuses hosted BYOM with no subscription, and shows it nothing', async () => {
+    // ADR-032 (M8): hosted BYOM and Cloud are entitled only by the current subscription on a
+    // deployment with billing enabled, and (D5) only while the tenant's standing is active. Neither the
+    // mode nor a legacy platform row grants anything.
+    it('entitles hosted BYOM by its subscription while active, with nothing billable', async () => {
       const tenant = await freshTenant('byom');
-      await expect(
-        createEntitlements(agent.db).check(tenant.owner, FEATURE_MODEL_CALL),
-      ).resolves.toEqual({ ok: false, code: 'ENTITLEMENT_DENIED' });
-      await expect(getEntitlementsView(app.db, tenant.owner)).resolves.toEqual({
+      const billing = { billingEnabled: true };
+      const entitlements = createEntitlements(app.db, billing);
+      const denied = { ok: false, code: 'ENTITLEMENT_DENIED' };
+      await expect(entitlements.check(tenant.owner, FEATURE_MODEL_CALL)).resolves.toEqual(denied);
+      await expect(getEntitlementsView(app.db, tenant.owner, billing)).resolves.toEqual({
         mode: 'byom',
         features: [],
         capacity: {},
+      });
+
+      await startSubscription(
+        app.db,
+        tenant.owner,
+        await seedPlan({ mode: 'byom', features: [FEATURE_MODEL_CALL, FEATURE_AGENT_RUN] }),
+      );
+      const entitled = { ok: true, billable: false, commercialMode: 'byom' };
+      await expect(entitlements.check(tenant.owner, FEATURE_MODEL_CALL)).resolves.toEqual(entitled);
+      await expect(entitlements.check(tenant.owner, FEATURE_AGENT_RUN)).resolves.toEqual(entitled);
+      await expect(getEntitlementsView(app.db, tenant.owner, billing)).resolves.toEqual({
+        mode: 'byom',
+        features: [FEATURE_AGENT_RUN, FEATURE_MODEL_CALL],
+        capacity: {},
+      });
+      // A deployment without billing grants a hosted mode nothing, subscription or not.
+      await expect(
+        createEntitlements(app.db).check(tenant.owner, FEATURE_MODEL_CALL),
+      ).resolves.toEqual(denied);
+
+      // D5: anything less than active stops new work, and the standing coming back restores it.
+      await moveStanding(tenant, 'read_only', 'TEST_COLLECTION');
+      await expect(entitlements.check(tenant.owner, FEATURE_MODEL_CALL)).resolves.toEqual(denied);
+      await moveStanding(tenant, 'active', 'TEST_PAID');
+      await expect(entitlements.check(tenant.owner, FEATURE_MODEL_CALL)).resolves.toEqual(entitled);
+    });
+
+    it('shows Cloud its subscribed plan, and keeps its model calls closed until prepaid holds exist', async () => {
+      const tenant = await freshTenant('cloud');
+      const billing = { billingEnabled: true };
+      const plan = await seedPlan({
+        mode: 'cloud',
+        rateCard: await seedBillingRateCard(),
+        features: [FEATURE_MODEL_CALL, FEATURE_AGENT_RUN],
+      });
+      await startSubscription(app.db, tenant.owner, plan);
+      const view = await getEntitlementsView(app.db, tenant.owner, billing);
+      expect(view).toMatchObject({
+        mode: 'cloud',
+        features: [FEATURE_AGENT_RUN, FEATURE_MODEL_CALL],
+      });
+      expect(view.capacity.includedMicrocredits).toBe(Number(plan.includedMicrocredits));
+      // @ensemus/commercial refuses Cloud dispatch until an actual prepaid hold is bound, whatever
+      // the subscription says, so a subscribed Cloud tenant is still denied at the M4 port.
+      const entitlements = createEntitlements(app.db, billing);
+      await expect(entitlements.check(tenant.owner, FEATURE_MODEL_CALL)).resolves.toEqual({
+        ok: false,
+        code: 'ENTITLEMENT_DENIED',
       });
     });
 

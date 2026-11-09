@@ -19,24 +19,33 @@ import {
   setSourceGrants,
 } from '@ensemus/application/knowledge/sources';
 import { ingestDocument } from '@ensemus/application/knowledge/ingest';
+import { revokeSource } from '@ensemus/application/knowledge/purge';
 import {
   createOrganization,
   domainEvents,
   knowledgeDocuments,
+  knowledgeObjectWriters,
   openAppDatabase,
   resolveTenantContext,
   withTenantTx,
   type TenantContext,
 } from '@ensemus/database';
+import { openAgentDatabase } from '@ensemus/database/agent';
 import { createServiceContext } from '@ensemus/database/service';
+import { knowledgeObjectKey } from '@ensemus/domain/knowledge';
 import { parseDocument } from '@ensemus/knowledge/parsing';
 import { eq, sql } from 'drizzle-orm';
 import { seedMember } from '../helpers/knowledge';
-import { memoryTransport, nativeKnowledgeStore } from '../helpers/knowledge-native';
+import {
+  memoryTransport,
+  nativeKnowledgeStore,
+  runNativeKnowledgePurge,
+} from '../helpers/knowledge-native';
 import { urls } from '../helpers/stack';
 
 describe('knowledge uploads and source authority', () => {
   let database: ReturnType<typeof openAppDatabase>;
+  let agent: ReturnType<typeof openAgentDatabase>;
   let auth: pg.Client;
   let owner: TenantContext;
   let other: TenantContext;
@@ -67,6 +76,7 @@ describe('knowledge uploads and source authority', () => {
   beforeAll(async () => {
     database = openAppDatabase(urls.app());
     store = nativeKnowledgeStore(database.db, transport);
+    agent = openAgentDatabase(urls.agent());
     auth = new pg.Client({ connectionString: urls.auth() });
     await auth.connect();
     const makeOwner = async () => {
@@ -90,6 +100,7 @@ describe('knowledge uploads and source authority', () => {
   });
   afterAll(async () => {
     await auth.end();
+    await agent.close();
     await database.close();
   });
 
@@ -199,25 +210,60 @@ describe('knowledge uploads and source authority', () => {
         body: Buffer.from('Generated refused replacement.'),
       }),
     ).rejects.toEqual(new AppError('FORBIDDEN'));
-    expect(key).not.toBe('');
-    // 0516: once the admitted native PUT completed, its bytes stay durably inventoried (the writer is
-    // settled) and only the native closed-source purge may delete them. The refused revision is never
-    // announced or made current, which the assertions below hold exactly as before.
-    expect(await store.exists(key)).toBe(true);
     expect((await getSource(database.db, manager, source.sourceId)).canManage).toBe(false);
     const current = await getSource(database.db, reader, source.sourceId);
     expect(current.documentId).toBe(staged.documentId);
     expect(current.latestVersion?.state).toBe('received');
+    const refused = current.latestVersion!.id;
     const announcements = await withTenantTx(
       database.db,
       createServiceContext(owner.organizationId),
-      (tx) =>
-        tx
-          .select()
-          .from(domainEvents)
-          .where(eq(domainEvents.aggregateId, current.latestVersion!.id)),
+      (tx) => tx.select().from(domainEvents).where(eq(domainEvents.aggregateId, refused)),
     );
     expect(announcements).toHaveLength(0);
+    // The refused revision's PUT had already completed. Its bytes are not left untracked: the exact
+    // native write is recorded as finished and its writer settled, so they belong to the source's raw
+    // inventory, and only the native closed-source purge deletes them (0516). Closing the source and
+    // running that purge, in its production composition, removes them.
+    expect(key).toBe(knowledgeObjectKey(owner.organizationId, refused));
+    expect(await store.exists(key)).toBe(true);
+    const observer = new pg.Client({ connectionString: urls.superuser() });
+    await observer.connect();
+    try {
+      const writes = await observer.query<{ generation: string; state: string }>(
+        'select generation::text,state from lifecycle.raw_object_writes where organization_id=$1 and document_id=$2 order by generation',
+        [owner.organizationId, refused],
+      );
+      expect(writes.rows).toEqual([
+        { generation: '0', state: 'catalog' },
+        { generation: '1', state: 'finished' },
+      ]);
+    } finally {
+      await observer.end();
+    }
+    expect(
+      await withTenantTx(database.db, createServiceContext(owner.organizationId), (tx) =>
+        tx
+          .select({ state: knowledgeObjectWriters.state })
+          .from(knowledgeObjectWriters)
+          .where(eq(knowledgeObjectWriters.documentId, refused)),
+      ),
+    ).toEqual([{ state: 'settled' }]);
+    await revokeSource(database.db, reader, {
+      sourceId: source.sourceId,
+      expectedVersion: current.version,
+      reason: 'Generated closure after a refused revision',
+    });
+    expect(
+      await runNativeKnowledgePurge({
+        app: database.db,
+        agent: agent.db,
+        store,
+        organizationId: owner.organizationId,
+        sourceId: source.sourceId,
+      }),
+    ).toMatchObject({ state: 'completed' });
+    expect(await store.exists(key)).toBe(false);
   });
   it('supports real team grants for eligible classes, denying restricted and foreign teams', async () => {
     const team = await createTeam(database.db, owner, { name: 'Generated source team' }),

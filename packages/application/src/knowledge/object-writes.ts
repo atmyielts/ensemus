@@ -10,7 +10,11 @@ import {
 import { and, eq } from 'drizzle-orm';
 import type { ObjectStore } from '../artifacts';
 import { AppError } from '../errors';
-import { assertRawWriteQuiescentInTx, rawKnowledgeObjects } from './raw-objects';
+import {
+  assertRawWriteQuiescentInTx,
+  rawKnowledgeObjects,
+  rawWriteSupersedableInTx,
+} from './raw-objects';
 
 export type ObjectWrite = {
   documentId: string;
@@ -46,7 +50,10 @@ export async function beginObjectWrite(
     .from(knowledgeObjectWriters)
     .where(eq(knowledgeObjectWriters.documentId, input.documentId))
     .for('update');
-  if (previous?.state === 'active') throw new AppError('INVALID_STATE');
+  // An active writer blocks a new one, unless its admitted PUT lost its response: that native
+  // generation stays unknown for ever, and the next generation resends the same bytes (0523).
+  if (previous?.state === 'active' && !(await rawWriteSupersedableInTx(tx, previous)))
+    throw new AppError('INVALID_STATE');
   const write = { ...input, writeId: randomUUID(), generation: (previous?.generation ?? 0) + 1 };
   const startedByMembershipId = context.actorType === 'service' ? null : context.membershipId;
   if (previous)

@@ -24,7 +24,7 @@ import {
   inspectErasure,
 } from '@ensemus/application/saas/offboarding';
 import { placeLegalHold, releaseLegalHold } from '@ensemus/application/saas/legal-holds';
-import { purgeDueBlobs, updateWorkUnit } from '@ensemus/application';
+import { createWorkUnit, purgeDueBlobs, updateWorkUnit } from '@ensemus/application';
 import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { asRole, seedTaxTreatment } from '../helpers/saas';
@@ -186,6 +186,72 @@ describe('restricted erasure independently verifies every tenant-content table',
         resolveTenantContext(database.db, who.owner.userId, who.owner.organizationId),
       ),
     ).rejects.toThrow();
+  });
+  it('advances an erasing tenant’s export epoch, and leaves a removed epoch row missing (0522)', async () => {
+    const owner = await lifecycleTenant(database.db, auth),
+      organizationId = owner.organizationId,
+      observer = new pg.Client({ connectionString: urls.superuser() });
+    await createWorkUnit(database.db, owner, { title: 'Generated epoch-tracked work' });
+    await observer.connect();
+    try {
+      const epoch = async () =>
+        (
+          await observer.query<{ epoch: string }>(
+            'select epoch::text from sovereign.export_epochs where organization_id=$1',
+            [organizationId],
+          )
+        ).rows.map((row) => BigInt(row.epoch));
+      const ready = await readyToErase(database.db, owner);
+      await beginErasure(database.db, ready.service, {
+        offboardingId: ready.offboardingId,
+        operatorRef: 'test-operator@example.invalid',
+      });
+      await publishErasureLedger(database.db, ready.service, new LifecycleMemoryStore());
+      const [before] = await epoch();
+      expect(before).toBeDefined();
+      // The restricted eraser removes epoch-tracked rows in the erasing tenant. Before 0522 every such
+      // AFTER DELETE advance was an INSERT ... ON CONFLICT, which the erasure birth fence refused.
+      await eraserClient.query('begin');
+      let removed: number;
+      try {
+        await eraserClient.query(
+          "select set_config('app.organization_id',$1,true),set_config('app.actor_type','service',true),set_config('app.user_id','',true),set_config('app.membership_id','',true),set_config('app.agent_run_id','',true)",
+          [organizationId],
+        );
+        const open = await eraserClient.query<{ open: boolean }>(
+          'select lifecycle.lock_erasure_tenant() as open',
+        );
+        expect(open.rows[0]?.open).toBe(true);
+        removed =
+          (
+            await eraserClient.query('delete from work.work_assignments where organization_id=$1', [
+              organizationId,
+            ])
+          ).rowCount ?? 0;
+        await eraserClient.query('commit');
+      } catch (error) {
+        await eraserClient.query('rollback');
+        throw error;
+      }
+      expect(removed).toBeGreaterThan(0);
+      expect(await epoch()).toEqual([before! + BigInt(removed)]);
+      // The full erasure removes the epoch row itself (sovereign before work). Every later tracked
+      // deletion then finds no row and must not create one for a tenant that is being erased.
+      const first = await eraseTenantRows(eraser, organizationId);
+      expect(first.find((row) => row.tableRef === 'sovereign.export_epochs')).toMatchObject({
+        rowsRemoved: 1,
+        rowsLeft: 0,
+      });
+      const work = first.find((row) => row.tableRef === 'work.work_units');
+      expect(work?.rowsRemoved).toBeGreaterThan(0);
+      expect(work?.rowsLeft).toBe(0);
+      expect(await epoch()).toEqual([]);
+      const retry = await eraseTenantRows(eraser, organizationId);
+      expect(retry.every((row) => row.rowsRemoved === 0 && row.rowsLeft === 0)).toBe(true);
+      expect(await epoch()).toEqual([]);
+    } finally {
+      await observer.end();
+    }
   });
   it('keeps metadata tenant-scoped after membership deletion and refuses new bodies after erasure', async () => {
     const owner = await lifecycleTenant(database.db, auth),

@@ -43,7 +43,6 @@ import {
 } from '../helpers/knowledge-native';
 import { revokeSource } from '@ensemus/application/knowledge/purge';
 import { openAgentDatabase } from '@ensemus/database/agent';
-import { recoverObjectWrites } from '../../packages/application/src/knowledge/object-writes';
 
 describe('knowledge ingestion, retries and closure', () => {
   let database: ReturnType<typeof openAppDatabase>;
@@ -292,39 +291,36 @@ describe('knowledge ingestion, retries and closure', () => {
       grants: [],
       requestKey: randomUUID(),
     };
+    let whileInFlight: unknown = null;
     const crashing = nativeKnowledgeStore(database.db, {
       ...transport,
       putSingleAttempt: async (key: string, body: Buffer, type: string) => {
         await transport.putSingleAttempt(key, body, type);
+        // Admitted and not yet answered: nobody knows this PUT's outcome, so the same request
+        // cannot replace its writer yet.
+        whileInFlight = await addUploadedSource(database.db, store, owner, input).catch(
+          (error: unknown) => error,
+        );
         throw new Error('INTERRUPTED');
       },
     });
     await expect(addUploadedSource(database.db, crashing, owner, input)).rejects.toEqual(
       new AppError('INVALID_STATE'),
     );
-    // An unknown write outcome cannot be retried just because its object now exists. Under 0516's
-    // native protocol an admitted PUT whose response was lost is never resent or certified, not even
-    // after a legacy fence Boolean or recovery sweep, so the same request stays refused.
-    await expect(addUploadedSource(database.db, store, owner, input)).rejects.toEqual(
-      new AppError('INVALID_STATE'),
-    );
-    let fenced = false;
-    await recoverObjectWrites(
-      database.db,
-      nativeKnowledgeStore(database.db, {
-        ...transport,
-        fenceKnowledgeWrite: async () => {
-          fenced = true;
-          return { quiescent: true };
-        },
-      }),
-      service(),
-    );
-    expect(fenced).toBe(false);
-    await expect(addUploadedSource(database.db, store, owner, input)).rejects.toEqual(
-      new AppError('INVALID_STATE'),
-    );
-    // No retry duplicated the source, and the unconfirmed bytes were never announced.
+    expect(whileInFlight).toEqual(new AppError('INVALID_STATE'));
+    // The lost response is now durably recorded as an unknown native outcome. The same request
+    // recovers by sending the same bytes once more as the writer's next native generation, through
+    // the ordinary admission and completion (0523); the unknown attempt is never certified.
+    let puts = 0;
+    const counted = nativeKnowledgeStore(database.db, {
+      ...transport,
+      putSingleAttempt: async (key: string, body: Buffer, type: string) => {
+        puts++;
+        return transport.putSingleAttempt(key, body, type);
+      },
+    });
+    const result = await addUploadedSource(database.db, counted, owner, input);
+    expect(puts).toBe(1);
     const sources = await withTenantTx(database.db, owner, (tx) =>
       tx.execute<{ document_id: string }>(
         sql`select d.id document_id from knowledge.sources s join knowledge.documents d
@@ -332,14 +328,27 @@ describe('knowledge ingestion, retries and closure', () => {
           where s.organization_id=${owner.organizationId}::uuid and d.title=${input.title}`,
       ),
     );
-    expect(sources.rows).toHaveLength(1);
+    expect(sources.rows).toEqual([{ document_id: result.documentId }]);
+    const observer = new pg.Client({ connectionString: urls.superuser() });
+    await observer.connect();
+    try {
+      const history = await observer.query<{ generation: string; state: string }>(
+        'select generation::text,state from lifecycle.raw_object_writes where organization_id=$1 and document_id=$2 order by generation',
+        [owner.organizationId, result.documentId],
+      );
+      expect(history.rows).toEqual([
+        { generation: '0', state: 'catalog' },
+        { generation: '1', state: 'unknown' },
+        { generation: '2', state: 'finished' },
+      ]);
+    } finally {
+      await observer.end();
+    }
     const events = await withTenantTx(database.db, owner, (tx) =>
-      tx
-        .select()
-        .from(domainEvents)
-        .where(eq(domainEvents.aggregateId, sources.rows[0]!.document_id)),
+      tx.select().from(domainEvents).where(eq(domainEvents.aggregateId, result.documentId)),
     );
-    expect(events).toHaveLength(0);
+    expect(events).toHaveLength(1);
+    expect(await ingest(result.documentId)).toMatchObject({ outcome: 'searchable' });
   });
   it('reserves one upload key across changed bodies and concurrent retries', async () => {
     const input = {
