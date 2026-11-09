@@ -52,8 +52,8 @@
     },
     {
       "path": "00-foundation/adr/ADR-028-governed-ai.md",
-      "size_bytes": 40661,
-      "sha256": "66fbf5c5597404e356fdfbb7fd323c7a84b58b91a62a10c5e1a232d93397ccda"
+      "size_bytes": 41287,
+      "sha256": "e293014ea8f9604eb7e39f8943f364dd53b7cfb465bde2d25c4e7006c20130c5"
     },
     {
       "path": "00-foundation/adr/ADR-029-company-knowledge.md",
@@ -467,13 +467,13 @@
     },
     {
       "path": "06-delivery/evidence/M6-archive-lifecycle-bindings-plan.md",
-      "size_bytes": 11619,
-      "sha256": "ea0d717ab11cae259b396feda65e0a697b72d22bf8bf6f90487ba7aea305fdac"
+      "size_bytes": 11893,
+      "sha256": "bd419fe2f93648d1c37cc8077cba6d00bc0a19bfa9037c33e40e8222669653bd"
     },
     {
       "path": "06-delivery/evidence/M6-archive-purge-composition-source.md",
-      "size_bytes": 4252,
-      "sha256": "ce73b89b849a4c08404b4cd38d93688a9b62777b53240d4de2eae0225659bd36"
+      "size_bytes": 4461,
+      "sha256": "027a35ddfa2c7113f788132a6b8e7a6e6a9d6ab651e4b77c11196f5b2a95b6a0"
     },
     {
       "path": "06-delivery/evidence/M6-input-inventory-followup.files.json",
@@ -559,6 +559,11 @@
       "path": "06-delivery/evidence/M8-report.md",
       "size_bytes": 15144,
       "sha256": "de9a150478341aa9ac8db85723329d19cdf7079a4826e9e1a7fa881b53957413"
+    },
+    {
+      "path": "06-delivery/evidence/M8-retained-historical-run-referents-source.md",
+      "size_bytes": 11032,
+      "sha256": "364fb9800c34e26f9f5b80f81825abc9ae2550403c42aeb65bef2e1f59258e20"
     },
     {
       "path": "06-delivery/evidence/M8-standing-database-checkpoint.md",
@@ -1062,8 +1067,8 @@
     },
     {
       "path": "specifications/openapi.yaml",
-      "size_bytes": 375003,
-      "sha256": "d6dead3b3def5b0144648b369155985efca09bd8b59af3e10af09303d2cd2eb7"
+      "size_bytes": 375528,
+      "sha256": "27f3af0d93856f3bf108b2f6b38bcb62bd9b3107ced9d9f995e4294fb83124ac"
     },
     {
       "path": "specifications/qa-scenarios.csv",

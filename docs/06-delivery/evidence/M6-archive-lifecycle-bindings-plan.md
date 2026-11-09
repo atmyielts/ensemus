@@ -36,6 +36,8 @@ Keep immediate serving closure in the existing current metadata/catalog predicat
 
 The existing generated structured port only accepts three kinds. Do not cast `object_record` to another kind or claim archive cleanup proves generated-file custom-record cleanup. Preserve unknown/unavailable lineage as incomplete until that actual inventory and lifecycle are implemented.
 
+Later update (CI repair round 11): the generated port accepts `object_record` since `15c061a`, and `createKnowledgeArtifactPurge` now routes it under its own kind, with no cast, through both ports. Archive cleanup alone still never completes a record. See ADR-028 item 8a.
+
 ## Restore composition
 
 Replace the constant unbound registry with an actual factory receiving database/store/agent-role recovery authorities. Bind `m6-archive-quarantine` to `createArchiveQuarantineRecovery(actualStore)` alongside all four existing actual contributors, preserving the agent-only transcript and output-writer authorities. Keep the full inventory check; a fifth zero-count placeholder is not a binding.

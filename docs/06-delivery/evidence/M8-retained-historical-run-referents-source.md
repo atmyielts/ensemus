@@ -3,7 +3,7 @@
 FLAGGED FOR HUMAN SECURITY REVIEW (ADR-032 D7), not yet reviewed by a person. Written by an agent in CI
 repair round 11 (erasure-retained-fks-0552 group, findings 1 and 10). The additive migration is
 `packages/database/migrations/0552_retained_historical_run_referents_r11erasure.sql`, journal idx 112,
-renumbered at merge if another 0552 lands first. No pushed migration (0100, 0101, 0216, 0501, 0508,
+kept as 0552 at the round 11 merge (no other round 11 branch added a migration). No pushed migration (0100, 0101, 0216, 0501, 0508,
 0511, 0516, 0518, 0548-0551) is edited. Docker was not available to the author: the SQL has not been
 applied locally, and the evidence below is from the CI log and the source.
 
