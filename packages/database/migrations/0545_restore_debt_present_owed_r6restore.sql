@@ -313,6 +313,15 @@ END $$;
 -- Postconditions: the debt readers are the fixed ones, the new tables keep forced RLS and no runtime
 -- privilege, no internal helper or clone is executable by a runtime role, and the public entry points
 -- keep the ACLs they had.
+-- ensemus_agent is a member of ensemus_app (provision.sql, upgrade-roles.sql), so it inherits EXECUTE on
+-- every function granted to ensemus_app and has_function_privilege('ensemus_agent',...) is true for the
+-- three service entry points by design. What refuses the agent there is the entry point itself, as in
+-- 0543: SECURITY DEFINER with session_user='ensemus_app' and a service actor required before anything
+-- is read. So for those three the postcondition asserts that no role other than the owner and
+-- ensemus_app holds a direct EXECUTE grant (aclexplode, so PUBLIC, the agent and the eraser are all
+-- covered) and that each still opens with that refusal. (Edited in place in CI repair round 7: as first
+-- written, the two has_function_privilege('ensemus_agent',...) clauses could never pass, so 0545 never
+-- applied anywhere.)
 DO $$ BEGIN
  IF EXISTS(SELECT 1 FROM pg_proc p WHERE p.prosrc LIKE '%FROM lifecycle.object_restore_debts %'
    AND p.proname NOT IN('open_object_restore_debts','unrequalified_object_restore_debts','object_restore_requalified',
@@ -335,10 +344,17 @@ DO $$ BEGIN
   OR has_function_privilege('ensemus_agent','lifecycle.raw_org_native_admission_before_requalify(uuid)','EXECUTE')
   OR has_function_privilege('ensemus_eraser','lifecycle.raw_org_native_admission_before_requalify(uuid)','EXECUTE')
   OR has_function_privilege('ensemus_app','lifecycle.begin_object_deletion_before_raw(jsonb)','EXECUTE')
-  OR has_function_privilege('ensemus_agent','lifecycle.requalify_archive_restore_debt(uuid,uuid,text)','EXECUTE')
   OR has_function_privilege('ensemus_eraser','lifecycle.requalify_archive_restore_debt(uuid,uuid,text)','EXECUTE')
-  OR has_function_privilege('ensemus_agent','lifecycle.requalify_raw_restore_org()','EXECUTE')
+  OR has_function_privilege('ensemus_eraser','lifecycle.archive_restore_requalification_key(uuid,uuid)','EXECUTE')
   OR has_function_privilege('ensemus_eraser','lifecycle.requalify_raw_restore_org()','EXECUTE')
+  OR EXISTS(SELECT 1 FROM pg_proc p CROSS JOIN LATERAL aclexplode(coalesce(p.proacl,acldefault('f',p.proowner))) a
+   WHERE p.oid IN('lifecycle.requalify_archive_restore_debt(uuid,uuid,text)'::regprocedure,
+    'lifecycle.archive_restore_requalification_key(uuid,uuid)'::regprocedure,'lifecycle.requalify_raw_restore_org()'::regprocedure)
+    AND a.privilege_type='EXECUTE' AND a.grantee<>p.proowner AND a.grantee<>'ensemus_app'::regrole::oid)
+  OR (SELECT count(*) FROM pg_proc p WHERE p.oid IN('lifecycle.requalify_archive_restore_debt(uuid,uuid,text)'::regprocedure,
+    'lifecycle.archive_restore_requalification_key(uuid,uuid)'::regprocedure,'lifecycle.requalify_raw_restore_org()'::regprocedure)
+    AND p.prosecdef AND p.proowner='ensemus_migrator'::regrole::oid
+    AND strpos(p.prosrc,'IF session_user<>''ensemus_app'' OR NOT knowledge.is_service_actor() OR tenant IS NULL')>0)<>3
   OR NOT has_function_privilege('ensemus_app','lifecycle.requalify_archive_restore_debt(uuid,uuid,text)','EXECUTE')
   OR NOT has_function_privilege('ensemus_app','lifecycle.archive_restore_requalification_key(uuid,uuid)','EXECUTE')
   OR NOT has_function_privilege('ensemus_app','lifecycle.requalify_raw_restore_org()','EXECUTE')

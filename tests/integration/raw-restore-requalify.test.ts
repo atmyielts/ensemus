@@ -32,6 +32,7 @@ import { purgeRunTranscriptsForSource, revokeSource } from '@ensemus/application
 import { addUploadedSource, getSource } from '@ensemus/application/knowledge/sources';
 import { withRawKnowledgeObjects } from '@ensemus/application/knowledge/raw-objects';
 import { createObjectDeletionLifecycle } from '@ensemus/application/saas/object-deletion';
+import { beginErasure } from '@ensemus/application/saas/offboarding';
 import {
   createOrganization,
   openAppDatabase,
@@ -50,11 +51,17 @@ import {
 import { createActivities } from '@ensemus/workflows/activities';
 import { pgCode } from '../../packages/application/src/errors';
 import { seedAiTenant } from '../helpers/ai/fixtures';
-import { nativeKnowledgeStore, runNativeKnowledgePurge } from '../helpers/knowledge-native';
+import {
+  nativeKnowledgeStore,
+  nativeMfaOwner,
+  runNativeKnowledgePurge,
+} from '../helpers/knowledge-native';
 import { makePerson, nativePersonContext } from '../helpers/product';
 import { testRecipient } from '../helpers/sovereign';
 import { urls } from '../helpers/stack';
 import { buildArchive } from './fixtures/archive-builder';
+import { LifecycleMemoryStore } from './saas-lifecycle-fixture';
+import { publishErasureLedger, readyToErase } from './saas-offboarding-fixture';
 
 /** A memory bucket with the single-attempt and physical-absence capabilities the runtime store has. */
 class Bucket implements ObjectStore, LedgerReader {
@@ -90,7 +97,22 @@ class Bucket implements ObjectStore, LedgerReader {
   }
 }
 
+/** The offboarding fixtures' memory store, with the single-attempt PUT the native raw port needs. */
+class RawMap extends LifecycleMemoryStore {
+  async putSingleAttempt(key: string, body: Buffer): Promise<{ transport: 'written' }> {
+    this.objects.set(key, Buffer.from(body));
+    return { transport: 'written' };
+  }
+}
+
 const isCode = (code: string) => (error: unknown) => pgCode(error) === code;
+
+/** The three 0545 service entry points that ensemus_app holds EXECUTE on. */
+const SERVICE_ENTRY_POINTS = [
+  'lifecycle.archive_restore_requalification_key(uuid,uuid)',
+  'lifecycle.requalify_archive_restore_debt(uuid,uuid,text)',
+  'lifecycle.requalify_raw_restore_org()',
+];
 
 describe('restore debt requalification (0543, 0545)', () => {
   let app: ReturnType<typeof openAppDatabase>,
@@ -163,6 +185,25 @@ describe('restore debt requalification (0543, 0545)', () => {
       return result;
     } catch (error) {
       await control.query('rollback');
+      throw error;
+    }
+  };
+  /**
+   * The raw erasure witness, lifecycle.raw_tenant_inventory_complete() (0516, rewritten by 0545). It
+   * has no runtime grant: the seal and 0516's receipt trigger (bind_raw_erasure_witness) run it as its
+   * owner, so it is read here through that same migrator login, bound to one tenant.
+   */
+  const witness = async (organizationId: string) => {
+    await migrator.query('begin');
+    try {
+      await migrator.query(`select set_config('app.organization_id',$1,true)`, [organizationId]);
+      const result = await migrator.query<{ complete: boolean | null }>(
+        'select lifecycle.raw_tenant_inventory_complete() complete',
+      );
+      await migrator.query('commit');
+      return result.rows[0]?.complete;
+    } catch (error) {
+      await migrator.query('rollback');
       throw error;
     }
   };
@@ -303,6 +344,59 @@ describe('restore debt requalification (0543, 0545)', () => {
     });
   });
 
+  describe('service entry points (0545 postcondition)', () => {
+    // ensemus_agent is created IN ROLE ensemus_app (provision.sql), so it inherits EXECUTE on every
+    // function granted to ensemus_app. 0545's postcondition therefore asserts the direct grants and the
+    // in-function refusal; these are the same two facts, observed on the real roles.
+    it('grants EXECUTE directly to ensemus_app alone, and refuses the agent inside the function', async () => {
+      const grants = await control.query<{ fn: string; grantee: string }>(
+        `select p.oid::regprocedure::text fn,a.grantee::regrole::text grantee from pg_proc p
+          cross join lateral aclexplode(coalesce(p.proacl,acldefault('f',p.proowner))) a
+          where p.oid=any($1::regprocedure[]) and a.privilege_type='EXECUTE' order by 1 collate "C",2 collate "C"`,
+        [SERVICE_ENTRY_POINTS],
+      );
+      expect(grants.rows).toEqual(
+        SERVICE_ENTRY_POINTS.flatMap((fn) => [
+          { fn, grantee: 'ensemus_app' },
+          { fn, grantee: 'ensemus_migrator' },
+        ]),
+      );
+      // The inheritance is real: the privilege check alone cannot tell the agent from the service.
+      const inherited = await control.query<{ fn: string; agent: boolean; eraser: boolean }>(
+        `select fn,has_function_privilege('ensemus_agent',fn,'EXECUTE') agent,
+          has_function_privilege('ensemus_eraser',fn,'EXECUTE') eraser from unnest($1::text[]) fn`,
+        [SERVICE_ENTRY_POINTS],
+      );
+      expect(inherited.rows).toHaveLength(SERVICE_ENTRY_POINTS.length);
+      expect(inherited.rows.every((row) => row.agent && !row.eraser)).toBe(true);
+
+      const { organizationId } = await createOrganization(app.db, {
+        userId: (await makePerson('entry-point-agent')).userId,
+        name: 'Generated entry point tenant',
+        commercialMode: 'sovereign',
+      });
+      const service = createServiceContext(organizationId);
+      // The agent login, even with a service actor, is refused before anything is read.
+      for (const call of [
+        sql`select lifecycle.archive_restore_requalification_key(${randomUUID()}::uuid,${randomUUID()}::uuid)`,
+        sql`select lifecycle.requalify_archive_restore_debt(${randomUUID()}::uuid,${randomUUID()}::uuid,'absent')`,
+        sql`select lifecycle.requalify_raw_restore_org()`,
+      ])
+        await expect(withTenantTx(agent.db, service, (tx) => tx.execute(call))).rejects.toSatisfy(
+          isCode('42501'),
+        );
+      // The same call as the service login gets past that refusal: it fails on the missing debt
+      // (EN850), not on who is calling.
+      await expect(
+        withTenantTx(app.db, service, (tx) =>
+          tx.execute(
+            sql`select lifecycle.requalify_archive_restore_debt(${randomUUID()}::uuid,${randomUUID()}::uuid,'absent')`,
+          ),
+        ),
+      ).rejects.toSatisfy(isCode('EN850'));
+    });
+  });
+
   describe('across restores (0515 rotation)', () => {
     // R: a closed source whose raw objects were purged before the restore. D: a generated file
     // whose deletion a restore re-applied. Separate tenants: each one's owed debt blocks only itself.
@@ -323,6 +417,37 @@ describe('restore debt requalification (0543, 0545)', () => {
       key: '',
       entry: undefined as unknown as LedgerEntry,
     };
+    // The raw erasure witness (0545 raw_tenant_inventory_complete). W: a tenant whose only source was
+    // purged before the restore, erased after it. E: an empty native tenant. L: a tenant an older
+    // database restored, whose organization marker is protocol 0 (legacy). Each is its own tenant.
+    const w = {
+      bucket: new RawMap(),
+      owner: undefined as unknown as TenantContext,
+      service: undefined as unknown as TenantContext,
+      sourceId: '',
+      jobId: '',
+    };
+    const e = { organizationId: '', service: undefined as unknown as TenantContext };
+    const l = { organizationId: '', service: undefined as unknown as TenantContext };
+    /** A proof row exactly like the one the service records, but for another material generation. */
+    const staleOrgProof = (organizationId: string) =>
+      control.query(
+        `insert into lifecycle.raw_org_restore_requalifications(organization_id,protocol_version,
+          prior_material_restore_generation,material_restore_generation,auth_restore_generation)
+         select i.organization_id,i.protocol_version,i.material_restore_generation,gen_random_uuid(),gen_random_uuid()
+          from lifecycle.raw_source_inventories i where i.organization_id=$1 and i.scope_kind='organization'`,
+        [organizationId],
+      );
+    const orgProofs = async (organizationId: string) =>
+      (
+        await control.query<{ protocol_version: number; prior: string; current: boolean }>(
+          `select q.protocol_version,q.prior_material_restore_generation::text prior,
+            q.material_restore_generation=o.material_restore_generation current
+           from lifecycle.raw_org_restore_requalifications q join org.organizations o on o.id=q.organization_id
+           where q.organization_id=$1 order by q.proven_at`,
+          [organizationId],
+        )
+      ).rows;
     const rStore = () => nativeKnowledgeStore(app.db, r.bucket);
     const dStore = () => nativeKnowledgeStore(app.db, d.bucket);
     const rawComplete = async () =>
@@ -466,6 +591,60 @@ describe('restore debt requalification (0543, 0545)', () => {
       expect((await perform()).failed).toBe(1);
       expect(await pending()).toBe(true);
       expect(await owed(d.owner)).toBeGreaterThan(0);
+    });
+
+    it('prepares the erasure witness tenants before the restore (0516)', async () => {
+      w.owner = await nativeMfaOwner(app.db, 'erasure-witness');
+      w.service = createServiceContext(w.owner.organizationId);
+      const store = nativeKnowledgeStore(app.db, w.bucket);
+      const source = await addUploadedSource(app.db, store, w.owner, {
+        title: 'witness source',
+        mediaType: 'text/plain',
+        body: Buffer.from('Generated witness source.'),
+        classification: 'internal',
+        grants: [],
+      });
+      w.sourceId = source.sourceId;
+      w.jobId = (
+        await revokeSource(app.db, w.owner, {
+          sourceId: w.sourceId,
+          expectedVersion: (await getSource(app.db, w.owner, w.sourceId)).version,
+          reason: 'Generated closure before a restore',
+        })
+      ).purgeJobId;
+      expect(
+        await runNativeKnowledgePurge({
+          app: app.db,
+          agent: agent.db,
+          store,
+          organizationId: w.owner.organizationId,
+          sourceId: w.sourceId,
+        }),
+      ).toMatchObject({ state: 'completed' });
+      expect(
+        w.bucket.objects.has(knowledgeObjectKey(w.owner.organizationId, source.documentId)),
+      ).toBe(false);
+      // Before any restore, 0516's conjuncts hold: an open protocol-1 marker in this generation and
+      // the one source sealed and complete.
+      expect(await witness(w.owner.organizationId)).toBe(true);
+
+      for (const tenant of [e, l]) {
+        const { organizationId } = await createOrganization(app.db, {
+          userId: (await makePerson('erasure-witness-empty')).userId,
+          name: 'Generated witness tenant',
+          commercialMode: 'sovereign',
+        });
+        tenant.organizationId = organizationId;
+        tenant.service = createServiceContext(organizationId);
+      }
+      expect(await witness(e.organizationId)).toBe(true);
+      // L's marker as a database from before 0516 left it: legacy debt, which 0516 never accepts.
+      await asRestored(
+        `update lifecycle.raw_source_inventories set protocol_version=0,state='legacy'
+          where organization_id=$1 and scope_kind='organization'`,
+        [l.organizationId],
+      );
+      expect(await witness(l.organizationId)).toBe(false);
     });
 
     it('never admits a deletion on a requalification of another writer (0543 admission)', async () => {
@@ -655,6 +834,125 @@ describe('restore debt requalification (0543, 0545)', () => {
       ).toBe(true);
       // The older source keeps its own proof; the marker proves nothing about it.
       expect(await rawComplete()).toBe(true);
+    });
+
+    it('accepts the erasure witness only on current protocol-1 proofs, and erases on them (0545)', async () => {
+      const tenant = w.owner.organizationId;
+      // The restore above left W's organization marker and its source inventory in debt.
+      expect(await witness(tenant)).toBe(false);
+      expect(await requalifyRawRestoreOrganization(app.db, w.service)).toEqual({
+        state: 'requalified',
+      });
+      // The organization proof proves nothing about the source a restore left in debt.
+      expect(await witness(tenant)).toBe(false);
+      // A proof of exactly this inventory, but recorded for another material generation (as a
+      // restored older proof row would be), is not a proof for this one.
+      await control.query(
+        `insert into lifecycle.raw_restore_requalifications(organization_id,source_id,purge_job_id,source_version,
+          capture_count,capture_sha256,document_ids,prior_material_restore_generation,material_restore_generation,auth_restore_generation)
+         select i.organization_id,i.source_id,i.purge_job_id,i.source_version,i.capture_count,i.capture_sha256,
+          coalesce((select array_agg(x.document_id order by x.document_id) from lifecycle.raw_object_writes x
+           where x.organization_id=i.organization_id and x.source_id=i.source_id and x.generation=0),'{}'::uuid[]),
+          i.material_restore_generation,gen_random_uuid(),gen_random_uuid()
+          from lifecycle.raw_source_inventories i where i.organization_id=$1 and i.scope_kind='source' and i.source_id=$2`,
+        [tenant, w.sourceId],
+      );
+      expect(await witness(tenant)).toBe(false);
+      expect(await requalifyRawRestoreSource(app.db, w.bucket, w.service, w.sourceId)).toEqual({
+        state: 'requalified',
+        observed: 'absent',
+      });
+      // The stale row was the real proof in everything but its generation.
+      const proofs = await control.query<{ current: boolean; proof: unknown }>(
+        `select q.material_restore_generation=o.material_restore_generation current,
+          jsonb_build_array(q.purge_job_id,q.source_version,q.capture_count,q.capture_sha256,q.document_ids,
+           q.prior_material_restore_generation) proof
+         from lifecycle.raw_restore_requalifications q join org.organizations o on o.id=q.organization_id
+         where q.organization_id=$1 and q.source_id=$2 order by q.proven_at`,
+        [tenant, w.sourceId],
+      );
+      expect(proofs.rows.map((row) => row.current)).toEqual([false, true]);
+      expect(proofs.rows[0]?.proof).toEqual(proofs.rows[1]?.proof);
+      expect(await witness(tenant)).toBe(true);
+
+      // The erasure on that witness. The restore demoted the source's completed purge; its agent
+      // certificates are re-issued for this generation and the purge completes on the proof, as R's
+      // did. The seal then binds the witness through 0516's receipt trigger.
+      await purgeRunTranscriptsForSource(
+        agent.db,
+        w.service,
+        { transcripts: createRunTranscriptPurge() },
+        { sourceId: w.sourceId },
+      );
+      expect(
+        await createDelegatedWorkPurge({
+          database: agent.db,
+          accounting: createKnowledgeCallStore(agent.db, { halt: createHaltCheck() }),
+        }).purgeSource(w.service, { sourceId: w.sourceId, limit: 25 }),
+      ).toMatchObject({ confirmed: true });
+      await withTenantTx(app.db, w.service, (tx) =>
+        tx.execute(
+          sql`update knowledge.purge_jobs set state='completed',completed_at=clock_timestamp() where id=${w.jobId}::uuid`,
+        ),
+      );
+      const ready = await readyToErase(app.db, w.owner);
+      await beginErasure(app.db, ready.service, {
+        offboardingId: ready.offboardingId,
+        operatorRef: 'generated-witness-review@example.invalid',
+      });
+      await publishErasureLedger(app.db, w.owner, w.bucket);
+      const sealed = await withTenantTx(app.db, ready.service, (tx) =>
+        tx.execute<{ sealed: boolean }>(
+          sql`select lifecycle.seal_delegated_erasure(${ready.offboardingId}::uuid) sealed`,
+        ),
+      );
+      expect(sealed.rows[0]?.sealed).toBe(true);
+      const receipt = await control.query<{
+        raw_protocol_version: number;
+        raw_scope_count: string;
+      }>(
+        'select raw_protocol_version,raw_scope_count::text from lifecycle.delegated_erasure_receipts where organization_id=$1',
+        [tenant],
+      );
+      // The organization marker and the source inventory, both in restore debt, both proven.
+      expect(receipt.rows).toEqual([{ raw_protocol_version: 1, raw_scope_count: '2' }]);
+
+      // E, empty: a stale organization proof is refused, the current one is accepted.
+      expect(await witness(e.organizationId)).toBe(false);
+      await staleOrgProof(e.organizationId);
+      expect(await witness(e.organizationId)).toBe(false);
+      expect(await requalifyRawRestoreOrganization(app.db, e.service)).toEqual({
+        state: 'requalified',
+      });
+      const eProofs = await orgProofs(e.organizationId);
+      expect(eProofs.map((row) => row.current)).toEqual([false, true]);
+      expect(eProofs[0]).toMatchObject({ protocol_version: 1, prior: eProofs[1]?.prior });
+      expect(await witness(e.organizationId)).toBe(true);
+
+      // L: a protocol-0 marker may be requalified (it re-admits births as before the restore), and
+      // still never satisfies the erasure witness.
+      expect(await requalifyRawRestoreOrganization(app.db, l.service)).toEqual({
+        state: 'requalified',
+      });
+      expect(await orgProofs(l.organizationId)).toMatchObject([
+        { protocol_version: 0, current: true },
+      ]);
+      expect(await witness(l.organizationId)).toBe(false);
+    });
+
+    it('reopens the erasure witness on a later restore (0545)', async () => {
+      expect(await witness(w.owner.organizationId)).toBe(true);
+      expect(await witness(e.organizationId)).toBe(true);
+      await rotate();
+      // Every proof was for the previous generation.
+      expect(await witness(w.owner.organizationId)).toBe(false);
+      expect(await witness(e.organizationId)).toBe(false);
+      expect(await witness(l.organizationId)).toBe(false);
+      // Only a proof in this generation answers it again.
+      expect(await requalifyRawRestoreOrganization(app.db, e.service)).toEqual({
+        state: 'requalified',
+      });
+      expect(await witness(e.organizationId)).toBe(true);
     });
 
     it('records the generated proof and keeps the object owed while its bytes survive', async () => {
