@@ -30,6 +30,7 @@ import { parseDocument } from '@ensemus/knowledge/parsing';
 import { S3ObjectStore } from '@ensemus/storage';
 import { eq } from 'drizzle-orm';
 import { compose, secret, urls } from '../helpers/stack';
+import { withRawKnowledgeObjects } from '@ensemus/application/knowledge/raw-objects';
 
 describe('knowledge survives a real database restore as a closed source', () => {
   it('reapplies the external tombstone before restored bytes can be served', async () => {
@@ -41,12 +42,17 @@ describe('knowledge survives a real database restore as a closed source', () => 
     let database = openAppDatabase(urls.app());
     const auth = new pg.Client({ connectionString: urls.auth() });
     await auth.connect();
-    const store = new S3ObjectStore({
+    const transport = new S3ObjectStore({
       endpoint: 'http://127.0.0.1:58333',
       bucket: 'ensemus',
       accessKey: secret('objects_access_key'),
       secretKey: secret('objects_secret_key'),
     });
+    // 0516: raw Knowledge bytes are written and purged only through the native raw port that the
+    // web and worker runtimes install on their S3 store (withRawKnowledgeObjects); a bare store has
+    // no such port and an upload is refused. The port is bound to the open database, so it is
+    // installed again once the restored database is reopened.
+    let store = withRawKnowledgeObjects({ database: database.db, store: transport });
     let stopped = false;
     try {
       const userId = randomUUID();
@@ -166,6 +172,7 @@ describe('knowledge survives a real database restore as a closed source', () => 
       );
       compose('run', '--rm', '--no-deps', 'migrate');
       database = openAppDatabase(urls.app());
+      store = withRawKnowledgeObjects({ database: database.db, store: transport });
       owner = await resolveTenantContext(database.db, userId, org.organizationId);
       const [restored] = await withTenantTx(database.db, service, (tx) =>
         tx.select().from(knowledgeSources).where(eq(knowledgeSources.id, source.sourceId)),

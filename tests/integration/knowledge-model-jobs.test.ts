@@ -656,13 +656,16 @@ describe('bounded Knowledge model jobs and principal-bound result receipts (0216
         }),
       ),
     ).toBe('42501');
+    // 0417 authority_transcript_body: the agent reads its own transcript only in a transaction that
+    // holds the run's read-scope and authority-v1 admission, as the runtime always opens it.
     expect(
-      await withTenantTx(agent.db, f.context, (tx) =>
-        tx
+      await withTenantTx(agent.db, f.context, async (tx) => {
+        await loadAgentReadScopeInTx(tx, f.context);
+        return tx
           .select({ content: stepPayloads.content })
           .from(stepPayloads)
-          .where(and(eq(stepPayloads.stepId, f.main.stepId), eq(stepPayloads.kind, 'completion'))),
-      ),
+          .where(and(eq(stepPayloads.stepId, f.main.stepId), eq(stepPayloads.kind, 'completion')));
+      }),
     ).toEqual([{ content: 'Generated current-attempt completion' }]);
     await expect(
       storeProposal(agent.db, f.context, {

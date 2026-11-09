@@ -9,7 +9,18 @@ import {
   withTenantTx,
 } from '@ensemus/database';
 import { createServiceContext } from '@ensemus/database/service';
-import { deleteArtifact, objectKey, refusalFromDatabase } from '@ensemus/application';
+import {
+  deleteArtifact,
+  objectKey,
+  reapplyTombstoneLedger,
+  refusalFromDatabase,
+} from '@ensemus/application';
+import {
+  ledgerKeyFor,
+  ledgerRef,
+  serializeLedgerEntry,
+  type LedgerEntry,
+} from '@ensemus/domain/tombstone-ledger';
 import {
   isHeldInTx,
   listLegalHolds,
@@ -183,21 +194,43 @@ describe('legal holds survive every deletion path under actual roles', () => {
     const owner = await lifecycleTenant(database.db, auth),
       store = new LifecycleMemoryStore(),
       file = await lifecycleArtifact(database.db, owner, store);
-    const [backup] = await withTenantTx(database.db, owner, (tx) =>
-      tx.select().from(artifacts).where(eq(artifacts.id, file.artifactId)),
-    );
-    await deleteArtifact(database.db, store, owner, {
-      workUnitId: file.workUnitId,
-      artifactId: file.artifactId,
-    });
+    // A restored older database still holds this row and has no tombstone for it: the deletion
+    // survives only in the independent ledger (LIFE-01), recorded here before the hold. The row is
+    // the one the older database kept; 0208's guard_generated_artifact refuses an application INSERT
+    // that would resurrect a tombstoned file ID (ARTIFACT_DELETED), so no INSERT can stand in for it.
+    const entry: LedgerEntry = {
+      organizationId: owner.organizationId,
+      targetType: 'artifact',
+      targetId: file.artifactId,
+      deletedAt: new Date(),
+    };
+    await store.put(ledgerKeyFor(entry), serializeLedgerEntry(entry));
     await placeLegalHold(database.db, owner, {
       matterRef: randomUUID(),
       scopes: [{ type: 'organization', id: null }],
     });
-    await withTenantTx(database.db, owner, (tx) => tx.insert(artifacts).values(backup!));
-    await withTenantTx(database.db, owner, (tx) =>
-      tx.delete(artifacts).where(eq(artifacts.id, file.artifactId)),
+    // Without the earlier deletion this row is held like any other (0501 refuse_held_delete).
+    let refused: unknown;
+    try {
+      await withTenantTx(database.db, owner, (tx) =>
+        tx.delete(artifacts).where(eq(artifacts.id, file.artifactId)),
+      );
+    } catch (error) {
+      refused = error;
+    }
+    expect(refusalFromDatabase(refused)?.code).toBe('LEGAL_HOLD_ACTIVE');
+    // Reapplying the ledger restores the tombstone at its original time, before the hold (0501
+    // refuse_held_tombstone and refuse_held_delete judge the deletion time), and removes the row.
+    const failures: unknown[] = [];
+    const applied = await reapplyTombstoneLedger(
+      database.db,
+      store,
+      createServiceContext,
+      (error) => failures.push(error),
+      { confirmed: new Set([ledgerRef(entry)]) },
     );
+    expect(failures).toEqual([]);
+    expect(applied).toMatchObject({ failed: 0, tombstonesAdded: 1, artifactsRemoved: 1 });
     expect(
       await withTenantTx(database.db, owner, (tx) => tx.select().from(artifacts)),
     ).toHaveLength(0);

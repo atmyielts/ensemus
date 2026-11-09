@@ -130,28 +130,42 @@ export async function retrieveHybrid(
       lexical.map((row) => ({ chunkId: row.chunkId, rank: Number(row.rank) })),
       vectors.map((row) => ({ chunkId: row.chunkId, rank: Number(row.rank) })),
       { limit },
-    ).map((hit): RetrievedPassage => {
-      const row = byId.get(hit.chunkId)!;
-      return {
-        chunkId: row.chunkId,
-        documentId: row.documentId,
-        sourceId: row.sourceId,
-        text: row.text,
-        contentSha256: row.contentSha256,
-        tokenEstimate: row.tokenEstimate,
-        classification: row.classification,
-        title: row.title,
-        sourceVersion: row.sourceVersion,
-        sourceUrl: row.sourceUrl,
-        sourceModifiedAt: row.sourceModifiedAt,
-        searchableAt: row.searchableAt,
-        score: hit.score,
-        lexicalRank: hit.lexicalRank,
-        vectorRank: hit.vectorRank,
-      };
-    });
+    ).map((hit) => toRetrievedPassage(byId.get(hit.chunkId)!, hit));
     return { mode: vectors.length ? 'hybrid' : 'lexical', passages };
   });
+}
+
+/**
+ * A raw `tx.execute` row carries timestamptz as PostgreSQL text: drizzle's node-postgres session
+ * keeps those types unparsed for raw queries. The passage promises Dates, which every caller formats.
+ */
+export function toRetrievedPassage(
+  row: RankedPassage,
+  hit: { score: number; lexicalRank: number | null; vectorRank: number | null },
+): RetrievedPassage {
+  return {
+    chunkId: row.chunkId,
+    documentId: row.documentId,
+    sourceId: row.sourceId,
+    text: row.text,
+    contentSha256: row.contentSha256,
+    tokenEstimate: row.tokenEstimate,
+    classification: row.classification,
+    title: row.title,
+    sourceVersion: row.sourceVersion,
+    sourceUrl: row.sourceUrl,
+    sourceModifiedAt: row.sourceModifiedAt === null ? null : passageTime(row.sourceModifiedAt),
+    searchableAt: passageTime(row.searchableAt),
+    score: hit.score,
+    lexicalRank: hit.lexicalRank,
+    vectorRank: hit.vectorRank,
+  };
+}
+
+function passageTime(value: Date | string): Date {
+  const time = value instanceof Date ? value : new Date(value);
+  if (!Number.isFinite(time.getTime())) throw new AppError('INVALID_STATE');
+  return time;
 }
 
 /** Shared by company search. A previously issued context does not keep a disabled member alive. */
@@ -187,7 +201,13 @@ export function searchLimit(limit = 10): number {
   return limit;
 }
 
-type RankedPassage = Omit<RetrievedPassage, 'score' | 'lexicalRank' | 'vectorRank'> & {
+export type RankedPassage = Omit<
+  RetrievedPassage,
+  'score' | 'lexicalRank' | 'vectorRank' | 'sourceModifiedAt' | 'searchableAt'
+> & {
+  /** Text from a raw query (see toRetrievedPassage); a Date only if a driver ever parses it. */
+  sourceModifiedAt: Date | string | null;
+  searchableAt: Date | string;
   channel: 'lexical' | 'vector';
   rank: number;
 };
