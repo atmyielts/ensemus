@@ -316,6 +316,8 @@ export const PORTABILITY_INVENTORY = [
   // 0545 archive restore-debt proofs and raw organization marker re-admissions, bound the same way.
   inventory('lifecycle.archive_restore_requalifications', 'history', 'operational_excluded'),
   inventory('lifecycle.raw_org_restore_requalifications', 'knowledge', 'operational_excluded'),
+  // 0549 re-proofs of an active source a restore left in raw debt, bound the same way.
+  inventory('lifecycle.raw_active_source_requalifications', 'knowledge', 'operational_excluded'),
 ] as const;
 
 export const PORTABILITY_INVENTORY_PROFILES = {

@@ -757,6 +757,20 @@
       "when": 1794201807509,
       "tag": "0547_raw_restore_survivor_deletion_r7restore",
       "breakpoints": true
+    },
+    {
+      "idx": 108,
+      "version": "7",
+      "when": 1794201807510,
+      "tag": "0548_restore_entry_refusal_first_r8restore",
+      "breakpoints": true
+    },
+    {
+      "idx": 109,
+      "version": "7",
+      "when": 1794201807511,
+      "tag": "0549_raw_restore_active_source_r8restore",
+      "breakpoints": true
     }
   ]
 }

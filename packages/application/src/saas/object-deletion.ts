@@ -37,6 +37,24 @@ export type DeletionTarget =
       materialRestoreGeneration: string;
       authRestoreGeneration: string;
     }
+  /**
+   * One raw Knowledge object whose bytes survived an admitted restore (0547). The keys are exactly
+   * what lifecycle.raw_restore_survivor_delete_target returns and begin_object_deletion compares, key
+   * for key: `priorMaterialRestoreGeneration` is the generation the source's restore debt was left
+   * from, the other two are the current ones. Service-only; SQL refuses any other key set.
+   */
+  | {
+      kind: 'raw_restore_survivor';
+      sourceId: string;
+      sourceVersion: string;
+      purgeJobId: string;
+      documentId: string;
+      writeId: string;
+      generation: number;
+      priorMaterialRestoreGeneration: string;
+      materialRestoreGeneration: string;
+      authRestoreGeneration: string;
+    }
   | { kind: 'archive'; importId: string; sourceArtifactId: string; writeToken: string };
 export type DeletionAdmission =
   | { state: 'held' }

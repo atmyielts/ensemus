@@ -4,7 +4,7 @@
 //   node dist/reapply-ledger.js [--confirm <entry>]... [--confirm-file <path>]... [--quarantine <entry or key>]...
 //     [--requalify-organization <org>]... [--requalify-artifact <org>/<artifact>]...
 //     [--requalify-archive <org>/<import>/<source artifact>]... [--requalify-source <org>/<source>]...
-//     [--delete-raw-survivor <org>/<source>/<document>]...
+//     [--delete-raw-survivor <org>/<source>/<document>]... [--requalify-active-source <org>/<source>]...
 // An <entry> is what this prints as ledgerEntry. --confirm says that a deletion it could not take on
 // the ledger's word alone is real, and --confirm-file says the same of each entry a file lists.
 // --quarantine says that it is not, and moves the object aside. Each --requalify-* names one object a
@@ -13,6 +13,11 @@
 // lifecycle (the generated-file one runs in the re-apply below). --delete-raw-survivor names one raw
 // object whose bytes survived the restore (0547, FLAGGED FOR HUMAN SECURITY REVIEW, not yet reviewed
 // by a person): the ordinary lifecycle deletes and proves it, and only then is its source re-proven.
+// --requalify-active-source names one source that was still active when a restore left its raw
+// inventory in debt (0549, FLAGGED FOR HUMAN SECURITY REVIEW, not yet reviewed by a person): every
+// catalogued object is read and hashed, and the observation recorded, so the source can be closed
+// and written to again. It needs --requalify-organization for the same tenant first, in this run or
+// an earlier one.
 import { readFileSync } from 'node:fs';
 import { parseArgs } from 'node:util';
 import {
@@ -21,6 +26,7 @@ import {
   reapplyTombstoneLedger,
   requalifyArchiveRestoreDebt,
   requalifyGeneratedRestoreDebt,
+  requalifyRawRestoreActiveSource,
   requalifyRawRestoreOrganization,
   requalifyRawRestoreSource,
   type LedgerReader,
@@ -85,6 +91,7 @@ export type RestoreRequalificationRequest =
   | { kind: 'archive'; organizationId: string; importId: string; sourceArtifactId: string }
   | { kind: 'source'; organizationId: string; sourceId: string }
   | { kind: 'organization'; organizationId: string }
+  | { kind: 'active_source'; organizationId: string; sourceId: string }
   | { kind: 'survivor'; organizationId: string; sourceId: string; documentId: string };
 
 /** The options that name them. Each names exactly one object by its IDs: never a pattern or a count. */
@@ -99,6 +106,7 @@ export const REQUALIFY_OPTIONS = {
   'requalify-source': exactObjects(),
   'requalify-organization': exactObjects(),
   'delete-raw-survivor': exactObjects(),
+  'requalify-active-source': exactObjects(),
 };
 
 /** The service-only requalifications a run calls. Only a test replaces them. */
@@ -108,6 +116,7 @@ export type RequalifyFunctions = {
   source: typeof requalifyRawRestoreSource;
   organization: typeof requalifyRawRestoreOrganization;
   survivor?: typeof deleteRawRestoreSurvivor;
+  activeSource?: typeof requalifyRawRestoreActiveSource;
 };
 
 const EXACT_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -123,17 +132,32 @@ function exactIds(given: string, count: number): string[] {
  * Reads `--requalify-artifact <organization>/<artifact>`, `--requalify-archive
  * <organization>/<import>/<source artifact>`, `--requalify-source <organization>/<source>`,
  * `--requalify-organization <organization>` and `--delete-raw-survivor
- * <organization>/<source>/<document>`. Anything else refuses the whole command before it starts.
+ * <organization>/<source>/<document>` and `--requalify-active-source <organization>/<source>`.
+ * Anything else refuses the whole command before it starts.
  */
 export function readRequalifications(
   values: {
-    [K in Exclude<keyof typeof REQUALIFY_OPTIONS, 'delete-raw-survivor'>]: string[];
-  } & { 'delete-raw-survivor'?: string[] },
+    [
+      K in Exclude<
+        keyof typeof REQUALIFY_OPTIONS,
+        'delete-raw-survivor' | 'requalify-active-source'
+      >
+    ]: string[];
+  } & { 'delete-raw-survivor'?: string[]; 'requalify-active-source'?: string[] },
 ): RestoreRequalificationRequest[] {
   return [
     ...values['requalify-organization'].map((given) => {
       const [organizationId] = exactIds(given, 1);
       return { kind: 'organization' as const, organizationId: organizationId! };
+    }),
+    // After the organization marker, which 0549 requires requalified first.
+    ...(values['requalify-active-source'] ?? []).map((given) => {
+      const [organizationId, sourceId] = exactIds(given, 2);
+      return {
+        kind: 'active_source' as const,
+        organizationId: organizationId!,
+        sourceId: sourceId!,
+      };
     }),
     ...values['requalify-artifact'].map((given) => {
       const [organizationId, artifactId] = exactIds(given, 2);
@@ -172,19 +196,21 @@ export function readRequalifications(
 export type RequalificationOutcome = {
   request: RestoreRequalificationRequest;
   /**
-   * `requalified`, `present`, `unconfirmed`, `held` (a legal hold refused a survivor's deletion), or
-   * `refused` when SQL or the store refused it. For a survivor, the state of its source once the
-   * deletion was proven, with `deleted` set.
+   * `requalified`, `present`, `unconfirmed`, `held` (a legal hold refused a survivor's deletion),
+   * `missing` (an active source's catalogued object the store reports absent), or `refused` when SQL
+   * or the store refused it. For a survivor, the state of its source once the deletion was proven,
+   * with `deleted` set.
    */
-  state: 'requalified' | 'present' | 'unconfirmed' | 'held' | 'refused';
+  state: 'requalified' | 'present' | 'unconfirmed' | 'held' | 'missing' | 'refused';
   observed?: 'present' | 'absent';
   documentIds?: readonly string[];
   deleted?: true;
   errorCode?: string;
 };
 
-/** What a run uses of the store: the physical-absence check, and for a survivor its purge capability. */
-export type RequalificationStore = RawRestoreSurvivorStore;
+/** What a run uses of the store: the physical-absence check, for a survivor its purge capability,
+ * and for an active source the reads of its objects. */
+export type RequalificationStore = RawRestoreSurvivorStore & Partial<Pick<ObjectStore, 'get'>>;
 
 /**
  * Re-proves each named object through the application's service-only requalification, one at a time.
@@ -207,12 +233,21 @@ export async function runRequalifications(
     organization: requalifyRawRestoreOrganization,
   };
   const survivor = requalify.survivor ?? deleteRawRestoreSurvivor;
+  const activeSource = requalify.activeSource ?? requalifyRawRestoreActiveSource;
   const outcomes: RequalificationOutcome[] = [];
   for (const request of requests) {
     const context = createServiceContext(request.organizationId);
     try {
       if (request.kind === 'organization') {
         outcomes.push({ request, state: (await requalify.organization(database, context)).state });
+        continue;
+      }
+      if (request.kind === 'active_source') {
+        const answer = await activeSource(database, store, context, request.sourceId);
+        const outcome: RequalificationOutcome = { request, state: answer.state };
+        if (answer.state === 'missing') outcome.documentIds = answer.documentIds;
+        else if (answer.state === 'requalified') outcome.observed = answer.observed;
+        outcomes.push(outcome);
         continue;
       }
       if (request.kind === 'survivor') {
@@ -337,7 +372,9 @@ export async function reapplyCommand(
       status: `${outcome.deleted ? 'deleted:' : ''}${outcome.observed ? `${outcome.state}:${outcome.observed}` : outcome.state}`,
       ...(outcome.request.kind === 'survivor'
         ? { sourceId: outcome.request.sourceId, documentId: outcome.request.documentId }
-        : {}),
+        : outcome.request.kind === 'active_source'
+          ? { sourceId: outcome.request.sourceId }
+          : {}),
       ...(outcome.documentIds ? { count: outcome.documentIds.length } : {}),
       ...(outcome.errorCode ? { errorCode: outcome.errorCode } : {}),
     });

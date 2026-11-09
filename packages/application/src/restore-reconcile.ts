@@ -992,9 +992,11 @@ export async function deleteRawRestoreSurvivor(
         : {}),
     },
   });
-  // The executor hands the target to lifecycle.begin_object_deletion as it is. Its 'raw_restore_survivor'
-  // kind is 0547's, which DeletionTarget does not list; SQL checks every key of it again.
-  const result = await erase(context, target.data as unknown as DeletionTarget);
+  // The executor hands the target to lifecycle.begin_object_deletion as it is: DeletionTarget's
+  // 'raw_restore_survivor' variant (0547), with exactly the keys parsed above, and SQL checks every
+  // key of it again against the target it names itself.
+  const survivor: DeletionTarget = target.data;
+  const result = await erase(context, survivor);
   if (result.state !== 'purged') return { state: result.state };
   return {
     state: 'deleted',
@@ -1034,6 +1036,99 @@ export async function requalifyArchiveRestoreDebt(
     ),
   );
   return { state: 'requalified', observed };
+}
+
+/**
+ * What re-proving one active source a restore left in raw debt found (0549). `requalified` records
+ * the proof for the current material restore generation. `missing` names catalogued objects the store
+ * itself reports physically absent: nothing is recorded and the source stays in debt. `unconfirmed`
+ * means the source is not one this path covers, or the store could not be read or cannot certify
+ * absence, so nothing was observed and nothing is recorded.
+ */
+export type ActiveSourceRequalification =
+  | { state: 'requalified'; observed: 'present' }
+  | { state: 'missing'; documentIds: readonly string[] }
+  | { state: 'unconfirmed' };
+
+/** The store reads the active-source re-proof uses: the bytes, and the physical-absence check. */
+export type ActiveSourceRequalificationStore = Pick<ObjectStore, 'isPhysicallyAbsent'> &
+  Partial<Pick<ObjectStore, 'get'>>;
+
+/**
+ * Re-proves one ACTIVE source whose raw inventory a restore rotation left as 0516 restore debt,
+ * although it was never sealed or closed (0549, check finding 6). FLAGGED FOR HUMAN SECURITY REVIEW,
+ * not yet reviewed by a person. Without it the source can never be revoked or deleted (0516's guard
+ * refuses its inventory's move), and no new version of it can be written.
+ *
+ * Needs the restore admitted (0422) and the tenant's raw marker requalified first
+ * (`requalifyRawRestoreOrganization`, 0545). Every catalogued object of an earlier generation is read
+ * from the store and hashed; one service-only SQL call then records the observation, and SQL refuses
+ * unless each one matches its catalog row and live header exactly, every writer of the source
+ * concluded and no deletion claim on its objects is unresolved. It writes and deletes nothing. A
+ * requalified source can be closed, and a new version of it written natively; its older objects are
+ * never written again, and their purge after a closure stays owed (0549's header). Running it again
+ * changes nothing.
+ */
+export async function requalifyRawRestoreActiveSource(
+  database: AppDatabase,
+  store: ActiveSourceRequalificationStore,
+  context: TenantContext,
+  sourceId: string,
+): Promise<ActiveSourceRequalification> {
+  requireRestoreService(context, sourceId);
+  const documents = await withTenantTx(database, context, async (tx) => {
+    const result = await tx.execute<{ documents: string[] | null }>(
+      sql`select lifecycle.raw_active_restore_requalification_documents(${sourceId}::uuid)::text[] as documents`,
+    );
+    return result.rows[0]?.documents ?? null;
+  });
+  if (!documents || documents.some((id) => !IS_UUID.test(id)) || !store.get)
+    return { state: 'unconfirmed' };
+  const observed: { documentId: string; sha256: string; size: number }[] = [];
+  const missing: string[] = [];
+  for (const documentId of documents) {
+    const key = knowledgeObjectKey(context.organizationId, documentId);
+    let bytes: Buffer;
+    try {
+      bytes = await store.get(key);
+    } catch {
+      // A read that failed is not absence: only the store's own physical-absence check says so.
+      if ((await observePhysicalAbsence(store, key)) === true) {
+        missing.push(documentId);
+        continue;
+      }
+      return { state: 'unconfirmed' };
+    }
+    observed.push({
+      documentId,
+      sha256: createHash('sha256').update(bytes).digest('hex'),
+      size: bytes.length,
+    });
+  }
+  if (missing.length > 0) return { state: 'missing', documentIds: missing };
+  // The exact set SQL named, each read above. Never a pattern or a count.
+  const list = <T>(values: readonly T[], cast: 'uuid' | 'text' | 'bigint') =>
+    values.length === 0
+      ? sql.raw(`'{}'::${cast}[]`)
+      : sql`ARRAY[${sql.join(
+          values.map((value) => sql`${value}::${sql.raw(cast)}`),
+          sql`, `,
+        )}]::${sql.raw(cast)}[]`;
+  await withTenantTx(database, context, (tx) =>
+    tx.execute(
+      sql`select lifecycle.requalify_raw_restore_active_source(${sourceId}::uuid,${list(
+        observed.map((o) => o.documentId),
+        'uuid',
+      )},${list(
+        observed.map((o) => o.sha256),
+        'text',
+      )},${list(
+        observed.map((o) => o.size),
+        'bigint',
+      )}) as state`,
+    ),
+  );
+  return { state: 'requalified', observed: 'present' };
 }
 
 /**
