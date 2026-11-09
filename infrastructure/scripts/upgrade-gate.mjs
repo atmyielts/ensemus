@@ -22,7 +22,8 @@ const PROJECT = 'ensemus-upgrade';
 const PORT = process.env.ENSEMUS_UPGRADE_PORT ?? '18443';
 const BASE_URL = `https://localhost:${PORT}`;
 const RUN_TIMEOUT_MS = 90_000;
-const IMAGES = { web: 'web', worker: 'worker', dispatcher: 'worker', migrate: 'worker' };
+// Every image either release built, so the clean-up can remove them all.
+const BUILT_IMAGES = new Set();
 const WORK_PAGE = 'apps/web/src/app/o/[organizationId]/work/[workUnitId]/page.tsx';
 // Its oldest release: earlier runs have to drain first (see "Upgrades and rollback" in the runbook).
 const RUN_ID_MIGRATION = '0004_work_integrity';
@@ -70,14 +71,50 @@ function chooseBase() {
   return commit;
 }
 
+/** `ensemus/web:local` -> `web`: the name a release's own tag is made from. */
+const imageName = (image) =>
+  image
+    .replace(/@.*$/, '')
+    .replace(/:[^/]*$/, '')
+    .split('/')
+    .pop();
+
+/**
+ * Every service of one release's Compose file that runs an image the release builds itself, in every
+ * profile: those with a build, and any (a replica, say) that reuses one of their images without one.
+ * Read from Compose rather than listed here, so a worker added later can neither be pulled from a
+ * registry nor be left running the other release.
+ */
+function locallyBuilt(composeFile, options) {
+  const compose = (...args) =>
+    execFileSync('docker', ['compose', '-f', composeFile, ...args], {
+      ...options,
+      // Profiles are named one by one: COMPOSE_PROFILES would otherwise narrow or widen the list.
+      env: { ...options.env, COMPOSE_PROFILES: '' },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+  const profiles = compose('config', '--profiles')
+    .split('\n')
+    .map((name) => name.trim())
+    .filter(Boolean)
+    .flatMap((name) => ['--profile', name]);
+  const config = JSON.parse(compose(...profiles, 'config', '--format', 'json'));
+  const services = Object.entries(config.services ?? {});
+  const builtImages = new Set(
+    services.filter(([, service]) => service.build).map(([name, service]) => service.image ?? name),
+  );
+  return Object.fromEntries(
+    services
+      .filter(([, service]) => service.build || builtImages.has(service.image))
+      .map(([name, service]) => [name, imageName(service.image ?? name)]),
+  );
+}
+
 /** One release's stack: its own compose file, under one project, tagged so nothing is overwritten. */
 function stack(label, tree, scratch) {
   const override = join(scratch, `images-${label}.yaml`);
-  const services = Object.entries(IMAGES)
-    .map(([service, image]) => `  ${service}: { image: 'ensemus-upgrade/${image}:${label}' }`)
-    .join('\n');
-  writeFileSync(override, `services:\n${services}\n`);
-  const files = ['-f', join(tree, 'infrastructure/compose/compose.yaml'), '-f', override];
+  const composeFile = join(tree, 'infrastructure/compose/compose.yaml');
+  const files = ['-f', composeFile, '-f', override];
   const options = (stdio) => ({
     cwd: tree,
     encoding: 'utf8',
@@ -98,12 +135,40 @@ function stack(label, tree, scratch) {
     },
   });
   const command = ['compose', '-p', PROJECT, ...files];
+  // Written on first use, because the base release's tree does not exist until its worktree is added.
+  let images;
+  const prepared = () => {
+    if (!images) {
+      images = locallyBuilt(composeFile, options('ignore'));
+      if (!images.web || !images.worker) {
+        throw new Error(`No locally built web and worker services in ${composeFile}`);
+      }
+      const services = Object.entries(images).map(([service, image]) => {
+        BUILT_IMAGES.add(`ensemus-upgrade/${image}:${label}`);
+        return `  ${service}: { image: 'ensemus-upgrade/${image}:${label}' }`;
+      });
+      writeFileSync(override, `services:\n${services.join('\n')}\n`);
+    }
+    return images;
+  };
+  const docker = (args) => {
+    prepared();
+    return ['docker', [...command, ...args]];
+  };
   return {
+    /** Each service that runs a locally built image, and that image's name. */
+    images: prepared,
     /** Output goes to the console, for the steps that take minutes. */
-    run: (...args) => execFileSync('docker', [...command, ...args], options('inherit')),
-    capture: (...args) =>
-      execFileSync('docker', [...command, ...args], options(['ignore', 'pipe', 'pipe'])),
-    quiet: (...args) => spawnSync('docker', [...command, ...args], options('ignore')),
+    run: (...args) => execFileSync(...docker(args), options('inherit')),
+    capture: (...args) => execFileSync(...docker(args), options(['ignore', 'pipe', 'pipe'])),
+    quiet: (...args) => {
+      try {
+        return spawnSync(...docker(args), options('ignore'));
+      } catch {
+        // Its Compose file could not be read. Whatever runs under the project still has to go.
+        return spawnSync('docker', ['compose', '-p', PROJECT, ...args], options('ignore'));
+      }
+    },
   };
 }
 
@@ -151,12 +216,8 @@ async function main() {
 
   const cleanUp = () => {
     after.quiet('down', '-v', '--remove-orphans');
-    for (const label of ['base', 'current']) {
-      for (const image of new Set(Object.values(IMAGES))) {
-        spawnSync('docker', ['image', 'rm', '-f', `ensemus-upgrade/${image}:${label}`], {
-          stdio: 'ignore',
-        });
-      }
+    for (const image of BUILT_IMAGES) {
+      spawnSync('docker', ['image', 'rm', '-f', image], { stdio: 'ignore' });
     }
     cleanupUpgradeScratch({
       scratchParent,
@@ -256,16 +317,21 @@ async function main() {
     after.run('up', '-d', '--wait', '--wait-timeout', '300');
     const migrationsAfter = migrationsApplied();
     console.log(`${migrationsAfter} migrations applied after the upgrade.`);
-    const imageOf = (service) =>
-      execFileSync(
+    // Every container still up that runs a locally built image runs this release's. One-shot jobs such
+    // as migrate have exited, and services in profiles nobody enabled are not there.
+    const running = new Set(after.capture('ps', '--services').trim().split('\n'));
+    for (const service of ['web', 'worker', 'dispatcher']) {
+      if (!running.has(service)) throw new Error(`${service} is not running after the upgrade`);
+    }
+    for (const [service, image] of Object.entries(after.images())) {
+      if (!running.has(service)) continue;
+      const container = after.capture('ps', '-q', service).trim();
+      const actual = execFileSync(
         'docker',
-        ['inspect', after.capture('ps', '-q', service).trim(), '--format', '{{.Config.Image}}'],
+        ['inspect', container, '--format', '{{.Config.Image}}'],
         { encoding: 'utf8' },
       ).trim();
-    for (const [service, image] of Object.entries(IMAGES)) {
-      if (service !== 'migrate') {
-        expectEqual(imageOf(service), `ensemus-upgrade/${image}:current`, `${service} image`);
-      }
+      expectEqual(actual, `ensemus-upgrade/${image}:current`, `${service} image`);
     }
     await until('the upgraded release to answer', async () => {
       const response = await forms.visit('/api/health/ready');
@@ -319,6 +385,8 @@ async function main() {
     failed = true;
     console.error(`\nFAILED: ${error instanceof Error ? error.message : String(error)}`);
     after.run('logs', '--tail', '40', 'web', 'worker', 'dispatcher', 'migrate');
+    // migrate logs only an error code. PostgreSQL logs the message and the statement that failed.
+    after.run('logs', '--tail', '60', 'postgres');
   } finally {
     if (keep) {
       console.log(`Left running as project ${PROJECT}, with the worktree at ${tree}.`);

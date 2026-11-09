@@ -285,6 +285,11 @@ try {
   down();
   console.log('Building images...');
   compose('build');
+  // The operator tools the restore drill and the bundle tests run on the host, as an operator would.
+  // Built here, before anything is blocked, so the suite never finds them missing.
+  if (!control) {
+    run(process.execPath, [join(root, 'workers/workflow/scripts/build-sovereign-tools.mjs')]);
+  }
   // Count from before the first container starts. Version checks and similar calls often fire
   // during startup, and a rule installed afterwards would never see them.
   installRule();

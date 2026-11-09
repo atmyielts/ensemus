@@ -305,6 +305,7 @@ services:
     volumes:
       - ./postgres/upgrade-roles.sh:/provision/upgrade-roles.sh:ro
       - ./postgres/upgrade-roles.sql:/provision/upgrade-roles.sql:ro
+      - ./postgres/upgrade-roles-m8.sql:/provision/upgrade-roles-m8.sql:ro
     secrets: [db_superuser_password, db_agent_password]
     depends_on:
       postgres: { condition: service_healthy }

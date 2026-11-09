@@ -44,9 +44,16 @@ jobs:
       - name: Docs manifest is current
         run: node docs/specifications/tools/regenerate-manifest.mjs && git diff --exit-code docs/MANIFEST.json
 
+  # Over 120 files on one database, one file at a time, is more than one job's limit. Each shard is its own
+  # runner with its own PostgreSQL, and vitest's --shard gives every file to exactly one of them.
   integration:
+    name: integration (${{ matrix.shard }}/${{ strategy.job-total }})
     runs-on: ubuntu-24.04
     timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4, 5, 6]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
@@ -55,7 +62,7 @@ jobs:
       - run: corepack enable
       - run: pnpm install --frozen-lockfile
       - name: Real PostgreSQL roles, RLS, auth and secrets
-        run: pnpm test:integration
+        run: pnpm test:integration --shard=${{ matrix.shard }}/${{ strategy.job-total }}
 
   # The stack jobs below run the test overlay's Caddyfile, so this is the one place the deployed Caddyfile
   # runs. It builds nothing, and needs only the proxy's pinned image.
