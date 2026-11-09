@@ -498,6 +498,8 @@ describe('external action rules in the database', () => {
         withTenantTx(database.db, ctxA, (tx) => tx.delete(externalActions).where(sql`true`)),
       ).rejects.toEqual(denied);
 
+      // 0508's lifecycle guard now answers first with its own append-only refusal, before 0013's.
+      const appendOnly = /append-only|APPEND_ONLY_CHANGE_REFUSED/;
       const owner = await client(urls.migrator());
       for (const table of [
         'external_action_receipts',
@@ -505,12 +507,12 @@ describe('external action rules in the database', () => {
         'external_action_attempts',
       ]) {
         await expect(owner.query(`delete from integrations.${table}`), table).rejects.toThrow(
-          /append-only/,
+          appendOnly,
         );
       }
       await expect(
         owner.query(`update integrations.external_action_receipts set code = 'x'`),
-      ).rejects.toThrow(/append-only/);
+      ).rejects.toThrow(appendOnly);
       await owner.end();
     });
 
@@ -572,8 +574,13 @@ describe('external action rules in the database', () => {
           }),
         ),
       ).rejects.toEqual(
+        // 0508's BEFORE INSERT tenant-birth guard refuses it before the row-security check runs.
+        // Either way it is an insufficient-privilege refusal for the wrong tenant.
         expect.objectContaining({
-          cause: expect.objectContaining({ message: expect.stringMatching(/row-level security/) }),
+          cause: expect.objectContaining({
+            code: '42501',
+            message: expect.stringMatching(/row-level security|INVALID_ERASURE_BIRTH_TENANT/),
+          }),
         }),
       );
       // This tenant's row, naming their connection.

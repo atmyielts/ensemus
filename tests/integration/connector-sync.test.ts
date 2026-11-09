@@ -50,6 +50,7 @@ import { storeSecret } from '@ensemus/secrets/seal';
 import { createConnectorSyncActivities } from '@ensemus/workflows/connector-sync-activities';
 import type { ConnectorActivityDeps } from '@ensemus/workflows/connector-deps';
 import { eq, sql } from 'drizzle-orm';
+import { inFixtureTenant } from '../helpers/fixture-tenant';
 import { secret, urls } from '../helpers/stack';
 
 const code = (name: string) => expect.objectContaining({ code: name });
@@ -760,10 +761,15 @@ describe('connector sync', () => {
       ).resolves.toEqual({ membershipId: joined.membershipId });
       const su = new pg.Client({ connectionString: urls.superuser() });
       await su.connect();
-      await su.query(`update org.memberships set status = 'disabled' where id = $1`, [
-        joined.membershipId,
-      ]);
-      await su.end();
+      try {
+        await inFixtureTenant(su, ownerA.organizationId, () =>
+          su.query(`update org.memberships set status = 'disabled' where id = $1`, [
+            joined.membershipId,
+          ]),
+        );
+      } finally {
+        await su.end();
+      }
       await expect(
         resolveSourcePrincipal(db(), serviceA, { kind: 'user', externalId: user.email }),
       ).resolves.toBeNull();
@@ -1238,22 +1244,26 @@ describe('connector sync', () => {
         createConnectorRegistry([{ ...fake(), parseConfig: (raw) => raw, sync: { readPage } }]),
       );
       try {
-        await setup.query(
-          'update integrations.connections set config = $1, granted_scopes = $2 where organization_id = $3 and id = $4',
-          [
-            { grantedScopes: ['forged-admin'] },
-            ['recorded-read'],
-            ownerA.organizationId,
-            connectionId,
-          ],
+        await inFixtureTenant(setup, ownerA.organizationId, () =>
+          setup.query(
+            'update integrations.connections set config = $1, granted_scopes = $2 where organization_id = $3 and id = $4',
+            [
+              { grantedScopes: ['forged-admin'] },
+              ['recorded-read'],
+              ownerA.organizationId,
+              connectionId,
+            ],
+          ),
         );
         await expect(
           syncConnection({ organizationId: ownerA.organizationId, connectionId }),
         ).resolves.toMatchObject({ outcome: 'synced' });
         expect(readPage.mock.calls[0]?.[0].grantedScopes).toEqual(['recorded-read']);
-        await setup.query(
-          'update integrations.connections set granted_scopes = $1 where organization_id = $2 and id = $3',
-          [[], ownerA.organizationId, connectionId],
+        await inFixtureTenant(setup, ownerA.organizationId, () =>
+          setup.query(
+            'update integrations.connections set granted_scopes = $1 where organization_id = $2 and id = $3',
+            [[], ownerA.organizationId, connectionId],
+          ),
         );
         await expect(
           syncConnection({ organizationId: ownerA.organizationId, connectionId }),
