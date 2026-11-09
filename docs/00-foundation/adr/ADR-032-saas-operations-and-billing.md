@@ -148,6 +148,8 @@ A refund or a dispute is recorded and flagged for a person. It takes no credits 
 
 **One more exception: the record of a refusal.** `auditRefusal` (NEXT-01) writes a row, so in a read-only transaction it failed with `25006`, and a tenant in restricted standing, the one most likely to be probed, lost the record that someone was refused. For a code on the refusal audit list (`isAuditedRefusal`: `NOT_FOUND`, `FORBIDDEN`, the approval and state refusals, `FOREIGN_REFERENCE`), `packages/application/src/refusals.ts` now writes that row through a writable transaction bound to the same tenant, the way `auditTenantRefusal` already reaches any tenant in any standing. Nothing runs in that transaction but `appendRefusal`: no caller code, RLS still confines it to the tenant, and the one-row-an-hour dedupe and hourly cap still hold. `TENANT_READ_ONLY`, the standing's own answer, and ordinary codes such as `INVALID_INPUT` are not on the list, so they keep the read-only path and write nothing. Every other write is still refused by PostgreSQL. `tests/integration/refusal-audit-restricted.test.ts` covers both sides.
 
+**Not an exception: joining through an invitation.** Accepting an invitation writes a membership, so it is an ordinary write, and a tenant in restricted standing takes nobody new. Billing, export, support and leaving are what restricted standing keeps, and a new member is none of those; letting one in would also be a way to add seats to a tenant that is not paying for the ones it has. The path runs before the person has a membership, through `withNewTenantTx`, which binds no tenant context, so `withTenantTx`'s read-only rule never reached it. `acceptInvitation` (`packages/application/src/people.ts`) therefore reads the lifecycle itself, under a share lock a standing change waits for, and for anything but `active` runs `SET TRANSACTION READ ONLY` the same way, so PostgreSQL is still the control. Once the invitation is known to be this person's and otherwise usable, it answers `TENANT_READ_ONLY` for `read_only` and `TENANT_SUSPENDED` for `suspended` and `offboarding`, the codes the web tier already explains, and writes nothing: the invitation is neither accepted nor claimed, and works once standing is restored. A `deleted` tenant answers `INVITATION_INVALID`, as one that never existed. `tests/integration/invitation-restricted-tenant.test.ts` covers both sides.
+
 A worker's service context is always `full`, so upkeep and billing itself keep working, and entitlement checks are what stop new runs.
 
 **Every move leaves a record first.** `billing.check_lifecycle_change` refuses a change without a `billing.standing_changes` row for exactly that move in the same transaction, so nobody can suspend or unsuspend a tenant without saying who and why.
@@ -243,7 +245,7 @@ The final merge has to do these, and none is optional. The first fails to compil
 
 - D3: the three roles and every grant in migration 0501.
 - D4: `withPaymentCustomerTx` and its policy, and the payment triggers. Any processor adapter, before it holds a credential.
-- D5: `SET TRANSACTION READ ONLY` as the enforcement, the `withAccountTx` exemption, and the refusal-audit exemption in `auditRefusal`.
+- D5: `SET TRANSACTION READ ONLY` as the enforcement, the `withAccountTx` exemption, the refusal-audit exemption in `auditRefusal`, and the standing check in `acceptInvitation`, which has no tenant context to make it read-only.
 - D7: `app.reject_change`, the eraser's reach, and `lifecycle.retained_table`.
 - D8: the design, before any read path is proposed.
 

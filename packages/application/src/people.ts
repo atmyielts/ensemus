@@ -6,6 +6,7 @@ import {
   invitations,
   memberships,
   notifications,
+  organizations,
   projects,
   teamMemberships,
   teams,
@@ -473,6 +474,9 @@ export type InvitationOutcome =
  * Holding the link and an account with the invited address proves little until that address has been
  * verified. Anyone can register any unused address where signups are open, so an unverified account
  * joins nothing here: it asks, and someone who can invite has to confirm it on the people page.
+ *
+ * A tenant not in good standing takes nobody new (ADR-032 D5): its invitation's recipient is answered
+ * TENANT_READ_ONLY or TENANT_SUSPENDED, nothing is written, and the invitation keeps working for later.
  */
 export async function acceptInvitation(
   database: AppDatabase,
@@ -511,6 +515,19 @@ export async function acceptInvitation(
     if (!current || current.acceptedAt || current.revokedAt || current.expiresAt <= new Date()) {
       throw new AppError('INVITATION_INVALID');
     }
+    // Joining writes a membership, and in restricted standing ordinary writes are refused (ADR-032 D5).
+    // This transaction binds no tenant context, so withTenantTx's read-only rule never reaches it: read
+    // the standing here, under a share lock a standing change waits for, and make the transaction
+    // read-only the same way, so PostgreSQL refuses any write below even if the answer further down
+    // were moved. A tenant that has gone is the same as one that never existed.
+    const [standing] = await tx
+      .select({ lifecycle: organizations.lifecycle })
+      .from(organizations)
+      .where(eq(organizations.id, current.organizationId))
+      .for('share');
+    if (!standing || standing.lifecycle === 'deleted') throw new AppError('INVITATION_INVALID');
+    const restricted = standing.lifecycle !== 'active';
+    if (restricted) await tx.execute(sql`set transaction read only`);
     // Preserve the exact existing bearer authority in the effect Tx, not an earlier read. The
     // database guard recognizes only this immutable, live invitation and its actual recipient.
     await tx.execute(sql`select set_config('app.invitation_token_hash',${tokenHash},true)`);
@@ -528,6 +545,13 @@ export async function acceptInvitation(
       .where(eq(memberships.userId, input.userId));
     // Disabled stays disabled. A new invitation is not a way around that.
     if (existing && existing.status !== 'active') throw new AppError('INVITATION_INVALID');
+    // Only now, when the invitation would otherwise work, is its recipient told the standing. Nothing
+    // has been written: the invitation stays unused, unclaimed, and usable once standing returns.
+    if (restricted) {
+      throw new AppError(
+        standing.lifecycle === 'read_only' ? 'TENANT_READ_ONLY' : 'TENANT_SUSPENDED',
+      );
+    }
 
     if (!existing && !input.emailVerified) {
       await tx
