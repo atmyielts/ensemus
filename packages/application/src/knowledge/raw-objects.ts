@@ -62,6 +62,33 @@ export function createRawKnowledgeObjectPort(deps: {
     authority: createSqlObjectDeletionAuthority(deps.database),
     store: deps.store,
   });
+  // 0532: purge counts are evidence. Record once, before the single admitted DELETE, whether the
+  // bytes are there, so the purge can tell bytes it removed from bytes that were already gone. A
+  // provider DELETE cannot say which. The observation is a count only: it never admits, qualifies or
+  // completes a deletion, and an unreachable store admits no DELETE (a retry begins cleanly).
+  const observePresence = async (context: TenantContext, documentId: string) => {
+    const pending = await withTenantTx(deps.database, context, (tx) =>
+      tx.execute<{ observed: boolean | null; state: string }>(sql`select
+        d.object_present_before_purge observed,s.state from knowledge.documents d join knowledge.sources s
+        on s.organization_id=d.organization_id and s.id=d.source_id
+        where d.organization_id=${context.organizationId}::uuid and d.id=${documentId}::uuid`),
+    );
+    const row = pending.rows[0];
+    // A header already gone, or a source still active, has nothing for this purge to count.
+    if (pending.rows.length !== 1 || !row || row.observed !== null || row.state === 'active')
+      return;
+    let present: boolean;
+    try {
+      present = await deps.store.exists(knowledgeObjectKey(context.organizationId, documentId));
+    } catch {
+      throw new Error('STORE_UNAVAILABLE');
+    }
+    await withTenantTx(deps.database, context, (tx) =>
+      tx.execute(sql`update knowledge.documents set object_present_before_purge=${present}
+        where organization_id=${context.organizationId}::uuid and id=${documentId}::uuid
+        and object_present_before_purge is null`),
+    );
+  };
   const finish = async (context: TenantContext, receipt: NativePutObservation) => {
     if (!observed.has(receipt)) throw new AppError('PREREQUISITES_INCOMPLETE');
     return withTenantTx(deps.database, context, async (tx) => {
@@ -122,6 +149,9 @@ export function createRawKnowledgeObjectPort(deps: {
       );
       const target = rawTarget.safeParse(result.rows[0]?.target);
       if (result.rows.length !== 1 || !target.success) return { state: 'unconfirmed' };
+      // A store without the purge capability never reaches a DELETE, so it has nothing to observe.
+      if (deps.store.deleteForPurge && deps.store.isPhysicallyAbsent)
+        await observePresence(context, target.data.documentId);
       return erase(context, target.data);
     },
     async captureSource(context, input) {
