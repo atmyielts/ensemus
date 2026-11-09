@@ -68,10 +68,18 @@ export async function setTenantStandingInTx(
     .for('no key update');
   if (!org || org.lifecycle === 'deleted') throw new AppError('NOT_FOUND');
   if (org.lifecycle === input.to) return 'unchanged';
+  // Leaving offboarding other than by erasure is cancelling it, and only cancelOffboarding does that: it
+  // marks the intent cancelled first and names it here, so the restore is to the standing recorded when it
+  // began. Any other move out of `offboarding`, such as an operator's unsuspend to `active`, would serve a
+  // tenant beside a live offboarding, so it is refused before anything is written. Erasure's move to
+  // `deleted` is the one other way out, which 0501's check_lifecycle_change admits only once verified.
   if (
-    input.offboardingCancellationId ||
-    (org.lifecycle === 'offboarding' && ['read_only', 'suspended'].includes(input.to))
-  ) {
+    org.lifecycle === 'offboarding' &&
+    input.to !== 'deleted' &&
+    input.offboardingCancellationId === undefined
+  )
+    throw new AppError('INVALID_TRANSITION');
+  if (input.offboardingCancellationId !== undefined) {
     const id = idSchema.safeParse(input.offboardingCancellationId);
     if (
       !id.success ||

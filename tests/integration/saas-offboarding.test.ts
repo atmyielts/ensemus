@@ -140,20 +140,30 @@ describe('owner-authorized offboarding preserves independent restrictions and un
       ]);
       expect(first.offboardingId).toBe(second.offboardingId);
       expect(agents.haltOffboardingAgents).toHaveBeenCalledTimes(1);
-      await expect(
-        withAccountTx(database.db, service, (tx) =>
-          setTenantStandingInTx(
-            tx,
-            service,
-            {
-              to: 'read_only',
-              reasonCode: 'TEST_BYPASS',
-              actor: { type: 'operator', ref: 'test-operator@example.invalid' },
-            },
-            { haltTenantAgents: async () => undefined, releaseTenantAgents: async () => undefined },
+      // No move but cancellation leaves offboarding, `active` included: an operator's unsuspend would
+      // otherwise serve the tenant beside its live offboarding.
+      const bypass = { haltTenantAgents: vi.fn(), releaseTenantAgents: vi.fn() };
+      for (const to of ['active', 'read_only', 'suspended'] as const)
+        await expect(
+          withAccountTx(database.db, service, (tx) =>
+            setTenantStandingInTx(
+              tx,
+              service,
+              {
+                to,
+                reasonCode: 'TEST_BYPASS',
+                actor: { type: 'operator', ref: 'test-operator@example.invalid' },
+              },
+              bypass,
+            ),
           ),
-        ),
-      ).rejects.toMatchObject({ code: 'INVALID_TRANSITION' });
+        ).rejects.toMatchObject({ code: 'INVALID_TRANSITION' });
+      expect(bypass.haltTenantAgents).not.toHaveBeenCalled();
+      expect(bypass.releaseTenantAgents).not.toHaveBeenCalled();
+      expect(
+        (await withAccountTx(database.db, service, (tx) => tx.select().from(organizations)))[0]!
+          .lifecycle,
+      ).toBe('offboarding');
       const current = (await getOffboarding(database.db, owner))!;
       await cancelOffboarding(
         database.db,
