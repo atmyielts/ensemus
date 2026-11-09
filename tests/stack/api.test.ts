@@ -1153,124 +1153,141 @@ describe('public API', () => {
     });
   });
 
-  // Starting an onboarding writes rows and an event in one transaction; the welcome message it ends with goes
-  // out later, through the connector worker, after a person approves it. So the two operations answer on a
-  // stack with no `connectors` profile, and the main gate proves them here, where nothing can leave. The email
-  // connection is the one row that needs the profile's web setting to be made over HTTP (POST /connections
-  // answers CONNECTOR_NOT_AVAILABLE without it). A deployment keeps the connections it made while connectors
-  // were on, so the row is written as the app role writes it, in its own tenant and through its own policies,
-  // as tests/integration/client-onboarding.test.ts does. Everything is a generated test value.
-  describe('client onboarding', () => {
-    const app = openAppDatabase(urls.app());
-    const onboardings = (organization: string) =>
-      `/api/v1/organizations/${organization}/client-onboardings`;
-    let company: string;
-    let colleague: Person;
-    let connectionId: string;
-    let ownerMembership: string;
-    let colleagueMembership: string;
+  // An onboarding ends with a welcome message that only the connector worker can send. A deployment without
+  // connectors would start one and leave it waiting for a worker that is not coming, so it refuses to start one,
+  // over the API and on the page, before anything is read or written: CONNECTOR_NOT_AVAILABLE, as a connection,
+  // a proposal and a sync are refused (docs/06-delivery/m3-slices.md). The main gate runs no connector worker,
+  // so it proves that refusal here. Starting one, reading it back and every refusal past this one are
+  // tests/stack/slice-2.test.ts's, in the connectors job, which is where API-12's coverage of the two
+  // operations is asserted too. The request is otherwise one that would start an onboarding: its email
+  // connection is the one row that needs connectors on to be made over HTTP, and a deployment keeps the
+  // connections it made while connectors were on, so the row is written as the app role writes it, in its own
+  // tenant and through its own policies, as tests/integration/client-onboarding.test.ts does. The company is
+  // founded by a person of its own: the setup form on the home page is for someone with no organization yet, and
+  // sends anyone with exactly one straight to it (apps/web/src/app/page.tsx). Everything is a generated value.
+  describe.skipIf(process.env.ENSEMUS_CONNECTORS_ENABLED === 'true')(
+    'client onboarding on a deployment without connectors',
+    () => {
+      const app = openAppDatabase(urls.app());
+      const onboardings = (organization: string) =>
+        `/api/v1/organizations/${organization}/client-onboardings`;
+      const page = (organization: string) => `/o/${organization}/onboarding`;
+      let founder: Person;
+      let company: string;
+      let connectionId: string;
+      let founderMembership: string;
+      let colleagueMembership: string;
 
-    beforeAll(async () => {
-      company = await createOrganization(owner, `Onboarding ${randomUUID()}`);
-      colleague = await join(owner, company, 'Oli Onboarding Reviewer');
-      ownerMembership = await membershipOf(owner, company);
-      colleagueMembership = await membershipOf(colleague, company);
-      const { rows } = await su.query('select id from identity.users where email = $1', [
-        owner.email,
-      ]);
-      const context = await resolveTenantContext(app.db, rows[0].id as string, company);
-      connectionId = randomUUID();
-      await withTenantTx(app.db, context, (tx) =>
-        tx.insert(connections).values({
-          organizationId: company,
-          id: connectionId,
-          connectorType: EMAIL_CONNECTOR_TYPE,
-          displayName: 'Generated email connection',
-          config: { fromAddress: 'sender@example.invalid' },
-        }),
-      );
-    });
-    afterAll(() => app.close());
-
-    const start = (dealRef: string) => ({
-      deal_ref: dealRef,
-      client_name: 'Generated client',
-      project_name: 'Generated project',
-      owner_membership_id: ownerMembership,
-      reviewer_membership_id: colleagueMembership,
-      email_connection_id: connectionId,
-      contact_email: 'client@example.invalid',
-    });
-
-    it('starts one onboarding per deal, replays its key, and reads it back', async () => {
-      const body = start(`deal-${randomUUID()}`);
-      const key = randomUUID();
-      const started = await call(owner, 'POST', onboardings(company), { body, key });
-      expect(started.status, started.text).toBe(201);
-      const onboarding = started.json as components['schemas']['ClientOnboarding'];
-      expect(onboarding).toMatchObject({
-        deal_ref: body.deal_ref,
-        reviewer_membership_id: colleagueMembership,
-        version: 1,
+      beforeAll(async () => {
+        founder = await signUp('Ona Onboarding Owner');
+        company = await createOrganization(founder, `Onboarding ${randomUUID()}`);
+        const colleague = await join(founder, company, 'Oli Onboarding Reviewer');
+        founderMembership = await membershipOf(founder, company);
+        colleagueMembership = await membershipOf(colleague, company);
+        const { rows } = await su.query('select id from identity.users where email = $1', [
+          founder.email,
+        ]);
+        const context = await resolveTenantContext(app.db, rows[0].id as string, company);
+        connectionId = randomUUID();
+        await withTenantTx(app.db, context, (tx) =>
+          tx.insert(connections).values({
+            organizationId: company,
+            id: connectionId,
+            connectorType: EMAIL_CONNECTOR_TYPE,
+            displayName: 'Generated email connection',
+            config: { fromAddress: 'sender@example.invalid' },
+          }),
+        );
       });
-      const again = await call(owner, 'POST', onboardings(company), { body, key });
-      expect(again.status, again.text).toBe(201);
-      expect((again.json as { id: string }).id).toBe(onboarding.id);
-      // The same deal under a new key is refused, not a second onboarding.
-      expectError(
-        await call(owner, 'POST', onboardings(company), { body, key: randomUUID() }),
-        409,
-        'CLIENT_ONBOARDING_EXISTS',
-      );
-      const read = await call(owner, 'GET', `${onboardings(company)}/${onboarding.id}`);
-      expect(read.status, read.text).toBe(200);
-      expect(read.headers.get('etag')).toMatch(/^"[1-9]\d*"$/);
-      expect((read.json as { id: string; deal_ref: string }).id).toBe(onboarding.id);
-      expect((read.json as { deal_ref: string }).deal_ref).toBe(body.deal_ref);
-    });
+      afterAll(() => app.close());
 
-    it('is refused to a member, a stranger, a self-review and a missing connection', async () => {
-      // A member may not start one, even naming someone else to review it.
-      const third = await join(owner, company, 'Tam Third Member');
-      expectError(
-        await call(third, 'POST', onboardings(company), {
-          body: start(`deal-${randomUUID()}`),
-          key: randomUUID(),
-        }),
-        403,
-        'FORBIDDEN',
-      );
-      expectError(
-        await call(rival, 'POST', onboardings(company), {
-          body: start(`deal-${randomUUID()}`),
-          key: randomUUID(),
-        }),
-        404,
-        'NOT_FOUND',
-      );
-      expectError(
-        await call(owner, 'POST', onboardings(company), {
-          body: { ...start(`deal-${randomUUID()}`), reviewer_membership_id: ownerMembership },
-          key: randomUUID(),
-        }),
-        403,
-        'APPROVAL_SELF_APPROVAL',
-      );
-      expectError(
-        await call(owner, 'POST', onboardings(company), {
-          body: { ...start(`deal-${randomUUID()}`), email_connection_id: randomUUID() },
-          key: randomUUID(),
-        }),
-        404,
-        'NOT_FOUND',
-      );
-      expectError(
-        await call(rival, 'GET', `${onboardings(company)}/${randomUUID()}`),
-        404,
-        'NOT_FOUND',
-      );
-    });
-  });
+      const start = () => ({
+        deal_ref: `deal-${randomUUID()}`,
+        client_name: `Generated client ${randomUUID()}`,
+        project_name: 'Generated project',
+        owner_membership_id: founderMembership,
+        reviewer_membership_id: colleagueMembership,
+        email_connection_id: connectionId,
+        contact_email: 'client@example.invalid',
+      });
+
+      /** What a start would have written: the onboarding, and the client it makes first. */
+      async function written(dealRef: string, clientName: string) {
+        const { rows } = await su.query(
+          `select
+             (select count(*)::int from work.client_onboardings
+               where organization_id = $1 and deal_ref = $2) as onboardings,
+             (select count(*)::int from work.clients
+               where organization_id = $1 and display_name = $3) as clients`,
+          [company, dealRef, clientName],
+        );
+        return rows[0] as { onboardings: number; clients: number };
+      }
+
+      it('refuses to start one over the API, and writes nothing', async () => {
+        const body = start();
+        const key = randomUUID();
+        expectError(
+          await call(founder, 'POST', onboardings(company), { body, key }),
+          409,
+          'CONNECTOR_NOT_AVAILABLE',
+        );
+        expect(await written(body.deal_ref, body.client_name)).toEqual({
+          onboardings: 0,
+          clients: 0,
+        });
+        // Asked again with the same key, it is refused again: nothing was kept to replay.
+        expectError(
+          await call(founder, 'POST', onboardings(company), { body, key }),
+          409,
+          'CONNECTOR_NOT_AVAILABLE',
+        );
+        expect(await written(body.deal_ref, body.client_name)).toEqual({
+          onboardings: 0,
+          clients: 0,
+        });
+      });
+
+      it('tells a stranger nothing, about the deployment or an onboarding', async () => {
+        // Their membership is checked first, so they get the ordinary missing answer, not the refusal.
+        expectError(
+          await call(rival, 'POST', onboardings(company), { body: start(), key: randomUUID() }),
+          404,
+          'NOT_FOUND',
+        );
+        expectError(
+          await call(rival, 'GET', `${onboardings(company)}/${randomUUID()}`),
+          404,
+          'NOT_FOUND',
+        );
+      });
+
+      it('says why on the page, and refuses the form there the same way', async () => {
+        const shown = await read(page(company), founder.jar);
+        expect(shown.status).toBe(200);
+        expect(shown.html).toContain('Connectors are not turned on for this deployment');
+        const body = start();
+        const response = await submit(page(company), founder.jar, /Start onboarding/, {
+          dealRef: body.deal_ref,
+          clientName: body.client_name,
+          projectName: body.project_name,
+          ownerMembershipId: body.owner_membership_id,
+          reviewerMembershipId: body.reviewer_membership_id,
+          emailConnectionId: body.email_connection_id,
+          contactEmail: body.contact_email,
+        });
+        // The form comes back with the reason, and does not go on to an onboarding.
+        expect(response.headers.get('location')).toBeNull();
+        expect(await response.text()).toContain(
+          'This connector is not available on this deployment.',
+        );
+        expect(await written(body.deal_ref, body.client_name)).toEqual({
+          onboardings: 0,
+          clients: 0,
+        });
+      });
+    },
+  );
 
   describe('what the contract promises (API-12)', () => {
     const WORK = '/organizations/{organization_id}/work-units';
@@ -1339,9 +1356,10 @@ describe('public API', () => {
     });
 
     it('has validated a real response from every operation that exists', () => {
-      // These operations have their own successful-response coverage assertion.
+      // These operations have their own successful-response coverage assertion. client-onboardings succeed only
+      // with connectors on, so theirs is in tests/stack/slice-2.test.ts, which the connectors job runs.
       const ownCoverage = (path: string) =>
-        /\/(external-actions|connections|agent-runs|agent-versions|model-profiles|budgets|usage|entitlements|object-types|object-records|studio|process-specs|process-runs|outcome-drafts|onboarding)(\/|$)/.test(
+        /\/(external-actions|connections|client-onboardings|agent-runs|agent-versions|model-profiles|budgets|usage|entitlements|object-types|object-records|studio|process-specs|process-runs|outcome-drafts|onboarding)(\/|$)/.test(
           path,
         );
       const implemented = operations()

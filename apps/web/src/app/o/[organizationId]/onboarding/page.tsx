@@ -5,6 +5,7 @@ import { can } from '@ensemus/domain/policy';
 import { KnowledgeForm } from '@/components/knowledge-form';
 import { PageHead, Empty } from '@/components/ui';
 import { startKnowledgeOnboardingAction } from '@/server/knowledge-actions';
+import { getRuntime } from '@/server/runtime';
 import { requireTenant } from '@/server/tenant';
 export const metadata = { title: 'Start client onboarding | Ensemus' };
 export default async function StartOnboardingPage({
@@ -28,13 +29,20 @@ export default async function StartOnboardingPage({
     people = directory
       .filter((p) => p.status === 'active')
       .map((p) => ({ value: p.membershipId, label: p.name })),
-    email = connections.filter((c) => c.state === 'active' && c.connectorType === 'email_smtp');
+    email = connections.filter((c) => c.state === 'active' && c.connectorType === 'email_smtp'),
+    connectorsEnabled = getRuntime().config.connectorsEnabled;
   return (
     <>
       <PageHead
         title="Start client onboarding"
         description="Create the project and its work, prepare a brief, and request a separate person's review before any welcome email."
       />
+      {!connectorsEnabled && (
+        <p className="notice warn flush">
+          Connectors are not turned on for this deployment, so the welcome email could never be sent
+          and onboarding cannot start. An operator turns them on.
+        </p>
+      )}
       {!email.length ? (
         <Empty>
           No active email connection is available. An administrator needs to configure one before

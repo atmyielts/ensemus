@@ -202,9 +202,12 @@ describe.runIf(BILLING_DEPLOYMENT)('hosted billing operations over HTTP (API-12)
 
   it('asks once to charge an open invoice, with the processor the deployment named', async () => {
     // An account of its own, with one issued period invoice: the invoicing worker drafts it at the period's end
-    // and issues it once tax is known (zero here), as tests/stack/saas-invoices-api.test.ts does.
-    const company = await createOrganization(owner, 'Hosted payment account');
-    const context = await contextOf(owner, company);
+    // and issues it once tax is known (zero here), as tests/stack/saas-invoices-api.test.ts does. Its owner is a
+    // new person: the setup form on the home page is for someone with no organization yet, and sends anyone with
+    // exactly one straight to it (apps/web/src/app/page.tsx), so `owner` cannot found a second account there.
+    const payer = await signUp('Hosted payment owner');
+    const company = await createOrganization(payer, 'Hosted payment account');
+    const context = await contextOf(payer, company);
     const service = createServiceContext(company);
     await seedBillingAccount(app.db, context);
     await startSubscription(app.db, context, first);
@@ -227,7 +230,7 @@ describe.runIf(BILLING_DEPLOYMENT)('hosted billing operations over HTTP (API-12)
     );
     const invoiceId = (await listInvoices(app.db, context, {})).items[0]!.id;
     await issueInvoice(app.db, service, { invoiceId, tax: { taxMicros: 0n, providerRef: null } });
-    const companyMember = await join(owner, company, 'Hosted payment member');
+    const companyMember = await join(payer, company, 'Hosted payment member');
     const pay = (person: Person, key: string, invoice = invoiceId) =>
       api(
         person,
@@ -237,12 +240,13 @@ describe.runIf(BILLING_DEPLOYMENT)('hosted billing operations over HTTP (API-12)
         { 'idempotency-key': key },
       );
 
-    // Only the account's owner may ask, and nobody else learns the invoice is there.
-    for (const person of [companyMember, outsider])
+    // Only the account's owner may ask, and nobody else learns the invoice is there: not its member, not a
+    // stranger, and not the owner of another account.
+    for (const person of [companyMember, outsider, owner])
       expect((await pay(person, randomUUID())).status).toBe(404);
 
     const key = randomUUID();
-    const asked = await pay(owner, key);
+    const asked = await pay(payer, key);
     expect(asked.status, asked.text).toBe(202);
     expect(asked.json).toEqual({
       payment_id: expect.stringMatching(/^[0-9a-f-]{36}$/),
@@ -250,13 +254,13 @@ describe.runIf(BILLING_DEPLOYMENT)('hosted billing operations over HTTP (API-12)
     });
     // The same key is the same answer, a new key still finds the live payment, and the key on another request
     // is refused before anything is looked up.
-    const replayed = await pay(owner, key);
+    const replayed = await pay(payer, key);
     expect(replayed.status, replayed.text).toBe(202);
     expect(replayed.json).toEqual(asked.json);
-    const fresh = await pay(owner, randomUUID());
+    const fresh = await pay(payer, randomUUID());
     expect(fresh.status, fresh.text).toBe(202);
     expect(fresh.json.payment_id).toBe(asked.json.payment_id);
-    const reused = await pay(owner, key, randomUUID());
+    const reused = await pay(payer, key, randomUUID());
     expect(reused.status, reused.text).toBe(409);
     expect(reused.json.code).toBe('IDEMPOTENCY_KEY_REUSED');
     // One payment for the invoice, still waiting: no connector worker runs here, so nothing was sent.
