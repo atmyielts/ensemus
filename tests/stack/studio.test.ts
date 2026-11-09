@@ -219,6 +219,14 @@ describe('Studio actual HTTP contracts and synthetic rehearsal', () => {
       expect(review.status).toBe(201);
       const reviewPath = `publish-reviews/${String(review.body?.id)}`;
       expect((await call(owner, 'GET', reviewPath)).status).toBe(200);
+      // Publication before a decision is refused for that reason, and leaves the review pending.
+      const early = await call(owner, 'POST', `${reviewPath}/publication`, undefined, {
+        'if-match': review.headers.get('etag')!,
+        'idempotency-key': randomUUID(),
+      });
+      expect(early.status).toBe(409);
+      expect(early.body?.code).toBe('REVIEW_NOT_APPROVED');
+      expect((await call(owner, 'GET', reviewPath)).body?.status).toBe('pending');
       expect(
         (
           await call(
@@ -243,16 +251,24 @@ describe('Studio actual HTTP contracts and synthetic rehearsal', () => {
           'if-match': approved.headers.get('etag')!,
           'idempotency-key': publishKey,
         });
-      expect(published.status).toBe(200);
+      // A committed publication answers with its review, and so does every replay of the same key.
+      expect(published.status, JSON.stringify(published.body)).toBe(200);
       expect(published.body?.status).toBe('published');
-      expect(
-        (
-          await call(owner, 'POST', `${reviewPath}/publication`, undefined, {
-            'if-match': approved.headers.get('etag')!,
-            'idempotency-key': publishKey,
-          })
-        ).body?.published_ref,
-      ).toBe(published.body?.published_ref);
+      expect(published.body?.id).toBe(review.body?.id);
+      expect(typeof published.body?.published_ref).toBe('string');
+      const replayed = await call(owner, 'POST', `${reviewPath}/publication`, undefined, {
+        'if-match': approved.headers.get('etag')!,
+        'idempotency-key': publishKey,
+      });
+      expect(replayed.status).toBe(200);
+      expect(replayed.body?.published_ref).toBe(published.body?.published_ref);
+      // The same key for a different precondition is a different request and is refused.
+      const reused = await call(owner, 'POST', `${reviewPath}/publication`, undefined, {
+        'if-match': published.headers.get('etag')!,
+        'idempotency-key': publishKey,
+      });
+      expect(reused.status).toBe(409);
+      expect(reused.body?.code).toBe('IDEMPOTENCY_KEY_REUSED');
     }
     expect((await call(owner, 'GET', 'publish-reviews')).status).toBe(200);
     const implemented = operations()

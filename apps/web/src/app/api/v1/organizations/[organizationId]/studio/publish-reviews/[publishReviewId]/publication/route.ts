@@ -13,10 +13,9 @@ export const POST = apiRoute(
       request.headers.get('idempotency-key') ?? '',
       'publish-review.publish',
       input,
-      async (db) => {
-        await publishApproved(db, context, webProductPorts(), { sessionId }, input);
-        return { id: input.reviewId };
-      },
+      // The stored idempotent response comes from the service's transaction result, which names the
+      // review. Remapping it here would be ignored, so pass the receipt through unchanged.
+      (db) => publishApproved(db, context, webProductPorts(), { sessionId }, input),
       200,
     );
     const row = await getPublishReview(database, context, id);

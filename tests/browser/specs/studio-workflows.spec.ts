@@ -89,11 +89,20 @@ test.describe('native workflow authoring against actual compiler and review serv
       .getByLabel('Workflow name', { exact: true })
       .fill('Generated version conflict workflow');
     await page.getByRole('button', { name: 'Create workflow draft', exact: true }).click();
+    // The click does not wait for the create redirect. Reading the URL before it lands sent the second
+    // tab to /new, which has no "Save workflow details" button, and the test waited out its timeout.
+    await page.waitForURL(/\/studio\/workflows\/[0-9a-f-]{36}\/edit$/);
+    await expect(page.getByRole('heading', { name: 'Edit workflow', exact: true })).toBeVisible();
     const editPath = new URL(page.url()).pathname,
       other = await open(world.alice);
     await other.goto(editPath);
+    await expect(other.getByRole('heading', { name: 'Edit workflow', exact: true })).toBeVisible();
     await page.getByLabel('Workflow name', { exact: true }).fill('First saved revision');
     await page.getByRole('button', { name: 'Save workflow details', exact: true }).click();
+    // The first save must have landed before the second tab submits its now-stale revision.
+    await expect(
+      page.getByRole('heading', { name: 'First saved revision', exact: true }),
+    ).toBeVisible();
     await other.getByLabel('Workflow name', { exact: true }).fill('Stale proposed revision');
     await other.getByRole('button', { name: 'Save workflow details', exact: true }).click();
     await expect(other.getByRole('alert')).toContainText(/changed|updated|refresh|again/i);
