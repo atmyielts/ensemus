@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import pg from 'pg';
 import { and, eq, sql } from 'drizzle-orm';
+import { createMinimalContextCompiler, type RunRef } from '@ensemus/agent-runtime/context';
 import {
   AppError,
   addArtifact,
@@ -11,8 +12,16 @@ import {
   type ObjectStore,
 } from '@ensemus/application';
 import { agentSpecSha256, publishAgentVersion } from '@ensemus/application/ai-agents';
+import { createContextSource } from '@ensemus/application/ai-context-source';
+import {
+  createEgressLog,
+  listEgressDecisions,
+  loadTenantPolicyBundle,
+} from '@ensemus/application/ai-egress-log';
+import { createProfileStore } from '@ensemus/application/ai-model-profiles';
 import { startAgentRun } from '@ensemus/application/ai-run-control';
-import { compileEvidence } from '@ensemus/application/knowledge/compiler';
+import { readRunFacts } from '@ensemus/application/ai-runs';
+import { compileEvidence, type CompileDeps } from '@ensemus/application/knowledge/compiler';
 import { revokeSource } from '@ensemus/application/knowledge/purge';
 import { createOnboardingAgentRuns } from '@ensemus/application/knowledge/onboarding-run-port';
 import {
@@ -29,11 +38,13 @@ import {
   memberships,
   openAppDatabase,
   outboxEvents,
+  policyBundles,
   serviceIdentities,
   tombstones,
   usageLedger,
   withTenantTx,
   workAssignments,
+  type AgentContext,
   type TenantContext,
 } from '@ensemus/database';
 import { createDelegatedContext, createServiceContext } from '@ensemus/database/service';
@@ -47,6 +58,8 @@ import {
   seedActiveProfile,
   seedAiTenant,
   seedOrganizationBudget,
+  seedRateCard,
+  sha256Of,
   testAgentSpec,
   thisPeriod,
   type AiTenant,
@@ -54,7 +67,9 @@ import {
 import { draftRunOutput, startRunning } from '../helpers/ai/run-output';
 import { inFixtureTenant } from '../helpers/fixture-tenant';
 import { seedSearchableSource } from '../helpers/knowledge';
+import { createModelRouter } from '@ensemus/intelligence';
 import { createScriptedModelPort } from '@ensemus/knowledge/testing';
+import { createAgentContextAuthorizer } from '../../workers/workflow/src/agent-context-authorizer';
 import { urls } from '../helpers/stack';
 
 const port = createOnboardingAgentRuns();
@@ -112,7 +127,7 @@ describe('onboarding uses one authorized actual M4 run', () => {
       emailConnectionId: connectionId,
       contactEmail: 'client@example.invalid',
     });
-    await seedActiveProfile(app.db, agent.db, owner);
+    const profileId = await seedActiveProfile(app.db, agent.db, owner);
     await seedOrganizationBudget(app.db, owner, 1_000_000);
     const sources = options.knowledge ? await options.knowledge(tenant) : [];
     const spec = agentSpecV1Schema.parse(
@@ -180,8 +195,50 @@ describe('onboarding uses one authorized actual M4 run', () => {
       request,
       requestRun,
       runRows,
+      profileId,
       onboardingId: snapshot.id,
     };
+  }
+
+  /**
+   * The runtime's egress decision for the evidence an agent turn of this run selects, wired exactly as
+   * workers/workflow/src/agent-composition.ts wires it: the production authorizer over the main router,
+   * the tenant's profiles and its policy bundle. It is given the task the minimal context compiler builds
+   * for this run, and bound to the run as knowledge-context.ts binds it for compileEvidence.
+   */
+  async function runtimeEgress(
+    writer: AgentContext,
+    runId: string,
+    workUnitId: string,
+  ): Promise<NonNullable<CompileDeps['authorizeAgentContext']>> {
+    const facts = await readRunFacts(agent.db, writer, { agentRunId: runId });
+    if (!facts) throw new Error('TEST_RUN_FACTS_MISSING');
+    const turn: RunRef = {
+      runId,
+      workUnitId,
+      agentVersionId: facts.agentVersionId,
+      // The authorizer requires a model step in progress and reads no step row; the router's egress
+      // rows carry no step either (router/index.ts). A generated ID stands for the turn's step.
+      modelStep: { stepId: randomUUID(), stepNumber: 0, attempt: 1 },
+    };
+    const base = await createMinimalContextCompiler({
+      source: createContextSource({
+        database: agent.db,
+        readObject: async () => {
+          throw new Error('TEST_UNEXPECTED_OBJECT_READ');
+        },
+      }),
+      limits: { maxInputChars: 100_000, maxArtifactBytes: 10_000 },
+    }).compile(writer, turn);
+    const authorize = createAgentContextAuthorizer({
+      database: agent.db,
+      router: createModelRouter({
+        profiles: createProfileStore(agent.db),
+        egress: createEgressLog(agent.db),
+        bundle: (context) => loadTenantPolicyBundle(agent.db, context),
+      }),
+    });
+    return (context, request) => authorize(context, turn, { ...request, task: base.task });
   }
 
   const rawBind = (f: Awaited<ReturnType<typeof fixture>>, runId: string, context = f.delegated) =>
@@ -615,17 +672,21 @@ describe('onboarding uses one authorized actual M4 run', () => {
         },
       }),
       run = await f.requestRun();
+    // The main router refuses a profile with no rate card (RATE_CARD_MISSING), so this tenant has one.
+    await seedRateCard(app.db, f.owner, f.profileId);
     const writer = await prepareRunInputContext(agent.db, f.organizationId, run.agentRunId);
     await startRunning(agent.db, writer);
     // The run genuinely retrieves the source in an agent turn, so its evidence package is a real
-    // read of this run (the runtime's egress decision for the turn is authorized as the other
-    // agent-turn fixtures authorize theirs). An evidence package written by the service is not a
-    // read, and read admission refuses a package source the manifest does not name (0414).
+    // read of this run, admitted by the runtime's own egress decision for the turn. An evidence
+    // package written by the service is not a read, and read admission refuses a package source the
+    // manifest does not name (0414).
+    const authorizeAgentContext = await runtimeEgress(writer, run.agentRunId, f.request.workUnitId);
+    expect(await listEgressDecisions(app.db, f.owner, { runId: run.agentRunId })).toEqual([]);
     expect(
       await compileEvidence(
         agent.db,
         writer,
-        { model: createScriptedModelPort({}), authorizeAgentContext: async () => true },
+        { model: createScriptedModelPort({}), authorizeAgentContext },
         {
           purpose: 'agent_turn',
           question: text,
@@ -638,6 +699,17 @@ describe('onboarding uses one authorized actual M4 run', () => {
         },
       ),
     ).toMatchObject({ ok: true, items: [{ sourceId: source.sourceId }] });
+    // The decision that let it through is recorded: one allow, for this tenant's profile and class.
+    expect(await listEgressDecisions(app.db, f.owner, { runId: run.agentRunId })).toEqual([
+      expect.objectContaining({
+        runId: run.agentRunId,
+        profileId: f.profileId,
+        dataClass: 'internal',
+        purpose: 'reason',
+        decision: 'allow',
+        reasonCode: 'ALLOWED',
+      }),
+    ]);
     const objects = new Map<string, Buffer>();
     const store: ObjectStore = {
       put: async (key, body) => {
@@ -670,6 +742,104 @@ describe('onboarding uses one authorized actual M4 run', () => {
       reason: 'Synthetic revoke',
     });
     expect(await status()).toMatchObject({ artifactState: 'unavailable', artifactIds: [] });
+  });
+
+  it('refuses evidence the tenant’s egress policy keeps in: no model call, the refusal surfaced, and only the refusal recorded', async () => {
+    const text = 'Generated gateway evidence the policy keeps in.';
+    let source!: Awaited<ReturnType<typeof seedSearchableSource>>;
+    const f = await fixture({
+        knowledge: async (tenant) => {
+          source = await seedSearchableSource(app.db, tenant.owner, {
+            passages: [text],
+            grants: [{ kind: 'membership', membershipId: tenant.owner.membershipId }],
+          });
+          return [source.sourceId];
+        },
+      }),
+      run = await f.requestRun();
+    // Everything the allowed case has, so the only difference is the policy below.
+    await seedRateCard(app.db, f.owner, f.profileId);
+    const writer = await prepareRunInputContext(agent.db, f.organizationId, run.agentRunId);
+    await startRunning(agent.db, writer);
+    const authorizeAgentContext = await runtimeEgress(writer, run.agentRunId, f.request.workUnitId);
+    // The organization's egress policy now keeps internal data off this kind of provider, mid-run. A
+    // bundle can only tighten the default matrix (S1), and the router reads the active one each time.
+    await withTenantTx(app.db, f.owner, (tx) =>
+      tx.insert(policyBundles).values({
+        organizationId: f.organizationId,
+        version: 1,
+        sha256: sha256Of('generated-onboarding-bundle'),
+        document: { denyClasses: { customer_private_inference: ['internal'] } },
+        active: true,
+        createdByMembershipId: f.owner.membershipId,
+      }),
+    );
+    // The scripted port stands in for the Knowledge model gateway, which agent-composition.ts gives the
+    // same tenant bundle, so it refuses here as that gateway would. Whatever is asked of it is then only
+    // a routing question: no model method is reached.
+    const model = createScriptedModelPort({
+      route: () => ({
+        decision: 'deny',
+        reasonCode: 'CLASS_DENIED',
+        policyVersion: 'generated-onboarding-bundle',
+      }),
+    });
+    const counts = async () => {
+      const { rows } = await su.query<{ packages: number; allowed: number }>(
+        `select (select count(*)::int from knowledge.evidence_packages
+                  where organization_id = $1 and run_id = $2) as packages,
+                (select count(*)::int from knowledge.model_calls
+                  where organization_id = $1 and decision <> 'deny') as allowed`,
+        [f.organizationId, run.agentRunId],
+      );
+      return rows[0];
+    };
+    const before = await counts();
+
+    const result = await compileEvidence(
+      agent.db,
+      writer,
+      { model, authorizeAgentContext },
+      {
+        purpose: 'agent_turn',
+        question: text,
+        queryClassification: 'internal',
+        workUnitId: f.request.workUnitId,
+        runId: run.agentRunId,
+        sourceIds: [source.sourceId],
+        budgetTokens: 1000,
+        signal: AbortSignal.timeout(10_000),
+      },
+    );
+
+    // The refusal code is what the turn sees, and the model was never called.
+    expect(result).toEqual({ ok: false, code: 'EGRESS_DENIED' });
+    expect(model.calls.filter((call) => call.method !== 'route')).toEqual([]);
+    // The runtime's decision is recorded as a refusal of this run's evidence by the tenant's policy:
+    // one deny row naming the profile it would have gone to, and no allow.
+    expect(await listEgressDecisions(app.db, f.owner, { runId: run.agentRunId })).toEqual([
+      expect.objectContaining({
+        runId: run.agentRunId,
+        profileId: f.profileId,
+        dataClass: 'internal',
+        purpose: 'reason',
+        decision: 'deny',
+        reasonCode: 'CLASS_DENIED',
+      }),
+    ]);
+    // Nothing else: no evidence package for the run, no allowed model call, no profile bound, and the
+    // run has no output to show for it.
+    expect(await counts()).toEqual(before);
+    expect(before?.packages).toBe(0);
+    expect(await readRunFacts(agent.db, writer, { agentRunId: run.agentRunId })).toMatchObject({
+      status: 'running',
+      bound: null,
+    });
+    expect(
+      await withTenantTx(app.db, f.delegated, (tx) =>
+        port.statusOf(tx, f.delegated, run.agentRunId),
+      ),
+    ).toMatchObject({ artifactIds: [] });
   });
 
   it('refuses a completed legacy adapter response without complete output inventory authority', async () => {

@@ -2,17 +2,29 @@
 import { randomUUID } from 'node:crypto';
 import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { createMinimalContextCompiler } from '@ensemus/agent-runtime/context';
 import { AppError, getWorkDetail, listWorkOverview } from '@ensemus/application';
 import { agentSpecSha256, publishAgentVersion } from '@ensemus/application/ai-agents';
+import { createContextSource } from '@ensemus/application/ai-context-source';
+import {
+  createEgressLog,
+  listEgressDecisions,
+  loadTenantPolicyBundle,
+} from '@ensemus/application/ai-egress-log';
+import { createProfileStore } from '@ensemus/application/ai-model-profiles';
+import { readRunFacts } from '@ensemus/application/ai-runs';
 import { createOnboardingAgentRuns } from '@ensemus/application/knowledge/onboarding-run-port';
 import { compileEvidence } from '@ensemus/application/knowledge/compiler';
 import { agentSpecV1Schema } from '@ensemus/contracts/ai';
+import { createModelRouter } from '@ensemus/intelligence';
 import { createScriptedModelPort } from '@ensemus/knowledge/testing';
+import { createAgentContextAuthorizer } from '../../workers/workflow/src/agent-context-authorizer';
 import {
   openAgentTestDatabase,
   prepareRunInputContext,
   seedActiveProfile,
   seedOrganizationBudget,
+  seedRateCard,
   testAgentSpec,
 } from '../helpers/ai/fixtures';
 import { draftRunOutput, startRunning } from '../helpers/ai/run-output';
@@ -57,6 +69,7 @@ describe('deal won to one verified onboarding', () => {
     reader: TenantContext,
     foreign: TenantContext,
     connectionId: string,
+    profileId: string,
     briefSource: Awaited<ReturnType<typeof seedSearchableSource>>;
   const briefText = 'Generated cited client brief.';
   const service = () => createServiceContext(owner.organizationId);
@@ -98,7 +111,10 @@ describe('deal won to one verified onboarding', () => {
         config: { fromAddress: 'sender@example.invalid' },
       }),
     );
-    await seedActiveProfile(database.db, agent.db, owner);
+    // The brief's turn is authorized by the runtime's own egress decision below, which routes through
+    // the main router: an active profile with no rate card is refused there (RATE_CARD_MISSING).
+    profileId = await seedActiveProfile(database.db, agent.db, owner);
+    await seedRateCard(database.db, owner, profileId);
     await seedOrganizationBudget(database.db, owner, 1_000_000);
     // The brief's run retrieves from this source, so the published manifest declares it, as a real
     // agent's must: an agent turn retrieves only from declared sources (compileEvidence refuses an
@@ -313,14 +329,48 @@ describe('deal won to one verified onboarding', () => {
     // The run works as a running run does: the tool gateway admits its draft effects only then.
     await startRunning(agent.db, writer);
     // Exercise actual retrieval/capture before generation; a later citation cannot invent an input.
-    // This scripted model port is confined to the synthetic state-machine test. An agent turn that
-    // selects evidence also needs the runtime's own egress decision for it (compileEvidence answers
-    // EGRESS_DENIED without one); the runtime routes it, and this synthetic turn is authorized as the
-    // other agent-turn fixtures authorize theirs.
+    // The scripted Knowledge port stands in for the Knowledge model gateway only. The evidence this
+    // agent turn selects is authorized by the runtime's own egress decision, wired exactly as
+    // workers/workflow/src/agent-composition.ts wires it: the production authorizer over the main
+    // router, the tenant's profiles and its policy bundle, given the task the minimal context
+    // compiler builds for this run and bound to the run as knowledge-context.ts binds it.
+    const facts = await readRunFacts(agent.db, writer, { agentRunId: stored.agentRunId! });
+    const turn = {
+      runId: stored.agentRunId!,
+      workUnitId: stored.briefWorkUnitId!,
+      agentVersionId: facts!.agentVersionId,
+      // The authorizer requires a model step in progress and reads no step row; the router's egress
+      // rows carry no step either (router/index.ts). A generated ID stands for the turn's step.
+      modelStep: { stepId: randomUUID(), stepNumber: 0, attempt: 1 },
+    };
+    const base = await createMinimalContextCompiler({
+      source: createContextSource({
+        database: agent.db,
+        readObject: async () => {
+          throw new Error('TEST_UNEXPECTED_OBJECT_READ');
+        },
+      }),
+      limits: { maxInputChars: 100_000, maxArtifactBytes: 10_000 },
+    }).compile(writer, turn);
+    const authorize = createAgentContextAuthorizer({
+      database: agent.db,
+      router: createModelRouter({
+        profiles: createProfileStore(agent.db),
+        egress: createEgressLog(agent.db),
+        bundle: (context) => loadTenantPolicyBundle(agent.db, context),
+      }),
+    });
+    const decisionsBefore = await listEgressDecisions(database.db, owner, {
+      runId: stored.agentRunId!,
+    });
     const compiled = await compileEvidence(
       agent.db,
       writer,
-      { model: createScriptedModelPort({}), authorizeAgentContext: async () => true },
+      {
+        model: createScriptedModelPort({}),
+        authorizeAgentContext: (context, request) =>
+          authorize(context, turn, { ...request, task: base.task }),
+      },
       {
         purpose: 'agent_turn',
         question: text,
@@ -333,6 +383,20 @@ describe('deal won to one verified onboarding', () => {
       },
     );
     expect(compiled).toMatchObject({ ok: true, items: [{ sourceId: source.sourceId }] });
+    // The decision that let it through is recorded: one allow, for this run's own profile and class.
+    const decisions = await listEgressDecisions(database.db, owner, {
+      runId: stored.agentRunId!,
+    });
+    expect(decisions.slice(decisionsBefore.length)).toEqual([
+      expect.objectContaining({
+        runId: stored.agentRunId!,
+        profileId,
+        dataClass: 'internal',
+        purpose: 'reason',
+        decision: 'allow',
+        reasonCode: 'ALLOWED',
+      }),
+    ]);
     // The brief is the run's own file, written through the tool gateway's draft path: an
     // authority-v1 run's output inventory exists only behind that run's own admission (0525).
     const artifact = await draftRunOutput(agent.db, store, writer, {

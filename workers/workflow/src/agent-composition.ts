@@ -8,14 +8,13 @@ import {
 import { createEgressLog, loadTenantPolicyBundle } from '@ensemus/application/ai-egress-log';
 import {
   admitMainModelDispatchInTx,
-  currentRunInputClass,
   receiveMainInputSnapshotInTx,
 } from '@ensemus/application/ai-model-admission';
 import { externalActionPort } from '@ensemus/application/ai-external-action-port';
 import { createHaltCheck } from '@ensemus/application/ai-halt';
 import { loadProfileForProbe } from '@ensemus/application/ai-model-probe-store';
 import { createProfileStore } from '@ensemus/application/ai-model-profiles';
-import { createTurnStore, readRunFacts } from '@ensemus/application/ai-runs';
+import { createTurnStore } from '@ensemus/application/ai-runs';
 import { createApprovalBinder } from '@ensemus/application/ai-tool-approvals';
 import { createToolStepStore } from '@ensemus/application/ai-tool-steps';
 import { createUsageLedger } from '@ensemus/application/ai-usage';
@@ -32,7 +31,6 @@ import { createDelegatedRecordPurge } from '@ensemus/application/knowledge/deleg
 import { createEntitlements } from '@ensemus/commercial';
 import { loadModelEgressSettings, loadSaasConfig } from '@ensemus/config';
 import { withTenantTx, type AgentContext, type AppDatabase } from '@ensemus/database';
-import { AGENT_TURN_PURPOSE, strongestClassification } from '@ensemus/domain/ai';
 import { createServiceContext } from '@ensemus/database/service';
 import {
   createCredentialLender,
@@ -54,7 +52,10 @@ import { createKnowledgeModelJobActivities } from '@ensemus/workflows/knowledge-
 import { loadAgentCanaries, loadAgentContextLimits } from './agent-settings';
 import { createHaltWatcher, HALT_POLL_MS, switchReaderFor } from './kill-switch';
 import { createKnowledgeContextCompiler } from './knowledge-context';
-import type { RunRef } from '@ensemus/agent-runtime/context';
+import {
+  createAgentContextAuthorizer,
+  type AuthorizeAgentContext,
+} from './agent-context-authorizer';
 
 /** All product ports are bound here; test adapters are never imported by the worker entry point. */
 export function createAgentServices(deps: {
@@ -64,13 +65,7 @@ export function createAgentServices(deps: {
   log: Logger;
   env?: NodeJS.ProcessEnv;
   knowledgeCloudSpend?: KnowledgeCloudSpend;
-  authorizeKnowledgeAgentContext?: (
-    context: AgentContext,
-    run: RunRef,
-    input: Parameters<NonNullable<CompileDeps['authorizeAgentContext']>>[1] & {
-      task: import('@ensemus/intelligence').InferenceTask;
-    },
-  ) => Promise<boolean>;
+  authorizeKnowledgeAgentContext?: AuthorizeAgentContext;
 }) {
   const { database, objects, log } = deps;
   const env = deps.env ?? process.env;
@@ -145,44 +140,11 @@ export function createAgentServices(deps: {
     base: createMinimalContextCompiler({ source, limits: contextLimits }),
     limits: contextLimits,
     forPrincipal: forKnowledgePrincipal,
-    authorizeAgentContext: async (ctx, run, input) => {
-      if (
-        input.task.purpose !== AGENT_TURN_PURPOSE ||
-        input.task.runId !== run.runId ||
-        !run.modelStep
-      )
-        return false;
-      const facts = await readRunFacts(database, ctx, { agentRunId: run.runId });
-      if (
-        !facts ||
-        facts.status !== 'running' ||
-        facts.workUnitId !== run.workUnitId ||
-        facts.agentVersionId !== run.agentVersionId
-      )
-        return false;
-      const floor = strongestClassification(
-        await currentRunInputClass(database, ctx),
-        facts.classification,
-      );
-      if (strongestClassification(floor, input.classification) !== input.classification)
-        return false;
-      const verdict = await router.select(
-        {
-          ...input.task,
-          purpose: AGENT_TURN_PURPOSE,
-          classification: input.classification,
-          pinned: facts.bound
-            ? { profileId: facts.bound.profileId, profileVersion: facts.bound.profileVersion }
-            : null,
-        },
-        ctx,
-      );
-      return (
-        verdict.kind === 'selected' &&
-        (!deps.authorizeKnowledgeAgentContext ||
-          (await deps.authorizeKnowledgeAgentContext(ctx, run, input)))
-      );
-    },
+    authorizeAgentContext: createAgentContextAuthorizer({
+      database,
+      router,
+      ...(deps.authorizeKnowledgeAgentContext ? { also: deps.authorizeKnowledgeAgentContext } : {}),
+    }),
   });
   const tools = createToolGateway({
     source,
