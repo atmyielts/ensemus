@@ -1,8 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import { createStandingAgentHaltPort } from '@ensemus/application/saas/standing-agent-port';
+import { createConnection } from '@ensemus/application';
 import {
-  connections,
   domainEvents,
+  interactiveSessionOf,
   memberships,
   offboardings,
   openAppDatabase,
@@ -29,6 +30,7 @@ import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { lifecycleArtifact, lifecycleTenant, LifecycleMemoryStore } from './saas-lifecycle-fixture';
 import { offboardingPorts, readyToErase } from './saas-offboarding-fixture';
+import { proveSecondFactor } from '../helpers/product';
 import { urls } from '../helpers/stack';
 describe('owner-authorized offboarding preserves independent restrictions and uncertain effects', () => {
   const database = openAppDatabase(urls.app()),
@@ -184,13 +186,26 @@ describe('owner-authorized offboarding preserves independent restrictions and un
   it('refusing export or missing trusted connection revocation cannot fabricate completed steps', async () => {
     const owner = await lifecycleTenant(database.db, auth),
       service = createServiceContext(owner.organizationId),
-      ports = offboardingPorts(),
-      started = await requestOffboarding(
-        database.db,
-        owner,
-        { confirmName: 'Same lifecycle name' },
-        ports.offboardingAgents,
-      );
+      ports = offboardingPorts();
+    // A live connection made the way production makes one: by the owner, after a recent second
+    // factor (0404 connection.manage). A service context cannot create one.
+    await proveSecondFactor({
+      userId: owner.userId,
+      sessionId: interactiveSessionOf(owner)!.sessionId,
+    });
+    await createConnection(database.db, owner, {
+      connectorType: 'test_connector',
+      displayName: 'Same connection',
+      config: {},
+      credentialSecretId: null,
+      manifests: [{ type: 'test_connector', credential: { required: false }, configFields: {} }],
+    });
+    const started = await requestOffboarding(
+      database.db,
+      owner,
+      { confirmName: 'Same lifecycle name' },
+      ports.offboardingAgents,
+    );
     ports.exports = {
       latestExport: async () => {
         throw new Error('TEST_EXPORT_UNAVAILABLE');
@@ -203,15 +218,6 @@ describe('owner-authorized offboarding preserves independent restrictions and un
       }),
     ).rejects.toThrow('TEST_EXPORT_UNAVAILABLE');
     expect((await getOffboarding(database.db, owner))!.exportOfferedAt).toBeNull();
-    await withAccountTx(database.db, service, (tx) =>
-      tx.insert(connections).values({
-        organizationId: owner.organizationId,
-        connectorType: 'test_connector',
-        displayName: 'Same connection',
-        config: {},
-        state: 'active',
-      }),
-    );
     ports.exports = { latestExport: async () => null };
     await advanceOffboarding(database.db, service, ports, {
       offboardingId: started.offboardingId,

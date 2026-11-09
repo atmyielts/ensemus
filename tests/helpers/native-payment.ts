@@ -1,7 +1,7 @@
 // Generated local TLS processor + real app/secrets SQL admission. Nothing here is a shipped provider.
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import type pg from 'pg';
-import { interactiveSessionOf, type AppDatabase } from '@ensemus/database';
+import { interactiveSessionOf, type AppDatabase, type TenantContext } from '@ensemus/database';
 import { createServiceContext } from '@ensemus/database/service';
 import type { openSecretsDatabase } from '@ensemus/database/secrets';
 import { createConnection, createWebhookEndpoint } from '@ensemus/application';
@@ -48,7 +48,16 @@ import { fakeJson, fakeProvider } from './fake-provider';
 import { proveSecondFactor } from './product';
 import { secret } from './stack';
 
-export async function nativePaymentFixture(
+/** Who pays: a person with a native session, the tenant's service context and an open invoice. */
+type NativePayer = {
+  owner: Awaited<ReturnType<typeof paymentTenant>>;
+  service: TenantContext;
+  invoice: { id: string };
+};
+
+export async function nativePaymentFixture<
+  Payer extends NativePayer = Awaited<ReturnType<typeof paymentFixture>>,
+>(
   database: AppDatabase,
   auth: pg.Client,
   secretsDb: ReturnType<typeof openSecretsDatabase>,
@@ -56,9 +65,12 @@ export async function nativePaymentFixture(
     operator?: Awaited<ReturnType<typeof paymentTenant>>;
     requestKey?: string;
     lookup?: 'none' | 'authoritative';
+    /** An existing payer and invoice, such as a Cloud top-up; a new subscription invoice otherwise. */
+    payer?: Payer;
   } = {},
 ) {
-  const who = await paymentFixture(database, auth, { legacyCustomer: false });
+  const who = (options.payer ??
+    (await paymentFixture(database, auth, { legacyCustomer: false }))) as Payer;
   const operator = options.operator ?? (await paymentTenant(database, auth));
   for (const owner of [who.owner, operator])
     await proveSecondFactor({

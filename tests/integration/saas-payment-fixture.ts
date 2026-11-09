@@ -15,7 +15,11 @@ import type pg from 'pg';
 import { seedBillingAccount, seedPlan } from '../helpers/saas';
 
 export const paymentAgents = createStandingAgentHaltPort();
-export async function paymentTenant(database: AppDatabase, auth: pg.Client) {
+export async function paymentTenant(
+  database: AppDatabase,
+  auth: pg.Client,
+  commercialMode: 'byom' | 'cloud' = 'byom',
+) {
   const userId = randomUUID();
   await auth.query('insert into identity.users(id,name,email) values($1,$2,$3)', [
     userId,
@@ -25,7 +29,7 @@ export async function paymentTenant(database: AppDatabase, auth: pg.Client) {
   const org = await createOrganization(database, {
     userId,
     name: 'Same payment name',
-    commercialMode: 'byom',
+    commercialMode,
   });
   return nativeSovereignContext(database, userId, org.organizationId);
 }
