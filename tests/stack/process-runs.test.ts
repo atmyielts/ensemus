@@ -53,18 +53,20 @@ describe('actual workflow execution HTTP contracts', () => {
   it('refuses missing identity, foreign tenant, malformed body/filter and cross-origin start', async () => {
     expect((await call(undefined, 'GET', 'process-specs')).status).toBe(401);
     expect((await call(outsider, 'GET', 'process-runs')).status).toBe(404);
-    expect((await call(owner, 'GET', 'process-runs?status=not-real')).status).toBe(422);
-    expect(
-      (
-        await call(
-          owner,
-          'POST',
-          'process-runs',
-          { spec_id: specId, title: 'Generated work', private_transcript: 'not accepted' },
-          { 'idempotency-key': randomUUID() },
-        )
-      ).status,
-    ).toBe(422);
+    // A malformed filter or body is INVALID_INPUT, which the public API answers as 400 (readQuery and
+    // readJson in apps/web/src/server/api.ts, HTTP_STATUS, the BadRequest response). Nothing answers 422.
+    const filter = await call(owner, 'GET', 'process-runs?status=not-real');
+    expect(filter.status).toBe(400);
+    expect(filter.body?.code).toBe('INVALID_INPUT');
+    const extra = await call(
+      owner,
+      'POST',
+      'process-runs',
+      { spec_id: specId, title: 'Generated work', private_transcript: 'not accepted' },
+      { 'idempotency-key': randomUUID() },
+    );
+    expect(extra.status).toBe(400);
+    expect(extra.body?.code).toBe('INVALID_INPUT');
     expect(
       (
         await call(
@@ -133,17 +135,15 @@ describe('actual workflow execution HTTP contracts', () => {
     const current = await call(owner, 'GET', `process-runs/${runId}`),
       version = current.headers.get('etag');
     if (!version) throw new Error('TEST_VERSION_MISSING');
-    expect(
-      (
-        await call(
-          owner,
-          'POST',
-          `process-runs/${runId}/stop`,
-          { status: 'completed' },
-          { 'if-match': version, 'idempotency-key': randomUUID() },
-        )
-      ).status,
-    ).toBe(422);
+    const forged = await call(
+      owner,
+      'POST',
+      `process-runs/${runId}/stop`,
+      { status: 'completed' },
+      { 'if-match': version, 'idempotency-key': randomUUID() },
+    );
+    expect(forged.status).toBe(400);
+    expect(forged.body?.code).toBe('INVALID_INPUT');
     const key = randomUUID(),
       one = await call(
         owner,
