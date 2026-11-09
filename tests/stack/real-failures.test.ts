@@ -282,20 +282,21 @@ describe('the dispatcher killed in the middle of a batch (WORK-06)', () => {
       )
       .toBe(held.length);
 
-    // Nothing lost and nothing done twice: every run happened, once.
+    // Nothing lost and nothing done twice: every run happened, once. Counted by status, so a run that
+    // ended anywhere else (failed, or still running) is named when this does not hold.
     await expect
       .poll(
         async () => {
           const { rows } = await su.query(
-            `select count(*)::int as n from work.work_units
-             where id = any($1::uuid[]) and status = 'verifying'`,
+            `select status, count(*)::int as n from work.work_units
+             where id = any($1::uuid[]) group by status`,
             [ids],
           );
-          return rows[0].n as number;
+          return Object.fromEntries(rows.map((row) => [row.status as string, row.n as number]));
         },
         { timeout: 90_000, interval: 500 },
       )
-      .toBe(COUNT);
+      .toEqual({ verifying: COUNT });
     // The runs add events of their own as they go, and all of those get out as well.
     await expect
       .poll(

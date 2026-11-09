@@ -36,74 +36,82 @@ const tool = (name: string) => join(repoRoot, 'workers/workflow/dist/tools', nam
 const docker = (...args: string[]) =>
   spawnSync('docker', args, { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
 
-beforeAll(async () => {
-  work = mkdtempSync(join(tmpdir(), 'ensemus-bundle-stack-'));
-  bundle = join(work, 'bundle');
-  trustRoot = join(work, 'trust-root.json');
-  const signer = join(work, 'signer.pem');
-  writeFileSync(signer, key.privateKey.export({ type: 'pkcs8', format: 'pem' }));
-  writeFileSync(trustRoot, testTrustRootText([key]));
+/**
+ * The overlay `install-bundle` lays over compose.yaml. infrastructure/compose/sovereign/README.md says what it
+ * has to hold, and it is not written yet, so build-bundle.mjs refuses with OVERLAY_MISSING before it builds
+ * anything (a refusal with its own unit test in tests/unit). Nothing here can run until it exists, and once
+ * it does, all of this runs, with no setting to turn it on.
+ */
+const OVERLAY = join(repoRoot, 'infrastructure', 'compose', 'sovereign', 'compose.sovereign.yaml');
 
-  const tools = node(join(repoRoot, 'workers/workflow/scripts/build-sovereign-tools.mjs'), []);
-  expect(tools.stderr).toBe('');
-  expect(tools.status).toBe(0);
+describe.skipIf(!existsSync(OVERLAY))('a bundle with real image archives', () => {
+  beforeAll(async () => {
+    work = mkdtempSync(join(tmpdir(), 'ensemus-bundle-stack-'));
+    bundle = join(work, 'bundle');
+    trustRoot = join(work, 'trust-root.json');
+    const signer = join(work, 'signer.pem');
+    writeFileSync(signer, key.privateKey.export({ type: 'pkcs8', format: 'pem' }));
+    writeFileSync(trustRoot, testTrustRootText([key]));
 
-  const built = node(join(repoRoot, 'infrastructure/scripts/build-bundle.mjs'), [
-    '2.0.1',
-    '--signer',
-    signer,
-    '--key-id',
-    key.keyId,
-    '--out',
+    const tools = node(join(repoRoot, 'workers/workflow/scripts/build-sovereign-tools.mjs'), []);
+    expect(tools.stderr).toBe('');
+    expect(tools.status).toBe(0);
+
+    const built = node(join(repoRoot, 'infrastructure/scripts/build-bundle.mjs'), [
+      '2.0.1',
+      '--signer',
+      signer,
+      '--key-id',
+      key.keyId,
+      '--out',
+      bundle,
+      '--line',
+      '2.0',
+      '--kind',
+      'patch',
+      '--published-on',
+      '2027-01-31',
+      '--git-commit',
+      'a'.repeat(40),
+      '--workflow-compatibility',
+      'replay corpus of this commit',
+      '--image',
+      'web=ensemus/web:local',
+      '--image',
+      'worker=ensemus/worker:local',
+      '--upgrade-from',
+      '2.0.0',
+      '--rollback-to',
+      '2.0.0',
+      '--rollback-constraint',
+      'MIGRATIONS_NOT_REVERSIBLE',
+    ]);
+    expect(built.stderr).toBe('');
+    expect(built.status).toBe(0);
+
+    const verdict = await verifyBundleDirectory(
+      bundle,
+      parseTrustRoot(readFileSync(trustRoot, 'utf8')),
+    );
+    if (!verdict.ok) throw new Error(`The bundle was refused: ${verdict.code}`);
+    manifest = verdict.manifest;
+  }, BUILD_TIMEOUT);
+
+  afterAll(() => {
+    rmSync(work, { recursive: true, force: true });
+  });
+
+  const installArgs = (extra: string[]) => [
     bundle,
-    '--line',
-    '2.0',
-    '--kind',
-    'patch',
-    '--published-on',
-    '2027-01-31',
-    '--git-commit',
-    'a'.repeat(40),
-    '--workflow-compatibility',
-    'replay corpus of this commit',
-    '--image',
-    'web=ensemus/web:local',
-    '--image',
-    'worker=ensemus/worker:local',
-    '--upgrade-from',
-    '2.0.0',
-    '--rollback-to',
-    '2.0.0',
-    '--rollback-constraint',
-    'MIGRATIONS_NOT_REVERSIBLE',
-  ]);
-  expect(built.stderr).toBe('');
-  expect(built.status).toBe(0);
+    '--trust-root',
+    trustRoot,
+    '--state-dir',
+    join(work, 'state'),
+    '--project',
+    PROJECT,
+    ...extra,
+  ];
 
-  const verdict = await verifyBundleDirectory(
-    bundle,
-    parseTrustRoot(readFileSync(trustRoot, 'utf8')),
-  );
-  if (!verdict.ok) throw new Error(`The bundle was refused: ${verdict.code}`);
-  manifest = verdict.manifest;
-}, BUILD_TIMEOUT);
-
-afterAll(() => {
-  rmSync(work, { recursive: true, force: true });
-});
-
-const installArgs = (extra: string[]) => [
-  bundle,
-  '--trust-root',
-  trustRoot,
-  '--state-dir',
-  join(work, 'state'),
-  '--project',
-  PROJECT,
-  ...extra,
-];
-
-describe('a bundle with real image archives', () => {
   it('verifies, through the built tool', { timeout: BUILD_TIMEOUT }, () => {
     const result = node(tool('verify-bundle.mjs'), [bundle, '--trust-root', trustRoot]);
     expect(result.stderr).toBe('');

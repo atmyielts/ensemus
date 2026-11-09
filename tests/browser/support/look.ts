@@ -15,7 +15,7 @@ export const WIDTHS = [1280, 375] as const;
 
 export type Finding = { rule: string; impact: string; where: string[]; why: string };
 
-export async function axeFindings(page: Page): Promise<Finding[]> {
+async function findingsOn(page: Page): Promise<Finding[]> {
   const { violations } = await new AxeBuilder({ page }).withTags(TAGS).analyze();
   return violations.map((violation) => ({
     rule: violation.id,
@@ -23,6 +23,78 @@ export async function axeFindings(page: Page): Promise<Finding[]> {
     where: violation.nodes.map((node) => node.target.join(' ')),
     why: violation.nodes[0]?.failureSummary ?? violation.help,
   }));
+}
+
+/**
+ * Whether the page was opened with scripting off. Such a page still answers an evaluation, but it never
+ * runs a timer, and axe waits on timers, so it would wait until the test times out. The HTML parser says
+ * which it is: with scripting off, what is inside `<noscript>` is parsed as elements.
+ */
+const scriptingOff = (page: Page) =>
+  page.evaluate(() => {
+    const probe = document.createElement('div');
+    probe.innerHTML = '<noscript><i></i></noscript>';
+    return probe.querySelector('noscript i') !== null;
+  });
+
+/**
+ * For a page opened with scripting off, axe checks an exact copy of what that page shows, at the same
+ * address, width, height, theme and motion setting, in a context where axe can run. The copy is the page's
+ * own document as it stands, with its `<script>` elements removed, so none of them runs, and each
+ * `<noscript>` replaced by what it holds, which is what a browser with scripting off shows. Its styles and
+ * images come from the proxy, as the page's own did. Nothing else is fetched.
+ */
+async function findingsWithScriptingOff(page: Page): Promise<Finding[]> {
+  const shown = await page.evaluate(() => {
+    const copy = document.documentElement.cloneNode(true) as HTMLElement;
+    for (const script of copy.querySelectorAll('script')) script.remove();
+    for (const fallback of copy.querySelectorAll('noscript')) {
+      fallback.replaceWith(...fallback.childNodes);
+    }
+    return {
+      html: `<!doctype html>${copy.outerHTML}`,
+      dark: matchMedia('(prefers-color-scheme: dark)').matches,
+      reduced: matchMedia('(prefers-reduced-motion: reduce)').matches,
+    };
+  });
+  const browser = page.context().browser();
+  if (!browser) throw new Error('An accessibility check needs the browser the page runs in');
+  // A request never carries the fragment, so the copy's own request is matched without one.
+  const location = new URL(page.url());
+  location.hash = '';
+  const address = location.href;
+  const origin = location.origin;
+  const checking = await browser.newContext({
+    ignoreHTTPSErrors: true,
+    viewport: page.viewportSize(),
+    colorScheme: shown.dark ? 'dark' : 'light',
+    reducedMotion: shown.reduced ? 'reduce' : 'no-preference',
+  });
+  try {
+    const copy = await checking.newPage();
+    await copy.route('**/*', async (route) => {
+      const request = route.request();
+      if (request.isNavigationRequest() && request.url() === address) {
+        await route.fulfill({
+          status: 200,
+          contentType: 'text/html; charset=utf-8',
+          body: shown.html,
+        });
+      } else if (new URL(request.url()).origin === origin) {
+        await route.continue();
+      } else {
+        await route.abort();
+      }
+    });
+    await copy.goto(address);
+    return await findingsOn(copy);
+  } finally {
+    await checking.close();
+  }
+}
+
+export async function axeFindings(page: Page): Promise<Finding[]> {
+  return (await scriptingOff(page)) ? findingsWithScriptingOff(page) : findingsOn(page);
 }
 
 /** How far the page scrolls sideways, which is never right at any width (WCAG 1.4.10). */

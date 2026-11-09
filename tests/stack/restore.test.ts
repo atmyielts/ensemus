@@ -1,7 +1,7 @@
 // LIFE-01, ADR-026: restoring a backup cannot bring a deleted file back. The steps here are the ones in
 // the runbook's backup and restore section: a real pg_dump and pg_restore into the running database,
 // the real object store, the images' own commands, and the product through its pages.
-import { randomUUID } from 'node:crypto';
+import { createHash, createHmac, randomUUID } from 'node:crypto';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -45,13 +45,69 @@ const LEDGER_WAIT = { timeout: 90_000, interval: 250 };
 /** The gate rechecks a tenant it last found clear every 30 seconds. */
 const GATE_INTERVAL = { timeout: 45_000, interval: 500 };
 
+const STORE = 'http://127.0.0.1:58333';
+const BUCKET = 'ensemus';
+const REGION = 'us-east-1';
+
 const storeFor = (access: string, key: string) =>
   new S3ObjectStore({
-    endpoint: 'http://127.0.0.1:58333',
-    bucket: 'ensemus',
+    endpoint: STORE,
+    bucket: BUCKET,
     accessKey: secret(access),
     secretKey: secret(key),
   });
+
+/**
+ * A DELETE signed with a credential (AWS Signature Version 4) and sent straight to the store, as anyone
+ * holding that credential could send it. S3ObjectStore.delete first reads the bucket's versioning
+ * (d66618c, the purge proof), which the ledger credential may not, so it never sends the DELETE, and it
+ * reports any failure as OBJECT_PHYSICAL_ABSENCE_UNPROVEN. The store's own answer to the DELETE itself
+ * is only reachable like this. Returns the status and the S3 error code, if there was one.
+ */
+async function signedDelete(access: string, key: string, objectKey: string) {
+  const sha256 = (data: string) => createHash('sha256').update(data).digest('hex');
+  const hmac = (secretKey: string | Buffer, data: string) =>
+    createHmac('sha256', secretKey).update(data).digest();
+  const host = new URL(STORE).host;
+  const path = `/${BUCKET}/${objectKey.split('/').map(encodeURIComponent).join('/')}`;
+  const stamp = new Date()
+    .toISOString()
+    .replace(/[-:]/g, '')
+    .replace(/\.\d{3}/, '');
+  const day = stamp.slice(0, 8);
+  const scope = `${day}/${REGION}/s3/aws4_request`;
+  const payload = sha256('');
+  const signedHeaders = 'host;x-amz-content-sha256;x-amz-date';
+  const canonical = [
+    'DELETE',
+    path,
+    '',
+    `host:${host}`,
+    `x-amz-content-sha256:${payload}`,
+    `x-amz-date:${stamp}`,
+    '',
+    signedHeaders,
+    payload,
+  ].join('\n');
+  const toSign = ['AWS4-HMAC-SHA256', stamp, scope, sha256(canonical)].join('\n');
+  const signingKey = hmac(
+    hmac(hmac(hmac(`AWS4${secret(key)}`, day), REGION), 's3'),
+    'aws4_request',
+  );
+  const signature = createHmac('sha256', signingKey).update(toSign).digest('hex');
+  const response = await fetch(`${STORE}${path}`, {
+    method: 'DELETE',
+    headers: {
+      'x-amz-content-sha256': payload,
+      'x-amz-date': stamp,
+      authorization:
+        `AWS4-HMAC-SHA256 Credential=${secret(access)}/${scope}, ` +
+        `SignedHeaders=${signedHeaders}, Signature=${signature}`,
+    },
+  });
+  const text = await response.text();
+  return { status: response.status, code: /<Code>([^<]+)<\/Code>/.exec(text)?.[1] };
+}
 
 /** The fields a command logged, from the last line of its output that carries this event. */
 function logged(output: string, event: string) {
@@ -574,7 +630,21 @@ describe('restoring a database backup', () => {
     await refused(narrow.get(bytes));
     await refused(narrow.exists(bytes));
     await refused(narrow.put(`${org}/artifacts/planted`, Buffer.from('x'), 'text/plain'));
-    await refused(narrow.delete(bytes));
+    // The product's own delete stops before it sends anything, since this credential cannot read the
+    // bucket's versioning. The store has to refuse the DELETE itself as well, for someone who sends it.
+    await expect(narrow.delete(bytes)).rejects.toThrow('OBJECT_PHYSICAL_ABSENCE_UNPROVEN');
+    expect(
+      await signedDelete('objects_ledger_access_key', 'objects_ledger_secret_key', bytes),
+    ).toEqual({ status: 403, code: 'AccessDenied' });
+    // The control for that request: signed the same way with the full credential, it does delete, so
+    // the refusal above is the credential's scope and not a request the store could not read.
+    const control = `${org}/artifacts/control-${randomUUID()}`;
+    await admin().put(control, Buffer.from('x'), 'text/plain');
+    expect(await signedDelete('objects_access_key', 'objects_secret_key', control)).toEqual({
+      status: 204,
+      code: undefined,
+    });
+    expect(await admin().exists(control)).toBe(false);
     await refused(
       (async () => {
         for await (const page of narrow.listPages('')) return page;

@@ -5,6 +5,12 @@ import { expect, test } from '../support/fixtures';
 import { createOrganization, join, signUp, BASE } from '../../helpers/forms';
 import { setGeneratedAccountStanding } from '../../helpers/account-export';
 import { axeFindings, sidewaysOverflow } from '../support/look';
+/**
+ * An account destination's link. Its accessible name is its label followed by its description (the whole
+ * row is the link, see DestinationList), so it is found by how the name starts, never by the label alone.
+ * No account label starts another, so the start is enough to tell them apart.
+ */
+const destination = (label: string) => ({ name: new RegExp(`^${label}`) });
 const pair = () => {
   const keys = generateKeyPairSync('x25519');
   return {
@@ -28,7 +34,7 @@ test.describe('real account exports in paused service', () => {
       await expect(
         page.getByRole('heading', { name: 'Your organization is suspended', exact: true }),
       ).toBeVisible();
-      await page.getByRole('link', { name: 'Export your data', exact: true }).click();
+      await page.getByRole('link', destination('Export your data')).click();
       await expect(
         page.getByRole('heading', { name: 'Export your data', exact: true }),
       ).toBeVisible();
@@ -84,12 +90,12 @@ test.describe('real account exports in paused service', () => {
       await expect(page).toHaveURL(new RegExp(`/o/${organization}/account$`));
       const employee = await open(member, { javaScriptEnabled });
       await employee.goto(`/o/${organization}/account`);
+      // The control first: the member does see the account page, with what a member may use.
       await expect(
-        employee.getByRole('link', { name: 'Export your data', exact: true }),
-      ).toHaveCount(0);
-      await expect(employee.getByRole('link', { name: 'Leave Ensemus', exact: true })).toHaveCount(
-        0,
-      );
+        employee.getByRole('heading', { name: 'Your organization is suspended', exact: true }),
+      ).toBeVisible();
+      await expect(employee.getByRole('link', destination('Export your data'))).toHaveCount(0);
+      await expect(employee.getByRole('link', destination('Leave Ensemus'))).toHaveCount(0);
       expect((await employee.goto(`/o/${organization}/account/exports`))?.status()).toBe(404);
       for (const suffix of ['', `/${id}`, `/${id}/archive`])
         expect((await employee.request.get(`${api}/exports${suffix}`)).status()).toBe(403);
@@ -104,18 +110,17 @@ test.describe('real account exports in paused service', () => {
     const owner = await open(world.alice);
     await owner.goto(`/o/${world.organization}/account`);
     const destinations = owner.getByRole('list', { name: 'Account destinations', exact: true });
-    await expect(
-      destinations.getByRole('link', { name: 'Leave Ensemus', exact: true }),
-    ).toHaveAttribute('href', `/o/${world.organization}/account/leave`);
-    await destinations.getByRole('link', { name: 'Leave Ensemus', exact: true }).click();
+    await expect(destinations.getByRole('link', destination('Leave Ensemus'))).toHaveAttribute(
+      'href',
+      `/o/${world.organization}/account/leave`,
+    );
+    await destinations.getByRole('link', destination('Leave Ensemus')).click();
     await expect(owner.getByRole('heading', { name: 'Leave Ensemus', exact: true })).toBeVisible();
     const admin = await open(world.carol);
     await admin.goto(`/o/${world.organization}/account`);
-    await expect(admin.getByRole('link', { name: 'Export your data', exact: true })).toHaveCount(0);
-    await expect(admin.getByRole('link', { name: 'Leave Ensemus', exact: true })).toHaveCount(0);
-    await expect(
-      admin.getByRole('link', { name: 'Billing and subscription', exact: true }),
-    ).toBeVisible();
+    await expect(admin.getByRole('link', destination('Billing and subscription'))).toBeVisible();
+    await expect(admin.getByRole('link', destination('Export your data'))).toHaveCount(0);
+    await expect(admin.getByRole('link', destination('Leave Ensemus'))).toHaveCount(0);
     expect((await admin.goto(`/o/${world.organization}/account/exports`))?.status()).toBe(404);
   });
 });
