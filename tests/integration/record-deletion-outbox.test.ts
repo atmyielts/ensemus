@@ -169,15 +169,10 @@ describe('ADR-028 typed-record deletion outbox (8a)', () => {
     expect(outbox).toEqual(['queued']);
   });
 
-  it('[ADR028-Q12-L8a] an imported client tombstone writes the event once, and a second emit writes nothing', async () => {
+  /** Imports a client tombstone dated `deletedAt`, then emits again for it in a later transaction. */
+  const importClientTombstone = async (deletedAt: Date) => {
     const service = createServiceContext(people.b.organizationId),
-      clientId = randomUUID(),
-      // An archive's tombstone records a deletion in the source system, so it predates the import. It is
-      // taken before the import transaction: a `new Date()` inside it is later than that transaction's
-      // now(), the event's occurred_at, and emitRecordClosedInTx counts only an event at least as new as
-      // the tombstone as this closure's (ADR-028 item 8a): a tombstone dated after its own event makes
-      // the second emit write again. That dating is the fixture's, not an archive's.
-      deletedAt = new Date(Date.now() - 60_000);
+      clientId = randomUUID();
     expect(
       await withTenantTx(app.db, service, (tx) =>
         recordImportedTombstone(tx, service, {
@@ -198,6 +193,31 @@ describe('ADR-028 typed-record deletion outbox (8a)', () => {
       ),
     ).toBe(false);
     expect((await closedEvents(service, clientId)).events).toHaveLength(1);
+    const [stored] = await withTenantTx(app.db, service, (tx) =>
+      tx
+        .select({ createdAt: tombstones.createdAt })
+        .from(tombstones)
+        .where(and(eq(tombstones.targetType, 'client'), eq(tombstones.targetId, clientId))),
+    );
+    return { tombstoneAt: stored!.createdAt, eventAt: first.events[0]!.occurredAt };
+  };
+
+  it('[ADR028-Q12-L8a] an imported client tombstone writes the event once, and a second emit writes nothing', async () => {
+    // An archive is hostile and may date a deletion in the future. recordImportedTombstone clamps it to
+    // the import transaction's now(), the event's occurred_at, because emitRecordClosedInTx counts only
+    // an event at least as new as the tombstone as this closure's (ADR-028 item 8a): a tombstone dated
+    // after its own event would make every later emit write the event again.
+    const deletedAt = new Date(Date.now() + 86_400_000);
+    const { tombstoneAt, eventAt } = await importClientTombstone(deletedAt);
+    expect(tombstoneAt.getTime()).toBeLessThan(deletedAt.getTime());
+    expect(tombstoneAt.getTime()).toBe(eventAt.getTime());
+  });
+
+  it('[ADR028-Q12-L8a] an imported client tombstone dated in the past keeps its date, and writes the event once', async () => {
+    const deletedAt = new Date(Date.now() - 86_400_000);
+    const { tombstoneAt, eventAt } = await importClientTombstone(deletedAt);
+    expect(tombstoneAt.getTime()).toBe(deletedAt.getTime());
+    expect(eventAt.getTime()).toBeGreaterThan(tombstoneAt.getTime());
   });
 
   it('[ADR028-Q12-L8a] the sweep claims a closed record with genuine child material until PostgreSQL proves its purge', async () => {

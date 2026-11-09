@@ -26,7 +26,7 @@ import {
 } from '@ensemus/domain/portability';
 import { ledgerKeyFor, TOMBSTONE_RECORDED } from '@ensemus/domain/tombstone-ledger';
 import { and, asc, eq, sql } from 'drizzle-orm';
-import { pgCode } from './errors';
+import { AppError, pgCode } from './errors';
 import { emit } from './events';
 import { isRecordPurgeKind } from '@ensemus/domain/knowledge-events';
 import { emitRecordClosedInTx } from './knowledge/record-closure';
@@ -219,6 +219,13 @@ export async function listImportHoldings(
  * Keeps a deletion deleted here too. The event carries it to this organization's own ledger, and is left out
  * for a type the ledger does not know, because an event that cannot become an entry goes dead and stays there.
  * Returns whether this was new.
+ *
+ * The tombstone keeps the source's deletion time, clamped to this transaction's now(): an archive or a
+ * source ledger is hostile and may date a deletion in the future, and a tombstone newer than the
+ * transaction that wrote it would make every later `knowledge.record_closed` emit for the record look
+ * older than its closure, so each one would write the event again (ADR-028 item 8a, emitRecordClosedInTx).
+ * Clamping keeps the import going rather than refusing the archive: a deletion is never undone by a bad
+ * date, and the clamp is taken in SQL so the application's clock cannot put it after the event either.
  */
 export async function recordImportedTombstone(
   tx: Tx,
@@ -226,6 +233,7 @@ export async function recordImportedTombstone(
   tombstone: { targetType: string; targetId: string; deletedAt: Date },
 ) {
   const { targetType, targetId, deletedAt } = tombstone;
+  if (Number.isNaN(deletedAt.getTime())) throw new AppError('INVALID_INPUT');
   const added = await tx
     .insert(tombstones)
     .values({
@@ -233,7 +241,7 @@ export async function recordImportedTombstone(
       targetType,
       targetId,
       reasonCode: 'USER_DELETED',
-      createdAt: deletedAt,
+      createdAt: sql<Date>`least(${deletedAt.toISOString()}::timestamptz, now())`,
     })
     .onConflictDoNothing()
     .returning({ id: tombstones.targetId });

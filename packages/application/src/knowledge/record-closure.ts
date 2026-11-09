@@ -35,7 +35,10 @@ function recordOf(input: { kind: unknown; id: unknown }): { kind: RecordPurgeKin
  * "This closure" is the record's tombstone: an event counts as already written only if it is at least as
  * new as the tombstone. ensemus_app can write a domain event for a live record (a forged or early event,
  * which the purge ignores because a live record has no purge snapshot), and such an event must not
- * suppress the genuine one when the record really closes later. A record with no tombstone has no
+ * suppress the genuine one when the record really closes later. This relies on a tombstone never being
+ * dated after the transaction that wrote it (its created_at defaults to now(), and recordImportedTombstone
+ * clamps an archive's deletion time to now()): one dated in the future would make every emit look older
+ * than its closure, and write again each time. A record with no tombstone has no
  * closure time, so any earlier event counts. A transaction-scoped advisory lock per record serializes the
  * check and the insert, so two concurrent closures write one event.
  */
