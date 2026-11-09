@@ -77,6 +77,22 @@ function temporalPulse(): ActivityPulse {
   return { heartbeat: () => current.heartbeat(), signal: current.cancellationSignal };
 }
 
+/** `purgeEndedRunTranscript` under the worker's own service context, bound by trusted composition. */
+export type TranscriptPurgePort = {
+  purgeEnded(organizationId: string, runId: string): Promise<'purged' | 'held'>;
+};
+
+/**
+ * What the end of a run says about its transcript. 'unconfirmed' is the purge's own refusal of this
+ * run's state (no such run, a run not yet ended, an unfenced checkpoint, or rows it could not remove):
+ * asking again cannot change that answer. The transcript and its unpurged checkpoint stay as debt for
+ * the lifecycle purge, and nothing claims they went.
+ */
+export type TranscriptPurgeAnswer = 'purged' | 'held' | 'unconfirmed';
+
+/** The purge's refusals that describe the run, not an outage. See `purgeEndedRunTranscript`. */
+const TERMINAL_PURGE_REFUSALS: ReadonlySet<string> = new Set(['NOT_FOUND', 'INVALID_STATE']);
+
 /**
  * What agent-worker hands these Activities. The wiring slice builds the real objects in agent-main.ts.
  * Each field is typed where its slice owns it, so tests can give a double for any one of them. The optional
@@ -96,8 +112,10 @@ export type AgentActivityDeps = {
    * Trusted composition binds the native service purge of an ended run's transcript (FD-5, 0515):
    * the initiator's agent transaction can neither see an authority-v1 run's payloads (0417) nor
    * delete them, so the run's end hands them to this port. 'held' (an active legal hold) keeps them.
+   * Required: no other path erases an ended run's prompts and answers, so a composition without it
+   * would leave every transcript behind. `createAgentActivities` refuses to build without it.
    */
-  transcripts?: { purgeEnded(organizationId: string, runId: string): Promise<'purged' | 'held'> };
+  transcripts: TranscriptPurgePort;
   /** Aborts an in-flight call when a kill switch covers it. See workers/workflow/src/kill-switch.ts. */
   haltWatcher?: {
     signalFor(run: {
@@ -191,6 +209,11 @@ async function guarded<T>(work: () => Promise<T>): Promise<T> {
 
 export function createAgentActivities(deps: AgentActivityDeps): AgentActivities {
   const { database } = deps;
+  // The type requires it; this refuses a composition that reaches here without it all the same, at
+  // start-up, rather than ending every run with its transcript left behind.
+  if (typeof deps.transcripts?.purgeEnded !== 'function')
+    throw new Error('AGENT_TRANSCRIPT_PURGE_REQUIRED');
+  const transcripts = deps.transcripts;
   const turns = createTurnStore(database);
   const pulse = deps.pulse ?? temporalPulse;
 
@@ -198,6 +221,32 @@ export function createAgentActivities(deps: AgentActivityDeps): AgentActivities 
   const ledger = () => (usage ??= createUsageLedger(database));
   let halt = deps.halt;
   const haltCheck = () => (halt ??= createHaltCheck());
+
+  /**
+   * FD-5, once the run's end has committed. NOT_FOUND and INVALID_STATE are the purge deciding about
+   * this run, and no retry changes them: thrown on, they would fail the closing Activity after the run
+   * had already ended. They answer 'unconfirmed' instead, so the run still closes, the transcript and
+   * its unpurged checkpoint stay for the lifecycle purge, and nothing claims they went. Anything else
+   * (NOWAIT contention, an outage) is thrown on, and the retry repeats a purge that is safe to repeat.
+   */
+  const purgeEndedTranscript = async (
+    organizationId: string,
+    runId: string,
+  ): Promise<TranscriptPurgeAnswer> => {
+    try {
+      return await transcripts.purgeEnded(organizationId, runId);
+    } catch (error) {
+      const code = errorCode(error);
+      if (!(
+        error instanceof Error &&
+        error.name === 'AppError' &&
+        TERMINAL_PURGE_REFUSALS.has(code)
+      ))
+        throw error;
+      log.warn('agent.transcript_purge_unconfirmed', { errorCode: code });
+      return 'unconfirmed';
+    }
+  };
 
   /** A fresh context from PostgreSQL, for every Activity. An initiator who has gone ends the run here. */
   const contextOf = (input: RunRef) =>
@@ -276,7 +325,7 @@ export function createAgentActivities(deps: AgentActivityDeps): AgentActivities 
             stopCode: 'INITIATOR_INACTIVE',
           });
           await deps.modelAccounting?.reconcileRun(input.organizationId, input.agentRunId);
-          await deps.transcripts?.purgeEnded(input.organizationId, input.agentRunId);
+          await purgeEndedTranscript(input.organizationId, input.agentRunId);
           return { kind: 'nothing_queued' as const };
         }
         const result = await reclaimRun(database, context, input);
@@ -644,7 +693,7 @@ export function createAgentActivities(deps: AgentActivityDeps): AgentActivities 
             stopCode: 'INITIATOR_INACTIVE',
           });
           await deps.modelAccounting?.reconcileRun(organizationId, agentRunId);
-          await deps.transcripts?.purgeEnded(organizationId, agentRunId);
+          await purgeEndedTranscript(organizationId, agentRunId);
           return;
         }
         const facts = await readRunFacts(database, context, { agentRunId });
@@ -661,7 +710,7 @@ export function createAgentActivities(deps: AgentActivityDeps): AgentActivities 
         await finishRun(database, context, { agentRunId, status, stopCode });
         await deps.modelAccounting?.reconcileRun(organizationId, agentRunId);
         // finishRun no longer deletes payloads (it cannot under 0417/0515); the service purge does.
-        await deps.transcripts?.purgeEnded(organizationId, agentRunId);
+        await purgeEndedTranscript(organizationId, agentRunId);
       }),
 
     closeQueuedRun: (input) =>

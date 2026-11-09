@@ -279,14 +279,26 @@ describe('actual protected material restore admission (0515)', () => {
     await expect(
       requalifyRawRestoreSource(app.db, memoryTransport(), tenant.owner, source.sourceId),
     ).rejects.toEqual(new AppError('FORBIDDEN'));
-    for (const context of [tenant.owner, service])
-      await expect(
-        withTenantTx(app.db, context, (tx) =>
-          tx.execute(
-            sql`select lifecycle.requalify_raw_restore_source(${source.sourceId}::uuid,ARRAY[${randomUUID()}::uuid])`,
-          ),
+    // Each context meets its own 0543 refusal, so each is asserted on its own. A person is not the
+    // service actor and is refused before any lookup (42501). The service passes that gate and the
+    // source's actual restore debt, and is refused because one random document is not the
+    // inventory's exact (empty) raw object set (EN850), so nothing is recorded.
+    const requalifyWrongSet = (context: Parameters<typeof withTenantTx>[1]) =>
+      withTenantTx(app.db, context, (tx) =>
+        tx.execute(
+          sql`select lifecycle.requalify_raw_restore_source(${source.sourceId}::uuid,ARRAY[${randomUUID()}::uuid])`,
         ),
-      ).rejects.toSatisfy((error: unknown) => ['42501', 'EN850'].includes(pgCode(error) ?? ''));
+      ).then(
+        () => null,
+        (error: unknown) => error,
+      );
+    const reason = (error: unknown) => (error as { cause?: { message?: string } }).cause?.message;
+    const asPerson = await requalifyWrongSet(tenant.owner);
+    expect(pgCode(asPerson)).toBe('42501');
+    expect(reason(asPerson)).toBe('RAW_RESTORE_REQUALIFICATION_SERVICE_REQUIRED');
+    const asService = await requalifyWrongSet(service);
+    expect(pgCode(asService)).toBe('EN850');
+    expect(reason(asService)).toBe('RAW_RESTORE_REQUALIFICATION_UNCONFIRMED');
     // A source with no restore debt has nothing to requalify.
     await expect(
       withTenantTx(app.db, service, (tx) =>

@@ -1052,8 +1052,10 @@ describe('delegated material birth evidence (0419)', () => {
     }
   }
 
-  // These are genuine full-composition gates, not expected passes while0414/0417 readiness stays
-  // false. Root must review/qualify the complete lifecycle before enabling and running them.
+  // These are genuine full-composition gates, not expected passes while 0414/0417 readiness stays
+  // false. Root must review/qualify the complete lifecycle before enabling and running them. Nothing
+  // yet defines what ai.delegation_influence_ready tests: ADR-028 open question 12 proposes the
+  // definition, and these three cases are its acceptance gate. They are not skipped.
   async function genuineChildWithRecord() {
     const input = await createWorkUnit(app.db, a.owner, {
       title: 'Actual inherited record material',
