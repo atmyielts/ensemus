@@ -356,6 +356,98 @@ describe('operator erasure material-witness composition', () => {
       expect(ports.seal).not.toHaveBeenCalled();
       expect(ports.erase).not.toHaveBeenCalled();
     });
+    it('reports BLOB_PURGE_PENDING while a file is still pending even with no object left, and restarts nothing', async () => {
+      ports.inspect.mockResolvedValue({
+        state: 'ready_for_erasure',
+        activeHolds: 0,
+        ledgerPending: 0,
+        unsettledActions: 0,
+        blobsPending: 2,
+      });
+      ports.physical.mockResolvedValue({ confirmed: false, objectsRemaining: 0 });
+      ports.restarts.mockResolvedValue([{ kind: 'work_unit', id: randomUUID() }]);
+      const start = vi.fn(async () => undefined);
+      const result = await run(undefined, { workflow: { start } });
+      expect(result.code).toBe(1);
+      expect(result.report).toEqual({
+        state: 'pending',
+        reasonCode: 'BLOB_PURGE_PENDING',
+        count: 2,
+      });
+      expect(ports.restarts).not.toHaveBeenCalled();
+      expect(start).not.toHaveBeenCalled();
+      expect(ports.seal).not.toHaveBeenCalled();
+      expect(ports.erase).not.toHaveBeenCalled();
+    });
+    // A run resumed while erasing (a seal not yet possible, an earlier run stopped as pending) still
+    // restarts the record purges before trying the seal, and never closes inputs again (0533).
+    it('restarts the record purges before the seal on a run resumed while erasing', async () => {
+      ports.inspect.mockResolvedValue({
+        state: 'erasing',
+        activeHolds: 0,
+        ledgerPending: 0,
+        unsettledActions: 0,
+        blobsPending: 0,
+      });
+      ports.physical.mockImplementation(async () => {
+        ports.order.push('physical-confirm');
+        return { confirmed: false, objectsRemaining: 0 };
+      });
+      const record = { kind: 'work_unit', id: randomUUID() };
+      ports.restarts.mockImplementation(async () => {
+        ports.order.push('list-restarts');
+        return [record];
+      });
+      const start = vi.fn(async () => undefined);
+      const result = await run(undefined, { workflow: { start } });
+      expect(result.code).toBe(1);
+      expect(result.report).toEqual({
+        state: 'pending',
+        reasonCode: 'MATERIAL_PURGE_PENDING',
+        restarted: 1,
+      });
+      expect(ports.order).toEqual([
+        'begin',
+        'physical-confirm',
+        'transaction-start',
+        'list-restarts',
+        'transaction-committed',
+      ]);
+      expect(start).toHaveBeenCalledOnce();
+      expect(ports.close).not.toHaveBeenCalled();
+      expect(ports.seal).not.toHaveBeenCalled();
+      expect(ports.erase).not.toHaveBeenCalled();
+    });
+    // 0515: once a same-generation witness exists, lifecycle.delegated_material_cleanup_ready answers from
+    // it, so the physical proof confirms and the rerun resumes metadata cleanup from that witness. Record
+    // purges that would still be listed are never consulted, and the run is not MATERIAL_PURGE_PENDING.
+    it('resumes erasure from an existing witness after a crash without consulting restarts', async () => {
+      ports.inspect.mockResolvedValue({
+        state: 'erasing',
+        activeHolds: 0,
+        ledgerPending: 0,
+        unsettledActions: 0,
+        blobsPending: 0,
+      });
+      ports.restarts.mockResolvedValue([{ kind: 'work_unit', id: randomUUID() }]);
+      const start = vi.fn(async () => undefined);
+      const result = await run(undefined, { workflow: { start } });
+      expect(result.code).toBe(0);
+      // The finished run's report is finishErasure's own report, not a pending one.
+      expect(result.report).toEqual({ rowsRemoved: 0 });
+      expect(ports.order).toEqual([
+        'begin',
+        'physical-confirm',
+        'transaction-start',
+        'seal',
+        'transaction-committed',
+        'erase',
+        'finish',
+      ]);
+      expect(ports.restarts).not.toHaveBeenCalled();
+      expect(start).not.toHaveBeenCalled();
+      expect(ports.close).not.toHaveBeenCalled();
+    });
     it('lists no restarts once the seal holds', async () => {
       const start = vi.fn(async () => undefined);
       expect((await run(undefined, { workflow: { start } })).code).toBe(0);
