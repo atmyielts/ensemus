@@ -47,6 +47,7 @@ import { createServiceContext } from '@ensemus/database/service';
 import { EMAIL_CONNECTOR_TYPE } from '@ensemus/domain/external-action';
 import { eq, sql } from 'drizzle-orm';
 import { seedMember, seedSearchableSource } from '../helpers/knowledge';
+import { nativeMfaOwner } from '../helpers/knowledge-native';
 import { urls } from '../helpers/stack';
 
 describe('deal won to one verified onboarding', () => {
@@ -77,7 +78,10 @@ describe('deal won to one verified onboarding', () => {
       });
       return resolveTenantContext(database.db, userId, org.organizationId);
     };
-    owner = await makeOwner();
+    // This owner activates a model profile and publishes the onboarding agent below. 0404 requires
+    // a fresh native second factor of any real person for both, so it is an actual native session
+    // with a proven factor, not a bare resolved context. The foreign owner publishes nothing.
+    owner = await nativeMfaOwner(database.db, 'generated-onboarding-person', 'sovereign');
     foreign = await makeOwner();
     const admin = await seedMember(database.db, owner, auth, 'member');
     reviewer = await resolveTenantContext(database.db, admin.userId, owner.organizationId);

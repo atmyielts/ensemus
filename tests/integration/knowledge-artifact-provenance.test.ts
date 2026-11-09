@@ -27,7 +27,6 @@ import {
   structuredWorkAssignments,
   artifacts,
   blobLifecycle,
-  createOrganization,
   knowledgeEvidenceItems,
   knowledgeEvidencePackages,
   knowledgeSourceGrants,
@@ -40,9 +39,13 @@ import {
   type TenantContext,
 } from '@ensemus/database';
 import { createServiceContext } from '@ensemus/database/service';
-import { createAgentContext, withRunLookupTx } from '@ensemus/database/agent';
-import { recordRunInputs, workInputHash } from '@ensemus/application/ai-input-ledger';
-import { openAgentTestDatabase, seedAgentVersion } from '../helpers/ai/fixtures';
+import { withRunLookupTx } from '@ensemus/database/agent';
+import {
+  openAgentTestDatabase,
+  prepareRunInputContext,
+  seedAgentVersion,
+} from '../helpers/ai/fixtures';
+import { nativeMfaOwner } from '../helpers/knowledge-native';
 import {
   recordArtifactCitations,
   checkArtifactGrounding,
@@ -84,18 +87,9 @@ describe('generated artifact all-input privacy and erasure protocol (0208)', () 
       classification?: 'internal' | 'confidential' | 'restricted';
     } = {},
   ) {
-    const userId = randomUUID();
-    await auth.query('insert into identity.users(id,name,email) values($1,$2,$3)', [
-      userId,
-      'Generated privacy reviewer',
-      `${userId}@example.invalid`,
-    ]);
-    const org = await createOrganization(database.db, {
-      userId,
-      name: 'Generated artifact privacy',
-      commercialMode: 'sovereign',
-    });
-    const owner = await resolveTenantContext(database.db, userId, org.organizationId);
+    // seedAgentVersion publishes as this owner, and 0404 requires a fresh native second factor for
+    // agent.publish of every real person; a bare resolved context is refused with MFA_REQUIRED.
+    const owner = await nativeMfaOwner(database.db, 'generated-privacy-reviewer', 'sovereign');
     const seeded = await seedMember(database.db, owner, auth);
     const member = await resolveTenantContext(database.db, seeded.userId, owner.organizationId);
     const service = createServiceContext(owner.organizationId);
@@ -144,22 +138,10 @@ describe('generated artifact all-input privacy and erasure protocol (0208)', () 
           }),
         );
       }
-      const context = await createAgentContext(agent.db, {
-        organizationId: owner.organizationId,
-        initiatorMembershipId: owner.membershipId,
-        agentRunId: execution.id,
-      });
-      await withTenantTx(agent.db, context, (tx) =>
-        recordRunInputs(tx, context, [
-          {
-            kind: 'work_unit',
-            id: work.id,
-            sha256: workInputHash(work),
-            classification: options.classification ?? 'internal',
-          },
-        ]),
-      );
-      return context;
+      // 0417: a run born under authority-v1 records its Work input only through the runtime's own
+      // read admission (protocol binding, authority lock, then the observation), which is what the
+      // context source does. A bare recordRunInputs is refused RUN_AUTHORITY_PROTOCOL_REQUIRED.
+      return prepareRunInputContext(agent.db, owner.organizationId, execution.id);
     };
     const writer = (await ensureRun(execution)) ?? service;
     if (!options.noPackages && !options.system)
@@ -217,6 +199,13 @@ describe('generated artifact all-input privacy and erasure protocol (0208)', () 
       delete: async (key) => {
         bodies.delete(key);
       },
+      // Explicit unversioned test map model of the capabilities the production S3 adapter exposes
+      // to purges; without them nothing could certify that the bytes are gone.
+      deleteForPurge: async (key) => {
+        bodies.delete(key);
+        return { transport: 'deleted', capabilityVerified: true };
+      },
+      isPhysicallyAbsent: async (key) => !bodies.has(key),
     };
     const inputs: { artifactId: string; sha256: string }[] = [];
     const records: StructuredArtifactInput[] = [
