@@ -42,8 +42,8 @@
     },
     {
       "path": "00-foundation/adr/ADR-026-tombstones-survive-restore.md",
-      "size_bytes": 17655,
-      "sha256": "aefff02229955640390cc4f38a3a5cc6b234878e7bf1616e24861631cf4f0b82"
+      "size_bytes": 19371,
+      "sha256": "7d2eda4972da22b00215bcd61cc4406011ee1cadaa6edf0e976f6443f4f656a4"
     },
     {
       "path": "00-foundation/adr/ADR-027-verified-external-actions.md",
@@ -317,8 +317,8 @@
     },
     {
       "path": "05-operations/sovereign/backup-and-restore.md",
-      "size_bytes": 20338,
-      "sha256": "d7e7ba3226a242c744a8e4da312e1547970fc636ed1bd1898f2e98eed96b91c2"
+      "size_bytes": 21961,
+      "sha256": "c935148a27ba9520ca93cc7ed210b94e9892e76868d90eacce3e37a83442a61b"
     },
     {
       "path": "05-operations/sovereign/diagnostics.md",

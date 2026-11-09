@@ -112,10 +112,15 @@ procedure until the composed migrations, native-role gate and actual isolated dr
      --requalify-organization <org> \
      --requalify-artifact <org>/<artifact> \
      --requalify-archive <org>/<import>/<source artifact> \
-     --requalify-source <org>/<source>
+     --requalify-source <org>/<source> \
+     --delete-raw-survivor <org>/<source>/<document>
    ```
 
-   Each option names exactly one object by its IDs; there is no pattern and no form for a whole tenant. `--requalify-organization` lets the tenant upload Knowledge again after the restore. The command observes each object with the store's physical-absence check and records what it saw; it deletes nothing itself. A generated file is then deleted by the ledger re-apply in the same run, and an archive file by the archive quarantine purge. **An object observed present stays owed**: every source purge in that tenant stays refused until its deletion is proven. A source whose raw bytes survived prints `present` with their document IDs and is not re-proven; it stays unconfirmed (below). Anything not re-proven makes the command exit 1. `reapply-ledger.js` takes the same options.
+   Each option names exactly one object by its IDs; there is no pattern and no form for a whole tenant. `--requalify-organization` lets the tenant upload Knowledge again after the restore. The `--requalify-*` options observe each object with the store's physical-absence check and record what they saw; they delete nothing themselves. A generated file is then deleted by the ledger re-apply in the same run, and an archive file by the archive quarantine purge. **An object observed present stays owed**: every source purge in that tenant stays refused until its deletion is proven. A source whose raw bytes survived prints `present` with their document IDs and is not re-proven.
+
+   **Delete each raw object that survived** (0548; FLAGGED FOR HUMAN SECURITY REVIEW, not yet reviewed by a person). For each document ID a `present` source printed, run `--delete-raw-survivor <org>/<source>/<document>`, one option per object; a source or tenant alone is refused, and so is anything not exactly three IDs. The object is deleted through the ordinary deletion lifecycle (admission, one DELETE, an independent absence check, the proof), and only once that deletion is proven is the source re-proven as above. The log line `restore_debt.requalification` with `reasonCode` `REQUALIFY_SURVIVOR` says what happened: `deleted:requalified:absent` means the object is gone and the source's restore debt is retired for this generation; `deleted:present` means the object is gone and others of the source still survive (`count`), so name those too; `held` means a legal hold covers the tenant and nothing was deleted; `unconfirmed` means nothing was proven (the source is not restore debt, the restored database shows it mid-purge, the store could not certify the deletion, or the deletion's outcome is unknown) and the source stays unconfirmed. Running it again after `unconfirmed` retries only the absence check of a DELETE that completed; a DELETE whose outcome is unknown is never sent again and keeps the source unconfirmed. Like every other proof here, a later restore reopens it.
+
+   Anything not re-proven makes the command exit 1. `reapply-ledger.js` takes the same options.
 
 8. **Review what it lists**, below. Running it again is always safe, and changes nothing that has already been done.
 9. **Start the web tier and other workers only after exact-generation authority acknowledgment AND
@@ -224,7 +229,7 @@ It prints one line of JSON for each thing, with counts, IDs, codes and keys Ense
 - **A lost ledger**, above. The ledger shares a store with the bytes. Object lock and a narrower identity belong with the production choice of store, as ADR-026 says.
 - **An email that went after the backup.** Nothing can tell, as above. An SMTP relay cannot be asked.
 - **Work done after the backup.** It is gone. Tell people what the restore point is.
-- **Raw Knowledge bytes that survived the restore.** `--requalify-source` reports them as `present` and records nothing, so that source's purge stays unconfirmed. There is no reviewed deletion path for them yet.
+- **Raw Knowledge bytes that survived the restore, beyond a fully purged source.** `--delete-raw-survivor` (step 7, not yet reviewed by a person) deletes them only for a closed source the restored database shows already purged. A source it shows mid-purge, or still active, keeps its restore debt, and nothing lists the survivors for you beyond what `--requalify-source` prints as `present`.
 - **Secrets.** Keys that seal secrets and the private key that opens a backup are yours to keep elsewhere. A backup that holds sealed secrets is no use without the key that opens them.
 
 ## Drills

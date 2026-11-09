@@ -41,9 +41,16 @@ import {
   ledgerRef,
 } from '@ensemus/domain/tombstone-ledger';
 import { and, asc, eq, gt, inArray, isNull, sql } from 'drizzle-orm';
+import { z } from 'zod';
 import { objectKey, type ObjectStore } from './artifacts';
 import { AppError } from './errors';
 import { emit } from './events';
+import { idSchema } from './ids';
+import {
+  createObjectDeletionExecutor,
+  createSqlObjectDeletionAuthority,
+  type DeletionTarget,
+} from './saas/object-deletion';
 import type { ContributorReport, RestoreContributor, RunProbe } from './sovereign-ports';
 import { missingRestoreContributors } from './restore-contributors';
 import {
@@ -857,7 +864,8 @@ export async function requalifyGeneratedRestoreDebt(
  * restore was admitted (0422). Every raw object the inventory names is observed in the store. Only
  * when each is physically absent does one service-only SQL call record the proof, naming exactly
  * those objects, and the source's purge job can then complete under 0516's own guard. A surviving
- * object is reported and nothing is recorded. Running it again changes nothing.
+ * object is reported and nothing is recorded: `deleteRawRestoreSurvivor` deletes it, one object at
+ * a time (0548). Running it again changes nothing.
  */
 export async function requalifyRawRestoreSource(
   database: AppDatabase,
@@ -897,6 +905,101 @@ export async function requalifyRawRestoreSource(
     ),
   );
   return { state: 'requalified', observed: 'absent' };
+}
+
+/**
+ * What deleting one raw object that survived a restore found (0548). `deleted` means its deletion
+ * was proven, and carries what re-proving its source then found: `requalified` once every object of
+ * the source is absent, `present` while others survive. `held` and `unconfirmed` deleted nothing
+ * that was proven, and the source stays in debt.
+ */
+export type RawRestoreSurvivorDeletion =
+  | { state: 'deleted'; source: RestoreRequalification }
+  | { state: 'held' }
+  | { state: 'unconfirmed' };
+
+/** The store capabilities the survivor deletion uses: the single capability-backed DELETE and the
+ * physical-absence check. Never a plain delete or a HEAD. */
+export type RawRestoreSurvivorStore = Pick<
+  ObjectStore,
+  'isPhysicallyAbsent' | 'deleteForPurge' | 'assertPurgeCapability'
+>;
+
+/** 0548's exact target, as SQL returns it and as begin_object_deletion compares it, key for key. */
+const survivorTarget = z.strictObject({
+  kind: z.literal('raw_restore_survivor'),
+  sourceId: idSchema,
+  sourceVersion: z.string().regex(/^[1-9][0-9]*$/),
+  purgeJobId: idSchema,
+  documentId: idSchema,
+  writeId: idSchema,
+  generation: z.int().nonnegative(),
+  priorMaterialRestoreGeneration: idSchema,
+  materialRestoreGeneration: idSchema,
+  authRestoreGeneration: idSchema,
+});
+
+const refuseUnadmitted = async (): Promise<never> => {
+  throw new AppError('OBJECT_DELETE_UNCONFIRMED');
+};
+
+/**
+ * Deletes one raw Knowledge object whose bytes survived an admitted restore, named by its source and
+ * document IDs (0548, ADR-026 D3a). FLAGGED FOR HUMAN SECURITY REVIEW, not yet reviewed by a person.
+ *
+ * There is no pattern and no source-wide or tenant-wide form, the same as `requalifyRawRestoreSource`.
+ * SQL names the exact target only for a closed source whose inventory a restore left in debt, every
+ * writer concluded and no live header. The deletion then goes through the existing object-deletion
+ * lifecycle unchanged (`createObjectDeletionExecutor`): admission with the hold check, one
+ * capability-backed DELETE, the terminal outcome, an independent physical-absence check, and only
+ * then the SQL proof. Only after that proof is the source re-proven through 0543's own per-source
+ * proof, which retires its restore debt for this generation once every object is absent. An unknown
+ * or unproven deletion leaves an unresolved claim, which keeps the source unconfirmed.
+ */
+export async function deleteRawRestoreSurvivor(
+  database: AppDatabase,
+  store: RawRestoreSurvivorStore,
+  context: TenantContext,
+  input: { sourceId: string; documentId: string },
+): Promise<RawRestoreSurvivorDeletion> {
+  requireRestoreService(context, input.sourceId);
+  requireRestoreService(context, input.documentId);
+  const found = await withTenantTx(database, context, async (tx) => {
+    const result = await tx.execute<{ target: unknown }>(
+      sql`select lifecycle.raw_restore_survivor_delete_target(${input.sourceId}::uuid,${input.documentId}::uuid) as target`,
+    );
+    return result.rows.length === 1 ? result.rows[0]?.target : undefined;
+  });
+  const target = survivorTarget.safeParse(found);
+  if (
+    !target.success ||
+    target.data.sourceId !== input.sourceId ||
+    target.data.documentId !== input.documentId
+  )
+    return { state: 'unconfirmed' };
+  const erase = createObjectDeletionExecutor({
+    authority: createSqlObjectDeletionAuthority(database),
+    store: {
+      // The executor never calls these: only the capability-backed purge and the absence check.
+      delete: refuseUnadmitted,
+      exists: refuseUnadmitted,
+      ...(store.deleteForPurge ? { deleteForPurge: store.deleteForPurge.bind(store) } : {}),
+      ...(store.isPhysicallyAbsent
+        ? { isPhysicallyAbsent: store.isPhysicallyAbsent.bind(store) }
+        : {}),
+      ...(store.assertPurgeCapability
+        ? { assertPurgeCapability: store.assertPurgeCapability.bind(store) }
+        : {}),
+    },
+  });
+  // The executor hands the target to lifecycle.begin_object_deletion as it is. Its 'raw_restore_survivor'
+  // kind is 0548's, which DeletionTarget does not list; SQL checks every key of it again.
+  const result = await erase(context, target.data as unknown as DeletionTarget);
+  if (result.state !== 'purged') return { state: result.state };
+  return {
+    state: 'deleted',
+    source: await requalifyRawRestoreSource(database, store, context, input.sourceId),
+  };
 }
 
 /**
