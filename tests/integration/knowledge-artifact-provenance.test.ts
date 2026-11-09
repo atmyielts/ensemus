@@ -1068,6 +1068,76 @@ describe('generated artifact all-input privacy and erasure protocol (0208)', () 
   const removeOtherAssignment = (value: Fixture, id: string) =>
     unassign(database.db, value.member, { id, membershipId: value.owner.membershipId });
   /**
+   * A restricted other Work the named viewer is assigned to, which this run never reads. Run admission
+   * (0414/0417, currentRunCompanyClassInTx) checks and locks only what the run actually read, so a
+   * record that reaches the generated-artifact inventory without being one of those is answered by the
+   * inventory's own structured check (structuredInventory: knowledge.lock_structured_record NOWAIT, then
+   * knowledge.structured_record_readable for the named viewer) and by nothing before it.
+   */
+  async function unreadWork(value: Fixture) {
+    const work = await createWorkUnit(database.db, value.member, {
+      title: 'Other Work this run never reads',
+      objective: 'Synthetic structured record listed by the inventory only',
+      classification: 'restricted',
+    });
+    await assignContributor(database.db, value.member, {
+      id: work.id,
+      membershipId: value.owner.membershipId,
+    });
+    const record: StructuredArtifactInput = {
+      kind: 'work_unit',
+      id: work.id,
+      sha256: workInputHash(work),
+      classification: 'restricted',
+    };
+    return { work, record };
+  }
+  /** The fixture's inventory, also listing `extra` on the inspections `when` selects. */
+  const listing = (
+    value: Fixture,
+    extra: StructuredArtifactInput,
+    when: (inspection: number) => boolean = () => true,
+  ) => {
+    let inspections = 0;
+    const port: ArtifactInputInventory = {
+      inspectInTx: async (...args) => {
+        const proof = await value.inventory.inspectInTx(...args);
+        return when(++inspections) && proof.known
+          ? { ...proof, recordInputs: [...proof.recordInputs, extra] }
+          : proof;
+      },
+    };
+    return { port, inspections: () => inspections };
+  };
+  const publishListing = (value: Fixture, port: ArtifactInputInventory) =>
+    addGeneratedArtifact(
+      agent.db,
+      value.store,
+      agentWriterOf(value),
+      { ...value.input, requestKey: randomUUID() },
+      { inventory: port },
+    );
+  /** The run's own read admission on its own, exactly as addGeneratedArtifact holds it first. */
+  const runAdmission = (value: Fixture) =>
+    withAdmittedRunTx(agent.db, agentWriterOf(value), async () => 'admitted' as const);
+  const viewerReads = async (value: Fixture, workUnitId: string) =>
+    (
+      await withTenantTx(database.db, value.service, (tx) =>
+        tx.execute<{ allowed: boolean }>(
+          sql`select knowledge.structured_record_readable('work_unit',${workUnitId}::uuid,${value.owner.membershipId}::uuid) as allowed`,
+        ),
+      )
+    ).rows[0]?.allowed;
+  const catalogAlive = async (value: Fixture, workUnitId: string) =>
+    (
+      await withTenantTx(database.db, value.service, (tx) =>
+        tx
+          .select({ alive: structuredRecordCatalog.alive })
+          .from(structuredRecordCatalog)
+          .where(eq(structuredRecordCatalog.recordId, workUnitId)),
+      )
+    ).map((row) => row.alive);
+  /**
    * The agent worker's record-materials activity, with the agent role, composed exactly as
    * workers/workflow/src/agent-composition.ts composes its transcript activities.
    */
@@ -1160,11 +1230,30 @@ describe('generated artifact all-input privacy and erasure protocol (0208)', () 
     expect(value.control.gets).toBe(gets);
     // The run actually read the other Work (0419), so its own read admission, which
     // addGeneratedArtifact holds before any inventory (0414/0417; currentRunCompanyClassInTx), now
-    // refuses the named viewer's lost assignment before the inventory's structured check could.
+    // refuses the named viewer's lost assignment before the inventory's structured check could. The
+    // next case reaches that inventory check itself, with admission passing.
     await expect(publishAsRun(value, { requestKey: randomUUID() })).rejects.toMatchObject({
       code: 'POLICY_DENIED',
     });
     expect(value.control.puts).toBe(1);
+  });
+  it("refuses a named viewer's lost assignment at the inventory's own structured check once run admission passes", async () => {
+    const value = await fixture(),
+      { work, record } = await unreadWork(value);
+    expect(await viewerReads(value, work.id)).toBe(true);
+    await removeOtherAssignment(value, work.id);
+    expect(await viewerReads(value, work.id)).toBe(false);
+    // The run never read this Work, so its own admission still passes...
+    expect(await runAdmission(value)).toBe('admitted');
+    // ...and addGeneratedArtifact, which holds that admission first (POLICY_DENIED otherwise), reaches
+    // the inventory. The record's catalog row is alive and its NOWAIT lock is free, so what refuses is
+    // structured_record_readable for the named viewer, before any put claim or object I/O.
+    expect(await catalogAlive(value, work.id)).toEqual([true]);
+    const { port, inspections } = listing(value, record);
+    await expect(publishListing(value, port)).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    expect(inspections()).toBe(1);
+    expect(value.control.puts).toBe(0);
+    expect(await value.raw(value.owner)).toEqual({ files: [], links: [] });
   });
   it('rechecks retained structured authority after object get and refuses a revoked in-flight read', async () => {
     const value = await fixture({ readsRestricted: true }),
@@ -1181,6 +1270,7 @@ describe('generated artifact all-input privacy and erasure protocol (0208)', () 
     // As for source closure during put: the publishing transaction first holds the run's own read
     // admission (0414/0417), and the run actually read the other Work (0419), so that admission
     // refuses the named viewer's lost assignment (POLICY_DENIED) before the inventory's own check.
+    // The next case reaches the publishing inventory's own check, with admission passing.
     await expect(value.create()).rejects.toMatchObject({ code: 'POLICY_DENIED' });
     expect(value.control.puts).toBe(1);
     expect(await value.raw(value.owner)).toEqual({ files: [], links: [] });
@@ -1194,6 +1284,34 @@ describe('generated artifact all-input privacy and erasure protocol (0208)', () 
       physicalPurgedAt: null,
     });
     expect(value.bodies.size).toBe(1);
+  });
+  it("blocks publication at the publishing inventory's own structured check when the named viewer loses an assignment during put", async () => {
+    // Begin and the put claim see only the run's actual reads (0419 binds a claim to those, so a
+    // record listed there that the run never read would be refused at that claim instead). The
+    // publishing inventory, read after that transaction's run admission, also lists a record the run
+    // never read, so admission passes and only the inventory's own viewer check can refuse it.
+    const value = await fixture(),
+      { work, record } = await unreadWork(value);
+    expect(await viewerReads(value, work.id)).toBe(true);
+    const { port, inspections } = listing(value, record, (inspection) => inspection === 2);
+    value.control.beforePut = () => removeOtherAssignment(value, work.id);
+    await expect(publishListing(value, port)).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    expect(inspections()).toBe(2);
+    expect(value.control.puts).toBe(1);
+    expect(await viewerReads(value, work.id)).toBe(false);
+    // The publishing transaction held the run's admission before this inventory (POLICY_DENIED had it
+    // refused), and the record's catalog row is alive, so the refusal is the named viewer's check.
+    expect(await catalogAlive(value, work.id)).toEqual([true]);
+    expect(await value.raw(value.owner)).toEqual({ files: [], links: [] });
+    const [header] = await withTenantTx(database.db, value.service, (tx) =>
+      tx.select().from(artifactLineage),
+    );
+    expect(header).toMatchObject({
+      structuredInventoryComplete: true,
+      state: 'blocked',
+      writeState: 'settled',
+      physicalPurgedAt: null,
+    });
   });
   it('closes existing output when a structured source exceeds its pinned class', async () => {
     const value = await fixture(),
@@ -1432,13 +1550,51 @@ describe('generated artifact all-input privacy and erasure protocol (0208)', () 
     try {
       // The run actually read the other Work, so addGeneratedArtifact's own run admission meets the
       // writer's catalog lock first (lock_structured_record NOWAIT, STRUCTURED_INPUT_BUSY 55P03) and
-      // answers the same retryable VERSION_CONFLICT as its inventory, without waiting.
+      // answers the same retryable VERSION_CONFLICT as its inventory, without waiting. The next case
+      // meets the inventory's own lock, with admission passing.
       await expect(publishAsRun(value)).rejects.toMatchObject({ code: 'VERSION_CONFLICT' });
     } finally {
       release();
       await writer;
     }
     expect(value.control.puts).toBe(0);
+  });
+  it("answers a contended structured lock from the inventory's own NOWAIT lock once run admission passes", async () => {
+    const value = await fixture(),
+      { work, record } = await unreadWork(value);
+    let release!: () => void, locked!: () => void;
+    const releasePromise = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const lockedPromise = new Promise<void>((resolve) => {
+      locked = resolve;
+    });
+    // An actual ACL/class writer on a record the run never read holds its catalog row.
+    const writer = withTenantTx(database.db, value.member, async (tx) => {
+      await tx
+        .update(workUnits)
+        .set({ classification: 'internal', version: work.version + 1 })
+        .where(eq(workUnits.id, work.id));
+      locked();
+      await releasePromise;
+    });
+    await lockedPromise;
+    const { port, inspections } = listing(value, record);
+    try {
+      // Admission locks only what the run read, so it passes while the writer holds this record...
+      expect(await runAdmission(value)).toBe('admitted');
+      // ...and the inventory's knowledge.lock_structured_record (FOR SHARE NOWAIT) meets the writer,
+      // answering 55P03 as the retryable VERSION_CONFLICT without waiting.
+      await expect(publishListing(value, port)).rejects.toMatchObject({
+        code: 'VERSION_CONFLICT',
+      });
+      expect(inspections()).toBe(1);
+    } finally {
+      release();
+      await writer;
+    }
+    expect(value.control.puts).toBe(0);
+    expect(await value.raw(value.owner)).toEqual({ files: [], links: [] });
   });
   it('closes a deleted structured record, refuses revocation-only erasure, and requires positive byte/fence proof', async () => {
     const value = await fixture(),

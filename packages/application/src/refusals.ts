@@ -8,6 +8,7 @@ import {
   type AppDatabase,
   type RefusalSurface,
   type TenantContext,
+  type Tx,
 } from '@ensemus/database';
 import { AppError, pgCode, type ErrorCode } from './errors';
 
@@ -39,21 +40,40 @@ export type RefusalCode = ErrorCode | NonNullable<AppError['auditAs']>;
 /** The code a refusal goes on the record under. */
 export const refusalCode = (error: AppError): RefusalCode => error.auditAs ?? error.code;
 
-/** A refusal inside the tenant this person belongs to. Returns whether a new row was written. */
+/** Every code isAuditedRefusal can produce, and so every code a refusal row may carry. */
+const AUDITED_CODES: ReadonlySet<RefusalCode> = new Set<RefusalCode>([
+  ...REFUSALS,
+  'FOREIGN_REFERENCE',
+]);
+
+/**
+ * A refusal inside the tenant this person belongs to. Returns whether a new row was written.
+ *
+ * A tenant that is not served in full gets a read-only withTenantTx (ADR-032 D5), and the refusal row
+ * is a write, so it would fail with 25006 and the record that someone was refused would be lost exactly
+ * when a restricted tenant is most likely being probed. ADR-032 D5 therefore exempts this one write:
+ * for an audited refusal code, the row goes through a writable transaction bound to the same tenant,
+ * holding nothing but appendRefusal. RLS still confines it to that tenant, the row is still one an hour
+ * per person, surface and code, and no caller code runs inside it. That is the reach auditTenantRefusal
+ * already has into any tenant, whatever its standing. TENANT_READ_ONLY, the standing's own answer to a
+ * write, is not an audited refusal, so it keeps the read-only path and still writes nothing.
+ */
 export function auditRefusal(
   database: AppDatabase,
   context: TenantContext,
   refusal: { code: RefusalCode; surface: RefusalSurface; now?: Date },
 ) {
-  return withTenantTx(database, context, (tx) =>
+  const append = (tx: Tx) =>
     appendRefusal(tx, {
       organizationId: context.organizationId,
       actorId: context.membershipId,
       surface: refusal.surface,
       code: refusal.code,
       ...(refusal.now ? { now: refusal.now } : {}),
-    }),
-  );
+    });
+  if (context.serving && context.serving !== 'full' && AUDITED_CODES.has(refusal.code))
+    return withNewTenantTx(database, context.organizationId, context.userId, append);
+  return withTenantTx(database, context, append);
 }
 
 const FOREIGN_KEY_VIOLATION = '23503';
