@@ -24,6 +24,11 @@ import {
 import { createServiceContext } from '@ensemus/database/service';
 import { pgCode } from '../../packages/application/src/errors';
 import { openAgentTestDatabase, seedAiTenant } from '../helpers/ai/fixtures';
+import {
+  memoryTransport,
+  nativeKnowledgeStore,
+  runNativeKnowledgePurge,
+} from '../helpers/knowledge-native';
 import { urls } from '../helpers/stack';
 
 describe('actual protected material restore admission (0515)', () => {
@@ -114,14 +119,19 @@ describe('actual protected material restore admission (0515)', () => {
         { sourceId, limit: 25 },
       ),
     ).toMatchObject({ confirmed: true, removed: 0, remaining: 0, controlsRemaining: 0 });
-    // No document/object/header was ever created for this source. The actual SQL source/archive/
-    // object/Work/control guards independently validate this known empty inventory.
-    await withTenantTx(app.db, service, (tx) =>
-      tx
-        .update(knowledgePurgeJobs)
-        .set({ state: 'completed', completedAt: new Date(), artifactsCheckedAt: new Date() })
-        .where(eq(knowledgePurgeJobs.id, purgeJobId)),
-    );
+    // No document/object/header was ever created for this source. The job is completed the only way
+    // production completes one (0516 guard_raw_purge_completion): the knowledge worker's native
+    // purge, which seals the raw inventory and lets the SQL source/archive/object/Work/control
+    // guards independently validate this known empty inventory.
+    expect(
+      await runNativeKnowledgePurge({
+        app: app.db,
+        agent: agent.db,
+        store: nativeKnowledgeStore(app.db, memoryTransport()),
+        organizationId: owner.organizationId,
+        sourceId,
+      }),
+    ).toMatchObject({ state: 'completed' });
     const [job] = await withTenantTx(app.db, owner, (tx) =>
       tx.select().from(knowledgePurgeJobs).where(eq(knowledgePurgeJobs.id, purgeJobId)),
     );

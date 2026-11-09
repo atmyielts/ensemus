@@ -596,6 +596,13 @@
       "when": 1794201807486,
       "tag": "0524_knowledge_grant_erasure_revision",
       "breakpoints": true
+    },
+    {
+      "idx": 85,
+      "version": "7",
+      "when": 1794201807487,
+      "tag": "0525_ai_bounded_run_output_authority",
+      "breakpoints": true
     }
   ]
 }

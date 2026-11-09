@@ -243,10 +243,17 @@ describe('context and prompt assembly, as the real roles', () => {
 
       await unassign(app.db, a.owner, { id: work, membershipId: a.member.membershipId });
       const member = await context();
-      await expect(compiler().compile(member, ref)).rejects.toMatchObject({ code: 'NOT_FOUND' });
+      // The run already read this Work and file, so 0414's run-level current + historical input
+      // proof (currentRunCompanyClassInTx) refuses the whole run before any per-record read:
+      // POLICY_DENIED, for the next turn and for the file alike, and no bytes are read.
+      const reads = store.reads.length;
+      await expect(compiler().compile(member, ref)).rejects.toMatchObject({
+        code: 'POLICY_DENIED',
+      });
       await expect(
         source().loadArtifactText(member, { workUnitId: work, artifactId, maxBytes: 1000 }),
-      ).resolves.toEqual({ refused: 'NOT_PERMITTED' });
+      ).rejects.toMatchObject({ code: 'POLICY_DENIED' });
+      expect(store.reads.length).toBe(reads);
     });
   });
 
@@ -260,8 +267,10 @@ describe('context and prompt assembly, as the real roles', () => {
       expect(first.sources.map((part) => part.id)).toContain(artifactId);
 
       await deleteArtifact(app.db, store, a.owner, { workUnitId: work, artifactId });
+      // A retained input that is gone closes the whole run's prior context at 0414's run-level
+      // input proof (currentRunCompanyClassInTx): POLICY_DENIED, before any per-file read.
       await expect(compiler().compile(await context(), ref)).rejects.toMatchObject({
-        code: 'NOT_FOUND',
+        code: 'POLICY_DENIED',
       });
     });
 

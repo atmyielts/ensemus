@@ -31,6 +31,7 @@ import {
   type AiTenant,
   type SeededAgentVersion,
 } from '../helpers/ai/fixtures';
+import { inFixtureTenant } from '../helpers/fixture-tenant';
 import { urls } from '../helpers/stack';
 
 const objects: ObjectStore = {
@@ -98,12 +99,18 @@ describe('stranded agent recovery, under the real roles', () => {
     return row;
   }
 
+  /** Ages the held Work as the superuser, bound to the row's own tenant for the epoch triggers. */
+  const age = (workUnitId: string) =>
+    inFixtureTenant(su, a.organizationId, () =>
+      su.query(
+        "update work.work_units set updated_at = now() - interval '1 hour' where organization_id = $1 and id = $2",
+        [a.organizationId, workUnitId],
+      ),
+    );
+
   it('fails held work and its exact agent run together through real upkeep', async () => {
     const run = await running();
-    await su.query(
-      "update work.work_units set updated_at = now() - interval '1 hour' where organization_id = $1 and id = $2",
-      [a.organizationId, run.workUnitId],
-    );
+    await age(run.workUnitId);
     await createActivities({
       database: app.db,
       store: objects,
@@ -135,10 +142,7 @@ describe('stranded agent recovery, under the real roles', () => {
       agentRunId: run.agentRunId,
     });
     const newerId = randomUUID();
-    await su.query(
-      "update work.work_units set updated_at = now() - interval '1 hour' where organization_id = $1 and id = $2",
-      [a.organizationId, run.workUnitId],
-    );
+    await age(run.workUnitId);
     await createActivities({
       database: app.db,
       store: objects,

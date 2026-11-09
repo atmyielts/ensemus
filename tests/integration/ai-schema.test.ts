@@ -2,6 +2,7 @@
 // Needs the role provisioning step in ADR-028. Written and typechecked. It has not been run yet.
 import { randomUUID } from 'node:crypto';
 import { createWorkUnit } from '@ensemus/application';
+import { requestModelProbe } from '@ensemus/application/ai-model-profiles';
 import {
   agentRuns,
   executionSteps,
@@ -26,6 +27,7 @@ import {
   seedDraftProfile,
   seedQueuedRun,
   sha256Of,
+  withAdmittedRunTx,
   type AiTenant,
 } from '../helpers/ai/fixtures';
 import { urls } from '../helpers/stack';
@@ -61,7 +63,8 @@ describe('governed AI schema, as the real roles', () => {
     const runId = await queuedRun(tenant);
     const stepId = randomUUID();
     const context = await prepareRunInputContext(agent.db, tenant.organizationId, runId);
-    await withTenantTx(agent.db, context, async (tx) => {
+    // Written as the runtime writes a step: behind its own authority-v1 admission (0417).
+    await withAdmittedRunTx(agent.db, context, async (tx) => {
       await tx.insert(executionSteps).values({
         organizationId: tenant.organizationId,
         id: stepId,
@@ -196,9 +199,8 @@ describe('governed AI schema, as the real roles', () => {
   describe('a model profile', () => {
     it('cannot be made active by the web role', async () => {
       const id = await seedDraftProfile(app.db, a.owner);
-      await withTenantTx(app.db, a.owner, (tx) =>
-        tx.update(modelProfiles).set({ status: 'probing' }).where(eq(modelProfiles.id, id)),
-      );
+      // Into probing the way production gets there: the owner's MFA-stepped-up probe request (0404).
+      await requestModelProbe(app.db, a.owner, { profileId: id, expectedVersion: 1 });
       await expect(
         withTenantTx(app.db, a.owner, (tx) =>
           tx.update(modelProfiles).set({ status: 'active' }).where(eq(modelProfiles.id, id)),

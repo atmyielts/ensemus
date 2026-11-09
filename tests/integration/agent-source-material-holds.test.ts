@@ -16,6 +16,7 @@ import {
 import { createDerivedArtifactPurge } from '../../packages/application/src/knowledge/artifact-provenance';
 import { pgCode } from '../../packages/application/src/errors';
 import { seedSearchableSource } from '../helpers/knowledge';
+import { nativeKnowledgeStore } from '../helpers/knowledge-native';
 import { openAgentTestDatabase, seedAiTenant } from '../helpers/ai/fixtures';
 import { urls } from '../helpers/stack';
 
@@ -158,7 +159,14 @@ describe('source material hold authority (0515)', () => {
     const unexpected = async () => {
       throw new Error('TEST_UNEXPECTED_OBJECT_TRANSPORT');
     };
-    const store = { put: unexpected, get: unexpected, delete: unexpected, exists: unexpected };
+    // The native raw Knowledge port is installed exactly as the runtimes install it (0516); its
+    // transport still refuses every object operation, so the held purge provably touches no bytes.
+    const store = nativeKnowledgeStore(app.db, {
+      put: unexpected,
+      get: unexpected,
+      delete: unexpected,
+      exists: unexpected,
+    });
     const files = createDerivedArtifactPurge({
       database: app.db,
       store,

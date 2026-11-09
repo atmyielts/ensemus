@@ -13,6 +13,7 @@ import { can } from '@ensemus/domain/policy';
 import type { TenantPolicyBundle } from '@ensemus/policy';
 import { and, asc, eq } from 'drizzle-orm';
 import { AppError } from '../errors';
+import { assertRunInputsOpen } from './input-observations';
 import type { EgressLog } from './ports';
 
 /** Pass the agent role's connection. `ensemus_app` has no INSERT here, so web cannot forge a decision. */
@@ -23,8 +24,15 @@ export function createEgressLog(database: AppDatabase): EgressLog {
       if (entry.runId !== null && entry.runId !== context.agentRunId) {
         throw new AppError('FORBIDDEN');
       }
-      await withTenantTx(database, context, (tx) =>
-        tx.insert(egressDecisions).values({
+      await withTenantTx(database, context, async (tx) => {
+        // 0417's authority_egress_write admits an `allow` row for an authority-v1 run only under
+        // this transaction's own read-scope and authority-v1 admission. Admit it here, as beginTurn
+        // and the tool store do; a fenced or refused run throws and nothing leaves (see above). A
+        // `deny` needs no admission and is still recorded for a closed run.
+        if (entry.runId !== null && entry.decision === 'allow') {
+          await assertRunInputsOpen(tx, context);
+        }
+        await tx.insert(egressDecisions).values({
           organizationId: context.organizationId,
           runId: entry.runId,
           stepId: entry.stepId,
@@ -37,8 +45,8 @@ export function createEgressLog(database: AppDatabase): EgressLog {
           policyVersion: entry.policyVersion,
           requestHash: entry.requestHash,
           expiresAt: entry.expiresAt,
-        }),
-      );
+        });
+      });
     },
   };
 }
