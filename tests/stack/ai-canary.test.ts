@@ -59,14 +59,27 @@ describe.skipIf(!enabled)('M4 real agent-run confidentiality', () => {
       const fixture = await startAiCanaryRun(canaries, mode);
       fixtures.push(fixture);
       const apiBodies = [fixture.start.text];
+      // The stop code and counters travel with the status, so a run that ends any other way says
+      // where and why (a 'cancelled' run with no turns was stopped before its first step).
       await expect
         .poll(async () => {
           const result = await api(fixture.owner, 'GET', fixture.runPath);
           expect(result.status).toBe(200);
           apiBodies.push(result.text);
-          return (result.json as { status: string }).status;
+          const view = result.json as {
+            status: string;
+            stop_code: string | null;
+            model_turns: number;
+            tool_calls: number;
+          };
+          return {
+            status: view.status,
+            stop_code: view.stop_code,
+            model_turns: view.model_turns,
+            tool_calls: view.tool_calls,
+          };
         }, poll)
-        .toBe('failed');
+        .toMatchObject({ status: 'failed' });
       const run = await api(fixture.owner, 'GET', fixture.runPath);
       expect(run.json).toMatchObject({ model_turns: 2, tool_calls: 1 });
       apiBodies.push(run.text);

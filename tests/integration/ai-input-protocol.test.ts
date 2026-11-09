@@ -5,6 +5,8 @@ import { and, eq, sql } from 'drizzle-orm';
 import {
   addArtifact,
   assignContributor,
+  createClient,
+  createProject,
   createWorkUnit,
   readArtifact,
   unassign,
@@ -17,7 +19,8 @@ import {
   checkRunInputDispatch,
 } from '@ensemus/application/ai-input-ledger';
 import { createToolStepStore } from '@ensemus/application/ai-tool-steps';
-import { storeStepPayload } from '@ensemus/application/ai-runs';
+import { createHaltCheck } from '@ensemus/application/ai-halt';
+import { claimQueuedRun, readRunDirective, storeStepPayload } from '@ensemus/application/ai-runs';
 import { recordArtifactCitations } from '@ensemus/application/knowledge/verification';
 import { compileEvidence } from '@ensemus/application/knowledge/compiler';
 import { proposeFact, reviewFact } from '@ensemus/application/knowledge/facts';
@@ -41,9 +44,10 @@ import {
   withTenantTx,
   withUserTx,
   type AppDatabase,
+  type Tx,
 } from '@ensemus/database';
 import { createServiceContext } from '@ensemus/database/service';
-import { withRunLookupTx } from '@ensemus/database/agent';
+import { createAgentContext, withRunLookupTx } from '@ensemus/database/agent';
 import {
   openAgentTestDatabase,
   prepareRunInputContext,
@@ -562,23 +566,165 @@ describe('durable agent input protocol and content fence as actual roles', () =>
     ).toEqual([{ reason: 'KNOWLEDGE_SOURCE_PURGED' }]);
   });
   it('plans a non-agent transaction on the agent role over every ceiling-bounded body table (0536)', async () => {
-    const value = await fixture();
+    const value = await fixture(),
+      other = await seedAiTenant(app.db);
     // 0417's project/client/file body policies call ai.run_company_ceiling with no run for a
     // non-agent actor, and the planner runs it while estimating their class comparison. 0414 raised
     // AGENT_SCOPE_INVALID there; 0536 answers 0, which no class satisfies, so such a read plans and
-    // still admits only what the first policy arm admits for that actor.
-    await expect(
-      withTenantTx(agent.db, value.service, (tx) => tx.select().from(projects).limit(1)),
-    ).resolves.toBeDefined();
-    await expect(
-      withTenantTx(agent.db, value.service, (tx) => tx.select().from(clients).limit(1)),
-    ).resolves.toBeDefined();
-    await expect(
-      withTenantTx(agent.db, value.service, (tx) => tx.select().from(artifacts).limit(1)),
-    ).resolves.toBeDefined();
+    // still admits exactly what the first policy arm and the service's ordinary policies admit: every
+    // project and client of its own tenant (0209/0211 service actor), and of the files only an
+    // ordinary public/internal human file (0419 knowledge.artifact_readable with no viewer). Another
+    // tenant's rows and a confidential file stay out.
+    const client = await createClient(app.db, value.owner, {
+      displayName: 'Ceiling-bounded client',
+      classification: 'internal',
+    });
+    if (!client) throw new Error('TEST_CLIENT_REFUSED');
+    const project = await createProject(app.db, value.owner, {
+      name: 'Ceiling-bounded project',
+      clientId: client.id,
+    });
+    const clientless = await createProject(app.db, value.owner, { name: 'Clientless project' });
+    if (!project || !clientless) throw new Error('TEST_PROJECT_REFUSED');
+    const plainWork = await createWorkUnit(app.db, value.owner, { title: 'Ordinary file Work' }),
+      privateWork = await createWorkUnit(app.db, value.owner, {
+        title: 'Confidential file Work',
+        classification: 'confidential',
+      });
+    const ordinary = await addArtifact(app.db, value.store, value.owner, {
+      workUnitId: plainWork.id,
+      name: 'ordinary.txt',
+      mimeType: 'text/plain',
+      body: Buffer.from('Ordinary internal file.'),
+    });
+    await addArtifact(app.db, value.store, value.owner, {
+      workUnitId: privateWork.id,
+      name: 'confidential.txt',
+      mimeType: 'text/plain',
+      body: Buffer.from('Confidential file.'),
+    });
+    const otherClient = await createClient(app.db, other.owner, {
+      displayName: 'Other tenant client',
+      classification: 'internal',
+    });
+    if (!otherClient) throw new Error('TEST_CLIENT_REFUSED');
+    await createProject(app.db, other.owner, {
+      name: 'Other tenant project',
+      clientId: otherClient.id,
+    });
+    const otherWork = await createWorkUnit(app.db, other.owner, { title: 'Other tenant Work' });
+    await addArtifact(app.db, value.store, other.owner, {
+      workUnitId: otherWork.id,
+      name: 'other.txt',
+      mimeType: 'text/plain',
+      body: Buffer.from('Other tenant file.'),
+    });
+    const ids = (rows: readonly { id: string }[]) => rows.map((row) => row.id).sort();
+    expect(
+      ids(
+        await withTenantTx(agent.db, value.service, (tx) =>
+          tx.select({ id: projects.id }).from(projects),
+        ),
+      ),
+    ).toEqual([project.id, clientless.id].sort());
+    expect(
+      ids(
+        await withTenantTx(agent.db, value.service, (tx) =>
+          tx.select({ id: clients.id }).from(clients),
+        ),
+      ),
+    ).toEqual([client.id]);
+    expect(
+      ids(
+        await withTenantTx(agent.db, value.service, (tx) =>
+          tx.select({ id: artifacts.id }).from(artifacts),
+        ),
+      ),
+    ).toEqual([ordinary.id]);
     // An agent transaction bound to its run still plans against that run's own ceiling lookup.
     await expect(
       withTenantTx(agent.db, value.context, (tx) => tx.select().from(artifacts).limit(1)),
+    ).resolves.toBeDefined();
+  });
+  it('reads a claimed authority-v1 run’s directive behind its own admission, and stops one it cannot admit (0417)', async () => {
+    const tenant = await seedAiTenant(app.db),
+      work = await createWorkUnit(app.db, tenant.owner, { title: 'Directive target Work' }),
+      version = await seedAgentVersion(app.db, tenant.owner, testAgentSpec()),
+      runId = await seedQueuedRun(app.db, tenant.owner, { workUnitId: work.id, version }),
+      temporalRunId = randomUUID(),
+      service = createServiceContext(tenant.organizationId);
+    const claimed = await claimQueuedRun(agent.db, {
+      organizationId: tenant.organizationId,
+      workUnitId: work.id,
+      temporalRunId,
+    });
+    expect(claimed?.agentRunId).toBe(runId);
+    // The context every agent Activity builds for itself, and the run moved on as the workflow does.
+    const context = await createAgentContext(agent.db, {
+      organizationId: tenant.organizationId,
+      initiatorMembershipId: tenant.owner.membershipId,
+      agentRunId: runId,
+    });
+    await withTenantTx(agent.db, context, (tx) =>
+      tx.update(agentRuns).set({ status: 'running' }).where(eq(agentRuns.id, runId)),
+    );
+    const directive = (holder = temporalRunId) =>
+      readRunDirective(agent.db, context, {
+        agentRunId: runId,
+        temporalRunId: holder,
+        halt: createHaltCheck,
+      });
+    // The workflow asks this before every step. 0417's authority_work_body hides the Work from an
+    // unadmitted agent transaction, so this read used to find no row and end every running run as
+    // stopped (the stack canaries' 'cancelled'). Behind the run's own admission it reads the hold.
+    expect(await directive()).toBe('continue');
+    // Still the hold that decides: another workflow run, which does not hold the Work, stops.
+    expect(await directive(randomUUID())).toBe('stop');
+    // A run whose inputs are fenced cannot be admitted, so it stops rather than reading on.
+    await withTenantTx(agent.db, service, (tx) =>
+      createRunTranscriptPurge().fenceUsing!(tx, service, { runIds: [runId] }),
+    );
+    expect(await directive()).toBe('stop');
+  });
+  it('still refuses an agent-actor transaction without its run at the ceiling and every ceiling-bounded body (0536)', async () => {
+    const value = await fixture();
+    // 0536 answers 0 only for a non-agent actor. The same agent context with app.agent_run_id
+    // emptied names no run whose manifest could set a class, so 0414's AGENT_SCOPE_INVALID stands,
+    // both when the ceiling is asked directly and when 0417's body policies are planned.
+    const withoutRun = (read: (tx: Tx) => Promise<unknown>) =>
+      withTenantTx(agent.db, value.context, async (tx) => {
+        await tx.execute(sql`select set_config('app.agent_run_id','',true)`);
+        return read(tx);
+      });
+    const refusalOf = async (operation: Promise<unknown>) => {
+      const error = await operation.then(
+        () => null,
+        (found: unknown) => found,
+      );
+      const cause = (error as { cause?: { code?: unknown; message?: unknown } } | null)?.cause;
+      return `${String(cause?.code)}:${String(cause?.message)}`;
+    };
+    const refused = 'EN119:AGENT_SCOPE_INVALID';
+    expect(
+      await refusalOf(
+        withoutRun((tx) => tx.execute(sql`select ai.run_company_ceiling(null::uuid)`)),
+      ),
+    ).toBe(refused);
+    expect(
+      await refusalOf(
+        withoutRun((tx) =>
+          tx.execute(
+            sql`select ai.run_company_ceiling(nullif(current_setting('app.agent_run_id',true),'')::uuid)`,
+          ),
+        ),
+      ),
+    ).toBe(refused);
+    expect(await refusalOf(withoutRun((tx) => tx.select().from(projects).limit(1)))).toBe(refused);
+    expect(await refusalOf(withoutRun((tx) => tx.select().from(clients).limit(1)))).toBe(refused);
+    expect(await refusalOf(withoutRun((tx) => tx.select().from(artifacts).limit(1)))).toBe(refused);
+    // The control: the very same context with its run bound plans every one of those reads.
+    await expect(
+      withTenantTx(agent.db, value.context, (tx) => tx.select().from(projects).limit(1)),
     ).resolves.toBeDefined();
   });
   it('keeps a rejected or unknown put started and refuses a blind duplicate despite absent HEAD', async () => {

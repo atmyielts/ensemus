@@ -694,6 +694,13 @@
       "when": 1794201807500,
       "tag": "0538_export_restricted_artifact_count_r3saas",
       "breakpoints": true
+    },
+    {
+      "idx": 99,
+      "version": "7",
+      "when": 1794201807501,
+      "tag": "0540_delegated_birth_queued_ceiling_owner_g4agentmat",
+      "breakpoints": true
     }
   ]
 }
