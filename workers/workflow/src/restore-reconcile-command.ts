@@ -4,9 +4,16 @@
 //     [--requalify-organization <org>]... [--requalify-artifact <org>/<artifact>]...
 //     [--requalify-archive <org>/<import>/<source artifact>]... [--requalify-source <org>/<source>]...
 //     [--delete-raw-survivor <org>/<source>/<document>]... [--requalify-active-source <org>/<source>]...
+//     [--record-active-source-closure <org>/<source>]...
 // --confirm, --confirm-file, --quarantine, --requalify-* and --delete-raw-survivor mean what they mean to
 // reapply-ledger.js (ADR-026 D3; 0543, 0545, 0547 and 0550 for the restore-debt re-proofs). A re-proof
 // records something, so it needs --apply.
+// --record-active-source-closure names one active source a restore left in raw debt that
+// --requalify-active-source cannot re-prove, because an object of it is missing or changed (0551,
+// FLAGGED FOR HUMAN SECURITY REVIEW, not yet reviewed by a person). Every catalogued object is read
+// and hashed, or observed absent by the store, and the observation recorded, so the source can be
+// closed and its ordinary purge can delete it. It never lets the source be written to. It needs
+// --apply, and --requalify-organization for the same tenant in this run or an earlier one.
 // It answers with the exit status: 0 when nothing needs a person, 1 when something does, 2 for a bad argument.
 //
 // It prints one line of JSON for each thing, with counts, IDs, codes and keys this product made, and no names.
@@ -20,6 +27,7 @@ import { parseArgs } from 'node:util';
 import {
   quarantineLedgerObject,
   reconcileAfterRestore,
+  recordRawRestoreActiveSourceClosure,
   type LedgerReader,
   type ObjectStore,
   type ReapplyOptions,
@@ -46,6 +54,7 @@ export const log = createLogger('restore-reconcile');
 
 const NEEDS_ATTENTION = 1;
 const REFUSED = 2;
+const EXACT_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 class Refused extends Error {
   constructor(readonly reasonCode: string) {
@@ -68,6 +77,7 @@ export function readReconcileArguments(args: string[]) {
         confirm: { type: 'string', multiple: true, default: [] },
         'confirm-file': { type: 'string', multiple: true, default: [] },
         quarantine: { type: 'string', multiple: true, default: [] },
+        'record-active-source-closure': { type: 'string', multiple: true, default: [] },
         ...REQUALIFY_OPTIONS,
       },
     }).values;
@@ -77,6 +87,14 @@ export function readReconcileArguments(args: string[]) {
   const requalifications = readRequalifications(values);
   // Recording a proof is a change, so it is refused without --apply rather than quietly not done.
   if (requalifications.length > 0 && !values.apply) throw new Refused('REQUALIFY_NEEDS_APPLY');
+  // One source by its two exact IDs: a tenant alone, a pattern or an object is refused.
+  const closures = values['record-active-source-closure'].map((given) => {
+    const parts = given.split('/');
+    if (parts.length !== 2 || !parts.every((part) => EXACT_ID.test(part)))
+      throw new Refused('NOT_A_RESTORE_OBJECT');
+    return { organizationId: parts[0]!, sourceId: parts[1]! };
+  });
+  if (closures.length > 0 && !values.apply) throw new Refused('CLOSURE_NEEDS_APPLY');
   for (const ref of values.confirm) {
     if (!ledgerKeyFromRef(ref)) throw new Refused('NOT_A_LEDGER_ENTRY');
   }
@@ -93,8 +111,18 @@ export function readReconcileArguments(args: string[]) {
     confirmed: new Set([...values.confirm, ...listed]),
     toQuarantine,
     requalifications,
+    closures,
   };
 }
+
+/** What one named active-source closure found, printed as one line. */
+type ClosureOutcome = {
+  organizationId: string;
+  sourceId: string;
+  state: 'recorded' | 'unchanged' | 'unconfirmed' | 'refused';
+  documentIds?: readonly string[];
+  errorCode?: string;
+};
 
 /** Both refusals carry a code: this file's, and the one reapply-command.ts throws from its file reader. */
 function refusalCode(error: unknown) {
@@ -148,6 +176,8 @@ export type ReconcileDeps = {
   derivedArtifacts?: ReapplyOptions['derivedArtifacts'];
   /** Only a test replaces this. */
   requalify?: RequalifyFunctions;
+  /** Only a test replaces this. */
+  recordClosure?: typeof recordRawRestoreActiveSourceClosure;
 };
 
 const printFinding = (print: (fields: object) => void, finding: RestoreFinding) =>
@@ -185,7 +215,7 @@ export async function restoreReconcileCommand(
     log.error('restore_reconcile.refused', { reasonCode });
     return REFUSED;
   }
-  const { mode, confirmed, toQuarantine, requalifications } = parsed;
+  const { mode, confirmed, toQuarantine, requalifications, closures } = parsed;
   const reconcile = deps.reconcile ?? reconcileAfterRestore;
   const quarantine = deps.quarantine ?? quarantineLedgerObject;
 
@@ -209,6 +239,27 @@ export async function restoreReconcileCommand(
     );
     for (const { request, ...outcome } of outcomes)
       print({ event: 'restore_reconcile.requalification', ...request, ...outcome });
+    // After the organization marker above, which 0551 requires requalified first. One at a time; a
+    // refusal is reported and leaves that source in debt.
+    const recordClosure = deps.recordClosure ?? recordRawRestoreActiveSourceClosure;
+    const closed: ClosureOutcome[] = [];
+    for (const named of closures) {
+      let outcome: ClosureOutcome;
+      try {
+        const answer = await recordClosure(
+          deps.database,
+          deps.store,
+          createServiceContext(named.organizationId),
+          named.sourceId,
+        );
+        outcome = { ...named, state: answer.state };
+        if (answer.state === 'recorded') outcome.documentIds = answer.absentDocumentIds;
+      } catch (error) {
+        outcome = { ...named, state: 'refused', errorCode: errorCode(error) };
+      }
+      closed.push(outcome);
+      print({ event: 'restore_reconcile.active_source_closure', ...outcome });
+    }
     const organizationIds = await deps.listOrganizations();
     const report = await reconcile(deps.database, deps.store, {
       organizationIds,
@@ -235,7 +286,9 @@ export async function restoreReconcileCommand(
         log.warn('restore_reconcile.entry_failed', { errorCode: errorCode(error) }),
     });
     printReport(print, report);
-    return report.needsAttention > 0 || outcomes.some(requalificationLeftToDo)
+    return report.needsAttention > 0 ||
+      outcomes.some(requalificationLeftToDo) ||
+      closed.some((outcome) => outcome.state !== 'recorded')
       ? NEEDS_ATTENTION
       : 0;
   } catch (error) {

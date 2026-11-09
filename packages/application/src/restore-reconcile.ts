@@ -43,7 +43,7 @@ import {
 import { and, asc, eq, gt, inArray, isNull, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { objectKey, type ObjectStore } from './artifacts';
-import { AppError } from './errors';
+import { AppError, pgCode } from './errors';
 import { emit } from './events';
 import { idSchema } from './ids';
 import {
@@ -1065,9 +1065,11 @@ export type ActiveSourceRequalificationStore = Pick<ObjectStore, 'isPhysicallyAb
  * from the store and hashed; one service-only SQL call then records the observation, and SQL refuses
  * unless each one matches its catalog row and live header exactly, every writer of the source
  * concluded and no deletion claim on its objects is unresolved. It writes and deletes nothing. A
- * requalified source can be closed, and a new version of it written natively; its older objects are
- * never written again, and their purge after a closure stays owed (0550's header). Running it again
- * changes nothing.
+ * requalified source can be closed, and a new version of it written natively, while it stays active
+ * and has no purge job (0551 corrected that predicate); its older objects are never written again.
+ * Once closed, its ordinary source purge deletes every object and projection of it (0551). Running it
+ * again changes nothing. A source with a missing or changed object is closed through
+ * `recordRawRestoreActiveSourceClosure` instead.
  */
 export async function requalifyRawRestoreActiveSource(
   database: AppDatabase,
@@ -1129,6 +1131,105 @@ export async function requalifyRawRestoreActiveSource(
     ),
   );
   return { state: 'requalified', observed: 'present' };
+}
+
+/**
+ * What observing an active debt source for its closure found (0551). `recorded` stored the
+ * observation for the current material restore generation: the source can now be revoked or deleted,
+ * and its ordinary purge deletes whatever is at each key. `unchanged` means every object was present
+ * with its catalogued bytes, so 0550's re-proof (`requalifyRawRestoreActiveSource`) is the path and
+ * nothing was recorded. `unconfirmed` recorded nothing: the source is not one this path covers, or the
+ * store could not be read or cannot certify absence.
+ */
+export type ActiveSourceClosureObservation =
+  | { state: 'recorded'; absentDocumentIds: readonly string[] }
+  | { state: 'unchanged' }
+  | { state: 'unconfirmed' };
+
+/**
+ * Records what the store holds for one ACTIVE source a restore left in raw debt whose objects 0550
+ * cannot re-prove, because one is missing or changed (0551, check finding 4). FLAGGED FOR HUMAN
+ * SECURITY REVIEW, not yet reviewed by a person. Without it such a source can never be revoked or
+ * deleted.
+ *
+ * Needs the restore admitted (0422) and the tenant's raw marker requalified first
+ * (`requalifyRawRestoreOrganization`, 0545). Every catalogued object of an earlier generation is read
+ * and hashed, or, when it cannot be read, observed absent by the store's own physical-absence check;
+ * a failed read the store does not certify as absence records nothing. One service-only SQL call then
+ * records the observation, and SQL itself decides which present objects changed. It is evidence for a
+ * closure only, never a write: a new version of the source stays refused. Running it again with the
+ * same observation changes nothing.
+ */
+export async function recordRawRestoreActiveSourceClosure(
+  database: AppDatabase,
+  store: ActiveSourceRequalificationStore,
+  context: TenantContext,
+  sourceId: string,
+): Promise<ActiveSourceClosureObservation> {
+  requireRestoreService(context, sourceId);
+  const documents = await withTenantTx(database, context, async (tx) => {
+    const result = await tx.execute<{ documents: string[] | null }>(
+      sql`select lifecycle.raw_active_restore_requalification_documents(${sourceId}::uuid)::text[] as documents`,
+    );
+    return result.rows[0]?.documents ?? null;
+  });
+  if (!documents || documents.some((id) => !IS_UUID.test(id)) || !store.get)
+    return { state: 'unconfirmed' };
+  const present: { documentId: string; sha256: string; size: number }[] = [];
+  const absent: string[] = [];
+  for (const documentId of documents) {
+    const key = knowledgeObjectKey(context.organizationId, documentId);
+    let bytes: Buffer;
+    try {
+      bytes = await store.get(key);
+    } catch {
+      // A read that failed is not absence: only the store's own physical-absence check says so.
+      if ((await observePhysicalAbsence(store, key)) === true) {
+        absent.push(documentId);
+        continue;
+      }
+      return { state: 'unconfirmed' };
+    }
+    present.push({
+      documentId,
+      sha256: createHash('sha256').update(bytes).digest('hex'),
+      size: bytes.length,
+    });
+  }
+  // The exact set SQL named, each read or observed absent above. Never a pattern or a count.
+  const list = <T>(values: readonly T[], cast: 'uuid' | 'text' | 'bigint') =>
+    values.length === 0
+      ? sql.raw(`'{}'::${cast}[]`)
+      : sql`ARRAY[${sql.join(
+          values.map((value) => sql`${value}::${sql.raw(cast)}`),
+          sql`, `,
+        )}]::${sql.raw(cast)}[]`;
+  try {
+    await withTenantTx(database, context, (tx) =>
+      tx.execute(
+        sql`select lifecycle.record_raw_restore_active_source_closure(${sourceId}::uuid,${list(
+          present.map((o) => o.documentId),
+          'uuid',
+        )},${list(
+          present.map((o) => o.sha256),
+          'text',
+        )},${list(
+          present.map((o) => o.size),
+          'bigint',
+        )},${list(absent, 'uuid')}) as state`,
+      ),
+    );
+  } catch (error) {
+    // Every object present with its catalogued bytes: 0550's re-proof is the path, not a closure.
+    if (
+      pgCode(error) === 'EN850' &&
+      (error as { cause?: { message?: unknown } }).cause?.message ===
+        'RAW_ACTIVE_RESTORE_REQUALIFICATION_REQUIRED'
+    )
+      return { state: 'unchanged' };
+    throw error;
+  }
+  return { state: 'recorded', absentDocumentIds: absent };
 }
 
 /**

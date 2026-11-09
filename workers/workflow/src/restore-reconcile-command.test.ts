@@ -166,6 +166,34 @@ describe('the arguments', () => {
       'an active-source re-proof naming one object (0550)',
       ['--apply', '--requalify-active-source', `${randomUUID()}/${randomUUID()}/${randomUUID()}`],
     ],
+    [
+      'an active-source closure with no apply, which would record something (0551)',
+      ['--record-active-source-closure', `${randomUUID()}/${randomUUID()}`],
+    ],
+    [
+      'an active-source closure of a whole tenant (0551)',
+      ['--apply', '--record-active-source-closure', randomUUID()],
+    ],
+    [
+      'an active-source closure naming a pattern (0551)',
+      ['--apply', '--record-active-source-closure', `${randomUUID()}/*`],
+    ],
+    [
+      'an active-source closure naming one object (0551)',
+      [
+        '--apply',
+        '--record-active-source-closure',
+        `${randomUUID()}/${randomUUID()}/${randomUUID()}`,
+      ],
+    ],
+    [
+      'an active-source closure in capitals (0551)',
+      [
+        '--apply',
+        '--record-active-source-closure',
+        `${randomUUID()}/${randomUUID()}`.toUpperCase(),
+      ],
+    ],
   ])('refuses %s with status 2, having done nothing', async (_name, args) => {
     const { result, reconcile, quarantine } = run(args);
     await expect(result).resolves.toBe(2);
@@ -490,6 +518,99 @@ describe('re-proving an active source a restore left in debt (0550)', () => {
     const { code, printed } = await runActive(answer);
     expect(code).toBe(1);
     expect(printed[1]?.state).not.toBe('requalified');
+  });
+});
+
+describe('recording the closure of an active source with a missing or changed object (0551)', () => {
+  const org = randomUUID(),
+    source = randomUUID(),
+    absent = randomUUID();
+  const runClosure = async (answer: unknown) => {
+    const calls: string[] = [];
+    const lines: string[] = [];
+    const requalify = {
+      organization: async () => {
+        calls.push('organization');
+        return { state: 'requalified' };
+      },
+      artifact: async () => ({ state: 'unconfirmed' }),
+      archive: async () => ({ state: 'unconfirmed' }),
+      source: async () => ({ state: 'unconfirmed' }),
+    } as never;
+    const recordClosure = (async (...args: unknown[]) => {
+      calls.push(`closure:${String(args.at(-1))}`);
+      if (answer instanceof Error) throw answer;
+      return answer;
+    }) as never;
+    const reconcile = vi.fn(async (): Promise<RestoreReport> => ({
+      mode: 'apply',
+      ledger: emptyLedger,
+      tenants: [],
+      objectsWithoutTenant: 0,
+      contributorsNotRun: [],
+      needsAttention: 0,
+    }));
+    const code = await restoreReconcileCommand(
+      // Named before the organization on purpose: the marker is still re-proven first.
+      [
+        '--apply',
+        '--record-active-source-closure',
+        `${org}/${source}`,
+        '--requalify-organization',
+        org,
+      ],
+      {
+        database: noDatabase,
+        store: noStore,
+        listOrganizations: async () => [],
+        probeRun: async () => 'unknown',
+        contributors: [],
+        write: (line) => lines.push(line),
+        reconcile: reconcile as never,
+        requalify,
+        recordClosure,
+      },
+    );
+    return {
+      code,
+      calls,
+      reconcile,
+      printed: lines
+        .map((line) => JSON.parse(line) as Record<string, unknown>)
+        .filter((line) => line.event === 'restore_reconcile.active_source_closure'),
+    };
+  };
+
+  it('re-proves the organization marker first, then records the named source, by its IDs', async () => {
+    const { code, calls, printed, reconcile } = await runClosure({
+      state: 'recorded',
+      absentDocumentIds: [absent],
+    });
+    expect(code).toBe(0);
+    expect(calls).toEqual(['organization', `closure:${source}`]);
+    expect(printed).toEqual([
+      {
+        event: 'restore_reconcile.active_source_closure',
+        organizationId: org,
+        sourceId: source,
+        state: 'recorded',
+        documentIds: [absent],
+      },
+    ]);
+    expect(reconcile).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    ['every object present and unchanged, which is the re-proof instead', { state: 'unchanged' }],
+    ['a store that could not be read', { state: 'unconfirmed' }],
+    ['a refusal by the database', Object.assign(new Error('x'), { code: 'EN850' })],
+  ])('exits 1 for %s and reports it', async (_name, answer) => {
+    const { code, printed, reconcile } = await runClosure(answer);
+    expect(code).toBe(1);
+    expect(printed).toHaveLength(1);
+    expect(printed[0]?.state).not.toBe('recorded');
+    // The rest of the run still happens.
+    expect(reconcile).toHaveBeenCalledOnce();
   });
 });
 

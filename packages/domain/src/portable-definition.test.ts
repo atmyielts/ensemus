@@ -157,6 +157,8 @@ describe('the joined inventory names every migrated table', () => {
     ['ai.delegation_birth_capabilities', 'agents'],
     // 0550 active-source restore-debt re-proofs.
     ['lifecycle.raw_active_source_requalifications', 'knowledge'],
+    // 0551 closure observations of an active source with a missing or changed object.
+    ['lifecycle.raw_active_source_closure_observations', 'knowledge'],
   ])('keeps %s as native proof that no archive carries or restores', (table, section) => {
     const entries = PORTABILITY_INVENTORY.filter((entry) => entry.table === table);
     expect(entries).toEqual([{ table, section, disposition: 'operational_excluded', version: 1 }]);

@@ -322,6 +322,13 @@ export const PORTABILITY_INVENTORY = [
   inventory('ai.delegation_birth_capabilities', 'agents', 'operational_excluded'),
   // 0550 re-proofs of an active source a restore left in raw debt, bound the same way.
   inventory('lifecycle.raw_active_source_requalifications', 'knowledge', 'operational_excluded'),
+  // 0551 closure observations of an active source a restore left in raw debt with a missing or
+  // changed object, bound the same way. Evidence for its closure only, never a write proof.
+  inventory(
+    'lifecycle.raw_active_source_closure_observations',
+    'knowledge',
+    'operational_excluded',
+  ),
 ] as const;
 
 export const PORTABILITY_INVENTORY_PROFILES = {
