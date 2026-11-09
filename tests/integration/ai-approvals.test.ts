@@ -395,6 +395,11 @@ describe('binding an agent action to a person, as the real roles', () => {
       await expect(requestApproval(agent.db, seeded.context, selfApproval)).rejects.toEqual(
         code('NOT_FOUND'),
       );
+      // The bare path's own rule is still reached where 0417 does not apply: the initiator, as the
+      // person they are, can see and change this Work and still cannot name themselves.
+      await expect(requestApproval(app.db, a.member, selfApproval)).rejects.toEqual(
+        code('APPROVAL_SELF_APPROVAL'),
+      );
       const rows = await withTenantTx(app.db, a.owner, (tx) =>
         tx.select().from(approvals).where(eq(approvals.workUnitId, seeded.workUnitId)),
       );
@@ -626,6 +631,88 @@ describe('binding an agent action to a person, as the real roles', () => {
       // RESOURCE_NOT_PERMITTED stop) and the recheck cannot read the Work (0417): not valid.
       expect(await gateFacts(seeded)).toMatchObject({ status: 'running', inputsOpen: false });
       await expect(recheck(seeded)).resolves.toEqual({ ok: false, code: 'APPROVAL_NOT_VALID' });
+    });
+
+    // The three cases above are refused by 0417 before the recheck's own rules run. These reach each
+    // of those rules through a transaction 0417 does admit, so each rule is proven on its own.
+
+    it('refuses a run that is admitted but not running, by its own rule (RUN_NOT_RUNNING)', async () => {
+      const seeded = await approved();
+      // A paused run is still admitted to read (0414's preflight keeps paused runs readable), so the
+      // run's own admission (assertRunInputsOpen, as beginTurn and the tool store use it) shows it
+      // the Work. Only the recheck's lifecycle rule stands between it and the effect.
+      await withAdmittedRunTx(agent.db, seeded.context, (tx) =>
+        tx.update(agentRuns).set({ status: 'paused' }).where(eq(agentRuns.id, seeded.runId)),
+      );
+      // The gateway's gate admits only a running run, so it would stop before any recheck.
+      expect(await gateFacts(seeded)).toMatchObject({ status: 'paused', inputsOpen: false });
+      await expect(
+        withAdmittedRunTx(agent.db, seeded.context, (tx) =>
+          binder().recheck(tx, seeded.context, { proposalId: seeded.proposalId }),
+        ),
+      ).resolves.toEqual({ ok: false, code: 'RUN_NOT_RUNNING' });
+    });
+
+    it('refuses an initiator who can still read the work but no longer change it (POLICY_DENIED)', async () => {
+      // Internal work the member started and the owner answers for. Taken off it, the member can
+      // still read it, so the run's retained read stays the member's to have and the gate admits
+      // the run (0414/0417 do not refuse). Changing it is no longer theirs, and that is the
+      // recheck's own initiator rule.
+      const seeded = await seedProposal(a, a.member, {
+        owner: a.owner,
+        classification: 'internal',
+      });
+      const ref = await ask(seeded);
+      await approve(a.owner, ref.approvalId, ref.requestHash);
+      await unassign(app.db, a.owner, {
+        id: seeded.workUnitId,
+        membershipId: a.member.membershipId,
+      });
+      expect(await gateFacts(seeded)).toMatchObject({ status: 'running', inputsOpen: true });
+      await expect(recheck(seeded)).resolves.toEqual({ ok: false, code: 'POLICY_DENIED' });
+    });
+
+    it('refuses an initiator disabled after the gate admitted the run (POLICY_DENIED)', async () => {
+      const seeded = await approved();
+      // 0414's preflight and 0411's Work policy both need an active initiator at every statement, so
+      // a disable committed before the recheck reads the Work hides it (the case above). The
+      // recheck's own initiator rule is the backstop for a disable that commits after it has
+      // locked the Work. That window is made deterministic here: a superuser holds the Work row, the
+      // gate's recheck queues on it with the run admitted and the Work visible in its snapshot, the
+      // initiator is disabled and committed, and only then is the Work released.
+      const holder = new pg.Client({ connectionString: urls.superuser() });
+      const watcher = new pg.Client({ connectionString: urls.superuser() });
+      await holder.connect();
+      await watcher.connect();
+      try {
+        await holder.query('begin');
+        await holder.query("select set_config('app.organization_id',$1,true)", [a.organizationId]);
+        await holder.query(
+          'select id from work.work_units where organization_id=$1 and id=$2 for update',
+          [a.organizationId, seeded.workUnitId],
+        );
+        const rechecking = recheck(seeded).then(
+          (value) => ({ value }),
+          (error: unknown) => ({ error }),
+        );
+        let queued = false;
+        for (let attempt = 0; attempt < 100 && !queued; attempt += 1) {
+          const waiting = await watcher.query<{ n: number }>(
+            `select count(*)::integer n from pg_stat_activity
+              where wait_event_type='Lock' and query ilike '%"work_units"%for update%'`,
+          );
+          queued = (waiting.rows[0]?.n ?? 0) > 0;
+          if (!queued) await new Promise((resolve) => setTimeout(resolve, 50));
+        }
+        expect(queued).toBe(true);
+        await setMemberStatus(a.member.membershipId, 'disabled');
+        await holder.query('rollback');
+        expect(await rechecking).toEqual({ value: { ok: false, code: 'POLICY_DENIED' } });
+      } finally {
+        await holder.query('rollback').catch(() => undefined);
+        await Promise.all([holder.end(), watcher.end()]);
+        await setMemberStatus(a.member.membershipId, 'active');
+      }
     });
   });
 

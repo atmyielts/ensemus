@@ -25,6 +25,7 @@ import { createScriptedModelPort } from '@ensemus/knowledge/testing';
 import { purgeRunTranscriptsForSource, revokeSource } from '@ensemus/application/knowledge/purge';
 import {
   agentRuns,
+  artifactAuthorityRefs,
   artifactLineage,
   artifacts,
   clients,
@@ -36,6 +37,7 @@ import {
   runInputObservations,
   runOutputWrites,
   stepPayloads,
+  tombstones,
   withTenantTx,
   withUserTx,
   type AppDatabase,
@@ -57,6 +59,7 @@ import {
 import { seedSearchableSource } from '../helpers/knowledge';
 import { urls } from '../helpers/stack';
 import { pgCode } from '../../packages/application/src/errors';
+import { createDerivedArtifactPurge } from '../../packages/application/src/knowledge/artifact-provenance';
 
 class Store implements ObjectStore {
   bodies = new Map<string, Buffer>();
@@ -698,6 +701,211 @@ describe('durable agent input protocol and content fence as actual roles', () =>
       ),
     ).toEqual([{ state: 'bound' }]);
   });
+
+  // 0417 allowed its RUN_OUTPUT_AUTHORITY_UNBOUND gate to be lifted only once 0419's retained
+  // authority takes part in fresh named-viewer serving, source purge and byte proof. 0525 lifted it
+  // for the bounded case above; each of these proves one of the three on an authority-v1 file.
+  /** The SQLSTATE and raised message of a refusal, or null when the operation went through. */
+  async function refusalOf(operation: Promise<unknown>) {
+    try {
+      await operation;
+      return null;
+    } catch (error) {
+      return {
+        code: pgCode(error),
+        message: (error as { cause?: { message?: string } }).cause?.message,
+      };
+    }
+  }
+  /** Note, put and publish the run's draft exactly as the tool gateway does. */
+  async function generate(value: Awaited<ReturnType<typeof fixture>>) {
+    const write = await value.note();
+    await value.tools.putDraft(value.context, { draftId: value.draftId, text: value.text, write });
+    await value.publish(write);
+    return write;
+  }
+  const served = (value: Awaited<ReturnType<typeof fixture>>) =>
+    readArtifact(app.db, value.store, value.owner, {
+      workUnitId: value.work.id,
+      artifactId: value.draftId,
+    });
+
+  it('serves an authority-v1 generated file only while its viewer can still read every input the run read (0419 serving)', async () => {
+    const value = await fixture(),
+      other = await createWorkUnit(app.db, value.member, {
+        title: 'Other restricted input',
+        objective: 'Private structured input.',
+        classification: 'restricted',
+      });
+    await assignContributor(app.db, value.member, {
+      id: other.id,
+      membershipId: value.owner.membershipId,
+    });
+    await value.source.loadWork(value.context, other.id);
+    const write = await generate(value);
+    // At least the run's own class (0525): the run read restricted material.
+    expect(write.classification).toBe('restricted');
+    expect((await served(value)).body.toString()).toBe(value.text);
+    // The file's retained receipt names the other Work the run read, not only the Work it sits on.
+    const refs = await withTenantTx(app.db, value.service, (tx) =>
+      tx
+        .select({ kind: artifactAuthorityRefs.refKind, id: artifactAuthorityRefs.refId })
+        .from(artifactAuthorityRefs)
+        .where(eq(artifactAuthorityRefs.artifactId, value.draftId)),
+    );
+    expect(refs).toEqual(expect.arrayContaining([{ kind: 'work_unit', id: other.id }]));
+    // The viewer keeps the Work the file is attached to but loses the other input: fresh
+    // named-viewer serving reads the retained authority, so the file is no longer theirs.
+    await unassign(app.db, value.member, { id: other.id, membershipId: value.owner.membershipId });
+    const gets = value.store.gets;
+    await expect(served(value)).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    expect(value.store.gets).toBe(gets);
+    // The person who can still read every input still sees it.
+    await assignContributor(app.db, value.member, {
+      id: other.id,
+      membershipId: value.owner.membershipId,
+    });
+    expect((await served(value)).body.toString()).toBe(value.text);
+  });
+
+  it('closes and removes an authority-v1 generated file when a source its run read is purged (0419 source purge)', async () => {
+    const passage = 'Synthetic purged source passage.';
+    let source!: Awaited<ReturnType<typeof seedSearchableSource>>;
+    const value = await fixture({
+      knowledge: async (tenant) => {
+        source = await seedSearchableSource(app.db, tenant.owner, {
+          passages: [passage],
+          grants: [{ kind: 'organization' }],
+        });
+        return [source.sourceId];
+      },
+    });
+    const file = await addArtifact(app.db, value.store, value.owner, {
+      workUnitId: value.work.id,
+      name: 'source-input.txt',
+      mimeType: 'text/plain',
+      body: Buffer.from(passage),
+    });
+    await recordArtifactCitations(app.db, value.owner, {
+      workUnitId: value.work.id,
+      artifactId: file.id,
+      citations: [{ chunkId: source.chunkIds[0]!, artifactStart: 0, artifactEnd: passage.length }],
+    });
+    expect(
+      await value.source.loadArtifactText(value.context, {
+        workUnitId: value.work.id,
+        artifactId: file.id,
+        maxBytes: 1000,
+      }),
+    ).toMatchObject({ id: file.id, text: passage });
+    await generate(value);
+    expect((await served(value)).body.toString()).toBe(value.text);
+    // The generated file's own retained authority carries the source the run read through a file.
+    const required = await withTenantTx(app.db, value.service, (tx) =>
+      tx.execute<{ id: string }>(
+        sql`select knowledge.artifact_required_sources(${value.draftId}::uuid) as id`,
+      ),
+    );
+    expect(required.rows.map((row) => row.id)).toContain(source.sourceId);
+    await revokeSource(app.db, value.owner, {
+      sourceId: source.sourceId,
+      expectedVersion: 1,
+      reason: 'Synthetic source closure',
+    });
+    // Closing the source closes fresh serving at once.
+    await expect(served(value)).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    // The source purge finds the generated file through that retained authority, blocks its header
+    // and tombstones it. With no erasure adapter it claims no physical removal.
+    const purged = await createDerivedArtifactPurge({
+      database: app.db,
+      store: value.store,
+    }).purgeSource(value.service, { sourceId: source.sourceId, limit: 100 });
+    expect(purged.confirmed).toBe(false);
+    const [header] = await withTenantTx(agent.db, value.service, (tx) =>
+      tx
+        .select({ state: artifactLineage.state })
+        .from(artifactLineage)
+        .where(eq(artifactLineage.artifactId, value.draftId)),
+    );
+    expect(header?.state).toBe('blocked');
+    expect(
+      await withTenantTx(app.db, value.service, (tx) =>
+        tx
+          .select({ reason: tombstones.reasonCode })
+          .from(tombstones)
+          .where(
+            and(eq(tombstones.targetType, 'artifact'), eq(tombstones.targetId, value.draftId)),
+          ),
+      ),
+    ).toEqual([{ reason: 'KNOWLEDGE_SOURCE_PURGED' }]);
+  });
+
+  it('refuses bytes an authority-v1 file’s retained receipt does not bind (0419 byte proof)', async () => {
+    const value = await fixture(),
+      other = await createWorkUnit(app.db, value.member, {
+        title: 'Other restricted input',
+        objective: 'Private structured input.',
+        classification: 'restricted',
+      });
+    await assignContributor(app.db, value.member, {
+      id: other.id,
+      membershipId: value.owner.membershipId,
+    });
+    await value.source.loadWork(value.context, other.id);
+    const write = await value.note();
+    const gated = (body: (tx: Parameters<Parameters<typeof withTenantTx>[2]>[0]) => unknown) =>
+      withTenantTx(agent.db, value.context, async (tx) => {
+        await value.tools.readRun(tx, value.context, value.runId, { lock: true });
+        await body(tx);
+      });
+    const claim = (artifactId: string) => ({
+      organizationId: value.organizationId,
+      artifactId,
+      runId: value.runId,
+      writeId: randomUUID(),
+      generation: 1,
+      state: 'registered',
+    });
+    // Even behind the run's own admission, a put claim needs a retained receipt that names it:
+    // none exists for bytes with no lineage, and this file's receipt names another token.
+    expect(
+      await refusalOf(gated((tx) => tx.insert(runOutputWrites).values(claim(randomUUID())))),
+    ).toEqual({ code: 'EN119', message: 'ARTIFACT_AUTHORITY_PUT_UNPROVEN' });
+    expect(
+      await refusalOf(gated((tx) => tx.insert(runOutputWrites).values(claim(value.draftId)))),
+    ).toEqual({ code: 'EN119', message: 'ARTIFACT_AUTHORITY_PUT_UNPROVEN' });
+    // Bytes that were never put cannot be bound, so nothing is served.
+    await denied(value.publish(write), 'EN119');
+    expect(
+      await withTenantTx(app.db, value.owner, (tx) =>
+        tx.select().from(artifacts).where(eq(artifacts.id, value.draftId)),
+      ),
+    ).toEqual([]);
+    // Once a retained input is no longer the viewer's, the real token cannot be claimed either:
+    // not by the runtime, and not by the token's own UPDATE behind the gate.
+    await unassign(app.db, value.member, { id: other.id, membershipId: value.owner.membershipId });
+    await expect(
+      value.tools.putDraft(value.context, { draftId: value.draftId, text: value.text, write }),
+    ).rejects.toMatchObject({ code: 'POLICY_DENIED' });
+    // ai.lock_frozen_input_refs finds the retained input unreadable for the receipt's viewer.
+    expect(
+      await refusalOf(
+        gated((tx) =>
+          tx
+            .update(runOutputWrites)
+            .set({ state: 'started' })
+            .where(
+              and(
+                eq(runOutputWrites.artifactId, value.draftId),
+                eq(runOutputWrites.writeId, write.writeId),
+              ),
+            ),
+        ),
+      ),
+    ).toEqual({ code: 'EN119', message: 'ARTIFACT_AUTHORITY_INPUT_CLOSED' });
+    expect(value.store.puts).toBe(0);
+  });
+
   it('captures the actual private fact parent before material leaves, then retains it across reparenting', async () => {
     const word = `factparent${randomUUID().replaceAll('-', '')}`;
     let source!: Awaited<ReturnType<typeof seedSearchableSource>>;

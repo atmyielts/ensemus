@@ -17,7 +17,7 @@ import {
   contextForRun,
   reclaimRun,
 } from '@ensemus/application/ai-runs';
-import { agentRuns, openAppDatabase, withTenantTx } from '@ensemus/database';
+import { agentRuns, openAppDatabase, withTenantTx, workUnits } from '@ensemus/database';
 import { createServiceContext } from '@ensemus/database/service';
 import { createActivities } from '@ensemus/workflows/activities';
 import { eq } from 'drizzle-orm';
@@ -65,14 +65,14 @@ describe('stranded agent recovery, under the real roles', () => {
     await su?.end();
   });
 
-  async function running() {
-    const work = await createWorkUnit(app.db, a.owner, { title: 'Recover this generated work' });
-    await transitionWorkUnit(app.db, a.owner, {
+  async function running(initiator = a.owner) {
+    const work = await createWorkUnit(app.db, initiator, { title: 'Recover this generated work' });
+    await transitionWorkUnit(app.db, initiator, {
       id: work.id,
       expectedVersion: work.version,
       to: 'ready',
     });
-    const agentRunId = await seedQueuedRun(app.db, a.owner, { workUnitId: work.id, version });
+    const agentRunId = await seedQueuedRun(app.db, initiator, { workUnitId: work.id, version });
     const temporalRunId = randomUUID();
     expect(
       await claimQueuedRun(agent.db, {
@@ -98,6 +98,20 @@ describe('stranded agent recovery, under the real roles', () => {
     );
     return row;
   }
+
+  /** The workflow run that holds the Work now, read as the tenant's owner. */
+  async function heldBy(workUnitId: string) {
+    const [row] = await withTenantTx(app.db, a.owner, (tx) =>
+      tx.select({ runId: workUnits.runId }).from(workUnits).where(eq(workUnits.id, workUnitId)),
+    );
+    return row?.runId;
+  }
+
+  /** As the superuser, bound to the row's own tenant, as the membership triggers need. */
+  const setMemberStatus = (membershipId: string, status: 'active' | 'disabled') =>
+    inFixtureTenant(su, a.organizationId, () =>
+      su.query('update org.memberships set status = $2 where id = $1', [membershipId, status]),
+    );
 
   /** Ages the held Work as the superuser, bound to the row's own tenant for the epoch triggers. */
   const age = (workUnitId: string) =>
@@ -133,6 +147,43 @@ describe('stranded agent recovery, under the real roles', () => {
     expect(await stored(run.agentRunId)).toEqual(before);
     expect(before?.temporalRunId).toBe(newerId);
     expect((await getWorkUnit(app.db, a.owner, run.workUnitId)).status).toBe('running');
+  });
+
+  it('moves the hold only behind the run’s own admission, and takes nothing over when it cannot be admitted', async () => {
+    // Admitted: the newer workflow run takes the run and the Work's hold over. Without the run's own
+    // read-scope and authority-v1 admission, 0417's authority_work_body hides the Work from this
+    // agent transaction and continue-as-new could never move a hold.
+    const admitted = await running();
+    const admittedContext = await contextForRun(agent.db, {
+      organizationId: a.organizationId,
+      agentRunId: admitted.agentRunId,
+    });
+    const newerId = randomUUID();
+    expect(
+      await reclaimRun(agent.db, admittedContext, { ...admitted, temporalRunId: newerId }),
+    ).toMatchObject({ agentRunId: admitted.agentRunId });
+    expect(await stored(admitted.agentRunId)).toMatchObject({ temporalRunId: newerId });
+    expect(await heldBy(admitted.workUnitId)).toBe(newerId);
+
+    // Refused: the initiator is disabled after the context was made. 0414's preflight refuses the
+    // admission, and reclaimRun answers null without throwing and without moving anything.
+    const refused = await running(a.member);
+    const refusedContext = await contextForRun(agent.db, {
+      organizationId: a.organizationId,
+      agentRunId: refused.agentRunId,
+    });
+    const before = await stored(refused.agentRunId);
+    await setMemberStatus(a.member.membershipId, 'disabled');
+    try {
+      expect(
+        await reclaimRun(agent.db, refusedContext, { ...refused, temporalRunId: randomUUID() }),
+      ).toBeNull();
+    } finally {
+      await setMemberStatus(a.member.membershipId, 'active');
+    }
+    expect(await stored(refused.agentRunId)).toEqual(before);
+    expect(before?.temporalRunId).toBe(refused.temporalRunId);
+    expect(await heldBy(refused.workUnitId)).toBe(refused.temporalRunId);
   });
 
   it('rechecks the locked work after continue-as-new wins while Temporal is being asked', async () => {

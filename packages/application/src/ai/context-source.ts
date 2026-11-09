@@ -102,7 +102,12 @@ export type LoadedRunBrief = {
 export interface ContextSource {
   /** Throws NOT_FOUND when the initiator cannot read this work, whatever the agent role could. */
   loadWork(context: AgentContext, workUnitId: string): Promise<LoadedWork>;
-  /** Rechecks access now. Text files only, up to `maxBytes`. */
+  /**
+   * Rechecks access now. Text files only, up to `maxBytes`. A file this run may not have resolves as
+   * a refusal; a run whose retained inputs have closed (0414's run-level proof) rejects with
+   * POLICY_DENIED instead, before any file is looked at. Callers treat that rejection as a decision
+   * for the whole step or turn, never as one file left out.
+   */
   loadArtifactText(
     context: AgentContext,
     input: { workUnitId: string; artifactId: string; maxBytes: number },

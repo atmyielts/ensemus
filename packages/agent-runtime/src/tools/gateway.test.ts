@@ -908,6 +908,35 @@ describe('tool gateway', () => {
       expectNoEffect();
     });
 
+    it('denies a file read whose run inputs closed, when the source rejects instead of refusing', async () => {
+      // The real source rejects with POLICY_DENIED (0414's run-level input proof) when the run's
+      // retained inputs are no longer the initiator's, before any per-file refusal. That rejection is
+      // a decision: the step is denied with nothing output, never retried and never read around.
+      const source = fakeSource(world);
+      const reads: string[] = [];
+      const closed = createToolGateway({
+        source: {
+          ...source,
+          loadArtifactText: async (_c, input) => {
+            reads.push(input.artifactId);
+            throw appError('POLICY_DENIED');
+          },
+        },
+        externalActions: { propose: vi.fn(), readState: vi.fn() },
+        approvals: { request: vi.fn(), recheck: vi.fn() },
+        halt: { assertRunning: async () => undefined },
+        store: fakeStore(db),
+      });
+      propose('artifact.read_text', { artifact_id: ARTIFACT });
+      await expect(closed.handle(context, step)).resolves.toMatchObject({
+        outcome: 'denied',
+        decisionCode: 'RESOURCE_NOT_PERMITTED',
+      });
+      expect(reads).toEqual([ARTIFACT]);
+      expect(db.state.audit[0]?.safeReason).toBe('POLICY_DENIED');
+      expectNoEffect();
+    });
+
     it('asks a retry for the stored answer and reads nothing again', async () => {
       propose('work.read', { work_unit_id: WORK });
       await gateway.handle(context, step);
