@@ -113,10 +113,20 @@ describe('subscriptions in the application role', () => {
     });
     const overview = await getBillingOverview(db.db, owner, { billingEnabled: true });
     const sub = overview.subscription!;
+    // A new subscription starts at version 1, and versions below 1 are malformed input rather than
+    // a stale read (subscriptions.ts versionCheck), so the stale version is one the caller could
+    // actually have seen: a version that is not the current one.
+    expect(sub.version).toBe(1);
     await expect(
       requestCancellation(db.db, owner, { expectedVersion: sub.version - 1 }),
+    ).rejects.toMatchObject({ code: 'INVALID_INPUT' });
+    await expect(
+      requestCancellation(db.db, owner, { expectedVersion: sub.version + 1 }),
     ).rejects.toMatchObject({ code: 'VERSION_CONFLICT' });
     await requestCancellation(db.db, owner, { expectedVersion: sub.version });
+    await expect(
+      withdrawCancellation(db.db, owner, { expectedVersion: sub.version }),
+    ).rejects.toMatchObject({ code: 'VERSION_CONFLICT' });
     await withdrawCancellation(db.db, owner, { expectedVersion: sub.version + 1 });
     await expect(
       withTenantTx(db.db, createServiceContext(other.organizationId), (tx) =>

@@ -329,12 +329,14 @@ describe('M8 rules in the database', () => {
           tx.update(payments).set({ status: 'succeeded' }).where(eq(payments.id, paymentId)),
         ),
       ).rejects.toEqual(sqlState('EN803'));
+      // A payment that does not match its open invoice is refused by the start rule (0501
+      // check_new_payment), as this test asserted before the native fixture replaced its seeding.
       await expect(
         withTenantTx(database.db, f.who.owner, (tx) =>
           tx.insert(payments).values({
             organizationId: f.who.owner.organizationId,
             invoiceId: f.who.invoice.id,
-            amountMicros: f.who.invoice.totalMicros,
+            amountMicros: 1n,
             currency: f.who.invoice.currency,
             idempotencyKey: `test-other-${paymentId}`,
             processor: 'test_scripted',
@@ -342,6 +344,21 @@ describe('M8 rules in the database', () => {
           }),
         ),
       ).rejects.toEqual(sqlState('EN803'));
+      // A matching second payment passes that rule and meets the one-live-payment index instead (0500
+      // payments_one_live_per_invoice): the first is still sending.
+      await expect(
+        withTenantTx(database.db, f.who.owner, (tx) =>
+          tx.insert(payments).values({
+            organizationId: f.who.owner.organizationId,
+            invoiceId: f.who.invoice.id,
+            amountMicros: f.who.invoice.totalMicros,
+            currency: f.who.invoice.currency,
+            idempotencyKey: `test-again-${paymentId}`,
+            processor: 'test_scripted',
+            requestedByRef: 'test',
+          }),
+        ),
+      ).rejects.toEqual(sqlState('23505'));
     } finally {
       await f.close();
       await secretsDb.close();

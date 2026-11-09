@@ -4,15 +4,12 @@ import {
   creditLedger,
   createOrganization,
   memberships,
-  organizations,
-  invoices,
-  payments,
-  paymentAttempts,
   openAppDatabase,
   resolveTenantContext,
   withTenantTx,
   type TenantContext,
 } from '@ensemus/database';
+import { openSecretsDatabase } from '@ensemus/database/secrets';
 import { createServiceContext } from '@ensemus/database/service';
 import {
   allocatePeriodCreditsInTx,
@@ -23,18 +20,23 @@ import {
 import { requestTopUp, creditPaidTopUpInTx } from '@ensemus/application/saas/top-ups';
 import { startSubscription } from '@ensemus/application/saas/subscriptions';
 import { listTopUpOffers } from '@ensemus/application/saas/catalog';
-import { issueInvoice } from '@ensemus/application/saas/invoices';
+import { getInvoice, issueInvoice } from '@ensemus/application/saas/invoices';
+import { finishPaymentAttempt } from '@ensemus/application/saas/payments';
 import { UsageUnavailable, type UsageLedgerPort } from '@ensemus/application/saas/ports';
+import { runBoundCharge } from '@ensemus/connectors/payment';
 import { quoteHash } from '@ensemus/saas/credits';
 import type { UsageEntry } from '@ensemus/saas/usage';
 import { eq, sql } from 'drizzle-orm';
 import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { nativePaymentFixture } from '../helpers/native-payment';
 import { seedBillingAccount, seedPlan, seedRateCard, seedTaxTreatment } from '../helpers/saas';
 import { urls } from '../helpers/stack';
+import { paymentAgents, paymentTenant } from './saas-payment-fixture';
 
 describe('prepaid credit ledger through actual tenant roles', () => {
   const db = openAppDatabase(urls.app());
+  const secretsDb = openSecretsDatabase(urls.secrets());
   const auth = new pg.Client({ connectionString: urls.auth() });
   let owner: TenantContext;
   let member: TenantContext;
@@ -66,6 +68,7 @@ describe('prepaid credit ledger through actual tenant roles', () => {
   });
   afterAll(async () => {
     await auth.end();
+    await secretsDb.close();
     await db.close();
   });
   it('members and services cannot buy or read person-only billing', async () => {
@@ -181,12 +184,19 @@ describe('prepaid credit ledger through actual tenant roles', () => {
     );
   });
   it('a changed quote or another tenant offer buys nothing; a repeated approved order is one invoice', async () => {
-    await seedBillingAccount(db.db, owner);
+    // The paid top-up is paid for real (0512: an attempt and its success exist only on a native,
+    // broker-attested execution), so the buyer is a Cloud tenant whose owner has a native session.
+    const buyer = await paymentTenant(db.db, auth, 'cloud');
+    const card = await seedRateCard();
+    await startSubscription(db.db, buyer, {
+      planVersionId: (await seedPlan({ mode: 'cloud', rateCard: card })).planVersionId,
+    });
+    await seedBillingAccount(db.db, buyer);
     await seedTaxTreatment();
-    const offers = await listTopUpOffers(db.db, owner);
+    const offers = await listTopUpOffers(db.db, buyer);
     const offer = offers[0]!;
     await expect(
-      requestTopUp(db.db, owner, {
+      requestTopUp(db.db, buyer, {
         offerId: offer.offerId,
         quoteHash: '0'.repeat(64),
         requestKey: randomUUID(),
@@ -194,7 +204,7 @@ describe('prepaid credit ledger through actual tenant roles', () => {
     ).rejects.toMatchObject({ code: 'QUOTE_CHANGED' });
     const foreignCard = await seedRateCard();
     await expect(
-      requestTopUp(db.db, owner, {
+      requestTopUp(db.db, buyer, {
         offerId: foreignCard.topUpOfferId,
         quoteHash: '0'.repeat(64),
         requestKey: randomUUID(),
@@ -202,11 +212,11 @@ describe('prepaid credit ledger through actual tenant roles', () => {
     ).rejects.toMatchObject({ code: 'NOT_FOUND' });
     const input = { offerId: offer.offerId, quoteHash: quoteHash(offer), requestKey: randomUUID() };
     const attempts = await Promise.all([
-      requestTopUp(db.db, owner, input),
-      requestTopUp(db.db, owner, input),
+      requestTopUp(db.db, buyer, input),
+      requestTopUp(db.db, buyer, input),
     ]);
     expect(attempts[0]).toEqual(attempts[1]);
-    const service = createServiceContext(owner.organizationId);
+    const service = createServiceContext(buyer.organizationId);
     await expect(
       withTenantTx(db.db, service, (tx) =>
         creditPaidTopUpInTx(tx, service, { invoiceId: attempts[0]!.invoiceId }),
@@ -215,7 +225,7 @@ describe('prepaid credit ledger through actual tenant roles', () => {
     await expect(
       withTenantTx(db.db, service, (tx) =>
         tx.insert(creditLedger).values({
-          organizationId: owner.organizationId,
+          organizationId: buyer.organizationId,
           idempotencyKey: randomUUID(),
           kind: 'top_up',
           amountMicrocredits: offer.microcredits,
@@ -229,58 +239,47 @@ describe('prepaid credit ledger through actual tenant roles', () => {
       tax: { taxMicros: 0n, providerRef: null },
     });
     const before = await withTenantTx(db.db, service, (tx) => loadCreditBalanceInTx(tx, service));
-    // Synthetic evidence is seeded through the real payment states and triggers. No provider is contacted.
-    await withTenantTx(db.db, service, async (tx) => {
-      await tx
-        .select()
-        .from(organizations)
-        .where(eq(organizations.id, owner.organizationId))
-        .for('no key update');
-      const [invoice] = await tx
-        .select()
-        .from(invoices)
-        .where(eq(invoices.id, attempts[0]!.invoiceId));
-      const key = randomUUID();
-      const [payment] = await tx
-        .insert(payments)
-        .values({
-          organizationId: owner.organizationId,
-          invoiceId: invoice!.id,
-          amountMicros: invoice!.totalMicros,
-          currency: invoice!.currency,
-          idempotencyKey: key,
-          processor: 'test-scripted',
-          requestedByRef: owner.membershipId,
-        })
-        .returning();
-      const [attempt] = await tx
-        .insert(paymentAttempts)
-        .values({
-          organizationId: owner.organizationId,
-          paymentId: payment!.id,
-          attemptNo: 1,
-          idempotencyKey: key,
-          runId: randomUUID(),
-        })
-        .returning();
-      await tx
-        .update(payments)
-        .set({ status: 'sending', version: 2 })
-        .where(eq(payments.id, payment!.id));
-      await tx
-        .update(paymentAttempts)
-        .set({ outcome: 'succeeded', processorPaymentRef: randomUUID(), finishedAt: new Date() })
-        .where(eq(paymentAttempts.id, attempt!.id));
-      await tx
-        .update(payments)
-        .set({ status: 'succeeded', version: 3, settledAt: new Date() })
-        .where(eq(payments.id, payment!.id));
-      await tx
-        .update(invoices)
-        .set({ status: 'paid', paidAt: new Date(), version: invoice!.version + 1 })
-        .where(eq(invoices.id, invoice!.id));
-      expect(await creditPaidTopUpInTx(tx, service, { invoiceId: invoice!.id })).toBe('credited');
+    // A generated local processor answers the real native charge. Settling the payment marks the
+    // invoice paid and credits the top-up once, in the same transaction (afterInvoicePaidInTx).
+    const f = await nativePaymentFixture(db.db, auth, secretsDb, {
+      payer: {
+        owner: buyer,
+        service,
+        invoice: await getInvoice(db.db, buyer, attempts[0]!.invoiceId),
+      },
     });
+    try {
+      const q = await f.qualify();
+      await f.register();
+      const attempt = await f.beginAttempt();
+      if (attempt.kind !== 'attempt') throw new Error('TEST_EXPECTED_BOUND_ATTEMPT');
+      const result = await runBoundCharge(
+        f.processor,
+        f.call('charge', { attemptId: attempt.attemptId }),
+        attempt.charge,
+        q.authority.authoritySha256,
+      );
+      expect(result.outcome).toBe('succeeded');
+      expect(
+        await finishPaymentAttempt(
+          db.db,
+          service,
+          { attemptId: attempt.attemptId, result },
+          paymentAgents,
+        ),
+      ).toEqual({ step: 'succeeded' });
+    } finally {
+      await f.close();
+    }
+    expect((await getInvoice(db.db, buyer, attempts[0]!.invoiceId)).status).toBe('paid');
+    expect(
+      await withTenantTx(db.db, service, (tx) =>
+        tx
+          .select({ id: creditLedger.id })
+          .from(creditLedger)
+          .where(eq(creditLedger.topUpId, attempts[0]!.topUpId)),
+      ),
+    ).toHaveLength(1);
     expect(
       await withTenantTx(db.db, service, (tx) =>
         creditPaidTopUpInTx(tx, service, { invoiceId: attempts[0]!.invoiceId }),

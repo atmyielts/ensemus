@@ -3,7 +3,7 @@ import pg from 'pg';
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { and, eq, sql } from 'drizzle-orm';
-import { openAppDatabase, paymentAttempts, withTenantTx } from '@ensemus/database';
+import { openAppDatabase, paymentAttempts, payments, withTenantTx } from '@ensemus/database';
 import { openSecretsDatabase } from '@ensemus/database/secrets';
 import { pgCode } from '@ensemus/application';
 import {
@@ -250,9 +250,18 @@ describe('exact native lookup operation and one-use financial effect under actua
       ).rejects.toThrow('TEST_NATIVE_LOOKUP_ROLLBACK');
       expect((await p.state()).outcome).toBe('indeterminate');
       expect((await p.state()).lookupOutcomeConsumedXid).toBeNull();
-      expect(
-        await readPaymentOutcome(app.db, p.f.who.service, { paymentId: p.f.payment.paymentId }),
-      ).toBe('reconciling');
+      // readPaymentOutcome reads only a terminal outcome and refuses a pending one (payments.ts), so
+      // the rolled-back payment is read as still reconciling from its own row.
+      await expect(
+        readPaymentOutcome(app.db, p.f.who.service, { paymentId: p.f.payment.paymentId }),
+      ).rejects.toMatchObject({ code: 'INVALID_STATE' });
+      const [still] = await withTenantTx(app.db, p.f.who.service, (tx) =>
+        tx
+          .select({ status: payments.status })
+          .from(payments)
+          .where(eq(payments.id, p.f.payment.paymentId)),
+      );
+      expect(still?.status).toBe('reconciling');
       expect(
         await finishPaymentReconcile(
           app.db,
