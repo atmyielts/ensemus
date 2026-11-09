@@ -2,16 +2,16 @@
 // operation here; a skipped job is not acceptance. Generated keys/prices go only to the private fake.
 import { randomUUID } from 'node:crypto';
 import { getAgentPolicyVersion } from '@ensemus/application/ai-agents';
-import { openAppDatabase, resolveTenantContext } from '@ensemus/database';
+import { openAppDatabase, type TenantContext } from '@ensemus/database';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { assuranceSpec, syntheticCases } from '../../evaluations/agents/fixtures';
 import { evaluateScripted } from '../../evaluations/agents/harness';
 import { openAgentTestDatabase, seedActiveProfile, seedRateCard } from '../helpers/ai/fixtures';
 import { createOrganization, signUp, type Person } from '../helpers/forms';
+import { enrollAuthenticator, nativeStackContext } from '../helpers/native-mfa';
 import { contractProblems, operationName, operations } from '../helpers/openapi';
 import { api, type ApiResult } from '../helpers/slice-2';
 import { urls } from '../helpers/stack';
-import pg from 'pg';
 
 const ours = (path: string) =>
   /\/(agent-runs|agent-versions|model-profiles|budgets|usage|entitlements)(\/|$)/.test(path);
@@ -22,12 +22,11 @@ describe.skipIf(!enabled)('governed AI public API', () => {
   const validated = new Set<string>();
   const app = openAppDatabase(urls.app());
   const agent = openAgentTestDatabase();
-  const su = new pg.Client({ connectionString: urls.superuser() });
   let owner: Person;
   let outsider: Person;
   let root: string;
   let foreignRoot: string;
-  let context: Awaited<ReturnType<typeof resolveTenantContext>>;
+  let context: TenantContext;
   let profileId: string;
   let versionId: string;
   let runId: string;
@@ -62,21 +61,20 @@ describe.skipIf(!enabled)('governed AI public API', () => {
   }
 
   beforeAll(async () => {
-    await su.connect();
     owner = await signUp('AI API owner');
     outsider = await signUp('Other company owner');
     const organizationId = await createOrganization(owner, `AI API ${randomUUID()}`);
     const foreignId = await createOrganization(outsider, `AI API ${randomUUID()}`);
     root = `/api/v1/organizations/${organizationId}`;
     foreignRoot = `/api/v1/organizations/${foreignId}`;
-    const { rows } = await su.query('select id from identity.users where email = $1', [
-      owner.email,
-    ]);
-    context = await resolveTenantContext(app.db, rows[0]!.id as string, organizationId);
-  });
+    // 0404: a probe, a qualification and an agent publication are always-MFA actions. The owner turns
+    // on an authenticator as a person does, and the seeds below write in that same native session.
+    await enrollAuthenticator(owner, organizationId);
+    context = await nativeStackContext(app.db, owner, organizationId);
+  }, 60000);
 
   afterAll(async () => {
-    await Promise.all([app.close(), agent.close(), su.end()]);
+    await Promise.all([app.close(), agent.close()]);
   });
 
   it('registers, edits, seals and genuinely probes a private profile, with measured metadata only', async () => {
@@ -216,12 +214,60 @@ describe.skipIf(!enabled)('governed AI public API', () => {
     });
   });
 
+  it('queues one bounded capability qualification and reads its content-free evidence', async () => {
+    // A separate keyless private draft, so the probed profile and the stopped run are untouched.
+    const draft = await call(owner, 'POST', `${root}/model-profiles`, 201, {
+      provider_kind: 'local_openai_compatible',
+      model_id: 'fake:text',
+      alias: 'z-qualification',
+      endpoint_url: 'http://fake-model:8000/v1',
+      billing_owner: 'customer',
+      region: null,
+      capabilities: ['text', 'structured_output'],
+      limits: { max_input_tokens: 8192, max_output_tokens: 64 },
+      allowed_classes: ['public'],
+      allowed_purposes: ['embed'],
+      retention_basis: 'self_hosted',
+      contract_ref: null,
+      fallback_profile_ids: [],
+    });
+    const { id, version } = draft.json as { id: string; version: number };
+    const path = `${root}/model-profiles/${id}/qualifications`;
+    const request = {
+      expected_profile_version: version,
+      purpose: 'embed',
+      dimension: 3,
+      vector_space_version: 'generated-stack-v1',
+      request_key: randomUUID(),
+      bounds: {
+        max_calls: 1,
+        max_input_tokens: 8192,
+        max_output_tokens: 64,
+        max_total_tokens: 50000,
+        max_cost_micros: 10000,
+        timeout_seconds: 240,
+      },
+    };
+    const queued = await call(owner, 'POST', path, 202, request);
+    const repeated = await call(owner, 'POST', path, 202, request);
+    expect(repeated.json).toEqual(queued.json);
+    const evidence = await call(owner, 'GET', path, 200);
+    const { qualification_id } = queued.json as { qualification_id: string };
+    expect((evidence.json as { items: { id: string }[] }).items.map((item) => item.id)).toContain(
+      qualification_id,
+    );
+    // The outsider names this tenant's profile from their own tenant and learns nothing.
+    await call(outsider, 'GET', `${foreignRoot}/model-profiles/${id}/qualifications`, 404);
+  });
+
   it('validates a successful response from every activated M4 operation', () => {
     const expected = operations()
       .filter((op) => op.status === undefined && ours(op.path))
       .map(({ method, path }) => operationName(method, path))
       .sort();
-    expect(expected).toHaveLength(18);
+    // 18 M4 operations plus 0216's two model-profile qualification operations (GET and POST
+    // /model-profiles/{id}/qualifications), which the test above exercises.
+    expect(expected).toHaveLength(20);
     expect([...validated].sort()).toEqual(expected);
   });
 });

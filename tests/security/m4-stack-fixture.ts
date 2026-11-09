@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { addArtifact } from '@ensemus/application';
 import { getAgentPolicyVersion } from '@ensemus/application/ai-agents';
 import { FEATURE_AGENT_RUN, FEATURE_MODEL_CALL, type CommercialMode } from '@ensemus/commercial';
-import { openAppDatabase, resolveTenantContext } from '@ensemus/database';
+import { openAppDatabase } from '@ensemus/database';
 import { S3ObjectStore } from '@ensemus/storage';
 import pg from 'pg';
 import { expect } from 'vitest';
@@ -13,6 +13,7 @@ import { evaluateScripted } from '../../evaluations/agents/harness';
 import { syntheticCases } from '../../evaluations/agents/fixtures';
 import { fakeModelRequests, scriptFakeModel } from '../conformance/fake-model';
 import { createOrganization, signUp } from '../helpers/forms';
+import { enrollAuthenticator, nativeStackContext } from '../helpers/native-mfa';
 import { api } from '../helpers/slice-2';
 import {
   openAgentTestDatabase,
@@ -59,10 +60,11 @@ export async function startAiCanaryRun(
       mode,
       organizationId,
     ]);
-    const { rows: users } = await su.query('select id from identity.users where email = $1', [
-      owner.email,
-    ]);
-    const context = await resolveTenantContext(app.db, users[0]!.id as string, organizationId);
+    // 0404: the probe request in the profile seed and the agent publication below are always-MFA
+    // actions. The owner turns on an authenticator through the real security page, and the seeds write
+    // in that same native session rather than through a context without one.
+    await enrollAuthenticator(owner, organizationId);
+    const context = await nativeStackContext(app.db, owner, organizationId);
     const model = `fake:canary-${randomUUID()}`;
     const profileId = await seedActiveProfile(app.db, agent.db, context, {
       modelId: model,

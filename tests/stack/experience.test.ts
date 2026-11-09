@@ -144,10 +144,16 @@ describe('private outcome and company setup HTTP contracts', () => {
     const setup = await call(owner, 'GET', 'onboarding');
     expect(setup.status).toBe(200);
     expect(setup.body?.completion_recorded).toBe(false);
-    expect(
-      (await call(owner, 'POST', 'onboarding/steps/first_work_unit', { decision: 'acknowledged' }))
-        .status,
-    ).toBe(422);
+    // A record-derived step cannot be acknowledged into being done. The service refuses it as
+    // INVALID_INPUT (decideOnboardingStep, held by tests/integration/onboarding.test.ts), which the
+    // public API answers as 400 like every other INVALID_INPUT (HTTP_STATUS, the BadRequest response).
+    const fake = await call(owner, 'POST', 'onboarding/steps/first_work_unit', {
+      decision: 'acknowledged',
+    });
+    expect(fake.status).toBe(400);
+    expect(fake.body?.code).toBe('INVALID_INPUT');
+    // The refusal changed nothing: the step still says only what the real records say.
+    expect((await call(owner, 'GET', 'onboarding')).body).toEqual(setup.body);
     const choice = await call(owner, 'POST', 'onboarding/steps/responsibility_statement', {
       decision: 'acknowledged',
     });
