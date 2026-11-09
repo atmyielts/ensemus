@@ -150,8 +150,16 @@ jobs:
 
   # Real browser tests through the proxy (UX-11 to UX-14, API-13). Chromium is installed here and only
   # here, on the runner, so this stays apart from the air-gap gate above and never runs under it.
+  # 338 tests at about 8 seconds each, one at a time, is about 45 minutes before any failure, and each
+  # failure rebuilds the seeded organization. So the specs are split across runners, each with its own
+  # stack, as the integration job splits its suite.
   browser:
+    name: browser (${{ matrix.shard }}/${{ strategy.job-total }})
     runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
     env:
       COMPOSE_PROJECT_NAME: ensemus-ci-browser
     timeout-minutes: 40
@@ -174,20 +182,22 @@ jobs:
       # These UI fixtures advance agent states directly. Real execution is exercised in the stack gate.
       - name: Keep the agent UI fixtures under test control
         run: docker compose -f infrastructure/compose/compose.yaml -f infrastructure/compose/compose.test.yaml stop agent-worker
+      # The line reporter prints each failure, with its error, as it happens, so a run stopped at the
+      # job's time limit still says what failed and why.
       - name: Browser tests - axe, keyboard, live status, forms, no JavaScript
-        run: pnpm test:browser
+        run: pnpm test:browser --shard=${{ matrix.shard }}/${{ strategy.job-total }} --reporter=line
       - name: Keep the screenshots and any failure traces
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: browser-results
+          name: browser-results-${{ matrix.shard }}
           path: |
             .local/screenshots
             .local/playwright-results
           include-hidden-files: true
           if-no-files-found: ignore
       - name: Show service logs on failure
-        if: failure()
+        if: failure() || cancelled()
         run: docker compose -f infrastructure/compose/compose.yaml -f infrastructure/compose/compose.test.yaml logs --tail 50
 
   upgrade:

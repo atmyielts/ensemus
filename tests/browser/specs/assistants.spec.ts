@@ -1,54 +1,61 @@
-// UX-19, QA-047: the Assistants pages in a real browser. The web tier gets M4's run service at the final merge
-// (ADR-031 D2). Until then its port is unavailable, so this holds the pages to what they must say then: a
-// dedicated state, not an empty list and not an error. Written in code-only mode, and never run yet.
+// UX-19, QA-047: the Assistants pages in a real browser. The web tier has M4's run service since the final merge
+// (ADR-031 D2: until then each port threw CAPABILITY_UNAVAILABLE and the page said so). So these hold the pages
+// to the live port: someone who has handed nothing to an assistant is told exactly that, a run that is not
+// theirs or not there is the usual 404, and nothing on the page pretends to be a control or an outcome. The
+// unavailable state, a dedicated state and never an empty list, is held by tests/unit/assistants-wording.test.ts
+// with an unavailable port, since this deployment no longer has one.
 //
-// Owed at the merge, once a run can be seeded: a real stop through the form with scripts off, the page saying it
-// has not stopped until the run does, another person's run answering 404, and these unavailable tests moving to a
-// deployment with the port turned off.
+// Still owed, once a run can be seeded through its real path: a real stop through the form with scripts off, the
+// page saying it has not stopped until the run does, and another person's real run answering 404.
 import { randomUUID } from 'node:crypto';
 import { expect, test } from '../support/fixtures';
 import { axeFindings, sidewaysOverflow } from '../support/look';
 
 const EMPTY_WORDS = 'You have not handed anything to an assistant yet';
 const UNAVAILABLE = 'Assistants are not available on this deployment yet';
+const NOT_STOPPED = 'has not stopped yet';
 
-test('says plainly when assistants are unavailable, and shows no empty list', async ({
+test('says plainly that nothing has been handed to an assistant, and offers no control', async ({
   open,
   world,
 }) => {
-  const page = await open(world.bob);
-  const response = await page.goto(`/o/${world.organization}/assistants`);
+  // The owner of an organization with nothing in it, so nothing can ever have been handed over here.
+  const page = await open(world.quiet);
+  const response = await page.goto(`/o/${world.quietOrganization}/assistants`);
   expect(response?.status()).toBe(200);
   await expect(page.getByRole('heading', { level: 1, name: 'Assistants' })).toBeVisible();
-  await expect(page.getByRole('heading', { name: UNAVAILABLE })).toBeVisible();
-  await expect(page.getByText('different from nothing running')).toBeVisible();
-  await expect(page.getByText(EMPTY_WORDS)).toHaveCount(0);
+  await expect(page.getByText(EMPTY_WORDS)).toBeVisible();
+  // The port answers here, so the page does not claim that it cannot read what assistants are doing.
+  await expect(page.getByRole('heading', { name: UNAVAILABLE })).toHaveCount(0);
   // Not an error: nothing here announces itself as one, and nothing pretends to be a working control.
   await expect(page.getByRole('main').getByRole('alert')).toHaveCount(0);
   await expect(page.getByRole('button', { name: /stop/i })).toHaveCount(0);
   await expect(page.getByRole('link', { name: 'Go to your work' })).toBeVisible();
 });
 
-test('one run is unavailable too, and does not claim to have stopped or to be missing', async ({
+test('a run that is not there is the usual 404, and claims nothing about stopping', async ({
   open,
   world,
 }) => {
   const page = await open(world.bob);
   const response = await page.goto(`/o/${world.organization}/assistants/${randomUUID()}`);
-  expect(response?.status()).toBe(200);
-  await expect(page.getByRole('heading', { name: UNAVAILABLE })).toBeVisible();
-  await expect(page.getByText('different from it having stopped')).toBeVisible();
+  expect(response?.status()).toBe(404);
+  await expect(page.getByRole('heading', { name: 'Page not found' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: UNAVAILABLE })).toHaveCount(0);
+  await expect(page.getByText(NOT_STOPPED)).toHaveCount(0);
   await expect(page.getByRole('button', { name: /stop/i })).toHaveCount(0);
 });
 
 test('the address cannot make the page say something happened', async ({ open, world }) => {
   const page = await open(world.bob);
-  await page.goto(
-    `/o/${world.organization}/assistants/${randomUUID()}?stop=requested&error=%3Cb%3Ex%3C%2Fb%3E`,
-  );
-  await expect(page.getByRole('heading', { name: UNAVAILABLE })).toBeVisible();
-  await expect(page.getByText('<b>x</b>')).toHaveCount(0);
-  await expect(page.getByText('has not stopped yet')).toHaveCount(0);
+  const forged = '?stop=requested&error=%3Cb%3Ex%3C%2Fb%3E';
+  for (const path of ['assistants', `assistants/${randomUUID()}`]) {
+    await page.goto(`/o/${world.organization}/${path}${forged}`);
+    await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
+    await expect(page.getByText('<b>x</b>')).toHaveCount(0);
+    await expect(page.locator('main b', { hasText: /^x$/ })).toHaveCount(0);
+    await expect(page.getByText(NOT_STOPPED)).toHaveCount(0);
+  }
 });
 
 test('something that is not an ID answers 404', async ({ open, world }) => {
@@ -73,11 +80,14 @@ test('someone signed out goes to sign in', async ({ open, world }) => {
 });
 
 test('reads the same with scripts off', async ({ open, world }) => {
-  const page = await open(world.bob, { javaScriptEnabled: false });
-  await page.goto(`/o/${world.organization}/assistants`);
-  await expect(page.getByRole('heading', { name: UNAVAILABLE })).toBeVisible();
-  await page.goto(`/o/${world.organization}/assistants/${randomUUID()}`);
-  await expect(page.getByRole('heading', { name: UNAVAILABLE })).toBeVisible();
+  const page = await open(world.quiet, { javaScriptEnabled: false });
+  await page.goto(`/o/${world.quietOrganization}/assistants`);
+  await expect(page.getByText(EMPTY_WORDS)).toBeVisible();
+  await expect(page.getByRole('heading', { name: UNAVAILABLE })).toHaveCount(0);
+  expect(
+    (await page.goto(`/o/${world.quietOrganization}/assistants/${randomUUID()}`))?.status(),
+  ).toBe(404);
+  await expect(page.getByRole('heading', { name: 'Page not found' })).toBeVisible();
 });
 
 test('can be reached and left with the keyboard, and focus shows', async ({ open, world }) => {

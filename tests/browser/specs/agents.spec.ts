@@ -2,7 +2,19 @@
 // typechecked. It has not been run yet, because it needs the built images behind the proxy.
 import { createHash, randomUUID } from 'node:crypto';
 import type { Page } from '@playwright/test';
-import { BASE, createOrganization, join, signUp, type Person } from '../../helpers/forms';
+import {
+  assembled,
+  BASE,
+  createOrganization,
+  formsIn,
+  join,
+  PASSWORD,
+  post,
+  signUp,
+  submit,
+  type Person,
+} from '../../helpers/forms';
+import { previousTotpFromUri } from '../../helpers/totp';
 import { expect, test } from '../support/fixtures';
 import { axeFindings, sidewaysOverflow, THEMES, WIDTHS } from '../support/look';
 
@@ -75,10 +87,32 @@ const apiPath = (organization: string) => `/api/v1/organizations/${organization}
 /** A class and not the alert role: Next.js keeps an alert of its own on every page, for navigation. */
 const refusal = (page: Page) => page.locator('p.notice.error');
 
+/**
+ * Turns on two-step sign-in for this person's session, through the security page's own forms, as an owner
+ * does when publishing asks them to. Publishing an agent always needs a recent second factor (migration 0404,
+ * `agent.publish` in the 'always' tier; ADR-031 D8), checked before the manifest is read, so every publish
+ * here, a refused one included, needs it. Turning it on counts as that proof for the same session.
+ */
+async function enroll(person: Person, organization: string) {
+  const path = `/o/${organization}/security/two-factor`;
+  const setup = await submit(path, person.jar, /Set up authenticator app/, { password: PASSWORD });
+  expect(setup.status).toBe(200);
+  const html = assembled(await setup.text());
+  const uri = /href="(otpauth:\/\/[^"]+)"/.exec(html)?.[1]?.replaceAll('&amp;', '&');
+  if (!uri) throw new Error('AGENTS_TEST_NATIVE_MFA_SETUP_REQUIRED');
+  const confirmation = formsIn(html).filter((form) => /Confirm and turn on/.test(form.html));
+  expect(confirmation).toHaveLength(1);
+  const result = await post(path, person.jar, confirmation[0]!, {
+    code: await previousTotpFromUri(uri),
+  });
+  expect(result.headers.get('location')).toBe(`/o/${organization}/security?notice=enrolled`);
+}
+
 async function team() {
   const owner = await signUp('Dana Owner');
   const organization = await createOrganization(owner, `Agents ${randomUUID()}`);
   const member = await join(owner, organization, 'Evan Member');
+  await enroll(owner, organization);
   return { owner, member, organization };
 }
 

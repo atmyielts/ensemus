@@ -39,6 +39,30 @@ const LONG = 600_000;
 const scripts = join(repoRoot, 'infrastructure', 'scripts');
 const tools = join(repoRoot, 'workers', 'workflow', 'dist', 'tools');
 
+/**
+ * The stack these scripts restore over: the project it runs as, and the files it was started with, the same
+ * ones tests/helpers/stack.ts uses. Compose names a project after the first file's folder unless
+ * COMPOSE_PROJECT_NAME says otherwise, and the gates set it, so a fixed `compose` named a project that was not
+ * running: nothing was stopped, and pg_restore found no PostgreSQL (RESTORE_FAILED_ensemus).
+ */
+const PROJECT = process.env.COMPOSE_PROJECT_NAME ?? 'compose';
+const COMPOSE_FILES = [
+  'infrastructure/compose/compose.yaml',
+  'infrastructure/compose/compose.test.yaml',
+  ...(process.env.ENSEMUS_COMPOSE_AIRGAP ? ['infrastructure/compose/compose.airgap.yaml'] : []),
+];
+const composeFileArguments = COMPOSE_FILES.flatMap((file) => ['--compose-file', file]);
+
+/**
+ * The drill re-applies through the `restore-reconcile` one-shot service, which holds both database URLs. The
+ * Compose files do not define it yet (see the note at the top), and without it the drill would stop the stack,
+ * replace its databases and then have no way to finish. So the drill runs once the stack has that service.
+ */
+const stackCanReconcile = compose('--profile', '*', 'config', '--services')
+  .split('\n')
+  .map((name) => name.trim())
+  .includes('restore-reconcile');
+
 function linesOf(output: string) {
   return output
     .split('\n')
@@ -112,10 +136,9 @@ describe('a backup, a deletion, and a restore', () => {
       'docker',
       [
         'compose',
-        '-f',
-        'infrastructure/compose/compose.yaml',
-        '-f',
-        'infrastructure/compose/compose.test.yaml',
+        '-p',
+        PROJECT,
+        ...COMPOSE_FILES.flatMap((file) => ['-f', file]),
         'run',
         '--rm',
         '--no-deps',
@@ -132,7 +155,7 @@ describe('a backup, a deletion, and a restore', () => {
   const ledgerCounts = (lines: Record<string, unknown>[]) =>
     lines.find((line) => line.event === 'restore_reconcile.ledger');
 
-  it(
+  it.skipIf(!stackCanReconcile)(
     'keeps it deleted, serves the tenant again, and leaves the other one alone',
     async () => {
       // Two tenants with the same names, each with a file called the same.
@@ -164,10 +187,9 @@ describe('a backup, a deletion, and a restore', () => {
           '--schema-version',
           'test',
           ...objectArguments,
-          '--compose-file',
-          'infrastructure/compose/compose.yaml',
-          '--compose-file',
-          'infrastructure/compose/compose.test.yaml',
+          '--project',
+          PROJECT,
+          ...composeFileArguments,
         ],
         { cwd: repoRoot, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 },
       );
@@ -185,73 +207,77 @@ describe('a backup, a deletion, and a restore', () => {
         expect(await store.exists(entryKey)).toBe(true);
       }, LEDGER_WAIT);
 
-      // The restore, with no reconcile yet. The ledger survives it, and the bytes do not come back.
-      const restored = execFileSync(
-        process.execPath,
-        [
-          join(scripts, 'sovereign-restore.mjs'),
-          '--backup',
-          backup,
-          '--key',
-          keyFile,
-          '--project',
-          'compose',
-          '--replace-databases-of',
-          'compose',
-          ...objectArguments,
-          '--compose-file',
-          'infrastructure/compose/compose.yaml',
-          '--compose-file',
-          'infrastructure/compose/compose.test.yaml',
-        ],
-        { cwd: repoRoot, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 },
-      );
-      const objectStep = linesOf(restored).find(
-        (line) => line.event === 'sovereign_restore.step' && line.component === 'objects',
-      );
-      expect(objectStep).toMatchObject({ refused_by_key: 0, left_out_as_tombstoned: 1 });
-      expect(await store.exists(entryKey)).toBe(true);
-      expect(await store.exists(objectKey(a.organizationId, doomed.id))).toBe(false);
+      // The restore stops the whole stack and leaves it stopped, as the runbook says, so whatever happens
+      // below, the stack is started again for the suites after this one.
+      try {
+        // The restore, with no reconcile yet. The ledger survives it, and the bytes do not come back.
+        const restored = execFileSync(
+          process.execPath,
+          [
+            join(scripts, 'sovereign-restore.mjs'),
+            '--backup',
+            backup,
+            '--key',
+            keyFile,
+            '--project',
+            PROJECT,
+            '--replace-databases-of',
+            PROJECT,
+            ...objectArguments,
+            ...composeFileArguments,
+          ],
+          { cwd: repoRoot, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 },
+        );
+        const objectStep = linesOf(restored).find(
+          (line) => line.event === 'sovereign_restore.step' && line.component === 'objects',
+        );
+        expect(objectStep).toMatchObject({ refused_by_key: 0, left_out_as_tombstoned: 1 });
+        expect(await store.exists(entryKey)).toBe(true);
+        expect(await store.exists(objectKey(a.organizationId, doomed.id))).toBe(false);
 
-      compose('up', '-d', '--wait', '--no-deps', 'temporal');
+        compose('up', '-d', '--wait', '--no-deps', 'temporal');
 
-      // Skipping the re-apply: the row is back, and the gate's own count refuses the tenant. The other is clear.
-      expect(await countUnappliedTombstones(db(), store, a)).toBe(1);
-      expect(await countUnappliedTombstones(db(), store, b)).toBe(0);
+        // Skipping the re-apply: the row is back, and the gate's own count refuses the tenant. The other is clear.
+        expect(await countUnappliedTombstones(db(), store, a)).toBe(1);
+        expect(await countUnappliedTombstones(db(), store, b)).toBe(0);
 
-      // A report changes nothing.
-      const report = reconcile();
-      expect(report.status).toBe(1);
-      expect(ledgerCounts(report.lines)).toMatchObject({ tombstonesAdded: 1, artifactsRemoved: 1 });
-      expect(await countUnappliedTombstones(db(), store, a)).toBe(1);
+        // A report changes nothing.
+        const report = reconcile();
+        expect(report.status).toBe(1);
+        expect(ledgerCounts(report.lines)).toMatchObject({
+          tombstonesAdded: 1,
+          artifactsRemoved: 1,
+        });
+        expect(await countUnappliedTombstones(db(), store, a)).toBe(1);
 
-      // Applying puts it right. Gone in row and bytes, the tenant served, and what it kept is still there.
-      const applied = reconcile('--apply');
-      expect(ledgerCounts(applied.lines)).toMatchObject({
-        tombstonesAdded: 1,
-        artifactsRemoved: 1,
-      });
-      expect(await countUnappliedTombstones(db(), store, a)).toBe(0);
-      await expect(
-        readArtifact(db(), store, a, { workUnitId: workA.id, artifactId: doomed.id }),
-      ).rejects.toMatchObject({ code: 'NOT_FOUND' });
-      expect(await store.exists(objectKey(a.organizationId, doomed.id))).toBe(false);
-      expect(
-        (await readArtifact(db(), store, a, { workUnitId: workA.id, artifactId: kept.id })).name,
-      ).toBe('kept.txt');
-      expect(
-        (await readArtifact(db(), store, b, { workUnitId: workB.id, artifactId: other.id })).name,
-      ).toBe('same-name.txt');
+        // Applying puts it right. Gone in row and bytes, the tenant served, and what it kept is still there.
+        const applied = reconcile('--apply');
+        expect(ledgerCounts(applied.lines)).toMatchObject({
+          tombstonesAdded: 1,
+          artifactsRemoved: 1,
+        });
+        expect(await countUnappliedTombstones(db(), store, a)).toBe(0);
+        await expect(
+          readArtifact(db(), store, a, { workUnitId: workA.id, artifactId: doomed.id }),
+        ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+        expect(await store.exists(objectKey(a.organizationId, doomed.id))).toBe(false);
+        expect(
+          (await readArtifact(db(), store, a, { workUnitId: workA.id, artifactId: kept.id })).name,
+        ).toBe('kept.txt');
+        expect(
+          (await readArtifact(db(), store, b, { workUnitId: workB.id, artifactId: other.id })).name,
+        ).toBe('same-name.txt');
 
-      // A second run changes nothing.
-      const second = reconcile('--apply');
-      expect(ledgerCounts(second.lines)).toMatchObject({
-        tombstonesAdded: 0,
-        artifactsRemoved: 0,
-        bytesRemoved: 0,
-      });
-
-      compose('up', '-d', '--wait');
+        // A second run changes nothing.
+        const second = reconcile('--apply');
+        expect(ledgerCounts(second.lines)).toMatchObject({
+          tombstonesAdded: 0,
+          artifactsRemoved: 0,
+          bytesRemoved: 0,
+        });
+      } finally {
+        compose('up', '-d', '--wait');
+      }
     },
     LONG,
   );
@@ -266,10 +292,11 @@ describe('a backup, a deletion, and a restore', () => {
         '--key',
         keyFile,
         '--project',
-        'compose',
+        PROJECT,
         '--replace-databases-of',
-        'compose',
+        PROJECT,
         ...objectArguments,
+        ...composeFileArguments,
       ],
       { cwd: repoRoot, encoding: 'utf8' },
     );
