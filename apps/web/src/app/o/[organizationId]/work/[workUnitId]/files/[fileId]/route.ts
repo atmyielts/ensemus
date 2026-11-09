@@ -2,6 +2,7 @@ import { AppError, auditRefusal, idSchema, readArtifact } from '@ensemus/applica
 import { errorCode } from '@ensemus/telemetry';
 import { unstable_rethrow } from 'next/navigation';
 import { z } from 'zod';
+import { declaredLength } from '@/lib/declared-length';
 import { getRuntime, getStore } from '@/server/runtime';
 import { requireTenant } from '@/server/tenant';
 
@@ -44,7 +45,9 @@ function contentDisposition(name: string) {
   return `attachment; filename="${ascii}"; filename*=UTF-8''${encoded}`;
 }
 
-const NO_STORE = { 'Cache-Control': 'private, no-store' };
+// no-transform as well: the app's own compression would otherwise gzip a text or CSV file, and an encoded
+// body is sent with no Content-Length at all, since the length the route declares is not what is sent.
+const NO_STORE = { 'Cache-Control': 'private, no-store, no-transform' };
 const notFoundResponse = () => new Response('Not found', { status: 404, headers: NO_STORE });
 
 export async function GET(
@@ -66,7 +69,8 @@ export async function GET(
         ...NO_STORE,
         'Content-Type': safeContentType(file.mimeType),
         'Content-Disposition': contentDisposition(file.name),
-        'Content-Length': String(file.body.length),
+        // Next.js drops Content-Length from a route's response, so the proxy restores it from this.
+        ...declaredLength(file.body.length),
         'X-Content-Type-Options': 'nosniff',
         // If anything ever does render this, it runs nothing and fetches nothing.
         'Content-Security-Policy': "default-src 'none'; sandbox",

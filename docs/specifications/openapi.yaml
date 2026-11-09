@@ -6097,10 +6097,12 @@ paths:
                 pattern: ^attachment; filename="[A-Za-z0-9._-]+"$
             Cache-Control:
               required: true
+              description: Kept by nothing, and changed by nothing between, so the archive arrives with
+                its exact length and a download cut short is seen as broken.
               schema:
                 type: string
                 enum:
-                  - no-store
+                  - no-store, no-transform
           content:
             application/x-tar:
               schema:

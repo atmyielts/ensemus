@@ -23,7 +23,8 @@ export const GET = apiRoute(params, async ({ database, context, params }) => {
       // Next.js drops Content-Length from a route's response, so the proxy restores it from this.
       ...declaredLength(body.byteLength),
       'Content-Disposition': `attachment; filename="archived-file"; filename*=UTF-8''${filename}`,
-      'Cache-Control': 'private, no-store',
+      // Nothing between may encode the body, which would make the declared length untrue.
+      'Cache-Control': 'private, no-store, no-transform',
       'X-Content-Type-Options': 'nosniff',
       'Content-Security-Policy': "default-src 'none'",
     },

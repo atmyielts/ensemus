@@ -7327,7 +7327,8 @@ export interface paths {
                 200: {
                     headers: {
                         "Content-Disposition": string;
-                        "Cache-Control": "no-store";
+                        /** @description Kept by nothing, and changed by nothing between, so the archive arrives with its exact length and a download cut short is seen as broken. */
+                        "Cache-Control": "no-store, no-transform";
                         [name: string]: unknown;
                     };
                     content: {

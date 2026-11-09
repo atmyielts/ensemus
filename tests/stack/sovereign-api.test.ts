@@ -63,7 +63,8 @@ function trustRootForTheStack(): TestSigningKey {
 
 const validated = new Set<string>();
 
-type Result = { status: number; headers: Headers; text: string; json: unknown };
+/** `bytes` is the body exactly as it arrived, which `text` is not for a binary one such as a tar. */
+type Result = { status: number; headers: Headers; bytes: Buffer; text: string; json: unknown };
 type CallOptions = { body?: unknown; origin?: string | null; contentType?: string };
 
 async function call(
@@ -85,7 +86,9 @@ async function call(
     },
     ...(payload === undefined ? {} : { body: payload }),
   });
-  const text = await response.text();
+  const bytes = Buffer.from(await response.arrayBuffer());
+  // What response.text() would give: UTF-8, a byte order mark dropped, and a bad byte replaced.
+  const text = new TextDecoder().decode(bytes);
   const { operation, problems } = contractProblems({
     method,
     path,
@@ -101,7 +104,7 @@ async function call(
   } catch {
     json = undefined;
   }
-  return { status: response.status, headers: response.headers, text, json };
+  return { status: response.status, headers: response.headers, bytes, text, json };
 }
 
 function expectError(result: Result, status: number, code?: string): ApiError {
@@ -454,9 +457,17 @@ describe('the Sovereign API', () => {
       const download = await call(owner, 'GET', api(org, `exports/${exportId}/archive`));
       expect(download.status).toBe(200);
       expect(download.headers.get('content-type')).toBe('application/x-tar');
-      expect(download.headers.get('cache-control')).toBe('no-store');
+      // no-transform keeps the app's compression off a tar, whose declared length is then still true
+      // (ADR-030 D7; apps/web/src/lib/declared-length.ts). no-store is asserted exactly as before.
+      expect(download.headers.get('cache-control')).toBe('no-store, no-transform');
       expect(download.headers.get('content-disposition')).toMatch(/^attachment; /);
-      expect(download.text.length).toBeGreaterThan(0);
+      expect(download.bytes.length).toBeGreaterThan(0);
+      // The tar is binary, so its length is measured in the bytes that arrived, and it is the size the
+      // export reported. Next.js drops the route's Content-Length; the proxy restores it from the length
+      // the app declared, and that internal header never reaches a client (apps/web/src/lib/declared-length.ts).
+      expect(download.bytes.length).toBe(view.archive_bytes);
+      expect(download.headers.get('content-length')).toBe(String(download.bytes.length));
+      expect(download.headers.get('x-ensemus-body-length')).toBeNull();
       // The tar's framing is plain and its parts are not, so a title in clear would be a real finding.
       expect(download.text).toContain('manifest.json.sealed');
       expect(download.text).not.toContain(owner.name);
