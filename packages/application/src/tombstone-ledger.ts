@@ -309,10 +309,35 @@ async function reapplyEntry(
       .select()
       .from(artifactAclCatalog)
       .where(eq(artifactAclCatalog.artifactId, targetId));
-    return { header, catalog };
+    const [tombstone] = await tx
+      .select({ id: tombstones.targetId })
+      .from(tombstones)
+      .where(and(eq(tombstones.targetType, targetType), eq(tombstones.targetId, targetId)));
+    const [blob] = await tx
+      .select({ state: blobLifecycle.state, objectKey: blobLifecycle.objectKey })
+      .from(blobLifecycle)
+      .where(eq(blobLifecycle.artifactId, targetId));
+    return { header, catalog, tombstoned: Boolean(tombstone), blob };
   });
   if (generated.header || (generated.catalog && generated.catalog.provenanceState !== 'ordinary')) {
     const header = generated.header;
+    // An entry this database already applied changes nothing (ADR-026 D3): the tombstone is here, the
+    // file's metadata is gone, its purge was proven (0508 refuses physical_purged_at without a proven
+    // claim and no open restore debt) and the bytes are absent. A restore that predates the deletion
+    // leaves none of that true, so it still takes the whole path below.
+    if (
+      header &&
+      generated.tombstoned &&
+      header.objectKey === objectKey(organizationId, targetId) &&
+      header.physicalPurgedAt &&
+      !header.restoreReapplyPending &&
+      !header.held &&
+      !generated.catalog?.alive &&
+      generated.blob?.state === 'purged' &&
+      generated.blob.objectKey === header.objectKey &&
+      !(await store.exists(header.objectKey))
+    )
+      return;
     // A missing header is unknown provenance, never an ordinary upload or permission to guess.
     if (!header || header.objectKey !== objectKey(organizationId, targetId))
       throw new AppError('INVALID_STATE');

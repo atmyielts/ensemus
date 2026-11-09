@@ -10,6 +10,7 @@
 import { createHash } from 'node:crypto';
 import {
   appendAudit,
+  artifactLineage,
   artifacts,
   blobLifecycle,
   externalActionAttempts,
@@ -25,6 +26,7 @@ import {
   type Tx,
 } from '@ensemus/database';
 import type { AttemptOutcome, ExternalActionStatus } from '@ensemus/domain/external-action';
+import { knowledgeObjectKey } from '@ensemus/domain/knowledge';
 import {
   AGGREGATE_EXTERNAL_ACTION,
   EXTERNAL_ACTION_UNKNOWN,
@@ -38,8 +40,9 @@ import {
   parseLedgerKey,
   ledgerRef,
 } from '@ensemus/domain/tombstone-ledger';
-import { and, asc, eq, gt, inArray, isNull } from 'drizzle-orm';
+import { and, asc, eq, gt, inArray, isNull, sql } from 'drizzle-orm';
 import { objectKey, type ObjectStore } from './artifacts';
+import { AppError } from './errors';
 import { emit } from './events';
 import type { ContributorReport, RestoreContributor, RunProbe } from './sovereign-ports';
 import { missingRestoreContributors } from './restore-contributors';
@@ -780,4 +783,111 @@ export async function reconcileAfterRestore(
     contributorsNotRun: mode === 'report' ? input.contributors.map(({ name }) => name) : [],
     needsAttention: countNeedsAttention(partial),
   };
+}
+
+/**
+ * What re-proving one restored object found (0543, ADR-026). `requalified` records the proof for the
+ * current material restore generation. `present` names raw objects whose bytes survived the restore:
+ * nothing is recorded and that source stays unconfirmed. `unconfirmed` means the store cannot certify
+ * physical absence, or could not be asked, so nothing was observed and nothing is recorded.
+ */
+export type RestoreRequalification =
+  | { state: 'requalified'; observed: 'present' | 'absent' }
+  | { state: 'present'; documentIds: readonly string[] }
+  | { state: 'unconfirmed' };
+
+type AbsenceStore = Pick<ObjectStore, 'isPhysicallyAbsent'>;
+
+function requireRestoreService(context: TenantContext, id: string) {
+  if (context.actorType !== 'service') throw new AppError('FORBIDDEN');
+  if (!IS_UUID.test(id)) throw new AppError('INVALID_INPUT');
+}
+
+/** The store's own physical-absence answer, never a HEAD: a versioned store may keep old bytes. */
+async function observeAbsent(store: AbsenceStore, key: string): Promise<boolean | null> {
+  if (!store.isPhysicallyAbsent) return null;
+  try {
+    return await store.isPhysicallyAbsent(key);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Re-proves one generated file whose restored deletion left 0508 restore debt, once the restore was
+ * admitted (0422). The object is observed in the store, then one service-only SQL call records that
+ * observation for this object and its exact writer in the current generation. It deletes nothing: the
+ * ordinary lifecycle (`reapplyTombstoneLedger` with its `derivedArtifacts` binding) then proves the
+ * deletion itself, and only that clears the restore-pending header. Running it again changes nothing.
+ */
+export async function requalifyGeneratedRestoreDebt(
+  database: AppDatabase,
+  store: AbsenceStore,
+  context: TenantContext,
+  artifactId: string,
+): Promise<RestoreRequalification> {
+  requireRestoreService(context, artifactId);
+  const [header] = await withTenantTx(database, context, (tx) =>
+    tx
+      .select({ objectKey: artifactLineage.objectKey })
+      .from(artifactLineage)
+      .where(eq(artifactLineage.artifactId, artifactId)),
+  );
+  if (!header) return { state: 'unconfirmed' };
+  const absent = await observeAbsent(store, header.objectKey);
+  if (absent === null) return { state: 'unconfirmed' };
+  const observed = absent ? 'absent' : 'present';
+  await withTenantTx(database, context, (tx) =>
+    tx.execute(
+      sql`select lifecycle.requalify_object_restore_debt(${artifactId}::uuid,${observed}) as state`,
+    ),
+  );
+  return { state: 'requalified', observed };
+}
+
+/**
+ * Re-proves one closed source whose raw inventory a restore left as 0516 restore debt, once the
+ * restore was admitted (0422). Every raw object the inventory names is observed in the store. Only
+ * when each is physically absent does one service-only SQL call record the proof, naming exactly
+ * those objects, and the source's purge job can then complete under 0516's own guard. A surviving
+ * object is reported and nothing is recorded. Running it again changes nothing.
+ */
+export async function requalifyRawRestoreSource(
+  database: AppDatabase,
+  store: AbsenceStore,
+  context: TenantContext,
+  sourceId: string,
+): Promise<RestoreRequalification> {
+  requireRestoreService(context, sourceId);
+  const documents = await withTenantTx(database, context, async (tx) => {
+    const result = await tx.execute<{ documents: string[] | null }>(
+      sql`select lifecycle.raw_restore_requalification_documents(${sourceId}::uuid)::text[] as documents`,
+    );
+    return result.rows[0]?.documents ?? null;
+  });
+  if (!documents || documents.some((id) => !IS_UUID.test(id))) return { state: 'unconfirmed' };
+  const present: string[] = [];
+  for (const documentId of documents) {
+    const absent = await observeAbsent(
+      store,
+      knowledgeObjectKey(context.organizationId, documentId),
+    );
+    if (absent === null) return { state: 'unconfirmed' };
+    if (!absent) present.push(documentId);
+  }
+  if (present.length > 0) return { state: 'present', documentIds: present };
+  // The exact set the inventory named, each one observed absent above. Never a pattern or a count.
+  const observedAbsent =
+    documents.length === 0
+      ? sql`'{}'::uuid[]`
+      : sql`ARRAY[${sql.join(
+          documents.map((id) => sql`${id}::uuid`),
+          sql`, `,
+        )}]::uuid[]`;
+  await withTenantTx(database, context, (tx) =>
+    tx.execute(
+      sql`select lifecycle.requalify_raw_restore_source(${sourceId}::uuid,${observedAbsent}) as state`,
+    ),
+  );
+  return { state: 'requalified', observed: 'absent' };
 }
