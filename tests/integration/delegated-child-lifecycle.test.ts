@@ -2,8 +2,9 @@
 // genuine delegated child before part 1 is recorded. These are the positives for L1 (inherited serving),
 // L2 (generated-file authority), L3 (source closure with separate Work counts), L5 (transcript purge and
 // version proof) and L7 (the output guard), with an L2 negative (no file once the inherited input is
-// closed) and, without a database, the inherited-lineage mapping L2 relies on (createArtifactProvenance
-// flattens a run's inherited delegated input refs into its file's lineage, as 0419's
+// closed), an L3 retry (a copied Work redaction refused as busy is redone by the next pass through
+// the child cursor wrap) and, without a database, the inherited-lineage mapping L2 relies on
+// (createArtifactProvenance flattens a run's inherited delegated input refs into its file's lineage, as 0419's
 // artifact_authority_bindings_complete requires). L4 and the record half of L3 are the acceptance cases in
 // agent-delegated-materials.test.ts; L6 and L8b are in agent-delegated-offboarding.test.ts and L8a in
 // record-deletion-outbox.test.ts. Real roles and services; the capability is qualified for this file
@@ -11,6 +12,7 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { and, eq, inArray, sql } from 'drizzle-orm';
+import pg from 'pg';
 import { createWorkUnit, getWorkUnit, readArtifact, type ObjectStore } from '@ensemus/application';
 import { createKnowledgeCallStore } from '@ensemus/application/ai-knowledge-call-store';
 import { createHaltCheck } from '@ensemus/application/ai-halt';
@@ -81,16 +83,22 @@ class Store implements ObjectStore {
 }
 /** Thrown on purpose after a probed insert, so its transaction rolls back before commit. */
 class HeaderProbeRolledBack extends Error {}
-/** The SQLSTATE and raised message of a refusal, or null when the operation went through. */
+/**
+ * What refused an operation, or null when it went through: a database guard as its SQLSTATE and raised
+ * message, an application gate as its AppError code (whose message is person-facing copy, not a
+ * reason). Anything else is not a refusal and is rethrown, so a broken fixture never reads as one.
+ */
 async function refusalOf(operation: Promise<unknown>) {
   try {
     await operation;
     return null;
   } catch (error) {
-    return {
-      code: pgCode(error),
-      message: (error as { cause?: { message?: string } }).cause?.message,
-    };
+    const code = pgCode(error);
+    if (code !== undefined)
+      return { code, message: (error as { cause?: { message?: string } }).cause?.message };
+    if (error instanceof Error && error.name === 'AppError')
+      return { appCode: (error as { code?: unknown }).code };
+    throw error;
   }
 }
 
@@ -410,12 +418,38 @@ describe('ADR-028 delegated child lifecycle qualification', () => {
 
   it('[ADR028-Q12-L2] full lifecycle: a child cannot write a file once its inherited input is closed', async () => {
     // Negative of the case above. The child is running and has read its own copied Work, so only the
-    // closure of the record its parent read stands between it and a file. Whichever gate refuses
-    // first, nothing of the write remains: no lineage header and no output-write token.
+    // closure of the record its parent read stands between it and a file, and nothing of the write
+    // remains: no lineage header, no output-write token and no bytes.
     const f = await genuineChildWithRecord(),
       child = await runningChild(f);
+    const preflight = () =>
+      withTenantTx(
+        agent.db,
+        child.context,
+        async (tx) =>
+          (
+            await tx.execute<{ admitted: boolean }>(
+              sql`select ai.run_scope_preflight(${f.childRunId}::uuid) admitted`,
+            )
+          ).rows[0]?.admitted,
+      );
+    expect(await preflight()).toBe(true);
     await closeRecord(f.input.id);
-    expect(await refusalOf(child.generate())).not.toBeNull();
+    // The guard that stops it, in order. 0419's ai.run_scope_preflight admits a child only while
+    // knowledge.inherited_work_inputs_readable holds for its copied Work, which the closed input ends
+    // (the same predicate that hides that Work in the L1 and L2 cases). So the tool gate's readRun
+    // finds the run running and unstopped but cannot admit it: loadAgentReadScopeInTx refuses
+    // POLICY_DENIED, which readRun settles as a closed run (inputsOpen false, admission cleared).
+    expect(await preflight()).toBe(false);
+    expect(
+      await withTenantTx(agent.db, child.context, (tx) =>
+        child.tools.readRun(tx, child.context, f.childRunId, { lock: true }),
+      ),
+    ).toMatchObject({ status: 'running', stopRequested: false, inputsOpen: false });
+    // Without that admission an authority-v1 run has no file inventory (createRunInputInventory,
+    // 0525: ai.run_authority_read_admitted is false), so noteDraftUpload's provenance.beginInTx
+    // refuses INVALID_STATE before any lineage row is written or any byte is put.
+    expect(await refusalOf(child.generate())).toEqual({ appCode: 'INVALID_STATE' });
     const service = createServiceContext(a.organizationId);
     expect(
       await withTenantTx(agent.db, service, (tx) =>
@@ -430,9 +464,16 @@ describe('ADR-028 delegated child lifecycle qualification', () => {
     expect(child.store.bodies.size).toBe(0);
   });
 
-  it('[ADR028-Q12-L3] full lifecycle: source closure redacts copied Work with separate Work counts', async () => {
+  /**
+   * A genuine child whose parent compiled lexical evidence from a Knowledge source before it
+   * delegated, so the child's frozen input refs name that source. The source is then revoked and its
+   * run transcripts purged, as the production order does before the delegated Work purge runs.
+   */
+  async function childOfRevokedSource() {
+    // One word per source: two cases here share tenant `a`, and each compiles only its own source.
+    const word = `delegatedsourceanchor${randomUUID().replaceAll('-', '')}`;
     const source = await seedSearchableSource(app.db, a.owner, {
-      passages: ['delegatedsourceanchor is an actual lexical input.'],
+      passages: [`${word} is an actual lexical input.`],
       grants: [{ kind: 'organization' }],
     });
     const f = await genuineChildWithRecord({
@@ -460,7 +501,7 @@ describe('ADR-028 delegated child lifecycle qualification', () => {
           },
           {
             purpose: 'agent_turn',
-            question: 'delegatedsourceanchor',
+            question: word,
             queryClassification: 'internal',
             workUnitId: run.workUnitId,
             runId: context.agentRunId,
@@ -488,9 +529,13 @@ describe('ADR-028 delegated child lifecycle qualification', () => {
       database: agent.db,
       accounting: createKnowledgeCallStore(agent.db, { halt: createHaltCheck() }),
     });
-    expect(
-      await adapter.purgeSource(service, { sourceId: source.sourceId, limit: 25 }),
-    ).toMatchObject({
+    const purge = () => adapter.purgeSource(service, { sourceId: source.sourceId, limit: 25 });
+    return { source, f, service, purge };
+  }
+
+  it('[ADR028-Q12-L3] full lifecycle: source closure redacts copied Work with separate Work counts', async () => {
+    const { source, f, purge } = await childOfRevokedSource();
+    expect(await purge()).toMatchObject({
       confirmed: true,
       removed: 1,
       remaining: 0,
@@ -519,6 +564,116 @@ describe('ADR-028 delegated child lifecycle qualification', () => {
       redactionScopeId: source.sourceId,
       redactionPurgeJobId: job?.id,
     });
+  });
+
+  it('[ADR028-Q12-L3] a copied Work redaction refused as busy moves the child cursor past it; the next pass wraps to it and confirms', async () => {
+    // The child (body) page of delegated-work-purge.ts, on the path delegated-purge-cursor-wrap.test.ts
+    // covers for the run page. A refusal of only the redaction: the controls all close in the same
+    // pass (so the body page is reached), and then work.redact_delegated_body (0419) finds the copied
+    // Work row locked. It takes that row FOR UPDATE NOWAIT after 0510's hold-free proof, so another
+    // transaction's row lock refuses it at once with 55P03, which the adapter leaves to the next cycle
+    // ("held/busy/failed records ... are retried next cycle") while its cursor still moves on.
+    const { source, f, service, purge } = await childOfRevokedSource();
+    const cursor = async () => {
+      const [job] = await withTenantTx(app.db, a.owner, (tx) =>
+        tx
+          .select({
+            afterRun: knowledgePurgeJobs.delegatedWorkAfterRun,
+            afterChild: knowledgePurgeJobs.delegatedWorkAfterChild,
+          })
+          .from(knowledgePurgeJobs)
+          .where(eq(knowledgePurgeJobs.sourceId, source.sourceId)),
+      );
+      return job;
+    };
+    const receipt = async () => {
+      const [row] = await withTenantTx(app.db, a.owner, (tx) =>
+        tx
+          .select()
+          .from(delegatedInputReceipts)
+          .where(eq(delegatedInputReceipts.childRunId, f.childRunId)),
+      );
+      return row;
+    };
+    // The busy writer: a concurrent Work edit's uncommitted UPDATE holds FOR NO KEY UPDATE on the
+    // row until it commits. That conflicts with the redaction's FOR UPDATE and never with the
+    // foreign-key checks (FOR KEY SHARE) the controls may take, so nothing in the pass waits on it. It
+    // is held on a separate superuser connection only because, with the child's inherited source
+    // revoked, no member's app transaction is sure to see the copied Work (0414/0419
+    // inherited_work_body_read). A SELECT row lock fires no trigger and changes nothing.
+    const busy = new pg.Client({ connectionString: urls.superuser() });
+    await busy.connect();
+    let held: Awaited<ReturnType<typeof purge>> | undefined;
+    try {
+      await busy.query('begin');
+      const locked = await busy.query(
+        'select id from work.work_units where organization_id=$1 and id=$2 for no key update',
+        [a.organizationId, f.childWorkId],
+      );
+      expect(locked.rowCount).toBe(1);
+      // Bounded, so a pass that did wait on the lock fails here instead of holding the suite.
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const pass = purge();
+      try {
+        held = await Promise.race([
+          pass,
+          new Promise<never>((_, reject) => {
+            timer = setTimeout(
+              () => reject(new Error('TEST_PURGE_WAITED_ON_THE_BUSY_CHILD_WORK')),
+              20_000,
+            );
+          }),
+        ]);
+      } finally {
+        clearTimeout(timer);
+        await busy.query('rollback');
+        await pass.catch(() => undefined);
+      }
+    } finally {
+      await busy.end();
+    }
+    // Every control closed in the pass, and only the copied Work body is left: not redacted.
+    expect(held).toMatchObject({
+      confirmed: false,
+      removed: 0,
+      remaining: 1,
+      controlsRemaining: 0,
+      unproven: 0,
+    });
+    expect(await receipt()).toMatchObject({ redactedAt: null });
+    // The refused pass still advanced its child cursor onto the child, and nothing is open past it:
+    // the page read from the cursor alone, exactly as the adapter reads it, finds no row.
+    const before = await cursor();
+    expect(before).toMatchObject({ afterChild: f.childRunId });
+    const pastCursor = await withTenantTx(agent.db, service, (tx) =>
+      tx.execute<{
+        id: string;
+      }>(sql`select receipt.child_run_id id from ai.delegated_input_receipts receipt
+        where receipt.organization_id=${a.organizationId}::uuid and receipt.child_run_id>${f.childRunId}::uuid
+          and not ai.delegated_body_disposed(receipt.child_run_id)
+          and exists(select 1 from ai.delegated_input_refs ref where ref.organization_id=receipt.organization_id
+            and ref.child_run_id=receipt.child_run_id
+            and((ref.ref_kind='source' and ref.ref_id=${source.sourceId}::uuid) or ref.source_id=${source.sourceId}::uuid))`),
+    );
+    expect(pastCursor.rows).toEqual([]);
+
+    // One pass after the lock is gone: the child page wraps to the start (wrapCursorPage), redacts
+    // the copied Work and confirms the source in that same pass.
+    expect(await purge()).toMatchObject({
+      confirmed: true,
+      removed: 1,
+      remaining: 0,
+      controlsRemaining: 0,
+      unproven: 0,
+    });
+    expect(await receipt()).toMatchObject({
+      redactedAt: expect.any(Date),
+      redactionScopeKind: 'knowledge_source',
+      redactionScopeId: source.sourceId,
+    });
+    // It rewound the child cursor to the start and advanced past the child again, in the same pass.
+    // (The run page found no open run past its cursor or from the start, so it rests rewound.)
+    expect(await cursor()).toEqual({ afterRun: null, afterChild: f.childRunId });
   });
 
   it('[ADR028-Q12-L5] full lifecycle: child and parent transcripts are purged with a current version proof', async () => {
@@ -602,8 +757,20 @@ describe('ADR-028 delegated child lifecycle qualification', () => {
       code: 'EN119',
       message: 'RUN_OUTPUT_AUTHORITY_UNBOUND',
     });
-    // And through the admitted path it is refused too, whichever gate comes first.
-    expect(await refusalOf(child.gatedHeader(f.childWorkId))).not.toBeNull();
+    // Through the admitted path the same guard refuses it. readRun sees the committed stop and never
+    // asks for admission (it admits only a running run with no 'stop' control), so it clears the
+    // scope and authority markers and the insert reaches 0525's ai.guard_authority_protocol_write in
+    // exactly the state of the unadmitted probe above: the stop-aware output check raises
+    // RUN_OUTPUT_AUTHORITY_UNBOUND before its admission check (RUN_AUTHORITY_PROTOCOL_REQUIRED).
+    expect(
+      await withTenantTx(agent.db, child.context, (tx) =>
+        child.tools.readRun(tx, child.context, f.childRunId, { lock: true }),
+      ),
+    ).toMatchObject({ stopRequested: true, inputsOpen: false });
+    expect(await refusalOf(child.gatedHeader(f.childWorkId))).toEqual({
+      code: 'EN119',
+      message: 'RUN_OUTPUT_AUTHORITY_UNBOUND',
+    });
   });
 });
 
