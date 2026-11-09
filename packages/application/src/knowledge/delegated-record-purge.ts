@@ -93,6 +93,26 @@ async function advance(tx: Tx, current: Cursor, next: string | null) {
   current.after = next;
   return true;
 }
+/**
+ * One page from the cursor. A cursor past the last open row wraps to the start in the same pass: the
+ * cursor moves past a row whose step failed (a hold, a busy lock, an unknown purge), so the row is
+ * retried only from the start. Without the wrap, the pass after a refused one found nothing past
+ * the cursor, reset it and did no work at all, so a released hold took two more passes to prove.
+ * Progress is still never completeness: the final decision is the anti-join in `counts`.
+ */
+export async function wrapCursorPage<T>(
+  after: string | null,
+  open: (after: string | null) => Promise<T[]>,
+  rewind: () => Promise<boolean>,
+): Promise<T[]> {
+  const rows = await open(after);
+  if (rows.length || after === null) return rows;
+  // A concurrent pass moved the cursor: leave this page to it rather than reading from a stale start.
+  if (!(await rewind())) return [];
+  return open(null);
+}
+const wrapped = <T>(tx: Tx, page: Cursor, open: (after: string | null) => Promise<T[]>) =>
+  wrapCursorPage(page.after, open, () => advance(tx, page, null));
 export async function confirmRecordWorkPurgeInTx(
   tx: Tx,
   context: TenantContext,
@@ -162,12 +182,14 @@ export function createDelegatedRecordPurge(deps: {
       const controls = await withTenantTx(deps.database, context, async (tx) => {
         await sameSnapshot(tx, scope);
         const page = await cursor(tx, scope, 'run');
-        const rows = await tx.execute<{
-          id: string;
-        }>(sql`select actual.run_id id from ai.record_input_runs(${scope.kind},${scope.id}::uuid) actual(run_id)
+        const open = async (after: string | null) =>
+          (
+            await tx.execute<{
+              id: string;
+            }>(sql`select actual.run_id id from ai.record_input_runs(${scope.kind},${scope.id}::uuid) actual(run_id)
           left join ai.agent_runs run on run.organization_id=${context.organizationId}::uuid and run.id=actual.run_id
           left join ai.run_input_checkpoints checkpoint on checkpoint.organization_id=${context.organizationId}::uuid and checkpoint.run_id=actual.run_id
-          where (${page.after}::uuid is null or actual.run_id>${page.after}::uuid) and(run.id is null or checkpoint.run_id is null or checkpoint.fenced_at is null
+          where (${after}::uuid is null or actual.run_id>${after}::uuid) and(run.id is null or checkpoint.run_id is null or checkpoint.fenced_at is null
             or checkpoint.payloads_purged_at is null or checkpoint.purged_fence_generation is distinct from checkpoint.fence_generation
             or checkpoint.purged_restore_generation is distinct from ai.current_material_restore_generation()
             or run.status not in('completed','failed','cancelled','budget_exhausted','policy_denied','timed_out','outcome_unverified')
@@ -175,9 +197,9 @@ export function createDelegatedRecordPurge(deps: {
               and closure.record_kind=${scope.kind} and closure.record_id=${scope.id}::uuid and closure.snapshot_sha256=${scope.snapshot}
               and closure.restore_generation=ai.current_material_restore_generation()
               and closure.run_id=actual.run_id and closure.fence_generation=checkpoint.fence_generation and closure.terminal_version<=run.version))
-          order by actual.run_id limit ${input.limit}`);
-        if (!rows.rows.length && page.after !== null) await advance(tx, page, null);
-        return { page, rows: rows.rows };
+          order by actual.run_id limit ${input.limit}`)
+          ).rows;
+        return { page, rows: await wrapped(tx, page, open) };
       });
       for (const row of controls.rows) {
         try {
@@ -242,15 +264,17 @@ export function createDelegatedRecordPurge(deps: {
         const actual = await counts(tx, scope),
           page = await cursor(tx, scope, 'child');
         if (actual.controlsRemaining !== 0) return { page, rows: [] };
-        const rows = await tx.execute<{
-          id: string;
-          workUnitId: string;
-        }>(sql`select receipt.child_run_id id,receipt.child_work_unit_id "workUnitId"
+        const open = async (after: string | null) =>
+          (
+            await tx.execute<{
+              id: string;
+              workUnitId: string;
+            }>(sql`select receipt.child_run_id id,receipt.child_work_unit_id "workUnitId"
           from ai.delegated_input_receipts receipt where receipt.organization_id=${context.organizationId}::uuid
-            and (${page.after}::uuid is null or receipt.child_run_id>${page.after}::uuid) and not ai.delegated_body_disposed(receipt.child_run_id)
-            and ai.delegated_record_ref(receipt.child_run_id,${scope.kind},${scope.id}::uuid) order by receipt.child_run_id limit ${input.limit}`);
-        if (!rows.rows.length && page.after !== null) await advance(tx, page, null);
-        return { page, rows: rows.rows };
+            and (${after}::uuid is null or receipt.child_run_id>${after}::uuid) and not ai.delegated_body_disposed(receipt.child_run_id)
+            and ai.delegated_record_ref(receipt.child_run_id,${scope.kind},${scope.id}::uuid) order by receipt.child_run_id limit ${input.limit}`)
+          ).rows;
+        return { page, rows: await wrapped(tx, page, open) };
       });
       for (const row of work.rows) {
         try {

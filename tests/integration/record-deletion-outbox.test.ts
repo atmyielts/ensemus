@@ -171,13 +171,19 @@ describe('ADR-028 typed-record deletion outbox (8a)', () => {
 
   it('[ADR028-Q12-L8a] an imported client tombstone writes the event once, and a second emit writes nothing', async () => {
     const service = createServiceContext(people.b.organizationId),
-      clientId = randomUUID();
+      clientId = randomUUID(),
+      // An archive's tombstone records a deletion in the source system, so it predates the import. It is
+      // taken before the import transaction: a `new Date()` inside it is later than that transaction's
+      // now(), the event's occurred_at, and emitRecordClosedInTx counts only an event at least as new as
+      // the tombstone as this closure's (ADR-028 item 8a): a tombstone dated after its own event makes
+      // the second emit write again. That dating is the fixture's, not an archive's.
+      deletedAt = new Date(Date.now() - 60_000);
     expect(
       await withTenantTx(app.db, service, (tx) =>
         recordImportedTombstone(tx, service, {
           targetType: 'client',
           targetId: clientId,
-          deletedAt: new Date(),
+          deletedAt,
         }),
       ),
     ).toBe(true);
