@@ -299,7 +299,13 @@ export async function deleteArtifactInTx(
       ...(input.retention ? { retention: input.retention } : {}),
     },
     async () => {
-      await tx.delete(artifacts).where(eq(artifacts.id, input.artifactId));
+      const removed = await tx
+        .delete(artifacts)
+        .where(eq(artifacts.id, input.artifactId))
+        .returning({ id: artifacts.id });
+      // Never a silent no-op: a row left behind keeps its catalog entry alive, and then nothing can
+      // ever purge its bytes. A concurrent deleter that got here first leaves nothing to remove.
+      if (removed.length !== 1) throw new AppError('NOT_FOUND');
       await emit(tx, context, {
         eventType: 'work.artifact_deleted',
         aggregateType: 'work_unit',
@@ -332,7 +338,7 @@ export async function recordArtifactTombstoneInTx(
     retention?: ArtifactRetentionAuthority;
     offboardingId?: string;
   },
-  beforeLedger?: () => Promise<void>,
+  beforeTombstone?: () => Promise<void>,
 ): Promise<{ added: boolean; objectKey: string }> {
   let classification: string | undefined;
   if (input.offboardingId) {
@@ -359,13 +365,16 @@ export async function recordArtifactTombstoneInTx(
     if (!link) throw new AppError('NOT_FOUND');
     classification = work.classification;
   }
-  const [artifact] = await tx
-    .select()
-    .from(artifacts)
-    .where(eq(artifacts.id, input.artifactId))
-    .for('update');
+  // No row lock: the app role holds no UPDATE on work.artifacts (0003), and PostgreSQL requires it
+  // for every locking clause, so FOR UPDATE refused every deletion. The unique tombstone insert below
+  // is the serialization point: a racing deleter waits on it, then finds the tombstone and adds none.
+  const [artifact] = await tx.select().from(artifacts).where(eq(artifacts.id, input.artifactId));
   if (!artifact) throw new AppError('NOT_FOUND');
   classification ??= artifact.classification;
+  // Before the tombstone: the app's restrictive read fence hides a tombstoned file, and DELETE is
+  // bound by it, so removing the row after the tombstone matched nothing and left it alive. The
+  // tombstone still commits in this same transaction, so access is blocked exactly as before.
+  if (beforeTombstone) await beforeTombstone();
   const marked = await tx
     .insert(tombstones)
     .values({
@@ -394,7 +403,6 @@ export async function recordArtifactTombstoneInTx(
       set: { state: 'deleting', purgeAfter: new Date() },
       setWhere: ne(blobLifecycle.state, 'purged'),
     });
-  if (beforeLedger) await beforeLedger();
   const [event] = await tx
     .select({ id: domainEvents.id })
     .from(domainEvents)

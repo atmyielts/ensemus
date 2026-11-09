@@ -41,6 +41,7 @@ import {
   type TenantContext,
 } from '@ensemus/database';
 import type { WorkState } from '@ensemus/domain/work-unit';
+import { inFixtureTenant } from '../helpers/fixture-tenant';
 import { urls } from '../helpers/stack';
 
 const code = (name: string) => expect.objectContaining({ code: name });
@@ -565,23 +566,26 @@ describe('access scopes', () => {
       count: number,
       fields: { kind: string; ageHours: number; read?: boolean; remindAt?: Date },
     ) {
-      const { rows } = await su.query(
-        `insert into platform.notifications
+      // Bound to the recipient's tenant, as the erasure birth fence requires of every insert.
+      const { rows } = await inFixtureTenant(su, person.organizationId, () =>
+        su.query(
+          `insert into platform.notifications
            (organization_id, recipient_membership_id, kind, target_ref, created_at, read_at, remind_at)
          select $1, $2, $3, 'work_unit:' || gen_random_uuid(),
                 now() - ($4::int * interval '1 hour'),
                 case when $5::boolean then now() end, $6::timestamptz
          from generate_series(1, $7::int)
          returning id`,
-        [
-          person.organizationId,
-          person.membershipId,
-          fields.kind,
-          fields.ageHours,
-          fields.read ?? false,
-          fields.remindAt?.toISOString() ?? null,
-          count,
-        ],
+          [
+            person.organizationId,
+            person.membershipId,
+            fields.kind,
+            fields.ageHours,
+            fields.read ?? false,
+            fields.remindAt?.toISOString() ?? null,
+            count,
+          ],
+        ),
       );
       return rows.map((row) => row.id as string);
     }

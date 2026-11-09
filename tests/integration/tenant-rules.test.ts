@@ -47,6 +47,7 @@ import {
 import { createServiceContext } from '@ensemus/database/service';
 import { ledgerKeyFor, serializeLedgerEntry } from '@ensemus/domain/tombstone-ledger';
 import type { WorkState } from '@ensemus/domain/work-unit';
+import { inFixtureTenant } from '../helpers/fixture-tenant';
 import { urls } from '../helpers/stack';
 
 class MemoryStore implements ObjectStore, LedgerReader {
@@ -769,9 +770,11 @@ describe('tenant rules', () => {
     it('leaves a record of it, and tells the other owners', async () => {
       const { org, member, work } = await stranded();
       const secondOwner = await join(org, 'second', 'admin');
-      await su.query(`update org.memberships set role = 'owner' where id = $1`, [
-        secondOwner.membershipId,
-      ]);
+      await inFixtureTenant(su, org.organizationId, () =>
+        su.query(`update org.memberships set role = 'owner' where id = $1`, [
+          secondOwner.membershipId,
+        ]),
+      );
       await recover(org, work.id, work.version, member.membershipId);
       const audit = await su.query(
         `select actor_id, safe_reason from governance.audit_events
@@ -889,6 +892,8 @@ describe('tenant rules', () => {
 
     it('joins as usual when nothing is being restored', async () => {
       const { org, user, accept } = await invited();
+      // Acceptance reads the auth-owned verification, never the caller's word for it.
+      await auth.query('update identity.users set email_verified=true where id=$1', [user.id]);
       await expect(accept(true)).resolves.toEqual({
         status: 'joined',
         organizationId: org.organizationId,
