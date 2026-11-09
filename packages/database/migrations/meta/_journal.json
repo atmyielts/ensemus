@@ -477,6 +477,83 @@
       "when": 1794010184922,
       "tag": "0421_saml_self_link_authority",
       "breakpoints": true
+    },
+    {
+      "idx": 68,
+      "version": "7",
+      "when": 1794201807470,
+      "tag": "0517_material_restore_anchor",
+      "breakpoints": true
+    },
+    {
+      "idx": 69,
+      "version": "7",
+      "when": 1794201807471,
+      "tag": "0417_read_authority_and_delegation",
+      "breakpoints": true
+    },
+    {
+      "idx": 70,
+      "version": "7",
+      "when": 1794201807472,
+      "tag": "0419_delegated_material_authority",
+      "breakpoints": true
+    },
+    {
+      "idx": 71,
+      "version": "7",
+      "when": 1794201807473,
+      "tag": "0510_delegated_work_hold_barrier",
+      "breakpoints": true
+    },
+    {
+      "idx": 72,
+      "version": "7",
+      "when": 1794201807474,
+      "tag": "0514_record_purge_hold_barrier",
+      "breakpoints": true
+    },
+    {
+      "idx": 73,
+      "version": "7",
+      "when": 1794201807475,
+      "tag": "0515_delegated_material_erasure",
+      "breakpoints": true
+    },
+    {
+      "idx": 74,
+      "version": "7",
+      "when": 1794201807476,
+      "tag": "0422_restore_auth_authority",
+      "breakpoints": true
+    },
+    {
+      "idx": 75,
+      "version": "7",
+      "when": 1794201807477,
+      "tag": "0512_payment_execution_identity",
+      "breakpoints": true
+    },
+    {
+      "idx": 76,
+      "version": "7",
+      "when": 1794201807478,
+      "tag": "0516_raw_source_object_authority",
+      "breakpoints": true
+    },
+    {
+      "idx": 77,
+      "version": "7",
+      "when": 1794201807479,
+      "tag": "0518_proof_inventory_and_payment_referents",
+      "breakpoints": true
+    },
+    {
+      "idx": 78,
+      "version": "7",
+      "when": 1794201807480,
+      "tag": "0999_saas_eraser_reach",
+      "breakpoints": true
     }
   ]
 }

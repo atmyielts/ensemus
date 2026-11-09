@@ -39,7 +39,11 @@ export interface ObjectStore {
   put(key: string, body: Buffer, mimeType: string): Promise<void>;
   /** Native raw Knowledge protocol only: exactly one mutation transport. Rejection/timeout is
    * unknown, never evidence that the key is absent or that a second PUT is safe. */
-  putSingleAttempt?(key: string, body: Buffer, mimeType: string): Promise<{ transport: 'written' | 'unknown' }>;
+  putSingleAttempt?(
+    key: string,
+    body: Buffer,
+    mimeType: string,
+  ): Promise<{ transport: 'written' | 'unknown' }>;
   get(key: string): Promise<Buffer>;
   delete(key: string): Promise<void>;
   exists(key: string): Promise<boolean>;

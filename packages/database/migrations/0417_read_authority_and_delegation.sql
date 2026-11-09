@@ -62,17 +62,25 @@ CREATE FUNCTION ai.run_authority_ready(p_run uuid,p_viewer uuid) RETURNS boolean
       AND NOT EXISTS(SELECT 1 FROM ai.run_input_observations o WHERE o.organization_id=a.organization_id AND o.run_id=a.run_id AND NOT EXISTS(
         SELECT 1 FROM ai.run_read_authorities v WHERE v.organization_id=o.organization_id AND v.run_id=o.run_id AND v.input_kind=o.input_kind AND v.input_id=o.input_id AND v.input_sha256=o.input_sha256))),false)
 $$;
-CREATE FUNCTION ai.run_authority_read_admitted(p_run uuid) RETURNS boolean LANGUAGE sql STABLE AS $$
-  SELECT coalesce(current_user='ensemus_agent' AND app.current_actor_type()='agent' AND current_setting('app.agent_run_id',true)=p_run::text
-    AND ai.run_input_admitted(p_run) AND EXISTS(SELECT 1 FROM ai.run_authority_checkpoints a
+CREATE FUNCTION ai.run_authority_read_admitted(p_run uuid) RETURNS boolean LANGUAGE plpgsql STABLE SET search_path=pg_catalog AS $$
+BEGIN
+  -- Human/service policies initialize this predicate too. Return before preparing a statement
+  -- with agent-only callees; a Boolean SQL conjunction does not defer their EXECUTE checks.
+  IF current_user<>'ensemus_agent' OR app.current_actor_type() IS DISTINCT FROM 'agent' OR p_run IS NULL
+    OR current_setting('app.agent_run_id',true) IS DISTINCT FROM p_run::text THEN RETURN false;END IF;
+  RETURN coalesce(ai.run_input_admitted(p_run) AND EXISTS(SELECT 1 FROM ai.run_authority_checkpoints a
       WHERE a.organization_id=app.current_organization_id() AND a.run_id=p_run
-        AND(a.protocol_version='legacy' OR(a.protocol_version='authority-v1' AND a.history_complete AND current_setting('app.agent_authority_protocol',true)='authority-v1:'||p_run::text))),false)
-$$;
+        AND(a.protocol_version='legacy' OR(a.protocol_version='authority-v1' AND a.history_complete AND current_setting('app.agent_authority_protocol',true)='authority-v1:'||p_run::text))),false);
+END $$;
 CREATE FUNCTION ai.run_authority_required(p_run uuid) RETURNS boolean LANGUAGE sql STABLE AS $$
   SELECT coalesce(ai.run_authority_protocol_version(p_run)<>'legacy',true)
 $$;
 REVOKE ALL ON FUNCTION ai.run_authority_protocol_version(uuid),ai.run_authority_ready(uuid,uuid),ai.run_authority_read_admitted(uuid),ai.run_authority_required(uuid) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION ai.run_authority_protocol_version(uuid),ai.run_authority_ready(uuid,uuid),ai.run_authority_read_admitted(uuid),ai.run_authority_required(uuid) TO ensemus_agent;
+-- 0419's restrictive application-role policies reference these invoker-only metadata predicates.
+-- PostgreSQL initializes their EXECUTE checks even when a human's CASE branch returns true.
+-- This adds no read/mutation grant; read_admitted still requires the actual native agent role.
+GRANT EXECUTE ON FUNCTION ai.run_authority_protocol_version(uuid),ai.run_authority_read_admitted(uuid),ai.run_authority_required(uuid) TO ensemus_app;
 --> statement-breakpoint
 -- Metadata only. Effective classes come from the public authority helper, not a body reconstruction.
 CREATE FUNCTION ai.structured_read_authorities(p_kind text,p_id uuid)

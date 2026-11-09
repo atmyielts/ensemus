@@ -117,18 +117,36 @@ export class S3ObjectStore {
 
   /** A future native raw writer owns the durable admission before reaching this method. General
    * put() deliberately retains its old contract; legacy/derived/archive receipts are not upgraded. */
-  async putSingleAttempt(key: string, body: Buffer, mimeType: string): Promise<{ transport: 'written' | 'unknown' }> {
+  async putSingleAttempt(
+    key: string,
+    body: Buffer,
+    mimeType: string,
+  ): Promise<{ transport: 'written' | 'unknown' }> {
     const captured = Buffer.from(body);
     try {
-      const result = await this.#mutationClient.send(new PutObjectCommand({
-        Bucket: this.#bucket, Key: key, Body: captured, ContentType: mimeType,
-        ContentMD5: createHash('md5').update(captured).digest('base64'),
-      }));
+      const result = await this.#mutationClient.send(
+        new PutObjectCommand({
+          Bucket: this.#bucket,
+          Key: key,
+          Body: captured,
+          ContentType: mimeType,
+          ContentMD5: createHash('md5').update(captured).digest('base64'),
+        }),
+      );
       // Native S3 PutObject returns200 and an ETag. This is a storage-contract observation, not
       // a SQL-independent provider attestation or an inventory of historical PUT attempts.
-      return { transport: result.$metadata.httpStatusCode === 200 && typeof result.ETag === 'string' &&
-        result.ETag.length > 0 && result.ETag.length <= 1024 ? 'written' : 'unknown' };
-    } catch { return { transport: 'unknown' }; }
+      return {
+        transport:
+          result.$metadata.httpStatusCode === 200 &&
+          typeof result.ETag === 'string' &&
+          result.ETag.length > 0 &&
+          result.ETag.length <= 1024
+            ? 'written'
+            : 'unknown',
+      };
+    } catch {
+      return { transport: 'unknown' };
+    }
   }
 
   async get(key: string, maxBytes?: number): Promise<Buffer> {
@@ -264,7 +282,7 @@ export class S3ObjectStore {
       },
     );
     try {
-      const result = await this.#deleteClient.send(command, { abortSignal: abort.signal });
+      const result = await this.#mutationClient.send(command, { abortSignal: abort.signal });
       if (
         !recognizedResponse ||
         result.$metadata.httpStatusCode !== 200 ||

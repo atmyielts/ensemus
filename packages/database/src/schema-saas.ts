@@ -1671,10 +1671,21 @@ export const objectDeletionClaims = lifecycleSchema.table(
     uniqueIndex('object_deletion_unresolved_key')
       .on(t.organizationId, t.objectKey)
       .where(sql`${t.state}<>'proven'`),
-    index('raw_delete_receipt_by_document').on(t.organizationId, t.rawDocumentId, t.materialRestoreGeneration).where(sql`${t.kind}='raw_source'`),
-    check('raw_claim_version_nonnull', sql`${t.kind}<>'raw_source' or ${t.rawSourceVersion} is not null`),
-    check('object_deletion_claims_kind_check', sql`${t.kind} in ('derived','ordinary','archive','raw_source')`),
-    check('object_deletion_claims_generation_check', sql`(${t.kind}='raw_source' and ${t.generation}>=0) or (${t.kind}<>'raw_source' and ${t.generation}>0)`),
+    index('raw_delete_receipt_by_document')
+      .on(t.organizationId, t.rawDocumentId, t.materialRestoreGeneration)
+      .where(sql`${t.kind}='raw_source'`),
+    check(
+      'raw_claim_version_nonnull',
+      sql`${t.kind}<>'raw_source' or ${t.rawSourceVersion} is not null`,
+    ),
+    check(
+      'object_deletion_claims_kind_check',
+      sql`${t.kind} in ('derived','ordinary','archive','raw_source')`,
+    ),
+    check(
+      'object_deletion_claims_generation_check',
+      sql`(${t.kind}='raw_source' and ${t.generation}>=0) or (${t.kind}<>'raw_source' and ${t.generation}>0)`,
+    ),
     check('object_deletion_claims_sha256_check', sql`${t.sha256} ~ '^[0-9a-f]{64}$'`),
     check(
       'object_deletion_claims_state_check',

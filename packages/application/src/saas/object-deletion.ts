@@ -26,8 +26,17 @@ export function refuseUnadmittedDeletes<T extends ObjectStore>(store: T): T {
 export type DeletionTarget =
   | { kind: 'derived'; artifactId: string; writeId: string; generation: number }
   | { kind: 'ordinary'; artifactId: string }
-  | { kind: 'raw_source'; sourceId: string; sourceVersion: string; purgeJobId: string; documentId: string;
-      writeId: string; generation: number; materialRestoreGeneration: string; authRestoreGeneration: string }
+  | {
+      kind: 'raw_source';
+      sourceId: string;
+      sourceVersion: string;
+      purgeJobId: string;
+      documentId: string;
+      writeId: string;
+      generation: number;
+      materialRestoreGeneration: string;
+      authRestoreGeneration: string;
+    }
   | { kind: 'archive'; importId: string; sourceArtifactId: string; writeToken: string };
 export type DeletionAdmission =
   | { state: 'held' }

@@ -297,7 +297,14 @@ async function fail(database: AppDatabase, context: TenantContext, sourceId: str
     const source = await lockSource(tx, sourceId);
     const job = await jobFor(tx, sourceId);
     if (job.state === 'completed' && !code.startsWith('ARTIFACT') && !code.startsWith('RAW_')) {
-      if (await rawSourceMaterialCompleteInTx(tx, { sourceId, sourceVersion: source.version, purgeJobId: job.id })) return outcome(job);
+      if (
+        await rawSourceMaterialCompleteInTx(tx, {
+          sourceId,
+          sourceVersion: source.version,
+          purgeJobId: job.id,
+        })
+      )
+        return outcome(job);
       code = 'RAW_SOURCE_UNCONFIRMED';
     }
     const [updated] = await tx
@@ -357,9 +364,16 @@ export async function purgeRunTranscriptsForSource(
       return { source, job: await jobFor(tx, sourceId) };
     });
     if (initial.job.state === 'completed') {
-      if (await withTenantTx(database, context, tx => rawSourceMaterialCompleteInTx(tx, {
-        sourceId, sourceVersion: initial.source.version, purgeJobId: initial.job.id,
-      }))) return { removed: 0 };
+      if (
+        await withTenantTx(database, context, (tx) =>
+          rawSourceMaterialCompleteInTx(tx, {
+            sourceId,
+            sourceVersion: initial.source.version,
+            purgeJobId: initial.job.id,
+          }),
+        )
+      )
+        return { removed: 0 };
       await fail(database, context, sourceId, 'RAW_SOURCE_UNCONFIRMED');
     }
     if (!deps.transcripts.fenceUsing) throw new Error('TRANSCRIPT_FENCE_UNAVAILABLE');
@@ -463,7 +477,11 @@ export async function runSourcePurge(
       const workProof = deps?.delegatedWorks
         ? await deps.delegatedWorks.confirmInTx(tx, context, { sourceId })
         : null;
-      const rawProof = await rawSourceMaterialCompleteInTx(tx, { sourceId, sourceVersion: source.version, purgeJobId: job.id });
+      const rawProof = await rawSourceMaterialCompleteInTx(tx, {
+        sourceId,
+        sourceVersion: source.version,
+        purgeJobId: job.id,
+      });
       if (
         !active.length &&
         (await proofValid(tx, context, source, job)) &&
@@ -527,11 +545,14 @@ export async function runSourcePurge(
     // legacy/restored/missing inventory remains unconfirmed, never an inferred empty source.
     if (!store.rawKnowledge) throw new Error('RAW_SOURCE_UNCONFIRMED');
     const raw = rawKnowledgeObjects(store);
-    const identity = await withTenantTx(database, context, async tx => {
-      const source = await lockSource(tx, sourceId), job = await jobFor(tx, sourceId);
+    const identity = await withTenantTx(database, context, async (tx) => {
+      const source = await lockSource(tx, sourceId),
+        job = await jobFor(tx, sourceId);
       return { sourceId, sourceVersion: source.version, purgeJobId: job.id };
     });
-    while ((await raw.captureSource(context, identity)).more) { /* Each25-row page commits its own native digest/cursor. */ }
+    while ((await raw.captureSource(context, identity)).more) {
+      /* Each25-row page commits its own native digest/cursor. */
+    }
     const derived = deps?.derivedArtifacts;
     if (!derived) return fail(database, context, sourceId, 'ARTIFACT_PURGE_UNCONFIRMED');
     const works = deps?.delegatedWorks;
@@ -681,7 +702,8 @@ export async function runSourcePurge(
         // Exactly one admitted destructive operation; known-terminal retries probe only capability-
         // backed absence. A prior observed flag/HEAD/legacy settled row cannot qualify this call.
         const erased = await raw.erase(context, { documentId: document.id });
-        if (erased.state !== 'purged') throw new Error(erased.state === 'held' ? 'RAW_OBJECT_HELD' : 'RAW_OBJECT_UNCONFIRMED');
+        if (erased.state !== 'purged')
+          throw new Error(erased.state === 'held' ? 'RAW_OBJECT_HELD' : 'RAW_OBJECT_UNCONFIRMED');
         await withTenantTx(database, context, async (tx) => {
           const source = await lockSource(tx, sourceId);
           await assertMaterialHoldFree(tx, source, (await jobFor(tx, sourceId)).id, 'projection');
@@ -732,7 +754,13 @@ export async function runSourcePurge(
         currentWorks.unproven !== 0
       )
         throw new Error('DELEGATED_WORK_PURGE_UNCONFIRMED');
-      if (!await rawSourceMaterialCompleteInTx(tx, { sourceId, sourceVersion: source.version, purgeJobId: job.id }))
+      if (
+        !(await rawSourceMaterialCompleteInTx(tx, {
+          sourceId,
+          sourceVersion: source.version,
+          purgeJobId: job.id,
+        }))
+      )
         throw new Error('RAW_SOURCE_UNCONFIRMED');
       if (job.state === 'completed') return outcome(job);
       const [updated] = await tx
@@ -761,18 +789,21 @@ export async function runSourcePurge(
       database,
       context,
       sourceId,
-      error instanceof Error && ['RAW_SOURCE_UNCONFIRMED','RAW_OBJECT_UNCONFIRMED','RAW_OBJECT_HELD'].includes(error.message)
+      error instanceof Error &&
+        ['RAW_SOURCE_UNCONFIRMED', 'RAW_OBJECT_UNCONFIRMED', 'RAW_OBJECT_HELD'].includes(
+          error.message,
+        )
         ? error.message
         : error instanceof AppError &&
-        (error.code === 'POLICY_DENIED' || error.code === 'CAPABILITY_UNAVAILABLE')
-        ? 'SOURCE_MATERIAL_HOLD_UNCONFIRMED'
-        : error instanceof Error && error.message === 'STORE_UNAVAILABLE'
-          ? 'STORE_UNAVAILABLE'
-          : error instanceof Error && error.message === 'ARTIFACT_PURGE_UNCONFIRMED'
-            ? 'ARTIFACT_PURGE_UNCONFIRMED'
-            : error instanceof Error && error.message === 'TRANSCRIPT_PURGE_UNCONFIRMED'
-              ? 'TRANSCRIPT_PURGE_UNCONFIRMED'
-              : 'PURGE_FAILED',
+            (error.code === 'POLICY_DENIED' || error.code === 'CAPABILITY_UNAVAILABLE')
+          ? 'SOURCE_MATERIAL_HOLD_UNCONFIRMED'
+          : error instanceof Error && error.message === 'STORE_UNAVAILABLE'
+            ? 'STORE_UNAVAILABLE'
+            : error instanceof Error && error.message === 'ARTIFACT_PURGE_UNCONFIRMED'
+              ? 'ARTIFACT_PURGE_UNCONFIRMED'
+              : error instanceof Error && error.message === 'TRANSCRIPT_PURGE_UNCONFIRMED'
+                ? 'TRANSCRIPT_PURGE_UNCONFIRMED'
+                : 'PURGE_FAILED',
     );
   }
 }
@@ -813,9 +844,16 @@ export async function sourcePurgeWorkerState(
 ): Promise<{ state: PurgeState; chunks: number }> {
   requireService(context);
   return withTenantTx(database, context, async (tx) => {
-    const source = await lockSource(tx, checkedId(input.sourceId)), job = await jobFor(tx, source.id);
-    const complete = job.state !== 'completed' || await rawSourceMaterialCompleteInTx(tx, { sourceId: source.id, sourceVersion: source.version, purgeJobId: job.id });
-    return { state: complete ? job.state as PurgeState : 'failed', chunks: job.chunksRemoved };
+    const source = await lockSource(tx, checkedId(input.sourceId)),
+      job = await jobFor(tx, source.id);
+    const complete =
+      job.state !== 'completed' ||
+      (await rawSourceMaterialCompleteInTx(tx, {
+        sourceId: source.id,
+        sourceVersion: source.version,
+        purgeJobId: job.id,
+      }));
+    return { state: complete ? (job.state as PurgeState) : 'failed', chunks: job.chunksRemoved };
   });
 }
 
@@ -875,7 +913,11 @@ export async function getPurgeStatus(
       job.delegatedWorkRestoreGeneration !== null &&
       job.delegatedWorkRestoreGeneration === generation &&
       job.transcriptRestoreGeneration === generation;
-    const rawProof = await rawSourceMaterialCompleteInTx(tx, { sourceId, sourceVersion: source.version, purgeJobId: job.id }, true);
+    const rawProof = await rawSourceMaterialCompleteInTx(
+      tx,
+      { sourceId, sourceVersion: source.version, purgeJobId: job.id },
+      true,
+    );
     const state =
       recordedState === 'completed' &&
       (!job.transcriptsCheckedAt || !job.artifactsCheckedAt || !workProof || !rawProof)
@@ -900,8 +942,8 @@ export async function getPurgeStatus(
           ? !rawProof
             ? 'RAW_SOURCE_UNCONFIRMED'
             : !workProof
-            ? 'DELEGATED_WORK_PURGE_UNCONFIRMED'
-            : 'ARTIFACT_PURGE_UNCONFIRMED'
+              ? 'DELEGATED_WORK_PURGE_UNCONFIRMED'
+              : 'ARTIFACT_PURGE_UNCONFIRMED'
           : job.lastErrorCode,
       retryRequests: job.retryRequests,
       nextRetryAt: job.nextRetryAt,

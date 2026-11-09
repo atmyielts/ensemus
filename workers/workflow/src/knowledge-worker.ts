@@ -43,7 +43,11 @@ async function main() {
     accessKey: readSecret('OBJECT_STORAGE_ACCESS_KEY'),
     secretKey: readSecret('OBJECT_STORAGE_SECRET_KEY'),
   });
-  const guardedStore = withRawKnowledgeObjects({ database: app.db, store, exposedStore: refuseUnadmittedDeletes(store) });
+  const guardedStore = withRawKnowledgeObjects({
+    database: app.db,
+    store,
+    exposedStore: refuseUnadmittedDeletes(store),
+  });
   const lifecycle = createObjectDeletionLifecycle({ database: app.db, store });
   const deps = {
     database: app.db,

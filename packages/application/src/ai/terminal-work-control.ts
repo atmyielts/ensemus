@@ -180,7 +180,46 @@ export async function releaseTerminalWorkForLookupInTx(
   organizationId: string,
   runId: string,
 ) {
+  const native = await tx.execute<{ allowed: boolean }>(sql`select current_user='ensemus_agent'
+    and session_user='ensemus_agent' and app.current_organization_id()=${organizationId}::uuid allowed`);
+  if (native.rows[0]?.allowed !== true) throw new AppError('FORBIDDEN');
+  const selectors = [
+    'app.user_id',
+    'app.membership_id',
+    'app.agent_run_id',
+    'app.agent_input_protocol',
+    'app.agent_scope_protocol',
+    'app.agent_authority_protocol',
+    'app.interactive_session_id',
+    'app.terminal_work_control_run',
+    'app.actor_type',
+  ] as const;
+  const previous = await tx.execute<{ setting_name: string; setting_value: string }>(sql`
+    select setting_name,coalesce(current_setting(setting_name,true),'') setting_value
+    from unnest(array[${sql.join(
+      selectors.map((name) => sql`${name}::text`),
+      sql`, `,
+    )}]) setting_name`);
+  if (
+    previous.rows.length !== selectors.length ||
+    previous.rows.some((row) => !selectors.includes(row.setting_name as (typeof selectors)[number]))
+  )
+    throw new AppError('INVALID_STATE');
   const service = createServiceContext(organizationId);
-  const terminal = await loadTerminalWorkControlInTx(tx, service, runId);
-  if (terminal.kind === 'control') await releaseTerminalWorkInTx(tx, service, terminal.control);
+  try {
+    // The savepoint contains only these fixed metadata operations. It also makes the outer
+    // transaction usable for restoration if a native SQL guard rejects the effect.
+    await tx.transaction(async (controlTx) => {
+      for (const name of selectors)
+        await controlTx.execute(
+          sql`select set_config(${name},${name === 'app.actor_type' ? 'service' : ''},true)`,
+        );
+      const terminal = await loadTerminalWorkControlInTx(controlTx, service, runId);
+      if (terminal.kind === 'control')
+        await releaseTerminalWorkInTx(controlTx, service, terminal.control);
+    });
+  } finally {
+    for (const row of previous.rows)
+      await tx.execute(sql`select set_config(${row.setting_name},${row.setting_value},true)`);
+  }
 }

@@ -767,7 +767,7 @@ const manifestV2Schema = manifestV1Schema.extend({
         version: z.literal(1),
       }),
     )
-    .max(200),
+    .max(256),
 });
 export const exportManifestSchema = z
   .discriminatedUnion('schema_version', [manifestV1Schema, manifestV2Schema])

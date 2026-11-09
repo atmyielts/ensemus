@@ -19,8 +19,9 @@ beforeEach(() => {
 describe('actual commercial runtime binding', () => {
   it('does not turn positive-balance compatibility into Cloud dispatch without actual prepaid holds', async () => {
     check.mockResolvedValue({ ok: true, billable: true, commercialMode: 'cloud' });
-    expect(await createEntitlements(database, { billingEnabled: true }).check(context, 'model.call'))
-      .toEqual({ ok: false, code: 'ENTITLEMENT_DENIED' });
+    expect(
+      await createEntitlements(database, { billingEnabled: true }).check(context, 'model.call'),
+    ).toEqual({ ok: false, code: 'ENTITLEMENT_DENIED' });
     expect(check).toHaveBeenCalledOnce();
   });
   it('passes the explicit deployment flag and defaults missing billing configuration to false', async () => {
@@ -32,10 +33,16 @@ describe('actual commercial runtime binding', () => {
   it('preserves BYOM customer-billed and the existing offline Sovereign port', async () => {
     const entitlement = createEntitlements(database, { billingEnabled: false });
     check.mockResolvedValueOnce({ ok: true, billable: false, commercialMode: 'byom' });
-    expect(await entitlement.check(context, 'model.call'))
-      .toEqual({ ok: true, billable: false, commercialMode: 'byom' });
+    expect(await entitlement.check(context, 'model.call')).toEqual({
+      ok: true,
+      billable: false,
+      commercialMode: 'byom',
+    });
     check.mockResolvedValueOnce({ ok: true, billable: false, commercialMode: 'sovereign' });
-    expect(await entitlement.check(context, 'model.call'))
-      .toEqual({ ok: true, billable: false, commercialMode: 'sovereign' });
+    expect(await entitlement.check(context, 'model.call')).toEqual({
+      ok: true,
+      billable: false,
+      commercialMode: 'sovereign',
+    });
   });
 });

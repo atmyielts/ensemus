@@ -499,7 +499,8 @@ CREATE TRIGGER record_purge_jobs_erasure BEFORE DELETE ON ai.record_purge_jobs F
 CREATE OR REPLACE FUNCTION lifecycle.refuse_erasing_birth() RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
 DECLARE tenant uuid;life text;proof_append boolean:=false;
 BEGIN
-  IF TG_OP<>'INSERT' OR TG_TABLE_SCHEMA NOT IN('ai','org','work','knowledge','integrations','secrets','studio','objects','packs','experience','sovereign','support','platform')
+  IF TG_OP<>'INSERT' OR (TG_TABLE_SCHEMA NOT IN('ai','org','work','knowledge','integrations','secrets','studio','objects','packs','experience','sovereign','support','platform')
+    AND (TG_TABLE_SCHEMA,TG_TABLE_NAME) NOT IN(('lifecycle','raw_source_inventories'),('lifecycle','raw_object_writes')))
     OR TG_RELID IS DISTINCT FROM to_regclass(quote_ident(TG_TABLE_SCHEMA)||'.'||quote_ident(TG_TABLE_NAME)) THEN
     RAISE EXCEPTION 'INVALID_ERASURE_BIRTH_TARGET' USING ERRCODE='42501';END IF;
   tenant:=NEW.organization_id;

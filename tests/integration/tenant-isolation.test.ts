@@ -16,6 +16,8 @@ import {
   type TenantContext,
 } from '@ensemus/database';
 import { runMigrations } from '@ensemus/database/migrate';
+import { acceptInvitation, createInvitation, disableMember } from '@ensemus/application';
+import { makePerson, nativePersonContext, proveSecondFactor } from '../helpers/product';
 import { urls } from '../helpers/stack';
 
 const client = async (url: string) => {
@@ -125,14 +127,17 @@ describe('tenant isolation', () => {
 
   it('blocks writing into another tenant from a bound transaction', async () => {
     await raw.query('begin');
-    await raw.query(`select set_config('app.organization_id', $1, true)`, [orgA.organizationId]);
-    await expect(
-      raw.query(
-        `insert into org.memberships (organization_id, id, user_id) values ($1, gen_random_uuid(), $2)`,
-        [orgB.organizationId, alice],
-      ),
-    ).rejects.toThrow(/row-level security/);
-    await raw.query('rollback');
+    try {
+      await raw.query(`select set_config('app.organization_id', $1, true)`, [orgA.organizationId]);
+      await expect(
+        raw.query(
+          `insert into org.memberships (organization_id, id, user_id) values ($1, gen_random_uuid(), $2)`,
+          [orgB.organizationId, alice],
+        ),
+      ).rejects.toMatchObject({ code: '42501' });
+    } finally {
+      await raw.query('rollback');
+    }
   });
 
   it('lets a two-tenant member reach each tenant only when bound to it', async () => {
@@ -165,16 +170,26 @@ describe('tenant isolation', () => {
   });
 
   it('stops access as soon as a membership is disabled', async () => {
+    const manager = await makePerson('revocation-owner');
     const dave = await makeUser(auth, 'dave');
+    const email = `dave-${dave}@example.invalid`;
     const org = await createOrganization(database.db, {
-      userId: dave,
-      name: 'Dave Co',
+      userId: manager.userId,
+      name: 'Membership revocation',
       commercialMode: 'cloud',
     });
+    await proveSecondFactor(manager);
+    const owner = await nativePersonContext(database.db, manager, org.organizationId);
+    await auth.query('update identity.users set email_verified=true where id=$1', [dave]);
+    const invitation = await createInvitation(database.db, owner, { email, role: 'member' });
+    await acceptInvitation(database.db, {
+      token: invitation.token,
+      userId: dave,
+      email,
+      emailVerified: true,
+    });
     const ctx = await resolveTenantContext(database.db, dave, org.organizationId);
-    await withTenantTx(database.db, ctx, (tx) =>
-      tx.execute(`update org.memberships set status = 'disabled'`),
-    );
+    await disableMember(database.db, owner, { membershipId: ctx.membershipId });
     await expect(
       resolveTenantContext(database.db, dave, org.organizationId),
     ).rejects.toBeInstanceOf(TenantAccessDenied);
@@ -268,10 +283,50 @@ describe('role boundaries', () => {
     for (const t of ['identity.sessions', 'identity.accounts', 'identity.verifications']) {
       await expect(a.query(`select * from ${t}`), t).rejects.toThrow(/permission denied/);
     }
-    await expect(a.query('select email_verified from identity.users')).rejects.toThrow(
-      /permission denied/,
-    );
+    await expect(a.query('select token from identity.sessions')).rejects.toMatchObject({
+      code: '42501',
+    });
+    await expect(a.query('select password from identity.accounts')).rejects.toMatchObject({
+      code: '42501',
+    });
     await a.end();
+  });
+
+  it('bounds native email-verification metadata to the current user and forbids changing it', async () => {
+    const a = await client(urls.app());
+    const auth = await client(urls.auth());
+    let transaction = false;
+    try {
+      const ownId = await makeUser(auth, 'role-metadata-self');
+      const otherId = await makeUser(auth, 'role-metadata-other');
+      const read = () =>
+        a.query<{ id: string; email_verified: boolean }>(
+          'select id,email_verified from identity.users where id=any($1::uuid[]) order by id',
+          [[ownId, otherId, randomUUID()]],
+        );
+      expect((await read()).rows).toEqual([]);
+      await a.query('begin');
+      transaction = true;
+      await a.query(
+        "select set_config('app.user_id',$1,true),set_config('app.organization_id','',true),set_config('app.membership_id','',true),set_config('app.actor_type','user',true)",
+        [ownId],
+      );
+      // 0404 intentionally grants this boolean for native invitation acceptance. Existing
+      // users_self/tenant RLS applies, and no session, provider or password column is added.
+      const visible = await read();
+      expect(visible.fields.map((field) => field.name)).toEqual(['id', 'email_verified']);
+      expect(visible.rows).toStrictEqual([{ id: ownId, email_verified: false }]);
+      await a.query('savepoint native_metadata_write');
+      await expect(
+        a.query('update identity.users set email_verified=true where id=$1', [ownId]),
+      ).rejects.toMatchObject({ code: '42501' });
+      await a.query('rollback to savepoint native_metadata_write');
+      expect((await read()).rows).toStrictEqual([{ id: ownId, email_verified: false }]);
+    } finally {
+      if (transaction) await a.query('rollback');
+      await a.end();
+      await auth.end();
+    }
   });
 
   it('keeps the auth role away from tenant data', async () => {

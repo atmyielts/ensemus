@@ -23,6 +23,7 @@ import {
   closeRunWithoutContext,
   createTurnStore,
   finishRun,
+  setRunStatus,
 } from '@ensemus/application/ai-runs';
 import {
   agentRuns,
@@ -42,11 +43,12 @@ import {
   workUnits,
   type TenantContext,
 } from '@ensemus/database';
-import { createAgentContext } from '@ensemus/database/agent';
+import { createAgentContext, withRunLookupTx } from '@ensemus/database/agent';
 import { createServiceContext } from '@ensemus/database/service';
 import { canonicalJson, workReviewAction } from '@ensemus/domain/approval';
 import { pgCode } from '../../packages/application/src/errors';
 import { loadAgentReadScopeInTx } from '../../packages/application/src/ai/read-scope';
+import { releaseTerminalWorkForLookupInTx } from '../../packages/application/src/ai/terminal-work-control';
 import { makeTwoTenants, nativePersonContext, proveSecondFactor } from '../helpers/product';
 import {
   openAgentTestDatabase,
@@ -119,6 +121,7 @@ describe('actual read-time authority and rolling admission (0417)', () => {
         temporalRunId,
       }),
     ).not.toBeNull();
+    await setRunStatus(agent.db, f.context, { agentRunId: f.runId, status: 'running' });
     await source().loadWork(f.context, f.work.id);
     return { ...f, temporalRunId };
   }
@@ -131,6 +134,55 @@ describe('actual read-time authority and rolling admission (0417)', () => {
         },
       },
     });
+  it.each(['public', 'internal', 'confidential', 'restricted'] as const)(
+    'preserves the actual %s Work class and exact retained-input ceiling',
+    async (classification) => {
+      const classes = ['public', 'internal', 'confidential', 'restricted'] as const;
+      const work = await createWorkUnit(app.db, owner, {
+        title: 'Native classification ordinal',
+        classification,
+      });
+      const inventory = [
+        {
+          kind: 'work_unit',
+          id: work.id,
+          classification,
+          sha256: createHash('sha256')
+            .update(canonicalJson({ title: work.title, objective: work.objective ?? '' }))
+            .digest('hex'),
+        },
+      ];
+      const projected = await withTenantTx(app.db, owner, (tx) =>
+        tx.execute<{ direct: string; structured: string; rank: number }>(sql`
+        select knowledge.work_scope_class(${work.id}::uuid) direct,
+          knowledge.structured_record_class('work_unit',${work.id}::uuid) structured,
+          knowledge.class_rank(${classification}) rank`),
+      );
+      expect(projected.rows).toEqual([
+        {
+          direct: classification,
+          structured: classification,
+          rank: classes.indexOf(classification) + 1,
+        },
+      ]);
+      for (const protection of classes) {
+        // Read-only current metadata decision over the actual Work/hash. No historical receipt is
+        // inserted, and supplied inventory is not promoted into read, birth or physical authority.
+        const current = await withTenantTx(app.db, owner, (tx) =>
+          tx.execute<{ allowed: boolean }>(sql`
+          select knowledge.retained_input_scope_readable(${JSON.stringify(inventory)}::jsonb,${owner.membershipId}::uuid,${protection}) allowed`),
+        );
+        expect(current.rows[0]?.allowed).toBe(
+          classes.indexOf(classification) <= classes.indexOf(protection),
+        );
+      }
+      const foreign = await withTenantTx(app.db, people.b.owner.context, (tx) =>
+        tx.execute<{ allowed: boolean }>(sql`
+        select knowledge.retained_input_scope_readable(${JSON.stringify(inventory)}::jsonb,${people.b.owner.context.membershipId}::uuid,'restricted') allowed`),
+      );
+      expect(foreign.rows[0]?.allowed).toBe(false);
+    },
+  );
   it('remints the actual scoped tool transaction before its Work inspection and clears it at the transaction boundary', async () => {
     const f = await running(owner, ['work.read', 'data.public.read']);
     const store = toolStore();
@@ -391,6 +443,34 @@ describe('actual read-time authority and rolling admission (0417)', () => {
       ).length,
     ).toBe(2);
   });
+  it('allows native app policy predicates without granting agent read admission or locking authority', async () => {
+    const work = await createWorkUnit(app.db, owner, {
+      title: 'Ordinary native user policy invocation',
+    });
+    expect((await getWorkUnit(app.db, owner, work.id)).id).toBe(work.id);
+    const missing = randomUUID();
+    const result = await withTenantTx(app.db, owner, async (tx) => {
+      await tx.execute(sql`select set_config('app.actor_type','agent',true),
+        set_config('app.agent_run_id',${missing},true),set_config('app.agent_input_protocol','v1',true),
+        set_config('app.agent_scope_protocol',${'scoped-v1:' + missing},true),
+        set_config('app.agent_authority_protocol',${'authority-v1:' + missing},true)`);
+      return tx.execute<{
+        native_app: boolean;
+        protocol: string | null;
+        required: boolean;
+        admitted: boolean;
+        lock_allowed: boolean;
+      }>(sql`
+        select current_user='ensemus_app' native_app,
+        ai.run_authority_protocol_version(${missing}::uuid) protocol,
+        ai.run_authority_required(${missing}::uuid) required,
+        ai.run_authority_read_admitted(${missing}::uuid) admitted,
+        has_function_privilege(current_user,'ai.lock_read_authority(text,uuid,uuid)','EXECUTE') lock_allowed`);
+    });
+    expect(result.rows).toEqual([
+      { native_app: true, protocol: null, required: true, admitted: false, lock_allowed: false },
+    ]);
+  });
   it('does not grant app mutation or cross-tenant metadata and cannot promote a checkpoint', async () => {
     const f = await fixture();
     await source().loadWork(f.context, f.work.id);
@@ -444,6 +524,8 @@ describe('actual read-time authority and rolling admission (0417)', () => {
     'releases %s runs through the same Work effects while terminal body serving remains closed',
     async (status) => {
       const f = await running();
+      if (status === 'completed')
+        await setRunStatus(agent.db, f.context, { agentRunId: f.runId, status: 'verifying' });
       await finishRun(agent.db, f.context, {
         agentRunId: f.runId,
         status,
@@ -605,6 +687,25 @@ describe('actual read-time authority and rolling admission (0417)', () => {
       stopCode: 'INITIATOR_INACTIVE',
     });
     expect((await getWorkUnit(app.db, manager, f.work.id)).version).toBe(work.version);
+    await withRunLookupTx(agent.db, initiator.organizationId, async (tx) => {
+      const bindings = () =>
+        tx.execute(sql`select
+        coalesce(current_setting('app.actor_type',true),'') actor,
+        coalesce(current_setting('app.membership_id',true),'') membership,
+        coalesce(current_setting('app.agent_run_id',true),'') run,
+        coalesce(current_setting('app.agent_scope_protocol',true),'') scope,
+        coalesce(current_setting('app.agent_authority_protocol',true),'') authority`);
+      const before = await bindings();
+      await releaseTerminalWorkForLookupInTx(tx, initiator.organizationId, f.runId);
+      expect((await bindings()).rows).toEqual(before.rows);
+      await expect(
+        releaseTerminalWorkForLookupInTx(tx, initiator.organizationId, randomUUID()),
+      ).rejects.toMatchObject({ code: 'FORBIDDEN' });
+      expect((await bindings()).rows).toEqual(before.rows);
+      expect(
+        await tx.select({ id: workUnits.id }).from(workUnits).where(eq(workUnits.id, f.work.id)),
+      ).toEqual([]);
+    });
   });
   it('closes an actual paused review and its reminders/notifications/outbox through the shared terminal effects', async () => {
     const f = await running();
@@ -696,6 +797,7 @@ describe('actual read-time authority and rolling admission (0417)', () => {
       id: f.work.id,
       expectedVersion: failed.version,
       to: 'ready',
+      reason: 'Retry after the earlier native run ended',
     });
     const newerRunId = await seedQueuedRun(app.db, owner, {
       workUnitId: f.work.id,

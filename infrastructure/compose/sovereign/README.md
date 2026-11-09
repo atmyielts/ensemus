@@ -16,16 +16,16 @@ docker compose -p <project> [--env-file <file>] -f compose/compose.yaml -f compo
 
 `install-bundle` loads each archive, checks its image ID against the signed manifest, and only then names it `ensemus-sovereign/<name>:<version>`. So each service uses that name, sets `pull_policy: never`, and removes `build:` with `!reset null`. `ENSEMUS_RELEASE` is set by the tool.
 
-| Service | Image |
-|---|---|
-| `web` | `ensemus-sovereign/web:${ENSEMUS_RELEASE}` |
-| `worker`, `dispatcher`, `migrate` | `ensemus-sovereign/worker:${ENSEMUS_RELEASE}` |
-| `proxy` | `ensemus-sovereign/proxy:${ENSEMUS_RELEASE}` |
-| `postgres` | `ensemus-sovereign/postgres:${ENSEMUS_RELEASE}` |
+| Service                                 | Image                                                       |
+| --------------------------------------- | ----------------------------------------------------------- |
+| `web`                                   | `ensemus-sovereign/web:${ENSEMUS_RELEASE}`                  |
+| `worker`, `dispatcher`, `migrate`       | `ensemus-sovereign/worker:${ENSEMUS_RELEASE}`               |
+| `proxy`                                 | `ensemus-sovereign/proxy:${ENSEMUS_RELEASE}`                |
+| `postgres`                              | `ensemus-sovereign/postgres:${ENSEMUS_RELEASE}`             |
 | `temporal-schema`, `temporal-namespace` | `ensemus-sovereign/temporal-admin-tools:${ENSEMUS_RELEASE}` |
-| `temporal` | `ensemus-sovereign/temporal:${ENSEMUS_RELEASE}` |
-| `valkey` | `ensemus-sovereign/valkey:${ENSEMUS_RELEASE}` |
-| `objects` | `ensemus-sovereign/objects:${ENSEMUS_RELEASE}` |
+| `temporal`                              | `ensemus-sovereign/temporal:${ENSEMUS_RELEASE}`             |
+| `valkey`                                | `ensemus-sovereign/valkey:${ENSEMUS_RELEASE}`               |
+| `objects`                               | `ensemus-sovereign/objects:${ENSEMUS_RELEASE}`              |
 
 The digest pins in `compose.yaml` cannot stay. An image saved and loaded by its ID has no repository digest to match, so a pinned name would not find it, and Compose would try to fetch it. The digest check moves to the install tool, which also confirms at the smoke test that each running container is the signed image.
 

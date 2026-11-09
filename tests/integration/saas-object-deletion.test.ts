@@ -103,15 +103,13 @@ describe('actual tenant deletion and hold admission', () => {
     ).resolves.toEqual({ state: 'unconfirmed' });
     const id = randomUUID();
     await withTenantTx(app.db, other, (tx) =>
-      tx
-        .insert(blobLifecycle)
-        .values({
-          organizationId: other.organizationId,
-          artifactId: id,
-          objectKey: `${other.organizationId}/artifacts/${id}`,
-          state: 'uploading',
-          purgeAfter: new Date(0),
-        }),
+      tx.insert(blobLifecycle).values({
+        organizationId: other.organizationId,
+        artifactId: id,
+        objectKey: `${other.organizationId}/artifacts/${id}`,
+        state: 'uploading',
+        purgeAfter: new Date(0),
+      }),
     );
     await expect(
       execute(f.store)(createServiceContext(other.organizationId), {

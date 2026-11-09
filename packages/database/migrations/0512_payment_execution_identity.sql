@@ -27,7 +27,7 @@ END $$;
 CREATE TABLE billing.payment_identity_attestations (
  organization_id uuid NOT NULL,id uuid NOT NULL DEFAULT gen_random_uuid(),payment_id uuid NOT NULL,
  token_sha256 text NOT NULL UNIQUE,billing_organization_id uuid NOT NULL,connection_id uuid NOT NULL,
- connection_version bigint NOT NULL CHECK(connection_version>0),credential_secret_id uuid NOT NULL,
+ connection_version bigint NOT NULL CONSTRAINT payment_identity_connection_version_check CHECK(connection_version>0),credential_secret_id uuid NOT NULL,
  processor text NOT NULL,adapter_version text NOT NULL,api_origin text NOT NULL,config_sha256 text NOT NULL,authority_sha256 text NOT NULL,
  identity_sha256 text NOT NULL,account_namespace_sha256 text NOT NULL,read_receipt_sha256 text NOT NULL,restore_generation uuid NOT NULL,issued_at timestamptz NOT NULL DEFAULT clock_timestamp(),
  expires_at timestamptz NOT NULL,consumed_binding_id uuid,
@@ -42,10 +42,10 @@ CREATE TABLE billing.payment_identity_attestations (
 CREATE TABLE billing.payment_execution_bindings (
  organization_id uuid NOT NULL,id uuid NOT NULL DEFAULT gen_random_uuid(),payment_id uuid NOT NULL,
  attestation_id uuid NOT NULL,billing_organization_id uuid NOT NULL,connection_id uuid NOT NULL,
- connection_version bigint NOT NULL CHECK(connection_version>0),credential_secret_id uuid NOT NULL,
+ connection_version bigint NOT NULL CONSTRAINT payment_execution_connection_version_check CHECK(connection_version>0),credential_secret_id uuid NOT NULL,
  processor text NOT NULL,adapter_version text NOT NULL,api_origin text NOT NULL,config_sha256 text NOT NULL,authority_sha256 text NOT NULL,
  identity_sha256 text NOT NULL,account_namespace_sha256 text NOT NULL,binding_sha256 text NOT NULL,qualified_at timestamptz NOT NULL DEFAULT clock_timestamp(),
- customer_state text NOT NULL DEFAULT 'new' CHECK(customer_state IN('new','sending','confirmed','unknown')),
+ customer_state text NOT NULL DEFAULT 'new' CONSTRAINT payment_execution_customer_state_check CHECK(customer_state IN('new','sending','confirmed','unknown')),
  customer_request_key text NOT NULL,customer_token uuid,customer_ref_hash text,
  customer_started_at timestamptz,customer_transport_started_at timestamptz,customer_transport_restore_generation uuid,customer_finished_at timestamptz,
  CONSTRAINT payment_execution_pk PRIMARY KEY(organization_id,id),

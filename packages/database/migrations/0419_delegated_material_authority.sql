@@ -205,7 +205,9 @@ BEGIN
   END LOOP;
 END $$;
 REVOKE ALL ON FUNCTION ai.delegated_frozen_refs(jsonb) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION ai.delegated_frozen_refs(jsonb) TO ensemus_agent;
+-- Human retained-scope predicates use this bounded supplied-JSON normalizer too. It reads no
+-- database relation, mints no receipt and grants no historical/birth/body authority.
+GRANT EXECUTE ON FUNCTION ai.delegated_frozen_refs(jsonb) TO ensemus_agent,ensemus_app;
 --> statement-breakpoint
 -- Exact native request IDs: identical bytes to idFromRequest(kind,initiator,parent,toolStep),
 -- including its fixed version/variant substitutions. No model-selected UUID is birth authority.
@@ -228,9 +230,9 @@ RETURNS TABLE(child_work_unit_id uuid,proposal_id uuid,snapshot_id uuid,original
 LANGUAGE sql STABLE SET search_path=pg_catalog AS $$
   SELECT ai.delegated_child_request_id(true,r.initiator_membership_id,r.id,t.step_number),p.id,s.id,m.id,s.attempt,
     t.step_number,s.request_hash,p.payload_hash,b.derived_body_sha256,s.input_inventory,s.inventory_sha256,
-    CASE greatest(1,knowledge.class_rank(r.effective_classification),
+    CASE greatest(2,knowledge.class_rank(r.effective_classification),
       (SELECT max(knowledge.class_rank(i->>'classification')) FROM jsonb_array_elements(s.input_inventory) i))
-      WHEN 3 THEN 'restricted' WHEN 2 THEN 'confidential' ELSE 'internal' END
+      WHEN 4 THEN 'restricted' WHEN 3 THEN 'confidential' ELSE 'internal' END
   FROM ai.agent_runs r
     JOIN org.memberships viewer ON viewer.organization_id=r.organization_id AND viewer.id=r.initiator_membership_id AND viewer.status='active'
     JOIN ai.tool_proposals p ON p.organization_id=r.organization_id AND p.run_id=r.id AND p.tool_id='agent.delegate' AND p.status='done'
@@ -370,7 +372,7 @@ BEGIN
     IF observed IS NULL THEN RETURN NULL;END IF;
     floor_rank:=greatest(floor_rank,knowledge.class_rank(observed),knowledge.class_rank(frozen.classification));
   END LOOP;
-  result_class:=CASE floor_rank WHEN 3 THEN 'restricted' WHEN 2 THEN 'confidential' WHEN 1 THEN 'internal' ELSE 'public' END;
+  result_class:=CASE floor_rank WHEN 4 THEN 'restricted' WHEN 3 THEN 'confidential' WHEN 2 THEN 'internal' ELSE 'public' END;
   IF NOT knowledge.retained_input_scope_readable(p_inventory,p_viewer,result_class) THEN RETURN NULL;END IF;
   RETURN result_class;
 EXCEPTION WHEN lock_not_available THEN
@@ -389,14 +391,14 @@ BEGIN
   IF candidate_count<>1 THEN RETURN NULL;END IF;
   current_class:=ai.lock_frozen_input_refs(birth.input_inventory,app.current_membership_id());
   IF current_class IS NULL THEN RETURN NULL;END IF;
-  floor_rank:=greatest(1,knowledge.class_rank(birth.classification),knowledge.class_rank(current_class));
+  floor_rank:=greatest(2,knowledge.class_rank(birth.classification),knowledge.class_rank(current_class));
   SELECT candidate.* INTO fresh_birth FROM ai.delegation_birth_candidate(p_parent,p_child) candidate;
   IF NOT FOUND OR ROW(fresh_birth.proposal_id,fresh_birth.snapshot_id,fresh_birth.original_step_id,fresh_birth.original_attempt,
     fresh_birth.tool_step_number,fresh_birth.request_sha256,fresh_birth.proposal_payload_sha256,fresh_birth.birth_content_sha256,fresh_birth.inventory_sha256)
     IS DISTINCT FROM ROW(birth.proposal_id,birth.snapshot_id,birth.original_step_id,birth.original_attempt,birth.tool_step_number,
       birth.request_sha256,birth.proposal_payload_sha256,birth.birth_content_sha256,birth.inventory_sha256) THEN RETURN NULL;END IF;
   floor_rank:=greatest(floor_rank,knowledge.class_rank(fresh_birth.classification));
-  RETURN CASE floor_rank WHEN 3 THEN 'restricted' WHEN 2 THEN 'confidential' ELSE 'internal' END;
+  RETURN CASE floor_rank WHEN 4 THEN 'restricted' WHEN 3 THEN 'confidential' ELSE 'internal' END;
 EXCEPTION WHEN lock_not_available THEN
   RAISE EXCEPTION 'DELEGATION_INPUT_BUSY' USING ERRCODE='55P03';
 END $$;
@@ -509,9 +511,14 @@ CREATE OR REPLACE FUNCTION ai.guard_delegation_input_birth() RETURNS trigger LAN
 BEGIN
   IF TG_RELID<>'ai.agent_runs'::regclass OR TG_OP<>'INSERT' OR NEW.organization_id IS DISTINCT FROM app.current_organization_id() THEN
     RAISE EXCEPTION 'DELEGATION_INPUT_TARGET' USING ERRCODE='42501';END IF;
-  IF NEW.parent_run_id IS NOT NULL AND(NOT ai.delegation_influence_ready(NEW.parent_run_id,NEW.id)
-    OR NOT ai.validate_delegation_birth(NEW)) THEN
-    RAISE EXCEPTION 'DELEGATION_INPUT_PROOF_UNAVAILABLE' USING ERRCODE='EN119';END IF;
+  IF NEW.parent_run_id IS NOT NULL THEN
+    -- Root runs are ordinary native app births. Do not initialize agent-only proof/lock calls
+    -- until this is an actual child and the invoker is the native agent role.
+    IF current_user<>'ensemus_agent' THEN
+      RAISE EXCEPTION 'DELEGATION_INPUT_PROOF_UNAVAILABLE' USING ERRCODE='EN119';END IF;
+    IF NOT ai.delegation_influence_ready(NEW.parent_run_id,NEW.id) OR NOT ai.validate_delegation_birth(NEW) THEN
+      RAISE EXCEPTION 'DELEGATION_INPUT_PROOF_UNAVAILABLE' USING ERRCODE='EN119';END IF;
+  END IF;
   RETURN NEW;
 END $$;
 --> statement-breakpoint
@@ -619,8 +626,9 @@ LANGUAGE sql STABLE SET search_path=pg_catalog AS $$
 $$;
 -- Preserve 0411's body-free public class helper while adding the independently pinned birth floor.
 CREATE FUNCTION knowledge.work_scope_base_class_0419(p_work uuid) RETURNS text LANGUAGE sql STABLE SET search_path=pg_catalog AS $$
+  -- Registered knowledge.class_rank is one-based: public1/internal2/confidential3/restricted4.
   SELECT CASE greatest(knowledge.class_rank(own.classification),coalesce(knowledge.class_rank(knowledge.structured_record_class('project',own.parent_record_id)),0))
-    WHEN 3 THEN 'restricted' WHEN 2 THEN 'confidential' WHEN 1 THEN 'internal' ELSE 'public' END
+    WHEN 4 THEN 'restricted' WHEN 3 THEN 'confidential' WHEN 2 THEN 'internal' ELSE 'public' END
   FROM knowledge.structured_record_catalog own WHERE own.organization_id=app.current_organization_id()
     AND own.record_kind='work_unit' AND own.record_id=p_work AND own.alive
     AND NOT EXISTS(SELECT 1 FROM platform.tombstones tomb WHERE tomb.organization_id=own.organization_id AND tomb.target_type='work_unit' AND tomb.target_id=own.record_id)
@@ -631,7 +639,7 @@ GRANT EXECUTE ON FUNCTION knowledge.work_scope_base_class_0419(uuid) TO ensemus_
 CREATE OR REPLACE FUNCTION knowledge.work_scope_class(p_work uuid) RETURNS text LANGUAGE sql STABLE SET search_path=pg_catalog AS $$
   SELECT CASE greatest(knowledge.class_rank(base.classification),coalesce((SELECT max(knowledge.class_rank(receipt.classification))
       FROM ai.delegated_input_receipts receipt WHERE receipt.organization_id=app.current_organization_id() AND receipt.child_work_unit_id=p_work),0))
-    WHEN 3 THEN 'restricted' WHEN 2 THEN 'confidential' WHEN 1 THEN 'internal' ELSE 'public' END
+    WHEN 4 THEN 'restricted' WHEN 3 THEN 'confidential' WHEN 2 THEN 'internal' ELSE 'public' END
   FROM(SELECT knowledge.work_scope_base_class_0419(p_work) classification) base WHERE base.classification IS NOT NULL
 $$;
 -- This is a current read/dispatch admission only, not permission to create a child. Legacy children
@@ -681,7 +689,7 @@ BEGIN
       RAISE EXCEPTION 'INHERITED_INPUT_PROOF_UNAVAILABLE' USING ERRCODE='EN119';END IF;
     floor_rank:=greatest(floor_rank,knowledge.class_rank(current_class));
   END LOOP;
-  classification:=CASE floor_rank WHEN 3 THEN 'restricted' WHEN 2 THEN 'confidential' WHEN 1 THEN 'internal' ELSE 'public' END;
+  classification:=CASE floor_rank WHEN 4 THEN 'restricted' WHEN 3 THEN 'confidential' WHEN 2 THEN 'internal' ELSE 'public' END;
   SELECT count(*)::integer INTO input_count FROM ai.delegated_input_refs ref WHERE ref.organization_id=app.current_organization_id()
     AND ref.child_run_id IN(SELECT ai.run_inherited_receipt_ids(p_run));
   SELECT coalesce(array_agg(id ORDER BY id),ARRAY[]::uuid[]) INTO source_ids FROM(
@@ -820,6 +828,9 @@ LANGUAGE sql STABLE SET search_path=pg_catalog AS $$
 $$;
 REVOKE ALL ON FUNCTION ai.prospective_input_scope_allows(text,uuid,uuid,uuid) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION ai.prospective_input_scope_allows(text,uuid,uuid,uuid) TO ensemus_agent;
+-- These existing invoker-only Boolean/class predicates occur directly in the application-role
+-- restrictive policies below. Their execution adds no body grant, agent role or read admission.
+GRANT EXECUTE ON FUNCTION ai.work_inherited_scope_allows(uuid,uuid),ai.prospective_input_scope_allows(text,uuid,uuid,uuid),ai.run_company_ceiling(uuid) TO ensemus_app;
 CREATE FUNCTION ai.lock_prospective_input_scope(p_kind text,p_id uuid,p_work uuid) RETURNS boolean
 LANGUAGE plpgsql SET search_path=pg_catalog AS $$
 DECLARE receipt ai.delegated_input_receipts;current_class text;run_key uuid:=nullif(current_setting('app.agent_run_id',true),'')::uuid;
@@ -1193,7 +1204,7 @@ BEGIN
     position:=cursor_position;cursor_position:=cursor_position+1;node:=nodes->position;
     kind:=node->>'kind';target:=(node->>'id')::uuid;expected_hash:=node->>'sha256';historical_class:=node->>'historicalClass';
     node_source_id:=(node->>'sourceId')::uuid;node_document_id:=(node->>'documentId')::uuid;node_package_id:=(node->>'packageId')::uuid;cap:=(node->>'cap')::integer;
-    allowed:=cap BETWEEN 0 AND 3 AND(historical_class IS NULL OR knowledge.class_rank(historical_class)<=cap);children:='[]'::jsonb;
+    allowed:=cap BETWEEN 1 AND 4 AND(historical_class IS NULL OR knowledge.class_rank(historical_class)<=cap);children:='[]'::jsonb;
     IF kind='work_unit' THEN
       live_class:=knowledge.work_scope_class(target);
       allowed:=allowed AND live_class IS NOT NULL AND knowledge.class_rank(live_class)<=cap AND knowledge.work_own_scope_readable_0419(target,p_viewer)
@@ -1267,7 +1278,7 @@ BEGIN
     ELSIF kind='fact' THEN
       SELECT * INTO fact_receipt FROM knowledge.evidence_package_facts actual WHERE actual.organization_id=app.current_organization_id()
         AND actual.package_id=node_package_id AND actual.fact_id=target AND actual.content_sha256=expected_hash AND actual.subject_ref IS NOT NULL;
-      allowed:=allowed AND FOUND AND knowledge.fact_authority_receipt_live(node_package_id,target,expected_hash,CASE cap WHEN 3 THEN 'restricted' WHEN 2 THEN 'confidential' WHEN 1 THEN 'internal' ELSE 'public' END);
+      allowed:=allowed AND FOUND AND knowledge.fact_authority_receipt_live(node_package_id,target,expected_hash,CASE cap WHEN 4 THEN 'restricted' WHEN 3 THEN 'confidential' WHEN 2 THEN 'internal' ELSE 'public' END);
       IF allowed THEN
         IF split_part(fact_receipt.subject_ref,':',1) IN('work_unit','project','client') THEN
           children:=children||jsonb_build_array(jsonb_build_object('alternative',false,'node',knowledge.retained_scope_node(split_part(fact_receipt.subject_ref,':',1),

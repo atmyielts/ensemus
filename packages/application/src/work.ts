@@ -658,7 +658,7 @@ export async function clearApprovalNotifications(tx: Tx, approvalIds: readonly s
     );
 }
 
-/** Tells these people something, by reference only. The person acting already knows. */
+/** Tells these people something, by reference only. An agent's human initiator still needs notice. */
 export async function notify(
   tx: Tx,
   context: TenantContext,
@@ -667,7 +667,7 @@ export async function notify(
   targetRef: string,
 ) {
   const unique = new Set(recipients.filter((id): id is string => Boolean(id)).map(canonicalId));
-  unique.delete(context.membershipId);
+  if (context.actorType === 'user') unique.delete(context.membershipId);
   if (unique.size === 0) return;
   await tx.insert(notifications).values(
     [...unique].map((recipientMembershipId) => ({

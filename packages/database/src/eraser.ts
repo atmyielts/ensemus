@@ -107,10 +107,17 @@ export async function eraseTenantRows(
           await assertOpen(tx, organizationId);
           const removals = new Map<string, number>();
           for (const table of group) {
-            const deletion = await tx.execute(
-              sql`delete from ${tableName(table)} where organization_id=${organizationId}::uuid`,
-            );
-            removals.set(table, number(deletion.rowCount));
+            if (table === 'lifecycle.raw_source_inventories') {
+              const deletion = await tx.execute<{ removed: string | number }>(
+                sql`select lifecycle.erase_raw_source_inventories() as removed`,
+              );
+              removals.set(table, number(deletion.rows[0]?.removed));
+            } else {
+              const deletion = await tx.execute(
+                sql`delete from ${tableName(table)} where organization_id=${organizationId}::uuid`,
+              );
+              removals.set(table, number(deletion.rowCount));
+            }
           }
           // RLS can hide rows after a hold. Recheck before accepting any count as zero.
           await assertOpen(tx, organizationId);

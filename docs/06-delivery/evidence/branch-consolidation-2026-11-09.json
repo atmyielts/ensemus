@@ -1,0 +1,411 @@
+{
+  "date": "2026-11-09",
+  "canonical_branch": "codex/m7-platform-integration",
+  "canonical_tip_at_consolidation": "62879ef7330434616d683f071b52a3b3b09e42b0",
+  "remote_archive_tags_verified": 57,
+  "closed_remote_branches": 57,
+  "closed_local_branches": 57,
+  "existing_working_directories_preserved": true,
+  "source_only_unmerged_work_is_not_acceptance": true,
+  "branches": [
+    {
+      "former_branch": "codex/account-step-up",
+      "preserved_tip": "b83185bfe26fc6414ff46d346dc3a95cdb62279e",
+      "archive_tag": "archive/codex/2026-11-09/account-step-up",
+      "disposition": "close_integrated_patch_equivalent",
+      "unmatched_patch_commits": 0
+    },
+    {
+      "former_branch": "codex/account-ux",
+      "preserved_tip": "1917cc3d5411e56db60bdc2c6b68dba0189db933",
+      "archive_tag": "archive/codex/2026-11-09/account-ux",
+      "disposition": "close_integrated_patch_equivalent",
+      "unmatched_patch_commits": 0
+    },
+    {
+      "former_branch": "codex/auth-restore",
+      "preserved_tip": "85a621d790550ceb6a8eb7a5a17fce56c83e96ec",
+      "archive_tag": "archive/codex/2026-11-09/auth-restore",
+      "disposition": "close_archived_unmatched_source",
+      "unmatched_patch_commits": 7
+    },
+    {
+      "former_branch": "codex/auth-restore-integration",
+      "preserved_tip": "6ced0ec345d9c3d81877eb2c492be0d68c44e809",
+      "archive_tag": "archive/codex/2026-11-09/auth-restore-integration",
+      "disposition": "close_integrated_patch_equivalent",
+      "unmatched_patch_commits": 0
+    },
+    {
+      "former_branch": "codex/auth-restore-role-fixes",
+      "preserved_tip": "fb6cda7c83c383ad820c7b8e2efd4fd5faa21a0d",
+      "archive_tag": "archive/codex/2026-11-09/auth-restore-role-fixes",
+      "disposition": "close_integrated_patch_equivalent",
+      "unmatched_patch_commits": 0
+    },
+    {
+      "former_branch": "codex/hardening-integration",
+      "preserved_tip": "f76893c0466f30a7c5dd217c7abc083067f7b0f6",
+      "archive_tag": "archive/codex/2026-11-09/hardening-integration",
+      "disposition": "close_archived_unmatched_source",
+      "unmatched_patch_commits": 8
+    },
+    {
+      "former_branch": "codex/m2-continuation",
+      "preserved_tip": "feba9b8b7c3cc60d9cbd714041674dd9017d3306",
+      "archive_tag": "archive/codex/2026-11-09/m2-continuation",
+      "disposition": "close_integrated_ancestor",
+      "unmatched_patch_commits": 0
+    },
+    {
+      "former_branch": "codex/m4-integration",
+      "preserved_tip": "aa1bbaca8ad38abd9321d782bd078d5959888db3",
+      "archive_tag": "archive/codex/2026-11-09/m4-integration",
+      "disposition": "close_integrated_ancestor",
+      "unmatched_patch_commits": 0
+    },
+    {
+      "former_branch": "codex/m5-agent-inputs",
+      "preserved_tip": "aa6c234402a311bdfadd468f0ac512c448efb5f5",
+      "archive_tag": "archive/codex/2026-11-09/m5-agent-inputs",
+      "disposition": "close_integrated_ancestor",
+      "unmatched_patch_commits": 0
+    },
+    {
+      "former_branch": "codex/m5-delegated-erasure-witness",
+      "preserved_tip": "d0edff4e28cad0ee9d98ed962367b8bfc544feec",
+      "archive_tag": "archive/codex/2026-11-09/m5-delegated-erasure-witness",
+      "disposition": "close_archived_unmatched_source",
+      "unmatched_patch_commits": 25
+    },
+    {
+      "former_branch": "codex/m5-delegated-materials",
+      "preserved_tip": "4b95da98c9507279252e4336044ed8caf23197ad",
+      "archive_tag": "archive/codex/2026-11-09/m5-delegated-materials",
+      "disposition": "close_archived_unmatched_source",
+      "unmatched_patch_commits": 20
+    },
+    {
+      "former_branch": "codex/m5-delegated-materials-join",
+      "preserved_tip": "b1e1798d9a1b4da4a83bdfc00b888003df11f56f",
+      "archive_tag": "archive/codex/2026-11-09/m5-delegated-materials-join",
+      "disposition": "close_integrated_patch_equivalent",
+      "unmatched_patch_commits": 0
+    },
+    {
+      "former_branch": "codex/m5-integration",
+      "preserved_tip": "b5689186e13191315094b75b28a03c9a48181deb",
+      "archive_tag": "archive/codex/2026-11-09/m5-integration",
+      "disposition": "close_integrated_ancestor",
+      "unmatched_patch_commits": 0
+    },
+    {
+      "former_branch": "codex/m5-knowledge-models",
+      "preserved_tip": "3ff8301a1f13a03e2995a89ead5271efd2e45cca",
+      "archive_tag": "archive/codex/2026-11-09/m5-knowledge-models",
+      "disposition": "close_integrated_ancestor",
+      "unmatched_patch_commits": 0
+    },
+    {
+      "former_branch": "codex/m5-model-platform-join",
+      "preserved_tip": "b27e02c702f07b39360b7c0e85b4a4f691b2c15d",
+      "archive_tag": "archive/codex/2026-11-09/m5-model-platform-join",
+      "disposition": "close_archived_unmatched_source",
+      "unmatched_patch_commits": 5
+    },
+    {
+      "former_branch": "codex/m5-onboarding",
+      "preserved_tip": "de7e806e60a33ad295504aace06ec6997be14284",
+      "archive_tag": "archive/codex/2026-11-09/m5-onboarding",
+      "disposition": "close_integrated_patch_equivalent",
+      "unmatched_patch_commits": 0
+    },
+    {
+      "former_branch": "codex/m6-archive-files",
+      "preserved_tip": "27a6d587ddb36e0b6441a1b4da1ed700f43addad",
+      "archive_tag": "archive/codex/2026-11-09/m6-archive-files",
+      "disposition": "close_integrated_patch_equivalent",
+      "unmatched_patch_commits": 0
+    },
+    {
+      "former_branch": "codex/m6-integration",
+      "preserved_tip": "335c7c1d565f5b6daadc841df3ca6e253e4956b4",
+      "archive_tag": "archive/codex/2026-11-09/m6-integration",
+      "disposition": "close_integrated_ancestor",
+      "unmatched_patch_commits": 0
+    },
+    {
+      "former_branch": "codex/m6-platform-join",
+      "preserved_tip": "16e5d81ff4b4e2433b9339bc454cc61564ac6646",
+      "archive_tag": "archive/codex/2026-11-09/m6-platform-join",
+      "disposition": "close_integrated_ancestor",
+      "unmatched_patch_commits": 0
+    },
+    {
+      "former_branch": "codex/m7-composer",
+      "preserved_tip": "98a61c196f6feae7a26f0693cdb3ec0d18a5afa9",
+      "archive_tag": "archive/codex/2026-11-09/m7-composer",
+      "disposition": "close_archived_unmatched_source",
+      "unmatched_patch_commits": 2
+    },
+    {
+      "former_branch": "codex/m7-integration",
+      "preserved_tip": "152c06edd339031cfcb57f6e6cf1c1b2c29ae3c9",
+      "archive_tag": "archive/codex/2026-11-09/m7-integration",
+      "disposition": "close_integrated_ancestor",
+      "unmatched_patch_commits": 0
+    },
+    {
+      "former_branch": "codex/m7-object-sso-drafts",
+      "preserved_tip": "3c88c28f81b626b4424363e9a09351305a197bd4",
+      "archive_tag": "archive/codex/2026-11-09/m7-object-sso-drafts",
+      "disposition": "close_archived_unmatched_source",
+      "unmatched_patch_commits": 1
+    },
+    {
+      "former_branch": "codex/m7-objects",
+      "preserved_tip": "2a27a2777d5239ee1eee569281871fafdeae038a",
+      "archive_tag": "archive/codex/2026-11-09/m7-objects",
+      "disposition": "close_integrated_patch_equivalent",
+      "unmatched_patch_commits": 0
+    },
+    {
+      "former_branch": "codex/m7-platform-join",
+      "preserved_tip": "d967fca779acad446412eaf0a567a85b267ceff4",
+      "archive_tag": "archive/codex/2026-11-09/m7-platform-join",
+      "disposition": "close_integrated_patch_equivalent",
+      "unmatched_patch_commits": 0
+    },
+    {
+      "former_branch": "codex/m7-pulse",
+      "preserved_tip": "248ca50961c702d380bd4aecb2e10f9a4da35bcc",
+      "archive_tag": "archive/codex/2026-11-09/m7-pulse",
+      "disposition": "close_integrated_patch_equivalent",
+      "unmatched_patch_commits": 0
+    },
+    {
+      "former_branch": "codex/m7-workflow-map",
+      "preserved_tip": "1f2b2f0ed043f76fc0026866210706e8c735d2fe",
+      "archive_tag": "archive/codex/2026-11-09/m7-workflow-map",
+      "disposition": "close_archived_unmatched_source",
+      "unmatched_patch_commits": 4
+    },
+    {
+      "former_branch": "codex/m7-workflows",
+      "preserved_tip": "d0fa355280eeeecc9fdd7cb3b4796d1cefe81e9d",
+      "archive_tag": "archive/codex/2026-11-09/m7-workflows",
+      "disposition": "close_archived_unmatched_source",
+      "unmatched_patch_commits": 3
+    },
+    {
+      "former_branch": "codex/m8-account-exports",
+      "preserved_tip": "acfd173fc72308194c9dca33c7823116590d4846",
+      "archive_tag": "archive/codex/2026-11-09/m8-account-exports",
+      "disposition": "close_integrated_patch_equivalent",
+      "unmatched_patch_commits": 0
+    },
+    {
+      "former_branch": "codex/m8-delegated-hold-guard",
+      "preserved_tip": "28795e2fab83402f207cd6458b497572d7bbcd11",
+      "archive_tag": "archive/codex/2026-11-09/m8-delegated-hold-guard",
+      "disposition": "close_archived_unmatched_source",
+      "unmatched_patch_commits": 3
+    },
+    {
+      "former_branch": "codex/m8-delete-versioning-proof",
+      "preserved_tip": "a4e269290561064c4afe83898031b4ed458300c9",
+      "archive_tag": "archive/codex/2026-11-09/m8-delete-versioning-proof",
+      "disposition": "close_archived_unmatched_source",
+      "unmatched_patch_commits": 3
+    },
+    {
+      "former_branch": "codex/m8-fixture-authority",
+      "preserved_tip": "861daafd09772c800f5bbc7ce4e32e95b8407905",
+      "archive_tag": "archive/codex/2026-11-09/m8-fixture-authority",
+      "disposition": "close_integrated_patch_equivalent",
+      "unmatched_patch_commits": 0
+    },
+    {
+      "former_branch": "codex/m8-integration",
+      "preserved_tip": "ca62c8ea7a31c89807a4b9d3840b82d97b4ed94c",
+      "archive_tag": "archive/codex/2026-11-09/m8-integration",
+      "disposition": "close_archived_unmatched_source",
+      "unmatched_patch_commits": 3
+    },
+    {
+      "former_branch": "codex/m8-lifecycle-platform-join",
+      "preserved_tip": "a446bd8f3a3be99010fddb2daefa0f06e4f4645c",
+      "archive_tag": "archive/codex/2026-11-09/m8-lifecycle-platform-join",
+      "disposition": "close_archived_unmatched_source",
+      "unmatched_patch_commits": 3
+    },
+    {
+      "former_branch": "codex/m8-payment-execution-binding",
+      "preserved_tip": "5d530fda0080384e5d19ebbf3abb9c2aa8de6758",
+      "archive_tag": "archive/codex/2026-11-09/m8-payment-execution-binding",
+      "disposition": "close_archived_unmatched_source",
+      "unmatched_patch_commits": 9
+    },
+    {
+      "former_branch": "codex/m8-payment-lookup-outcomes",
+      "preserved_tip": "789db4218fb55b1563abe02ae17e6c5b3ea0eef8",
+      "archive_tag": "archive/codex/2026-11-09/m8-payment-lookup-outcomes",
+      "disposition": "close_archived_unmatched_source",
+      "unmatched_patch_commits": 4
+    },
+    {
+      "former_branch": "codex/m8-payment-platform-current",
+      "preserved_tip": "5b0f25ed3d302f7764ea45212e103b124dbf1843",
+      "archive_tag": "archive/codex/2026-11-09/m8-payment-platform-current",
+      "disposition": "close_integrated_patch_equivalent",
+      "unmatched_patch_commits": 0
+    },
+    {
+      "former_branch": "codex/m8-payment-platform-join",
+      "preserved_tip": "2316ffc8d0f3b476cea7b7416febf21610e76471",
+      "archive_tag": "archive/codex/2026-11-09/m8-payment-platform-join",
+      "disposition": "close_archived_unmatched_source",
+      "unmatched_patch_commits": 1
+    },
+    {
+      "former_branch": "codex/m8-payment-restore-binding",
+      "preserved_tip": "5701649c05946262948ac6f9a7ef79c308e58397",
+      "archive_tag": "archive/codex/2026-11-09/m8-payment-restore-binding",
+      "disposition": "close_archived_unmatched_source",
+      "unmatched_patch_commits": 2
+    },
+    {
+      "former_branch": "codex/m8-prepaid-admission",
+      "preserved_tip": "79017325174fb77c9140ad684dd3eb287bccf1e3",
+      "archive_tag": "archive/codex/2026-11-09/m8-prepaid-admission",
+      "disposition": "close_archived_unmatched_source",
+      "unmatched_patch_commits": 5
+    },
+    {
+      "former_branch": "codex/m8-prepaid-admission-design",
+      "preserved_tip": "c4347e4c994a54d17a292847dfb2baf3be92e256",
+      "archive_tag": "archive/codex/2026-11-09/m8-prepaid-admission-design",
+      "disposition": "close_archived_unmatched_source",
+      "unmatched_patch_commits": 2
+    },
+    {
+      "former_branch": "codex/m8-private-read-guard",
+      "preserved_tip": "8fa8e05b63976b2173f6b9bb65dfc40331dc8212",
+      "archive_tag": "archive/codex/2026-11-09/m8-private-read-guard",
+      "disposition": "close_archived_unmatched_source",
+      "unmatched_patch_commits": 3
+    },
+    {
+      "former_branch": "codex/m8-proof-inventory-0518",
+      "preserved_tip": "f7a253d94c40b6af74c142fea898ed05e6ab7307",
+      "archive_tag": "archive/codex/2026-11-09/m8-proof-inventory-0518",
+      "disposition": "close_archived_unmatched_source",
+      "unmatched_patch_commits": 1
+    },
+    {
+      "former_branch": "codex/m8-raw-source-authority",
+      "preserved_tip": "e42a2637605e4abf46a971dc495be9813bbf4eb3",
+      "archive_tag": "archive/codex/2026-11-09/m8-raw-source-authority",
+      "disposition": "close_archived_unmatched_source",
+      "unmatched_patch_commits": 5
+    },
+    {
+      "former_branch": "codex/m8-standing-audit-schema",
+      "preserved_tip": "c333c019155c5cb298938f07f3acc4efc5fe37f6",
+      "archive_tag": "archive/codex/2026-11-09/m8-standing-audit-schema",
+      "disposition": "close_archived_unmatched_source",
+      "unmatched_patch_commits": 1
+    },
+    {
+      "former_branch": "codex/m8-standing-authority-repair",
+      "preserved_tip": "12c969fc41ae52c659ccca12a8c88d8c6f1e37c2",
+      "archive_tag": "archive/codex/2026-11-09/m8-standing-authority-repair",
+      "disposition": "close_integrated_patch_equivalent",
+      "unmatched_patch_commits": 0
+    },
+    {
+      "former_branch": "codex/m8-standing-fixture-repair",
+      "preserved_tip": "682010b62e506202d10e11d4b08c61bffea73f33",
+      "archive_tag": "archive/codex/2026-11-09/m8-standing-fixture-repair",
+      "disposition": "close_integrated_patch_equivalent",
+      "unmatched_patch_commits": 0
+    },
+    {
+      "former_branch": "codex/m8-standing-runtime",
+      "preserved_tip": "f2bba01263da5cc027e7297fc6005151573fea56",
+      "archive_tag": "archive/codex/2026-11-09/m8-standing-runtime",
+      "disposition": "close_integrated_patch_equivalent",
+      "unmatched_patch_commits": 0
+    },
+    {
+      "former_branch": "codex/native-action-binding",
+      "preserved_tip": "7d6965e759fa3ba2070d5df644c9cefd608207a2",
+      "archive_tag": "archive/codex/2026-11-09/native-action-binding",
+      "disposition": "close_integrated_patch_equivalent",
+      "unmatched_patch_commits": 0
+    },
+    {
+      "former_branch": "codex/platform-completion",
+      "preserved_tip": "aa1bbaca8ad38abd9321d782bd078d5959888db3",
+      "archive_tag": "archive/codex/2026-11-09/platform-completion",
+      "disposition": "close_integrated_ancestor",
+      "unmatched_patch_commits": 0
+    },
+    {
+      "former_branch": "codex/saml-browser-correlation",
+      "preserved_tip": "4d1ecfb9b7c21dc18af1dd0e7fbf9e6a53d5535b",
+      "archive_tag": "archive/codex/2026-11-09/saml-browser-correlation",
+      "disposition": "close_integrated_patch_equivalent",
+      "unmatched_patch_commits": 0
+    },
+    {
+      "former_branch": "codex/saml-principal-switch",
+      "preserved_tip": "cac16d4f5db274be55d6987de9dc184d7a4d4540",
+      "archive_tag": "archive/codex/2026-11-09/saml-principal-switch",
+      "disposition": "close_integrated_patch_equivalent",
+      "unmatched_patch_commits": 0
+    },
+    {
+      "former_branch": "codex/sidebar-viewport",
+      "preserved_tip": "2bea1b0c718b2a903cd9701f00647440a05f38c1",
+      "archive_tag": "archive/codex/2026-11-09/sidebar-viewport",
+      "disposition": "close_integrated_patch_equivalent",
+      "unmatched_patch_commits": 0
+    },
+    {
+      "former_branch": "codex/sso-native-fixture",
+      "preserved_tip": "9b9b5a18739bdd0ca2c9bba80444c13a85dd88cd",
+      "archive_tag": "archive/codex/2026-11-09/sso-native-fixture",
+      "disposition": "close_integrated_patch_equivalent",
+      "unmatched_patch_commits": 0
+    },
+    {
+      "former_branch": "codex/sso-request-replay",
+      "preserved_tip": "7a896c120f37b6ae4e1a56a67284eb37bba47415",
+      "archive_tag": "archive/codex/2026-11-09/sso-request-replay",
+      "disposition": "close_integrated_patch_equivalent",
+      "unmatched_patch_commits": 0
+    },
+    {
+      "former_branch": "codex/sso-self-link",
+      "preserved_tip": "cafaa2cec203c7b48b43ac7fb196e36a6a6ca8f3",
+      "archive_tag": "archive/codex/2026-11-09/sso-self-link",
+      "disposition": "close_archived_unmatched_source",
+      "unmatched_patch_commits": 1
+    },
+    {
+      "former_branch": "codex/sso-self-link-v2",
+      "preserved_tip": "d11e5c66883b44e948bdd82ea17f00e16608550c",
+      "archive_tag": "archive/codex/2026-11-09/sso-self-link-v2",
+      "disposition": "close_integrated_patch_equivalent",
+      "unmatched_patch_commits": 0
+    },
+    {
+      "former_branch": "codex/typed-record-purge-dispatch",
+      "preserved_tip": "fbe92b031f2098d8e3ccddc428c53b85e9332c59",
+      "archive_tag": "archive/codex/2026-11-09/typed-record-purge-dispatch",
+      "disposition": "close_archived_unmatched_source",
+      "unmatched_patch_commits": 2
+    }
+  ]
+}

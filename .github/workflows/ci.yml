@@ -8,6 +8,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 env:
   NEXT_TELEMETRY_DISABLED: '1'
 
@@ -83,6 +87,10 @@ jobs:
           node-version-file: .nvmrc
       - run: corepack enable
       - run: pnpm install --frozen-lockfile
+      - name: Prepare hosted runner disk headroom
+        run: >-
+          sudo --non-interactive --preserve-env=GITHUB_ACTIONS,RUNNER_ENVIRONMENT,RUNNER_OS,GITHUB_WORKSPACE --
+          "$(command -v node)" infrastructure/scripts/ci-disk-preflight.mjs
       - run: pnpm stack:secrets
       - name: Control - the air-gap gate detects a deliberate outbound attempt
         run: node infrastructure/scripts/air-gap-gate.mjs --control
@@ -111,6 +119,10 @@ jobs:
           node-version-file: .nvmrc
       - run: corepack enable
       - run: pnpm install --frozen-lockfile
+      - name: Prepare hosted runner disk headroom
+        run: >-
+          sudo --non-interactive --preserve-env=GITHUB_ACTIONS,RUNNER_ENVIRONMENT,RUNNER_OS,GITHUB_WORKSPACE --
+          "$(command -v node)" infrastructure/scripts/ci-disk-preflight.mjs
       - run: pnpm stack:secrets
       - name: Start the stack with the connectors profile
         run: docker compose -f infrastructure/compose/compose.yaml -f infrastructure/compose/compose.test.yaml up -d --build --wait --wait-timeout 300
@@ -143,6 +155,10 @@ jobs:
           node-version-file: .nvmrc
       - run: corepack enable
       - run: pnpm install --frozen-lockfile
+      - name: Prepare hosted runner disk headroom
+        run: >-
+          sudo --non-interactive --preserve-env=GITHUB_ACTIONS,RUNNER_ENVIRONMENT,RUNNER_OS,GITHUB_WORKSPACE --
+          "$(command -v node)" infrastructure/scripts/ci-disk-preflight.mjs
       - run: pnpm stack:secrets
       - name: Start the stack
         run: docker compose -f infrastructure/compose/compose.yaml -f infrastructure/compose/compose.test.yaml up -d --build --wait --wait-timeout 300
@@ -177,6 +193,10 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .nvmrc
+      - name: Prepare hosted runner disk headroom
+        run: >-
+          sudo --non-interactive --preserve-env=GITHUB_ACTIONS,RUNNER_ENVIRONMENT,RUNNER_OS,GITHUB_WORKSPACE --
+          "$(command -v node)" infrastructure/scripts/ci-disk-preflight.mjs
       - name: A paused approval across a real release upgrade
         # main holds only the specification so far, so the merge-base has nothing to upgrade from.
         # Drop --from once a release is on main.

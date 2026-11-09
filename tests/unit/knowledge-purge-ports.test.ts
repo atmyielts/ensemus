@@ -6,6 +6,7 @@ import { PgDialect, type PgTable } from 'drizzle-orm/pg-core';
 import type { SQL } from 'drizzle-orm';
 import { artifactLineage, knowledgeSources, type AppDatabase, type Tx } from '@ensemus/database';
 import { createServiceContext } from '@ensemus/database/service';
+import { withRawKnowledgeObjects } from '@ensemus/application/knowledge/raw-objects';
 import { createKnowledgePurgePorts } from '../../workers/workflow/src/knowledge-ports';
 
 function fixture(unconfirmed = 0) {
@@ -78,7 +79,7 @@ describe('knowledge worker actual purge factory', () => {
     expect(f.store.get).not.toHaveBeenCalled();
     expect(f.store.exists).not.toHaveBeenCalled();
   });
-  it('refuses completed-job final confirmation when either actual lifecycle is absent', async () => {
+  it('refuses completed-job final confirmation when any actual lifecycle capability is absent', async () => {
     const f = fixture(),
       unavailable = { erase: async () => ({ state: 'unconfirmed' as const }) };
     const setups = [
@@ -93,6 +94,13 @@ describe('knowledge worker actual purge factory', () => {
         createKnowledgePurgePorts({
           database: f.database,
           store: f.store,
+          archiveLifecycle: unavailable,
+        }),
+      () =>
+        createKnowledgePurgePorts({
+          database: f.database,
+          store: f.store,
+          derivedLifecycle: unavailable,
           archiveLifecycle: unavailable,
         }),
     ];
@@ -113,9 +121,12 @@ describe('knowledge worker actual purge factory', () => {
   it('reads both actual final metadata adapters when both lifecycle ports are explicitly supplied', async () => {
     const f = fixture(),
       unavailable = { erase: async () => ({ state: 'unconfirmed' as const }) };
+    // Bind the actual raw runtime adapter explicitly; no fake physical result or successful
+    // lifecycle default is provided. This metadata-only path must make no object request.
+    const store = withRawKnowledgeObjects({ database: f.database, store: f.store });
     const ports = createKnowledgePurgePorts({
       database: f.database,
-      store: f.store,
+      store,
       derivedLifecycle: unavailable,
       archiveLifecycle: unavailable,
     });
@@ -127,13 +138,17 @@ describe('knowledge worker actual purge factory', () => {
     );
     expect(f.queries.some((query) => query.includes('sovereign.archive_file_counts'))).toBe(true);
     expect(f.store.delete).not.toHaveBeenCalled();
+    expect(f.store.put).not.toHaveBeenCalled();
+    expect(f.store.get).not.toHaveBeenCalled();
+    expect(f.store.exists).not.toHaveBeenCalled();
   });
   it('refuses an old completed-job path when retained delete/restore debt remains', async () => {
     const f = fixture(1),
       unavailable = { erase: async () => ({ state: 'unconfirmed' as const }) };
+    const store = withRawKnowledgeObjects({ database: f.database, store: f.store });
     const ports = createKnowledgePurgePorts({
       database: f.database,
-      store: f.store,
+      store,
       derivedLifecycle: unavailable,
       archiveLifecycle: unavailable,
     });

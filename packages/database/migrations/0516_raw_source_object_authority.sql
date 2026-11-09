@@ -792,6 +792,29 @@ END $$;
 REVOKE ALL ON FUNCTION lifecycle.require_raw_inventory_erasure() FROM PUBLIC;
 CREATE TRIGGER raw_inventory_erasure BEFORE DELETE ON lifecycle.raw_source_inventories FOR EACH ROW EXECUTE FUNCTION lifecycle.require_raw_inventory_erasure();
 CREATE TRIGGER raw_writes_erasure BEFORE DELETE ON lifecycle.raw_object_writes FOR EACH ROW EXECUTE FUNCTION lifecycle.require_raw_inventory_erasure();
+-- A whole-table DELETE has no row-order guarantee. Keep its two exact metadata phases inside one
+-- native eraser operation, after the genuine raw witness and writer cleanup. The caller receives
+-- only a count, never source identities or a selectable relation/scope/body capability.
+CREATE FUNCTION lifecycle.erase_raw_source_inventories() RETURNS bigint LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
+DECLARE tenant uuid:=app.current_organization_id();previous text:=current_setting('lifecycle.raw_object_org',true);
+ source_rows bigint;organization_rows bigint;
+BEGIN
+ IF current_user<>'ensemus_migrator' OR session_user<>'ensemus_eraser' OR NOT knowledge.is_service_actor() OR tenant IS NULL THEN
+  RAISE EXCEPTION 'RAW_ERASER_REQUIRED' USING ERRCODE='42501';END IF;
+ PERFORM set_config('lifecycle.raw_object_org',tenant::text,true);
+ IF lifecycle.lock_erasure_tenant() IS DISTINCT FROM true OR lifecycle.raw_erasure_witness() IS DISTINCT FROM true THEN
+  RAISE EXCEPTION 'RAW_ERASURE_UNCONFIRMED' USING ERRCODE='EN850';END IF;
+ IF EXISTS(SELECT 1 FROM lifecycle.raw_object_writes w WHERE w.organization_id=tenant) THEN
+  RAISE EXCEPTION 'RAW_WRITE_INVENTORY_RETAINED' USING ERRCODE='EN850';END IF;
+ DELETE FROM lifecycle.raw_source_inventories WHERE organization_id=tenant AND scope_kind='source';
+ GET DIAGNOSTICS source_rows=ROW_COUNT;
+ DELETE FROM lifecycle.raw_source_inventories WHERE organization_id=tenant AND scope_kind='organization';
+ GET DIAGNOSTICS organization_rows=ROW_COUNT;
+ PERFORM set_config('lifecycle.raw_object_org',coalesce(previous,''),true);RETURN source_rows+organization_rows;
+EXCEPTION WHEN OTHERS THEN PERFORM set_config('lifecycle.raw_object_org',coalesce(previous,''),true);RAISE;
+END $$;
+REVOKE ALL ON FUNCTION lifecycle.erase_raw_source_inventories() FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION lifecycle.erase_raw_source_inventories() TO ensemus_eraser;
 -- Retain every old classification and its public OID. Only these explicitly guarded technical
 -- inventories become erasable. 0518 must add their exact counts; LAST0999 reviews the actual grant
 -- and FORCE-RLS tenant policy. There is intentionally no early reach/installer/DELETE grant here.
@@ -929,7 +952,11 @@ BEGIN
   RAISE EXCEPTION 'RAW_DELETE_AUTHORITY_REQUIRED' USING ERRCODE='42501';END IF;
  PERFORM set_config('lifecycle.raw_object_org',tenant::text,true);
  material:=ai.current_material_restore_generation();auth:=app.current_auth_restore_generation();
- IF TG_RELID='knowledge.sources'::regclass THEN
+ IF session_user='ensemus_eraser' THEN
+  -- The native birth seal survives source/job/inventory metadata cleanup. Requiring those live
+  -- rows again would recreate their FK cycle; their absence alone still grants no authority.
+  allowed:=lifecycle.lock_erasure_tenant() IS TRUE AND lifecycle.raw_erasure_witness() IS TRUE;
+ ELSIF TG_RELID='knowledge.sources'::regclass THEN
   SELECT * INTO i FROM lifecycle.raw_source_inventories x WHERE x.organization_id=tenant AND x.source_id=OLD.id;
   allowed:=i.id IS NOT NULL AND lifecycle.raw_source_material_complete(OLD.id,OLD.version,i.purge_job_id,material);
  ELSE

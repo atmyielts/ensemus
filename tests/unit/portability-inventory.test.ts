@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  EXPORT_SECTIONS,
   PORTABILITY_INVENTORY,
   PORTABILITY_INVENTORY_VERSION,
   assertPortabilitySections,
@@ -9,7 +10,10 @@ import {
   PORTABILITY_INVENTORY_V2,
   PORTABILITY_INVENTORY_V2_VERSION,
 } from '@ensemus/domain/portability';
-import { extensionRecordSchema } from '@ensemus/contracts/portability-records';
+import {
+  exportManifestSchema,
+  extensionRecordSchema,
+} from '@ensemus/contracts/portability-records';
 import { inspectOrganizationArchive, portableDefinitionBindings } from '@ensemus/application';
 import { testRecipient } from '../helpers/sovereign';
 import { buildArchive } from '../integration/fixtures/archive-builder';
@@ -25,6 +29,46 @@ const definition = {
   service_identity_id: id,
   created_at: at,
 };
+
+describe('the manifest inventory wire bound', () => {
+  const manifest = {
+    format: 'ensemus.organization_export',
+    schema_version: 2,
+    export_id: id,
+    organization_id: id,
+    exported_at: at,
+    snapshot_at: at,
+    tombstones_through: at,
+    initiated_by_membership_id: id,
+    source_release: 'generated-ci-fixture',
+    scope: 'standard',
+    excluded: { restricted_work: 0, restricted_artifacts: 0, restricted_clients: 0 },
+    sections: Object.fromEntries(EXPORT_SECTIONS.map((name) => [name, { records: 0, parts: 0 }])),
+    parts: [],
+    encryption: { scheme: 'ensemus.sealed/v1', recipient_key_id: 'a'.repeat(32) },
+    inventory_version: PORTABILITY_INVENTORY_VERSION,
+    record_max_bytes: 4 * 1024 * 1024,
+    generated_bodies_excluded: 0,
+    inventory: PORTABILITY_INVENTORY,
+  };
+  it('accepts the complete current explicit inventory', () => {
+    expect(PORTABILITY_INVENTORY.length).toBeGreaterThan(200);
+    expect(exportManifestSchema.safeParse(manifest).success).toBe(true);
+  });
+  it('still rejects an oversized inventory before archive processing', () => {
+    const result = exportManifestSchema.safeParse({
+      ...manifest,
+      inventory: Array.from({ length: 257 }, () => PORTABILITY_INVENTORY[0]),
+    });
+    expect(result.success).toBe(false);
+    if (!result.success)
+      expect(
+        result.error.issues.some(
+          (issue) => issue.code === 'too_big' && issue.path.join('.') === 'inventory',
+        ),
+      ).toBe(true);
+  });
+});
 
 describe('the versioned portability inventory', () => {
   it('refuses a missing, duplicate or unknown section rather than silently exporting nothing', () => {
@@ -98,7 +142,10 @@ describe('the versioned portability inventory', () => {
       const entries = PORTABILITY_INVENTORY.filter((entry) => entry.table === table);
       expect(entries, table).toHaveLength(1);
       expect(entries[0]?.disposition, table).toBe('operational_excluded');
-      expect(PORTABILITY_INVENTORY_V2.some((entry) => entry.table === table), table).toBe(false);
+      expect(
+        PORTABILITY_INVENTORY_V2.some((entry) => entry.table === table),
+        table,
+      ).toBe(false);
       expect(
         matchesPortabilityInventory(PORTABILITY_INVENTORY.filter((entry) => entry.table !== table)),
         table,

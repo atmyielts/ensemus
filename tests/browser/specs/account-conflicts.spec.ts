@@ -85,10 +85,14 @@ for (const javaScriptEnabled of [true, false]) {
     ).toBeVisible();
     const path = new URL(page.url()).pathname,
       originalVersion = await replyForm(page).locator('input[name="version"]').inputValue();
-    await page.getByRole('textbox', { name: 'Your reply', exact: true }).fill('My unsent generated reply');
+    await page
+      .getByRole('textbox', { name: 'Your reply', exact: true })
+      .fill('My unsent generated reply');
     const newer = await page.context().newPage();
     await newer.goto(path);
-    await newer.getByRole('textbox', { name: 'Your reply', exact: true }).fill('Another tab’s committed reply');
+    await newer
+      .getByRole('textbox', { name: 'Your reply', exact: true })
+      .fill('Another tab’s committed reply');
     await newer.getByRole('button', { name: 'Add reply', exact: true }).click();
     await expect(newer.getByRole('status').filter({ hasText: 'Reply added.' })).toBeVisible();
     const latestVersion = await replyForm(newer).locator('input[name="version"]').inputValue();

@@ -141,7 +141,9 @@ export async function recoverObjectWrites(
           await settleObjectWrite(tx, write);
       });
       if (!source || source.state !== 'active') {
-        const result = await rawKnowledgeObjects(store).erase(context, { documentId: write.documentId });
+        const result = await rawKnowledgeObjects(store).erase(context, {
+          documentId: write.documentId,
+        });
         if (result.state !== 'purged') continue;
       }
     } catch {

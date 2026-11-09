@@ -18,6 +18,7 @@ export default defineConfig({
     './src/schema-ai-source-closures.ts',
     './src/schema-ai-record-closures.ts',
     './src/schema-lifecycle-delegated-erasure.ts',
+    './src/schema-raw-knowledge.ts',
     './src/schema-artifact-authority.ts',
     './src/schema-knowledge.ts',
     './src/schema-artifact-provenance.ts',

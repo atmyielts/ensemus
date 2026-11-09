@@ -90,16 +90,14 @@ describe('Studio synthetic simulation snapshots', () => {
       });
     expect(
       await withTenantTx(app.db, a.owner.context, (tx) =>
-        tx
-          .insert(simulationRuns)
-          .values({
-            organizationId: a.organizationId,
-            subjectKind: 'agent_draft',
-            subjectId: draft.id,
-            subjectSha256: draft.specSha256!,
-            scenarioKey: 'standard.draft_only',
-            requestedByMembershipId: a.owner.context.membershipId,
-          }),
+        tx.insert(simulationRuns).values({
+          organizationId: a.organizationId,
+          subjectKind: 'agent_draft',
+          subjectId: draft.id,
+          subjectSha256: draft.specSha256!,
+          scenarioKey: 'standard.draft_only',
+          requestedByMembershipId: a.owner.context.membershipId,
+        }),
       ).then(() => null, pgCode),
     ).toBe('EN412');
     expect(
