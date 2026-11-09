@@ -42,8 +42,8 @@
     },
     {
       "path": "00-foundation/adr/ADR-026-tombstones-survive-restore.md",
-      "size_bytes": 22152,
-      "sha256": "97b4fb958462bd50585ddcfad288c0adf37cec188d1395f42116d6054acb3d73"
+      "size_bytes": 22994,
+      "sha256": "27100453703dee38dd006fa53770a95d6c2ce9336db0f24b692eaf1bb4cf2a59"
     },
     {
       "path": "00-foundation/adr/ADR-027-verified-external-actions.md",
@@ -52,8 +52,8 @@
     },
     {
       "path": "00-foundation/adr/ADR-028-governed-ai.md",
-      "size_bytes": 40393,
-      "sha256": "d5ed7be58f3870f0f1d9fbb3df2a6f718977177b55b0183edcbcbea37934c1f0"
+      "size_bytes": 40661,
+      "sha256": "66fbf5c5597404e356fdfbb7fd323c7a84b58b91a62a10c5e1a232d93397ccda"
     },
     {
       "path": "00-foundation/adr/ADR-029-company-knowledge.md",
@@ -317,8 +317,8 @@
     },
     {
       "path": "05-operations/sovereign/backup-and-restore.md",
-      "size_bytes": 26486,
-      "sha256": "4526980f79222061b40dfcb1b3874ce358967774a42c5f72b0302ea2c8cbd5a7"
+      "size_bytes": 27426,
+      "sha256": "6d144b535c1a46cf4902ff512dc55b0b75e9690adbd673f321d18220c925f5f5"
     },
     {
       "path": "05-operations/sovereign/diagnostics.md",
@@ -452,8 +452,8 @@
     },
     {
       "path": "06-delivery/evidence/M6-M7-joined-authority-source.files.json",
-      "size_bytes": 15905,
-      "sha256": "16999fc3cb093f27bcdd6a97a95dc24a552e5f0eb587944455ba072687f40a70"
+      "size_bytes": 16017,
+      "sha256": "9591c594a01161e914b1f5baa915cd8a4592d18637ce1a271d1eb731dcd50e7c"
     },
     {
       "path": "06-delivery/evidence/M6-M7-joined-authority-source.md",
@@ -877,8 +877,8 @@
     },
     {
       "path": "06-delivery/m6-slices.md",
-      "size_bytes": 46001,
-      "sha256": "77624a91e79546111cb4c6a5c7384a2942ab408cd7f3591b4dcec8baafc24b02"
+      "size_bytes": 46278,
+      "sha256": "5932e6008414feecc8394f0135f705ca5b04dd878ec896a8d4b3e7cccf1b1174"
     },
     {
       "path": "06-delivery/m7-slices.md",

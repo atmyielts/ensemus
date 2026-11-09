@@ -3,7 +3,7 @@
   "base": "c5d8726",
   "recovered": "335c7c1",
   "laterRestoreRevisions": {
-    "through": "26a76eb",
+    "through": "26a76eb and the round 9 merge that added 0551",
     "note": "Not part of this checkpoint. The restore docs, scripts and reconcile listed in sourceFiles were revised after it for the 0422 authentication fence and the ADR-026 D3a restore-debt proofs. 0543, 0545, 0547, 0549, 0550 and 0551 are flagged for human security review and not yet reviewed by a person; 0551 has not run.",
     "docs": [
       "docs/00-foundation/adr/ADR-026-tombstones-survive-restore.md",
@@ -24,7 +24,7 @@
       "packages/database/migrations/0547_raw_restore_survivor_deletion_r7restore.sql",
       "packages/database/migrations/0549_restore_entry_refusal_first_r8restore.sql",
       "packages/database/migrations/0550_raw_restore_active_source_r8restore.sql",
-      "0551 (restore group, CI repair round 9; file name and number fixed at merge)"
+      "packages/database/migrations/0551_raw_restore_active_source_closure_r9restore.sql"
     ],
     "sourceFiles": [
       "infrastructure/scripts/restore-drill.mjs",
@@ -37,6 +37,7 @@
       "workers/workflow/src/restore-reconcile.ts"
     ],
     "tests": [
+      "tests/integration/raw-restore-active-source-closure.test.ts",
       "tests/integration/raw-restore-active-source.test.ts",
       "tests/integration/raw-restore-requalify.test.ts",
       "tests/integration/raw-restore-survivors.test.ts",
