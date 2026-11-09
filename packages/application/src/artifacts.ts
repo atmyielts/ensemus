@@ -159,7 +159,9 @@ export async function addArtifact(
   // Only now is this writer known to have finished. Whatever stops the row arriving after this point,
   // its receipt is settled, so the sweep can remove the bytes once no other writer is still going.
   // The settlement itself rechecks, under the row lock, that no file row or catalog entry exists, so a
-  // lost commit response that did publish is never treated as abandoned.
+  // lost commit response that did publish is never treated as abandoned. When the file this request
+  // shared was deleted while these bytes were on the way, it puts the key back on the owed list, so
+  // bytes landing after the purge are removed and proved gone again (0545).
   const settle = () => settleAbandonedUpload(database, context, id, writeId).catch(() => undefined);
   let published = false;
   let result: { id: string };

@@ -402,6 +402,137 @@ describe('knowledge ingestion, retries and closure', () => {
     );
     expect(events).toHaveLength(1);
   });
+  describe('a source row another request holds for a moment', () => {
+    // 0516 admits and completes a raw PUT with the source and organization rows taken NOWAIT. A
+    // concurrent retry of the same upload holds the source row while it checks the writer (CI run
+    // 42620054406: both racing requests failed, and the writer was left admitted). These hold the
+    // source row from a second connection exactly when the native port opens its transaction.
+    const writes = async (title: string) => {
+      const observer = new pg.Client({ connectionString: urls.superuser() });
+      await observer.connect();
+      try {
+        const rows = await observer.query<{ generation: string; state: string }>(
+          `select w.generation::text,w.state from lifecycle.raw_object_writes w
+           join knowledge.documents d on d.organization_id=w.organization_id and d.id=w.document_id
+           where d.organization_id=$1 and d.title=$2 order by w.generation`,
+          [owner.organizationId, title],
+        );
+        return rows.rows;
+      } finally {
+        await observer.end();
+      }
+    };
+    /** Locks the uploaded document's source row from another session; release() commits. */
+    const holdSource = async (title: string) => {
+      const holder = new pg.Client({ connectionString: urls.superuser() });
+      await holder.connect();
+      await holder.query('begin');
+      const locked = await holder.query(
+        `select s.id from knowledge.sources s join knowledge.documents d
+         on d.organization_id=s.organization_id and d.source_id=s.id
+         where d.organization_id=$1 and d.title=$2 for update of s`,
+        [owner.organizationId, title],
+      );
+      expect(locked.rows).toHaveLength(1);
+      let released: Promise<void> | undefined;
+      return {
+        release: () =>
+          (released ??= holder
+            .query('commit')
+            .then(() => holder.end())
+            .then(() => undefined)),
+      };
+    };
+    /** The production native port over this database, calling `before` as each of its
+     * transactions opens (1: admission, then completion, and any retry of either). */
+    const portWith = (before: (call: number) => Promise<void>) => {
+      let call = 0;
+      const target = database.db;
+      const hooked = new Proxy(target, {
+        get(object, key) {
+          if (key === 'transaction')
+            return async (...args: Parameters<typeof target.transaction>) => {
+              await before(++call);
+              return target.transaction(...args);
+            };
+          const value: unknown = Reflect.get(object, key, object);
+          return typeof value === 'function' ? value.bind(object) : value;
+        },
+      });
+      let puts = 0;
+      const store = nativeKnowledgeStore(hooked, {
+        ...transport,
+        putSingleAttempt: async (key: string, body: Buffer, type: string) => {
+          puts++;
+          return transport.putSingleAttempt(key, body, type);
+        },
+      });
+      return { store, calls: () => call, puts: () => puts };
+    };
+    const generated = (title: string) => ({
+      title,
+      mediaType: 'text/plain',
+      body: Buffer.from(`Generated words for ${title}.`),
+      classification: 'internal' as const,
+      grants: [],
+      requestKey: randomUUID(),
+    });
+
+    it('admits the PUT once the lock is released, instead of failing both requests', async () => {
+      const input = generated(`Busy admission ${randomUUID()}`);
+      const port = portWith(async (call) => {
+        if (call !== 1) return;
+        const held = await holdSource(input.title);
+        setTimeout(() => void held.release(), 150);
+      });
+      const result = await addUploadedSource(database.db, port.store, owner, input);
+      // The first admission was refused while the row was held, and was asked again.
+      expect(port.calls()).toBeGreaterThan(2);
+      expect(port.puts()).toBe(1);
+      expect(await writes(input.title)).toEqual([
+        { generation: '0', state: 'catalog' },
+        { generation: '1', state: 'finished' },
+      ]);
+      expect(await ingest(result.documentId)).toMatchObject({ outcome: 'searchable' });
+    });
+    it('records the outcome of a PUT that already happened once the lock is released', async () => {
+      const input = generated(`Busy completion ${randomUUID()}`);
+      const port = portWith(async (call) => {
+        if (call !== 2) return;
+        const held = await holdSource(input.title);
+        setTimeout(() => void held.release(), 150);
+      });
+      const result = await addUploadedSource(database.db, port.store, owner, input);
+      expect(port.calls()).toBeGreaterThan(2);
+      expect(port.puts()).toBe(1);
+      expect(await writes(input.title)).toEqual([
+        { generation: '0', state: 'catalog' },
+        { generation: '1', state: 'finished' },
+      ]);
+      expect(await ingest(result.documentId)).toMatchObject({ outcome: 'searchable' });
+    });
+    it('still refuses, sending nothing, while the lock is held past the short wait', async () => {
+      const input = generated(`Held admission ${randomUUID()}`);
+      let held: Awaited<ReturnType<typeof holdSource>> | undefined;
+      const port = portWith(async (call) => {
+        if (call === 1) held = await holdSource(input.title);
+      });
+      try {
+        await expect(addUploadedSource(database.db, port.store, owner, input)).rejects.toEqual(
+          new AppError('INVALID_STATE'),
+        );
+      } finally {
+        await held?.release();
+      }
+      // Asked a bounded number of times, never admitted, and no byte was sent.
+      expect(port.calls()).toBe(9);
+      expect(port.puts()).toBe(0);
+      expect(await writes(input.title)).toEqual([
+        { generation: '0', state: 'catalog' },
+        { generation: '1', state: 'intent' },
+      ]);
+    });
+  });
   it('reauthorizes an upload retry after its source grant was removed, before touching storage', async () => {
     const input = {
       title: 'Generated revoked upload',
