@@ -13,7 +13,7 @@ import {
 } from '@ensemus/database';
 import { and, eq, sql } from 'drizzle-orm';
 import { z } from 'zod';
-import { closeRunWithoutContext } from '../ai/runs';
+import { closeRunWithoutContext, purgeEndedRunTranscript } from '../ai/runs';
 import { AppError } from '../errors';
 import { idSchema } from '../ids';
 import { redactDelegatedWorkInTx } from './delegated-work-redaction';
@@ -218,6 +218,15 @@ export function createDelegatedWorkPurge(deps: {
             stopCode: 'POLICY_DENIED',
           });
           await deps.accounting.reconcileRun(context, row.id);
+          // closeRunWithoutContext no longer erases the step payloads it used to (its lookup Tx is no
+          // service actor, which 0515's barrier requires), so this path erases them itself, as every
+          // other caller does: the native service purge, after the run's end has committed (FD-5).
+          // `context` is this worker's own service context. A hold keeps them ('held'), and the
+          // closure below is then not recorded: 0419's guard_source_run_closure needs the purge.
+          if (
+            (await purgeEndedRunTranscript(database, context, { agentRunId: row.id })) !== 'purged'
+          )
+            throw new AppError('POLICY_DENIED');
           await withTenantTx(database, context, async (tx) => {
             const state = await sourceState(tx, sourceId);
             if (state.source.version !== controls.cursor.sourceVersion)
