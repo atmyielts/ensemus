@@ -1,9 +1,8 @@
 // COMM-03, COMM-05, SOV-02, SOV-04: the Sovereign routes against built images, through the proxy. Every
 // response goes through call(), which validates it against docs/specifications/openapi.yaml at run time.
 //
-// WRITTEN AND NOT YET RUN. It needs the stack, the migrations stitched into the journal, every M6 slice merged,
-// and a generated test trust root mounted into the web service (see trustRootForTheStack below). It counts
-// as unverified until the owner runs it.
+// It needs the stack and the generated test trust root compose.test.yaml mounts into web, whose signing key
+// generate-test-secrets.mjs writes (see trustRootForTheStack below).
 import { createHash, createPrivateKey, createPublicKey, randomUUID } from 'node:crypto';
 import { openAppDatabase } from '@ensemus/database';
 import { createServiceContext } from '@ensemus/database/service';
@@ -27,7 +26,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { components } from '../../packages/contracts/generated/openapi';
 import { contractProblems, operationName, operations } from '../helpers/openapi';
 import { BASE, createOrganization, join, type Person, signUp, submit } from '../helpers/forms';
-import { compose, repoRoot, urls, secret } from '../helpers/stack';
+import { repoRoot, urls, secret } from '../helpers/stack';
 import { buildArchive } from '../integration/fixtures/archive-builder';
 
 type ApiError = components['schemas']['Error'];
@@ -44,22 +43,10 @@ const POLL_MS = 500;
 const EXPORT_LIMIT_MS = 90_000;
 
 /**
- * Whether the stack's web service was given a license trust root, from the stack's own Compose configuration.
- * Only a test overlay can give it one, and none does yet: compose.test.yaml mounts no trust root, and
- * generate-test-secrets.mjs writes no test signing key. Until both exist, every signed-document case here would
- * be refused by a deployment that trusts nothing, so the suite does not start.
- */
-function stackTrustsATestRoot(): boolean {
-  const config = JSON.parse(compose('config', '--format', 'json')) as {
-    services?: Record<string, { environment?: Record<string, string | null> }>;
-  };
-  return Boolean(config.services?.['web']?.environment?.['ENSEMUS_LICENSE_TRUST_ROOT_FILE']);
-}
-
-/**
  * The private half of the generated key the stack's test overlay trusts. Written by the step that starts the
- * stack, next to its other generated secrets, and never used outside a test. Once the stack trusts a test
- * root, a failure to find it is a failure, and not a skip: a test that quietly does not run proves nothing.
+ * stack (generate-test-secrets.mjs), next to its other generated secrets, and never used outside a test:
+ * compose.test.yaml mounts only the trust root, which names the public half, into web. A failure to find it
+ * is a failure, and not a skip: a test that quietly does not run proves nothing.
  */
 function trustRootForTheStack(): TestSigningKey {
   const folder = joinPath(repoRoot, '.local', 'sovereign-test');
@@ -149,7 +136,7 @@ const aRecipient = () => {
   };
 };
 
-describe.skipIf(!stackTrustsATestRoot())('the Sovereign API', () => {
+describe('the Sovereign API', () => {
   let su: pg.Client;
   let key: TestSigningKey;
   let owner: Person;
@@ -599,18 +586,105 @@ describe.skipIf(!stackTrustsATestRoot())('the Sovereign API', () => {
     }
   });
 
-  it('has validated a real answer from every Sovereign route it could reach here', () => {
+  it('links a person an imported archive named, through the native HTTP boundary', async () => {
+    const custodian = await signUp('Generated HTTP link custodian'),
+      company = await createOrganization(custodian, `Generated link ${randomUUID()}`);
+    const requested = await call(custodian, 'POST', api(company, 'imports'));
+    expect(requested.status).toBe(201);
+    const importId = (requested.json as OrganizationImport).id,
+      sourceMembershipId = randomUUID();
+    const recipient = aRecipient(),
+      archive = buildArchive(recipient, {
+        pages: [
+          {
+            section: 'people',
+            recordKind: 'people',
+            records: [
+              {
+                kind: 'person',
+                membership_id: sourceMembershipId,
+                display_name: 'Generated archived person',
+                email: `archived-${sourceMembershipId}@example.invalid`,
+                role: 'member',
+                status: 'active',
+                created_at: '2026-11-08T00:00:00.000Z',
+              },
+            ],
+          },
+        ],
+      });
+    const app = openAppDatabase(urls.app()),
+      store = new S3ObjectStore({
+        endpoint: `http://127.0.0.1:${process.env.ENSEMUS_TEST_OBJECTS_PORT ?? '58333'}`,
+        bucket: 'ensemus',
+        accessKey: secret('objects_access_key'),
+        secretKey: secret('objects_secret_key'),
+        maxAttempts: 1,
+      });
+    try {
+      // As above: the operator's import runs in the test driver, and only the link goes through HTTP.
+      const imported = await runOrganizationImport(
+        app.db,
+        createServiceContext(company),
+        { importId, archive: archive.reader, recipientPrivateKeyPem: recipient.privateKeyPem },
+        { sections: SOURCE_PORTABILITY_SECTIONS, store, ledger: store },
+      );
+      expect(['completed', 'completed_with_warnings']).toContain(imported.status);
+    } finally {
+      store.close();
+      await app.close();
+    }
+    const listed = (await call(custodian, 'GET', api(company, 'imported-people'))).json as {
+      items: ImportedPerson[];
+    };
+    expect(listed.items).toEqual([
+      expect.objectContaining({
+        source_membership_id: sourceMembershipId,
+        target_membership_id: null,
+        linked_at: null,
+      }),
+    ]);
+
+    const membershipOf = async (person: Person, organization: string) => {
+      const { rows } = await su.query<{ id: string }>(
+        `select m.id from org.memberships m join identity.users u on u.id = m.user_id
+          where u.email = $1 and m.organization_id = $2`,
+        [person.email, organization],
+      );
+      const id = rows[0]?.id;
+      if (!id) throw new Error(`${person.name} has no membership there`);
+      return id;
+    };
+    const arrived = await join(custodian, company, 'Generated arrived member');
+    const membershipId = await membershipOf(arrived, company);
+    const link = api(company, `imported-people/${sourceMembershipId}/link`);
+    const body = { membership_id: membershipId };
+
+    // Only an owner of this organization may say who someone was, and only as one of its own members.
+    expect([403, 404]).toContain((await call(arrived, 'POST', link, { body })).status);
+    expectError(await call(rival, 'POST', link, { body }), 404, 'NOT_FOUND');
+    expectError(
+      await call(custodian, 'POST', link, {
+        body: { membership_id: await membershipOf(rival, rivalOrg) },
+      }),
+      400,
+      'INVALID_INPUT',
+    );
+
+    const linked = await call(custodian, 'POST', link, { body });
+    expect(linked.status, linked.text).toBe(200);
+    expect(linked.json as ImportedPerson).toMatchObject({
+      source_membership_id: sourceMembershipId,
+      target_membership_id: membershipId,
+    });
+    expect((linked.json as ImportedPerson).linked_at).not.toBeNull();
+  });
+
+  it('has validated a real answer from every Sovereign route', () => {
     const sovereign = operations()
       .filter(({ path }) => /\/(license|advisories|exports|imports|imported-people)/.test(path))
       .map(({ method, path }) => operationName(method, path));
-    // Linking takes a real imported person, which only an operator's import makes. organization-import's own
-    // integration test covers that path, so this list says plainly what this file does not prove.
-    const notReachedHere = [
-      'POST /organizations/{organization_id}/imported-people/{source_membership_id}/link',
-    ];
-    const missing = sovereign.filter(
-      (name) => !validated.has(name) && !notReachedHere.includes(name),
-    );
+    const missing = sovereign.filter((name) => !validated.has(name));
     expect(missing).toEqual([]);
   });
 });

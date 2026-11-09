@@ -238,6 +238,8 @@ async function rehearse() {
     envFile,
     [
       `ENSEMUS_SECRETS_DIR=${join(root, '.local', 'secrets').replaceAll('\\', '/')}`,
+      // The overlay mounts the operator's trust root into web and worker, and refuses to start without one.
+      `ENSEMUS_LICENSE_TRUST_ROOT_PATH=${trustRoot.replaceAll('\\', '/')}`,
       `ENSEMUS_HTTPS_PORT=${PORT}`,
       `ENSEMUS_NETWORK_PREFIX=${NETWORK_PREFIX}`,
       `ENSEMUS_PUBLIC_URL=https://localhost:${PORT}`,

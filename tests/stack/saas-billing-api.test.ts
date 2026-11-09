@@ -11,7 +11,11 @@ import { setTenantStandingInTx } from '@ensemus/application/saas/standing';
 import { createStandingAgentHaltPort } from '@ensemus/application/saas/standing-agent-port';
 import { urls } from '../helpers/stack';
 
-/** Billing exists only where the stack runs a hosted mode with billing named on (ADR-032 D1). */
+/**
+ * Billing exists only where the stack runs a hosted mode with billing named on (ADR-032 D1). The air-gap gate
+ * runs this file twice: once on the Sovereign stack, and once with web, web-2 and the worker recreated with
+ * ENSEMUS_MODE=cloud and ENSEMUS_BILLING_ENABLED=true, the same settings it gives this process.
+ */
 const BILLING_DEPLOYMENT =
   (process.env.ENSEMUS_MODE ?? 'sovereign') !== 'sovereign' &&
   process.env.ENSEMUS_BILLING_ENABLED === 'true';
@@ -34,6 +38,7 @@ describe('billing API keeps account access and tenant boundaries', () => {
     await sql.end();
     await app.close();
   });
+  /** Every answer is held to docs/specifications/openapi.yaml before a test reads it (API-12). */
   async function call(
     person: Person | null,
     method: string,
@@ -41,7 +46,8 @@ describe('billing API keeps account access and tenant boundaries', () => {
     body?: unknown,
     headers: Record<string, string> = {},
   ) {
-    return fetch(`${BASE}/api/v1/organizations/${org}/billing${path}`, {
+    const apiPath = `/api/v1/organizations/${org}/billing${path}`;
+    const response = await fetch(`${BASE}${apiPath}`, {
       method,
       headers: {
         ...(person ? { cookie: person.jar.cookie } : {}),
@@ -52,6 +58,20 @@ describe('billing API keeps account access and tenant boundaries', () => {
       },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
       redirect: 'manual',
+    });
+    const text = await response.text();
+    const { problems } = contractProblems({
+      method,
+      path: apiPath,
+      status: response.status,
+      headers: response.headers,
+      text,
+    });
+    expect(problems, text).toEqual([]);
+    // The body was read to check it, so the test gets the same answer again, unread.
+    return new Response(text === '' ? null : text, {
+      status: response.status,
+      headers: response.headers,
     });
   }
   it('anonymous, member and outsider cannot read billing', async () => {
@@ -74,16 +94,8 @@ describe('billing API keeps account access and tenant boundaries', () => {
     expect((await call(owner, 'PUT', '/account', account)).status).toBe(409);
     expect((await call(owner, 'PUT', '/account', account, { 'if-match': '"1"' })).status).toBe(200);
     const overview = await call(owner, 'GET', '');
+    expect(overview.status).toBe(200);
     const text = await overview.text();
-    expect(
-      contractProblems({
-        method: 'GET',
-        path: `/organizations/${org}/billing`,
-        status: overview.status,
-        headers: overview.headers,
-        text,
-      }).problems,
-    ).toEqual([]);
     expect(text).not.toMatch(/customer_ref|processor|token|secret/i);
   });
   // ADR-032 D1: a Sovereign deployment can never enable billing (loadSaasConfig refuses it), and the
@@ -113,6 +125,15 @@ describe('billing API keeps account access and tenant boundaries', () => {
     'concurrent subscription retries start exactly one and a changed payload conflicts',
     async () => {
       const plan = await seedPlan({ mode: 'cloud', rateCard: await seedRateCard() });
+      // The approved plan is what a hosted owner is offered, and someone outside the organization sees nothing.
+      const plans = await call(owner, 'GET', '/plans');
+      expect(plans.status).toBe(200);
+      expect(
+        ((await plans.json()) as { items: { plan_version_id: string }[] }).items.map(
+          (item) => item.plan_version_id,
+        ),
+      ).toContain(plan.planVersionId);
+      expect((await call(outsider, 'GET', '/plans')).status).toBe(404);
       const headers = { 'idempotency-key': randomUUID() };
       const body = { plan_version_id: plan.planVersionId };
       const responses = await Promise.all([

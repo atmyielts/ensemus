@@ -3,9 +3,9 @@
 // refused until the reconcile has run, the other tenant is untouched throughout, and a second run changes
 // nothing.
 //
-// Written and not yet run. It needs what docker_later adds: the `restore-reconcile` one-shot service, which
-// holds both database URLs, and the tools built into workers/workflow/dist/tools. It restores over the running
-// stack, so it runs on its own in the stack project.
+// It needs the `restore-reconcile` one-shot service in compose.yaml (profile `ops`), which holds both database
+// URLs, and the tools built into workers/workflow/dist/tools, which the air-gap gate builds before it starts. It
+// restores over the running stack, so it runs on its own in the stack project.
 import { execFileSync, spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
@@ -52,16 +52,6 @@ const COMPOSE_FILES = [
   ...(process.env.ENSEMUS_COMPOSE_AIRGAP ? ['infrastructure/compose/compose.airgap.yaml'] : []),
 ];
 const composeFileArguments = COMPOSE_FILES.flatMap((file) => ['--compose-file', file]);
-
-/**
- * The drill re-applies through the `restore-reconcile` one-shot service, which holds both database URLs. The
- * Compose files do not define it yet (see the note at the top), and without it the drill would stop the stack,
- * replace its databases and then have no way to finish. So the drill runs once the stack has that service.
- */
-const stackCanReconcile = compose('--profile', '*', 'config', '--services')
-  .split('\n')
-  .map((name) => name.trim())
-  .includes('restore-reconcile');
 
 function linesOf(output: string) {
   return output
@@ -155,7 +145,7 @@ describe('a backup, a deletion, and a restore', () => {
   const ledgerCounts = (lines: Record<string, unknown>[]) =>
     lines.find((line) => line.event === 'restore_reconcile.ledger');
 
-  it.skipIf(!stackCanReconcile)(
+  it(
     'keeps it deleted, serves the tenant again, and leaves the other one alone',
     async () => {
       // Two tenants with the same names, each with a file called the same.

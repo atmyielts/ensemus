@@ -63,6 +63,9 @@ services:
       ENSEMUS_PUBLIC_URL: ${ENSEMUS_PUBLIC_URL:-https://localhost:8443}
       ENSEMUS_ALLOW_SIGNUP: ${ENSEMUS_ALLOW_SIGNUP:-false}
       ENSEMUS_CONNECTORS_ENABLED: ${ENSEMUS_CONNECTORS_ENABLED:-false}
+      # Billing is for a hosted mode that names it on, and a Sovereign deployment refuses to start with it
+      # (ADR-032 D1). Off unless set, here and in the worker, which must agree.
+      ENSEMUS_BILLING_ENABLED: ${ENSEMUS_BILLING_ENABLED:-false}
       DATABASE_URL_APP_FILE: /run/secrets/db_app_url
       OBJECT_STORAGE_ENDPOINT: http://objects:8333
       OBJECT_STORAGE_BUCKET: ensemus
@@ -110,6 +113,9 @@ services:
       OBJECT_STORAGE_SECRET_KEY_FILE: /run/secrets/objects_secret_key
       DATABASE_URL_SECRETS_FILE: /run/secrets/db_secrets_url
       SECRET_SEALING_PRIVATE_KEY_FILE: /run/secrets/sealing_private_key.pem
+      # The same mode and billing setting as web, so loadSaasConfig refuses billing on Sovereign here too.
+      ENSEMUS_MODE: ${ENSEMUS_MODE:-sovereign}
+      ENSEMUS_BILLING_ENABLED: ${ENSEMUS_BILLING_ENABLED:-false}
     secrets:
       - temporal_codec_key
       - db_app_url
@@ -354,6 +360,36 @@ services:
       DATABASE_URL_AUTH_FILE: /run/secrets/db_auth_url
       AUTH_SECRET_FILE: /run/secrets/auth_secret
     secrets: [db_auth_url, auth_secret]
+
+  # One-shot, after a restore and before anyone is let back in (ADR-030 D11, sovereign/backup-and-restore.md):
+  #   docker compose run --rm --no-deps restore-reconcile [--apply] ...
+  # It reads the tenants through the dispatcher's identity and the rest through the app's, and needs the full
+  # store credential to remove bytes a tombstone names. It asks Temporal only whether a run is open, so it holds
+  # no payload codec. No vault, sealing or model key, and no web or outbound network.
+  restore-reconcile:
+    profiles: ['ops']
+    build:
+      context: ../..
+      dockerfile: infrastructure/containers/Dockerfile.worker
+    image: ${ENSEMUS_WORKER_IMAGE:-ensemus/worker:local}
+    command: ['node', 'dist/restore-reconcile.js']
+    read_only: true
+    tmpfs: ['/tmp']
+    networks: [data, temporal]
+    extra_hosts:
+      - postgres:${ENSEMUS_NETWORK_PREFIX:-172.30}.2.10
+      - objects:${ENSEMUS_NETWORK_PREFIX:-172.30}.2.12
+      - temporal:${ENSEMUS_NETWORK_PREFIX:-172.30}.3.10
+    environment:
+      TEMPORAL_ADDRESS: temporal:7233
+      TEMPORAL_NAMESPACE: default
+      DATABASE_URL_APP_FILE: /run/secrets/db_app_url
+      DATABASE_URL_DISPATCHER_FILE: /run/secrets/db_dispatcher_url
+      OBJECT_STORAGE_ENDPOINT: http://objects:8333
+      OBJECT_STORAGE_BUCKET: ensemus
+      OBJECT_STORAGE_ACCESS_KEY_FILE: /run/secrets/objects_access_key
+      OBJECT_STORAGE_SECRET_KEY_FILE: /run/secrets/objects_secret_key
+    secrets: [db_app_url, db_dispatcher_url, objects_access_key, objects_secret_key]
 
   postgres:
     <<: *restart

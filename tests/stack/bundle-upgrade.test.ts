@@ -1,8 +1,7 @@
-// COMM-04, OPS-03, QA-022: an offline bundle with real image archives and a real Docker. Written and not yet run:
-// it needs the overlay in infrastructure/compose/sovereign/README.md and the built images, so until the owner
-// dockerizes this counts as unverified. It runs beside the test stack and never touches it, using its own
-// Compose project name for the one place it starts Docker work. The full upgrade and rollback is
-// infrastructure/scripts/bundle-rehearsal.mjs, which brings up a whole stack of its own.
+// COMM-04, OPS-03, QA-022: an offline bundle with real image archives and a real Docker. It needs the overlay
+// in infrastructure/compose/sovereign/ and the images the stack was built from. It runs beside the test stack
+// and never touches it, using its own Compose project name for the one place it starts Docker work. The full
+// upgrade and rollback is infrastructure/scripts/bundle-rehearsal.mjs, which brings up a whole stack of its own.
 import { spawnSync } from 'node:child_process';
 import { readFileSync, existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -37,14 +36,11 @@ const docker = (...args: string[]) =>
   spawnSync('docker', args, { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
 
 /**
- * The overlay `install-bundle` lays over compose.yaml. infrastructure/compose/sovereign/README.md says what it
- * has to hold, and it is not written yet, so build-bundle.mjs refuses with OVERLAY_MISSING before it builds
- * anything (a refusal with its own unit test in tests/unit). Nothing here can run until it exists, and once
- * it does, all of this runs, with no setting to turn it on.
+ * The overlay `install-bundle` lays over compose.yaml, infrastructure/compose/sovereign/compose.sovereign.yaml.
+ * build-bundle.mjs refuses with OVERLAY_MISSING without it (a refusal with its own unit test in tests/unit), so
+ * a missing overlay fails the build below, and is never a reason for this not to run.
  */
-const OVERLAY = join(repoRoot, 'infrastructure', 'compose', 'sovereign', 'compose.sovereign.yaml');
-
-describe.skipIf(!existsSync(OVERLAY))('a bundle with real image archives', () => {
+describe('a bundle with real image archives', () => {
   beforeAll(async () => {
     work = mkdtempSync(join(tmpdir(), 'ensemus-bundle-stack-'));
     bundle = join(work, 'bundle');
