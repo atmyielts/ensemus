@@ -316,6 +316,10 @@ export const PORTABILITY_INVENTORY = [
   // 0545 archive restore-debt proofs and raw organization marker re-admissions, bound the same way.
   inventory('lifecycle.archive_restore_requalifications', 'history', 'operational_excluded'),
   inventory('lifecycle.raw_org_restore_requalifications', 'knowledge', 'operational_excluded'),
+  // 0590_deleg (ADR-028 open question 12): the deployment's delegation capability ledger. It is global
+  // deployment evidence with no tenant column, written only by reviewed migrations; an archive never
+  // carries it, and an import can never turn delegated child birth on.
+  inventory('ai.delegation_birth_capabilities', 'agents', 'operational_excluded'),
 ] as const;
 
 export const PORTABILITY_INVENTORY_PROFILES = {
