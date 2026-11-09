@@ -92,6 +92,12 @@ export type AgentActivityDeps = {
   halt?: HaltCheck;
   /** Trusted composition binds metadata accounting; no service context enters agent Activities. */
   modelAccounting?: { reconcileRun(organizationId: string, runId: string): Promise<void> };
+  /**
+   * Trusted composition binds the native service purge of an ended run's transcript (FD-5, 0515):
+   * the initiator's agent transaction can neither see an authority-v1 run's payloads (0417) nor
+   * delete them, so the run's end hands them to this port. 'held' (an active legal hold) keeps them.
+   */
+  transcripts?: { purgeEnded(organizationId: string, runId: string): Promise<'purged' | 'held'> };
   /** Aborts an in-flight call when a kill switch covers it. See workers/workflow/src/kill-switch.ts. */
   haltWatcher?: {
     signalFor(run: {
@@ -270,6 +276,7 @@ export function createAgentActivities(deps: AgentActivityDeps): AgentActivities 
             stopCode: 'INITIATOR_INACTIVE',
           });
           await deps.modelAccounting?.reconcileRun(input.organizationId, input.agentRunId);
+          await deps.transcripts?.purgeEnded(input.organizationId, input.agentRunId);
           return { kind: 'nothing_queued' as const };
         }
         const result = await reclaimRun(database, context, input);
@@ -637,6 +644,7 @@ export function createAgentActivities(deps: AgentActivityDeps): AgentActivities 
             stopCode: 'INITIATOR_INACTIVE',
           });
           await deps.modelAccounting?.reconcileRun(organizationId, agentRunId);
+          await deps.transcripts?.purgeEnded(organizationId, agentRunId);
           return;
         }
         const facts = await readRunFacts(database, context, { agentRunId });
@@ -652,6 +660,8 @@ export function createAgentActivities(deps: AgentActivityDeps): AgentActivities 
             : asStopCode(input.stopCode);
         await finishRun(database, context, { agentRunId, status, stopCode });
         await deps.modelAccounting?.reconcileRun(organizationId, agentRunId);
+        // finishRun no longer deletes payloads (it cannot under 0417/0515); the service purge does.
+        await deps.transcripts?.purgeEnded(organizationId, agentRunId);
       }),
 
     closeQueuedRun: (input) =>

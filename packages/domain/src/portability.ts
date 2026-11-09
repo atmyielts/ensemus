@@ -309,6 +309,10 @@ export const PORTABILITY_INVENTORY = [
   // writer proof. An archive never carries them, and an import never recreates or clears them.
   inventory('lifecycle.upload_writes', 'history', 'operational_excluded'),
   inventory('lifecycle.erasure_tombstone_grants', 'history', 'operational_excluded'),
+  // 0543 restore-debt requalification proofs are bound to this deployment's material generation.
+  // An archive never carries them, and an import never recreates or clears restore debt.
+  inventory('lifecycle.object_restore_requalifications', 'history', 'operational_excluded'),
+  inventory('lifecycle.raw_restore_requalifications', 'knowledge', 'operational_excluded'),
 ] as const;
 
 export const PORTABILITY_INVENTORY_PROFILES = {

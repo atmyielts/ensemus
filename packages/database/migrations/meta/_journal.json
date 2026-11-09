@@ -722,6 +722,20 @@
       "when": 1794201807504,
       "tag": "0542_raw_restore_proof_lost_deferred_r4knowledge",
       "breakpoints": true
+    },
+    {
+      "idx": 103,
+      "version": "7",
+      "when": 1794201807505,
+      "tag": "0543_raw_restore_debt_requalify_r5restore",
+      "breakpoints": true
+    },
+    {
+      "idx": 104,
+      "version": "7",
+      "when": 1794201807506,
+      "tag": "0544_shared_upload_after_purge_r5blob",
+      "breakpoints": true
     }
   ]
 }

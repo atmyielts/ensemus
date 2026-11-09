@@ -1,4 +1,4 @@
-// LIFE-01 ordinary upload writer receipts (0539) and late sharing writers (0545). Real app-role SQL;
+// LIFE-01 ordinary upload writer receipts (0539) and late sharing writers (0544). Real app-role SQL;
 // a private memory transport proves orchestration and SQL authority, never a provider's deletion.
 import { createHash, randomUUID } from 'node:crypto';
 import pg from 'pg';
@@ -51,7 +51,7 @@ const code = (name: string) => expect.objectContaining({ code: name });
 const hashOf = (body: Buffer) => createHash('sha256').update(body).digest('hex');
 const idOf = (key: string) => key.split('/').at(-1)!;
 
-describe('ordinary upload writer receipts (0539) and late sharing writers (0545)', () => {
+describe('ordinary upload writer receipts (0539) and late sharing writers (0544)', () => {
   const app = openAppDatabase(urls.app()),
     auth = new pg.Client({ connectionString: urls.auth() });
   beforeAll(async () => {
@@ -416,7 +416,7 @@ describe('ordinary upload writer receipts (0539) and late sharing writers (0545)
     });
   });
 
-  describe('a sharing writer whose PUT lands after the shared file was deleted (0545)', () => {
+  describe('a sharing writer whose PUT lands after the shared file was deleted (0544)', () => {
     /** Two requests from one form: the first publishes; the second registered first and waits. */
     async function sharedUpload(owner: TenantContext, store: HookedStore) {
       const work = await createWorkUnit(app.db, owner, { title: 'Generated late writer work' });

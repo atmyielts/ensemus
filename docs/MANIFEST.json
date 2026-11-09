@@ -347,8 +347,8 @@
     },
     {
       "path": "05-operations/sovereign/offline-bundle.md",
-      "size_bytes": 9288,
-      "sha256": "9c74df28a2b438913576c276f43714d476aef2808f58e258db2dbe712fbea84f"
+      "size_bytes": 10014,
+      "sha256": "44b87159100494aeb2be16aecbdaa2f98860f48982f223695acd99881fc09f80"
     },
     {
       "path": "05-operations/sovereign/restore-drill-record.md",

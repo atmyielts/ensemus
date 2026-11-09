@@ -51,6 +51,7 @@ import {
   createTurnStore,
   finishRun,
   listLostAttempts,
+  purgeEndedRunTranscript,
   storeStepPayload,
 } from '@ensemus/application/ai-runs';
 import { storeProposal } from '@ensemus/application/ai-tool-steps';
@@ -498,11 +499,25 @@ describe('bounded Knowledge model jobs and principal-bound result receipts (0216
         metadata: { ...f.input.metadata, operationKey: operationKey(['automatic retry', f.runId]) },
       }),
     ).rejects.toThrow();
+    // The worker's composition binds the native service purge here (agent-composition.ts); this
+    // records each call and its real answer, so the test sees the run's end reach the purge.
+    const purges: { organizationId: string; runId: string; answer: 'purged' | 'held' }[] = [];
     const activities = createAgentActivities({
       database: agent.db,
       modelAccounting: {
         reconcileRun: (organizationId, runId) =>
           f.calls.reconcileRun(createServiceContext(organizationId), runId),
+      },
+      transcripts: {
+        purgeEnded: async (organizationId, runId) => {
+          const answer = await purgeEndedRunTranscript(
+            agent.db,
+            createServiceContext(organizationId),
+            { agentRunId: runId },
+          );
+          purges.push({ organizationId, runId, answer });
+          return answer;
+        },
       },
       gateway: {
         turn: async () => {
@@ -526,9 +541,22 @@ describe('bounded Knowledge model jobs and principal-bound result receipts (0216
       agentRunId: f.runId,
       temporalRunId: f.temporalRunId,
     };
+    // An older workflow run ends nothing, so it erases nothing either.
+    await activities.finishAgentRun({
+      ...ref,
+      temporalRunId: randomUUID(),
+      status: 'cancelled',
+      stopCode: 'STOPPED_BY_PERSON',
+    });
+    expect(purges).toEqual([]);
     await activities.finishAgentRun({ ...ref, status: 'cancelled', stopCode: 'STOPPED_BY_PERSON' });
+    expect(purges).toEqual([
+      { organizationId: a.organizationId, runId: f.runId, answer: 'purged' },
+    ]);
     expect(await activities.reclaimAgentRun(ref)).toEqual({ kind: 'nothing_queued' });
     await activities.finishAgentRun({ ...ref, status: 'cancelled', stopCode: 'STOPPED_BY_PERSON' });
+    // A retried finish repeats the purge harmlessly (FD-5, 0515).
+    expect(purges.map((purge) => purge.answer)).toEqual(['purged', 'purged']);
     const rows = await withTenantTx(app.db, a.owner, (tx) =>
       tx.select().from(modelCallAttempts).where(eq(modelCallAttempts.id, call.callId)),
     );

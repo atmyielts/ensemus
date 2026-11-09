@@ -14,7 +14,7 @@ import { externalActionPort } from '@ensemus/application/ai-external-action-port
 import { createHaltCheck } from '@ensemus/application/ai-halt';
 import { loadProfileForProbe } from '@ensemus/application/ai-model-probe-store';
 import { createProfileStore } from '@ensemus/application/ai-model-profiles';
-import { createTurnStore } from '@ensemus/application/ai-runs';
+import { createTurnStore, purgeEndedRunTranscript } from '@ensemus/application/ai-runs';
 import { createApprovalBinder } from '@ensemus/application/ai-tool-approvals';
 import { createToolStepStore } from '@ensemus/application/ai-tool-steps';
 import { createUsageLedger } from '@ensemus/application/ai-usage';
@@ -181,6 +181,12 @@ export function createAgentServices(deps: {
         modelAccounting: {
           reconcileRun: (organizationId, runId) =>
             knowledgeCalls.reconcileRun(createServiceContext(organizationId), runId),
+        },
+        transcripts: {
+          purgeEnded: (organizationId, runId) =>
+            purgeEndedRunTranscript(database, createServiceContext(organizationId), {
+              agentRunId: runId,
+            }),
         },
         halt,
         haltWatcher: watcher,

@@ -144,25 +144,26 @@ describe('the joined inventory names every migrated table', () => {
     expect([...tables].filter((table) => !named.has(table))).toEqual([]);
     expect([...named].filter((table) => !tables.has(table))).toEqual([]);
   });
-  it.each(['lifecycle.upload_writes', 'lifecycle.erasure_tombstone_grants'])(
-    'keeps %s as native proof that no archive carries or restores',
-    (table) => {
-      const entries = PORTABILITY_INVENTORY.filter((entry) => entry.table === table);
-      expect(entries).toEqual([
-        { table, section: 'history', disposition: 'operational_excluded', version: 1 },
-      ]);
-      expect(PORTABILITY_INVENTORY_V2.some((entry) => entry.table === table)).toBe(false);
-      expect(matchesPortabilityInventory(PORTABILITY_INVENTORY)).toBe(true);
-      expect(
-        matchesPortabilityInventory(PORTABILITY_INVENTORY.filter((entry) => entry.table !== table)),
-      ).toBe(false);
-      expect(
-        matchesPortabilityInventory(
-          PORTABILITY_INVENTORY.map((entry) =>
-            entry.table === table ? { ...entry, disposition: 'records' } : entry,
-          ),
+  it.each([
+    ['lifecycle.upload_writes', 'history'],
+    ['lifecycle.erasure_tombstone_grants', 'history'],
+    // 0543 restore-debt requalification proofs.
+    ['lifecycle.object_restore_requalifications', 'history'],
+    ['lifecycle.raw_restore_requalifications', 'knowledge'],
+  ])('keeps %s as native proof that no archive carries or restores', (table, section) => {
+    const entries = PORTABILITY_INVENTORY.filter((entry) => entry.table === table);
+    expect(entries).toEqual([{ table, section, disposition: 'operational_excluded', version: 1 }]);
+    expect(PORTABILITY_INVENTORY_V2.some((entry) => entry.table === table)).toBe(false);
+    expect(matchesPortabilityInventory(PORTABILITY_INVENTORY)).toBe(true);
+    expect(
+      matchesPortabilityInventory(PORTABILITY_INVENTORY.filter((entry) => entry.table !== table)),
+    ).toBe(false);
+    expect(
+      matchesPortabilityInventory(
+        PORTABILITY_INVENTORY.map((entry) =>
+          entry.table === table ? { ...entry, disposition: 'records' } : entry,
         ),
-      ).toBe(false);
-    },
-  );
+      ),
+    ).toBe(false);
+  });
 });

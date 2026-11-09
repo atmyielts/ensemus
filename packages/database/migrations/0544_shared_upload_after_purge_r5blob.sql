@@ -2,7 +2,7 @@
 -- FLAGGED FOR HUMAN SECURITY REVIEW: written by an agent in CI repair round 5 (g6, check finding 11)
 -- and not yet reviewed by a person. It changes the deletion authority's proof step for ordinary files.
 --
--- 0545 (r5 blob uploads): a sharing upload writer whose PUT lands after the shared file was deleted
+-- 0544 (r5 blob uploads): a sharing upload writer whose PUT lands after the shared file was deleted
 -- and purged (LIFE-01). Additive: 0508, 0516 and 0539 are registered and pushed, so they are not edited.
 --
 -- 0539 lets several requests that share one request-derived artifact ID each register a writer token
@@ -59,7 +59,7 @@ BEGIN
  UPDATE lifecycle.upload_writes w SET state='settled' WHERE w.organization_id=tenant AND w.artifact_id=p_artifact
   AND w.write_id=p_write AND w.membership_id=app.current_membership_id() AND w.state='registered';
  IF NOT FOUND THEN RETURN 'unknown';END IF;
- -- 0545: the file this writer shared was deleted meanwhile, so these bytes may have landed after its
+ -- 0544: the file this writer shared was deleted meanwhile, so these bytes may have landed after its
  -- purge. The key is owed again; the ordinary deletion authority removes it and proves it gone.
  IF blob_state IN('deleting','purged')
   AND EXISTS(SELECT 1 FROM platform.tombstones t WHERE t.organization_id=tenant AND t.target_type='artifact' AND t.target_id=p_artifact)

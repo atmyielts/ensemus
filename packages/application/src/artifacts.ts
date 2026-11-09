@@ -161,7 +161,7 @@ export async function addArtifact(
   // The settlement itself rechecks, under the row lock, that no file row or catalog entry exists, so a
   // lost commit response that did publish is never treated as abandoned. When the file this request
   // shared was deleted while these bytes were on the way, it puts the key back on the owed list, so
-  // bytes landing after the purge are removed and proved gone again (0545).
+  // bytes landing after the purge are removed and proved gone again (0544).
   const settle = () => settleAbandonedUpload(database, context, id, writeId).catch(() => undefined);
   let published = false;
   let result: { id: string };
