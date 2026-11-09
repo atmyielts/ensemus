@@ -666,6 +666,13 @@
       "when": 1794201807496,
       "tag": "0534_erasure_tombstone_scope_hsaas",
       "breakpoints": true
+    },
+    {
+      "idx": 95,
+      "version": "7",
+      "when": 1794201807497,
+      "tag": "0535_legacy_checklist_requalify_upgrade",
+      "breakpoints": true
     }
   ]
 }
