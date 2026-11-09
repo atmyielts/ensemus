@@ -736,6 +736,31 @@ export function createToolStepStore(deps: {
     },
 
     async openStep(tx, context, input) {
+      assertOwnRun(context, input.runId);
+      const [existing] = await tx
+        .select({ id: executionSteps.id, kind: executionSteps.kind })
+        .from(executionSteps)
+        .where(
+          and(
+            eq(executionSteps.runId, input.runId),
+            eq(executionSteps.stepNumber, input.stepNumber),
+          ),
+        );
+      if (existing) return existing.kind === 'tool_call' ? { stepId: existing.id } : null;
+      // A new step row is a run write that 0417's authority_step_write admits only under this
+      // transaction's own authority-v1 binding. The gateway opens the step in a fresh transaction,
+      // so admit it here exactly as beginTurn and storeProposal do. A run refused since its facts
+      // were read gets no step: the gateway records that as an unrecorded refusal.
+      try {
+        await loadAgentReadScopeInTx(tx, context);
+      } catch (error) {
+        if (
+          error instanceof AppError &&
+          ['POLICY_DENIED', 'NOT_FOUND', 'FORBIDDEN'].includes(error.code)
+        )
+          return null;
+        throw error;
+      }
       const step = await ensureStep(tx, context, {
         runId: input.runId,
         stepNumber: input.stepNumber,

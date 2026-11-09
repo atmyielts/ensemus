@@ -8,6 +8,7 @@ import { addArtifact, createWorkUnit, type ObjectStore } from '@ensemus/applicat
 import { createContextSource } from '@ensemus/application/ai-context-source';
 import { externalActionPort } from '@ensemus/application/ai-external-action-port';
 import { createHaltCheck } from '@ensemus/application/ai-halt';
+import { createTurnStore } from '@ensemus/application/ai-runs';
 import type { ApprovalBinder, ExternalActionPort } from '@ensemus/application/ai-ports';
 import { createApprovalBinder } from '@ensemus/application/ai-tool-approvals';
 import {
@@ -33,6 +34,7 @@ import {
   type TenantContext,
 } from '@ensemus/database';
 import { createAgentContext, withRunLookupTx } from '@ensemus/database/agent';
+import { createServiceContext } from '@ensemus/database/service';
 import { and, eq } from 'drizzle-orm';
 import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -41,10 +43,12 @@ import {
   openAgentTestDatabase,
   seedAgentVersion,
   seedAiTenant,
+  proposeFromModelTurn,
   seedQueuedRun,
   testAgentSpec,
   type AiTenant,
 } from '../helpers/ai/fixtures';
+import { inFixtureTenant } from '../helpers/fixture-tenant';
 import { seedConnection, seedExternalAction, testEmailPayload } from '../helpers/integrations';
 import { urls } from '../helpers/stack';
 
@@ -145,12 +149,18 @@ describe('tool gateway, as the real roles', () => {
       delegated?: readonly string[];
       classification?: 'public' | 'internal' | 'confidential' | 'restricted';
       maxDelegationDepth?: number;
+      publisher?: TenantContext;
     },
   ) {
     const allow = input.allow ?? ALL_TOOLS;
+    // Publishing needs the publisher's interactive MFA step-up (0404). A member runs a version their
+    // owner published, as in production; the run below is still the member's own.
+    const publisher =
+      input.publisher ?? [a, b].find((t) => t.organizationId === context.organizationId)?.owner;
+    if (!publisher) throw new Error('TEST_TENANT_UNKNOWN');
     const version = await seedAgentVersion(
       app.db,
-      context,
+      publisher,
       testAgentSpec({ tools: { allow, deny: input.deny ?? [] } }),
     );
     const runId = await seedQueuedRun(app.db, context, {
@@ -193,6 +203,18 @@ describe('tool gateway, as the real roles', () => {
 
   type Run = Awaited<ReturnType<typeof startRun>>;
 
+  /**
+   * What a model turn stores: the proposal, against the actual turn just before tool step
+   * `stepNumber`, through the runtime's own admission (see `proposeFromModelTurn`).
+   */
+  const propose = (run: Run, toolId: string, args: unknown, stepNumber = 1) =>
+    proposeFromModelTurn(agent.db, run.agentContext, {
+      runId: run.runId,
+      turnStep: stepNumber - 1,
+      toolId,
+      args,
+    });
+
   /** What a model turn does, then what the workflow does: store the proposal, then run the step. */
   async function ask(
     gateway: ReturnType<typeof realGateway>,
@@ -201,12 +223,7 @@ describe('tool gateway, as the real roles', () => {
     args: unknown,
     stepNumber = 1,
   ) {
-    await storeProposal(agent.db, run.agentContext, {
-      runId: run.runId,
-      stepNumber,
-      toolId,
-      args,
-    });
+    await propose(run, toolId, args, stepNumber);
     return gateway.handle(run.agentContext, run.ref(stepNumber));
   }
 
@@ -315,8 +332,9 @@ describe('tool gateway, as the real roles', () => {
       await expect(
         ask(realGateway(), bad, 'work.read', { work_unit_id: 'nope' }),
       ).resolves.toMatchObject({ outcome: 'denied', decisionCode: 'TOOL_ARGS_INVALID' });
+      // Each tool step follows its own model turn: turn 2, tool step 3.
       await expect(
-        ask(realGateway(), bad, 'work.read', { work_unit_id: unit, budget: 1 }, 2),
+        ask(realGateway(), bad, 'work.read', { work_unit_id: unit, budget: 1 }, 3),
       ).resolves.toMatchObject({ outcome: 'denied', decisionCode: 'TOOL_ARGS_INVALID' });
     });
 
@@ -331,17 +349,29 @@ describe('tool gateway, as the real roles', () => {
     it('keeps the first proposal when a retried turn stores another', async () => {
       const unit = await work(a.owner);
       const run = await startRun(a.owner, { workUnitId: unit });
+      // The model turn before tool step 1, then the same turn retried at its next attempt.
+      const turns = createTurnStore(agent.db);
+      const firstTurn = await turns.beginTurn(run.agentContext, {
+        runId: run.runId,
+        stepNumber: 0,
+      });
+      if (firstTurn.kind !== 'begin') throw new Error('TEST_TURN_NOT_STARTED');
       const first = await storeProposal(agent.db, run.agentContext, {
         runId: run.runId,
-        stepNumber: 1,
+        stepNumber: 0,
         toolId: 'work.read',
         args: { work_unit_id: unit },
+        originatingModel: { stepId: firstTurn.stepId, attempt: firstTurn.attempt },
       });
+      const retried = await turns.beginTurn(run.agentContext, { runId: run.runId, stepNumber: 0 });
+      if (retried.kind !== 'begin') throw new Error('TEST_TURN_NOT_RETRIED');
+      expect(retried.attempt).toBe(firstTurn.attempt + 1);
       const again = await storeProposal(agent.db, run.agentContext, {
         runId: run.runId,
-        stepNumber: 1,
+        stepNumber: 0,
         toolId: 'email.send',
         args: { connection_id: randomUUID(), email: testEmailPayload() },
+        originatingModel: { stepId: retried.stepId, attempt: retried.attempt },
       });
       expect(again.proposalId).toBe(first.proposalId);
       const stored = await loadProposal(agent.db, run.agentContext, {
@@ -354,16 +384,13 @@ describe('tool gateway, as the real roles', () => {
     it('refuses a payload altered after it was stored', async () => {
       const unit = await work(a.owner);
       const run = await startRun(a.owner, { workUnitId: unit });
-      await storeProposal(agent.db, run.agentContext, {
-        runId: run.runId,
-        stepNumber: 1,
-        toolId: 'work.read',
-        args: { work_unit_id: unit },
-      });
-      await su.query(
-        `update ai.step_payloads set content = $1
-          where step_id in (select id from ai.execution_steps where run_id = $2)`,
-        [JSON.stringify({ work_unit_id: randomUUID() }), run.runId],
+      await propose(run, 'work.read', { work_unit_id: unit });
+      await inFixtureTenant(su, a.organizationId, () =>
+        su.query(
+          `update ai.step_payloads set content = $1
+            where step_id in (select id from ai.execution_steps where run_id = $2)`,
+          [JSON.stringify({ work_unit_id: randomUUID() }), run.runId],
+        ),
       );
       await expect(realGateway().handle(run.agentContext, run.ref(1))).resolves.toMatchObject({
         outcome: 'denied',
@@ -380,8 +407,10 @@ describe('tool gateway, as the real roles', () => {
       await expect(
         ask(realGateway(), run, 'work.read', { work_unit_id: closed }),
       ).resolves.toMatchObject({ outcome: 'denied', decisionCode: 'RESOURCE_NOT_PERMITTED' });
-      // The role could read that row: this is the check that the context, and not RLS, said no.
-      const rows = await withRunLookupTx(agent.db, a.organizationId, (tx) =>
+      // The role could read that row: this is the check that the context, and not RLS, said no. Since
+      // 0411 a Work row needs an active membership or the service actor, so the role is bound as the
+      // service actor its worker also runs as; a bare tenant binding with neither sees no Work at all.
+      const rows = await withTenantTx(agent.db, createServiceContext(a.organizationId), (tx) =>
         tx.select({ id: workUnits.id }).from(workUnits).where(eq(workUnits.id, closed)),
       );
       expect(rows).toHaveLength(1);
@@ -400,7 +429,8 @@ describe('tool gateway, as the real roles', () => {
         body: Buffer.from('theirs'),
       });
       await expect(
-        ask(realGateway(), run, 'artifact.read_text', { artifact_id: theirFile.id }, 2),
+        // Each tool step follows its own model turn, so the next one is step 3, then step 5.
+        ask(realGateway(), run, 'artifact.read_text', { artifact_id: theirFile.id }, 3),
       ).resolves.toMatchObject({ outcome: 'denied', decisionCode: 'RESOURCE_NOT_PERMITTED' });
       await expect(
         ask(
@@ -412,7 +442,7 @@ describe('tool gateway, as the real roles', () => {
             text: 't',
             evidence: [{ source_type: 'artifact', source_id: theirFile.id }],
           },
-          3,
+          5,
         ),
       ).resolves.toMatchObject({ outcome: 'denied', decisionCode: 'RESOURCE_NOT_PERMITTED' });
     });
@@ -420,12 +450,7 @@ describe('tool gateway, as the real roles', () => {
     it('cannot act on another tenant’s run, even with its ID', async () => {
       const unit = await work(a.owner);
       const victim = await startRun(a.owner, { workUnitId: unit });
-      await storeProposal(agent.db, victim.agentContext, {
-        runId: victim.runId,
-        stepNumber: 1,
-        toolId: 'work.read',
-        args: { work_unit_id: unit },
-      });
+      await propose(victim, 'work.read', { work_unit_id: unit });
       const attacker = await createAgentContext(agent.db, {
         organizationId: b.organizationId,
         initiatorMembershipId: b.owner.membershipId,
@@ -458,16 +483,17 @@ describe('tool gateway, as the real roles', () => {
     it('stops when the initiator is disabled mid-run', async () => {
       const tenant = await seedAiTenant(app.db);
       const unit = await work(tenant.member);
-      const run = await startRun(tenant.member, { workUnitId: unit, allow: ['work.read'] });
-      await storeProposal(agent.db, run.agentContext, {
-        runId: run.runId,
-        stepNumber: 1,
-        toolId: 'work.read',
-        args: { work_unit_id: unit },
+      const run = await startRun(tenant.member, {
+        workUnitId: unit,
+        allow: ['work.read'],
+        publisher: tenant.owner,
       });
-      await su.query(`update org.memberships set status = 'disabled' where id = $1`, [
-        tenant.member.membershipId,
-      ]);
+      await propose(run, 'work.read', { work_unit_id: unit });
+      await inFixtureTenant(su, tenant.organizationId, () =>
+        su.query(`update org.memberships set status = 'disabled' where id = $1`, [
+          tenant.member.membershipId,
+        ]),
+      );
       await expect(realGateway().handle(run.agentContext, run.ref(1))).resolves.toMatchObject({
         outcome: 'stopped',
         decisionCode: 'INITIATOR_INACTIVE',
@@ -629,22 +655,7 @@ describe('tool gateway, as the real roles', () => {
     it('finds a proposal from the turn’s own number or the tool step after it', async () => {
       const unit = await work(a.owner);
       const run = await startRun(a.owner, { workUnitId: unit });
-      await withTenantTx(agent.db, run.agentContext, (tx) =>
-        tx.insert(executionSteps).values({
-          organizationId: a.organizationId,
-          runId: run.runId,
-          stepNumber: 4,
-          kind: 'model_turn',
-          state: 'completed',
-          labelCode: 'THINKING',
-        }),
-      );
-      await storeProposal(agent.db, run.agentContext, {
-        runId: run.runId,
-        stepNumber: 4,
-        toolId: 'work.read',
-        args: { work_unit_id: unit },
-      });
+      await propose(run, 'work.read', { work_unit_id: unit }, 5);
       await expect(realGateway().handle(run.agentContext, run.ref(5))).resolves.toMatchObject({
         outcome: 'done',
       });
@@ -667,14 +678,17 @@ describe('tool gateway, as the real roles', () => {
     it('stops a tool once a person’s stop is committed, with no signal at all', async () => {
       const unit = await work(a.owner);
       const run = await startRun(a.owner, { workUnitId: unit });
-      await su.query(
-        `insert into ai.run_controls (organization_id, run_id, kind, by_membership_id)
-         values ($1, $2, 'stop', $3)`,
-        [a.organizationId, run.runId, a.owner.membershipId],
+      await propose(run, 'work.read', { work_unit_id: unit });
+      await inFixtureTenant(su, a.organizationId, () =>
+        su.query(
+          `insert into ai.run_controls (organization_id, run_id, kind, by_membership_id)
+           values ($1, $2, 'stop', $3)`,
+          [a.organizationId, run.runId, a.owner.membershipId],
+        ),
       );
-      await expect(
-        ask(realGateway(), run, 'work.read', { work_unit_id: unit }),
-      ).resolves.toMatchObject({ outcome: 'stopped' });
+      await expect(realGateway().handle(run.agentContext, run.ref(1))).resolves.toMatchObject({
+        outcome: 'stopped',
+      });
       expect(await ledgerOf(a.organizationId, run.runId)).toEqual([]);
     });
 
@@ -710,12 +724,7 @@ describe('tool gateway, as the real roles', () => {
     it('stops a tool on a run that ended', async () => {
       const unit = await work(a.owner);
       const run = await startRun(a.owner, { workUnitId: unit });
-      await storeProposal(agent.db, run.agentContext, {
-        runId: run.runId,
-        stepNumber: 1,
-        toolId: 'work.read',
-        args: { work_unit_id: unit },
-      });
+      await propose(run, 'work.read', { work_unit_id: unit });
       await moveRun(a.organizationId, run.runId, 'cancelled');
       await expect(realGateway().handle(run.agentContext, run.ref(1))).resolves.toMatchObject({
         outcome: 'stopped',
@@ -904,8 +913,12 @@ describe('tool gateway, as the real roles', () => {
         tx.select().from(toolProposals).where(eq(toolProposals.runId, run.runId)),
       );
       expect(proposal?.status).toBe('unknown_external_state');
+      // The tool's own step; the model turn that proposed it has its own row.
       const [row] = await withTenantTx(app.db, a.owner, (tx) =>
-        tx.select().from(executionSteps).where(eq(executionSteps.runId, run.runId)),
+        tx
+          .select()
+          .from(executionSteps)
+          .where(and(eq(executionSteps.runId, run.runId), eq(executionSteps.kind, 'tool_call'))),
       );
       expect(row?.state).toBe('completed');
       expect(row?.outcome).toBe('unknown_external_state');
@@ -969,12 +982,7 @@ describe('tool gateway, as the real roles', () => {
         status: 'ready',
       });
       const run = await startRun(a.owner, { workUnitId: unit });
-      await storeProposal(agent.db, run.agentContext, {
-        runId: run.runId,
-        stepNumber: 1,
-        toolId: 'email.send',
-        args: { connection_id: connectionId, email: testEmailPayload() },
-      });
+      await propose(run, 'email.send', { connection_id: connectionId, email: testEmailPayload() });
       await withRunLookupTx(agent.db, a.organizationId, (tx) =>
         tx
           .update(toolProposals)
@@ -1011,12 +1019,7 @@ describe('tool gateway, as the real roles', () => {
         status: 'ready',
       });
       const run = await startRun(a.owner, { workUnitId: unit });
-      await storeProposal(agent.db, run.agentContext, {
-        runId: run.runId,
-        stepNumber: 1,
-        toolId: 'email.send',
-        args: { connection_id: connectionId, email: testEmailPayload() },
-      });
+      await propose(run, 'email.send', { connection_id: connectionId, email: testEmailPayload() });
       await withRunLookupTx(agent.db, a.organizationId, (tx) =>
         tx
           .update(toolProposals)

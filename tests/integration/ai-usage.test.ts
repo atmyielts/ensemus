@@ -50,6 +50,7 @@ import {
   seedQueuedRun,
   seedRateCard,
   thisPeriod,
+  withAdmittedRunTx,
   type AiTenant,
   type SeededAgentVersion,
 } from '../helpers/ai/fixtures';
@@ -104,7 +105,7 @@ describe('usage and budgets, as the real roles', () => {
     over: Partial<typeof executionSteps.$inferInsert> = {},
   ) => {
     const stepId = randomUUID();
-    await withTenantTx(agent.db, run.context, (tx) =>
+    await withAdmittedRunTx(agent.db, run.context, (tx) =>
       tx.insert(executionSteps).values({
         organizationId: tenant.organizationId,
         id: stepId,
@@ -119,8 +120,9 @@ describe('usage and budgets, as the real roles', () => {
     return stepId;
   };
 
+  // A hold is written in the runtime's admitted transaction, as the inference gateway writes it.
   const reserve = (run: Run, stepId: string, amountMicros: number, attempt = 1) =>
-    withTenantTx(agent.db, run.context, (tx) =>
+    withAdmittedRunTx(agent.db, run.context, (tx) =>
       ledger().reserve(tx, run.context, {
         runId: run.runId,
         stepId,
@@ -714,28 +716,37 @@ describe('usage and budgets, as the real roles', () => {
       }
     };
 
-    it.each(['byom', 'sovereign'] as const)(
-      'entitles %s with nothing billable, and no row',
-      async (mode) => {
-        const tenant = await freshTenant(mode);
-        await expect(
-          createEntitlements(agent.db).check(tenant.owner, FEATURE_MODEL_CALL),
-        ).resolves.toEqual({ ok: true, billable: false, commercialMode: mode });
-        await expect(getEntitlementsView(app.db, tenant.owner)).resolves.toEqual({
-          mode,
-          features: [FEATURE_AGENT_RUN, FEATURE_MODEL_CALL],
-          capacity: {},
-        });
-      },
-    );
+    it('entitles sovereign with nothing billable, and no row', async () => {
+      const tenant = await freshTenant('sovereign');
+      await expect(
+        createEntitlements(agent.db).check(tenant.owner, FEATURE_MODEL_CALL),
+      ).resolves.toEqual({ ok: true, billable: false, commercialMode: 'sovereign' });
+      await expect(getEntitlementsView(app.db, tenant.owner)).resolves.toEqual({
+        mode: 'sovereign',
+        features: [FEATURE_AGENT_RUN, FEATURE_MODEL_CALL],
+        capacity: {},
+      });
+    });
 
-    it('gives Cloud nothing until a row says so, and only what the newest row says', async () => {
+    // ADR-032 D5 (M8): hosted BYOM and Cloud are entitled only by an actual subscription with billing
+    // enabled; saas-standing-runtime covers the subscribed case. Neither mode nor a legacy row grants.
+    it('refuses hosted BYOM with no subscription, and shows it nothing', async () => {
+      const tenant = await freshTenant('byom');
+      await expect(
+        createEntitlements(agent.db).check(tenant.owner, FEATURE_MODEL_CALL),
+      ).resolves.toEqual({ ok: false, code: 'ENTITLEMENT_DENIED' });
+      await expect(getEntitlementsView(app.db, tenant.owner)).resolves.toEqual({
+        mode: 'byom',
+        features: [],
+        capacity: {},
+      });
+    });
+
+    it('gives Cloud nothing from a legacy entitlement row, the newest or any other', async () => {
       const tenant = await freshTenant('cloud');
       const entitlements = createEntitlements(agent.db);
-      await expect(entitlements.check(tenant.owner, FEATURE_MODEL_CALL)).resolves.toEqual({
-        ok: false,
-        code: 'ENTITLEMENT_DENIED',
-      });
+      const denied = { ok: false, code: 'ENTITLEMENT_DENIED' };
+      await expect(entitlements.check(tenant.owner, FEATURE_MODEL_CALL)).resolves.toEqual(denied);
       await expect(getEntitlementsView(app.db, tenant.owner)).resolves.toEqual({
         mode: 'cloud',
         features: [],
@@ -748,9 +759,7 @@ describe('usage and budgets, as the real roles', () => {
         period: '2020-01',
         features: [FEATURE_MODEL_CALL],
       });
-      await expect(entitlements.check(tenant.owner, FEATURE_MODEL_CALL)).resolves.toMatchObject({
-        ok: false,
-      });
+      await expect(entitlements.check(tenant.owner, FEATURE_MODEL_CALL)).resolves.toEqual(denied);
 
       await issue(tenant.organizationId, {
         mode: 'cloud',
@@ -759,28 +768,12 @@ describe('usage and budgets, as the real roles', () => {
         features: [FEATURE_MODEL_CALL],
         capacities: { test_capacity: 3 },
       });
-      await expect(entitlements.check(tenant.owner, FEATURE_MODEL_CALL)).resolves.toEqual({
-        ok: true,
-        billable: true,
-        commercialMode: 'cloud',
-      });
-      await expect(entitlements.check(tenant.owner, FEATURE_AGENT_RUN)).resolves.toMatchObject({
-        ok: false,
-      });
+      await expect(entitlements.check(tenant.owner, FEATURE_MODEL_CALL)).resolves.toEqual(denied);
+      await expect(entitlements.check(tenant.owner, FEATURE_AGENT_RUN)).resolves.toEqual(denied);
       await expect(getEntitlementsView(app.db, tenant.owner)).resolves.toEqual({
         mode: 'cloud',
-        features: [FEATURE_MODEL_CALL],
-        capacity: { test_capacity: 3 },
-      });
-
-      await issue(tenant.organizationId, {
-        mode: 'cloud',
-        version: 3,
-        period: thisPeriod(),
         features: [],
-      });
-      await expect(entitlements.check(tenant.owner, FEATURE_MODEL_CALL)).resolves.toMatchObject({
-        ok: false,
+        capacity: {},
       });
     });
 
@@ -911,7 +904,8 @@ describe('usage and budgets, as the real roles', () => {
 
     it('lets no entitlement override a policy denial, and names the policy as the reason', async () => {
       // Entitled to everything, with plenty of budget. The router's denial still has the last word.
-      const tenant = await freshTenant('byom');
+      // Sovereign is entitled without a subscription; hosted BYOM needs one since M8 (ADR-032 D5).
+      const tenant = await freshTenant('sovereign');
       const budgetId = await seedOrganizationBudget(app.db, tenant.owner, 1_000_000);
       const run = await startRun(tenant);
       const stepId = await startStep(tenant, run, 1);
@@ -941,7 +935,7 @@ describe('usage and budgets, as the real roles', () => {
     });
 
     it('denies with no rate card, before any money is held or any key opened', async () => {
-      const tenant = await freshTenant('byom');
+      const tenant = await freshTenant('sovereign');
       const budgetId = await seedOrganizationBudget(app.db, tenant.owner, 1_000_000);
       const run = await startRun(tenant);
       const stepId = await startStep(tenant, run, 1);

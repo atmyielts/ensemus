@@ -19,6 +19,7 @@ import {
   createApprovalBinder,
   getAgentActionForApproval,
 } from '@ensemus/application/ai-tool-approvals';
+import { createToolStepStore } from '@ensemus/application/ai-tool-steps';
 import {
   agentRuns,
   approvals,
@@ -48,12 +49,22 @@ import {
   seedQueuedRun,
   sha256Of,
   testAgentSpec,
+  withAdmittedRunTx,
   type AiTenant,
 } from '../helpers/ai/fixtures';
+import { inFixtureTenant } from '../helpers/fixture-tenant';
+import { makePerson, nativePersonContext, proveSecondFactor } from '../helpers/product';
 import { seedConnection, testEmailPayload } from '../helpers/integrations';
 import { urls } from '../helpers/stack';
 
 const code = (expected: string) => expect.objectContaining({ code: expected });
+
+/** The gate only reads the run; it never stores an object. */
+const unusedObjects = {
+  put: async () => {
+    throw new Error('TEST_UNEXPECTED_OBJECT_PUT');
+  },
+};
 
 describe('binding an agent action to a person, as the real roles', () => {
   let app: ReturnType<typeof openAppDatabase>;
@@ -73,10 +84,12 @@ describe('binding an agent action to a person, as the real roles', () => {
     const superuser = new pg.Client({ connectionString: urls.superuser() });
     await superuser.connect();
     try {
-      await superuser.query(
-        `insert into org.memberships (organization_id, user_id, role, status)
-         values ($1, $2, $3, 'active')`,
-        [organizationId, userId, role],
+      await inFixtureTenant(superuser, organizationId, () =>
+        superuser.query(
+          `insert into org.memberships (organization_id, user_id, role, status)
+           values ($1, $2, $3, 'active')`,
+          [organizationId, userId, role],
+        ),
       );
     } finally {
       await superuser.end();
@@ -84,14 +97,20 @@ describe('binding an agent action to a person, as the real roles', () => {
     return resolveTenantContext(app.db, userId, organizationId);
   };
 
-  const setMemberStatus = async (membershipId: string, status: string) => {
+  const setMemberStatus = async (
+    membershipId: string,
+    status: string,
+    organizationId = a.organizationId,
+  ) => {
     const superuser = new pg.Client({ connectionString: urls.superuser() });
     await superuser.connect();
     try {
-      await superuser.query('update org.memberships set status = $2 where id = $1', [
-        membershipId,
-        status,
-      ]);
+      await inFixtureTenant(superuser, organizationId, () =>
+        superuser.query('update org.memberships set status = $2 where id = $1', [
+          membershipId,
+          status,
+        ]),
+      );
     } finally {
       await superuser.end();
     }
@@ -106,9 +125,11 @@ describe('binding an agent action to a person, as the real roles', () => {
       classification?: 'public' | 'internal' | 'confidential';
     } = {},
   ) => {
+    // Publishing needs the publisher's interactive MFA step-up (0404): the tenant's owner, who has
+    // proven a second factor, publishes; the initiator below still starts the run.
     const version = await seedAgentVersion(
       app.db,
-      initiator,
+      tenant.owner,
       testAgentSpec({ tools: { allow: ['email.send'], deny: [] } }),
     );
     const work = await createWorkUnit(app.db, initiator, {
@@ -136,7 +157,7 @@ describe('binding an agent action to a person, as the real roles', () => {
     const stepId = randomUUID();
     const proposalId = randomUUID();
     const context = await prepareRunInputContext(agent.db, tenant.organizationId, runId);
-    await withTenantTx(agent.db, context, async (tx) => {
+    await withAdmittedRunTx(agent.db, context, async (tx) => {
       await tx.update(agentRuns).set({ status: 'preparing' }).where(eq(agentRuns.id, runId));
       await tx.update(agentRuns).set({ status: 'running' }).where(eq(agentRuns.id, runId));
       await tx.insert(executionSteps).values({
@@ -162,12 +183,31 @@ describe('binding an agent action to a person, as the real roles', () => {
     return { workUnitId: work.id, runId, proposalId, stepId, version, context };
   };
 
+  /**
+   * The tool gateway's own gate: the binder runs in the transaction that has just read the run with
+   * `readRun(lock: true)`, which admits the run's read scope and authority or clears them. Nothing is
+   * admitted that the gateway would not admit.
+   */
+  const inToolGate = <T>(
+    seeded: { runId: string; context: AgentContext },
+    body: (tx: Parameters<Parameters<typeof withTenantTx>[2]>[0]) => Promise<T>,
+  ) =>
+    withTenantTx(agent.db, seeded.context, async (tx) => {
+      await createToolStepStore({ database: agent.db, objects: unusedObjects }).readRun(
+        tx,
+        seeded.context,
+        seeded.runId,
+        { lock: true },
+      );
+      return body(tx);
+    });
+
   const ask = (
     seeded: { workUnitId: string; runId: string; proposalId: string; context: AgentContext },
     connectionId = connectionA,
     payload: unknown = testEmailPayload(),
   ) =>
-    withTenantTx(agent.db, seeded.context, (tx) =>
+    inToolGate(seeded, (tx) =>
       binder().request(tx, seeded.context, {
         proposalId: seeded.proposalId,
         runId: seeded.runId,
@@ -179,8 +219,8 @@ describe('binding an agent action to a person, as the real roles', () => {
       }),
     );
 
-  const recheck = (seeded: { proposalId: string; context: AgentContext }) =>
-    withTenantTx(agent.db, seeded.context, (tx) =>
+  const recheck = (seeded: { runId: string; proposalId: string; context: AgentContext }) =>
+    inToolGate(seeded, (tx) =>
       binder().recheck(tx, seeded.context, { proposalId: seeded.proposalId }),
     );
 
@@ -264,13 +304,16 @@ describe('binding an agent action to a person, as the real roles', () => {
     });
 
     it('refuses NO_ELIGIBLE_APPROVER in a tenant with one person, and writes nothing', async () => {
-      const alone = await makeTestUser('alone');
+      // The one person publishes too, so they carry a real native session with a proven second
+      // factor, exactly as seedAiTenant's owner does (0404 publication step-up).
+      const alone = await makePerson('alone');
       const { organizationId } = await createOrganization(app.db, {
-        userId: alone,
+        userId: alone.userId,
         name: 'Same Name Ltd',
         commercialMode: 'byom',
       });
-      const owner = await resolveTenantContext(app.db, alone, organizationId);
+      await proveSecondFactor(alone);
+      const owner = await nativePersonContext(app.db, alone, organizationId);
       const tenant = { organizationId, owner, member: owner };
       const connection = await seedConnection(app.db, owner, {
         config: { fromAddress: 'sender@example.invalid' },
@@ -290,7 +333,7 @@ describe('binding an agent action to a person, as the real roles', () => {
 
       const theirs = await seedProposal(b, b.member, { owner: b.owner });
       await expect(
-        withTenantTx(agent.db, seeded.context, (tx) =>
+        inToolGate(seeded, (tx) =>
           binder().request(tx, seeded.context, {
             proposalId: theirs.proposalId,
             runId: seeded.runId,
@@ -417,12 +460,14 @@ describe('binding an agent action to a person, as the real roles', () => {
       const superuser = new pg.Client({ connectionString: urls.superuser() });
       await superuser.connect();
       try {
-        await superuser.query(
-          `update integrations.external_actions set payload = $2::jsonb where id = $1`,
-          [
-            seeded.ref.externalActionId,
-            JSON.stringify(testEmailPayload({ to: ['attacker@example.invalid'] })),
-          ],
+        await inFixtureTenant(superuser, a.organizationId, () =>
+          superuser.query(
+            `update integrations.external_actions set payload = $2::jsonb where id = $1`,
+            [
+              seeded.ref.externalActionId,
+              JSON.stringify(testEmailPayload({ to: ['attacker@example.invalid'] })),
+            ],
+          ),
         );
       } finally {
         await superuser.end();
@@ -435,9 +480,11 @@ describe('binding an agent action to a person, as the real roles', () => {
       const superuser = new pg.Client({ connectionString: urls.superuser() });
       await superuser.connect();
       try {
-        await superuser.query(
-          `update work.approvals set expires_at = now() - interval '1 second' where id = $1`,
-          [seeded.ref.approvalId],
+        await inFixtureTenant(superuser, a.organizationId, () =>
+          superuser.query(
+            `update work.approvals set expires_at = now() - interval '1 second' where id = $1`,
+            [seeded.ref.approvalId],
+          ),
         );
       } finally {
         await superuser.end();
@@ -448,12 +495,12 @@ describe('binding an agent action to a person, as the real roles', () => {
     it('sees a stop in the same transaction, and a stop has to wait for it to finish', async () => {
       const seeded = await approved();
       let stopped = false;
-      const stopping = await withTenantTx(agent.db, seeded.context, async (tx) => {
+      const stopping = await inToolGate(seeded, async (tx) => {
         const first = await binder().recheck(tx, seeded.context, {
           proposalId: seeded.proposalId,
         });
         expect(first).toEqual({ ok: true });
-        // Another connection's stop blocks on this transaction's share lock on the run.
+        // Another connection's stop blocks on the run lock this gate transaction holds.
         const stop = withRunLookupTx(agent.db, a.organizationId, (other) =>
           other
             .update(agentRuns)
@@ -490,7 +537,7 @@ describe('binding an agent action to a person, as the real roles', () => {
       const mine = await seedProposal(a, a.member, { owner: a.owner });
       const other = await approved();
       await expect(
-        recheck({ proposalId: other.proposalId, context: mine.context }),
+        recheck({ runId: mine.runId, proposalId: other.proposalId, context: mine.context }),
       ).resolves.toEqual({ ok: false, code: 'APPROVAL_NOT_VALID' });
     });
 
@@ -498,7 +545,7 @@ describe('binding an agent action to a person, as the real roles', () => {
       const mine = await seedProposal(a, a.member, { owner: a.owner });
       const theirs = await seedProposal(b, b.member, { owner: b.owner });
       await expect(
-        recheck({ proposalId: theirs.proposalId, context: mine.context }),
+        recheck({ runId: mine.runId, proposalId: theirs.proposalId, context: mine.context }),
       ).resolves.toEqual({ ok: false, code: 'APPROVAL_NOT_VALID' });
     });
 
@@ -596,7 +643,7 @@ describe('binding an agent action to a person, as the real roles', () => {
 
     it('never needs a prompt: the web role cannot read one, and this still works', async () => {
       const seeded = await seedProposal(a, a.member, { owner: a.owner });
-      await withTenantTx(agent.db, seeded.context, (tx) =>
+      await withAdmittedRunTx(agent.db, seeded.context, (tx) =>
         tx.insert(stepPayloads).values({
           organizationId: a.organizationId,
           stepId: seeded.stepId,

@@ -52,9 +52,11 @@ import {
   sha256Of,
   testAgentSpec,
   thisPeriod,
+  withAdmittedRunTx,
   type AiTenant,
   type SeededAgentVersion,
 } from '../helpers/ai/fixtures';
+import { inFixtureTenant } from '../helpers/fixture-tenant';
 import { urls } from '../helpers/stack';
 
 const refusedWith = (code: string, promise: Promise<unknown>) =>
@@ -348,17 +350,21 @@ describe('starting, steering and reading a run, as the real roles', () => {
 
     it('refuses work a plan has already been asked to run', async () => {
       const workUnitId = await work(a);
-      await su.query(
-        `update work.work_units set execution_plan = 'checklist', run_requested_at = now()
-          where id = $1`,
-        [workUnitId],
+      await inFixtureTenant(su, a.organizationId, () =>
+        su.query(
+          `update work.work_units set execution_plan = 'checklist', run_requested_at = now()
+            where id = $1`,
+          [workUnitId],
+        ),
       );
       await refusedWith('RUN_ALREADY_REQUESTED', start(a, workUnitId));
     });
 
     it('refuses work that has finished', async () => {
       const workUnitId = await work(a);
-      await su.query(`update work.work_units set status = 'cancelled' where id = $1`, [workUnitId]);
+      await inFixtureTenant(su, a.organizationId, () =>
+        su.query(`update work.work_units set status = 'cancelled' where id = $1`, [workUnitId]),
+      );
       await refusedWith('INVALID_STATE', start(a, workUnitId));
     });
 
@@ -377,10 +383,12 @@ describe('starting, steering and reading a run, as the real roles', () => {
 
     /** A second owner or admin, or a member, with their context read afresh. */
     const withRole = async (tenant: AiTenant, context: TenantContext, role: string) => {
-      await su.query(`update org.memberships set role = $2 where id = $1`, [
-        context.membershipId,
-        role,
-      ]);
+      await inFixtureTenant(su, tenant.organizationId, () =>
+        su.query(`update org.memberships set role = $2 where id = $1`, [
+          context.membershipId,
+          role,
+        ]),
+      );
       return resolveTenantContext(app.db, context.userId, tenant.organizationId);
     };
 
@@ -518,7 +526,7 @@ describe('starting, steering and reading a run, as the real roles', () => {
       await moveRun(tenant, view.id, 'preparing', 'running');
       const stepId = randomUUID();
       const context = await prepareRunInputContext(agent.db, tenant.organizationId, view.id);
-      await withTenantTx(agent.db, context, async (tx) => {
+      await withAdmittedRunTx(agent.db, context, async (tx) => {
         await tx.insert(executionSteps).values({
           organizationId: tenant.organizationId,
           id: stepId,
@@ -631,7 +639,7 @@ describe('starting, steering and reading a run, as the real roles', () => {
     it('shows steps oldest first, and a run’s latest control', async () => {
       const { workUnitId, runId } = await runWithPayload(a, versionA);
       const context = await prepareRunInputContext(agent.db, a.organizationId, runId);
-      await withTenantTx(agent.db, context, (tx) =>
+      await withAdmittedRunTx(agent.db, context, (tx) =>
         tx.insert(executionSteps).values({
           organizationId: a.organizationId,
           runId,
