@@ -25,8 +25,11 @@ import {
 import { withAccountTx } from '@ensemus/database/account';
 import { createAgentContext, withRunLookupTx } from '@ensemus/database/agent';
 import { createServiceContext } from '@ensemus/database/service';
-import { eq, sql } from 'drizzle-orm';
-import { afterAll, describe, expect, it } from 'vitest';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
+import { asc, eq, sql } from 'drizzle-orm';
+import { afterAll, describe, expect, it, vi } from 'vitest';
 import {
   openAgentTestDatabase,
   seedAgentVersion,
@@ -37,6 +40,7 @@ import {
 import { seedPlan, seedRateCard } from '../helpers/saas';
 import { urls } from '../helpers/stack';
 import { createSaasPorts } from '../../workers/workflow/src/saas-ports';
+import { tenantCommand } from '../../workers/workflow/src/ops-tenant';
 import { makePerson, nativePersonContext, proveSecondFactor } from '../helpers/product';
 
 const app = openAppDatabase(urls.app()),
@@ -261,6 +265,118 @@ describe('standing-owned M4 stops and real entitlement composition', () => {
     expect((await stops(tenant)).find((row) => row.id === offboardingStop.id)?.released).toEqual(
       cancelled.released,
     );
+  });
+
+  it("refuses the operator's unsuspend out of offboarding, writing nothing, until the owner cancels", async () => {
+    const tenant = await seedAiTenant(app.db),
+      service = createServiceContext(tenant.organizationId);
+    await move(tenant, 'suspended', 'TEST_TERMS');
+    const started = await requestOffboarding(
+      app.db,
+      tenant.owner,
+      { confirmName: 'Same Name Ltd' },
+      ports.offboarding.offboardingAgents,
+    );
+    const agents = {
+      haltTenantAgents: vi.fn(ports.agents.haltTenantAgents),
+      releaseTenantAgents: vi.fn(ports.agents.releaseTenantAgents),
+    };
+    const ledger = () =>
+      withAccountTx(app.db, service, async (tx) => ({
+        changes: await tx
+          .select({
+            from: standingChanges.fromLifecycle,
+            to: standingChanges.toLifecycle,
+            reason: standingChanges.reasonCode,
+          })
+          .from(standingChanges)
+          .orderBy(asc(standingChanges.occurredAt), asc(standingChanges.id)),
+        lifecycle: (await tx.select({ lifecycle: organizations.lifecycle }).from(organizations))[0]
+          ?.lifecycle,
+        intent: (
+          await tx
+            .select({ state: offboardings.state })
+            .from(offboardings)
+            .where(eq(offboardings.id, started.offboardingId))
+        )[0]?.state,
+      }));
+    // The operator command itself (ops-tenant.ts `resume`, which asks for `active`), on its own pool.
+    const folder = resolve(mkdtempSync(join(tmpdir(), 'standing-offboarding-')));
+    const resume = join(folder, 'resume.json');
+    writeFileSync(
+      resume,
+      JSON.stringify({
+        organizationId: tenant.organizationId,
+        operatorRef: 'test-operator@example.invalid',
+        reasonCode: 'TEST_UNSUSPEND',
+      }),
+    );
+    try {
+      vi.stubEnv('DATABASE_URL_APP', urls.app());
+      const before = await ledger(),
+        stopsBefore = await stops(tenant);
+      expect(before.lifecycle).toBe('offboarding');
+      expect(before.intent).toBe('requested');
+      expect(await tenantCommand(['resume', '--file', resume], { agents })).toBe(2);
+      // The same move made directly, and one naming an offboarding that is still live, are refused too.
+      await expect(
+        withAccountTx(app.db, service, (tx) =>
+          setTenantStandingInTx(
+            tx,
+            service,
+            {
+              to: 'active',
+              reasonCode: 'TEST_UNSUSPEND',
+              actor: { type: 'operator', ref: 'test-operator@example.invalid' },
+            },
+            agents,
+          ),
+        ),
+      ).rejects.toMatchObject({ code: 'INVALID_TRANSITION' });
+      await expect(
+        withAccountTx(app.db, service, (tx) =>
+          setTenantStandingInTx(
+            tx,
+            service,
+            {
+              to: 'suspended',
+              reasonCode: 'OFFBOARDING_CANCELLED',
+              actor: { type: 'operator', ref: 'test-operator@example.invalid' },
+              offboardingCancellationId: started.offboardingId,
+            },
+            agents,
+          ),
+        ),
+      ).rejects.toMatchObject({ code: 'INVALID_TRANSITION' });
+      expect(await ledger()).toEqual(before);
+      expect(await stops(tenant)).toEqual(stopsBefore);
+      expect(agents.releaseTenantAgents).not.toHaveBeenCalled();
+      expect(agents.haltTenantAgents).not.toHaveBeenCalled();
+      // cancelOffboarding is the way back: it restores the standing recorded when offboarding began.
+      const current = await getOffboarding(app.db, tenant.owner);
+      await cancelOffboarding(
+        app.db,
+        tenant.owner,
+        { reasonCode: 'TEST_STAY', expectedVersion: current!.version },
+        ports.offboarding.offboardingAgents,
+      );
+      const restored = await ledger();
+      expect(restored.lifecycle).toBe('suspended');
+      expect(restored.intent).toBe('cancelled');
+      expect(restored.changes.slice(before.changes.length)).toEqual([
+        { from: 'offboarding', to: 'suspended', reason: 'OFFBOARDING_CANCELLED' },
+      ]);
+      expect(
+        (await stops(tenant)).find((row) => row.reason === 'TENANT_OFFBOARDING')?.released,
+      ).toBeInstanceOf(Date);
+      // And the operator's unsuspend, through the same command, now works.
+      expect(await tenantCommand(['resume', '--file', resume], { agents })).toBe(0);
+      expect((await ledger()).lifecycle).toBe('active');
+      expect(agents.releaseTenantAgents).toHaveBeenCalledOnce();
+    } finally {
+      vi.unstubAllEnvs();
+      rmSync(folder, { recursive: true, force: true });
+    }
   });
 
   it('allows another current native owner to cancel without changing the original admission requester', async () => {
