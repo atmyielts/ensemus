@@ -85,6 +85,21 @@ export async function setBudget(
   return withTenantTx(database, context, async (tx) => {
     let budgetId = await updateLimit(tx, context.organizationId, input);
     if (!budgetId) {
+      // A budget is retained evidence (LIFE-04), so since 0552 no FK ties it to the agent version the
+      // eraser removes. Its birth still needs that version in this tenant: RLS hides another tenant's,
+      // which then reads exactly as a mistyped one, as engageKillSwitch does for its target.
+      if (input.agent_version_id !== null) {
+        const [version] = await tx
+          .select({ id: agentVersions.id })
+          .from(agentVersions)
+          .where(
+            and(
+              eq(agentVersions.organizationId, context.organizationId),
+              eq(agentVersions.id, input.agent_version_id),
+            ),
+          );
+        if (!version) throw foreignReference();
+      }
       try {
         const [inserted] = await tx
           .insert(budgets)
@@ -102,7 +117,7 @@ export async function setBudget(
         // Someone else's first write got there between the two statements, so this one is an update.
         budgetId = inserted?.id ?? (await updateLimit(tx, context.organizationId, input));
       } catch (error) {
-        // An agent version in another tenant fails the tenant-safe key, and looks like a typing error.
+        // The organization FK remains; any FK refusal still reads as a typing error.
         if (pgCode(error) === FOREIGN_KEY_VIOLATION) throw foreignReference();
         throw error;
       }

@@ -4,6 +4,8 @@
 // so the command is handed a superuser connection that took its session authorization, as
 // saas-erasure.test.ts does. Each case erases or offboards its own tenant. The capability is qualified for
 // this file through the migrator and restored afterwards. SQL first runs in the CI run after 0548 was journaled.
+// L6 needs 0552: the tenant's agent reserved and spent budget, and that retained evidence must neither pin
+// the run, profile, rate card or Work it names nor be lost when they are erased.
 import { randomUUID } from 'node:crypto';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -13,6 +15,7 @@ import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createAgentContext } from '@ensemus/database/agent';
 import { finishRun, purgeEndedRunTranscript } from '@ensemus/application/ai-runs';
+import { createEgressLog } from '@ensemus/application/ai-egress-log';
 import { closeDelegatedRecordInputsInTx } from '@ensemus/application/knowledge/delegated-erasure';
 import { createOffboardingAgentHaltPort } from '@ensemus/application/saas/offboarding-agent-port';
 import { cancelOffboarding, getOffboarding } from '@ensemus/application/saas/offboarding';
@@ -109,8 +112,36 @@ describe('ADR-028 delegated child offboarding (L6, L8b)', () => {
       status: 'cancelled',
       stopCode: 'STOPPED_BY_PERSON',
     });
-    return { tenant, harness, f };
+    return { tenant, harness, f, profileId, rateCardId };
   }
+  /**
+   * The retained usage evidence of one tenant (LIFE-04), with every historical UUID it names, read as the
+   * superuser. Since 0552 none of these columns is an FK into a table the eraser empties.
+   */
+  const retainedEvidence = async (organizationId: string) => ({
+    reservations: (
+      await su.query<Record<string, string | null>>(
+        `select id::text,budget_id::text,run_id::text,step_id::text,model_job_id::text,model_call_id::text
+           from platform.budget_reservations where organization_id=$1 order by id`,
+        [organizationId],
+      )
+    ).rows,
+    usage: (
+      await su.query<Record<string, string | null>>(
+        `select id::text,reservation_id::text,rate_card_id::text,work_unit_id::text,run_id::text,step_id::text,
+                profile_id::text,model_job_id::text,model_call_id::text
+           from platform.usage_ledger where organization_id=$1 order by id`,
+        [organizationId],
+      )
+    ).rows,
+    egress: (
+      await su.query<Record<string, string | null>>(
+        `select id::text,run_id::text,step_id::text,profile_id::text
+           from governance.egress_decisions where organization_id=$1 order by id`,
+        [organizationId],
+      )
+    ).rows,
+  });
   /** The record inputs the child's receipt names, read as the superuser so offboarding cannot hide them. */
   const recordRefs = async (organizationId: string, childRunId: string) =>
     (
@@ -210,9 +241,33 @@ describe('ADR-028 delegated child offboarding (L6, L8b)', () => {
     ).rows;
 
   it('[ADR028-Q12-L6] [ADR028-Q12-L8b] closes delegated inputs before erasing, seals once the purges prove, then erases', async () => {
-    const { tenant, harness, f } = await tenantWithEndedChild(),
+    const { tenant, harness, f, profileId, rateCardId } = await tenantWithEndedChild(),
       organizationId = tenant.organizationId,
       service = createServiceContext(organizationId);
+    // The ended parent's own egress log records a deny, the one decision a closed run still writes, so
+    // the tenant holds every kind of retained run evidence 0552 un-pinned: a reservation and usage
+    // (written by the genuine model turn) and an egress decision naming the run and its profile.
+    await createEgressLog(agent.db).record(f.context, {
+      runId: f.runId,
+      stepId: null,
+      profileId,
+      dataClass: 'internal',
+      purpose: 'reason',
+      destinationHost: null,
+      decision: 'deny',
+      reasonCode: 'NO_CANDIDATE',
+      policyVersion: 'test',
+      requestHash: null,
+      expiresAt: null,
+    });
+    const evidence = await retainedEvidence(organizationId);
+    expect(evidence.reservations.some((row) => row.run_id === f.runId)).toBe(true);
+    expect(
+      evidence.usage.some((row) => row.run_id === f.runId && row.rate_card_id === rateCardId),
+    ).toBe(true);
+    expect(evidence.egress).toContainEqual(
+      expect.objectContaining({ run_id: f.runId, step_id: null, profile_id: profileId }),
+    );
     const refs = await recordRefs(organizationId, f.childRunId);
     // The parent's own Work and the input Work it read are both inputs of the copied child.
     expect(refs).toEqual(
@@ -323,6 +378,27 @@ describe('ADR-028 delegated child offboarding (L6, L8b)', () => {
           await su.query<{ n: number }>(
             `select count(*)::integer n from ${table} where organization_id=$1`,
             [organizationId],
+          )
+        ).rows[0]?.n,
+        table,
+      ).toBe(0);
+    // 0552: the retained evidence survives, row for row, with the historical UUIDs it was written with,
+    // although the run, its steps, profile, rate card and Work those UUIDs name are now erased.
+    const kept = await retainedEvidence(organizationId);
+    expect(kept.reservations).toEqual(expect.arrayContaining(evidence.reservations));
+    expect(kept.usage).toEqual(expect.arrayContaining(evidence.usage));
+    expect(kept.egress).toEqual(expect.arrayContaining(evidence.egress));
+    for (const [table, ids] of [
+      ['ai.agent_runs', [f.runId, f.childRunId]],
+      ['ai.model_profiles', [profileId]],
+      ['ai.rate_cards', [rateCardId]],
+      ['work.work_units', [f.work.id, f.input.id]],
+    ] as const)
+      expect(
+        (
+          await su.query<{ n: number }>(
+            `select count(*)::integer n from ${table} where organization_id=$1 and id=any($2::uuid[])`,
+            [organizationId, ids],
           )
         ).rows[0]?.n,
         table,
