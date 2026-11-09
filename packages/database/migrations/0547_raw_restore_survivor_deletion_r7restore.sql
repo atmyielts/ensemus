@@ -278,7 +278,14 @@ DO $$ BEGIN
   OR NOT has_function_privilege('ensemus_app','lifecycle.object_delete_absent(uuid)','EXECUTE')
   OR NOT has_function_privilege('ensemus_app','lifecycle.object_delete_terminal(uuid,text)','EXECUTE')
   OR NOT has_function_privilege('ensemus_app','lifecycle.raw_restore_survivor_delete_target(uuid,uuid)','EXECUTE')
-  OR has_function_privilege('ensemus_agent','lifecycle.raw_restore_survivor_delete_target(uuid,uuid)','EXECUTE')
+  -- ensemus_agent is a member of ensemus_app and inherits this EXECUTE by design (see 0545's
+  -- postcondition note). What refuses the agent is the function's own opening session_user check, so
+  -- assert no direct grant beyond the owner and ensemus_app, and that the refusal is still there.
+  OR EXISTS(SELECT 1 FROM pg_proc p CROSS JOIN LATERAL aclexplode(coalesce(p.proacl,acldefault('f',p.proowner))) a
+   WHERE p.oid='lifecycle.raw_restore_survivor_delete_target(uuid,uuid)'::regprocedure
+    AND a.privilege_type='EXECUTE' AND a.grantee<>p.proowner AND a.grantee<>'ensemus_app'::regrole::oid)
+  OR NOT EXISTS(SELECT 1 FROM pg_proc p WHERE p.oid='lifecycle.raw_restore_survivor_delete_target(uuid,uuid)'::regprocedure
+   AND p.prosecdef AND strpos(p.prosrc,'IF session_user<>''ensemus_app'' OR NOT knowledge.is_service_actor() OR tenant IS NULL')>0)
   OR has_function_privilege('ensemus_eraser','lifecycle.raw_restore_survivor_delete_target(uuid,uuid)','EXECUTE')
   OR has_function_privilege('ensemus_app','lifecycle.begin_object_deletion_before_survivor(jsonb)','EXECUTE')
   OR has_function_privilege('ensemus_agent','lifecycle.begin_object_deletion_before_survivor(jsonb)','EXECUTE')

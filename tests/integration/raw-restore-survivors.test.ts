@@ -341,6 +341,17 @@ describe('raw objects that survived a restore (0547)', () => {
       code: '42501',
       reason: 'RAW_RESTORE_SURVIVOR_SERVICE_REQUIRED',
     });
+    // The agent login inherits EXECUTE through ensemus_app (0547's postcondition note), so the
+    // function's own session_user check is what must refuse it, even with a service actor.
+    expect(
+      await refusal(
+        withTenantTx(agent.db, u.service, (tx) =>
+          tx.execute(
+            sql`select lifecycle.raw_restore_survivor_delete_target(${u.sourceId}::uuid,${u.documentId}::uuid)`,
+          ),
+        ),
+      ),
+    ).toMatchObject({ code: '42501', reason: 'RAW_RESTORE_SURVIVOR_SERVICE_REQUIRED' });
     const target = (await targetOf(u))!;
     // The previous generation's target, and debt claimed to be from this same generation.
     for (const stale of [
