@@ -169,6 +169,15 @@ async function ticket(tx: Tx, organizationId: string, ticketId: string, lock = f
   if (!row) throw new AppError('NOT_FOUND');
   return row;
 }
+/**
+ * The desk reads every tenant's queue, but each write it makes is born in exactly one tenant. The
+ * erasure birth fence (0508, restored for support content by 0532) requires a new row to name the
+ * tenant the transaction is bound to, so a desk write binds to the tenant of the ticket it has just
+ * locked, never to a value that only the caller supplied.
+ */
+async function bindTicketTenant(tx: Tx, row: { organizationId: string }) {
+  await tx.execute(sql`select set_config('app.organization_id', ${row.organizationId}, true)`);
+}
 
 export type DeskDb = EnsemusDrizzle;
 
@@ -261,6 +270,7 @@ export async function replyAsDesk(
       await desk(tx);
       const row = await ticket(tx, organizationId, ticketId, true);
       if (row.status === 'closed') throw new AppError('INVALID_STATE');
+      await bindTicketTenant(tx, row);
       const now = new Date();
       await tx.insert(ticketMessages).values({
         organizationId,
@@ -319,6 +329,7 @@ export async function requestBreakGlass(
     await desk(tx);
     const row = await ticket(tx, organizationId, ticketId, true);
     if (row.status === 'closed') throw new AppError('INVALID_STATE');
+    await bindTicketTenant(tx, row);
     const [request] = await tx
       .insert(breakGlassRequests)
       .values({

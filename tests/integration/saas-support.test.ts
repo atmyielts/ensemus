@@ -118,14 +118,29 @@ describe('support reads only what a customer deliberately supplies', () => {
         body: 'Late desk reply',
       }),
     ).rejects.toMatchObject({ cause: { code: '25006' } });
-    await expect(
-      asRole('ensemus_support', (connection) =>
-        connection.query(
-          "insert into support.ticket_messages(organization_id,ticket_id,author_kind,author_ref,body) values($1,$2,'support',$3,'Late direct reply')",
-          [owner.organizationId, first.ticketId, TEST_OPERATOR],
-        ),
-      ),
-    ).rejects.toMatchObject({ code: '25006' });
+    // 0532: the birth fence binds every support-content writer, the desk included, to its tenant.
+    const lateDirect = (bound?: string) =>
+      asRole(
+        'ensemus_support',
+        (connection) =>
+          connection.query(
+            "insert into support.ticket_messages(organization_id,ticket_id,author_kind,author_ref,body) values($1,$2,'support',$3,'Late direct reply')",
+            [owner.organizationId, first.ticketId, TEST_OPERATOR],
+          ),
+        bound ? { organizationId: bound } : {},
+      );
+    await expect(lateDirect()).rejects.toMatchObject({
+      code: '42501',
+      message: 'INVALID_ERASURE_BIRTH_TENANT',
+    });
+    await expect(lateDirect(other.organizationId)).rejects.toMatchObject({
+      code: '42501',
+      message: 'INVALID_ERASURE_BIRTH_TENANT',
+    });
+    await expect(lateDirect(owner.organizationId)).rejects.toMatchObject({
+      code: '25006',
+      message: 'SUPPORT_CONTENT_ERASURE_FENCED',
+    });
     await expect(
       withAccountTx(database.db, owner, (tx) =>
         tx.execute(
@@ -135,11 +150,14 @@ describe('support reads only what a customer deliberately supplies', () => {
     ).rejects.toMatchObject({ cause: { code: '25006' } });
     // Binding the message to an open tenant cannot relabel a different tenant's ticket.
     await expect(
-      asRole('ensemus_support', (connection) =>
-        connection.query(
-          "insert into support.ticket_messages(organization_id,ticket_id,author_kind,author_ref,body) values($1,$2,'support',$3,'Wrong tenant')",
-          [other.organizationId, first.ticketId, TEST_OPERATOR],
-        ),
+      asRole(
+        'ensemus_support',
+        (connection) =>
+          connection.query(
+            "insert into support.ticket_messages(organization_id,ticket_id,author_kind,author_ref,body) values($1,$2,'support',$3,'Wrong tenant')",
+            [other.organizationId, first.ticketId, TEST_OPERATOR],
+          ),
+        { organizationId: other.organizationId },
       ),
     ).rejects.toMatchObject({ code: '23503' });
     await replyAsDesk(desk, {
@@ -198,6 +216,18 @@ describe('support reads only what a customer deliberately supplies', () => {
         "select set_config('app.organization_id',$1,true),set_config('app.user_id',$2,true),set_config('support.write_fence_org',$3,true)",
         [sentinelOrg, sentinelUser, sentinelFence],
       );
+      // 0532: a desk birth bound to any tenant other than the row's own is refused.
+      await connection.query('savepoint misbound_write');
+      await expect(
+        connection.query(
+          "insert into support.ticket_messages(organization_id,ticket_id,author_kind,author_ref,body) values($1,$2,'support',$3,'Misbound')",
+          [owner.organizationId, opened.ticketId, TEST_OPERATOR],
+        ),
+      ).rejects.toMatchObject({ code: '42501', message: 'INVALID_ERASURE_BIRTH_TENANT' });
+      await connection.query('rollback to savepoint misbound_write');
+      await connection.query("select set_config('app.organization_id',$1,true)", [
+        owner.organizationId,
+      ]);
       await connection.query(
         "insert into support.ticket_messages(organization_id,ticket_id,author_kind,author_ref,body) values($1,$2,'support',$3,'After lock release')",
         [owner.organizationId, opened.ticketId, TEST_OPERATOR],
@@ -206,7 +236,7 @@ describe('support reads only what a customer deliberately supplies', () => {
         "select current_setting('app.organization_id') as org,current_setting('app.user_id') as person,current_setting('support.write_fence_org') as fence,has_function_privilege(current_user,'support.fence_erasing_content()','EXECUTE') as callable",
       );
       expect(rows[0]).toEqual({
-        org: sentinelOrg,
+        org: owner.organizationId,
         person: sentinelUser,
         fence: sentinelFence,
         callable: false,
@@ -218,23 +248,40 @@ describe('support reads only what a customer deliberately supplies', () => {
       offboardingId: ready.offboardingId,
       operatorRef: TEST_OPERATOR,
     });
-    await asRole('ensemus_support', async (connection) => {
-      await connection.query("select set_config('support.write_fence_org',$1,true)", [
-        sentinelFence,
-      ]);
-      await connection.query('savepoint fenced_write');
-      await expect(
-        connection.query(
-          "insert into support.ticket_messages(organization_id,ticket_id,author_kind,author_ref,body) values($1,$2,'support',$3,'Fenced')",
-          [owner.organizationId, opened.ticketId, TEST_OPERATOR],
-        ),
-      ).rejects.toMatchObject({ code: '25006' });
-      await connection.query('rollback to savepoint fenced_write');
-      expect(
-        (await connection.query("select current_setting('support.write_fence_org') as fence"))
-          .rows[0],
-      ).toEqual({ fence: sentinelFence });
-    });
+    await asRole(
+      'ensemus_support',
+      async (connection) => {
+        await connection.query("select set_config('support.write_fence_org',$1,true)", [
+          sentinelFence,
+        ]);
+        await connection.query('savepoint fenced_write');
+        await expect(
+          connection.query(
+            "insert into support.ticket_messages(organization_id,ticket_id,author_kind,author_ref,body) values($1,$2,'support',$3,'Fenced')",
+            [owner.organizationId, opened.ticketId, TEST_OPERATOR],
+          ),
+        ).rejects.toMatchObject({ code: '25006' });
+        await connection.query('rollback to savepoint fenced_write');
+        expect(
+          (await connection.query("select current_setting('support.write_fence_org') as fence"))
+            .rows[0],
+        ).toEqual({ fence: sentinelFence });
+        // An UPDATE reaches 0507's fixed fence alone, which refuses and still restores the binding.
+        await connection.query('savepoint fenced_update');
+        await expect(
+          connection.query(
+            "update support.tickets set status='waiting_on_customer' where organization_id=$1 and id=$2",
+            [owner.organizationId, opened.ticketId],
+          ),
+        ).rejects.toMatchObject({ code: '25006' });
+        await connection.query('rollback to savepoint fenced_update');
+        expect(
+          (await connection.query("select current_setting('support.write_fence_org') as fence"))
+            .rows[0],
+        ).toEqual({ fence: sentinelFence });
+      },
+      { organizationId: owner.organizationId },
+    );
     expect((await getTicket(database.db, owner, opened.ticketId)).messages).toHaveLength(2);
   });
   it('a member sees only their own tickets and another tenant never sees the conversation', async () => {
@@ -340,14 +387,21 @@ describe('support reads only what a customer deliberately supplies', () => {
         category: 'security',
         body: 'Test details',
       });
+    // Bound to the ticket's tenant, so the birth fence admits it and desk_write's author check refuses.
     await expect(
-      asRole('ensemus_support', (client) =>
-        client.query(
-          "insert into support.ticket_messages(organization_id,ticket_id,author_kind,author_ref,body) values($1,$2,'customer',$3,'test')",
-          [owner.organizationId, opened.ticketId, 'test-agent@example.invalid'],
-        ),
+      asRole(
+        'ensemus_support',
+        (client) =>
+          client.query(
+            "insert into support.ticket_messages(organization_id,ticket_id,author_kind,author_ref,body) values($1,$2,'customer',$3,'test')",
+            [owner.organizationId, opened.ticketId, 'test-agent@example.invalid'],
+          ),
+        { organizationId: owner.organizationId },
       ),
-    ).rejects.toMatchObject({ code: '42501' });
+    ).rejects.toMatchObject({
+      code: '42501',
+      message: expect.stringMatching(/row-level security/),
+    });
     await expect(
       withTenantTx(database.db, owner, (tx) =>
         tx.insert(ticketMessages).values({

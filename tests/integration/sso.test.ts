@@ -701,6 +701,52 @@ describe('SAML admission, company isolation and SCIM on actual roles', () => {
       await control.end();
     }
   });
+  it('records no human re-disable when a non-human disable actually reaches the receipt trigger', async () => {
+    // The refused agent/service updates above roll back, so they cannot show what 0403's receipt
+    // trigger does for a non-human actor. Here the change commits: 0404's guard admits a role other
+    // than ensemus_app/ensemus_agent (the path the restore reconcile takes), so only 0403's
+    // org.invalidate_scim_reactivation decides, on the bound actor type alone.
+    const f = await connection(),
+      p = await person(f);
+    await link(f, p);
+    const key = await token(f),
+      membershipId = p.context!.membershipId;
+    const receipt = async () =>
+      (
+        await driver.query<{ deprovisioned_at: Date | null; state: string }>(
+          'select deprovisioned_at,state from org.sso_member_links where organization_id=$1 and membership_id=$2',
+          [f.owner.context.organizationId, membershipId],
+        )
+      ).rows[0];
+    const disableAs = async (actor: string) => {
+      await humanTx(driver, f.owner.context, actor);
+      try {
+        const changed = await driver.query(
+          "update org.memberships set status='disabled' where id=$1 and organization_id=$2",
+          [membershipId, f.owner.context.organizationId],
+        );
+        expect(changed.rowCount).toBe(1);
+        await driver.query('commit');
+      } catch (error) {
+        await driver.query('rollback');
+        throw error;
+      }
+    };
+    expect(await scimDeprovisionUser(database.db, key.hash, { membershipId })).toBe('done');
+    const deprovisioned = (await receipt())!.deprovisioned_at;
+    expect(deprovisioned).not.toBeNull();
+    for (const actor of ['agent', 'service']) {
+      await disableAs(actor);
+      expect(await receipt()).toEqual({ deprovisioned_at: deprovisioned, state: 'deprovisioned' });
+    }
+    expect(await scimReactivateUser(database.db, key.hash, { membershipId })).toBe('done');
+    // The same committed path with the human owner bound does invalidate the receipt.
+    expect(await scimDeprovisionUser(database.db, key.hash, { membershipId })).toBe('done');
+    expect((await receipt())!.deprovisioned_at).not.toBeNull();
+    await disableAs('user');
+    expect((await receipt())!.deprovisioned_at).toBeNull();
+    expect(await scimReactivateUser(database.db, key.hash, { membershipId })).toBe('refused');
+  });
   it('keeps and audits the last owner under the same membership-change serialization', async () => {
     const f = await connection();
     const p = {

@@ -7,6 +7,7 @@ import {
   retentionCursors,
   retentionRules,
   withTenantTx,
+  type Tx,
 } from '@ensemus/database';
 import { createServiceContext } from '@ensemus/database/service';
 import {
@@ -25,7 +26,7 @@ import {
 } from '@ensemus/application/saas/retention';
 import { placeLegalHold } from '@ensemus/application/saas/legal-holds';
 import type { RetentionSource } from '@ensemus/application/saas/ports';
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { urls } from '../helpers/stack';
@@ -249,6 +250,118 @@ describe('bounded retention with real roles and durable per-record progress', ()
         (row) => row.category === 'model_outputs',
       )?.outcomeCode,
     ).toBe('RETENTION_SOURCE_NOT_PAGED');
+  });
+  it('racing retention deleters of one expired file serialize without an artifact row lock', async () => {
+    // assertArtifactRetentionInTx reads work.artifacts without FOR UPDATE: ensemus_app holds no
+    // UPDATE on it (0003), and every locking clause needs one. This shows the lock is not needed:
+    // the second deleter waits on the first's locks, then finds the file gone, and exactly one
+    // removal, tombstone and deletion event exist. The artifact fields checked are app-immutable.
+    const owner = await lifecycleTenant(database.db, auth),
+      store = new LifecycleMemoryStore(),
+      context = createServiceContext(owner.organizationId),
+      target = await lifecycleArtifact(database.db, owner, store),
+      spare = await lifecycleArtifact(database.db, owner, store),
+      observer = new pg.Client({ connectionString: urls.superuser() });
+    await setRetentionRule(database.db, owner, {
+      dataCategory: 'raw_files',
+      classification: 'internal',
+      retainDays: 1,
+      basisRef: randomUUID(),
+    });
+    const raw = createRawFilesRetentionSource(store),
+      refusing: RetentionSource = {
+        ...raw,
+        remove: () => Promise.reject(new Error('TEST_SOURCE_FAILURE')),
+      };
+    // One refused examination leaves the live, incomplete cursor both deleters check.
+    expect((await sweepRetention(database.db, context, [refusing], input()))[0]).toMatchObject({
+      examined: 1,
+      removed: 0,
+      more: true,
+    });
+    const pidOf = async (tx: Tx) =>
+      Number((await tx.execute(sql`select pg_backend_pid() as pid`)).rows[0]?.pid);
+    const signal = <T>() => {
+      let settle!: (value: T) => void;
+      const promise = new Promise<T>((resolve) => {
+        settle = resolve;
+      });
+      return { promise, settle };
+    };
+    const held = signal<void>(),
+      firstPid = signal<number>(),
+      secondPid = signal<number>(),
+      release = () => held.settle(undefined),
+      firstRemoved = firstPid.settle,
+      secondStarted = secondPid.settle;
+    await observer.connect();
+    let first: Promise<unknown> | undefined, second: Promise<unknown> | undefined;
+    try {
+      first = withTenantTx(database.db, context, async (tx) => {
+        const pid = await pidOf(tx);
+        await raw.remove(tx, context, target.artifactId);
+        firstRemoved(pid);
+        await held.promise;
+      });
+      // A first deleter that fails surfaces its own error here instead of a hung wait.
+      const holder = await Promise.race([firstPid.promise, first.then(() => Number.NaN)]);
+      second = withTenantTx(database.db, context, async (tx) => {
+        secondStarted(await pidOf(tx));
+        await raw.remove(tx, context, target.artifactId);
+      }).then(
+        () => 'removed twice',
+        (error: unknown) => error,
+      );
+      const waiter = await secondPid.promise;
+      let blocked = false;
+      for (let attempt = 0; attempt < 200 && !blocked; attempt += 1) {
+        blocked = (
+          await observer.query<{ blocked: boolean }>(
+            'select $1::int = any(pg_blocking_pids($2::int)) as blocked',
+            [holder, waiter],
+          )
+        ).rows[0]!.blocked;
+        if (!blocked) await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+      expect(blocked).toBe(true);
+      release();
+      await first;
+      expect(await second).toMatchObject({ code: 'NOT_FOUND' });
+    } finally {
+      release();
+      await first?.catch(() => undefined);
+      await second;
+    }
+    try {
+      const count = async (text: string) =>
+        Number(
+          (await observer.query<{ n: string }>(text, [owner.organizationId, target.artifactId]))
+            .rows[0]!.n,
+        );
+      expect(
+        await count('select count(*) as n from work.artifacts where organization_id=$1 and id=$2'),
+      ).toBe(0);
+      expect(
+        (
+          await observer.query(
+            "select reason_code from platform.tombstones where organization_id=$1 and target_type='artifact' and target_id=$2",
+            [owner.organizationId, target.artifactId],
+          )
+        ).rows,
+      ).toEqual([{ reason_code: 'RETENTION_EXPIRED' }]);
+      expect(
+        await count(
+          "select count(*) as n from platform.domain_events where organization_id=$1 and event_type='work.artifact_deleted' and payload->>'artifact_id'=$2::text",
+        ),
+      ).toBe(1);
+      expect(
+        await withTenantTx(database.db, context, (tx) =>
+          tx.select().from(artifacts).where(eq(artifacts.id, spare.artifactId)),
+        ),
+      ).toHaveLength(1);
+    } finally {
+      await observer.end();
+    }
   });
   it('configured expiry reaches completed work while manual deletion and legal holds keep their guards', async () => {
     const owner = await lifecycleTenant(database.db, auth),

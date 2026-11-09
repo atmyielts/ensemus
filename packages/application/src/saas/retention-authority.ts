@@ -61,8 +61,10 @@ export async function assertArtifactRetentionInTx(
     throw new AppError('NOT_FOUND');
   // No row lock: ensemus_app holds SELECT, INSERT and DELETE on work.artifacts but no UPDATE (0003),
   // and PostgreSQL requires UPDATE for every locking clause, so FOR UPDATE refused every retention
-  // removal. The fields checked here are immutable to the app, the cursor below is locked, and the
-  // unique tombstone insert serializes racing deleters, as it does for a person's deletion.
+  // removal. The fields checked here are immutable to the app, and racing deleters still serialize:
+  // the caller already holds the work unit FOR UPDATE, the cursor below is locked, and the artifact
+  // DELETE before the tombstone finds nothing for a loser (NOT_FOUND). saas-retention's racing
+  // deleters test holds this: one removal, one tombstone and one deletion event.
   const [artifact] = await tx
     .select()
     .from(artifacts)
