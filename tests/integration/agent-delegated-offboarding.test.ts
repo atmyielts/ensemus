@@ -180,11 +180,13 @@ describe('ADR-028 delegated child offboarding (L6, L8b)', () => {
     });
     return {
       code,
+      // A pending or failed run writes { state, ... }; a finished run writes the ErasureReport.
       report: JSON.parse(readFileSync(report, 'utf8')) as {
-        state: string;
+        state?: string;
         reasonCode?: string;
         errorCode?: string;
         restarted?: number;
+        leftOver?: unknown[];
       },
     };
   }
@@ -294,10 +296,26 @@ describe('ADR-028 delegated child offboarding (L6, L8b)', () => {
     expect(crashed.code).toBe(2);
     expect(crashed.report.state).toBe('failed');
     expect(await seals(organizationId)).toEqual([{ child_count: '1' }]);
-    // Run 3 resumes from the same witness: no second seal, rows erased, reported.
+    // Run 3 resumes from the same witness: no second seal, rows erased, reported. A finished run writes
+    // finishErasure's ErasureReport (packages/saas/src/offboarding.ts), which has no `state`: its empty
+    // leftOver is what "verified" means (LIFE-04), and the offboarding row itself must then be reported.
+    // The report is checked first so a failure names every table left over.
     const resumed = await erase(ready, organizationId);
+    expect(resumed.report).toMatchObject({
+      schemaVersion: 1,
+      organizationId,
+      offboardingId: ready.offboardingId,
+      leftOver: [],
+    });
     expect(resumed.code).toBe(0);
-    expect(resumed.report.state).toBe('reported');
+    expect(
+      (
+        await su.query<{ state: string }>(
+          'select state from lifecycle.offboardings where organization_id=$1 and id=$2',
+          [organizationId, ready.offboardingId],
+        )
+      ).rows,
+    ).toEqual([{ state: 'reported' }]);
     expect(await seals(organizationId)).toEqual([{ child_count: '1' }]);
     for (const table of PROOF_TABLES)
       expect(
