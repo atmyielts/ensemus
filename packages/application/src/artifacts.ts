@@ -125,6 +125,9 @@ export async function addArtifact(
       .select({ id: workArtifacts.artifactId })
       .from(workArtifacts)
       .where(and(eq(workArtifacts.workUnitId, input.workUnitId), eq(workArtifacts.artifactId, id)));
+  // This attempt's own writer token (0539). Several requests that share a request-derived ID each
+  // register one, so an orphan's bytes are removed only once every one of them has finished.
+  const writeId = randomUUID();
   const first = await withTenantTx(database, context, async (tx) => {
     const current = await loadChangeable(tx, context, input.workUnitId);
     if (!canChangeContent(current.status as WorkState)) throw new AppError('INVALID_STATE');
@@ -135,71 +138,130 @@ export async function addArtifact(
       // Deleted for good, and a tombstone stays on its ID, so what is sent now needs one of its own.
       if (await isTombstoned(tx, id)) id = randomUUID();
     }
-    // Written before the bytes exist. If anything stops the row arriving, a crash included, the sweep
-    // finds this and removes what was uploaded. A repeat racing this one shares its row and its bytes.
-    await tx
-      .insert(blobLifecycle)
-      .values({
-        organizationId: context.organizationId,
-        artifactId: id,
-        objectKey: objectKey(context.organizationId, id),
-        state: 'uploading',
-        purgeAfter: new Date(Date.now() + UPLOAD_GRACE_MS),
-      })
-      .onConflictDoNothing();
+    // Written before the bytes exist, with this writer's receipt. A repeat racing this one shares
+    // the row and its bytes, and registers its own writer. If the row never arrives, the sweep removes
+    // the bytes only after every registered writer proved its PUT finished (settleAbandonedUpload); a
+    // crash or an unknown PUT leaves the row owed for ever, never deleted on a timer.
+    if (!(await reserveUpload(tx, context, id, writeId, sha256))) {
+      // The row this request shares was abandoned and fenced; what is sent now needs an ID of its own.
+      if (!input.requestKey) throw new AppError('VERSION_CONFLICT');
+      id = randomUUID();
+      if (!(await reserveUpload(tx, context, id, writeId, sha256)))
+        throw new AppError('VERSION_CONFLICT');
+    }
     return { work: current };
   });
   if (first.repeat) return { id: first.repeat.id };
   const { work } = first;
   const key = objectKey(context.organizationId, id);
+  // A rejected PUT is an unknown outcome: it is never settled, so its bytes are never deleted early.
   await store.put(key, input.body, input.mimeType);
+  // Only now is this writer known to have finished. Whatever stops the row arriving after this point,
+  // its receipt is settled, so the sweep can remove the bytes once no other writer is still going.
+  // The settlement itself rechecks, under the row lock, that no file row or catalog entry exists, so a
+  // lost commit response that did publish is never treated as abandoned.
+  const settle = () => settleAbandonedUpload(database, context, id, writeId).catch(() => undefined);
+  let published = false;
+  let result: { id: string };
+  try {
+    result = await withTenantTx(database, context, async (tx) => {
+      // Checked again: the work may have been paused or finished while the bytes were on their way.
+      const current = await loadChangeable(tx, context, input.workUnitId);
+      if (!canChangeContent(current.status as WorkState)) throw new AppError('INVALID_STATE');
+      input.stillAllowed?.(current);
+      if (input.requestKey) {
+        // The row lock above puts two racing repeats in order, and the second finds the first's file.
+        const [repeat] = await attached(tx);
+        if (repeat) return { id: repeat.id };
+      }
+      if (input.onlyOnce) {
+        const [existing] = await tx
+          .select({ id: artifacts.id })
+          .from(workArtifacts)
+          .innerJoin(artifacts, eq(artifacts.id, workArtifacts.artifactId))
+          .where(and(eq(workArtifacts.workUnitId, input.workUnitId), eq(artifacts.name, name)));
+        if (existing) return { id: existing.id };
+      }
+      await tx.insert(artifacts).values({
+        organizationId: context.organizationId,
+        id,
+        name,
+        objectKey: key,
+        sha256,
+        mimeType: input.mimeType,
+        sizeBytes: input.body.length,
+        // An artifact inherits its Work Unit's classification (secrets doc, section 6).
+        classification: current.classification,
+        createdByMembershipId: context.actorType === 'service' ? null : context.membershipId,
+      });
+      await tx.insert(workArtifacts).values({
+        organizationId: context.organizationId,
+        workUnitId: input.workUnitId,
+        artifactId: id,
+      });
+      await tx.delete(blobLifecycle).where(eq(blobLifecycle.artifactId, id));
+      await emit(tx, context, {
+        eventType: 'work.artifact_added',
+        aggregateType: 'work_unit',
+        aggregateId: input.workUnitId,
+        // What it is now. The work may have moved on while the bytes were uploading.
+        aggregateVersion: current.version,
+        classification: work.classification,
+        payload: { work_unit_id: input.workUnitId, artifact_id: id },
+      });
+      await closeOutdatedReviews(tx, context, current);
+      published = true;
+      return { id };
+    });
+  } catch (error) {
+    await settle();
+    throw error;
+  }
+  // A repeat that found the first's file, or a name kept once: this writer's own bytes never arrived.
+  if (!published) await settle();
+  return result;
+}
+
+/** The 'uploading' row and this writer's receipt, in the transaction that precedes the PUT (0539). */
+async function reserveUpload(
+  tx: Tx,
+  context: TenantContext,
+  artifactId: string,
+  writeId: string,
+  sha256: string,
+) {
+  await tx
+    .insert(blobLifecycle)
+    .values({
+      organizationId: context.organizationId,
+      artifactId,
+      objectKey: objectKey(context.organizationId, artifactId),
+      state: 'uploading',
+      purgeAfter: new Date(Date.now() + UPLOAD_GRACE_MS),
+    })
+    .onConflictDoNothing();
+  const result = await tx.execute<{ registered: boolean }>(
+    sql`select lifecycle.register_upload_write(${artifactId}::uuid,${writeId}::uuid,${sha256}) as registered`,
+  );
+  return result.rows[0]?.registered === true;
+}
+
+/**
+ * Called ONLY after this writer's exact PUT fulfilled and its file row did not arrive. Records that the
+ * writer finished; when it was the last writer of a row that never became a file, the row is fenced
+ * and the sweep may remove the bytes, through 0508's hold-aware deletion authority (0539).
+ */
+async function settleAbandonedUpload(
+  database: AppDatabase,
+  context: TenantContext,
+  artifactId: string,
+  writeId: string,
+) {
   return withTenantTx(database, context, async (tx) => {
-    // Checked again: the work may have been paused or finished while the bytes were on their way.
-    const current = await loadChangeable(tx, context, input.workUnitId);
-    if (!canChangeContent(current.status as WorkState)) throw new AppError('INVALID_STATE');
-    input.stillAllowed?.(current);
-    if (input.requestKey) {
-      // The row lock above puts two racing repeats in order, and the second finds the first's file.
-      const [repeat] = await attached(tx);
-      if (repeat) return { id: repeat.id };
-    }
-    if (input.onlyOnce) {
-      const [existing] = await tx
-        .select({ id: artifacts.id })
-        .from(workArtifacts)
-        .innerJoin(artifacts, eq(artifacts.id, workArtifacts.artifactId))
-        .where(and(eq(workArtifacts.workUnitId, input.workUnitId), eq(artifacts.name, name)));
-      if (existing) return { id: existing.id };
-    }
-    await tx.insert(artifacts).values({
-      organizationId: context.organizationId,
-      id,
-      name,
-      objectKey: key,
-      sha256,
-      mimeType: input.mimeType,
-      sizeBytes: input.body.length,
-      // An artifact inherits its Work Unit's classification (secrets doc, section 6).
-      classification: current.classification,
-      createdByMembershipId: context.actorType === 'service' ? null : context.membershipId,
-    });
-    await tx.insert(workArtifacts).values({
-      organizationId: context.organizationId,
-      workUnitId: input.workUnitId,
-      artifactId: id,
-    });
-    await tx.delete(blobLifecycle).where(eq(blobLifecycle.artifactId, id));
-    await emit(tx, context, {
-      eventType: 'work.artifact_added',
-      aggregateType: 'work_unit',
-      aggregateId: input.workUnitId,
-      // What it is now. The work may have moved on while the bytes were uploading.
-      aggregateVersion: current.version,
-      classification: work.classification,
-      payload: { work_unit_id: input.workUnitId, artifact_id: id },
-    });
-    await closeOutdatedReviews(tx, context, current);
-    return { id };
+    const result = await tx.execute<{ outcome: string }>(
+      sql`select lifecycle.settle_upload_write(${artifactId}::uuid,${writeId}::uuid) as outcome`,
+    );
+    return result.rows[0]?.outcome;
   });
 }
 
@@ -466,7 +528,8 @@ export async function purgeDueBlobs(
           inArray(blobLifecycle.state, ['uploading', 'deleting']),
           lte(blobLifecycle.purgeAfter, now),
           // The exact lifecycle authority selects the actual writer below. An orphan upload's
-          // grace period never proves its put finished; missing/unknown receipts remain unconfirmed.
+          // grace period never proves its put finished: only its writers' settled receipts do (0539).
+          // Missing/unknown receipts remain unconfirmed, and each such attempt is counted as failed.
         ),
       )
       .orderBy(asc(blobLifecycle.purgeAfter))

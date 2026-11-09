@@ -16,6 +16,8 @@ import {
   type ObjectStore,
 } from '@ensemus/application';
 import { workInputHash } from '@ensemus/application/ai-input-ledger';
+import { createContextSource } from '@ensemus/application/ai-context-source';
+import type { Classification } from '@ensemus/domain/policy';
 import {
   CHECKLIST_TEMPLATE,
   completionChecklist,
@@ -69,13 +71,15 @@ import {
   addGeneratedArtifact,
   createArtifactProvenance,
   createDerivedArtifactPurge,
-  eraseDerivedArtifactMetadata,
   type ArtifactExecution,
   type ArtifactInputInventory,
   type DerivedArtifactLifecycle,
   type StructuredArtifactInput,
 } from '../../packages/application/src/knowledge/artifact-provenance';
 import { pgCode } from '../../packages/application/src/errors';
+import { recordRunInputs } from '../../packages/application/src/ai/input-observations';
+import { lockReadAuthorityBeforeBody } from '../../packages/application/src/ai/read-authority';
+import { createObjectDeletionLifecycle } from '../../packages/application/src/saas/object-deletion';
 import { seedMember, seedSearchableSource, sha256 } from '../helpers/knowledge';
 import { urls } from '../helpers/stack';
 
@@ -358,21 +362,14 @@ describe('generated artifact all-input privacy and erasure protocol (0208)', () 
       }));
     const read = (artifactId: string, context = owner) =>
       readArtifact(database.db, store, context, { artifactId, workUnitId: work.id });
-    const lifecycle: DerivedArtifactLifecycle = {
-      erase: async (context, header) => {
-        // Explicit test double: it has no outstanding provider request or holds. Real adapters must
-        // prove both; this test exercises the real metadata/RLS/retained-lineage protocol after that.
-        await eraseDerivedArtifactMetadata(database.db, context, header);
-        await store.delete(header.objectKey);
-        await withTenantTx(database.db, context, (tx) =>
-          tx
-            .update(blobLifecycle)
-            .set({ state: 'purged', purgedAt: new Date() })
-            .where(eq(blobLifecycle.artifactId, header.artifactId)),
-        );
-        return { state: 'purged', quiescent: true };
-      },
-    };
+    // The production generated-file lifecycle (0508): its exact settled writer, hold check and claim,
+    // one DELETE and an independent absence check. Since 0508 a physical purge receipt on the lineage
+    // (lineage_0508_physical_receipt) exists only through that claim, so a double that erased metadata
+    // and marked the blob purged by hand can no longer certify removal. The map store is unversioned.
+    const lifecycle: DerivedArtifactLifecycle = createObjectDeletionLifecycle({
+      database: database.db,
+      store,
+    }).derived;
     return {
       owner,
       member,
@@ -412,6 +409,80 @@ describe('generated artifact all-input privacy and erasure protocol (0208)', () 
       failure = error;
     }
     expect(pgCode(failure)).toBe(code);
+  }
+  /** The database's refusal code and message, whether a query or the COMMIT raised it. */
+  async function refusalOf(operation: Promise<unknown>) {
+    try {
+      await operation;
+    } catch (error) {
+      const cause = (error as { cause?: unknown }).cause ?? error;
+      return { code: pgCode(error), message: (cause as { message?: string }).message };
+    }
+    return null;
+  }
+  const contextSource = () =>
+    createContextSource({
+      database: agent.db,
+      readObject: async () => {
+        throw new Error('TEST_UNEXPECTED_OBJECT_READ');
+      },
+    });
+  const agentWriterOf = (value: Fixture) => {
+    if (!value.agentWriter) throw new Error('TEST_AGENT_WRITER_MISSING');
+    return value.agentWriter;
+  };
+  /**
+   * The run actually reads another Work through the runtime's context source (lockReadAuthorityBefore
+   * Body, then the body, then recordRunInputs), as in production. 0419's artifact authority binds a
+   * generated file's structured records only to reads the run actually made: a record the run never
+   * read has no actual-content ref, and ai.guard_output_authority_proof refuses the put claim.
+   */
+  async function runReadsWork(
+    value: Fixture,
+    workUnitId: string,
+  ): Promise<StructuredArtifactInput> {
+    const loaded = await contextSource().loadWork(agentWriterOf(value), workUnitId);
+    return {
+      kind: 'work_unit',
+      id: loaded.id,
+      sha256: workInputHash(loaded),
+      classification: loaded.classification as Classification,
+    };
+  }
+  /**
+   * The run actually reads a project and its client the way the Knowledge fact path does
+   * (knowledge/facts.ts subjectRecord): authority pinned before each body, then recordRunInputs.
+   */
+  async function runReadsProject(
+    value: Fixture,
+    projectId: string,
+  ): Promise<StructuredArtifactInput[]> {
+    const writer = agentWriterOf(value);
+    return withAdmittedRunTx(agent.db, writer, async (tx) => {
+      await lockReadAuthorityBeforeBody(tx, writer, { kind: 'project', id: projectId });
+      const [project] = await tx.select().from(projects).where(eq(projects.id, projectId));
+      if (!project?.clientId) throw new Error('TEST_PROJECT_MISSING');
+      await lockReadAuthorityBeforeBody(tx, writer, { kind: 'client', id: project.clientId });
+      const [client] = await tx.select().from(clients).where(eq(clients.id, project.clientId));
+      if (!client) throw new Error('TEST_CLIENT_MISSING');
+      const protection = client.classification as Classification;
+      const reads = [
+        {
+          kind: 'client' as const,
+          id: client.id,
+          sha256: sha256(JSON.stringify(client)),
+          classification: protection,
+        },
+        {
+          kind: 'project' as const,
+          id: project.id,
+          sha256: sha256(JSON.stringify(project)),
+          classification: protection,
+        },
+      ];
+      await recordRunInputs(tx, writer, reads);
+      return reads;
+    });
   }
 
   it('keeps all registered pending output hidden before object put and publishes only after binding', async () => {
@@ -616,7 +687,12 @@ describe('generated artifact all-input privacy and erasure protocol (0208)', () 
     value.control.beforePut = async () => {
       await value.close();
     };
-    await expect(value.create()).rejects.toMatchObject({ code: 'KNOWLEDGE_SOURCE_CLOSED' });
+    // The publishing transaction first holds the run's own read-scope and authority-v1 admission, as
+    // the tool gate does (0414, 0417; addGeneratedArtifact admits the writer since r3). Closing a
+    // source the run read fences the run's inputs, so that admission refuses the publication with the
+    // run fence (POLICY_DENIED) before the inventory's own source check could answer.
+    await expect(value.create()).rejects.toMatchObject({ code: 'POLICY_DENIED' });
+    expect(value.control.puts).toBe(1);
     expect(await value.raw(value.owner)).toEqual({ files: [], links: [] });
     expect(
       await withTenantTx(database.db, value.service, (tx) => tx.select().from(artifactLineage)),
@@ -714,10 +790,22 @@ describe('generated artifact all-input privacy and erasure protocol (0208)', () 
       tx.select().from(artifactLineage),
     );
     value.bodies.set(header!.objectKey, Buffer.from(value.text));
+    // Since 0508 the sweep no longer skips generated rows: it asks lifecycle.artifact_delete_target,
+    // which names no target for an untombstoned, unsettled generated writer (M8 join source: only
+    // settled exact writers admit cleanup). The row stays unconfirmed and is counted as a failed
+    // attempt, never as purged, and the bytes and the active writer token are kept.
     expect(
       await purgeDueBlobs(database.db, value.store, value.service, new Date(Date.now() + 7200000)),
-    ).toEqual({ purged: 0, failed: 0 });
+    ).toEqual({ purged: 0, failed: 1 });
     expect(value.bodies.has(header!.objectKey)).toBe(true);
+    const [blob] = await withTenantTx(database.db, value.service, (tx) =>
+      tx.select().from(blobLifecycle).where(eq(blobLifecycle.artifactId, header!.artifactId)),
+    );
+    expect(blob).toMatchObject({ state: 'uploading', attempts: 1 });
+    const [kept] = await withTenantTx(database.db, value.service, (tx) =>
+      tx.select().from(artifactLineage).where(eq(artifactLineage.artifactId, header!.artifactId)),
+    );
+    expect(kept).toMatchObject({ state: 'pending', writeState: 'active', physicalPurgedAt: null });
   });
   it('keeps missing and held lifecycle adapters incomplete, then releases the hold only through a fresh adapter check', async () => {
     const value = await fixture();
@@ -873,12 +961,8 @@ describe('generated artifact all-input privacy and erasure protocol (0208)', () 
         id: work.id,
         membershipId: value.owner.membershipId,
       });
-    value.records.push({
-      kind: 'work_unit',
-      id: work.id,
-      sha256: sha256(JSON.stringify(work)),
-      classification,
-    });
+    // The run actually read it (0419): the record carries the hash and class of that read.
+    value.records.push(await runReadsWork(value, work.id));
     return work;
   }
   async function privateProject(value: Fixture) {
@@ -905,20 +989,8 @@ describe('generated artifact all-input privacy and erasure protocol (0208)', () 
         name: 'Synthetic retained project',
       });
     });
-    value.records.push(
-      {
-        kind: 'client',
-        id: clientId,
-        sha256: sha256(`actual-client-read:${clientId}`),
-        classification: 'restricted',
-      },
-      {
-        kind: 'project',
-        id: projectId,
-        sha256: sha256(`actual-project-read:${projectId}`),
-        classification: 'restricted',
-      },
-    );
+    // A system template run reads no parent body, so only an agent run records these actual reads.
+    if (value.agentWriter) value.records.push(...(await runReadsProject(value, projectId)));
     return { clientId, projectId };
   }
   const removeOtherAssignment = (value: Fixture, id: string) =>
@@ -944,17 +1016,19 @@ describe('generated artifact all-input privacy and erasure protocol (0208)', () 
   it('retains multiple actual historical hashes and ignores routine mutable Work changes while serving', async () => {
     const value = await fixture(),
       work = await otherWork(value, 'internal');
-    value.records.push({
-      kind: 'work_unit',
-      id: work.id,
-      sha256: sha256('a later actual read'),
-      classification: 'internal',
-    });
+    // A later actual read of the same Work after it changed: a second genuine historical hash.
+    await withTenantTx(database.db, value.member, (tx) =>
+      tx
+        .update(workUnits)
+        .set({ title: 'Read again', objective: 'Read again objective', version: work.version + 1 })
+        .where(eq(workUnits.id, work.id)),
+    );
+    value.records.push(await runReadsWork(value, work.id));
     const output = await value.create();
     await withTenantTx(database.db, value.member, (tx) =>
       tx
         .update(workUnits)
-        .set({ title: 'Changed title', objective: 'Changed objective', version: work.version + 1 })
+        .set({ title: 'Changed title', objective: 'Changed objective', version: work.version + 2 })
         .where(eq(workUnits.id, work.id)),
     );
     const records = await withTenantTx(database.db, value.service, (tx) =>
@@ -1058,6 +1132,13 @@ describe('generated artifact all-input privacy and erasure protocol (0208)', () 
         .where(eq(workUnits.id, value.work.id)),
     );
     const output = await value.create();
+    // Under the restricted client the Work's scope class is restricted (0407 work_scope_class), and so
+    // is this output; restricted material is served only to the Work's owner or an assignee (0519).
+    // The client's own owner is made an assignee, so serving depends only on what was actually read.
+    await assignContributor(database.db, value.owner, {
+      id: value.work.id,
+      membershipId: value.member.membershipId,
+    });
     await withTenantTx(database.db, value.service, (tx) =>
       tx.delete(clientReaders).where(eq(clientReaders.clientId, records.clientId)),
     );
@@ -1128,7 +1209,10 @@ describe('generated artifact all-input privacy and erasure protocol (0208)', () 
       writer = value.agentWriter;
     if (!writer) throw new Error('TEST_AGENT_WRITER_MISSING');
     // Under the run's own admission (0414, 0417), so the refusal is the missing structured binding.
-    await deniedSql(
+    // Two deferred commit checks refuse it: 0419's artifact_authority_complete_at_birth (every
+    // actual-content Work read needs its structured record binding) and 0211's structured_artifact_commit.
+    // Deferred triggers on one event fire in name order, so 0419's EN119 answers first at COMMIT.
+    const refused = await refusalOf(
       withAdmittedRunTx(agent.db, writer, async (tx) => {
         await tx.insert(artifactLineage).values({
           ...header,
@@ -1146,8 +1230,13 @@ describe('generated artifact all-input privacy and erasure protocol (0208)', () 
           purgeAfter: new Date(),
         });
       }),
-      'EN118',
     );
+    expect(refused).toEqual({ code: 'EN119', message: 'ARTIFACT_AUTHORITY_INCOMPLETE' });
+    expect(
+      await withTenantTx(database.db, value.service, (tx) =>
+        tx.select().from(artifactLineage).where(eq(artifactLineage.artifactId, id)),
+      ),
+    ).toEqual([]);
     for (const operation of [
       () =>
         withTenantTx(database.db, value.service, (tx) =>

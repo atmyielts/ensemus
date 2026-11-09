@@ -42,6 +42,7 @@ import {
   eraseDerivedArtifactMetadata,
   type DerivedArtifactLifecycle,
 } from '../../packages/application/src/knowledge/artifact-provenance';
+import { createObjectDeletionLifecycle } from '../../packages/application/src/saas/object-deletion';
 import { createActivities } from '@ensemus/workflows/activities';
 
 describe('knowledge source ledger reapply', () => {
@@ -309,9 +310,28 @@ describe('knowledge source ledger reapply', () => {
     await store.delete(key);
     expect((await perform({ erase: async () => ({ state: 'unconfirmed' }) })).failed).toBe(1);
     expect(await countUnappliedTombstones(database.db, store, owner)).toBe(1);
-    const lifecycle: DerivedArtifactLifecycle = {
+    // 0508 and the M8 lifecycle join source: a generated restore-pending marker is retained restore
+    // debt (lifecycle.object_restore_debts), and it "stays nonqualifying until real restore/provider
+    // quiescence authority exists. There is no app/eraser debt-clearing grant." So not even the
+    // production lifecycle, with a purge-capable unversioned store, may admit this deletion
+    // (begin_object_deletion refuses a restore_reapply_pending header) ...
+    const purgeCapable: ObjectStore = {
+      ...transport,
+      deleteForPurge: async (objectKey) => {
+        objects.delete(objectKey);
+        return { transport: 'deleted', capabilityVerified: true };
+      },
+      isPhysicallyAbsent: async (objectKey) => !objects.has(objectKey),
+    };
+    const production = createObjectDeletionLifecycle({
+      database: database.db,
+      store: purgeCapable,
+    });
+    expect((await perform(production.derived)).failed).toBe(1);
+    // ... and an adapter that only claims quiescence after erasing metadata and marking the blob
+    // purged by hand cannot certify the removal either (0508 lineage_0508_physical_receipt).
+    const claiming: DerivedArtifactLifecycle = {
       erase: async (context, input) => {
-        // Explicit test-only adapter: all puts have returned, and this in-memory store has no holds.
         await eraseDerivedArtifactMetadata(database.db, context, input);
         await store.delete(input.objectKey);
         await withTenantTx(database.db, context, (tx) =>
@@ -323,16 +343,18 @@ describe('knowledge source ledger reapply', () => {
         return { state: 'purged', quiescent: true };
       },
     };
-    expect((await perform(lifecycle)).failed).toBe(0);
-    expect(await countUnappliedTombstones(database.db, store, owner)).toBe(0);
-    expect(await header()).toMatchObject({ restoreReapplyPending: false, writeState: 'fenced' });
-    expect((await header()).physicalPurgedAt).toBeInstanceOf(Date);
-    const repeated = await perform(lifecycle);
-    expect(repeated).toMatchObject({
-      failed: 0,
-      tombstonesAdded: 0,
-      artifactsRemoved: 0,
-      bytesRemoved: 0,
-    });
+    expect((await perform(claiming)).failed).toBe(1);
+    // The deletion stays pending and owed, and the restore gate stays closed.
+    expect(await countUnappliedTombstones(database.db, store, owner)).toBe(1);
+    expect(await header()).toMatchObject({ restoreReapplyPending: true, physicalPurgedAt: null });
+    await expect(
+      createRestoreGate({ database: database.db, store }).assertServing(owner),
+    ).rejects.toEqual(new AppError('RESTORE_PENDING'));
+    const owed = await withTenantTx(database.db, service, (tx) =>
+      tx.execute<{ unconfirmed: number }>(
+        sql`select unconfirmed from lifecycle.object_delete_counts()`,
+      ),
+    );
+    expect(owed.rows[0]?.unconfirmed).toBeGreaterThan(0);
   });
 });
