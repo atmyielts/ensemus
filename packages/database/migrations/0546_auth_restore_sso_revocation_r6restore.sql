@@ -2,7 +2,7 @@
 -- FLAGGED FOR HUMAN SECURITY REVIEW: written by an agent in CI repair round 6 (g2) and not yet
 -- reviewed by a person. It lets 0422's offline restore revocation through two older SSO guards.
 --
--- 0545 (r6 restore): 0422's offline operator restore revokes authority that a restored dump may hold.
+-- 0546 (r6 restore): 0422's offline operator restore revokes authority that a restored dump may hold.
 -- identity.begin_auth_restore revokes every outstanding SCIM bearer in the transaction that closes
 -- admission, and identity.reconcile_auth_restore's 'revoke_scim' and 'disable_provider' actions do
 -- the same for one token or connection. Both run as the actual ensemus_migrator login with no tenant
@@ -70,7 +70,7 @@ BEGIN
 END $$;
 REVOKE ALL ON FUNCTION identity.auth_restore_sso_revocation(regclass,jsonb,jsonb) FROM PUBLIC;
 --> statement-breakpoint
--- 0404's body, with the 0545 exit before its tenant comparison. Same signature, owner, ACL and triggers.
+-- 0404's body, with the 0546 exit before its tenant comparison. Same signature, owner, ACL and triggers.
 CREATE OR REPLACE FUNCTION org.guard_sso_management() RETURNS trigger LANGUAGE plpgsql
 SET search_path=pg_catalog AS $$
 DECLARE action text;
@@ -78,7 +78,7 @@ BEGIN
   IF TG_RELID NOT IN ('org.sso_connections'::regclass,'org.scim_tokens'::regclass)
     OR TG_OP NOT IN ('INSERT','UPDATE') THEN
     RAISE EXCEPTION 'INTERACTIVE_GUARD_TARGET_INVALID' USING ERRCODE='42501';END IF;
-  -- 0545: the offline restore operator's one-way revocation (see the header). Nested, so a runtime
+  -- 0546: the offline restore operator's one-way revocation (see the header). Nested, so a runtime
   -- role never reaches the helper it has no EXECUTE on.
   IF TG_OP='UPDATE' AND current_user='ensemus_migrator' AND session_user='ensemus_migrator' THEN
     IF identity.auth_restore_sso_revocation(TG_RELID,to_jsonb(OLD),to_jsonb(NEW)) THEN RETURN NEW;END IF;

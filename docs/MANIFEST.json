@@ -42,8 +42,8 @@
     },
     {
       "path": "00-foundation/adr/ADR-026-tombstones-survive-restore.md",
-      "size_bytes": 14971,
-      "sha256": "bcd23a6992a8b91bde7849a34b8b94399937796fe796f2966132dcdb0a50d17c"
+      "size_bytes": 17655,
+      "sha256": "aefff02229955640390cc4f38a3a5cc6b234878e7bf1616e24861631cf4f0b82"
     },
     {
       "path": "00-foundation/adr/ADR-027-verified-external-actions.md",
@@ -52,8 +52,8 @@
     },
     {
       "path": "00-foundation/adr/ADR-028-governed-ai.md",
-      "size_bytes": 25215,
-      "sha256": "171f0fadc9228dd3f4e1ea349b731adbf32da9fba058678ff8858f97783adef0"
+      "size_bytes": 30385,
+      "sha256": "84001f799d114df1ed945e417f0bb5904a0ff59d9a057a851e8abcb759a5c88f"
     },
     {
       "path": "00-foundation/adr/ADR-029-company-knowledge.md",
@@ -72,8 +72,8 @@
     },
     {
       "path": "00-foundation/adr/ADR-032-saas-operations-and-billing.md",
-      "size_bytes": 30304,
-      "sha256": "57d17de2a1929cab3230ae24d6e5a1b301f039623bff59e7300fbe636fd63ad1"
+      "size_bytes": 31384,
+      "sha256": "65fbff97bd2ccbd57b7180e22d76c73e2d393b0817cc2eace191c20d5b486abc"
     },
     {
       "path": "01-product/01-product-requirements.md",
@@ -317,8 +317,8 @@
     },
     {
       "path": "05-operations/sovereign/backup-and-restore.md",
-      "size_bytes": 18866,
-      "sha256": "54927537c2b582bc6db896f714063745c3de1b877d8464f523dbc32142e8b54d"
+      "size_bytes": 20338,
+      "sha256": "d7e7ba3226a242c744a8e4da312e1547970fc636ed1bd1898f2e98eed96b91c2"
     },
     {
       "path": "05-operations/sovereign/diagnostics.md",
@@ -642,8 +642,8 @@
     },
     {
       "path": "06-delivery/evidence/m5/delegated-material-authority.md",
-      "size_bytes": 52057,
-      "sha256": "06ab1a590ebfba4c2099cdfa42990b6ae05723b2700777d3cdef7650bbfe3538"
+      "size_bytes": 52710,
+      "sha256": "e11928cbbf8575dd73a8028cf1451b2d2b0b41538a4f8be64b6656961780426f"
     },
     {
       "path": "06-delivery/evidence/m5/delegated-material-join.md",
@@ -1062,8 +1062,8 @@
     },
     {
       "path": "specifications/openapi.yaml",
-      "size_bytes": 372050,
-      "sha256": "813b57c7267205407a3363bc894909890b9e162978427d58a84d922f9eecc869"
+      "size_bytes": 374749,
+      "sha256": "d0085ac47df4ba55310bbf7ba0dc918ed92bd65bc89f912e4868531587da1b54"
     },
     {
       "path": "specifications/qa-scenarios.csv",

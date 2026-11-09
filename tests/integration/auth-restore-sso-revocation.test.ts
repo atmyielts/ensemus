@@ -1,4 +1,4 @@
-// 0545: the offline restore operator's one-way SSO revocation passes the 0404/0410 SSO guards, and
+// 0546: the offline restore operator's one-way SSO revocation passes the 0404/0410 SSO guards, and
 // nothing else does. Real migrator SQL on the shared integration database.
 //
 // identity.begin_auth_restore itself refuses while any runtime role is connected (0422), which an
@@ -47,7 +47,7 @@ const REVOKE_SCIM =
 const DISABLE_PROVIDER =
   "update org.sso_connections set state='disabled',auto_join=false,version=version+1,updated_at=clock_timestamp() where organization_id=$1 and id=$2";
 
-describe('0545: restore revocation through the SSO guards', () => {
+describe('0546: restore revocation through the SSO guards', () => {
   const app = openAppDatabase(urls.app()),
     auth = new pg.Client({ connectionString: urls.auth() }),
     migrator = new pg.Client({ connectionString: urls.migrator() });

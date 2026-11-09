@@ -191,7 +191,7 @@ describe('a backup, a deletion, and a restore', () => {
 
   /**
    * An active verified SSO connection with automatic joining and a live SCIM bearer on it: authority a backup
-   * can bring back, which 0422 begin must revoke as it closes admission (0545). No production path issues
+   * can bring back, which 0422 begin must revoke as it closes admission (0546). No production path issues
    * them without a person's interactive MFA proof, so the generated fixture writes them as the superuser,
    * bound to the tenant so every SSO trigger still checks them.
    */
@@ -367,7 +367,7 @@ describe('a backup, a deletion, and a restore', () => {
         expect(await store.exists(entryKey)).toBe(true);
         expect(await store.exists(objectKey(a.organizationId, doomed.id))).toBe(false);
 
-        // Authentication is fenced, and begin revoked the bearer the backup held (0422, 0545).
+        // Authentication is fenced, and begin revoked the bearer the backup held (0422, 0546).
         const finishedRestore = restoreLines.find(
           (line) => line.event === 'sovereign_restore.finished',
         );
