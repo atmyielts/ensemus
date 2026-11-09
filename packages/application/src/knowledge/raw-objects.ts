@@ -52,6 +52,30 @@ const rawTarget = z.strictObject({
 const service = (context: TenantContext) => {
   if (context.actorType !== 'service') throw new AppError('FORBIDDEN');
 };
+/** Waits before each retry of a busy admission or completion: about two seconds in all. */
+const BUSY_RETRY_DELAYS_MS = [20, 40, 80, 160, 320, 500, 500, 500];
+const lockBusy = (error: unknown) =>
+  (pgCode(error) ?? (error as { code?: unknown } | null)?.code) === '55P03';
+/**
+ * 0516's admit_raw_put and finish_raw_put take the source and organization rows NOWAIT, so they
+ * never wait in an order that could deadlock. A short lock held elsewhere, such as a concurrent
+ * retry of the same upload checking its writer, then refuses them with 55P03, and their whole
+ * transaction rolls back: no admission and no outcome were recorded. Retrying that same call is
+ * therefore safe. Giving up instead left the writer admitted with no outcome, so an ordinary
+ * concurrent retry made both requests fail and the document unrecoverable. Any other refusal, or a
+ * lock held for longer than this short budget, is reported exactly as before.
+ */
+async function retryWhileBusy<T>(work: () => Promise<T>): Promise<T> {
+  for (const delay of BUSY_RETRY_DELAYS_MS) {
+    try {
+      return await work();
+    } catch (error) {
+      if (!lockBusy(error)) throw error;
+    }
+    await new Promise((resolve) => setTimeout(resolve, delay));
+  }
+  return work();
+}
 
 /** Both ordinary upload and worker paths call this capability. No missing-store success exists. */
 export function createRawKnowledgeObjectPort(deps: {
@@ -91,12 +115,15 @@ export function createRawKnowledgeObjectPort(deps: {
   };
   const finish = async (context: TenantContext, receipt: NativePutObservation) => {
     if (!observed.has(receipt)) throw new AppError('PREREQUISITES_INCOMPLETE');
-    return withTenantTx(deps.database, context, async (tx) => {
-      const result = await tx.execute<{ finished: boolean }>(sql`select lifecycle.finish_raw_put(
+    // The PUT already happened: a busy row must not cost the record of its outcome (see above).
+    return retryWhileBusy(() =>
+      withTenantTx(deps.database, context, async (tx) => {
+        const result = await tx.execute<{ finished: boolean }>(sql`select lifecycle.finish_raw_put(
         ${receipt.documentId}::uuid,${receipt.writeId}::uuid,${receipt.generation}::bigint,${receipt.token},
         ${receipt.material_generation}::uuid,${receipt.auth_generation}::uuid,${receipt.outcome}) finished`);
-      return result.rows.length === 1 && result.rows[0]?.finished === true;
-    });
+        return result.rows.length === 1 && result.rows[0]?.finished === true;
+      }),
+    );
   };
   return {
     async put(context, write, body, mimeType) {
@@ -108,9 +135,12 @@ export function createRawKnowledgeObjectPort(deps: {
       // Capture bytes/hash before the admission await. Mutable request buffers cannot replace them.
       const bytes = Buffer.from(body),
         sha = createHash('sha256').update(bytes).digest('hex');
-      const rows = await withTenantTx(deps.database, context, (tx) =>
-        tx.execute<PutAdmission>(sql`select * from lifecycle.admit_raw_put(
+      // Nothing is sent before this admission commits, so a busy refusal is retried (see above).
+      const rows = await retryWhileBusy(() =>
+        withTenantTx(deps.database, context, (tx) =>
+          tx.execute<PutAdmission>(sql`select * from lifecycle.admit_raw_put(
         ${idSchema.parse(write.documentId)}::uuid,${idSchema.parse(write.writeId)}::uuid,${write.generation}::bigint)`),
+        ),
       );
       const admission = rows.rows[0] ? Object.freeze({ ...rows.rows[0] }) : undefined;
       if (
