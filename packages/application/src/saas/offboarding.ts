@@ -619,6 +619,30 @@ export async function advanceOffboarding(
 }
 
 /**
+ * The admission beginErasure checks before it moves to `erasing`, shared with the delegated input closure
+ * that must run just before it (ADR-028 lifecycle item 8b). Locks the tenant and the offboarding row.
+ * `finished` means erasure already ended (verified or reported) and nothing may be written. Otherwise
+ * the offboarding is `ready_for_erasure` or `erasing` (so its transition is over), no legal hold is
+ * active (LEGAL_HOLD_ACTIVE), and no external action or payment is unsettled (PREREQUISITES_INCOMPLETE).
+ */
+export async function assertErasureAdmittedInTx(
+  tx: Tx,
+  context: TenantContext,
+  offboardingId: string,
+): Promise<{ row: typeof offboardings.$inferSelect; finished: boolean }> {
+  service(context);
+  const id = idOf(offboardingId);
+  const { row } = await locked(tx, context, id, true);
+  if (row.state === 'reported' || row.state === 'verified') return { row, finished: true };
+  if (!['ready_for_erasure', 'erasing'].includes(row.state))
+    throw new AppError('PREREQUISITES_INCOMPLETE');
+  const pending = await effects(tx, context);
+  if (pending.activeHolds) throw new AppError('LEGAL_HOLD_ACTIVE');
+  if (pending.actions || pending.payments) throw new AppError('PREREQUISITES_INCOMPLETE');
+  return { row, finished: false };
+}
+
+/**
  * The operator's erase command, as the application role: moves to `erasing`, which the database refuses while
  * any hold is active, a step is unfinished or the transition is not over. It tombstones every artifact first,
  * so a restore cannot bring the bytes back (ADR-026). Answers the IDs of what it tombstoned.
@@ -632,13 +656,8 @@ export async function beginErasure(
   const id = idOf(input.offboardingId);
   if (!ref(input.operatorRef)) throw new AppError('INVALID_INPUT');
   return withAccountTx(database, context, async (tx) => {
-    const { row } = await locked(tx, context, id, true);
-    if (row.state === 'reported' || row.state === 'verified') return { tombstoned: 0, more: false };
-    if (!['ready_for_erasure', 'erasing'].includes(row.state))
-      throw new AppError('PREREQUISITES_INCOMPLETE');
-    const pending = await effects(tx, context);
-    if (pending.activeHolds) throw new AppError('LEGAL_HOLD_ACTIVE');
-    if (pending.actions || pending.payments) throw new AppError('PREREQUISITES_INCOMPLETE');
+    const { row, finished } = await assertErasureAdmittedInTx(tx, context, id);
+    if (finished) return { tombstoned: 0, more: false };
     const tables = await contentTables(tx),
       logs = await tx
         .select()

@@ -15,13 +15,16 @@ import {
 } from '@ensemus/application/saas/offboarding';
 import type { OffboardingAgentHaltPort } from '@ensemus/application/saas/ports';
 import { createOffboardingAgentHaltPort } from '@ensemus/application/saas/offboarding-agent-port';
-import { sealDelegatedErasureInTx } from '@ensemus/application/knowledge/delegated-erasure';
+import {
+  closeDelegatedRecordInputsInTx,
+  sealDelegatedErasureInTx,
+} from '@ensemus/application/knowledge/delegated-erasure';
 import {
   createTenantObjectErasure,
   type ErasureObjectStore,
 } from '@ensemus/application/saas/tenant-object-erasure';
 import { readSecret } from '@ensemus/config';
-import { openAppDatabase, withTenantTx } from '@ensemus/database';
+import { openAppDatabase, withTenantTx, type AppDatabase } from '@ensemus/database';
 import { createServiceContext } from '@ensemus/database/service';
 import { eraseTenantRows, listErasableTables, openEraserDatabase } from '@ensemus/database/eraser';
 import { S3ObjectStore } from '@ensemus/storage';
@@ -29,7 +32,22 @@ import { createLogger, errorCode } from '@ensemus/telemetry';
 
 const log = createLogger('erase-command');
 export { eraseCommandInputSchemas };
-export type EraseCommandBindings = { agents?: OffboardingAgentHaltPort; store?: ObjectStore };
+/** At most this many closure pages (100 records each) per run; more is reported as busy, not erased. */
+const DELEGATED_INPUT_PAGES = 20;
+type DatabaseHandle<T> = { db: T; close(): Promise<void> };
+export type EraseCommandBindings = {
+  agents?: OffboardingAgentHaltPort;
+  store?: ObjectStore;
+  /**
+   * Tests only: already-open handles, used instead of DATABASE_URL_APP and DATABASE_URL_ERASER and left
+   * open for the caller to close. The restricted eraser role cannot log in, so a test hands one in.
+   * The operator CLI (ops.ts) never passes this.
+   */
+  databases?: {
+    app: DatabaseHandle<AppDatabase>;
+    eraser: DatabaseHandle<Parameters<typeof eraseTenantRows>[0]>;
+  };
+};
 export async function eraseCommand(
   args: string[],
   bindings: EraseCommandBindings = {},
@@ -70,9 +88,10 @@ export async function eraseCommand(
     log.error('erasure.refused', { reasonCode: 'INVALID_COMMAND_OR_CONFIGURATION' });
     return 2;
   }
-  let app: ReturnType<typeof openAppDatabase> | undefined,
-    eraser: ReturnType<typeof openEraserDatabase> | undefined,
+  let app: DatabaseHandle<AppDatabase> | undefined,
+    eraser: DatabaseHandle<Parameters<typeof eraseTenantRows>[0]> | undefined,
     reportDescriptor: number | undefined;
+  const injected = bindings.databases;
   let reportWritten = false;
   const writeReport = (report: unknown) => {
     if (reportDescriptor === undefined) throw new Error('ERASURE_REPORT_NOT_OPEN');
@@ -84,7 +103,7 @@ export async function eraseCommand(
     // Reserve the private evidence path before touching the database or making erasure irreversible.
     // An existing/unwritable path must not be discovered after deleting tenant rows.
     if (command === 'run') reportDescriptor = openSync(reportFile!, 'wx', 0o600);
-    app = openAppDatabase(readSecret('DATABASE_URL_APP'));
+    app = injected?.app ?? openAppDatabase(readSecret('DATABASE_URL_APP'));
     const context = createServiceContext(input.organizationId);
     if (command === 'transition') {
       await setTransitionEnd(app.db, context, {
@@ -101,7 +120,7 @@ export async function eraseCommand(
       return 0;
     }
     // Verify the restricted role connects before marking the request irreversible.
-    eraser = openEraserDatabase(readSecret('DATABASE_URL_ERASER'));
+    eraser = injected?.eraser ?? openEraserDatabase(readSecret('DATABASE_URL_ERASER'));
     await listErasableTables(eraser.db);
     const store =
       bindings.store ??
@@ -130,6 +149,30 @@ export async function eraseCommand(
       writeReport(checked.report);
       log.info('erasure.reported', { organizationId: input.organizationId });
       return 0;
+    }
+    // ADR-028 lifecycle item 8b. Before erasing (which refuses new tombstones, 0533), close every record
+    // an unredacted delegated child receipt names, so its typed-record purge can redact the receipt and
+    // the seal below can succeed. A run resumed while already erasing skips this; it ran before.
+    if (prior.state !== 'erasing') {
+      const database = app.db;
+      let busy = true;
+      for (let page = 0; page < DELEGATED_INPUT_PAGES; page++) {
+        const closure = await withTenantTx(database, context, (tx) =>
+          closeDelegatedRecordInputsInTx(tx, context, input),
+        );
+        if (!closure.more) {
+          busy = false;
+          break;
+        }
+      }
+      if (busy) {
+        writeReport({ state: 'pending', reasonCode: 'DELEGATED_INPUTS_BUSY' });
+        log.warn('erasure.pending', {
+          organizationId: input.organizationId,
+          reasonCode: 'DELEGATED_INPUTS_BUSY',
+        });
+        return 1;
+      }
     }
     for (;;) {
       const page = await beginErasure(app.db, context, input);
@@ -218,7 +261,9 @@ export async function eraseCommand(
     return 2;
   } finally {
     if (reportDescriptor !== undefined) closeSync(reportDescriptor);
-    await app?.close();
-    await eraser?.close();
+    if (!injected) {
+      await app?.close();
+      await eraser?.close();
+    }
   }
 }
