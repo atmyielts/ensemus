@@ -16,7 +16,7 @@ import {
   createRunTranscriptPurge,
   checkRunInputDispatch,
 } from '@ensemus/application/ai-input-ledger';
-import { createToolStepStore, storeProposal } from '@ensemus/application/ai-tool-steps';
+import { createToolStepStore } from '@ensemus/application/ai-tool-steps';
 import { storeStepPayload } from '@ensemus/application/ai-runs';
 import { recordArtifactCitations } from '@ensemus/application/knowledge/verification';
 import { compileEvidence } from '@ensemus/application/knowledge/compiler';
@@ -45,10 +45,12 @@ import { withRunLookupTx } from '@ensemus/database/agent';
 import {
   openAgentTestDatabase,
   prepareRunInputContext,
+  proposeFromModelTurn,
   seedAgentVersion,
   seedAiTenant,
   seedQueuedRun,
   sha256Of,
+  withAdmittedRunTx,
 } from '../helpers/ai/fixtures';
 import { seedSearchableSource } from '../helpers/knowledge';
 import { urls } from '../helpers/stack';
@@ -109,7 +111,7 @@ describe('durable agent input protocol and content fence as actual roles', () =>
     const source = createContextSource({ database: agent.db, readObject: (key) => store.get(key) }),
       tools = createToolStepStore({ database: agent.db, objects: store });
     const stepId = randomUUID();
-    await withTenantTx(agent.db, context, (tx) =>
+    await withAdmittedRunTx(agent.db, context, (tx) =>
       tx.insert(executionSteps).values({
         organizationId: tenant.organizationId,
         id: stepId,
@@ -174,9 +176,13 @@ describe('durable agent input protocol and content fence as actual roles', () =>
 
   it('reads closed proposal metadata on the app role without private payload privileges', async () => {
     const value = await fixture();
-    await storeProposal(agent.db, value.context, {
+    // As the runtime stores one: the turn's context is compiled (its Work read), then the model turn
+    // at step 1 stores the proposal against its own in-flight attempt. No caller stores a proposal
+    // without the originating turn, so none writes a step row outside authority-v1 admission.
+    await value.source.loadWork(value.context, value.work.id);
+    await proposeFromModelTurn(agent.db, value.context, {
       runId: value.runId,
-      stepNumber: 1,
+      turnStep: 1,
       toolId: 'artifact.draft.create',
       args: { name: 'synthetic.txt', text: 'SYNTHETIC_PRIVATE_ARGUMENT', evidence: [] },
     });

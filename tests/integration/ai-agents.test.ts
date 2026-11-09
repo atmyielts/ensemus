@@ -42,6 +42,7 @@ import {
   testAgentSpec,
   type AiTenant,
 } from '../helpers/ai/fixtures';
+import { inFixtureTenant } from '../helpers/fixture-tenant';
 import { urls } from '../helpers/stack';
 
 /** A manifest of its own, so that one test's versions never meet another's. */
@@ -538,9 +539,11 @@ describe('publishing an agent, as the real roles', () => {
       await superuser.connect();
       const demoted = await seedAiTenant(app.db);
       try {
-        await superuser.query(`update org.memberships set role = 'member' where id = $1`, [
-          demoted.owner.membershipId,
-        ]);
+        await inFixtureTenant(superuser, demoted.organizationId, () =>
+          superuser.query(`update org.memberships set role = 'member' where id = $1`, [
+            demoted.owner.membershipId,
+          ]),
+        );
         // The context still says owner, as it would for a request already under way.
         expect(demoted.owner.role).toBe('owner');
         await expect(publish(demoted.owner, freshSpec())).rejects.toMatchObject({

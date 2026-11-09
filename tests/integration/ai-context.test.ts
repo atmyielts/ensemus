@@ -26,7 +26,8 @@ import {
   withTenantTx,
   workUnits,
 } from '@ensemus/database';
-import { createAgentContext, withRunLookupTx } from '@ensemus/database/agent';
+import { createAgentContext } from '@ensemus/database/agent';
+import { createServiceContext } from '@ensemus/database/service';
 import { eq } from 'drizzle-orm';
 import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -39,6 +40,7 @@ import {
   seedQueuedRun,
   sha256Of,
   testAgentSpec,
+  withAdmittedRunTx,
   type AiTenant,
 } from '../helpers/ai/fixtures';
 import { urls } from '../helpers/stack';
@@ -171,7 +173,7 @@ describe('context and prompt assembly, as the real roles', () => {
   ) => {
     const stepId = randomUUID();
     const context = await prepareRunInputContext(agent.db, tenant.organizationId, runId);
-    await withTenantTx(agent.db, context, async (tx) => {
+    await withAdmittedRunTx(agent.db, context, async (tx) => {
       await tx.insert(executionSteps).values({
         organizationId: tenant.organizationId,
         id: stepId,
@@ -201,8 +203,10 @@ describe('context and prompt assembly, as the real roles', () => {
       const artifactId = await attach(a, work, 'restricted words');
       const { ref, context } = await startRun(a, work, 'member');
 
-      // This is the trap: with its tenant bound, the agent role sees the row. Only the ACL stops it.
-      const seen = await withRunLookupTx(agent.db, a.organizationId, (tx) =>
+      // This is the trap: bound to the tenant as the service actor its worker also runs as, the agent
+      // role sees the row. Only the ACL stops it. (Since 0411 a Work row needs an active membership or
+      // the service actor, so a bare tenant binding with neither sees no Work at all.)
+      const seen = await withTenantTx(agent.db, createServiceContext(a.organizationId), (tx) =>
         tx.select({ id: workUnits.id }).from(workUnits).where(eq(workUnits.id, work)),
       );
       expect(seen).toEqual([{ id: work }]);

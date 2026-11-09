@@ -13,11 +13,16 @@ import {
   resolveTenantContext,
   serviceIdentities,
   withTenantTx,
+  type AgentContext,
   type AppDatabase,
   type TenantContext,
+  type Tx,
 } from '@ensemus/database';
 import { createAgentContext, openAgentDatabase, withRunLookupTx } from '@ensemus/database/agent';
 import { createContextSource } from '@ensemus/application/ai-context-source';
+import { completeTurn, createTurnStore } from '@ensemus/application/ai-runs';
+import { storeProposal } from '@ensemus/application/ai-tool-steps';
+import { assertRunInputsOpen } from '../../../packages/application/src/ai/input-observations';
 import { eq } from 'drizzle-orm';
 import pg from 'pg';
 import { urls } from '../stack';
@@ -54,6 +59,57 @@ export async function prepareRunInputContext(
     },
   }).loadWork(context, run.workUnitId);
   return context;
+}
+
+/**
+ * A transaction opened the way the runtime opens one before it writes a step, payload, proposal or
+ * reservation row: the actual read-scope and authority-v1 admission first (`assertRunInputsOpen`, as
+ * `beginTurn` and the tool store call it), in the same transaction. It never sets a protocol GUC by
+ * hand, so a run that is fenced, legacy-incomplete or not the caller's own is refused exactly as in
+ * production.
+ */
+export function withAdmittedRunTx<T>(
+  database: AppDatabase,
+  context: AgentContext,
+  fn: (tx: Tx) => Promise<T>,
+): Promise<T> {
+  return withTenantTx(database, context, async (tx) => {
+    await assertRunInputsOpen(tx, context);
+    return fn(tx);
+  });
+}
+
+/**
+ * A tool proposal written the only way the runtime writes one: a model turn begins at `turnStep`, the
+ * proposal is stored against that actual in-flight attempt, and the turn ends `tool_proposed`. The
+ * tool step that handles it is the next number, as the workflow numbers it. No usage is counted.
+ */
+export async function proposeFromModelTurn(
+  database: AppDatabase,
+  context: AgentContext,
+  input: { runId: string; turnStep: number; toolId: string; args: unknown },
+) {
+  const start = await createTurnStore(database).beginTurn(context, {
+    runId: input.runId,
+    stepNumber: input.turnStep,
+  });
+  if (start.kind !== 'begin') throw new Error('TEST_TURN_NOT_STARTED');
+  const stored = await storeProposal(database, context, {
+    runId: input.runId,
+    stepNumber: input.turnStep,
+    toolId: input.toolId,
+    args: input.args,
+    originatingModel: { stepId: start.stepId, attempt: start.attempt },
+  });
+  await completeTurn(database, context, {
+    agentRunId: input.runId,
+    stepId: start.stepId,
+    attempt: start.attempt,
+    outcome: 'tool_proposed',
+    code: null,
+    delta: {},
+  });
+  return { ...stored, turnStepId: start.stepId };
 }
 
 /** A person with an account, through the auth role, as sign-up would do it. */

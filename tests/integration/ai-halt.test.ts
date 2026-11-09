@@ -50,6 +50,7 @@ import {
   seedAiTenant,
   seedQueuedRun,
   sha256Of,
+  withAdmittedRunTx,
   type AiTenant,
   type SeededAgentVersion,
 } from '../helpers/ai/fixtures';
@@ -153,7 +154,7 @@ describe('the kill switch, as the real roles', () => {
     });
     const stepId = randomUUID();
     const context = await prepareRunInputContext(agent.db, tenant.organizationId, runId);
-    await withTenantTx(agent.db, context, async (tx) => {
+    await withAdmittedRunTx(agent.db, context, async (tx) => {
       await tx.insert(executionSteps).values({
         organizationId: tenant.organizationId,
         id: stepId,

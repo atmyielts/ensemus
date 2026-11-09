@@ -539,9 +539,8 @@ describe('model profiles', () => {
   describe('activation', () => {
     it('web cannot mark a profile active, even writing the row itself', async () => {
       const id = await seedDraftProfile(app.db, a.owner);
-      await withTenantTx(app.db, a.owner, (tx) =>
-        tx.update(modelProfiles).set({ status: 'probing' }).where(eq(modelProfiles.id, id)),
-      );
+      // Into probing the way production gets there: the owner's MFA-stepped-up probe request.
+      await requestModelProbe(app.db, a.owner, { profileId: id, expectedVersion: 1 });
       await expect(
         withTenantTx(app.db, a.owner, (tx) =>
           tx.update(modelProfiles).set({ status: 'active' }).where(eq(modelProfiles.id, id)),
@@ -561,9 +560,8 @@ describe('model profiles', () => {
 
     it('even the agent role cannot mark active without a pass recorded', async () => {
       const id = await seedDraftProfile(app.db, a.owner);
-      await withTenantTx(app.db, a.owner, (tx) =>
-        tx.update(modelProfiles).set({ status: 'probing' }).where(eq(modelProfiles.id, id)),
-      );
+      // Into probing the way production gets there: the owner's MFA-stepped-up probe request.
+      await requestModelProbe(app.db, a.owner, { profileId: id, expectedVersion: 1 });
       await expect(
         withRunLookupTx(agent.db, a.organizationId, (tx) =>
           tx.update(modelProfiles).set({ status: 'active' }).where(eq(modelProfiles.id, id)),

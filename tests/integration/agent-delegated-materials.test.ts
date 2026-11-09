@@ -315,9 +315,14 @@ describe('delegated material birth evidence (0419)', () => {
     expect(before[0]?.inputs).not.toEqual(
       expect.arrayContaining([expect.objectContaining({ id: other.id })]),
     );
+    // The web role holds column SELECT without writer_token (0416), so it asks for no secret column;
+    // the other tenant still sees no row of it.
     expect(
       await withTenantTx(app.db, b.owner, (tx) =>
-        tx.select().from(mainInputSnapshots).where(eq(mainInputSnapshots.id, f.snapshot.id)),
+        tx
+          .select({ id: mainInputSnapshots.id })
+          .from(mainInputSnapshots)
+          .where(eq(mainInputSnapshots.id, f.snapshot.id)),
       ),
     ).toEqual([]);
   });
