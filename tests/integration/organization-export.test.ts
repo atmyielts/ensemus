@@ -1239,22 +1239,38 @@ describe('organization export', () => {
     // work.artifacts triggers), so the copy in progress is superseded and can never be downloaded;
     // a new export is required (docs/06-delivery/evidence/M6-portability-source-followup.md, item 4).
     // These cases used to expect the same copy to finish with the file left out. They now check that
-    // the copy is refused, that the workflow can close it, and that the new export leaves the file
-    // out and lists its tombstone, which is what each case was there to show.
+    // the copy is refused and closed by the step that found it superseded, that upkeep then takes
+    // every byte it wrote, and that the new export leaves the file out and lists its tombstone, which
+    // is what each case was there to show.
     const supersededThenAgain = async (run: Promise<unknown>) => {
       await expect(run).rejects.toMatchObject({ code: 'EXPORT_SUPERSEDED' });
       const view = await getOrganizationExport(db(), owner, exportId);
       expect(view.downloadable).toBe(false);
-      // Superseded is not lost: nothing reported a file as missing or changed.
-      expect(view.status).toBe('running');
-      expect(view.failureCode).toBeNull();
+      // Closed at once, with the code the workflow gives that answer. Superseded is not lost: nothing
+      // reported a file as missing or changed.
+      expect(view.status).toBe('failed');
+      expect(view.failureCode).toBe('SECTION_FAILED');
       await expect(openExportArchive(db(), store, owner, exportId)).rejects.toMatchObject({
         code: 'EXPORT_NOT_READY',
       });
-      // What the workflow does with a step that answered EXPORT_SUPERSEDED (portability-workflow.ts).
-      await failExport(db(), worker(owner), { exportId, code: 'SECTION_FAILED' });
+      // The tenant's one place for an export is free before the workflow has done anything.
       const again = await request(owner);
+      // What the workflow then does with a step that answered EXPORT_SUPERSEDED
+      // (portability-workflow.ts) changes nothing.
+      await failExport(db(), worker(owner), { exportId, code: 'SECTION_FAILED' });
+      expect(await getOrganizationExport(db(), owner, exportId)).toMatchObject({
+        status: 'failed',
+        failureCode: 'SECTION_FAILED',
+      });
       expect((await drive(owner, store, again)).state).toBe('finished');
+      // Upkeep takes the superseded copy's bytes, the deleted file's sealed copy among them. Failed
+      // is not expired, so it is not in the count.
+      expect(await purgeExpiredExports(db(), store, worker(owner), new Date())).toBe(0);
+      const { rows } = await su.query(
+        'select purged_at from sovereign.organization_exports where id = $1',
+        [exportId],
+      );
+      expect(rows[0].purged_at).not.toBeNull();
       const opened = await downloadAndOpen(owner, store, again);
       expect(opened.parts.has(artifactPartPath(fileId))).toBe(false);
       expect(opened.manifest.parts.map((part) => part.path)).not.toContain(
@@ -1264,18 +1280,60 @@ describe('organization export', () => {
       expect(opened.text).not.toContain(BYTES);
       expect(recordsOf(opened, 'artifact').map((row) => row.name)).toEqual(['stays.txt']);
       expect(recordsOf(opened, 'tombstone').map((row) => row.target_id)).toContain(fileId);
+      // Its sealed bytes have left the store too, and what is left is exactly what is listed.
+      const expected = opened.manifest.parts.length + 1;
+      expect(store.exportKeys()).toHaveLength(expected);
+      for (const key of store.exportKeys()) expect(key).not.toContain(fileId);
       return { again, opened };
     };
 
     it('during the export supersedes it, and a new one leaves it absent and in the tombstones', async () => {
       // After every byte and every record about it has been written, before the tombstones are read.
-      const { again, opened } = await supersededThenAgain(
-        drive(owner, store, exportId, deps, remove),
+      await supersededThenAgain(drive(owner, store, exportId, deps, remove));
+    });
+
+    it('while its sealed bytes are being written supersedes it, and upkeep still takes them', async () => {
+      // The deletion lands while the store takes this file's sealed copy, so the step that wrote it is
+      // superseded before its part row exists. Nothing but the export's own row can remember that copy.
+      let removed = false;
+      const racing: ObjectStore = {
+        put: async (key, body) => {
+          await store.put(key, body);
+          if (key.includes(fileId) && !removed) {
+            removed = true;
+            await remove();
+          }
+        },
+        delete: (...args) => store.delete(...args),
+        exists: (...args) => store.exists(...args),
+        get: (...args) => store.get(...args),
+      };
+      const service = worker(owner);
+      const partPaths = async () =>
+        (
+          await withTenantTx(db(), owner, (tx) =>
+            tx
+              .select({ path: organizationExportParts.path })
+              .from(organizationExportParts)
+              .where(eq(organizationExportParts.exportId, exportId)),
+          )
+        ).map((part) => part.path);
+      await supersededThenAgain(
+        (async () => {
+          let step = await beginExport(db(), service, { exportId }, deps);
+          try {
+            while (step.state === 'continue') {
+              step = await exportNextBatch(db(), racing, service, { exportId }, deps);
+            }
+          } finally {
+            // The orphan this case is about: the bytes are there, and no part row names them.
+            expect(removed).toBe(true);
+            expect(store.exportKeys().some((key) => key.includes(fileId))).toBe(true);
+            expect(await partPaths()).not.toContain(artifactPartPath(fileId));
+          }
+          return step;
+        })(),
       );
-      // The new archive's sealed objects are exactly what it lists, and none is the deleted file.
-      const keys = store.exportKeys().filter((key) => key.includes(`/${again}/`));
-      expect(keys).toHaveLength(opened.manifest.parts.length + 1);
-      for (const key of keys) expect(key).not.toContain(fileId);
     });
 
     it('between the bytes and the records supersedes it, and a new one leaves no trace but the tombstone', async () => {
@@ -1430,6 +1488,30 @@ describe('organization export', () => {
     expect(await purgeExpiredExports(db(), store, service, new Date())).toBe(0);
     expect(store.exportKeys()).toEqual([]);
     expect((await getOrganizationExport(db(), owner, exportId)).status).toBe('failed');
+  });
+
+  it('leaves no bytes it noted and never recorded behind a ready archive', async () => {
+    const owner = await newOrg();
+    const store = new MemoryStore();
+    await createClient(db(), owner, { displayName: 'Same client name' });
+    const exportId = await request(owner);
+    await beginExport(db(), worker(owner), { exportId }, deps);
+    // What a step leaves when it wrote a part's bytes and then never committed that part: the path
+    // noted in the row before the write, the bytes in the store, and no part row.
+    const stray = artifactPartPath(randomUUID());
+    const strayKey = `${EXPORT_OBJECT_PREFIX}${owner.organizationId}/${exportId}/${stray}`;
+    await store.put(strayKey, Buffer.from('sealed bytes no part row names'));
+    await su.query(
+      `update sovereign.organization_exports
+         set progress = jsonb_set(progress, '{pendingPaths}', jsonb_build_array($2::text))
+       where id = $1`,
+      [exportId, stray],
+    );
+    expect((await drive(owner, store, exportId)).state).toBe('finished');
+    expect(store.objects.has(strayKey)).toBe(false);
+    const opened = await downloadAndOpen(owner, store, exportId);
+    expect(opened.parts.has(stray)).toBe(false);
+    expect(store.exportKeys()).toHaveLength(opened.manifest.parts.length + 1);
   });
 
   it('runs through its Activities, taking only IDs', async () => {

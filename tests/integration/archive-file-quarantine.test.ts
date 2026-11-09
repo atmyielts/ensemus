@@ -850,4 +850,151 @@ describe('inert archive file custody', () => {
       await driver.end();
     }
   });
+  const jobDates = async (f: Awaited<ReturnType<typeof fixture>>, sourceId: string) =>
+    (
+      await control.query<{
+        state: string;
+        completed_at: Date | null;
+        prior_completed_at: Date | null;
+        last_error_code: string | null;
+      }>(
+        'select state,completed_at,prior_completed_at,last_error_code from knowledge.purge_jobs where organization_id=$1 and source_id=$2',
+        [f.person.context.organizationId, sourceId],
+      )
+    ).rows[0]!;
+  const restoreDebts = async (f: Awaited<ReturnType<typeof fixture>>) =>
+    (
+      await control.query<{ kind: string; object_key: string }>(
+        'select kind,object_key from lifecycle.object_restore_debts where organization_id=$1',
+        [f.person.context.organizationId],
+      )
+    ).rows;
+  // 0527: 0516 copied completed_at into prior_completed_at on every completed->failed demotion,
+  // which 0419's guard refuses to any runtime session (PURGE_PRIOR_COMPLETION_IMMUTABLE), so a
+  // runtime demotion of a first completion could not happen at all. That date is the migrator
+  // requalifications' record of an earlier certificate (0419, 0515); a runtime demotion must neither
+  // be refused for it nor write it, and the runtime still cannot write it directly.
+  it('demotes a first completion at runtime, leaving its prior completion date to the requalifications', async () => {
+    const f = await fixture();
+    await f.run();
+    const s = await closedSource(f);
+    const key = (await f.headers())[0]!.object_key;
+    await createImportedArchivePurge({
+      database: app.db,
+      store: f.store,
+      lifecycle: lifecycle(f.store),
+    }).purgeSource(f.service, { sourceId: s.sourceId, limit: 25 });
+    expect(await s.purge()).toMatchObject({ state: 'completed' });
+    const completed = await jobDates(f, s.sourceId);
+    expect(completed).toMatchObject({ state: 'completed', prior_completed_at: null });
+    expect(completed.completed_at).toBeInstanceOf(Date);
+    // Restored storage still holds the bytes the header records as purged: the 0508 and 0415
+    // triggers demote the certificate from the app role's own session.
+    f.store.objects.set(key, f.bytes);
+    expect(
+      (await createArchiveQuarantineRecovery(f.store).reconcile(app.db, f.service)).needsAttention,
+    ).toBeGreaterThan(0);
+    expect(await jobDates(f, s.sourceId)).toEqual({
+      state: 'failed',
+      completed_at: null,
+      prior_completed_at: null,
+      last_error_code: 'ARTIFACT_PURGE_UNCONFIRMED',
+    });
+    expect((await f.headers())[0]).toMatchObject({ state: 'closing', physical_purged_at: null });
+    expect(await restoreDebts(f)).toEqual([{ kind: 'archive', object_key: key }]);
+    // The runtime worker cannot write that date itself, by the same update or a later one.
+    for (const write of [
+      sql`update knowledge.purge_jobs set prior_completed_at=${completed.completed_at}
+        where organization_id=${f.person.context.organizationId}::uuid and source_id=${s.sourceId}::uuid`,
+      sql`update knowledge.purge_jobs set prior_completed_at=clock_timestamp(),last_error_code='ARTIFACT_PURGE_UNCONFIRMED'
+        where organization_id=${f.person.context.organizationId}::uuid and source_id=${s.sourceId}::uuid`,
+    ])
+      await expect(
+        withTenantTx(app.db, f.service, (tx) => tx.execute(write)),
+      ).rejects.toMatchObject({ cause: { code: '42501' } });
+    expect((await jobDates(f, s.sourceId)).prior_completed_at).toBeNull();
+  });
+  // 0528: the archive restore debt (0508) now waits for the purge jobs in 0415's header->job order
+  // instead of failing NOWAIT, so a reopening that meets an uncommitted source completion is
+  // serialized behind it and then invalidates it, rather than rolling back and losing the reopen.
+  it('serializes an archive header reopen behind an uncommitted completion, without deadlock', async () => {
+    const f = await fixture();
+    await f.run();
+    const s = await closedSource(f);
+    const key = (await f.headers())[0]!.object_key;
+    await createImportedArchivePurge({
+      database: app.db,
+      store: f.store,
+      lifecycle: lifecycle(f.store),
+    }).purgeSource(f.service, { sourceId: s.sourceId, limit: 25 });
+    expect(await s.purge()).toMatchObject({ state: 'completed' });
+    await failSourcePurge(app.db, f.service, { sourceId: s.sourceId, reason: 'PURGE_FAILED' });
+    expect(await restoreDebts(f)).toEqual([]);
+    f.store.objects.set(key, f.bytes);
+    const completer = new pg.Client({ connectionString: urls.app() });
+    await completer.connect();
+    type Settled = { ok: true; needsAttention: number } | { ok: false; error: unknown };
+    let open = false,
+      reopening: Promise<Settled> | undefined;
+    try {
+      await completer.query('begin');
+      open = true;
+      await completer.query(
+        "select set_config('app.organization_id',$1,true),set_config('app.actor_type','service',true),set_config('app.user_id','',true),set_config('app.membership_id','',true),set_config('app.interactive_session_id','',true)",
+        [f.person.context.organizationId],
+      );
+      const pid = (await completer.query<{ pid: number }>('select pg_backend_pid() as pid'))
+        .rows[0]!.pid;
+      // The completion holds the job row, uncommitted. It read the archive header as purged.
+      await completer.query(
+        "update knowledge.purge_jobs set state='completed',completed_at=clock_timestamp() where organization_id=$1 and source_id=$2",
+        [f.person.context.organizationId, s.sourceId],
+      );
+      reopening = createArchiveQuarantineRecovery(f.store)
+        .reconcile(app.db, f.service)
+        .then(
+          (report): Settled => ({ ok: true, needsAttention: report.needsAttention }),
+          (error: unknown): Settled => ({ ok: false, error }),
+        );
+      // The reopening waits on a lock that the completion holds, rather than failing NOWAIT (55P03).
+      await expect
+        .poll(
+          async () =>
+            (
+              await control.query<{ waiting: boolean }>(
+                "select exists(select 1 from pg_stat_activity where usename='ensemus_app' and wait_event_type='Lock' and $1=any(pg_blocking_pids(pid))) as waiting",
+                [pid],
+              )
+            ).rows[0]?.waiting,
+          { timeout: 5000, interval: 20 },
+        )
+        .toBe(true);
+      // While it waits, the completion still reads archive metadata, which takes no row lock: the
+      // header->job order has no inverse, so nothing here can deadlock. It still sees the committed
+      // header, since the reopen is not committed.
+      const counts = await completer.query<{ remaining: number }>(
+        'select remaining from sovereign.archive_file_counts()',
+      );
+      expect(counts.rows[0]?.remaining).toBe(0);
+      await completer.query('commit');
+      open = false;
+      const settled = await reopening;
+      expect(settled).toMatchObject({ ok: true });
+      if (settled.ok) expect(settled.needsAttention).toBeGreaterThan(0);
+      // The reopen committed after the completion, and invalidated it.
+      expect((await f.headers())[0]).toMatchObject({ state: 'closing', physical_purged_at: null });
+      expect(await restoreDebts(f)).toEqual([{ kind: 'archive', object_key: key }]);
+      expect(await jobDates(f, s.sourceId)).toMatchObject({
+        state: 'failed',
+        completed_at: null,
+        last_error_code: 'ARTIFACT_PURGE_UNCONFIRMED',
+      });
+      // And a later completion attempt cannot certify over the reopened header.
+      await expect(s.purge()).resolves.toMatchObject({ state: 'failed' });
+    } finally {
+      if (open) await completer.query('rollback');
+      await reopening;
+      await completer.end();
+    }
+  });
 });

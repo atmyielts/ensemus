@@ -59,7 +59,7 @@ import {
   seal,
 } from '@ensemus/sovereign/sealed';
 import { tarEnd, tarHeader, tarPadding } from '@ensemus/sovereign/tar';
-import { and, asc, desc, eq, gt, isNull, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, inArray, isNull, or, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import type { ObjectStore } from './artifacts';
 import { AppError } from './errors';
@@ -150,6 +150,13 @@ const progressSchema = z.object({
   artifactTombstonesRead: z.int().min(0),
   /** Parts written and then given up, because of a deletion. Not in the manifest, and their bytes are gone. */
   droppedPaths: z.array(z.string()),
+  /**
+   * Parts whose bytes may be in the store with no part row yet: each is noted here before its write, and leaves
+   * when its row is committed. A write that never gets its row (superseded or failed in between) stays listed,
+   * so the manifest step and upkeep remove it, and no copy of a deleted file is left that nothing tracks. A row
+   * written before this field existed has none.
+   */
+  pendingPaths: z.array(z.string()).default([]),
   purgeAfter: z.string().nullable(),
 });
 type Progress = z.infer<typeof progressSchema>;
@@ -166,6 +173,7 @@ const FIRST_PROGRESS: Progress = {
   tombstonesRead: 0,
   artifactTombstonesRead: 0,
   droppedPaths: [],
+  pendingPaths: [],
   purgeAfter: null,
 };
 
@@ -570,6 +578,38 @@ type Run = {
 
 type PartValues = typeof organizationExportParts.$inferInsert;
 
+/** Another attempt has moved the export on since this one read it, so this one writes nothing more. */
+class StaleAttempt extends Error {
+  override name = 'StaleAttempt';
+  constructor(readonly step: ExportStep) {
+    super('Another attempt moved this export on');
+  }
+}
+
+/**
+ * Notes a part's path in the row before its bytes are written, under the row's lock and only while the row is
+ * still where this attempt found it. A write whose part row then never comes stays known, and its bytes go with
+ * the rest of the export's. Changes only that one field and not the version, so the attempt's own commit still
+ * matches. An attempt that has fallen behind is stopped here, before it writes anything.
+ */
+async function notePending(run: Run, path: string) {
+  const { database, context, row } = run;
+  const stale = await withTenantTx(database, context, async (tx) => {
+    const current = await findExport(tx, context, row.id, true);
+    await assertExportEpoch(tx, context, row.id);
+    if (current.status !== 'running' || current.version !== row.version) return stepOf(current);
+    if (readProgress(current).pendingPaths.includes(path)) return null;
+    await tx
+      .update(organizationExports)
+      .set({
+        progress: sql`jsonb_set(progress, '{pendingPaths}', coalesce(progress->'pendingPaths', '[]'::jsonb) || jsonb_build_array(${path}::text))`,
+      })
+      .where(exportIs(context, row.id));
+    return null;
+  });
+  if (stale) throw new StaleAttempt(stale);
+}
+
 /** Seals one part and writes its object. Outside any transaction, and the part row comes after. */
 async function storePart(
   run: Run,
@@ -583,6 +623,7 @@ async function storePart(
   const sealed = seal(plaintext, parseRecipientPublicKey(row.recipientPublicKey));
   const objectKey = exportObjectKey(context.organizationId, row.id, path);
   if (Date.now() - run.startedAtMs > STEP_DEADLINE_MS) throw new ExportStoreUnavailable();
+  await notePending(run, path);
   await fromStore(() => store.put(objectKey, sealed, SEALED_MIME));
   await assertRunEpoch(run);
   return {
@@ -635,10 +676,14 @@ function commitStep(run: Run, change: CommitChange): Promise<ExportStep> {
       artifacts: current.excludedRestrictedArtifacts,
       clients: current.excludedRestrictedClients,
     };
+    // What the row noted before its writes, less what now has a part row. The step's own progress was read
+    // before those notes, so the row's list is the one that counts.
+    const recorded = new Set(added.map((part) => part.path));
+    const pendingPaths = readProgress(current).pendingPaths.filter((path) => !recorded.has(path));
     const [saved] = await tx
       .update(organizationExports)
       .set({
-        progress: outcome.progress,
+        progress: { ...outcome.progress, pendingPaths },
         version: current.version + 1,
         updatedAt: nowOf(deps),
         partCount: current.partCount + added.length,
@@ -975,7 +1020,25 @@ async function manifestPiece(run: Run): Promise<ExportStep> {
       ),
   );
   const dropped = new Set([...progress.droppedPaths, ...deletedFiles.map((file) => file.path)]);
-  for (const path of dropped) {
+  // Writes that never got a part row are not in the archive either, so their bytes go as well. A path that
+  // does have one is the archive's, and stays.
+  const recordedPending = progress.pendingPaths.length
+    ? await withTenantTx(database, context, (tx) =>
+        tx
+          .select({ path: organizationExportParts.path })
+          .from(organizationExportParts)
+          .where(
+            and(
+              eq(organizationExportParts.organizationId, context.organizationId),
+              eq(organizationExportParts.exportId, row.id),
+              inArray(organizationExportParts.path, progress.pendingPaths),
+            ),
+          ),
+      )
+    : [];
+  const kept = new Set(recordedPending.map((part) => part.path));
+  const unrecorded = new Set(progress.pendingPaths.filter((path) => !kept.has(path)));
+  for (const path of new Set([...dropped, ...unrecorded])) {
     const key = exportObjectKey(context.organizationId, row.id, path);
     await fromStore(() => store.delete(key));
   }
@@ -1069,7 +1132,15 @@ async function manifestPiece(run: Run): Promise<ExportStep> {
       .update(organizationExports)
       .set({
         status: 'ready',
-        progress: { ...progress, stage: 'done', droppedPaths: [...dropped] },
+        progress: {
+          ...progress,
+          stage: 'done',
+          droppedPaths: [...dropped],
+          // Each one read at the start of this step was removed above or has its row.
+          pendingPaths: readProgress(current).pendingPaths.filter(
+            (path) => !progress.pendingPaths.includes(path),
+          ),
+        },
         version: current.version + 1,
         manifestSealedSha256: sha256(sealed),
         partCount: parts.length,
@@ -1148,6 +1219,42 @@ const isRun = (value: Run | ExportStep): value is Run => 'row' in value;
 const assertRunEpoch = (run: Run) =>
   withTenantTx(run.database, run.context, (tx) => assertExportEpoch(tx, run.context, run.row.id));
 
+/** One piece, where an attempt that has fallen behind answers with where things stand and writes nothing. */
+async function runPiece(run: Run): Promise<ExportStep> {
+  try {
+    return await onePiece(run);
+  } catch (error) {
+    if (error instanceof StaleAttempt) return error.step;
+    throw error;
+  }
+}
+
+/**
+ * A step that finds its export superseded closes it there and then, and still answers `EXPORT_SUPERSEDED`. An
+ * epoch never goes back, so such an export can never finish, and left running it would hold the tenant's one
+ * place for an export and keep its bytes out of upkeep until the workflow got round to failing it. The code is
+ * the one the workflow records for that answer (`exportFailureFor`), so its later failure changes nothing.
+ */
+async function closingSuperseded(
+  database: AppDatabase,
+  context: TenantContext,
+  exportId: string,
+  step: () => Promise<ExportStep>,
+): Promise<ExportStep> {
+  try {
+    return await step();
+  } catch (error) {
+    if (error instanceof AppError && error.code === 'EXPORT_SUPERSEDED') {
+      await withTenantTx(database, context, async (tx) => {
+        const row = await findExport(tx, context, exportId, true);
+        if (row.status !== 'running' || (await isExportEpochCurrent(tx, context, exportId))) return;
+        await recordFailure(tx, context, row, 'SECTION_FAILED');
+      });
+    }
+    throw error;
+  }
+}
+
 /**
  * One bounded step: one page of one section, or one file's bytes, sealed and written, then its part row and
  * the new place in `progress`. A part whose row exists is skipped, so a retry repeats nothing. Bytes that do
@@ -1163,12 +1270,15 @@ export async function exportNextBatch(
   deps: ExportDeps,
 ): Promise<ExportStep> {
   requireWorker(context);
-  const run = await readRun(database, store, context, exportIdFrom(input.exportId), deps);
-  if (!isRun(run)) return run;
-  if (run.progress.stage === 'tombstones' || run.progress.stage === 'manifest') {
-    return { state: 'finished', ...counters(run.row) };
-  }
-  return onePiece(run);
+  const id = exportIdFrom(input.exportId);
+  return closingSuperseded(database, context, id, async () => {
+    const run = await readRun(database, store, context, id, deps);
+    if (!isRun(run)) return run;
+    if (run.progress.stage === 'tombstones' || run.progress.stage === 'manifest') {
+      return { state: 'finished', ...counters(run.row) };
+    }
+    return runPiece(run);
+  });
 }
 
 /**
@@ -1186,13 +1296,15 @@ export async function finishExport(
   requireWorker(context);
   const id = exportIdFrom(input.exportId);
   const stopAt = Date.now() + FINISH_BUDGET_MS;
-  for (let piece = 0; ; piece += 1) {
-    const run = await readRun(database, store, context, id, deps);
-    if (!isRun(run)) return run;
-    const step = await onePiece(run);
-    if (step.state !== 'continue') return step;
-    if (piece + 1 >= FINISH_PIECES || Date.now() >= stopAt) return step;
-  }
+  return closingSuperseded(database, context, id, async () => {
+    for (let piece = 0; ; piece += 1) {
+      const run = await readRun(database, store, context, id, deps);
+      if (!isRun(run)) return run;
+      const step = await runPiece(run);
+      if (step.state !== 'continue') return step;
+      if (piece + 1 >= FINISH_PIECES || Date.now() >= stopAt) return step;
+    }
+  });
 }
 
 export async function failExport(
@@ -1207,35 +1319,46 @@ export async function failExport(
     const row = await findExport(tx, context, id, true);
     // Anything already settled stays as it is. A late failure from a stale attempt cannot undo a ready archive.
     if (row.status !== 'requested' && row.status !== 'running') return;
-    const now = new Date();
-    const [failed] = await tx
-      .update(organizationExports)
-      .set({
-        status: 'failed',
-        failureCode: input.code,
-        version: row.version + 1,
-        finishedAt: now,
-        updatedAt: now,
-      })
-      .where(exportIs(context, id))
-      .returning();
-    if (!failed) throw new AppError('NOT_FOUND');
-    await auditAction(tx, context, 'organization_export.failed', exportTargetRef(id), input.code);
-    await notify(
-      tx,
-      context,
-      [row.requestedByMembershipId],
-      NOTIFY_EXPORT_FAILED,
-      exportTargetRef(id),
-    );
-    await emit(tx, context, {
-      eventType: ORGANIZATION_EXPORT_FAILED,
-      aggregateType: AGGREGATE_ORGANIZATION_EXPORT,
-      aggregateId: id,
-      aggregateVersion: failed.version,
-      classification: 'internal',
-      payload: { export_id: id, code: input.code },
-    });
+    await recordFailure(tx, context, row, input.code);
+  });
+}
+
+/** Fails a row the caller has locked and found unsettled, with its audit entry, notification and event. */
+async function recordFailure(
+  tx: Tx,
+  context: TenantContext,
+  row: ExportRow,
+  code: ExportFailureCode,
+) {
+  const id = row.id;
+  const now = new Date();
+  const [failed] = await tx
+    .update(organizationExports)
+    .set({
+      status: 'failed',
+      failureCode: code,
+      version: row.version + 1,
+      finishedAt: now,
+      updatedAt: now,
+    })
+    .where(exportIs(context, id))
+    .returning();
+  if (!failed) throw new AppError('NOT_FOUND');
+  await auditAction(tx, context, 'organization_export.failed', exportTargetRef(id), code);
+  await notify(
+    tx,
+    context,
+    [row.requestedByMembershipId],
+    NOTIFY_EXPORT_FAILED,
+    exportTargetRef(id),
+  );
+  await emit(tx, context, {
+    eventType: ORGANIZATION_EXPORT_FAILED,
+    aggregateType: AGGREGATE_ORGANIZATION_EXPORT,
+    aggregateId: id,
+    aggregateVersion: failed.version,
+    classification: 'internal',
+    payload: { export_id: id, code },
   });
 }
 
@@ -1260,6 +1383,11 @@ async function purgeBytes(
         .where(exportIs(context, row.id)),
     );
     if (Date.now() >= stopAt) return false;
+  }
+  // Bytes written with no part row after them: a step superseded or failed between its write and its commit.
+  // Deleting a key that is not there is harmless, so these are simply all tried each time.
+  for (const path of progress.pendingPaths) {
+    await store.delete(exportObjectKey(context.organizationId, row.id, path));
   }
   await store.delete(exportObjectKey(context.organizationId, row.id, EXPORT_MANIFEST_PATH));
   return true;
