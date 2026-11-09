@@ -1,6 +1,6 @@
 // A fake model server, for tests only: deterministic, on a loopback port, and it reaches nothing. It speaks
-// OpenAI's Chat Completions (also what an OpenAI-compatible server speaks) and Anthropic's Messages, in the
-// shapes those providers document. It proves what our adapters do with those shapes, and it proves nothing
+// OpenAI's Chat Completions and Embeddings (also what an OpenAI-compatible server speaks) and Anthropic's
+// Messages, in the shapes those providers document. It proves what our adapters do with those shapes, and it proves nothing
 // about a live provider, so a hosted kind stays qualified=NO until a real run. `tests` is in .dockerignore,
 // so this can never reach a shipped image.
 //
@@ -174,6 +174,51 @@ function replyAnthropic(res, scenario, body, seen, scripted) {
     answer.usage = { input_tokens: USAGE.input, output_tokens: USAGE.output };
   }
   json(res, 200, answer);
+}
+
+/**
+ * A deterministic vector of the requested size for each text: the same text always gives the same unit
+ * vector, so a stack test's embedding space is repeatable. It encodes nothing about meaning.
+ */
+function fakeEmbedding(text, dimension) {
+  const vector = Array.from({ length: dimension }, () => 0);
+  for (let index = 0; index < text.length; index += 1)
+    vector[index % dimension] += text.charCodeAt(index) / 1000;
+  const length = Math.hypot(...vector) || 1;
+  return vector.map((value) => value / length);
+}
+
+/** OpenAI's Embeddings shape, which an OpenAI-compatible server also speaks, with explicit indices. */
+function replyEmbeddings(res, body) {
+  const inputs = typeof body?.input === 'string' ? [body.input] : body?.input;
+  const dimension = body?.dimensions;
+  if (
+    !Array.isArray(inputs) ||
+    inputs.length < 1 ||
+    inputs.length > 128 ||
+    !inputs.every((value) => typeof value === 'string' && value.length > 0) ||
+    !Number.isInteger(dimension) ||
+    dimension < 1 ||
+    dimension > 8192
+  ) {
+    json(
+      res,
+      400,
+      errorBody('openai', 'invalid_request_error', 'input and dimensions are required'),
+    );
+    return;
+  }
+  const tokens = inputs.reduce((sum, text) => sum + Math.ceil(text.length / 4), 0);
+  json(res, 200, {
+    object: 'list',
+    data: inputs.map((text, index) => ({
+      object: 'embedding',
+      index,
+      embedding: fakeEmbedding(text, dimension),
+    })),
+    model: body?.model ?? 'fake',
+    usage: { prompt_tokens: tokens, total_tokens: tokens },
+  });
 }
 
 function errorBody(format, type, message, code) {
@@ -382,6 +427,10 @@ export async function startFakeModel(options = {}) {
     const scripted = scripts.get(body?.model);
     if (scripted) scripted.hits += 1;
 
+    if (req.method === 'POST' && path.endsWith('/embeddings')) {
+      replyEmbeddings(res, body);
+      return;
+    }
     const format = path.endsWith('/messages')
       ? 'anthropic'
       : path.endsWith('/chat/completions')

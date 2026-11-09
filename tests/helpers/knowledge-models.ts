@@ -1,6 +1,8 @@
 // Generated conformance fixtures through the actual app/agent roles and durable model-job path.
 // Native sessions are verified by auth and second-factor proof is written only by its role. Provider
 // output is synthetic; this fixture is not live-provider or production identity acceptance evidence.
+// In a running stack the stack's own agent worker runs the qualification job against the test-only fake
+// model (tests/fixtures/fake-model), and this helper only waits for it.
 import { randomUUID } from 'node:crypto';
 import { createModelProfile, addRateCard } from '@ensemus/application/ai-model-profiles';
 import { setBudget } from '@ensemus/application/ai-budget';
@@ -15,6 +17,8 @@ import { createKnowledgeModelGateway, createEmbeddingAdapter } from '@ensemus/in
 import { ScriptedModelAdapter } from '@ensemus/intelligence/testing';
 import { openAgentDatabase } from '@ensemus/database/agent';
 import {
+  modelJobs,
+  modelOperationQualifications,
   organizations,
   withTenantTx,
   type AppDatabase,
@@ -78,6 +82,44 @@ export const GENERATED_MODEL_BOUNDS = {
   maxCostMicros: 10000,
   timeoutSeconds: 240,
 };
+/** Time the stack's own agent worker has to finish a qualification the outbox woke it for. */
+const STACK_QUALIFICATION_WAIT_MS = 90_000;
+
+/**
+ * Waits for the stack's own agent worker to end a qualification job, as the outbox dispatcher wakes it
+ * for every requested job, and requires that it completed and passed. Nothing here runs or settles the
+ * job: in a running stack the worker is its one runner (knowledgeModelJobWorkflow, a single attempt).
+ */
+async function awaitStackQualification(
+  database: AppDatabase,
+  owner: TenantContext,
+  request: { jobId: string; qualificationId: string },
+) {
+  const deadline = Date.now() + STACK_QUALIFICATION_WAIT_MS;
+  for (;;) {
+    const [job] = await withTenantTx(database, owner, (tx) =>
+      tx
+        .select({ state: modelJobs.state, code: modelJobs.refusalCode })
+        .from(modelJobs)
+        .where(eq(modelJobs.id, request.jobId)),
+    );
+    if (!job) throw new Error('TEST_QUALIFICATION_JOB_MISSING');
+    if (job.state === 'refused' || job.state === 'fenced')
+      throw new Error(`TEST_QUALIFICATION_REFUSED:${job.code ?? job.state}`);
+    if (job.state === 'completed') break;
+    if (Date.now() > deadline) throw new Error(`TEST_QUALIFICATION_TIMEOUT:${job.state}`);
+    await new Promise((done) => setTimeout(done, 250));
+  }
+  const [qualification] = await withTenantTx(database, owner, (tx) =>
+    tx
+      .select({ state: modelOperationQualifications.state })
+      .from(modelOperationQualifications)
+      .where(eq(modelOperationQualifications.id, request.qualificationId)),
+  );
+  if (qualification?.state !== 'passed')
+    throw new Error(`TEST_QUALIFICATION_NOT_PASSED:${qualification?.state ?? 'missing'}`);
+}
+
 export async function seedQualifiedKnowledgeRoute(
   database: AppDatabase,
   owner: TenantContext,
@@ -88,8 +130,18 @@ export async function seedQualifiedKnowledgeRoute(
     modelId?: string;
     /** A private endpoint the stack's own workers may reach, such as the in-subnet fake model. */
     endpointUrl?: string;
+    /**
+     * Who runs the qualification job. 'here' (the default) runs the durable job in this process with a
+     * synthetic provider, for a suite with no live model worker. 'stack' leaves it to the running stack's
+     * own agent worker, which the outbox dispatcher wakes for the job exactly as in production, against
+     * `endpointUrl`. A second runner here would race that worker for the same job, and either runner's
+     * refusal fences the job for both, so a stack suite never runs it here.
+     */
+    runner?: 'here' | 'stack';
   } = {},
 ): Promise<ModelRoute> {
+  if (input.runner === 'stack' && !input.endpointUrl)
+    throw new Error('TEST_STACK_QUALIFICATION_NEEDS_REACHABLE_ENDPOINT');
   const endpoint = input.endpointUrl ?? GENERATED_MODEL_ENDPOINT;
   const purpose = input.purpose ?? 'embed',
     dimension = purpose === 'embed' ? (input.dimension ?? 4) : null;
@@ -135,6 +187,29 @@ export async function seedQualifiedKnowledgeRoute(
     requestKey: randomUUID(),
     bounds: GENERATED_MODEL_BOUNDS,
   });
+  const route: ModelRoute = {
+    modelProfileRef: profile.id,
+    modelProfileVersion: profile.version,
+    qualificationId: request.qualificationId,
+    modelId: profile.model_id,
+    providerKind: 'local_openai_compatible',
+    destinationHost: new URL(endpoint).hostname,
+    policyVersion: 'generated-policy',
+    purpose,
+    classification: 'internal',
+    ...(dimension
+      ? {
+          embedding: {
+            dimension,
+            vectorSpaceVersion: input.vectorSpaceVersion ?? 'generated-v1',
+          },
+        }
+      : {}),
+  };
+  if (input.runner === 'stack') {
+    await awaitStackQualification(database, owner, request);
+    return route;
+  }
   const agent = openAgentDatabase(urls.agent(), { max: 2 });
   try {
     const calls = createKnowledgeCallStore(agent.db);
@@ -189,25 +264,7 @@ export async function seedQualifiedKnowledgeRoute(
       throw new Error(`TEST_QUALIFICATION_REFUSED:${outcome.code}`);
     // The qualification job is terminal, so use the exact qualified immutable profile metadata as a
     // test route. Ordinary test doubles still exercise live space qualification/identity SQL guards.
-    return {
-      modelProfileRef: profile.id,
-      modelProfileVersion: profile.version,
-      qualificationId: request.qualificationId,
-      modelId: profile.model_id,
-      providerKind: 'local_openai_compatible',
-      destinationHost: new URL(endpoint).hostname,
-      policyVersion: 'generated-policy',
-      purpose,
-      classification: 'internal',
-      ...(dimension
-        ? {
-            embedding: {
-              dimension,
-              vectorSpaceVersion: input.vectorSpaceVersion ?? 'generated-v1',
-            },
-          }
-        : {}),
-    };
+    return route;
   } finally {
     await agent.close();
   }

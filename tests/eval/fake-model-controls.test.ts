@@ -1,3 +1,4 @@
+import { createEmbeddingAdapter, createEndpointGuard } from '@ensemus/intelligence';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   fakeModelRequests,
@@ -92,5 +93,56 @@ describe('test-only private model controls', () => {
       (await send({ model: 'fake:bad', replies: [{ text: 'x'.repeat(270000) }] })).status,
     ).toBe(413);
     expect(fake.hits).toBe(0);
+  });
+
+  // The stack's agent worker qualifies an embedding profile against this fake (tests/stack/api-coverage).
+  it('answers the real embedding adapter, through the real guard, with repeatable vectors', async () => {
+    fake = await startFakeModel();
+    const embed = (inputs: string[]) =>
+      createEmbeddingAdapter().embed(
+        {
+          providerKind: 'local_openai_compatible',
+          modelId: 'generated-embedding-model',
+          endpointUrl: fake!.baseUrl,
+          apiKey: null,
+          fetch: createEndpointGuard().fetchFor({
+            host: fake!.host,
+            port: fake!.port,
+            protocol: 'http:',
+            viaPrivateAllowlist: true,
+          }),
+          timeoutMs: 5000,
+          inputs,
+          dimension: 4,
+        },
+        new AbortController().signal,
+      );
+    const first = await embed(['Synthetic one.', 'Synthetic two.']);
+    if (first.kind !== 'embedded') throw new Error(`TEST_EMBED_FAILED:${first.failure}`);
+    expect(first.vectors).toHaveLength(2);
+    expect(first.vectors.every((vector) => vector.length === 4)).toBe(true);
+    expect(first.vectors[0]).not.toEqual(first.vectors[1]);
+    expect(first.usage).toEqual({ inputTokens: 8, outputTokens: 0 });
+    const again = await embed(['Synthetic one.']);
+    if (again.kind !== 'embedded') throw new Error(`TEST_EMBED_FAILED:${again.failure}`);
+    expect(again.vectors[0]).toEqual(first.vectors[0]);
+    const sent = fake.requests.at(-1)?.body as { dimensions?: unknown; input?: unknown };
+    expect(sent.dimensions).toBe(4);
+    expect(fake.hits).toBe(2);
+  });
+
+  it('refuses an embedding request without inputs or a dimension, and counts it', async () => {
+    fake = await startFakeModel();
+    const send = (body: unknown) =>
+      fetch(`${fake!.baseUrl}/embeddings`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+        headers: { 'content-type': 'application/json' },
+      });
+    expect((await send({ model: 'm', input: ['text'] })).status).toBe(400);
+    expect((await send({ model: 'm', input: [], dimensions: 4 })).status).toBe(400);
+    expect((await send({ model: 'm', input: [''], dimensions: 4 })).status).toBe(400);
+    expect((await send({ model: 'm', input: ['text'], dimensions: 0 })).status).toBe(400);
+    expect(fake.hits).toBe(4);
   });
 });
