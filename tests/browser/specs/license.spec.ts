@@ -2,20 +2,13 @@
 // stack, and every M6 slice merged. Installing a real document needs the test trust root, so this file covers
 // what holds whichever way that goes, and tests/stack/sovereign-api.test.ts covers what a document changes.
 import type { Page } from '@playwright/test';
-import { createOrganization, join, signUp, submit, type Person } from '../../helpers/forms';
+import { createOrganization, join, signUp } from '../../helpers/forms';
 import { expect, test } from '../support/fixtures';
 import { axeFindings, sidewaysOverflow, THEMES, WIDTHS } from '../support/look';
+import { alertIn } from '../support/notices';
+import { makeAdmin } from '../support/people';
 
 const licensePage = (organization: string) => `/o/${organization}/license`;
-
-async function makeAdmin(owner: Person, organization: string, person: Person) {
-  await submit(
-    `/o/${organization}/people`,
-    owner.jar,
-    (form) => form.html.includes(`Save access for ${person.name}`),
-    { role: 'admin' },
-  );
-}
 
 async function expectNoProblems(page: Page) {
   const problems: Record<string, unknown> = {};
@@ -93,8 +86,19 @@ test.describe('the license page', () => {
     await expect(page.getByRole('heading', { name: 'License and support' })).toBeVisible();
     await expect(page.getByText('Only an owner can install a signed document.')).toBeVisible();
     await expect(page.getByRole('button', { name: 'Check and install' })).toHaveCount(0);
-    await expect(page.getByRole('link', { name: 'License and support' })).toBeVisible();
+    // Since the shared navigation model (16e5d81), this page is found under Administration, which the
+    // navigation marks as where the admin is, and the Administration index links to it by name.
+    await expect(
+      page
+        .getByRole('navigation', { name: 'Main', exact: true })
+        .getByRole('link', { name: 'Administration', exact: true }),
+    ).toHaveAttribute('aria-current', 'location');
     await expectNoProblems(page);
+    await page.goto(`/o/${organization}/settings`);
+    await expect(page.getByRole('link', { name: /^License and support/ })).toHaveAttribute(
+      'href',
+      licensePage(organization),
+    );
   });
 
   test('a member gets the usual not found, and no link to it', async ({ open, world }) => {
@@ -124,7 +128,7 @@ test.describe('the license page', () => {
     await page.goto(licensePage(world.organization));
     await page.getByLabel('Or paste what the file holds').fill('this is not a signed file');
     await page.getByRole('button', { name: 'Check and install' }).click();
-    await expect(page.getByRole('alert')).toContainText('could not be verified');
+    await expect(alertIn(page)).toContainText('could not be verified');
     await expect(
       page.getByText('No license is installed for this organization.').first(),
     ).toBeVisible();
@@ -138,6 +142,6 @@ test.describe('the license page', () => {
     await page.keyboard.type('this is not a signed file');
     await tabTo(page, /Check and install/);
     await page.keyboard.press('Enter');
-    await expect(page.getByRole('alert')).toContainText('could not be verified');
+    await expect(alertIn(page)).toContainText('could not be verified');
   });
 });

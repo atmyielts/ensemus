@@ -45,7 +45,7 @@ export default async function ConfirmIdentityPage({
             </Link>
           </>
         )}
-        <p>
+        <p className="link-line">
           <Link href={next}>Cancel</Link>
         </p>
       </section>

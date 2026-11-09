@@ -2,19 +2,53 @@
 
 import Link, { useLinkStatus } from 'next/link';
 import { usePathname } from 'next/navigation';
+import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react';
 import {
   currentNavigation,
   isNavigationCurrent,
+  pendingDestination,
+  pendingDestinationText,
   type NavGroup,
   type NavItem,
 } from './navigation-model';
 import { NavigationIcon } from './navigation-icon';
 
-/** Shows the page is on its way, for the routes that cannot have a loading page. See error notes. */
-function Pending() {
-  const { pending } = useLinkStatus();
+type Announce = (label: string, pending: boolean) => void;
+const NavigationPending = createContext<Announce | null>(null);
+
+/**
+ * The navigation's one polite live region, shared by the desktop and mobile menus. It stays in the page
+ * while empty, outside either menu, so a screen reader is listening before anything is announced and
+ * still hears it after the mobile menu closes. A status region in every link would make each page hold a
+ * dozen empty ones, and a person hear nothing that says which page is coming.
+ */
+export function NavigationPendingRegion({ children }: { children: ReactNode }) {
+  const [loading, setLoading] = useState<string | null>(null);
+  const announce = useCallback<Announce>((label, pending) => {
+    setLoading((current) => pendingDestination(current, label, pending));
+  }, []);
   return (
-    <span className="pending" role="status">
+    <NavigationPending.Provider value={announce}>
+      {children}
+      <span className="visually-hidden" role="status" data-navigation-status="">
+        {pendingDestinationText(loading)}
+      </span>
+    </NavigationPending.Provider>
+  );
+}
+
+/** Shows the page is on its way, for the routes that cannot have a loading page. See error notes. */
+function Pending({ label }: { label: string }) {
+  const { pending } = useLinkStatus();
+  const announce = useContext(NavigationPending);
+  useEffect(() => {
+    if (!announce) return;
+    announce(label, pending);
+    return () => announce(label, false);
+  }, [announce, label, pending]);
+  // Seen beside the link only. The region above says it, so the link's own name never changes.
+  return (
+    <span className="pending" aria-hidden="true">
       {pending ? 'Loading' : ''}
     </span>
   );
@@ -60,7 +94,7 @@ function NavigationLink({
           {item.count}
         </span>
       ) : null}
-      <Pending />
+      <Pending label={item.label} />
     </Link>
   );
 }

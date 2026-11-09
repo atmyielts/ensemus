@@ -178,7 +178,7 @@ export default async function SsoSettings({
                   <input readOnly value={connection.configurationSha256} />
                 </label>
               )}
-              <p>
+              <p className="link-line">
                 <a href={`/api/auth/sso/saml2/sp/metadata?providerId=${connection.providerId}`}>
                   Open service provider metadata
                 </a>

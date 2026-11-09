@@ -47,10 +47,12 @@ test.describe('private outcome and company setup native forms', () => {
         )
         .check();
       await page.getByRole('button', { name: 'Confirm and create Work', exact: true }).click();
+      // The saved preview already shows this title as a heading, so the heading alone cannot say the
+      // Work page has arrived. The address does, and the heading is then the Work's own.
+      await expect(page).toHaveURL(/\/work\/[0-9a-f-]+$/);
       await expect(
         page.getByRole('heading', { name: 'Reviewed source-backed report', exact: true }),
       ).toBeVisible();
-      expect(new URL(page.url()).pathname).toMatch(/\/work\/[0-9a-f-]+$/);
       await expect(
         page.getByText(/a person checks the requested name and content/).first(),
       ).toBeVisible();

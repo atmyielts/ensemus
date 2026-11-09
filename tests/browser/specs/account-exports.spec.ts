@@ -5,6 +5,7 @@ import { expect, test } from '../support/fixtures';
 import { createOrganization, join, signUp, BASE } from '../../helpers/forms';
 import { setGeneratedAccountStanding } from '../../helpers/account-export';
 import { axeFindings, sidewaysOverflow } from '../support/look';
+import { organizationWithAdmin } from '../support/people';
 /**
  * An account destination's link. Its accessible name is its label followed by its description (the whole
  * row is the link, see DestinationList), so it is found by how the name starts, never by the label alone.
@@ -116,11 +117,16 @@ test.describe('real account exports in paused service', () => {
     );
     await destinations.getByRole('link', destination('Leave Ensemus')).click();
     await expect(owner.getByRole('heading', { name: 'Leave Ensemus', exact: true })).toBeVisible();
-    const admin = await open(world.carol);
-    await admin.goto(`/o/${world.organization}/account`);
+    // The shared world has no administrator (Carol is a member), so one is made, by the owner's own
+    // people form, in an organization of its own.
+    const administered = await organizationWithAdmin('Generated account destinations');
+    const admin = await open(administered.admin);
+    await admin.goto(`/o/${administered.organization}/account`);
     await expect(admin.getByRole('link', destination('Billing and subscription'))).toBeVisible();
     await expect(admin.getByRole('link', destination('Export your data'))).toHaveCount(0);
     await expect(admin.getByRole('link', destination('Leave Ensemus'))).toHaveCount(0);
-    expect((await admin.goto(`/o/${world.organization}/account/exports`))?.status()).toBe(404);
+    expect((await admin.goto(`/o/${administered.organization}/account/exports`))?.status()).toBe(
+      404,
+    );
   });
 });

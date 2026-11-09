@@ -3,6 +3,7 @@ import type { PulsePartial, PulseSignalView } from '@ensemus/application/pulse';
 import type { PulseEvidence, PulseSignalKind } from '@ensemus/domain/pulse';
 import { SubmitButton } from '../submit-button';
 import { formatDateTime } from '../ui';
+import { labelInName } from '@/lib/label-in-name';
 import { setPulseSignalStateAction } from '@/server/pulse-actions';
 
 export const pulseWords: Record<PulseSignalKind, string> = {
@@ -64,6 +65,10 @@ function hidden(organizationId: string, signal: PulseSignalView) {
   );
 }
 
+/** Every row has the same three controls, so each name goes on to say which signal it is for. */
+const controlName = (words: string, signal: Pick<PulseSignalView, 'kind' | 'work'>) =>
+  labelInName(words, pulseWords[signal.kind], signal.work.title);
+
 export function PulseSignalRow({
   organizationId,
   signal,
@@ -106,10 +111,7 @@ export function PulseSignalRow({
               <form action={setPulseSignalStateAction}>
                 {hidden(organizationId, signal)}
                 <input type="hidden" name="state" value="dismissed" />
-                <SubmitButton
-                  className="secondary"
-                  label={`Dismiss ${pulseWords[signal.kind]} for ${signal.work.title}`}
-                >
+                <SubmitButton className="secondary" label={controlName('Dismiss for me', signal)}>
                   Dismiss for me
                 </SubmitButton>
               </form>
@@ -122,10 +124,7 @@ export function PulseSignalRow({
                   <option value="7">7 days</option>
                   <option value="30">30 days</option>
                 </select>
-                <SubmitButton
-                  className="secondary"
-                  label={`Snooze ${pulseWords[signal.kind]} for ${signal.work.title}`}
-                >
+                <SubmitButton className="secondary" label={controlName('Snooze for me', signal)}>
                   Snooze for me
                 </SubmitButton>
               </form>
@@ -134,11 +133,8 @@ export function PulseSignalRow({
             <form action={setPulseSignalStateAction}>
               {hidden(organizationId, signal)}
               <input type="hidden" name="state" value="open" />
-              <SubmitButton
-                className="secondary"
-                label={`Restore ${pulseWords[signal.kind]} for ${signal.work.title}`}
-              >
-                Show again
+              <SubmitButton className="secondary" label={controlName('Restore for me', signal)}>
+                Restore for me
               </SubmitButton>
             </form>
           )}
