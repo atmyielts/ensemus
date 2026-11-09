@@ -8,8 +8,17 @@
 // docs/02-architecture/10-nextjs-application-and-authorization.md, "Not found without JavaScript".
 import { brotliDecompressSync, gunzipSync, inflateSync } from 'node:zlib';
 
-/** How the error shell starts. React escapes `<` in text and Next.js in inline data, so it is markup. */
-const ERROR_SHELL = /^\s*(?:<!doctype html>\s*)?<html id="__next_error__"/i;
+/**
+ * How every document starts: the doctype and the opening <html> tag, with what it says. React escapes
+ * `<` in text and Next.js in inline data, so this is markup, and React escapes `>` in an attribute.
+ */
+const DOCUMENT_START = /^\s*(?:<!doctype html>\s*)?<html(\s[^>]*)?>/i;
+/**
+ * What makes that tag the error shell's: its own id attribute, wherever it stands among the others.
+ * With a deployment ID set (next.config.ts, ENSEMUS_RELEASE, which every image build sets), Next.js
+ * writes `data-dpl-id` straight after `<html`, so the id is not the first attribute in a built image.
+ */
+const ERROR_SHELL_ID = /\sid="__next_error__"(?=\s|$)/;
 /** The shell is a few kilobytes. Anything this large is passed on untouched, as it came. */
 export const HOLD_LIMIT = 1024 * 1024;
 
@@ -48,15 +57,18 @@ const NO_SCRIPT_NOT_FOUND =
  * @returns {string | null}
  */
 export function withNoScriptNotFound(html) {
-  const shell = ERROR_SHELL.exec(html);
-  if (!shell) return null;
-  const rest = html.slice(shell[0].length);
-  const attributes = /^[^>]*>/.exec(rest);
+  const start = DOCUMENT_START.exec(html);
+  const attributes = start?.[1] ?? '';
+  if (!start || !ERROR_SHELL_ID.test(attributes)) return null;
+  const rest = html.slice(start[0].length);
   const body = /<body(?:\s[^>]*)?>/i.exec(rest);
-  if (!attributes || !body) return null;
+  if (!body) return null;
   const bodyEnd = body.index + body[0].length;
   // The shell names no language; the rest of the product says English (app/layout.tsx).
-  const opening = /\slang=/i.test(attributes[0]) ? shell[0] : `${shell[0]} lang="en"`;
+  const tagEnd = start[0].length - 1;
+  const opening = /\slang=/i.test(attributes)
+    ? start[0]
+    : `${start[0].slice(0, tagEnd)} lang="en"${start[0].slice(tagEnd)}`;
   return opening + rest.slice(0, bodyEnd) + NO_SCRIPT_NOT_FOUND + rest.slice(bodyEnd);
 }
 
