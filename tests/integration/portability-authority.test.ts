@@ -22,6 +22,7 @@ import {
   beginExport,
 } from '@ensemus/application';
 import { withPortabilityScope } from '../../packages/application/src/portability-scope';
+import { inFixtureTenant } from '../helpers/fixture-tenant';
 import { makePerson, nativePersonContext } from '../helpers/product';
 import { testRecipient } from '../helpers/sovereign';
 import { urls } from '../helpers/stack';
@@ -399,9 +400,12 @@ describe('native admitted portability authority', () => {
   });
   it('rechecks requesting/custodian membership at effect time', async () => {
     const input = await prepared();
-    await control.query(
-      "update org.memberships set status='disabled' where organization_id=$1 and id=$2",
-      [input.person.context.organizationId, input.person.context.membershipId],
+    // Bound to its tenant, as 0303's export-epoch trigger on org.memberships requires; it still fires.
+    await inFixtureTenant(control, input.person.context.organizationId, () =>
+      control.query(
+        "update org.memberships set status='disabled' where organization_id=$1 and id=$2",
+        [input.person.context.organizationId, input.person.context.membershipId],
+      ),
     );
     await expect(
       scoped(input.context, input.view.id, input.part.path, input.part.plaintext_sha256, (tx) =>
