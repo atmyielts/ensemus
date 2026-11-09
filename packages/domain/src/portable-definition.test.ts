@@ -1,9 +1,15 @@
 import { createHash } from 'node:crypto';
+import { readdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, it, expect } from 'vitest';
 import { canonicalJson } from './approval';
 import { assertPortableDefinitionIntegrity } from './portable-definition';
 import {
+  matchesPortabilityInventory,
   portableRecordByteLimit,
+  PORTABILITY_INVENTORY,
+  PORTABILITY_INVENTORY_V2,
   PORTABILITY_INVENTORY_VERSION,
   PORTABILITY_INVENTORY_V2_VERSION,
   LEGACY_PORTABILITY_INVENTORY_VERSION,
@@ -102,4 +108,61 @@ describe('deterministic portable definition integrity (not model quality)', () =
     expect(portableRecordByteLimit(PORTABILITY_INVENTORY_VERSION)).toBe(4194304);
     expect(() => portableRecordByteLimit('future')).toThrow();
   });
+});
+
+/** The joined export and import refuse any catalog table the inventory does not name
+ * (assertJoinedPortabilitySchema). This reads the migrations so a new table without a reviewed
+ * inventory line fails here, before it refuses every export and import against a real database. */
+function migratedTables(): Set<string> {
+  const dir = fileURLToPath(new URL('../../database/migrations/', import.meta.url));
+  const tables = new Set<string>();
+  const name = String.raw`"?([a-z_][a-z0-9_]*)"?\."?([a-z_][a-z0-9_]*)"?`;
+  for (const file of readdirSync(dir)
+    .filter((entry) => entry.endsWith('.sql'))
+    .sort()) {
+    const text = readFileSync(join(dir, file), 'utf8').replace(/--[^\n]*/g, '');
+    for (const match of text.matchAll(
+      new RegExp(
+        String.raw`\bCREATE\s+(?:UNLOGGED\s+)?TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?${name}`,
+        'gi',
+      ),
+    ))
+      tables.add(`${match[1]}.${match[2]}`.toLowerCase());
+    for (const match of text.matchAll(
+      new RegExp(String.raw`\bDROP\s+TABLE\s+(?:IF\s+EXISTS\s+)?${name}`, 'gi'),
+    ))
+      tables.delete(`${match[1]}.${match[2]}`.toLowerCase());
+  }
+  return tables;
+}
+
+describe('the joined inventory names every migrated table', () => {
+  const named = new Set(PORTABILITY_INVENTORY.map((entry) => entry.table));
+  it('has a reviewed line for each table a migration creates, and none for a table that is gone', () => {
+    const tables = migratedTables();
+    expect(tables.size).toBeGreaterThan(200);
+    expect([...tables].filter((table) => !named.has(table))).toEqual([]);
+    expect([...named].filter((table) => !tables.has(table))).toEqual([]);
+  });
+  it.each(['lifecycle.upload_writes', 'lifecycle.erasure_tombstone_grants'])(
+    'keeps %s as native proof that no archive carries or restores',
+    (table) => {
+      const entries = PORTABILITY_INVENTORY.filter((entry) => entry.table === table);
+      expect(entries).toEqual([
+        { table, section: 'history', disposition: 'operational_excluded', version: 1 },
+      ]);
+      expect(PORTABILITY_INVENTORY_V2.some((entry) => entry.table === table)).toBe(false);
+      expect(matchesPortabilityInventory(PORTABILITY_INVENTORY)).toBe(true);
+      expect(
+        matchesPortabilityInventory(PORTABILITY_INVENTORY.filter((entry) => entry.table !== table)),
+      ).toBe(false);
+      expect(
+        matchesPortabilityInventory(
+          PORTABILITY_INVENTORY.map((entry) =>
+            entry.table === table ? { ...entry, disposition: 'records' } : entry,
+          ),
+        ),
+      ).toBe(false);
+    },
+  );
 });
