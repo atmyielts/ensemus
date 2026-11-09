@@ -267,9 +267,12 @@ describe('operations a running test had not reached (API-12)', () => {
   });
 
   it('approves a model workload, queues a semantic query under it, reads the job, and revokes it', async () => {
+    // The stack's own agent worker runs the qualification against the in-subnet fake, as the outbox
+    // wakes it for every requested job. Running it here as well raced that worker for the same job.
     const route = await seedQualifiedKnowledgeRoute(app.db, ownerContext, {
       purpose: 'embed',
       endpointUrl: FAKE_MODEL_ENDPOINT,
+      runner: 'stack',
     });
     const approval = {
       kind: 'query',
