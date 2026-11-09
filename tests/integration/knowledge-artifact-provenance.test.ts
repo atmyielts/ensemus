@@ -15,8 +15,13 @@ import {
   unassign,
   type ObjectStore,
 } from '@ensemus/application';
-import { workInputHash } from '@ensemus/application/ai-input-ledger';
+import { createRunTranscriptPurge, workInputHash } from '@ensemus/application/ai-input-ledger';
 import { createContextSource } from '@ensemus/application/ai-context-source';
+import { createKnowledgeCallStore } from '@ensemus/application/ai-knowledge-call-store';
+import { createHaltCheck } from '@ensemus/application/ai-halt';
+import { createDelegatedWorkPurge } from '@ensemus/application/knowledge/delegated-work-purge';
+import { createDelegatedRecordPurge } from '@ensemus/application/knowledge/delegated-record-purge';
+import { createKnowledgeTranscriptActivities } from '@ensemus/workflows/knowledge-purge-activities';
 import type { Classification } from '@ensemus/domain/policy';
 import {
   CHECKLIST_TEMPLATE,
@@ -138,6 +143,8 @@ describe('generated artifact all-input privacy and erasure protocol (0208)', () 
       noPackages?: boolean;
       system?: boolean;
       classification?: 'internal' | 'confidential' | 'restricted';
+      /** The published manifest also grants `data.restricted.read` (see the version below). */
+      readsRestricted?: boolean;
     } = {},
   ) {
     // seedAgentVersion publishes as this owner, and 0404 requires a fresh native second factor for
@@ -173,6 +180,11 @@ describe('generated artifact all-input privacy and erasure protocol (0208)', () 
     // The run's evidence package below names this source, so its manifest declares it, as a real
     // agent reading that source must: read admission refuses a run whose actual package names an
     // undeclared source (loadAgentReadScopeInTx, POLICY_DENIED).
+    // Naming a Knowledge source makes the run's read scope required (0414 ai.run_scope_required).
+    // With no data scope, 0414's agent_scope_protocol_read then caps the run's Work reads at
+    // confidential (coalesce(ai.run_company_ceiling(...),3) on 0201's 1-based class_rank), so a run
+    // that is to read another restricted Work needs its owner to grant data.restricted.read, as a real
+    // agent reading restricted material does (ai-input-protocol's restricted-fact case does the same).
     const version = options.system
       ? null
       : await seedAgentVersion(
@@ -180,7 +192,11 @@ describe('generated artifact all-input privacy and erasure protocol (0208)', () 
           owner,
           testAgentSpec({
             context: {
-              allowed_scopes: ['work.read', `knowledge.${source.sourceId}.read`],
+              allowed_scopes: [
+                'work.read',
+                `knowledge.${source.sourceId}.read`,
+                ...(options.readsRestricted ? ['data.restricted.read'] : []),
+              ],
               memory_write_policy: 'none',
             },
           }),
@@ -237,8 +253,9 @@ describe('generated artifact all-input privacy and erasure protocol (0208)', () 
     };
     const agentWriter = await ensureRun(execution);
     const writer = agentWriter ?? service;
-    if (!options.noPackages && !options.system)
-      await withTenantTx(database.db, service, async (tx) => {
+    /** The run's own evidence package naming the source, as its Knowledge retrieval records one. */
+    const addPackage = () =>
+      withTenantTx(database.db, service, async (tx) => {
         const packageId = randomUUID();
         await tx.insert(knowledgeEvidencePackages).values({
           organizationId: owner.organizationId,
@@ -266,6 +283,7 @@ describe('generated artifact all-input privacy and erasure protocol (0208)', () 
           tokenEstimate: 12,
         });
       });
+    if (!options.noPackages && !options.system) await addPackage();
     const bodies = new Map<string, Buffer>();
     const control: {
       puts: number;
@@ -392,6 +410,7 @@ describe('generated artifact all-input privacy and erasure protocol (0208)', () 
       lifecycle,
       writer,
       agentWriter,
+      addPackage,
     };
   }
   type Fixture = Awaited<ReturnType<typeof fixture>>;
@@ -431,6 +450,19 @@ describe('generated artifact all-input privacy and erasure protocol (0208)', () 
     if (!value.agentWriter) throw new Error('TEST_AGENT_WRITER_MISSING');
     return value.agentWriter;
   };
+  /**
+   * addGeneratedArtifact under the run's existing agent context. `value.create` first re-admits the run
+   * through the context source (prepareRunInputContext), whose own admission would answer before
+   * addGeneratedArtifact; this asserts what addGeneratedArtifact itself answers.
+   */
+  const publishAsRun = (value: Fixture, changes: Partial<Fixture['input']> = {}) =>
+    addGeneratedArtifact(
+      agent.db,
+      value.store,
+      agentWriterOf(value),
+      { ...value.input, ...changes },
+      { inventory: value.inventory },
+    );
   /**
    * The run actually reads another Work through the runtime's context source (lockReadAuthorityBefore
    * Body, then the body, then recordRunInputs), as in production. 0419's artifact authority binds a
@@ -698,6 +730,44 @@ describe('generated artifact all-input privacy and erasure protocol (0208)', () 
       await withTenantTx(database.db, value.service, (tx) => tx.select().from(artifactLineage)),
     ).toMatchObject([{ state: 'blocked', writeState: 'settled', physicalPurgedAt: null }]);
   });
+  it.each(['revoked', 'ungranted'] as const)(
+    "refuses a source %s after the run's admission at the inventory's own source check",
+    async (closure) => {
+      // The run has no package yet when its publishing transaction is admitted, so the admission
+      // (0414/0417) has no source to lock or fence. Its package naming the source then commits, and
+      // the source closes, before the publishing inventory reads the run's packages: only the
+      // inventory's own source lock and check can refuse it with KNOWLEDGE_SOURCE_CLOSED. A revoked
+      // source fails its state check; a source whose grant to the named viewer was removed stays
+      // active and fails the viewer's readable-source check.
+      const value = await fixture({ noPackages: true });
+      let inspections = 0;
+      const port: ArtifactInputInventory = {
+        inspectInTx: async (...args) => {
+          // The first inspection is beginInTx's; the second is publishInTx's, after the admission.
+          if (++inspections === 2) {
+            await value.addPackage();
+            if (closure === 'revoked') await value.close();
+            else
+              await withTenantTx(database.db, value.owner, (tx) =>
+                tx
+                  .delete(knowledgeSourceGrants)
+                  .where(eq(knowledgeSourceGrants.sourceId, value.source.sourceId)),
+              );
+          }
+          return value.inventory.inspectInTx(...args);
+        },
+      };
+      await expect(value.create({}, port)).rejects.toMatchObject({
+        code: 'KNOWLEDGE_SOURCE_CLOSED',
+      });
+      expect(inspections).toBe(2);
+      expect(value.control.puts).toBe(1);
+      expect(await value.raw(value.owner)).toEqual({ files: [], links: [] });
+      expect(
+        await withTenantTx(database.db, value.service, (tx) => tx.select().from(artifactLineage)),
+      ).toMatchObject([{ state: 'blocked', writeState: 'settled', physicalPurgedAt: null }]);
+    },
+  );
   it('rechecks source access after the out-of-transaction object read', async () => {
     const value = await fixture();
     const output = await value.create();
@@ -946,7 +1016,9 @@ describe('generated artifact all-input privacy and erasure protocol (0208)', () 
     );
   });
 
-  // 0211 structured observations are trusted executor input, never model citation arguments.
+  // 0211 structured observations are trusted executor input, never model citation arguments. A
+  // restricted other Work is read only by a run whose manifest grants data.restricted.read
+  // (fixture({ readsRestricted: true }); 0414 agent_scope_protocol_read, see the fixture).
   async function otherWork(
     value: Fixture,
     classification: 'internal' | 'restricted' = 'restricted',
@@ -995,6 +1067,26 @@ describe('generated artifact all-input privacy and erasure protocol (0208)', () 
   }
   const removeOtherAssignment = (value: Fixture, id: string) =>
     unassign(database.db, value.member, { id, membershipId: value.owner.membershipId });
+  /**
+   * The agent worker's record-materials activity, with the agent role, composed exactly as
+   * workers/workflow/src/agent-composition.ts composes its transcript activities.
+   */
+  const purgeRecordMaterials = (
+    value: Fixture,
+    record: { kind: StructuredArtifactInput['kind']; id: string; limit: number },
+  ) => {
+    const accounting = createKnowledgeCallStore(agent.db, { halt: createHaltCheck() });
+    return createKnowledgeTranscriptActivities({
+      database: agent.db,
+      transcripts: createRunTranscriptPurge(),
+      delegatedWorks: createDelegatedWorkPurge({ database: agent.db, accounting }),
+      delegatedRecords: createDelegatedRecordPurge({
+        database: agent.db,
+        accounting,
+        transcripts: createRunTranscriptPurge(),
+      }),
+    }).purgeRecordMaterials({ organizationId: value.owner.organizationId, ...record });
+  };
 
   it('requires an explicit structured list and target Work before starting any object put', async () => {
     for (const records of [
@@ -1040,8 +1132,25 @@ describe('generated artifact all-input privacy and erasure protocol (0208)', () 
     expect(records.filter((row) => row.recordId === work.id)).toHaveLength(2);
     expect((await value.read(output.id)).body.toString()).toBe(value.text);
   });
+  it('keeps a restricted other Work hidden from a Knowledge-scoped run without data.restricted.read', async () => {
+    // The gate the restricted cases below pass by their manifest grant: the initiator is assigned to
+    // the other Work, but 0414's agent_scope_protocol_read still hides it from this run's body read.
+    const value = await fixture();
+    const work = await createWorkUnit(database.db, value.member, {
+      title: 'Other restricted Work',
+      objective: 'Synthetic restricted material',
+      classification: 'restricted',
+    });
+    await assignContributor(database.db, value.member, {
+      id: work.id,
+      membershipId: value.owner.membershipId,
+    });
+    await expect(runReadsWork(value, work.id)).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    // The same run, admitted the same way, still reads an internal other Work.
+    await otherWork(value, 'internal');
+  });
   it('checks actual OTHER Work assignments for the named viewer even when the writer is a service', async () => {
-    const value = await fixture(),
+    const value = await fixture({ readsRestricted: true }),
       work = await otherWork(value);
     const output = await value.create();
     expect((await value.read(output.id)).body.toString()).toBe(value.text);
@@ -1049,13 +1158,16 @@ describe('generated artifact all-input privacy and erasure protocol (0208)', () 
     const gets = value.control.gets;
     await expect(value.read(output.id)).rejects.toMatchObject({ code: 'NOT_FOUND' });
     expect(value.control.gets).toBe(gets);
-    await expect(value.create({ requestKey: randomUUID() })).rejects.toMatchObject({
-      code: 'NOT_FOUND',
+    // The run actually read the other Work (0419), so its own read admission, which
+    // addGeneratedArtifact holds before any inventory (0414/0417; currentRunCompanyClassInTx), now
+    // refuses the named viewer's lost assignment before the inventory's structured check could.
+    await expect(publishAsRun(value, { requestKey: randomUUID() })).rejects.toMatchObject({
+      code: 'POLICY_DENIED',
     });
     expect(value.control.puts).toBe(1);
   });
   it('rechecks retained structured authority after object get and refuses a revoked in-flight read', async () => {
-    const value = await fixture(),
+    const value = await fixture({ readsRestricted: true }),
       work = await otherWork(value);
     const output = await value.create();
     value.control.beforeGet = () => removeOtherAssignment(value, work.id);
@@ -1063,10 +1175,14 @@ describe('generated artifact all-input privacy and erasure protocol (0208)', () 
     expect(value.control.gets).toBe(1);
   });
   it('blocks publication after structured revocation during put and keeps durable blocked provenance', async () => {
-    const value = await fixture(),
+    const value = await fixture({ readsRestricted: true }),
       work = await otherWork(value);
     value.control.beforePut = () => removeOtherAssignment(value, work.id);
-    await expect(value.create()).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    // As for source closure during put: the publishing transaction first holds the run's own read
+    // admission (0414/0417), and the run actually read the other Work (0419), so that admission
+    // refuses the named viewer's lost assignment (POLICY_DENIED) before the inventory's own check.
+    await expect(value.create()).rejects.toMatchObject({ code: 'POLICY_DENIED' });
+    expect(value.control.puts).toBe(1);
     expect(await value.raw(value.owner)).toEqual({ files: [], links: [] });
     const [header] = await withTenantTx(database.db, value.service, (tx) =>
       tx.select().from(artifactLineage),
@@ -1153,7 +1269,7 @@ describe('generated artifact all-input privacy and erasure protocol (0208)', () 
     ).toMatchObject([{ recordKind: 'work_unit', recordId: value.work.id }]);
   });
   it('flattens retained structured ancestors independently of later direct read lists', async () => {
-    const value = await fixture(),
+    const value = await fixture({ readsRestricted: true }),
       work = await otherWork(value);
     const first = await value.create();
     value.inputs.push({ artifactId: first.id, sha256: sha256(value.text) });
@@ -1247,8 +1363,55 @@ describe('generated artifact all-input privacy and erasure protocol (0208)', () 
     ])
       await deniedSql(operation(), '42501');
   });
+  it("rechecks a live header's structured inventory at commit (0211 structured_artifact_commit)", async () => {
+    // 0419's deferred birth check fires on INSERT only; 0211's structured_artifact_commit also
+    // re-validates every later write of a still-live (pending or bound) header at COMMIT. A system
+    // checklist header left pending by an unknown put keeps its write token active and its upload row.
+    const value = await fixture({ system: true });
+    value.control.putFails = true;
+    await expect(value.create()).rejects.toThrow('SYNTHETIC_UNKNOWN_PUT');
+    const [header] = await withTenantTx(database.db, value.service, (tx) =>
+      tx.select().from(artifactLineage),
+    );
+    if (!header) throw new Error('TEST_HEADER_MISSING');
+    expect(header).toMatchObject({
+      state: 'pending',
+      writeState: 'active',
+      classification: 'internal',
+    });
+    let statements = 0;
+    // The narrowest granted header write (0208: held), leaving every identity column unchanged.
+    const write = () =>
+      withTenantTx(database.db, value.service, async (tx) => {
+        await tx
+          .update(artifactLineage)
+          .set({ held: false })
+          .where(eq(artifactLineage.artifactId, header.artifactId));
+        statements++;
+      });
+    expect(await refusalOf(write())).toBeNull();
+    expect(statements).toBe(1);
+    // The target Work's own class rises above the header's pinned internal class. No lock is held
+    // across transactions, so the change commits; the pending header's inventory no longer holds.
+    await withTenantTx(database.db, value.owner, (tx) =>
+      tx
+        .update(workUnits)
+        .set({ classification: 'restricted', version: value.work.version + 1 })
+        .where(eq(workUnits.id, value.work.id)),
+    );
+    // Every BEFORE UPDATE guard admits the statement; only the deferred commit check refuses it.
+    expect(await refusalOf(write())).toEqual({
+      code: 'EN118',
+      message: 'STRUCTURED_INPUT_INVENTORY_REQUIRED',
+    });
+    expect(statements).toBe(2);
+    const [after] = await withTenantTx(database.db, value.service, (tx) =>
+      tx.select().from(artifactLineage).where(eq(artifactLineage.artifactId, header.artifactId)),
+    );
+    expect(after).toMatchObject({ state: 'pending', writeState: 'active', held: false });
+  });
   it('serializes publication against an actual structured ACL/class writer without waiting or publishing stale material', async () => {
-    const value = await fixture(),
+    const value = await fixture({ readsRestricted: true }),
       work = await otherWork(value);
     let release!: () => void, locked!: () => void;
     const releasePromise = new Promise<void>((resolve) => {
@@ -1267,7 +1430,10 @@ describe('generated artifact all-input privacy and erasure protocol (0208)', () 
     });
     await lockedPromise;
     try {
-      await expect(value.create()).rejects.toMatchObject({ code: 'VERSION_CONFLICT' });
+      // The run actually read the other Work, so addGeneratedArtifact's own run admission meets the
+      // writer's catalog lock first (lock_structured_record NOWAIT, STRUCTURED_INPUT_BUSY 55P03) and
+      // answers the same retryable VERSION_CONFLICT as its inventory, without waiting.
+      await expect(publishAsRun(value)).rejects.toMatchObject({ code: 'VERSION_CONFLICT' });
     } finally {
       release();
       await writer;
@@ -1287,6 +1453,25 @@ describe('generated artifact all-input privacy and erasure protocol (0208)', () 
       tx.delete(projects).where(eq(projects.id, project.projectId)),
     );
     await expect(value.read(output.id)).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    // 0419: no file count for a typed record is given before that record's run and delegated-Work
+    // materials are proven purged (knowledge.derived_structured_artifacts_remaining raises
+    // RECORD_WORK_PURGE_UNCONFIRMED until ai.record_work_purge_confirmed). This run read the project.
+    expect(
+      await refusalOf(
+        withTenantTx(database.db, value.service, (tx) =>
+          purge(value).confirmRecordInTx(tx, value.service, record),
+        ),
+      ),
+    ).toEqual({ code: 'EN119', message: 'RECORD_WORK_PURGE_UNCONFIRMED' });
+    // The record purge workflow's first step, as production runs it (knowledge-record-purge-step
+    // runRecordPurge: materials, then files, then confirm): the agent worker's activity fences,
+    // purges and closes every run that read the record and certifies the empty delegated-Work set.
+    expect(await purgeRecordMaterials(value, record)).toMatchObject({
+      confirmed: true,
+      remaining: 0,
+      controlsRemaining: 0,
+      unproven: 0,
+    });
     expect(await adapter.purgeRecord(value.service, record)).toMatchObject({
       remaining: 1,
       confirmed: false,
