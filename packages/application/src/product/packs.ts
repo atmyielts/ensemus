@@ -284,6 +284,19 @@ async function viewOf(
   };
 }
 
+/**
+ * The audit reason for one capability decision. appendAudit accepts only upper-case codes, so the lower-case
+ * decision itself was refused there and every decision over HTTP or the form answered 500. Anything but the
+ * two decisions is refused, so nothing a caller wrote can reach the log.
+ */
+export function capabilityDecisionReason(
+  decision: 'accepted' | 'declined',
+): 'ACCEPTED' | 'DECLINED' {
+  if (decision === 'accepted') return 'ACCEPTED';
+  if (decision === 'declined') return 'DECLINED';
+  throw new AppError('INVALID_INPUT');
+}
+
 const decidedOnly = (decisions: readonly { capabilityKey: string; decision: string }[]) => {
   const decided: Record<string, 'accepted' | 'declined'> = {};
   for (const { capabilityKey, decision } of decisions) {
@@ -964,12 +977,13 @@ export function createPackService(overrides: Partial<PackDependencies> = {}) {
           .set({ version: row.version + 1, updatedAt: new Date() })
           .where(installationWhere(context, row.id))
           .returning();
+        // The audit log takes codes, never words (ADR-013), so the decision goes in as one.
         await auditAction(
           tx,
           context,
           'pack.capability_decided',
           `pack_installation:${row.id}`,
-          input.decision,
+          capabilityDecisionReason(input.decision),
         );
         return viewOf(tx, deps, context, next ?? row);
       });

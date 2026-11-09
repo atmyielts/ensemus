@@ -307,14 +307,20 @@ function stackTests(label, files, env = {}) {
 }
 
 // The suites that hold billing's hosted behaviour (ADR-032 D1). The stack runs Sovereign, where billing can
-// never be on, so these run again on web, web-2 and the worker recreated as a hosted deployment with billing
-// named on. No payment processor is set, so nothing here has a way out, and the count below still holds.
+// never be on, so these run again on web, web-2, the worker and the agent-worker recreated as a hosted
+// deployment with billing named on. No payment processor is set, so nothing here has a way out, and the count
+// below still holds. The agent canary's Cloud and BYOM cases are hosted behaviour too: a Cloud or BYOM tenant
+// is entitled to model calls only through a hosted subscription, which a Sovereign deployment cannot have, so
+// those cases run here, where the agent-worker's gateway sees billing on (its model endpoint is the in-subnet
+// fake). Its Sovereign case runs in the Sovereign phase.
 const HOSTED = { ENSEMUS_MODE: 'cloud', ENSEMUS_BILLING_ENABLED: 'true' };
 const HOSTED_SUITES = [
   'tests/stack/saas-billing-api.test.ts',
   'tests/stack/saas-invoices-api.test.ts',
+  'tests/stack/saas-hosted-coverage.test.ts',
+  'tests/stack/ai-canary.test.ts',
 ];
-const MODE_SERVICES = ['web', 'web-2', 'worker'];
+const MODE_SERVICES = ['web', 'web-2', 'worker', 'agent-worker'];
 const recreate = (env) =>
   composeWith(env, 'up', '-d', '--no-deps', '--force-recreate', '--wait', ...MODE_SERVICES);
 
@@ -434,11 +440,16 @@ try {
         showServerProblems('the stack test suite');
       }
 
-      console.log('Recreating web, web-2 and worker as a hosted deployment with billing on...');
+      console.log(
+        'Recreating web, web-2, worker and agent-worker as a hosted deployment with billing on...',
+      );
       recreate(HOSTED);
       refuseUnlessOnTheWatchedSubnet();
       try {
-        if (!stackTests('the hosted billing suites', HOSTED_SUITES, HOSTED)) failed = true;
+        if (!stackTests('the hosted billing suites', HOSTED_SUITES, HOSTED)) {
+          failed = true;
+          showServerProblems('the hosted billing suites');
+        }
       } finally {
         // Back to what compose.yaml says, which is what everything after this expects.
         recreate({});

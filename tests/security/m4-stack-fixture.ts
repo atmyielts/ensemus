@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { addArtifact } from '@ensemus/application';
 import { getAgentPolicyVersion } from '@ensemus/application/ai-agents';
 import { FEATURE_AGENT_RUN, FEATURE_MODEL_CALL, type CommercialMode } from '@ensemus/commercial';
-import { openAppDatabase } from '@ensemus/database';
+import { openAppDatabase, type AppDatabase, type TenantContext } from '@ensemus/database';
 import { S3ObjectStore } from '@ensemus/storage';
 import pg from 'pg';
 import { expect } from 'vitest';
@@ -34,6 +34,17 @@ export async function startAiCanaryRun(
     providerError: string;
   },
   mode: CommercialMode = 'byom',
+  options: {
+    /**
+     * Runs after the tenant, its profile, rate card and budget exist and before the run starts, in the owner's
+     * native session, for what a hosted deployment also needs first (a subscription, for one).
+     */
+    beforeStart?: (seeded: {
+      organizationId: string;
+      context: TenantContext;
+      app: AppDatabase;
+    }) => Promise<void>;
+  } = {},
 ) {
   // A job opting into AI must fail if its service wiring is absent.
   expect(compose('ps', '-q', 'agent-worker').trim()).not.toBe('');
@@ -91,6 +102,7 @@ export async function startAiCanaryRun(
         ],
       );
     }
+    await options.beforeStart?.({ organizationId, context, app: app.db });
 
     const spec = {
       ...assuranceSpec,

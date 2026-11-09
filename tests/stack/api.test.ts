@@ -1225,14 +1225,25 @@ describe('public API', () => {
       expect(implemented.length).toBeGreaterThan(0);
       // Every suite of this run counts, whichever file saw the response: the gate runs this file after all the
       // others, in both modes, sharing one record. Without that record only this file's responses are known.
-      const { operations: seen, shared } = validatedOperations();
+      const { operations: seen, tested, setupOnly, shared } = validatedOperations();
+      const unshared =
+        'ENSEMUS_API_RECORD_DIR is not set, so only this file was recorded: run it through air-gap-gate.mjs';
       const validated = [...seen].filter((name) => !ownCoverage(name.slice(name.indexOf(' ') + 1)));
       expect(
         validated.sort(),
         shared
           ? 'Operations no stack suite in this run saw a successful real response for'
-          : 'ENSEMUS_API_RECORD_DIR is not set, so only this file was recorded: run it through air-gap-gate.mjs',
+          : unshared,
       ).toEqual(implemented.sort());
+      // A response seen only while a suite set itself up proves the operation answered, not that any test of it
+      // ran. Each operation needs one running test that saw its documented answer (the record keeps the file).
+      const untested = implemented
+        .filter((name) => !tested.has(name))
+        .map((name) => `${name}: only in setup, in ${(setupOnly.get(name) ?? []).join(', ')}`);
+      expect(
+        untested,
+        shared ? 'Operations no running stack test saw a successful real response for' : unshared,
+      ).toEqual([]);
     });
   });
 });

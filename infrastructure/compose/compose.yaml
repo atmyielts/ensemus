@@ -191,6 +191,11 @@ services:
       OBJECT_STORAGE_SECRET_KEY_FILE: /run/secrets/objects_secret_key
       ENSEMUS_PRIVATE_MODEL_ENDPOINTS: ${ENSEMUS_PRIVATE_MODEL_ENDPOINTS:-}
       ENSEMUS_MODEL_CREDENTIALS_REVIEWED: ${ENSEMUS_MODEL_CREDENTIALS_REVIEWED:-}
+      # The gateway's entitlement check reads these (agent-composition loadSaasConfig). Without them a hosted
+      # deployment's agent-worker always saw billing off and refused every BYOM model call, while web and
+      # the worker ran hosted. The same defaults as web, so billing stays refused on Sovereign here too.
+      ENSEMUS_MODE: ${ENSEMUS_MODE:-sovereign}
+      ENSEMUS_BILLING_ENABLED: ${ENSEMUS_BILLING_ENABLED:-false}
     secrets:
       - temporal_codec_key
       - db_agent_url

@@ -5629,12 +5629,20 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/SsoConnection"
-        default: &a1
-          description: A fixed refusal or unavailable response.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/RestorePending"
   /organizations/{organization_id}/sso-connections/{sso_connection_id}/scim-tokens:
     parameters:
       - $ref: "#/components/parameters/OrganizationID"
@@ -5648,9 +5656,33 @@ paths:
       tags:
         - identity
       summary: Issue a provisioning token, shown once. Needs recent MFA
+      description: The body is an empty JSON object. The token is in this answer and nowhere else, and
+        later reads list its metadata only.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
       responses:
         "201":
-          description: Done
+          description: The token, shown this once.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - token_id
+                  - token
+                properties:
+                  token_id:
+                    type: string
+                    format: uuid
+                  token:
+                    type: string
+                    minLength: 1
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -5712,7 +5744,20 @@ paths:
                             - string
                             - "null"
                           format: date-time
-        default: *a1
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/RestorePending"
   /organizations/{organization_id}/sso-connections/{sso_connection_id}/metadata:
     parameters:
       - &a3
@@ -5775,7 +5820,28 @@ paths:
                   version:
                     type: integer
                     minimum: 1
-        default: *a1
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "422":
+          $ref: "#/components/responses/Validation"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/RestorePending"
   /organizations/{organization_id}/sso-connections/{sso_connection_id}/scim-tokens/{scim_token_id}:
     parameters:
       - *a3
@@ -5792,7 +5858,20 @@ paths:
       responses:
         "204":
           description: Token revoked. No response body.
-        default: *a1
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/RestorePending"
   /organizations/{organization_id}/license:
     parameters:
       - $ref: "#/components/parameters/OrganizationID"
