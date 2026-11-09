@@ -31,6 +31,7 @@ import { redirect } from 'next/navigation';
 import { z } from 'zod';
 import type { KnowledgeFormState } from '@/lib/knowledge-form-state';
 import { uploadMediaType } from '@/lib/knowledge-input';
+import { assertConnectorsEnabled } from './api';
 import { getStore, getRuntime } from './runtime';
 import { requireTenant } from './tenant';
 import { grantInput } from './knowledge-api';
@@ -314,6 +315,8 @@ export async function decideKnowledgeArtifactAction(_state: KnowledgeFormState, 
 }
 export async function startKnowledgeOnboardingAction(_state: KnowledgeFormState, form: FormData) {
   return run(form, async (tenant, org) => {
+    // As the API does: no connectors, no onboarding, and nothing written. The page says why.
+    assertConnectorsEnabled();
     const b = parse(contracts.startClientOnboardingSchema, {
       deal_ref: text(form, 'dealRef'),
       client_name: text(form, 'clientName'),

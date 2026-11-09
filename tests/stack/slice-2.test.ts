@@ -19,6 +19,7 @@ import {
   submit,
 } from '../helpers/forms';
 import { locationOf, mainOf, membershipOf, move, sectionOf, workPage } from '../helpers/flows';
+import { operationName, operations, validatedOperations } from '../helpers/openapi';
 import {
   actionPage,
   actionsOnWork,
@@ -754,5 +755,147 @@ describe.skipIf(!connectorsEnabled())('Slice 2 and the M3 exit', () => {
       }
       expect(holds(message.raw, tenant.mail.credential)).toBe(false);
     }, 240_000);
+  });
+
+  // A won deal starts an onboarding, which ends with a welcome message only the connector worker can send, so
+  // it can start only where connectors are on (tests/stack/api.test.ts shows the refusal where they are off).
+  // This is where both operations are proven, over the API and from the page, and where API-12's coverage of
+  // them is asserted. Nothing is sent: the welcome message still waits for a person's approval. A tenant of its
+  // own, so nothing it starts is in any other test's way.
+  describe('client onboarding (API-12)', () => {
+    const onboardings = (organization: string) =>
+      `/api/v1/organizations/${organization}/client-onboardings`;
+    const onboardingPage = (organization: string) => `/o/${organization}/onboarding`;
+    const isOurs = (path: string) => /\/client-onboardings(\/|$)/.test(path);
+    let company: Tenant;
+    let colleague: Person;
+    let founderMembership: string;
+    let colleagueMembership: string;
+    const contact = anAddress('client');
+
+    beforeAll(async () => {
+      company = await setUpTenant('Onboarding');
+      colleague = await join(company.owner, company.organization, 'Oli Onboarding Reviewer');
+      founderMembership = await membershipOf(su, company.owner, company.organization);
+      colleagueMembership = await membershipOf(su, colleague, company.organization);
+    });
+
+    const start = () => ({
+      deal_ref: `deal-${randomUUID()}`,
+      client_name: 'Generated client',
+      project_name: 'Generated project',
+      owner_membership_id: founderMembership,
+      reviewer_membership_id: colleagueMembership,
+      email_connection_id: company.mail.id,
+      contact_email: contact,
+    });
+    const codeOf = (answer: { json: unknown }) => (answer.json as { code?: string }).code;
+
+    it('starts one onboarding per deal, replays its key, and reads it back', async () => {
+      const body = start();
+      const key = randomUUID();
+      const started = await api(company.owner, 'POST', onboardings(company.organization), {
+        body,
+        key,
+      });
+      expect(started.status, started.text).toBe(201);
+      const onboarding = started.json as { id: string; deal_ref: string; version: number };
+      expect(onboarding).toMatchObject({
+        deal_ref: body.deal_ref,
+        reviewer_membership_id: colleagueMembership,
+        version: 1,
+      });
+      const again = await api(company.owner, 'POST', onboardings(company.organization), {
+        body,
+        key,
+      });
+      expect(again.status, again.text).toBe(201);
+      expect((again.json as { id: string }).id).toBe(onboarding.id);
+      // The same deal under a new key is refused, not a second onboarding.
+      const twice = await api(company.owner, 'POST', onboardings(company.organization), {
+        body,
+        key: randomUUID(),
+      });
+      expect(twice.status, twice.text).toBe(409);
+      expect(codeOf(twice)).toBe('CLIENT_ONBOARDING_EXISTS');
+      const read = await api(
+        company.owner,
+        'GET',
+        `${onboardings(company.organization)}/${onboarding.id}`,
+      );
+      expect(read.status, read.text).toBe(200);
+      expect(read.headers.get('etag')).toMatch(/^"[1-9]\d*"$/);
+      expect(read.json).toMatchObject({ id: onboarding.id, deal_ref: body.deal_ref });
+      // Starting is not sending: the welcome message waits for the reviewer's approval.
+      expect(await sink.messagesTo(contact)).toEqual([]);
+    }, 120_000);
+
+    it('is refused to a member, a stranger, a self-review and a missing connection', async () => {
+      const path = onboardings(company.organization);
+      // A member may not start one, even naming someone else to review it.
+      const third = await join(company.owner, company.organization, 'Tam Third Member');
+      const byMember = await api(third, 'POST', path, { body: start(), key: randomUUID() });
+      expect(byMember.status, byMember.text).toBe(403);
+      expect(codeOf(byMember)).toBe('FORBIDDEN');
+      const byStranger = await api(rival.owner, 'POST', path, {
+        body: start(),
+        key: randomUUID(),
+      });
+      expect(byStranger.status, byStranger.text).toBe(404);
+      expect(codeOf(byStranger)).toBe('NOT_FOUND');
+      const selfReview = await api(company.owner, 'POST', path, {
+        body: { ...start(), reviewer_membership_id: founderMembership },
+        key: randomUUID(),
+      });
+      expect(selfReview.status, selfReview.text).toBe(403);
+      expect(codeOf(selfReview)).toBe('APPROVAL_SELF_APPROVAL');
+      const noConnection = await api(company.owner, 'POST', path, {
+        body: { ...start(), email_connection_id: randomUUID() },
+        key: randomUUID(),
+      });
+      expect(noConnection.status, noConnection.text).toBe(404);
+      expect(codeOf(noConnection)).toBe('NOT_FOUND');
+      const readByStranger = await api(rival.owner, 'GET', `${path}/${randomUUID()}`);
+      expect(readByStranger.status, readByStranger.text).toBe(404);
+    }, 120_000);
+
+    it('starts one from the page too, with no word of connectors being off', async () => {
+      const shown = await read(onboardingPage(company.organization), company.owner.jar);
+      expect(shown.status).toBe(200);
+      expect(shown.html).not.toContain('Connectors are not turned on for this deployment');
+      const body = start();
+      const response = await submit(
+        onboardingPage(company.organization),
+        company.owner.jar,
+        /Start onboarding/,
+        {
+          dealRef: body.deal_ref,
+          clientName: body.client_name,
+          projectName: body.project_name,
+          ownerMembershipId: body.owner_membership_id,
+          reviewerMembershipId: body.reviewer_membership_id,
+          emailConnectionId: body.email_connection_id,
+          contactEmail: body.contact_email,
+        },
+      );
+      expect(response.status).toBe(303);
+      const { rows } = await su.query(
+        'select id from work.client_onboardings where organization_id = $1 and deal_ref = $2',
+        [company.organization, body.deal_ref],
+      );
+      expect(rows).toHaveLength(1);
+      expect(response.headers.get('location')).toBe(
+        `${onboardingPage(company.organization)}/${rows[0].id}`,
+      );
+    }, 120_000);
+
+    it('has validated a real response from both onboarding operations, in a running test', () => {
+      const ours = operations()
+        .filter(({ status, path }) => status === undefined && isOurs(path))
+        .map(({ method, path }) => operationName(method, path));
+      expect(ours).toHaveLength(2);
+      const { tested } = validatedOperations();
+      expect(ours.filter((name) => !tested.has(name))).toEqual([]);
+    });
   });
 });

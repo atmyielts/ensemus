@@ -51,6 +51,7 @@ import { z } from 'zod';
 import { readKnowledgeUpload } from '@/lib/knowledge-input';
 import {
   apiRoute,
+  assertConnectorsEnabled,
   organizationParams,
   readJson,
   readIfMatch,
@@ -656,6 +657,9 @@ export const verificationPOST = apiRoute(
   },
 );
 export const onboardingPOST = apiRoute(organizationParams, async (scope) => {
+  // An onboarding ends with a welcome message only the connector worker can send. Without connectors it would
+  // start and then wait for a worker that is not coming, so it is refused before anything is read or written.
+  assertConnectorsEnabled();
   const b = await readJson(scope.request, contracts.startClientOnboardingSchema);
   return once(
     scope,
