@@ -9,6 +9,7 @@ import { ingestDocument } from '@ensemus/application/knowledge/ingest';
 import { deleteSource } from '@ensemus/application/knowledge/purge';
 import {
   createOrganization,
+  knowledgePurgeJobs,
   knowledgeSources,
   openAppDatabase,
   resolveTenantContext,
@@ -85,6 +86,19 @@ describe('knowledge survives a real database restore as a closed source', () => 
       });
       let owner = await resolveTenantContext(database.db, userId, org.organizationId);
       const service = createServiceContext(org.organizationId);
+      // This test runs this source's ingest and purge itself, in production order. The stack's own
+      // dispatcher would start the same knowledgeIngestWorkflow and knowledgePurgeWorkflow from the
+      // outbox, and the live knowledge and agent workers would then run the same purge at the same time.
+      // 0516's admissions take the source and organization rows NOWAIT, and
+      // ai.current_material_restore_generation() answers NULL while another transaction holds the
+      // organization row, so whichever purge lost refused (CI run 42657525639: the in-test purge failed
+      // with no document removed; in the earlier passing run the agent worker's purge was the one
+      // refused, 55P03). The dispatcher is stopped before the first event, so the only purge of this
+      // source is this one; it is started again in `finally`, with the rest, once the restore is done.
+      // Its events stay in the outbox and nothing is lost: the restored outbox still holds the upload's
+      // event, which then reaches a source the ledger has closed again, and that closure has its own.
+      compose('stop', 'dispatcher');
+      stopped = true;
       const source = await addUploadedSource(database.db, store, owner, {
         title: 'Generated removed source',
         mediaType: 'text/plain',
@@ -136,15 +150,25 @@ describe('knowledge survives a real database restore as a closed source', () => 
       // the delegated-Work proof for completion), then the knowledge worker's purge with the
       // runtime's artifact/archive bindings over this real S3 store's native raw port. This source
       // had no agent run, so no transcript is removed.
-      expect(
-        await runNativeKnowledgePurge({
-          app: database.db,
-          agent: agent.db,
-          store,
-          organizationId: org.organizationId,
-          sourceId: source.sourceId,
-        }),
-      ).toMatchObject({ state: 'completed', documents: 1, transcripts: 0 });
+      const purged = await runNativeKnowledgePurge({
+        app: database.db,
+        agent: agent.db,
+        store,
+        organizationId: org.organizationId,
+        sourceId: source.sourceId,
+      });
+      // The outcome carries counts only; the job's recorded code says why a purge did not complete.
+      const [job] = await withTenantTx(database.db, service, (tx) =>
+        tx
+          .select({ code: knowledgePurgeJobs.lastErrorCode })
+          .from(knowledgePurgeJobs)
+          .where(eq(knowledgePurgeJobs.sourceId, source.sourceId)),
+      );
+      expect(purged, `purge ${purged.state}: ${job?.code ?? 'UNCODED'}`).toMatchObject({
+        state: 'completed',
+        documents: 1,
+        transcripts: 0,
+      });
       await store.put(ledgerKeyFor(entry), serializeLedgerEntry(entry), 'application/json');
       expect(await store.exists(knowledgeObjectKey(org.organizationId, source.documentId))).toBe(
         false,

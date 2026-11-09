@@ -150,6 +150,22 @@ describe('the arguments', () => {
     ],
     ['a re-proof in capitals', ['--apply', '--requalify-organization', randomUUID().toUpperCase()]],
     ['a re-proof of all tenants', ['--apply', '--requalify-organization', 'all']],
+    [
+      'an active-source re-proof with no apply (0550)',
+      ['--requalify-active-source', `${randomUUID()}/${randomUUID()}`],
+    ],
+    [
+      'an active-source re-proof of a whole tenant (0550)',
+      ['--apply', '--requalify-active-source', randomUUID()],
+    ],
+    [
+      'an active-source re-proof naming a pattern (0550)',
+      ['--apply', '--requalify-active-source', `${randomUUID()}/*`],
+    ],
+    [
+      'an active-source re-proof naming one object (0550)',
+      ['--apply', '--requalify-active-source', `${randomUUID()}/${randomUUID()}/${randomUUID()}`],
+    ],
   ])('refuses %s with status 2, having done nothing', async (_name, args) => {
     const { result, reconcile, quarantine } = run(args);
     await expect(result).resolves.toBe(2);
@@ -397,6 +413,84 @@ describe('re-proving restore debt (0543, 0545)', () => {
       ).toHaveLength(1);
     },
   );
+});
+
+describe('re-proving an active source a restore left in debt (0550)', () => {
+  const org = randomUUID(),
+    source = randomUUID();
+  const runActive = async (answer: unknown) => {
+    const calls: string[] = [];
+    const lines: string[] = [];
+    const requalify = {
+      organization: async () => {
+        calls.push('organization');
+        return { state: 'requalified' };
+      },
+      artifact: async () => ({ state: 'unconfirmed' }),
+      archive: async () => ({ state: 'unconfirmed' }),
+      source: async () => ({ state: 'unconfirmed' }),
+      activeSource: async (...args: unknown[]) => {
+        calls.push(`active:${String(args.at(-1))}`);
+        if (answer instanceof Error) throw answer;
+        return answer;
+      },
+    } as never;
+    const reconcile = vi.fn(async (): Promise<RestoreReport> => ({
+      mode: 'apply',
+      ledger: emptyLedger,
+      tenants: [],
+      objectsWithoutTenant: 0,
+      contributorsNotRun: [],
+      needsAttention: 0,
+    }));
+    const code = await restoreReconcileCommand(
+      // Named before the organization on purpose: the marker is still re-proven first.
+      ['--apply', '--requalify-active-source', `${org}/${source}`, '--requalify-organization', org],
+      {
+        database: noDatabase,
+        store: noStore,
+        listOrganizations: async () => [],
+        probeRun: async () => 'unknown',
+        contributors: [],
+        write: (line) => lines.push(line),
+        reconcile: reconcile as never,
+        requalify,
+      },
+    );
+    return {
+      code,
+      calls,
+      printed: lines
+        .map((line) => JSON.parse(line) as Record<string, unknown>)
+        .filter((line) => line.event === 'restore_reconcile.requalification'),
+    };
+  };
+
+  it('re-proves the organization marker first, then the named source, by its IDs', async () => {
+    const { code, calls, printed } = await runActive({ state: 'requalified', observed: 'present' });
+    expect(code).toBe(0);
+    expect(calls).toEqual(['organization', `active:${source}`]);
+    expect(printed[1]).toMatchObject({
+      kind: 'active_source',
+      organizationId: org,
+      sourceId: source,
+      state: 'requalified',
+      observed: 'present',
+    });
+  });
+
+  it.each([
+    [
+      'a catalogued object the store reports absent',
+      { state: 'missing', documentIds: [randomUUID()] },
+    ],
+    ['a store that could not be read', { state: 'unconfirmed' }],
+    ['a refusal by the database', Object.assign(new Error('x'), { code: 'EN850' })],
+  ])('exits 1 for %s and records nothing for it', async (_name, answer) => {
+    const { code, printed } = await runActive(answer);
+    expect(code).toBe(1);
+    expect(printed[1]?.state).not.toBe('requalified');
+  });
 });
 
 describe('asking Temporal about a run', () => {

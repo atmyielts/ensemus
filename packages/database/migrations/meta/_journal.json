@@ -764,6 +764,20 @@
       "when": 1794201807510,
       "tag": "0548_delegation_birth_readiness_deleg",
       "breakpoints": true
+    },
+    {
+      "idx": 109,
+      "version": "7",
+      "when": 1794201807511,
+      "tag": "0549_restore_entry_refusal_first_r8restore",
+      "breakpoints": true
+    },
+    {
+      "idx": 110,
+      "version": "7",
+      "when": 1794201807512,
+      "tag": "0550_raw_restore_active_source_r8restore",
+      "breakpoints": true
     }
   ]
 }

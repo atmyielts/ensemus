@@ -320,6 +320,8 @@ export const PORTABILITY_INVENTORY = [
   // deployment evidence with no tenant column, written only by reviewed migrations; an archive never
   // carries it, and an import can never turn delegated child birth on.
   inventory('ai.delegation_birth_capabilities', 'agents', 'operational_excluded'),
+  // 0550 re-proofs of an active source a restore left in raw debt, bound the same way.
+  inventory('lifecycle.raw_active_source_requalifications', 'knowledge', 'operational_excluded'),
 ] as const;
 
 export const PORTABILITY_INVENTORY_PROFILES = {

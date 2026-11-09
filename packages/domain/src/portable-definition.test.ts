@@ -155,6 +155,8 @@ describe('the joined inventory names every migrated table', () => {
     ['lifecycle.raw_org_restore_requalifications', 'knowledge'],
     // 0548_deleg: the deployment's delegation capability ledger (ADR-028 open question 12).
     ['ai.delegation_birth_capabilities', 'agents'],
+    // 0550 active-source restore-debt re-proofs.
+    ['lifecycle.raw_active_source_requalifications', 'knowledge'],
   ])('keeps %s as native proof that no archive carries or restores', (table, section) => {
     const entries = PORTABILITY_INVENTORY.filter((entry) => entry.table === table);
     expect(entries).toEqual([{ table, section, disposition: 'operational_excluded', version: 1 }]);

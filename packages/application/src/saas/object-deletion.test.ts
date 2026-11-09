@@ -4,6 +4,7 @@ import type { TenantContext } from '@ensemus/database';
 import {
   createObjectDeletionExecutor,
   refuseUnadmittedDeletes,
+  type DeletionTarget,
   type ObjectDeletionAuthority,
 } from './object-deletion';
 
@@ -228,6 +229,47 @@ describe('durable object deletion transport boundaries', () => {
       const f = fixture(),
         caller = { ...context, actorType } as TenantContext;
       await expect(f.erase(caller, target)).rejects.toMatchObject({ code: 'FORBIDDEN' });
+      expect(f.authority.begin).not.toHaveBeenCalled();
+      expect(f.store.deleteForPurge).not.toHaveBeenCalled();
+    },
+  );
+  // 0547's target, typed as DeletionTarget lists it: exactly the keys
+  // lifecycle.raw_restore_survivor_delete_target returns, handed to admission key for key.
+  const survivor: DeletionTarget = {
+    kind: 'raw_restore_survivor',
+    sourceId: '90000000-0000-4000-8000-000000000011',
+    sourceVersion: '3',
+    purgeJobId: '90000000-0000-4000-8000-000000000012',
+    documentId: '90000000-0000-4000-8000-000000000013',
+    writeId: '90000000-0000-4000-8000-000000000014',
+    generation: 1,
+    priorMaterialRestoreGeneration: '90000000-0000-4000-8000-000000000015',
+    materialRestoreGeneration: '90000000-0000-4000-8000-000000000016',
+    authRestoreGeneration: '90000000-0000-4000-8000-000000000017',
+  };
+  it('hands a restore survivor target to admission exactly as SQL named it', async () => {
+    const f = fixture();
+    await expect(f.erase(context, survivor)).resolves.toEqual({ state: 'purged', quiescent: true });
+    expect(f.authority.begin).toHaveBeenCalledWith(context, survivor);
+    expect(Object.keys(vi.mocked(f.authority.begin).mock.calls[0]![1]).sort()).toEqual([
+      'authRestoreGeneration',
+      'documentId',
+      'generation',
+      'kind',
+      'materialRestoreGeneration',
+      'priorMaterialRestoreGeneration',
+      'purgeJobId',
+      'sourceId',
+      'sourceVersion',
+      'writeId',
+    ]);
+  });
+  it.each(['user', 'delegated', 'agent'] as const)(
+    'refuses a %s restore survivor deletion before authority or storage',
+    async (actorType) => {
+      const f = fixture(),
+        caller = { ...context, actorType } as TenantContext;
+      await expect(f.erase(caller, survivor)).rejects.toMatchObject({ code: 'FORBIDDEN' });
       expect(f.authority.begin).not.toHaveBeenCalled();
       expect(f.store.deleteForPurge).not.toHaveBeenCalled();
     },
