@@ -56,6 +56,9 @@ export interface ObjectStore {
     transport: 'not_attempted' | 'deleted' | 'unknown';
     capabilityVerified: boolean;
   }>;
+  /** The capability check deleteForPurge makes first, alone and before any deletion is admitted. A
+   * refusal (store unreachable, versioning on) leaves nothing admitted, so a later purge can retry. */
+  assertPurgeCapability?(): Promise<void>;
 }
 
 /** Far longer than any upload can take, so a sweep never takes bytes a request is about to attach. */

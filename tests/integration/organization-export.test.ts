@@ -136,7 +136,9 @@ describe('organization export', () => {
 
   async function makeUser(label: string) {
     const id = randomUUID();
-    const email = `${label}-${id}@example.invalid`;
+    // Its own random part, not the account ID: a person's email is in an archive by schema, and the
+    // account behind them must not be, so an email built from the ID would carry it there.
+    const email = `${label}-${randomUUID()}@example.invalid`;
     await auth.query('insert into identity.users (id, name, email) values ($1, $2, $3)', [
       id,
       label,
