@@ -305,6 +305,10 @@ export const PORTABILITY_INVENTORY = [
   inventory('lifecycle.raw_object_writes', 'knowledge', 'operational_excluded'),
   inventory('experience.onboarding_completions', 'policy', 'operational_excluded'),
   inventory('experience.outcome_work_births', 'policy', 'operational_excluded'),
+  // 0539 upload writer receipts and 0541 one-transaction tombstone grants are native erasure and
+  // writer proof. An archive never carries them, and an import never recreates or clears them.
+  inventory('lifecycle.upload_writes', 'history', 'operational_excluded'),
+  inventory('lifecycle.erasure_tombstone_grants', 'history', 'operational_excluded'),
 ] as const;
 
 export const PORTABILITY_INVENTORY_PROFILES = {

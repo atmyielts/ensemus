@@ -340,28 +340,37 @@ describe('the Sovereign API', () => {
     });
 
     it('lists an advisory that verifies', async () => {
-      const envelope = signForTest(
-        'advisory',
-        {
-          format: 'ensemus.advisory',
-          format_version: 1,
-          advisory_id: `TEST-${randomUUID()}`,
-          issued_at: '2027-01-01T00:00:00.000Z',
-          severity: 'high',
-          title: 'A test advisory',
-          summary: 'Written by a test.',
-          affected_versions: ['2.0.0'],
-          fixed_in_versions: ['2.0.1'],
-        },
-        [key],
-      );
-      const installed = await call(owner, 'POST', api(org, 'license/documents'), {
-        body: { envelope },
+      const advisory = (advisoryId: string, title: string) =>
+        signForTest(
+          'advisory',
+          {
+            format: 'ensemus.advisory',
+            format_version: 1,
+            advisory_id: advisoryId,
+            issued_at: '2027-01-01T00:00:00.000Z',
+            severity: 'high',
+            title,
+            summary: 'Written by a test.',
+            affected_versions: ['2.0.0'],
+            fixed_in_versions: ['2.0.1'],
+          },
+          [key],
+        );
+      // The signed advisory shape (packages/sovereign/src/documents.ts, ADR-030 D2, and
+      // issuing-documents.md) takes an upper-case advisory_id. A correctly signed file with any
+      // other ID does not verify, so it is refused and nothing is listed.
+      const unfit = await call(owner, 'POST', api(org, 'license/documents'), {
+        body: { envelope: advisory(`TEST-${randomUUID()}`, 'An advisory that does not verify') },
       });
-      expect(installed.status).toBe(201);
+      expectError(unfit, 400, 'LICENSE_NOT_VALID');
+      const installed = await call(owner, 'POST', api(org, 'license/documents'), {
+        body: { envelope: advisory(`TEST-${randomUUID().toUpperCase()}`, 'A test advisory') },
+      });
+      expect(installed.status, installed.text).toBe(201);
       const listed = await call(admin, 'GET', api(org, 'advisories'));
       const { items } = listed.json as { items: components['schemas']['Advisory'][] };
       expect(items.map((item) => item.title)).toContain('A test advisory');
+      expect(items.map((item) => item.title)).not.toContain('An advisory that does not verify');
       expect((await call(rival, 'GET', api(rivalOrg, 'advisories'))).json).toEqual({ items: [] });
     });
   });
@@ -485,7 +494,10 @@ describe('the Sovereign API', () => {
     });
 
     it('shows how it stands to its own organization and to nobody else', async () => {
+      // A well-formed ID, so the rival's 404 is the tenant boundary and not the ID check.
+      expect(importId).toMatch(UUID);
       const found = await call(importer, 'GET', api(target, `imports/${importId}`));
+      expect(found.status, found.text).toBe(200);
       expect((found.json as OrganizationImport).id).toBe(importId);
       expectError(await call(rival, 'GET', api(rivalOrg, `imports/${importId}`)), 404, 'NOT_FOUND');
     });
