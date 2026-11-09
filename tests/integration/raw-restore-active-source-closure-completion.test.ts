@@ -293,6 +293,42 @@ describe('completing the closure of an active source a restore left in raw debt 
         ),
       ),
     );
+  /**
+   * The question 0516's completion guard (knowledge.guard_raw_purge_completion, BEFORE trigger
+   * purge_jobs_raw_completion, as 0527 left it) asks before it admits a completion:
+   * lifecycle.raw_source_material_complete at the source's live version, the purge job and the
+   * current material generation, as the service. That guard is the one 0551 widened, but on
+   * knowledge.purge_jobs BEFORE triggers fire in name order, so an earlier guard may refuse the same
+   * UPDATE first; this reaches 0516's own predicate whichever guard refuses the UPDATE.
+   */
+  const materialComplete = async (f: Tenant) => {
+    const target = (
+      await control.query<{ job: string; version: string }>(
+        `select j.id::text job,s.version::text version from knowledge.purge_jobs j
+         join knowledge.sources s on s.organization_id=j.organization_id and s.id=j.source_id
+         where j.organization_id=$1 and j.source_id=$2`,
+        [f.organizationId, f.sourceId],
+      )
+    ).rows;
+    expect(target).toHaveLength(1);
+    return (
+      await withTenantTx(app.db, f.service, (tx) =>
+        tx.execute<{ complete: boolean }>(
+          sql`select lifecycle.raw_source_material_complete(${f.sourceId}::uuid,${target[0]!.version}::bigint,
+            ${target[0]!.job}::uuid,ai.current_material_restore_generation()) complete`,
+        ),
+      )
+    ).rows[0]?.complete;
+  };
+  /** The completion timestamps 0515's rotation and 0527's demotions are told apart by. */
+  const completion = async (f: Tenant) =>
+    (
+      await control.query<{ completed: string | null; prior: string | null }>(
+        `select completed_at::text completed,prior_completed_at::text prior
+         from knowledge.purge_jobs where organization_id=$1 and source_id=$2`,
+        [f.organizationId, f.sourceId],
+      )
+    ).rows[0];
   const version = async (f: Tenant) => (await getSource(app.db, f.owner, f.sourceId)).version;
   const revoke = async (f: Tenant) =>
     revokeSource(app.db, f.owner, {
@@ -481,18 +517,29 @@ describe('completing the closure of an active source a restore left in raw debt 
       ).rows;
     expect(await writes()).toEqual([{ generation: '1', state: 'unknown' }]);
     /**
-     * The supersede UPDATE the runtime issues, as ensemus_app with a service actor, so that
-     * record_raw_supersede (0523, as 0551 rewrote its inventory check) is what answers. 0205's writer
-     * check fires first and refuses any closed source on its own, so it alone is disabled, inside
-     * this one transaction, which is always rolled back: no other session can see it, and nothing
-     * here is committed. The application path, with every trigger, is asserted separately below.
+     * The supersede UPDATE the runtime issues, as ensemus_app with a service actor.
+     *
+     * With every trigger in place ('enforced') this is the real path, and on a closed source it never
+     * reaches record_raw_supersede: knowledge.check_object_writer (0205's BEFORE row trigger
+     * object_writers_check, as 0523 rewrote it) runs first. 0523 lets an active writer whose write is
+     * natively 'unknown' skip 0205's settle-only branch (0523:65-66), but the next check it keeps from
+     * 0205 (0523:74-77) requires the source to be 'active' and raises KNOWLEDGE_OBJECT_WRITER_UNCONFIRMED
+     * (42501) for a revoked one. record_raw_supersede is the AFTER trigger writers_raw_supersede
+     * (0523:130), so it only ever sees an UPDATE that 0205's check already admitted.
+     *
+     * To ask record_raw_supersede itself (0523, as 0551 rewrote its inventory check, finding 8) whether
+     * it refuses a closed source on its own, 'disabled' turns off object_writers_check alone, inside
+     * this one transaction, which is always rolled back: no other session can see it, and nothing here
+     * is committed. Both variants are asserted below, so the SQL backstop and the real refusal are each
+     * pinned to their exact code.
      */
-    const supersedeAtTrigger = async () => {
+    const supersedeAtTrigger = async (writerCheck: 'disabled' | 'enforced') => {
       await control.query('begin');
       try {
-        await control.query(
-          'alter table knowledge.object_writers disable trigger object_writers_check',
-        );
+        if (writerCheck === 'disabled')
+          await control.query(
+            'alter table knowledge.object_writers disable trigger object_writers_check',
+          );
         await control.query('set local session authorization ensemus_app');
         await control.query(
           `select set_config('app.organization_id',$1,true),set_config('app.user_id','',true),
@@ -522,7 +569,7 @@ describe('completing the closure of an active source a restore left in raw debt 
       }
     };
     // While the source is active and requalified, the trigger records the next generation's intent.
-    expect(await supersedeAtTrigger()).toEqual({
+    expect(await supersedeAtTrigger('disabled')).toEqual({
       superseded: [
         { generation: '1', state: 'unknown' },
         { generation: '2', state: 'intent' },
@@ -533,11 +580,19 @@ describe('completing the closure of an active source a restore left in raw debt 
     expect(await inventory(w)).toMatchObject({ state: 'restore_debt', job: purgeJobId });
     // The same UPDATE once the source is closed: every other condition of the trigger is unchanged,
     // and 0551's corrected raw_active_source_requalified no longer admits the restore-debt inventory.
-    expect(await supersedeAtTrigger()).toEqual({
+    expect(await supersedeAtTrigger('disabled')).toEqual({
       code: 'EN850',
       reason: 'RAW_SUPERSEDE_UNCONFIRMED',
     });
-    // The same UPDATE as the person, through the application role with every trigger in place.
+    // The real path, the same service UPDATE with every trigger in place: 0205's writer check (as 0523
+    // left it) refuses the revoked source before record_raw_supersede can run.
+    expect(await supersedeAtTrigger('enforced')).toEqual({
+      code: '42501',
+      reason: 'KNOWLEDGE_OBJECT_WRITER_UNCONFIRMED',
+    });
+    expect(await writes()).toEqual([{ generation: '1', state: 'unknown' }]);
+    // The same UPDATE as the person, through the application role with every trigger in place: the
+    // same 0205 check, the same refusal.
     expect(
       await refusal(
         withTenantTx(app.db, w.owner, (tx) =>
@@ -566,6 +621,9 @@ describe('completing the closure of an active source a restore left in raw debt 
       )
     ).rows.map((row) => row.row);
     expect(writerRows).toHaveLength(1);
+    // Settled: restored later, it is a header 0205's purge proof (no active writer) admits, so that
+    // only 0551's completion predicate can refuse it.
+    expect(JSON.parse(writerRows[0]!)).toMatchObject({ state: 'settled' });
     const { purgeJobId } = await revoke(a);
     expect(await inventory(a)).toMatchObject({
       state: 'restore_debt',
@@ -584,6 +642,7 @@ describe('completing the closure of an active source a restore left in raw debt 
     expect(await inventory(a)).toMatchObject({ state: 'restore_debt', sealed: false });
     // Closed and fully purged: the one predicate, the witness and the sweep all accept it.
     expect(await closureComplete(a)).toBe(true);
+    expect(await materialComplete(a)).toBe(true);
     expect(await witness(a)).toBe(true);
     expect(await sweep(a)).toBe(0);
     expect(await job(a)).toMatchObject({ state: 'completed' });
@@ -632,6 +691,8 @@ describe('completing the closure of an active source a restore left in raw debt 
   });
 
   it('refuses the witness and demotes the completion while a deletion claim is unresolved (finding 1)', async () => {
+    // The state the witness test above left: completed, and complete in this generation.
+    expect(await job(a)).toMatchObject({ state: 'completed' });
     const where = [a.organizationId, a.sourceId];
     const reopened = await asRestored<{ id: string }>(
       `update lifecycle.object_deletion_claims set state='unknown' where organization_id=$1 and kind='raw_source'
@@ -641,10 +702,16 @@ describe('completing the closure of an active source a restore left in raw debt 
     expect(reopened.rows).toHaveLength(1);
     try {
       expect(await closureComplete(a)).toBe(false);
+      expect(await materialComplete(a)).toBe(false);
       expect(await witness(a)).toBe(false);
       expect(await sweep(a)).toBe(1);
       expect(await job(a)).toEqual({ state: 'failed', last_error_code: 'RAW_SOURCE_UNCONFIRMED' });
-      expect(await complete(a)).toEqual({ code: 'EN850', reason: 'RAW_SOURCE_UNCONFIRMED' });
+      // knowledge.purge_jobs' BEFORE triggers fire in name order, and 0508's purge_jobs_0508_delete_proof
+      // (lifecycle.source_purge_delete_proof, 0508:327-337) sorts before 0516's
+      // purge_jobs_raw_completion: it refuses any completion while a deletion claim of the tenant is
+      // not proven (lifecycle.object_delete_counts, 0508:312-324), so it answers first. 0516's own
+      // guard refuses the same completion too: materialComplete above is its predicate, false.
+      expect(await complete(a)).toEqual({ code: 'EN850', reason: 'OBJECT_DELETE_UNCONFIRMED' });
     } finally {
       await asRestored(
         `update lifecycle.object_deletion_claims set state='proven' where organization_id=$1 and id=any($2::uuid[])`,
@@ -652,6 +719,7 @@ describe('completing the closure of an active source a restore left in raw debt 
       );
     }
     expect(await closureComplete(a)).toBe(true);
+    expect(await materialComplete(a)).toBe(true);
     expect(await witness(a)).toBe(true);
     expect(await complete(a)).toBeNull();
     expect(await sweep(a)).toBe(0);
@@ -659,17 +727,29 @@ describe('completing the closure of an active source a restore left in raw debt 
   });
 
   it('refuses the witness and demotes the completion while a writer header reappears (finding 1)', async () => {
+    // The previous test completed it again. A demotion it left behind would carry next_retry_at,
+    // which the sweep never selects again (0516:929), so this precondition is what makes the sweep
+    // count below exact rather than an echo of an earlier failure.
+    expect(await job(a)).toMatchObject({ state: 'completed' });
     expect(writerRows).toHaveLength(1);
+    // Restored without triggers (session_replication_role=replica fires no user or FK trigger), so
+    // nothing reacts to the insert itself: what demotes below is the sweep alone.
     await asRestored(
       `insert into knowledge.object_writers select * from json_populate_record(null::knowledge.object_writers,$1::json)`,
       [writerRows[0]],
     );
     try {
       expect(await headers(a)).toMatchObject({ writers: 1 });
+      expect(await job(a)).toMatchObject({ state: 'completed' });
       expect(await closureComplete(a)).toBe(false);
+      expect(await materialComplete(a)).toBe(false);
       expect(await witness(a)).toBe(false);
       expect(await sweep(a)).toBe(1);
       expect(await job(a)).toEqual({ state: 'failed', last_error_code: 'RAW_SOURCE_UNCONFIRMED' });
+      // Every claim is proven, so 0508's purge_jobs_0508_delete_proof admits it; the job's transcript
+      // proof is of this generation, so 0515's purge_jobs_0515_generation does; the header is
+      // settled, so 0205's purge_jobs_proof does. 0516's purge_jobs_raw_completion, next in name
+      // order, is what refuses it.
       expect(await complete(a)).toEqual({ code: 'EN850', reason: 'RAW_SOURCE_UNCONFIRMED' });
     } finally {
       await asRestored(
@@ -679,6 +759,7 @@ describe('completing the closure of an active source a restore left in raw debt 
     }
     expect(await headers(a)).toEqual({ documents: 0, chunks: 0, writers: 0 });
     expect(await closureComplete(a)).toBe(true);
+    expect(await materialComplete(a)).toBe(true);
     expect(await witness(a)).toBe(true);
     expect(await complete(a)).toBeNull();
     expect(await sweep(a)).toBe(0);
@@ -686,25 +767,50 @@ describe('completing the closure of an active source a restore left in raw debt 
   });
 
   it('stops accepting the completion once a later restore reopens the generation (finding 1)', async () => {
+    // Immediately before the rotation: completed, complete in this generation, and never demoted by
+    // a restore (the sweep's demotions above write no prior_completed_at, 0527).
+    expect(await job(a)).toMatchObject({ state: 'completed' });
     expect(await witness(a)).toBe(true);
+    expect(await materialComplete(a)).toBe(true);
+    const certified = (await completion(a))!;
+    expect(certified.completed).not.toBeNull();
+    expect(certified.prior).toBeNull();
     await rotate();
+    // The rotation demotes the completion itself, deterministically: 0515's
+    // sovereign.rotate_material_restore_generation updates the generation and, in its next statement
+    // (0515:36-37), fails every completed job of the tenant with
+    // RESTORE_MATERIAL_REQUALIFICATION_REQUIRED, keeping the certificate's time as
+    // prior_completed_at. 0516's proof-loss trigger on the generation runs only at commit (0542 made
+    // it deferred precisely so that 0515's demotion wins) and then finds no completed job.
+    const demoted = {
+      state: 'failed',
+      last_error_code: 'RESTORE_MATERIAL_REQUALIFICATION_REQUIRED',
+    };
+    expect(await job(a)).toEqual(demoted);
+    expect(await completion(a)).toEqual({ completed: null, prior: certified.completed });
     // The organization marker requalified again for the new generation, so that what refuses below
     // is the closure itself: its proof and its deletion claims are of the previous generation.
     expect(await requalifyRawRestoreOrganization(app.db, a.service)).toEqual({
       state: 'requalified',
     });
     expect(await closureComplete(a)).toBe(false);
+    expect(await materialComplete(a)).toBe(false);
     expect(await witness(a)).toBe(false);
     expect(await claims(a)).toMatchObject([{ state: 'proven', current: false }]);
-    // The rotation's own proof-loss trigger (0516, deferred by 0542) may already have demoted the
-    // completion. If it has not, the sweep must: 0551 keeps only a completion still complete in this
-    // generation. Either way the sweep never restores it, and it cannot be completed again.
-    const before = await job(a);
-    const changed = await sweep(a);
-    if (before?.state === 'completed') expect(changed).toBe(1);
-    expect(await job(a)).toEqual({ state: 'failed', last_error_code: 'RAW_SOURCE_UNCONFIRMED' });
-    expect(await complete(a)).toEqual({ code: 'EN850', reason: 'RAW_SOURCE_UNCONFIRMED' });
-    expect(await sweep(a)).toBeGreaterThanOrEqual(0);
-    expect(await job(a)).toEqual({ state: 'failed', last_error_code: 'RAW_SOURCE_UNCONFIRMED' });
+    // The sweep demotes only a completion, or retries its own RAW_SOURCE_UNCONFIRMED failure (0516:928-929,
+    // as 0543 and 0551 narrowed it): the rotation left neither, so it changes nothing and never
+    // restores the completion.
+    expect(await sweep(a)).toBe(0);
+    expect(await job(a)).toEqual(demoted);
+    // It cannot be completed again. In name order 0508's delete proof admits it (every claim is
+    // proven, of the previous generation), and 0515's purge_jobs_0515_generation (0515:112-115) refuses
+    // it first: its transcript proof is of the previous generation. 0516's guard, after it, refuses it
+    // as well: materialComplete above is its predicate, false in this generation.
+    expect(await complete(a)).toEqual({
+      code: 'EN119',
+      reason: 'PURGE_RESTORE_REQUALIFICATION_REQUIRED',
+    });
+    expect(await sweep(a)).toBe(0);
+    expect(await job(a)).toEqual(demoted);
   });
 });
