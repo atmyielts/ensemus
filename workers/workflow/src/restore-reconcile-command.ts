@@ -1,7 +1,10 @@
 // What `node dist/restore-reconcile.js` does, run after a restore and before anyone is let back in (ADR-030
 // D11). Report mode is the default and changes nothing, the ledger included: it reads and counts.
 //   node dist/restore-reconcile.js [--apply] [--confirm <entry>]... [--confirm-file <path>]... [--quarantine <entry or key>]...
-// --confirm, --confirm-file and --quarantine mean what they mean to reapply-ledger.js (ADR-026 D3).
+//     [--requalify-organization <org>]... [--requalify-artifact <org>/<artifact>]...
+//     [--requalify-archive <org>/<import>/<source artifact>]... [--requalify-source <org>/<source>]...
+// --confirm, --confirm-file, --quarantine and --requalify-* mean what they mean to reapply-ledger.js
+// (ADR-026 D3; 0543 and 0545 for the restore-debt re-proofs). A re-proof records something, so it needs --apply.
 // It answers with the exit status: 0 when nothing needs a person, 1 when something does, 2 for a bad argument.
 //
 // It prints one line of JSON for each thing, with counts, IDs, codes and keys this product made, and no names.
@@ -17,6 +20,7 @@ import {
   reconcileAfterRestore,
   type LedgerReader,
   type ObjectStore,
+  type ReapplyOptions,
   type RestoreContributor,
   type RestoreFinding,
   type RestoreReport,
@@ -27,7 +31,14 @@ import { createServiceContext } from '@ensemus/database/service';
 import { LEDGER_PREFIX, ledgerKeyFromRef, ledgerRef } from '@ensemus/domain/tombstone-ledger';
 import { createLogger, errorCode } from '@ensemus/telemetry';
 import { WorkflowNotFoundError } from '@temporalio/client';
-import { readConfirmFile } from './reapply-command';
+import {
+  readConfirmFile,
+  readRequalifications,
+  REQUALIFY_OPTIONS,
+  type RequalifyFunctions,
+  requalificationLeftToDo,
+  runRequalifications,
+} from './reapply-command';
 
 export const log = createLogger('restore-reconcile');
 
@@ -55,11 +66,15 @@ export function readReconcileArguments(args: string[]) {
         confirm: { type: 'string', multiple: true, default: [] },
         'confirm-file': { type: 'string', multiple: true, default: [] },
         quarantine: { type: 'string', multiple: true, default: [] },
+        ...REQUALIFY_OPTIONS,
       },
     }).values;
   } catch {
     throw new Refused('NOT_AN_OPTION');
   }
+  const requalifications = readRequalifications(values);
+  // Recording a proof is a change, so it is refused without --apply rather than quietly not done.
+  if (requalifications.length > 0 && !values.apply) throw new Refused('REQUALIFY_NEEDS_APPLY');
   for (const ref of values.confirm) {
     if (!ledgerKeyFromRef(ref)) throw new Refused('NOT_A_LEDGER_ENTRY');
   }
@@ -75,6 +90,7 @@ export function readReconcileArguments(args: string[]) {
     mode: values.apply ? ('apply' as const) : ('report' as const),
     confirmed: new Set([...values.confirm, ...listed]),
     toQuarantine,
+    requalifications,
   };
 }
 
@@ -126,6 +142,10 @@ export type ReconcileDeps = {
   reconcile?: typeof reconcileAfterRestore;
   /** The same. */
   quarantine?: typeof quarantineLedgerObject;
+  /** The production generated-file lifecycle (0508) the ledger re-apply needs for a generated file. */
+  derivedArtifacts?: ReapplyOptions['derivedArtifacts'];
+  /** Only a test replaces this. */
+  requalify?: RequalifyFunctions;
 };
 
 const printFinding = (print: (fields: object) => void, finding: RestoreFinding) =>
@@ -163,7 +183,7 @@ export async function restoreReconcileCommand(
     log.error('restore_reconcile.refused', { reasonCode });
     return REFUSED;
   }
-  const { mode, confirmed, toQuarantine } = parsed;
+  const { mode, confirmed, toQuarantine, requalifications } = parsed;
   const reconcile = deps.reconcile ?? reconcileAfterRestore;
   const quarantine = deps.quarantine ?? quarantineLedgerObject;
 
@@ -178,6 +198,15 @@ export async function restoreReconcileCommand(
       await quarantine(deps.database, deps.store, createServiceContext, key);
       print({ event: 'restore_reconcile.entry_quarantined', count: 1 });
     }
+    // Before the ledger, so a re-proven generated file is deleted by the re-apply in this same run.
+    const outcomes = await runRequalifications(
+      deps.database,
+      deps.store,
+      requalifications,
+      deps.requalify ? { requalify: deps.requalify } : {},
+    );
+    for (const { request, ...outcome } of outcomes)
+      print({ event: 'restore_reconcile.requalification', ...request, ...outcome });
     const organizationIds = await deps.listOrganizations();
     const report = await reconcile(deps.database, deps.store, {
       organizationIds,
@@ -186,6 +215,9 @@ export async function restoreReconcileCommand(
       contributors: deps.contributors,
       mode,
       ledgerOptions: {
+        ...(mode === 'apply' && deps.derivedArtifacts
+          ? { derivedArtifacts: deps.derivedArtifacts }
+          : {}),
         confirmed,
         onUnconfirmed: (entry) =>
           print({ event: 'restore_reconcile.entry_unconfirmed', ledgerEntry: ledgerRef(entry) }),
@@ -201,7 +233,9 @@ export async function restoreReconcileCommand(
         log.warn('restore_reconcile.entry_failed', { errorCode: errorCode(error) }),
     });
     printReport(print, report);
-    return report.needsAttention > 0 ? NEEDS_ATTENTION : 0;
+    return report.needsAttention > 0 || outcomes.some(requalificationLeftToDo)
+      ? NEEDS_ATTENTION
+      : 0;
   } catch (error) {
     log.error('restore_reconcile.failed', { errorCode: errorCode(error) });
     return NEEDS_ATTENTION;

@@ -313,6 +313,9 @@ export const PORTABILITY_INVENTORY = [
   // An archive never carries them, and an import never recreates or clears restore debt.
   inventory('lifecycle.object_restore_requalifications', 'history', 'operational_excluded'),
   inventory('lifecycle.raw_restore_requalifications', 'knowledge', 'operational_excluded'),
+  // 0545 archive restore-debt proofs and raw organization marker re-admissions, bound the same way.
+  inventory('lifecycle.archive_restore_requalifications', 'history', 'operational_excluded'),
+  inventory('lifecycle.raw_org_restore_requalifications', 'knowledge', 'operational_excluded'),
 ] as const;
 
 export const PORTABILITY_INVENTORY_PROFILES = {
