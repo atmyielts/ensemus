@@ -1,7 +1,7 @@
 // Actual app/agent roles and real admission/usage/proposal/step services. No provider or invented
-// observations. ADR-028 open question 12 (decided 2026-11-09, 0590_deleg): delegated child birth opens
+// observations. ADR-028 open question 12 (decided 2026-11-09, 0548_deleg): delegated child birth opens
 // only while the part-1 capability is qualified; this suite qualifies it through the migrator for its
-// own run and restores the prior state afterwards. SQL is unrun until CI applies 0590.
+// own run and restores the prior state afterwards. SQL first runs in the CI run after 0548 was journaled.
 import { createHash, randomUUID } from 'node:crypto';
 import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -792,7 +792,7 @@ describe('delegated material birth evidence (0419)', () => {
     ).toEqual([]);
   });
 
-  // ADR-028 "Decision: defining ai.delegation_influence_ready" (project owner, 2026-11-09; 0590_deleg).
+  // ADR-028 "Decision: defining ai.delegation_influence_ready" (project owner, 2026-11-09; 0548_deleg).
   // The genuine-child harness (tests/helpers/delegated-child.ts) is the code that used to live here. The
   // move added options (scopes, beforeModel), birthDiagnostic and a fuller birth-failure message; the
   // child and its admissions are unchanged. These three cases are the decision's acceptance gate and are not skipped: the

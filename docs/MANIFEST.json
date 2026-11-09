@@ -52,8 +52,8 @@
     },
     {
       "path": "00-foundation/adr/ADR-028-governed-ai.md",
-      "size_bytes": 30385,
-      "sha256": "84001f799d114df1ed945e417f0bb5904a0ff59d9a057a851e8abcb759a5c88f"
+      "size_bytes": 40393,
+      "sha256": "d5ed7be58f3870f0f1d9fbb3df2a6f718977177b55b0183edcbcbea37934c1f0"
     },
     {
       "path": "00-foundation/adr/ADR-029-company-knowledge.md",
@@ -617,8 +617,8 @@
     },
     {
       "path": "06-delivery/evidence/m5/agent-manifest-scope.md",
-      "size_bytes": 10375,
-      "sha256": "21e9e98d1111cac0bc595c503de303b5877f24de3b897e11d677c693e8bb3ad0"
+      "size_bytes": 11146,
+      "sha256": "3b237f9a4a5e580cee9d5674d82f52d09f7917b534c747e307a1b5e53062135c"
     },
     {
       "path": "06-delivery/evidence/m5/artifact-privacy.md",
@@ -642,13 +642,13 @@
     },
     {
       "path": "06-delivery/evidence/m5/delegated-material-authority.md",
-      "size_bytes": 52710,
-      "sha256": "e11928cbbf8575dd73a8028cf1451b2d2b0b41538a4f8be64b6656961780426f"
+      "size_bytes": 54006,
+      "sha256": "9c1b39c241fc17dc6e045566dfa49d28313ed6abf240267bd651744f6bc4fd02"
     },
     {
       "path": "06-delivery/evidence/m5/delegated-material-join.md",
-      "size_bytes": 9738,
-      "sha256": "c157ababce6b480f0ae0da1c9edee4627ca1794b9fac5e9d4ddbf30cac84ee91"
+      "size_bytes": 11926,
+      "sha256": "e759d0edaf41bbc47b19a9ffd504ba5e427aae831c7d87c089dc0025687367aa"
     },
     {
       "path": "06-delivery/evidence/m5/delegation-input-receipts.md",

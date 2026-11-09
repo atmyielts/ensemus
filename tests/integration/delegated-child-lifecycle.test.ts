@@ -4,7 +4,7 @@
 // version proof) and L7 (the output guard). L4 and the record half of L3 are the acceptance cases in
 // agent-delegated-materials.test.ts; L6 and L8b are in agent-delegated-offboarding.test.ts and L8a in
 // record-deletion-outbox.test.ts. Real roles and services; the capability is qualified for this file
-// through the migrator and restored afterwards. SQL is unrun until CI applies 0590.
+// through the migrator and restored afterwards. SQL first runs in the CI run after 0548 was journaled.
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { eq, inArray, sql } from 'drizzle-orm';

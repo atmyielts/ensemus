@@ -1,5 +1,5 @@
 // ADR-028 open question 12, part 1, for the integration suites only. Delegated child birth is open only
-// while the latest counting ai.delegation_birth_capabilities row says 'qualified'. Migration 0590 writes no
+// while the latest counting ai.delegation_birth_capabilities row says 'qualified'. Migration 0548 writes no
 // row, so every deployed database stays closed. A suite that needs a genuine child appends a
 // 'qualification_fixture' row through the real migrator login (never a superuser SET ROLE, which the
 // ledger refuses) and appends the prior state back afterwards. Rows are append-only, so restoring means
@@ -8,7 +8,7 @@
 // A fixture row is accepted, and counts, only in a cluster that holds the NOLOGIN marker role
 // ensemus_delegation_qualification_ci, which tests/integration/global-setup.ts creates as the test
 // superuser. In any other database the ledger refuses the append, and ignores a fixture row, so nothing
-// here can open birth outside CI. This needs 0590 applied: it is not journaled on its branch, so these
+// here can open birth outside CI. This needs 0548 applied: it is not journaled on its branch, so these
 // suites cannot run until the merge that journals it.
 import pg from 'pg';
 import { urls } from './stack';

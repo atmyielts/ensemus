@@ -1,8 +1,8 @@
 // ADR-028 open question 12 (decided by the project owner on 2026-11-09), part 2: the per-birth check
-// ai.delegation_influence_ready, and part 1's capability ledger, both from 0590_deleg. Actual app, agent,
+// ai.delegation_influence_ready, and part 1's capability ledger, both from 0548_deleg. Actual app, agent,
 // dispatcher, migrator and superuser logins; genuine parents through the real admission services
 // (tests/helpers/delegated-child.ts). The capability is qualified for this file through the migrator and
-// the prior state is appended back afterwards. SQL is unrun until CI applies 0590.
+// the prior state is appended back afterwards. SQL first runs in the CI run after 0548 was journaled.
 import { randomUUID } from 'node:crypto';
 import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -68,7 +68,7 @@ async function outcome(connection: pg.Client, text: string, values: unknown[] = 
   }
 }
 
-describe('ADR-028 delegated child birth readiness (0590_deleg)', () => {
+describe('ADR-028 delegated child birth readiness (0548_deleg)', () => {
   const app = openAppDatabase(urls.app(), { max: 4 }),
     agent = openAgentTestDatabase(4);
   let a: AiTenant, b: AiTenant;
@@ -113,7 +113,7 @@ describe('ADR-028 delegated child birth readiness (0590_deleg)', () => {
     });
   /**
    * createChildRun refused, either as a denied result or a refused call, by whatever gate comes first.
-   * For a fenced, verifying or ended parent an application gate may refuse before the 0590 predicate
+   * For a fenced, verifying or ended parent an application gate may refuse before the 0548 predicate
    * runs, so this leg shows only that no child is born end to end (with nothingBorn). That the predicate
    * itself refuses is shown by the direct readyIn checks in the same case, never by this helper.
    */

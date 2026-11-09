@@ -6,7 +6,7 @@ import { compose, repoRoot, urls } from '../helpers/stack';
 
 /**
  * ADR-028 open question 12, part 1. Marks this test cluster as a qualification database, so the
- * suites may append 'qualification_fixture' capability rows (0590_deleg refuses them, and ignores any
+ * suites may append 'qualification_fixture' capability rows (0548_deleg refuses them, and ignores any
  * left behind, without this role). A cluster-level NOLOGIN role is an installation-time fact: only a
  * superuser or a CREATEROLE identity can create it, and no Ensemus role has either. Created here, by the
  * test superuser, and by no install script or migration.

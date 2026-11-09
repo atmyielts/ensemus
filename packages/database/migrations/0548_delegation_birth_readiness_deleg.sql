@@ -1,6 +1,6 @@
 -- REVIEWED SECURITY SQL (ADR-024 D4, ADR-028). Changes here need human review, never agent approval.
 -- FLAGGED FOR HUMAN SECURITY REVIEW, not yet reviewed by a person
--- 0590 (deleg): ADR-028 open question 12, decided by the project owner on 2026-11-09 ("build it now").
+-- 0548 (deleg): ADR-028 open question 12, decided by the project owner on 2026-11-09 ("build it now").
 -- Reserved number: renumbered at merge, when its journal entry is added (this branch does not journal it,
 -- so nothing here, and no integration suite that qualifies the capability, can run until that merge).
 --

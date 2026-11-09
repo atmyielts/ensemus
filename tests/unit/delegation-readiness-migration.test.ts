@@ -150,7 +150,7 @@ describe('the reviewed _deleg migrations (ADR-024 D4, ADR-028)', () => {
       })
       .filter((path) => {
         const source = readFileSync(path, 'utf8');
-        // 0590 itself names the marker to check for it; it must never create it.
+        // 0548 itself names the marker to check for it; it must never create it.
         if (path === join(migrations, readiness ?? '')) return /CREATE\s+ROLE/i.test(code);
         return source.includes('ensemus_delegation_qualification_ci');
       });
@@ -197,9 +197,9 @@ describe('journal state is stated honestly (ADR-028 open question 12)', () => {
     join(repoRoot, 'docs/06-delivery/evidence/m5/delegated-material-join.md'),
     'utf8',
   );
-  const NOTE = 'Not runnable until the merge journals 0590.';
+  const NOTE = 'Not runnable until the merge journals 0548.';
 
-  it('the ADR and the join evidence carry the not-runnable note exactly while 0590 is unjournaled', () => {
+  it('the ADR and the join evidence carry the not-runnable note exactly while 0548 is unjournaled', () => {
     expect(adr.includes(NOTE)).toBe(!journaled);
     expect(join_.includes(NOTE)).toBe(!journaled);
   });

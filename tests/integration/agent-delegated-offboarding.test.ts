@@ -3,7 +3,7 @@
 // through the operator's real erase command with a genuine delegated child. ensemus_eraser cannot log in,
 // so the command is handed a superuser connection that took its session authorization, as
 // saas-erasure.test.ts does. Each case erases or offboards its own tenant. The capability is qualified for
-// this file through the migrator and restored afterwards. SQL is unrun until CI applies 0590.
+// this file through the migrator and restored afterwards. SQL first runs in the CI run after 0548 was journaled.
 import { randomUUID } from 'node:crypto';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';

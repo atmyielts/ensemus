@@ -757,6 +757,13 @@
       "when": 1794201807509,
       "tag": "0547_raw_restore_survivor_deletion_r7restore",
       "breakpoints": true
+    },
+    {
+      "idx": 108,
+      "version": "7",
+      "when": 1794201807510,
+      "tag": "0548_delegation_birth_readiness_deleg",
+      "breakpoints": true
     }
   ]
 }

@@ -3,7 +3,6 @@
 // unit-tested (workers/workflow/src/record-purge-route.test.ts) and this file proves the PostgreSQL side:
 // the producers write the event and its outbox row, and the sweep's claim re-proves each dead record from
 // PostgreSQL. The capability is qualified for this file through the migrator and restored afterwards.
-// Not runnable until the merge journals 0590 (its reserved number is unjournaled on its branch).
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { and, eq, sql } from 'drizzle-orm';

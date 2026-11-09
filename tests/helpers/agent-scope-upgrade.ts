@@ -224,7 +224,7 @@ export async function assertLegacyChildAfterAgentScopeMigration(
       [],
     );
     // ADR-028 'Decision: defining ai.delegation_influence_ready' (project owner, 2026-11-09;
-    // 0590_deleg). A legacy pre-0414 child stays refused: this transaction is the child's
+    // 0548_deleg). A legacy pre-0414 child stays refused: this transaction is the child's
     // (app.agent_run_id is not the parent), the child row already exists, no scoped-v1:<parent>
     // marker is loaded, and no capability need be recorded. The ADR earlier said this expectation
     // must change; under the decided definition it stays false.

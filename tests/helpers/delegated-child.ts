@@ -4,7 +4,7 @@
 // state in the birth-failure message. The child it builds, and every admission it goes through, are the
 // same as before the move.
 // Actual app/agent roles and real admission/usage/proposal/step services. No provider or invented
-// observations. A child is born only while the 0590 capability is qualified (tests/helpers/
+// observations. A child is born only while the 0548 capability is qualified (tests/helpers/
 // delegation-capability.ts) and under an owner's active policy bundle (underDelegationPolicy).
 import { createHash, randomUUID } from 'node:crypto';
 import { expect } from 'vitest';
@@ -352,7 +352,7 @@ export function delegatedChildHarness(deps: DelegatedChildDeps) {
     });
   }
 
-  // ADR-028 'Decision: defining ai.delegation_influence_ready' (project owner, 2026-11-09; 0590_deleg).
+  // ADR-028 'Decision: defining ai.delegation_influence_ready' (project owner, 2026-11-09; 0548_deleg).
   // These are genuine full-composition gates: a child is born only through createChildRun, with the
   // part-1 capability qualified for the suite and every 0419 birth check passing. They are not skipped.
   async function genuineChildWithRecord(
