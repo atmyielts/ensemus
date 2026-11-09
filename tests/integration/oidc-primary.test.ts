@@ -6,7 +6,7 @@ import pg from 'pg';
 import { createAuth } from '@ensemus/auth';
 import { fixtureCookies } from '../../packages/auth/test-support/mfa-router';
 import { generatedOidcIdp, type OidcScript } from '../helpers/oidc-idp';
-import { totpFromUri } from '../helpers/totp';
+import { previousTotpFromUri, totpFromUri } from '../helpers/totp';
 import { urls } from '../helpers/stack';
 const baseURL = 'http://127.0.0.1:3996',
   secret = `generated-oidc-primary-${randomUUID()}-${randomUUID()}`,
@@ -111,10 +111,12 @@ describe('signed operator OIDC primary authentication receipts', () => {
       value = await requireSession({ subject, email }),
       setup = await runtime.mfa.enable({ password: '' }, value.identity, value.headers);
     expect(setup.outcome).toBe('verified');
+    // The previous period's code, so the challenge that follows can use the current one without a
+    // replay. Never made in a period's last seconds: the server's one-period window would pass it by.
     expect(
       (
         await runtime.mfa.confirmEnrollment(
-          { code: totpFromUri(setup.totpURI!, Date.now() - 30000) },
+          { code: await previousTotpFromUri(setup.totpURI!) },
           value.identity,
           value.headers,
         )
@@ -335,7 +337,7 @@ describe('signed operator OIDC primary authentication receipts', () => {
     const setup = await runtime.mfa.enable({ password: '' }, value.identity, value.headers);
     expect(setup.outcome).toBe('verified');
     const confirmed = await runtime.mfa.confirmEnrollment(
-      { code: totpFromUri(setup.totpURI!, Date.now() - 30000) },
+      { code: await previousTotpFromUri(setup.totpURI!) },
       value.identity,
       value.headers,
     );

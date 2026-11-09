@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { expect, test } from '../support/fixtures';
 import { axeFindings } from '../support/look';
+import { alertIn } from '../support/notices';
 import { BASE } from '../../helpers/forms';
 
 test.describe('native workflow authoring against actual compiler and review services', () => {
@@ -105,7 +106,8 @@ test.describe('native workflow authoring against actual compiler and review serv
     ).toBeVisible();
     await other.getByLabel('Workflow name', { exact: true }).fill('Stale proposed revision');
     await other.getByRole('button', { name: 'Save workflow details', exact: true }).click();
-    await expect(other.getByRole('alert')).toContainText(/changed|updated|refresh|again/i);
+    // The page's own refusal, in main: Next's route announcer is a second, empty alert outside it.
+    await expect(alertIn(other)).toContainText(/changed|updated|refresh|again/i);
     await expect(other.getByLabel('Workflow name', { exact: true })).toHaveValue(
       'Stale proposed revision',
     );
