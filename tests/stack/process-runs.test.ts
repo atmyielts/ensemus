@@ -165,6 +165,29 @@ describe('actual workflow execution HTTP contracts', () => {
     );
     expect(replay.status, replay.text).toBe(202);
     expect(replay.body?.id).toBe(runId);
+    // The committed stop moved the version, so the version it was asked at is now stale.
+    const stopped = await call(owner, 'GET', `process-runs/${runId}`);
+    expect(stopped.body?.stop_code).toBe('STOP_REQUESTED');
+    expect(stopped.headers.get('etag')).not.toBe(version);
+    const stale = await call(
+      owner,
+      'POST',
+      `process-runs/${runId}/stop`,
+      {},
+      { 'if-match': version, 'idempotency-key': randomUUID() },
+    );
+    expect(stale.status, stale.text).toBe(409);
+    expect(stale.body?.code).toBe('VERSION_CONFLICT');
+    // The stored key answers only the exact request it recorded.
+    const reused = await call(
+      owner,
+      'POST',
+      `process-runs/${runId}/stop`,
+      {},
+      { 'if-match': stopped.headers.get('etag') ?? '', 'idempotency-key': key },
+    );
+    expect(reused.status, reused.text).toBe(409);
+    expect(reused.body?.code).toBe('IDEMPOTENCY_KEY_REUSED');
   });
   it('has validated one successful actual response from each of the five owned operations', () => {
     const owned = operations()

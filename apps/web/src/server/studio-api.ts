@@ -66,6 +66,23 @@ export const publishReviewDto = (row: PublishReviewView) => ({
   created_at: row.createdAt.toISOString(),
 });
 
+/**
+ * The response a key stores. `runIdempotent` builds it inside the service's transaction, from that
+ * transaction's own result, never from what `effect` returns after it. So a service that does not name
+ * its record there is refused before the key row is written, and the whole transaction rolls back: an
+ * effect is never committed under a key that could not replay it.
+ */
+export function studioResponse(status: number) {
+  return (row: unknown) => {
+    const id = idSchema.safeParse(
+      typeof row === 'object' && row !== null && 'id' in row ? row.id : undefined,
+    );
+    if (!id.success)
+      throw new Error('A Studio service must name its committed record in its transaction');
+    return { status, body: { id: id.data } };
+  };
+}
+
 /** Store only the committed identity. Every replay rereads through current native/tenant/record ACL. */
 export async function studioOnce(
   database: AppDatabase,
@@ -82,7 +99,7 @@ export async function studioOnce(
       context,
       { key, requestHash: requestHash([operation, canonicalJson(input)]) },
       effect,
-      (row) => ({ status, body: { id: row.id } }),
+      studioResponse(status),
     );
   let result;
   try {

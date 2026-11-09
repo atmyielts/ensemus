@@ -85,10 +85,7 @@ export async function stopWorkflowRunAction(form: FormData) {
       runId(form, 'requestKey'),
       'process-run.stop',
       input,
-      async (db) => {
-        await requestStopProcessRun(db, context, input);
-        return { id };
-      },
+      (db) => requestStopProcessRun(db, context, input),
       202,
     );
     await getProcessRun(database, context, webProductPorts(), id);
@@ -111,7 +108,7 @@ export async function installWorkflowCatalogAction(form: FormData) {
       runId(form, 'requestKey'),
       'process-catalog.install',
       { processKey },
-      async (db) => ({ id: (await installBundledWorkflow(db, context, { processKey })).specId }),
+      (db) => installBundledWorkflow(db, context, { processKey }),
     );
     await getProcessSpec(database, context, id);
     revalidatePath(back);
@@ -137,10 +134,7 @@ export async function proposeWorkflowEmailAction(
       runId(form, 'requestKey'),
       'process-run.email.propose',
       input,
-      async (db) => {
-        await proposeProcessStepAction(db, context, input);
-        return { id };
-      },
+      (db) => proposeProcessStepAction(db, context, input),
       202,
     );
     await getProcessRun(database, context, webProductPorts(), id);
