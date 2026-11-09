@@ -57,6 +57,8 @@ export default defineConfig({
         test: {
           name: 'stack',
           include: ['tests/stack/**/*.test.ts'],
+          // API-12: every public-API response a suite receives is checked against the spec and recorded.
+          setupFiles: ['tests/helpers/api-record-setup.ts'],
           fileParallelism: false,
           testTimeout: 120_000,
           hookTimeout: 120_000,
