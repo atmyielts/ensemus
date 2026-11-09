@@ -51,7 +51,7 @@ export interface ObjectDeletionAuthority {
 type Result = { state: 'purged'; quiescent: true } | { state: 'held' | 'unconfirmed' };
 type DeletionStore = Pick<
   ObjectStore,
-  'delete' | 'exists' | 'deleteForPurge' | 'isPhysicallyAbsent'
+  'delete' | 'exists' | 'deleteForPurge' | 'isPhysicallyAbsent' | 'assertPurgeCapability'
 >;
 
 /** A testable state machine around the actual SQL authority, never a successful default port. */
@@ -65,6 +65,16 @@ export function createObjectDeletionExecutor(deps: {
     // Old/test adapters that only expose HEAD cannot certify that prior object versions are gone.
     if (!deps.store.deleteForPurge || !deps.store.isPhysicallyAbsent)
       return { state: 'unconfirmed' };
+    // LIFE-01: a store that is down when a file is deleted must still lose the bytes later. Its
+    // capability preflight is asked before admission, so an outage admits nothing; an admitted claim
+    // refused after this point stays retained and unreplayable, exactly as before (M8 join, 0508).
+    if (deps.store.assertPurgeCapability) {
+      try {
+        await deps.store.assertPurgeCapability();
+      } catch {
+        return { state: 'unconfirmed' };
+      }
+    }
     const claim = await deps.authority.begin(context, target);
     if (claim.state === 'held' || claim.state === 'unconfirmed') return claim;
     if (claim.state === 'admitted') {

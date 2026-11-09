@@ -537,6 +537,19 @@ const workAssignmentsReader: KindReader = {
   },
 };
 
+/**
+ * How many live files restricted by their own class the snapshot holds (0537). Only a count: the export's
+ * service still cannot read any such row. Read once, with the section's first page.
+ */
+async function restrictedClassFiles(tx: Tx, snapshot: string | null): Promise<number> {
+  const result = await tx.execute<{ n: number | string | null }>(
+    sql`select sovereign.export_restricted_class_artifacts(${snapshot}::timestamptz) as n`,
+  );
+  const n = Number(result.rows[0]?.n);
+  if (!Number.isSafeInteger(n) || n < 0) throw new Error('EXPORT_RESTRICTED_COUNT_INVALID');
+  return n;
+}
+
 /** Facts about a file. Its bytes are written separately, as their own part, by the step that reads them. */
 const artifactsReader: KindReader = {
   recordKind: 'artifacts',
@@ -568,9 +581,15 @@ const artifactsReader: KindReader = {
       .limit(limit);
     const kept = rows.filter((row) => !row.tombstoned && !row.restricted && row.ordinary);
     // A deleted file is not a restricted one. It goes in the tombstones, and is not counted as left out.
+    // A file restricted by its own class is counted once, below, because the export's service cannot
+    // see its row (0208's artifact_input_fence); one visible here is skipped so it is not counted twice.
+    const unseen = key === null ? await restrictedClassFiles(tx, snapshot) : 0;
     const excluded = excludedOf(
       'restricted_artifacts',
-      rows.filter((row) => !row.tombstoned && row.restricted).length,
+      unseen +
+        rows.filter(
+          (row) => !row.tombstoned && row.restricted && row.classification !== 'restricted',
+        ).length,
     );
     return {
       nextKey: keyAfter(rows, limit, (row) => [row.at, row.id]),
@@ -1086,6 +1105,20 @@ async function restrictedTargets(tx: Tx, targetRefs: readonly string[]): Promise
 }
 
 /**
+ * An audit target as an archive may carry it. No record names a tenant (portability-records.ts, ADR-030
+ * D7), but entries about the organization itself, such as `organization.created`, target
+ * `organization:{its ID}`. That target becomes plain `organization`, which is what it means wherever
+ * the archive lands. Any other target naming the tenant keeps only its type.
+ */
+export function portableAuditTarget(targetRef: string, organizationId: string): string {
+  const tenant = organizationId.toLowerCase();
+  if (!targetRef.toLowerCase().includes(tenant)) return targetRef;
+  if (targetRef.toLowerCase() === `organization:${tenant}`) return 'organization';
+  const at = targetRef.indexOf(':');
+  return at > 0 ? targetRef.slice(0, at) : 'redacted';
+}
+
+/**
  * The audit log, redacted: action, target reference, decision, reason code and time. An actor is named only
  * where it is a membership, which an import can map, so an account ID never leaves. Anything else in the row,
  * such as the correlation and dedupe keys, stays out.
@@ -1132,7 +1165,7 @@ const auditEventsReader: KindReader = {
         .map((row) =>
           historyRecord('audit_event', row.id, null, row.occurredAt, {
             action: row.action,
-            target_ref: row.targetRef,
+            target_ref: portableAuditTarget(row.targetRef, context.organizationId),
             decision: row.decision,
             reason_code: row.safeReason,
             actor_membership_id: row.actorMembershipId,

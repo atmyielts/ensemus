@@ -5,7 +5,16 @@ import { createOrganization, signUp, join, BASE, type Person } from '../helpers/
 import { seedPlan, seedRateCard } from '../helpers/saas';
 import { contractProblems } from '../helpers/openapi';
 import pg from 'pg';
+import { openAppDatabase, withTenantTx } from '@ensemus/database';
+import { createServiceContext } from '@ensemus/database/service';
+import { setTenantStandingInTx } from '@ensemus/application/saas/standing';
+import { createStandingAgentHaltPort } from '@ensemus/application/saas/standing-agent-port';
 import { urls } from '../helpers/stack';
+
+/** Billing exists only where the stack runs a hosted mode with billing named on (ADR-032 D1). */
+const BILLING_DEPLOYMENT =
+  (process.env.ENSEMUS_MODE ?? 'sovereign') !== 'sovereign' &&
+  process.env.ENSEMUS_BILLING_ENABLED === 'true';
 
 describe('billing API keeps account access and tenant boundaries', () => {
   let owner: Person;
@@ -13,6 +22,7 @@ describe('billing API keeps account access and tenant boundaries', () => {
   let outsider: Person;
   let org: string;
   const sql = new pg.Client({ connectionString: urls.superuser() });
+  const app = openAppDatabase(urls.app());
   beforeAll(async () => {
     await sql.connect();
     owner = await signUp('Billing owner');
@@ -22,6 +32,7 @@ describe('billing API keeps account access and tenant boundaries', () => {
   });
   afterAll(async () => {
     await sql.end();
+    await app.close();
   });
   async function call(
     person: Person | null,
@@ -75,39 +86,68 @@ describe('billing API keeps account access and tenant boundaries', () => {
     ).toEqual([]);
     expect(text).not.toMatch(/customer_ref|processor|token|secret/i);
   });
-  it('concurrent subscription retries start exactly one and a changed payload conflicts', async () => {
-    const plan = await seedPlan({ mode: 'cloud', rateCard: await seedRateCard() });
-    const headers = { 'idempotency-key': randomUUID() };
-    const body = { plan_version_id: plan.planVersionId };
-    const responses = await Promise.all([
-      call(owner, 'POST', '/subscription', body, headers),
-      call(owner, 'POST', '/subscription', body, headers),
-    ]);
-    expect(responses.map((r) => r.status)).toEqual([201, 201]);
-    expect(await responses[0]!.json()).toEqual(await responses[1]!.json());
-    expect(
-      (await call(owner, 'POST', '/subscription', { plan_version_id: randomUUID() }, headers))
-        .status,
-    ).toBe(409);
-    const { rows } = await sql.query(
-      'select count(*)::int as n from billing.subscriptions where organization_id=$1',
-      [org],
-    );
-    expect(rows[0].n).toBe(1);
-  });
-  it('suspension preserves account read while ordinary writes are refused', async () => {
-    await sql.query('begin');
-    try {
-      await sql.query(
-        "insert into billing.standing_changes(organization_id,from_lifecycle,to_lifecycle,reason_code,actor_type,actor_ref) values ($1,'active','suspended','TEST_TERMS','operator','test-operator')",
+  // ADR-032 D1: a Sovereign deployment can never enable billing (loadSaasConfig refuses it), and the
+  // CI stack runs Sovereign (compose ENSEMUS_MODE default). Starting a subscription is then refused
+  // as BILLING_NOT_ENABLED and creates nothing; the concurrency contract needs a billing deployment.
+  it.runIf(!BILLING_DEPLOYMENT)(
+    'refuses every subscription start on a deployment without billing, and creates none',
+    async () => {
+      const plan = await seedPlan({ mode: 'cloud', rateCard: await seedRateCard() });
+      const headers = { 'idempotency-key': randomUUID() };
+      const body = { plan_version_id: plan.planVersionId };
+      const responses = await Promise.all([
+        call(owner, 'POST', '/subscription', body, headers),
+        call(owner, 'POST', '/subscription', body, headers),
+      ]);
+      expect(responses.map((r) => r.status)).toEqual([409, 409]);
+      for (const response of responses)
+        expect(((await response.json()) as { code?: string }).code).toBe('BILLING_NOT_ENABLED');
+      const { rows } = await sql.query(
+        'select count(*)::int as n from billing.subscriptions where organization_id=$1',
         [org],
       );
-      await sql.query("update org.organizations set lifecycle='suspended' where id=$1", [org]);
-      await sql.query('commit');
-    } catch (error) {
-      await sql.query('rollback');
-      throw error;
-    }
+      expect(rows[0].n).toBe(0);
+    },
+  );
+  it.runIf(BILLING_DEPLOYMENT)(
+    'concurrent subscription retries start exactly one and a changed payload conflicts',
+    async () => {
+      const plan = await seedPlan({ mode: 'cloud', rateCard: await seedRateCard() });
+      const headers = { 'idempotency-key': randomUUID() };
+      const body = { plan_version_id: plan.planVersionId };
+      const responses = await Promise.all([
+        call(owner, 'POST', '/subscription', body, headers),
+        call(owner, 'POST', '/subscription', body, headers),
+      ]);
+      expect(responses.map((r) => r.status)).toEqual([201, 201]);
+      expect(await responses[0]!.json()).toEqual(await responses[1]!.json());
+      expect(
+        (await call(owner, 'POST', '/subscription', { plan_version_id: randomUUID() }, headers))
+          .status,
+      ).toBe(409);
+      const { rows } = await sql.query(
+        'select count(*)::int as n from billing.subscriptions where organization_id=$1',
+        [org],
+      );
+      expect(rows[0].n).toBe(1);
+    },
+  );
+  it('suspension preserves account read while ordinary writes are refused', async () => {
+    // The operator's own path (ops-tenant): the standing row, the lifecycle and the agent stop in one
+    // service transaction, as 0511 requires. A raw superuser INSERT has no native standing birth.
+    const service = createServiceContext(org);
+    await withTenantTx(app.db, service, (tx) =>
+      setTenantStandingInTx(
+        tx,
+        service,
+        {
+          to: 'suspended',
+          reasonCode: 'TEST_TERMS',
+          actor: { type: 'operator', ref: 'test-operator@example.invalid' },
+        },
+        createStandingAgentHaltPort(),
+      ),
+    );
     expect((await call(owner, 'GET', '')).status).toBe(200);
     const refused = await fetch(`${BASE}/api/v1/organizations/${org}/work-units`, {
       method: 'POST',

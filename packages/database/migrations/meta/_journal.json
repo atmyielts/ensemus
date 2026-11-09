@@ -673,6 +673,20 @@
       "when": 1794201807497,
       "tag": "0535_legacy_checklist_requalify_upgrade",
       "breakpoints": true
+    },
+    {
+      "idx": 96,
+      "version": "7",
+      "when": 1794201807498,
+      "tag": "0536_eraser_onboarding_assignment_guard_r3saas",
+      "breakpoints": true
+    },
+    {
+      "idx": 97,
+      "version": "7",
+      "when": 1794201807499,
+      "tag": "0537_export_restricted_artifact_count_r3saas",
+      "breakpoints": true
     }
   ]
 }

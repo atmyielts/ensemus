@@ -24,7 +24,7 @@ import {
   setRetentionRule,
   sweepRetention,
 } from '@ensemus/application/saas/retention';
-import { placeLegalHold } from '@ensemus/application/saas/legal-holds';
+import { placeLegalHold, releaseLegalHold } from '@ensemus/application/saas/legal-holds';
 import type { RetentionSource } from '@ensemus/application/saas/ports';
 import { eq, sql } from 'drizzle-orm';
 import pg from 'pg';
@@ -131,9 +131,9 @@ describe('bounded retention with real roles and durable per-record progress', ()
       store = new LifecycleMemoryStore(),
       context = createServiceContext(owner.organizationId);
     const held = await lifecycleArtifact(database.db, owner, store),
-      free = await lifecycleArtifact(database.db, owner, store);
-    await lifecycleArtifact(database.db, other, store);
-    await placeLegalHold(database.db, owner, {
+      free = await lifecycleArtifact(database.db, owner, store),
+      untouched = await lifecycleArtifact(database.db, other, store);
+    const hold = await placeLegalHold(database.db, owner, {
       matterRef: randomUUID(),
       scopes: [{ type: 'artifact', id: held.artifactId }],
     });
@@ -155,9 +155,28 @@ describe('bounded retention with real roles and durable per-record progress', ()
       await withTenantTx(database.db, other, (tx) => tx.select().from(artifacts)),
     ).toHaveLength(1);
     expect(await store.exists(objectKey(owner.organizationId, free.artifactId))).toBe(true);
-    await purgeDueBlobs(database.db, store, context, new Date(Date.now() + 1000));
+    // 0508 (begin_object_deletion; M8 lifecycle join): any active hold in the tenant conservatively
+    // blocks every byte deletion, so while the matter is open even the deleted file's bytes stay.
+    expect(await purgeDueBlobs(database.db, store, context, new Date(Date.now() + 1000))).toEqual({
+      purged: 0,
+      failed: 1,
+    });
+    expect(await store.exists(objectKey(owner.organizationId, held.artifactId))).toBe(true);
+    expect(await store.exists(objectKey(owner.organizationId, free.artifactId))).toBe(true);
+    // Once the matter closes, the purge takes only the file retention deleted: the held file was never
+    // deleted, and the other tenant's file is untouched.
+    await releaseLegalHold(database.db, owner, {
+      holdId: hold.holdId,
+      reasonCode: 'TEST_MATTER_CLOSED',
+      expectedVersion: 1,
+    });
+    // Past the failed attempt's backoff (PURGE_BACKOFF_BASE_MS, 15 minutes).
+    expect(
+      await purgeDueBlobs(database.db, store, context, new Date(Date.now() + 16 * 60 * 1000)),
+    ).toEqual({ purged: 1, failed: 0 });
     expect(await store.exists(objectKey(owner.organizationId, held.artifactId))).toBe(true);
     expect(await store.exists(objectKey(owner.organizationId, free.artifactId))).toBe(false);
+    expect(await store.exists(objectKey(other.organizationId, untouched.artifactId))).toBe(true);
   });
   it('advances only an examined failure and revisits it on the next finite cycle', async () => {
     const owner = await lifecycleTenant(database.db, auth),

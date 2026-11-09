@@ -426,6 +426,20 @@ describe('physical absence requires an actual unversioned S3 protocol response',
     expect(requests).toEqual(['versioning']);
   });
 
+  it('checks purge capability on its own with only the versioning read', async () => {
+    await expect(store.assertPurgeCapability()).resolves.toBeUndefined();
+    expect(requests).toEqual(['versioning']);
+  });
+
+  it.each([
+    '<ListBucketResult/>',
+    '<VersioningConfiguration xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><Status>Enabled</Status></VersioningConfiguration>',
+  ])('refuses purge capability for %s without any object request', async (body) => {
+    versioning.push({ body });
+    await expect(store.assertPurgeCapability()).rejects.toThrow();
+    expect(requests).toEqual(['versioning']);
+  });
+
   it('refuses physical absence for a now-versioned known-terminal retry before HEAD', async () => {
     versioning.push({
       body: '<VersioningConfiguration xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><Status>Enabled</Status></VersioningConfiguration>',

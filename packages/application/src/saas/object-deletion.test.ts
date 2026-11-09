@@ -139,6 +139,51 @@ describe('durable object deletion transport boundaries', () => {
     expect(f.store.deleteForPurge).toHaveBeenCalledTimes(1);
     expect(f.authority.proveAbsent).not.toHaveBeenCalled();
   });
+  it('admits nothing when the store refuses its capability preflight, so a later purge can retry (LIFE-01)', async () => {
+    const f = fixture();
+    const preflight = vi.fn(async (): Promise<void> => {
+      throw new Error('TEST_STORE_UNREACHABLE');
+    });
+    const erase = createObjectDeletionExecutor({
+      authority: f.authority,
+      store: { ...f.store, assertPurgeCapability: preflight },
+    });
+    await expect(erase(context, target)).resolves.toEqual({ state: 'unconfirmed' });
+    expect(f.authority.begin).not.toHaveBeenCalled();
+    expect(f.store.deleteForPurge).not.toHaveBeenCalled();
+    expect(f.store.isPhysicallyAbsent).not.toHaveBeenCalled();
+    expect(f.authority.terminal).not.toHaveBeenCalled();
+    // Back up: the same target is admitted once and deleted once.
+    preflight.mockResolvedValue(undefined);
+    await expect(erase(context, target)).resolves.toEqual({ state: 'purged', quiescent: true });
+    expect(f.authority.begin).toHaveBeenCalledTimes(1);
+    expect(f.store.deleteForPurge).toHaveBeenCalledTimes(1);
+  });
+  it('asks the capability preflight before admission, and still retains a claim refused after it', async () => {
+    const f = fixture(),
+      order: string[] = [];
+    const erase = createObjectDeletionExecutor({
+      authority: f.authority,
+      store: {
+        ...f.store,
+        assertPurgeCapability: async () => {
+          order.push('preflight');
+        },
+      },
+    });
+    vi.mocked(f.authority.begin).mockImplementation(async () => {
+      order.push('admit');
+      return { state: 'admitted', claimId, objectKey: key };
+    });
+    f.store.deleteForPurge.mockResolvedValue({
+      transport: 'not_attempted',
+      capabilityVerified: false,
+    });
+    await expect(erase(context, target)).resolves.toEqual({ state: 'unconfirmed' });
+    expect(order).toEqual(['preflight', 'admit']);
+    expect(f.authority.terminal).not.toHaveBeenCalled();
+    expect(f.authority.proveAbsent).not.toHaveBeenCalled();
+  });
   it('records the actual completed DELETE even when its capability post-check refused qualification', async () => {
     const f = fixture();
     f.store.deleteForPurge.mockResolvedValue({ transport: 'deleted', capabilityVerified: false });

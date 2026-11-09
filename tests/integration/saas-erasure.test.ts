@@ -1,4 +1,5 @@
 import { createTenantObjectErasure } from '@ensemus/application/saas/tenant-object-erasure';
+import { sealDelegatedErasureInTx } from '@ensemus/application/knowledge/delegated-erasure';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { eq, sql } from 'drizzle-orm';
@@ -47,6 +48,17 @@ describe('restricted erasure independently verifies every tenant-content table',
     >[0];
     await seedTaxTreatment();
   });
+  /**
+   * ops-erase's step before the restricted eraser runs: the native app service persists the current
+   * material witness (0515, raw-qualified by 0516). erase_raw_source_inventories requires it
+   * (lifecycle.raw_erasure_witness), and a missing seal is never read as an empty inventory.
+   */
+  const seal = async (ready: Awaited<ReturnType<typeof readyToErase>>) =>
+    expect(
+      await withTenantTx(database.db, ready.service, (tx) =>
+        sealDelegatedErasureInTx(tx, ready.service, ready),
+      ),
+    ).toBe(true);
   afterAll(async () => {
     await eraserClient.query('reset session authorization');
     await eraserClient.end();
@@ -143,6 +155,7 @@ describe('restricted erasure independently verifies every tenant-content table',
     ).rejects.toMatchObject({ code: 'OFFBOARDING_NOT_CANCELLABLE' });
     await publishErasureLedger(database.db, ready.service, store);
     await purgeDueBlobs(database.db, store, ready.service, new Date(Date.now() + 1000), 100);
+    await seal(ready);
     const first = await eraseTenantRows(eraser, who.owner.organizationId);
     expect(first.reduce((sum, table) => sum + table.rowsRemoved, 0)).toBeGreaterThan(0);
     // Simulate losing the process before finishErasure. Its pre-erase counts are already durable.
@@ -261,6 +274,7 @@ describe('restricted erasure independently verifies every tenant-content table',
         operatorRef: 'test-operator@example.invalid',
       });
       await publishErasureLedger(database.db, ready.service, new LifecycleMemoryStore());
+      await seal(ready);
       const [before] = await epoch();
       expect(before).toBeDefined();
       // The restricted eraser removes epoch-tracked rows in the erasing tenant. Before 0522 every such
@@ -347,6 +361,7 @@ describe('restricted erasure independently verifies every tenant-content table',
       ...ready,
       operatorRef: 'test-operator@example.invalid',
     });
+    await seal(ready);
     const tables = await eraseTenantRows(eraser, owner.organizationId);
     await finishErasure(
       database.db,

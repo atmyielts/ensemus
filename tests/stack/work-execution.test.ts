@@ -27,6 +27,7 @@ import {
 } from '@ensemus/database';
 import { S3ObjectStore } from '@ensemus/storage';
 import { reminderScheduleIdFor } from '@ensemus/workflows/schemas';
+import { inFixtureTenant } from '../helpers/fixture-tenant';
 import { compose, secret, urls } from '../helpers/stack';
 
 const TIMEOUT = 45_000;
@@ -291,10 +292,13 @@ describe('durable work execution', () => {
     });
     expect(await statusOf(id)).toBe('ready');
 
-    // A few minutes later, as far as the sweep can tell.
-    await su.query(
-      `update work.work_units set run_requested_at = now() - interval '10 minutes' where id = $1`,
-      [id],
+    // A few minutes later, as far as the sweep can tell. Bound to the row's tenant, as 0303's
+    // export-epoch trigger requires of every writer of an epoch-tracked row; it still fires.
+    await inFixtureTenant(su, context.organizationId, () =>
+      su.query(
+        `update work.work_units set run_requested_at = now() - interval '10 minutes' where id = $1`,
+        [id],
+      ),
     );
     await runUpkeep();
     await waitForStatus(id, 'awaiting_approval');

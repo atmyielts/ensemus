@@ -97,6 +97,8 @@ class MemoryStore implements ObjectStore {
   async isPhysicallyAbsent(key: string) {
     return !this.objects.has(key);
   }
+  // An unversioned map always passes the capability check the S3 adapter makes before admission.
+  async assertPurgeCapability() {}
 }
 
 /** The same bytes while the store is unreachable, answering as the production S3 adapter does: its
@@ -111,6 +113,9 @@ function downStore(store: MemoryStore): ObjectStore {
     },
     deleteForPurge: async () => ({ transport: 'not_attempted', capabilityVerified: false }),
     isPhysicallyAbsent: async () => {
+      throw new Error('storage down');
+    },
+    assertPurgeCapability: async () => {
       throw new Error('storage down');
     },
   };
@@ -1481,7 +1486,10 @@ describe('work', () => {
       expect(await purgeDueBlobs(db(), lying, a)).toEqual({ purged: 0, failed: 1 });
     });
 
-    it('removes an upload whose row never arrived', async () => {
+    // 0508 (begin_object_deletion admits only a tombstoned, catalogued file; M8 lifecycle join source,
+    // "orphan uploading rows without completion remain unconfirmed"): no grace period proves an orphan's
+    // PUT has finished, so a sweep never deletes it. It stays recorded as owed, and is never dropped.
+    it('keeps an upload whose row never arrived as owed, and never deletes it unproven', async () => {
       const a = await newOrg();
       const store = new MemoryStore();
       const work = await createWorkUnit(db(), a, { title: 'W' });
@@ -1504,11 +1512,16 @@ describe('work', () => {
       await expect(upload(a, failing, work.id)).rejects.toEqual(code('INVALID_STATE'));
       expect(store.objects.size).toBe(1);
 
-      // Not while it could still be on its way, and then once it cannot.
+      // Not while it could still be on its way; and after the grace period, still not without a proven
+      // writer, so the bytes stay and the attempt is counted rather than reported as purged.
       expect(await purgeDueBlobs(db(), store, a)).toEqual({ purged: 0, failed: 0 });
       const later = new Date(Date.now() + 2 * 60 * 60 * 1000);
-      expect(await purgeDueBlobs(db(), store, a, later)).toEqual({ purged: 1, failed: 0 });
-      expect(store.objects.size).toBe(0);
+      expect(await purgeDueBlobs(db(), store, a, later)).toEqual({ purged: 0, failed: 1 });
+      expect(store.objects.size).toBe(1);
+      const rows = await withTenantTx(db(), a, (tx) =>
+        tx.execute(`select state, attempts from platform.blob_lifecycle where state <> 'purged'`),
+      );
+      expect(rows.rows).toEqual([{ state: 'uploading', attempts: 1 }]);
     });
 
     it('leaves no record behind for an upload that succeeded', async () => {

@@ -228,6 +228,15 @@ export class S3ObjectStore {
     return { transport: 'deleted', capabilityVerified };
   }
 
+  /**
+   * The same capability check deleteForPurge makes first, on its own and with no object request. A
+   * caller asks this before it durably admits a deletion, so an unreachable or versioned store refuses
+   * before any claim exists, instead of leaving an admitted claim no later DELETE may replay.
+   */
+  async assertPurgeCapability(): Promise<void> {
+    await this.#assertUnversionedBucket();
+  }
+
   /** A current-key HEAD is insufficient in versioned stores, where old versions retain the bytes. */
   async isPhysicallyAbsent(key: string): Promise<boolean> {
     await this.#assertUnversionedBucket();
