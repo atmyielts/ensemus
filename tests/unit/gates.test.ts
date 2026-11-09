@@ -75,6 +75,20 @@ describe('every gate runs in both places', () => {
     expect(ci).toMatch(fullRun);
   });
 
+  // The browser run leaves out the tests that need the stack's own agent worker, so each place
+  // must run them on their own, before it stops that worker. Otherwise they would run nowhere.
+  it.each([
+    ['CI', ci],
+    ['one machine', local],
+  ])('runs the @agent-worker browser tests before stopping the agent worker (%s)', (_, file) => {
+    const tagged = file.indexOf('pnpm test:browser --grep @agent-worker');
+    const stop = file.indexOf('stop agent-worker');
+    const rest = file.search(/pnpm test:browser [^\n]*--grep-invert @agent-worker/);
+    expect(tagged).toBeGreaterThan(-1);
+    expect(stop).toBeGreaterThan(tagged);
+    expect(rest).toBeGreaterThan(stop);
+  });
+
   it('enables the real AI contract and canary cases in the offline CI stack job', () => {
     const stackJob = ci.slice(ci.indexOf('\n  stack:'), ci.indexOf('\n  connectors:'));
     expect(stackJob).toMatch(/ENSEMUS_AI_ENABLED:\s*'true'/);

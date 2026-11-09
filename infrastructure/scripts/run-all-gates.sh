@@ -44,11 +44,14 @@ fresh() {
   return "$status"
 }
 
+# Tests tagged @agent-worker need the stack's own agent worker, so they run first, while it is up. Every
+# other spec runs with it stopped, as their UI fixtures advance agent states directly.
 browser_tests() {
   docker compose "${compose_files[@]}" up -d --build --wait --wait-timeout 300 &&
-    docker compose "${compose_files[@]}" stop agent-worker &&
     pnpm --filter @ensemus/browser-tests exec playwright install chromium &&
-    pnpm test:browser
+    pnpm test:browser --grep @agent-worker &&
+    docker compose "${compose_files[@]}" stop agent-worker &&
+    pnpm test:browser --grep-invert @agent-worker
 }
 
 connectors_tests() (
