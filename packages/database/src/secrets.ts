@@ -106,17 +106,27 @@ async function assertPaymentGeneration(
   if (current.rows.length !== 1 || current.rows[0]?.generation !== expected)
     throw new Error('PAYMENT_RESTORE_GENERATION_CHANGED');
 }
-const paymentAttestation = (rows: PaymentAttestation[]): PaymentAttestation => {
+// drizzle's node-postgres driver hands timestamptz back as PostgreSQL's text form from `execute`, never a
+// Date, so the expiry is parsed here. Anything that does not parse to a real instant is still refused.
+type PaymentAttestationRow = { token: string; expiresAt: Date | string };
+const paymentAttestation = (rows: PaymentAttestationRow[]): PaymentAttestation => {
   const row = rows[0];
+  const expiresAt =
+    row?.expiresAt instanceof Date
+      ? row.expiresAt
+      : typeof row?.expiresAt === 'string'
+        ? new Date(row.expiresAt)
+        : null;
   if (
     rows.length !== 1 ||
     !row ||
+    typeof row.token !== 'string' ||
     !/^[0-9a-f]{64}$/.test(row.token) ||
-    !(row.expiresAt instanceof Date) ||
-    !Number.isFinite(row.expiresAt.getTime())
+    !expiresAt ||
+    !Number.isFinite(expiresAt.getTime())
   )
     throw new Error('PAYMENT_ATTESTATION_UNAVAILABLE');
-  return { token: row.token, expiresAt: row.expiresAt };
+  return { token: row.token, expiresAt };
 };
 
 export function attestNativePaymentIdentity(
@@ -129,7 +139,7 @@ export function attestNativePaymentIdentity(
       sql`select set_config('app.organization_id',${input.billingOrganizationId},true)`,
     );
     const result =
-      await tx.execute<PaymentAttestation>(sql`select * from billing.attest_payment_identity(
+      await tx.execute<PaymentAttestationRow>(sql`select * from billing.attest_payment_identity(
       ${input.organizationId}::uuid,${input.paymentId}::uuid,${input.billingOrganizationId}::uuid,${input.connectionId}::uuid,
       ${input.processor},${input.adapterVersion},${input.apiOrigin},${input.authoritySha256},${input.identitySha256},
       ${input.accountNamespaceSha256},${input.readReceiptSha256},${input.restoreGeneration}::uuid)`);
@@ -145,7 +155,7 @@ export function attestNativePaymentWebhook(
     await assertPaymentGeneration(tx, input.restoreGeneration);
     await tx.execute(sql`select set_config('app.organization_id',${input.organizationId},true)`);
     const result =
-      await tx.execute<PaymentAttestation>(sql`select * from billing.attest_payment_webhook(
+      await tx.execute<PaymentAttestationRow>(sql`select * from billing.attest_payment_webhook(
       ${input.deliveryId}::uuid,${input.rowVersion},${input.endpointId}::uuid,${input.connectionId}::uuid,${input.signingSecretId}::uuid,
       ${input.processor},${input.adapterVersion},${input.providerEventId},${input.bodySha256},${input.requestDigest},${input.headersSha256},
       ${input.factSha256},${input.accountNamespaceSha256},${input.executionIdentitySha256},${input.restoreGeneration}::uuid)`);
@@ -172,7 +182,7 @@ export function attestNativePaymentLookup(
     await assertPaymentGeneration(tx, input.restoreGeneration);
     await tx.execute(sql`select set_config('app.organization_id',${input.organizationId},true)`);
     const result =
-      await tx.execute<PaymentAttestation>(sql`select * from billing.attest_payment_lookup(
+      await tx.execute<PaymentAttestationRow>(sql`select * from billing.attest_payment_lookup(
       ${input.organizationId}::uuid,${input.paymentId}::uuid,${input.attemptId}::uuid,${input.executionBindingId}::uuid,
       ${input.lookupOperationId}::uuid,${input.restoreGeneration}::uuid,${input.authoritySha256},
       ${input.requestKeySha256},${input.factCanonical})`);

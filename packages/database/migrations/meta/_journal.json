@@ -568,6 +568,20 @@
       "when": 1794201807482,
       "tag": "0520_raw_source_lifecycle_repair",
       "breakpoints": true
+    },
+    {
+      "idx": 81,
+      "version": "7",
+      "when": 1794201807483,
+      "tag": "0521_payment_attestation_schema_usage",
+      "breakpoints": true
+    },
+    {
+      "idx": 82,
+      "version": "7",
+      "when": 1794201807484,
+      "tag": "0522_export_epoch_erasure_advance",
+      "breakpoints": true
     }
   ]
 }

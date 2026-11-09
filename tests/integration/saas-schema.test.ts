@@ -22,6 +22,7 @@ import {
 } from '@ensemus/database';
 import { eq, sql } from 'drizzle-orm';
 import { withAccountTx } from '@ensemus/database/account';
+import { openSecretsDatabase } from '@ensemus/database/secrets';
 import { createServiceContext } from '@ensemus/database/service';
 import { requestOffboarding } from '@ensemus/application/saas/offboarding';
 import { setTenantStandingInTx } from '@ensemus/application/saas/standing';
@@ -35,7 +36,9 @@ import {
   seedPlan,
   seedRateCard,
   seedSubscription,
+  seedTaxTreatment,
 } from '../helpers/saas';
+import { nativePaymentFixture } from '../helpers/native-payment';
 import { urls } from '../helpers/stack';
 import { nativeSovereignContext } from '../helpers/sovereign';
 
@@ -185,12 +188,21 @@ describe('M8 rules in the database', () => {
     expect(seen.rows).toEqual([]);
 
     const approved = await seedRateCard();
+    // 0501 never granted the operator UPDATE on a card's lines, so a price cannot be rewritten at all ...
     await expect(
       asRole('ensemus_operator', (client) =>
         client.query(
           `update billing.rate_card_lines set microcredits_per_unit = 1 where rate_card_id = $1`,
           [approved.rateCardId],
         ),
+      ),
+    ).rejects.toMatchObject({ code: '42501' });
+    // ... and the one line change it does hold, removal, is refused once the card is approved.
+    await expect(
+      asRole('ensemus_operator', (client) =>
+        client.query(`delete from billing.rate_card_lines where rate_card_id = $1`, [
+          approved.rateCardId,
+        ]),
       ),
     ).rejects.toMatchObject({ code: 'EN801' });
     await expect(
@@ -243,8 +255,8 @@ describe('M8 rules in the database', () => {
         subscriptionId: subscription.id,
         billingPeriodId: period.rows[0]!.id,
         planVersionId: plan.planVersionId,
-        totalMicros: 5000n,
-        subtotalMicros: 5000n,
+        totalMicros: 10000n,
+        subtotalMicros: 10000n,
       }),
     );
     await expect(
@@ -258,7 +270,7 @@ describe('M8 rules in the database', () => {
         invoiceId,
         lineNo: 1,
         kind: 'usage',
-        amountMicros: 4000n,
+        amountMicros: 8000n,
       }),
     );
     await expect(
@@ -279,114 +291,61 @@ describe('M8 rules in the database', () => {
   });
 
   it('refuses a second payment attempt while the first could have charged', async () => {
-    const card = await seedRateCard();
-    const plan = await seedPlan({ mode: 'cloud', rateCard: card });
-    const tenant = await makeTenant('saas-pay');
-    const subscription = await seedSubscription(database.db, tenant, plan);
-    const treatment = await asRole('ensemus_operator', async (client) => {
-      const { rows } = await client.query<{ id: string }>(
-        `insert into billing.tax_treatments (country_code, version, treatment, adviser_ref, drafted_by)
-         values ('XP', floor(random() * 1000000)::int + 1, 'not_collected', 'test', 'test') returning id`,
+    // Since 0512 an attempt exists only through the native service path on a broker-attested, bound and
+    // customer-confirmed execution, so the first attempt is a real one, not a tenant-written row.
+    const secretsDb = openSecretsDatabase(urls.secrets());
+    await seedTaxTreatment();
+    const f = await nativePaymentFixture(database.db, auth, secretsDb);
+    try {
+      const { binding } = await f.qualify();
+      await f.register();
+      const first = await f.beginAttempt();
+      if (first.kind !== 'attempt') throw new Error('TEST_EXPECTED_ACTUAL_ATTEMPT');
+      const { paymentId } = f.payment;
+      // The payment's own key, so the refusal below is the in-flight rule and never a key mismatch.
+      const [own] = await withTenantTx(database.db, f.who.service, (tx) =>
+        tx
+          .select({ idempotencyKey: payments.idempotencyKey })
+          .from(payments)
+          .where(eq(payments.id, paymentId)),
       );
-      await client.query(
-        `update billing.tax_treatments set status = 'approved', approved_by = 'test', approved_at = now()
-          where id = $1`,
-        [rows[0]!.id],
-      );
-      return rows[0]!.id;
-    });
-    const invoiceId = randomUUID();
-    const period = await withTenantTx(database.db, tenant, (tx) =>
-      tx.execute<{ id: string }>(sql`
-        insert into billing.billing_periods
-          (organization_id, subscription_id, plan_version_id, starts_at, ends_at)
-        values (${tenant.organizationId}, ${subscription.id}, ${plan.planVersionId},
-                now() - interval '40 days', now() - interval '10 days')
-        returning id`),
-    );
-    await withTenantTx(database.db, tenant, async (tx) => {
-      await tx.insert(invoices).values({
-        organizationId: tenant.organizationId,
-        id: invoiceId,
-        kind: 'subscription',
-        currency: card.currency,
-        subscriptionId: subscription.id,
-        billingPeriodId: period.rows[0]!.id,
-        planVersionId: plan.planVersionId,
-        rateCardId: card.rateCardId,
-        subtotalMicros: 5000n,
-        totalMicros: 5000n,
-      });
-      await tx.insert(invoiceLines).values({
-        organizationId: tenant.organizationId,
-        invoiceId,
-        lineNo: 1,
-        kind: 'platform_fee',
-        amountMicros: 5000n,
-      });
-      await tx
-        .update(invoices)
-        .set({
-          status: 'open',
-          taxTreatmentId: treatment,
-          invoiceNumber: 1,
-          issuedAt: new Date(),
-          dueAt: new Date(),
-          billTo: {},
-        })
-        .where(eq(invoices.id, invoiceId));
-    });
-    const paymentId = randomUUID();
-    await withTenantTx(database.db, tenant, (tx) =>
-      tx.insert(payments).values({
-        organizationId: tenant.organizationId,
-        id: paymentId,
-        invoiceId,
-        amountMicros: 5000n,
-        currency: card.currency,
-        idempotencyKey: `test-${paymentId}`,
-        processor: 'test_processor',
-        requestedByRef: 'test',
-      }),
-    );
-    await withTenantTx(database.db, tenant, (tx) =>
-      tx.insert(paymentAttempts).values({
-        organizationId: tenant.organizationId,
-        paymentId,
-        attemptNo: 1,
-        idempotencyKey: `test-${paymentId}`,
-        runId: 'test-run',
-      }),
-    );
-    await expect(
-      withTenantTx(database.db, tenant, (tx) =>
-        tx.insert(paymentAttempts).values({
-          organizationId: tenant.organizationId,
-          paymentId,
-          attemptNo: 2,
-          idempotencyKey: `test-${paymentId}`,
-          runId: 'test-run-2',
-        }),
-      ),
-    ).rejects.toEqual(sqlState('EN803'));
-    await expect(
-      withTenantTx(database.db, tenant, (tx) =>
-        tx.update(payments).set({ status: 'succeeded' }).where(eq(payments.id, paymentId)),
-      ),
-    ).rejects.toEqual(sqlState('EN803'));
-    await expect(
-      withTenantTx(database.db, tenant, (tx) =>
-        tx.insert(payments).values({
-          organizationId: tenant.organizationId,
-          invoiceId,
-          amountMicros: 1n,
-          currency: card.currency,
-          idempotencyKey: `test-other-${paymentId}`,
-          processor: 'test_processor',
-          requestedByRef: 'test',
-        }),
-      ),
-    ).rejects.toEqual(sqlState('EN803'));
+      if (!own) throw new Error('TEST_EXPECTED_ACTUAL_PAYMENT');
+      // The same native service identity and binding still cannot open a second attempt beside it: the
+      // first one left the payment sending, so it could have charged.
+      await expect(
+        withTenantTx(database.db, f.who.service, (tx) =>
+          tx.insert(paymentAttempts).values({
+            organizationId: f.who.owner.organizationId,
+            paymentId,
+            attemptNo: 2,
+            idempotencyKey: own.idempotencyKey,
+            runId: 'test-run-2',
+            executionBindingId: binding.id,
+          }),
+        ),
+      ).rejects.toEqual(sqlState('EN803'));
+      await expect(
+        withTenantTx(database.db, f.who.owner, (tx) =>
+          tx.update(payments).set({ status: 'succeeded' }).where(eq(payments.id, paymentId)),
+        ),
+      ).rejects.toEqual(sqlState('EN803'));
+      await expect(
+        withTenantTx(database.db, f.who.owner, (tx) =>
+          tx.insert(payments).values({
+            organizationId: f.who.owner.organizationId,
+            invoiceId: f.who.invoice.id,
+            amountMicros: f.who.invoice.totalMicros,
+            currency: f.who.invoice.currency,
+            idempotencyKey: `test-other-${paymentId}`,
+            processor: 'test_scripted',
+            requestedByRef: 'test',
+          }),
+        ),
+      ).rejects.toEqual(sqlState('EN803'));
+    } finally {
+      await f.close();
+      await secretsDb.close();
+    }
   });
 
   it('keeps the balance what the ledger adds up to, and credits no unpaid top-up', async () => {

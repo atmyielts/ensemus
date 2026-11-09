@@ -4,13 +4,18 @@
 import { randomUUID } from 'node:crypto';
 import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { createWorkUnit } from '@ensemus/application';
+import { createAgentDraft } from '@ensemus/application/agent-drafts';
+import { authorizeOutcome, composeOutcome } from '@ensemus/application/outcomes';
 import { assertRecentMfa } from '@ensemus/application/privileged';
+import { createRuntimeProductPorts } from '@ensemus/application/product-runtime';
+import { requestSimulation, runSimulationStep } from '@ensemus/application/simulations';
 import { openAppDatabase, withTenantTx } from '@ensemus/database';
+import { createServiceContext } from '@ensemus/database/service';
 import {
   objectRecords,
   objectTypes,
   objectTypeVersions,
+  outcomeDrafts,
   packCapabilityReviews,
   packInstallations,
   processSpecs,
@@ -23,8 +28,15 @@ import {
   withSsoProviderTx,
 } from '@ensemus/database/product';
 import { and, eq, sql } from 'drizzle-orm';
-import { makeTwoTenants, proveSecondFactor } from '../helpers/product';
+import { inFixtureTenant } from '../helpers/fixture-tenant';
+import {
+  makeTwoTenants,
+  proveSecondFactor,
+  testAnswers,
+  type TestPerson,
+} from '../helpers/product';
 import { urls } from '../helpers/stack';
+import { publishReviewedProcess } from '../helpers/studio';
 
 const client = async (url: string) => {
   const c = new pg.Client({ connectionString: url });
@@ -34,6 +46,17 @@ const client = async (url: string) => {
 
 const sqlState = (code: string) =>
   expect.objectContaining({ cause: expect.objectContaining({ code }) });
+/** The exact rule that refused, where a later guard (0412 Studio admission) now answers first. */
+const sqlRule = (code: string, message: string) =>
+  expect.objectContaining({ cause: expect.objectContaining({ code, message }) });
+
+/** drizzle wraps the driver error, so a privilege refusal is read from its cause. */
+const denied = expect.objectContaining({
+  cause: expect.objectContaining({
+    code: '42501',
+    message: expect.stringMatching(/permission denied/),
+  }),
+});
 
 const HASH = 'a'.repeat(64);
 
@@ -53,29 +76,36 @@ describe('product rules in the database', () => {
     await su?.end();
   });
 
-  const seedSimulation = async (
-    status: 'passed' | 'failed' = 'passed',
-    subjectId = randomUUID(),
-  ) => {
+  // A real draft, its native simulation intent and the real worker step (0412): no direct status seed. The
+  // draft only holds work.read and artifact.draft.create, so the email scenario is a genuine failure.
+  const seedSimulation = async (status: 'passed' | 'failed' = 'passed') => {
     const { owner } = tenants.a;
-    const id = randomUUID();
-    await withTenantTx(database.db, owner.context, async (tx) => {
-      await tx.insert(simulationRuns).values({
-        organizationId: owner.context.organizationId,
-        id,
-        subjectKind: 'agent_draft',
-        subjectId,
-        subjectSha256: HASH,
-        scenarioKey: 'test',
-        requestedByMembershipId: owner.context.membershipId,
-      });
-      await tx.update(simulationRuns).set({ status: 'running' }).where(eq(simulationRuns.id, id));
-      await tx
-        .update(simulationRuns)
-        .set({ status, report: {}, reportSha256: HASH })
-        .where(eq(simulationRuns.id, id));
+    const draft = await createAgentDraft(
+      database.db,
+      owner.context,
+      createRuntimeProductPorts(database.db),
+      {
+        name: `Generated subject ${randomUUID().slice(0, 8)}`,
+        answers: testAnswers(owner.context.membershipId),
+      },
+    );
+    const simulation = await requestSimulation(database.db, owner.context, {
+      subject: { kind: 'agent_draft', draftId: draft.id },
+      scenarioKey: status === 'passed' ? 'standard.draft_only' : 'standard.external_write',
     });
-    return { id, subjectId };
+    const outcome = await runSimulationStep(
+      database.db,
+      createServiceContext(owner.context.organizationId),
+      { simulationId: simulation.id },
+    );
+    if (outcome !== status) throw new Error(`TEST_SIMULATION_${outcome}`);
+    return {
+      id: simulation.id,
+      subjectId: draft.id,
+      subjectSha256: draft.specSha256!,
+      subjectName: draft.name,
+      ownerMembershipId: owner.context.membershipId,
+    };
   };
 
   it('gives the dispatcher and the secrets role nothing in the new schemas', async () => {
@@ -144,11 +174,23 @@ describe('product rules in the database', () => {
   });
 
   describe('SSO', () => {
+    // SSO management needs a recent second factor on the acting session (0404), exactly as
+    // createSsoConnection asks for one. Every rule below is then refused by its own check, not by MFA.
+    const asManager = async <T>(
+      person: TestPerson,
+      work: (tx: Parameters<Parameters<typeof withTenantTx>[2]>[0]) => Promise<T>,
+    ) => {
+      await proveSecondFactor(person);
+      return withTenantTx(database.db, person.context, async (tx) => {
+        await assertRecentMfa(tx, person.context, 'sso.manage', { sessionId: person.sessionId });
+        return work(tx);
+      });
+    };
     const connection = async (domain: string) => {
       const { owner } = tenants.a;
       const id = randomUUID();
       const providerId = `saml-${id}`;
-      await withTenantTx(database.db, owner.context, (tx) =>
+      await asManager(owner, (tx) =>
         tx.insert(ssoConnections).values({
           organizationId: owner.context.organizationId,
           id,
@@ -165,15 +207,15 @@ describe('product rules in the database', () => {
       const { owner } = tenants.a;
       const { id } = await connection(`${randomUUID()}.example.invalid`);
       await expect(
-        withTenantTx(database.db, owner.context, (tx) =>
+        asManager(owner, (tx) =>
           tx
             .update(ssoConnections)
             .set({ domainState: 'verified' })
             .where(eq(ssoConnections.id, id)),
         ),
-      ).rejects.toThrow();
+      ).rejects.toEqual(denied);
       await expect(
-        withTenantTx(database.db, owner.context, (tx) =>
+        asManager(owner, (tx) =>
           tx.insert(ssoConnections).values({
             organizationId: owner.context.organizationId,
             providerId: `saml-${randomUUID()}`,
@@ -190,7 +232,7 @@ describe('product rules in the database', () => {
       const { owner } = tenants.a;
       const { id } = await connection(`${randomUUID()}.example.invalid`);
       await expect(
-        withTenantTx(database.db, owner.context, (tx) =>
+        asManager(owner, (tx) =>
           tx.update(ssoConnections).set({ state: 'active' }).where(eq(ssoConnections.id, id)),
         ),
       ).rejects.toThrow();
@@ -207,7 +249,7 @@ describe('product rules in the database', () => {
       const first = await connection(domain);
       const { owner } = tenants.b;
       const secondId = randomUUID();
-      await withTenantTx(database.db, owner.context, (tx) =>
+      await asManager(owner, (tx) =>
         tx.insert(ssoConnections).values({
           organizationId: owner.context.organizationId,
           id: secondId,
@@ -217,25 +259,31 @@ describe('product rules in the database', () => {
           createdByMembershipId: owner.context.membershipId,
         }),
       );
-      await su.query(`update org.sso_connections set domain_state = 'verified' where id = $1`, [
-        first.id,
-      ]);
-      await expect(
+      await inFixtureTenant(su, tenants.a.organizationId, () =>
         su.query(`update org.sso_connections set domain_state = 'verified' where id = $1`, [
-          secondId,
+          first.id,
         ]),
+      );
+      await expect(
+        inFixtureTenant(su, owner.context.organizationId, () =>
+          su.query(`update org.sso_connections set domain_state = 'verified' where id = $1`, [
+            secondId,
+          ]),
+        ),
       ).rejects.toThrow(/sso_connections_verified_domain_idx/);
     });
 
     it('binds a SCIM token to its own tenant and nothing else', async () => {
       const { owner } = tenants.a;
       const { id } = await connection(`${randomUUID()}.example.invalid`);
-      await su.query(
-        `update org.sso_connections set domain_state = 'verified', state = 'active' where id = $1`,
-        [id],
+      await inFixtureTenant(su, owner.context.organizationId, () =>
+        su.query(
+          `update org.sso_connections set domain_state = 'verified', state = 'active' where id = $1`,
+          [id],
+        ),
       );
       const tokenHash = randomUUID();
-      await withTenantTx(database.db, owner.context, (tx) =>
+      await asManager(owner, (tx) =>
         tx.insert(scimTokens).values({
           organizationId: owner.context.organizationId,
           connectionId: id,
@@ -274,9 +322,24 @@ describe('product rules in the database', () => {
         ),
       ).rejects.toEqual(sqlState('EN401'));
       const { id } = await seedSimulation();
+      // A person is not the simulation worker at all (0412) ...
       await expect(
         withTenantTx(database.db, owner.context, (tx) =>
           tx.update(simulationRuns).set({ status: 'failed' }).where(eq(simulationRuns.id, id)),
+        ),
+      ).rejects.toEqual(sqlRule('EN412', 'SIMULATION_INTENT_REQUIRED'));
+      // ... and even the actual worker scope runSimulationStep uses cannot change a finished run.
+      await expect(
+        withTenantTx(
+          database.db,
+          createServiceContext(owner.context.organizationId),
+          async (tx) => {
+            await tx.execute(sql`select set_config('app.studio_simulation_id',${id},true)`);
+            await tx
+              .update(simulationRuns)
+              .set({ status: 'failed' })
+              .where(eq(simulationRuns.id, id));
+          },
         ),
       ).rejects.toEqual(sqlState('EN401'));
     });
@@ -291,12 +354,11 @@ describe('product rules in the database', () => {
             .set({ subjectSha256: 'b'.repeat(64) })
             .where(eq(simulationRuns.id, id)),
         ),
-      ).rejects.toThrow(/permission denied/);
+      ).rejects.toEqual(denied);
     });
 
     const review = (
-      simulationRunId: string,
-      subjectId: string,
+      simulation: Awaited<ReturnType<typeof seedSimulation>>,
       overrides: Partial<typeof publishReviews.$inferInsert> = {},
     ) => {
       const { owner } = tenants.a;
@@ -306,9 +368,11 @@ describe('product rules in the database', () => {
           .values({
             organizationId: owner.context.organizationId,
             subjectKind: 'agent_draft',
-            subjectId,
-            subjectSha256: HASH,
-            simulationRunId,
+            subjectId: simulation.subjectId,
+            subjectSha256: simulation.subjectSha256,
+            subjectOwnerMembershipId: simulation.ownerMembershipId,
+            subjectName: simulation.subjectName,
+            simulationRunId: simulation.id,
             riskLevel: 'elevated',
             riskSummary: [],
             requestedByMembershipId: owner.context.membershipId,
@@ -319,20 +383,35 @@ describe('product rules in the database', () => {
       });
     };
 
+    // 0412's review authority runs before 0401's check, so the same refusals now carry its code.
     it('needs a passed simulation of exactly this hash', async () => {
       const failed = await seedSimulation('failed');
-      await expect(review(failed.id, failed.subjectId)).rejects.toEqual(sqlState('EN402'));
+      await expect(review(failed)).rejects.toEqual(sqlRule('EN412', 'REVIEW_SIMULATION_MISMATCH'));
       const passed = await seedSimulation();
+      await expect(review(passed, { subjectSha256: 'b'.repeat(64) })).rejects.toEqual(
+        sqlRule('EN412', 'REVIEW_SUBJECT_CHANGED'),
+      );
+      await expect(review(passed, { subjectId: randomUUID() })).rejects.toEqual(
+        sqlRule('EN412', 'REVIEW_SUBJECT_CHANGED'),
+      );
+      // A real, different draft cannot borrow another draft's passed simulation.
+      const other = await seedSimulation();
       await expect(
-        review(passed.id, passed.subjectId, { subjectSha256: 'b'.repeat(64) }),
-      ).rejects.toEqual(sqlState('EN402'));
-      await expect(review(passed.id, randomUUID())).rejects.toEqual(sqlState('EN402'));
+        review(passed, {
+          subjectId: other.subjectId,
+          subjectSha256: other.subjectSha256,
+          subjectName: other.subjectName,
+        }),
+      ).rejects.toEqual(sqlRule('EN412', 'REVIEW_SIMULATION_MISMATCH'));
     });
 
     it('needs a second person for elevated risk, whatever the application does', async () => {
       const { owner, admin } = tenants.a;
       const passed = await seedSimulation();
-      const id = await review(passed.id, passed.subjectId);
+      const id = await review(passed);
+      // Both people hold a recent second factor, so only the second-person rule is left to refuse.
+      await proveSecondFactor(owner);
+      await proveSecondFactor(admin);
       await expect(
         withTenantTx(database.db, owner.context, (tx) =>
           tx
@@ -360,20 +439,23 @@ describe('product rules in the database', () => {
 
   it('keeps a process spec exactly as it was published, for every role', async () => {
     const { owner } = tenants.a;
-    const id = randomUUID();
-    await withTenantTx(database.db, owner.context, (tx) =>
-      tx.insert(processSpecs).values({
-        organizationId: owner.context.organizationId,
-        id,
-        processKey: `test-${randomUUID().slice(0, 8)}`,
-        versionNumber: 1,
-        name: 'Test',
-        classification: 'internal',
-        spec: {},
-        specSha256: HASH,
-        source: 'graph',
-        publishedByMembershipId: owner.context.membershipId,
-      }),
+    // Published through the real draft, simulation, second-person review and MFA path (0412).
+    const { specId: id } = await publishReviewedProcess(
+      database.db,
+      owner.context,
+      {
+        schemaVersion: 1,
+        nodes: [
+          { id: 'start', kind: 'start', label: 'Start', x: 0, y: 0 },
+          { id: 'prepare', kind: 'work_item', label: 'Prepare the generated report', x: 100, y: 0 },
+          { id: 'end', kind: 'end', label: 'End', x: 200, y: 0 },
+        ],
+        edges: [
+          { from: 'start', to: 'prepare' },
+          { from: 'prepare', to: 'end' },
+        ],
+      },
+      `Generated spec ${randomUUID().slice(0, 8)}`,
     );
     await expect(
       withTenantTx(database.db, owner.context, (tx) =>
@@ -437,7 +519,7 @@ describe('product rules in the database', () => {
         withTenantTx(database.db, owner.context, (tx) =>
           tx
             .update(objectTypes)
-            .set({ classification: 'internal' })
+            .set({ classification: 'internal', version: sql`${objectTypes.version} + 1` })
             .where(eq(objectTypes.id, typeId)),
         ),
       ).rejects.toEqual(sqlState('EN403'));
@@ -456,7 +538,7 @@ describe('product rules in the database', () => {
         });
         await tx
           .update(objectTypes)
-          .set({ classification: 'restricted' })
+          .set({ classification: 'restricted', version: sql`${objectTypes.version} + 1` })
           .where(eq(objectTypes.id, typeId));
       });
       const [row] = await withTenantTx(database.db, owner.context, (tx) =>
@@ -570,23 +652,33 @@ describe('product rules in the database', () => {
 
     it('keeps an authorized outcome as it was authorized', async () => {
       const { owner } = tenants.a;
-      const work = await createWorkUnit(database.db, owner.context, { title: 'Test outcome' });
-      const id = randomUUID();
-      await su.query(
-        `insert into experience.outcome_drafts
-           (organization_id, id, objective, preview, preview_sha256, created_by_membership_id)
-         values ($1, $2, 'Objective', '{}', $3, $4)`,
-        [owner.context.organizationId, id, HASH, owner.context.membershipId],
-      );
-      await su.query(
-        `update experience.outcome_drafts
-            set status = 'authorized', work_unit_id = $2, authorized_by_membership_id = $3
-          where id = $1`,
-        [id, work.id, owner.context.membershipId],
-      );
+      // Composed and authorized through the real outcome path (0413), which births its Work.
+      const draft = await composeOutcome(database.db, owner.context, {
+        objective: 'Prepare a source-backed report by Friday',
+        today: '2026-11-06',
+      });
+      await authorizeOutcome(database.db, owner.context, {
+        draftId: draft.id,
+        expectedVersion: draft.version,
+        previewSha256: draft.previewSha256,
+      });
+      // 0413 replaced 0401's OUTCOME_FINISHED: its author cannot change a finished outcome ...
       await expect(
-        su.query(`update experience.outcome_drafts set objective = 'Changed' where id = $1`, [id]),
-      ).rejects.toThrow(/OUTCOME_FINISHED/);
+        withTenantTx(database.db, owner.context, (tx) =>
+          tx
+            .update(outcomeDrafts)
+            .set({ objective: 'Changed', version: sql`${outcomeDrafts.version} + 1` })
+            .where(eq(outcomeDrafts.id, draft.id)),
+        ),
+      ).rejects.toEqual(sqlRule('EN413', 'OUTCOME_IMMUTABLE'));
+      // ... and a superuser, who is no native person at all, cannot either.
+      await expect(
+        inFixtureTenant(su, owner.context.organizationId, () =>
+          su.query(`update experience.outcome_drafts set objective = 'Changed' where id = $1`, [
+            draft.id,
+          ]),
+        ),
+      ).rejects.toThrow(/OUTCOME_PERSON_REQUIRED/);
     });
   });
 
