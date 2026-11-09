@@ -1,7 +1,9 @@
 // AGENT-06, Journey B: what a person sees of a run, and starting and stopping one, in a real browser.
 // Written and typechecked. It has not been run yet: it needs the stack, with the role provisioning step
 // in ADR-028. Agents and models are seeded directly, because their own pages belong to other slices, and
-// no worker runs here, so the run's later states are moved by hand as the agent role would move them.
+// no worker runs here, so the run's later states are moved by hand as the agent role would move them,
+// and its step is written through the run's own admission, as the worker writes one
+// (support/agent-run-seed.ts).
 import { randomUUID } from 'node:crypto';
 import {
   modelProfiles,
@@ -15,6 +17,7 @@ import pg from 'pg';
 import { BASE, formOn, onReplica, post, read, visit, type Person } from '../../helpers/forms';
 import { nativeModelContext } from '../../helpers/knowledge-models';
 import { urls } from '../../helpers/stack';
+import { seedRun } from '../support/agent-run-seed';
 import { expect, test } from '../support/fixtures';
 import { axeFindings } from '../support/look';
 import { createWork, superuser } from '../support/world';
@@ -154,66 +157,6 @@ async function seedAgent(
       [organization, new Date().toISOString().slice(0, 7)],
     );
     return { versionId };
-  } finally {
-    await agent.end();
-    await sql.end();
-  }
-}
-
-/** A run walked forward, as a worker would, with steps, and model text only the agent role can read. */
-async function seedRun(input: {
-  organization: string;
-  workUnitId: string;
-  versionId: string;
-  initiatorMembership: string;
-  path: readonly string[];
-  stopCode?: string;
-  canary?: string;
-}) {
-  const agent = new pg.Client({ connectionString: urls.agent() });
-  const sql = await superuser();
-  await agent.connect();
-  try {
-    const runId = randomUUID();
-    // Born in its own tenant's context, as the birth fence (0529, 0533) requires.
-    await sql.query(`select set_config('app.organization_id', $1, false)`, [input.organization]);
-    await sql.query(
-      `insert into ai.agent_runs
-         (organization_id, id, work_unit_id, agent_version_id, initiator_membership_id,
-          service_identity_id, effective_classification, max_model_turns, max_tool_calls,
-          max_total_tokens, max_cost_micros, timeout_seconds, delegated_scopes)
-       select $1, $2, $3, $4, $5, d.service_identity_id, 'internal', 5, 5, 10000, 1000000, 60,
-              '{"tools":["work.read"]}'
-         from ai.agent_versions v
-         join ai.agent_definitions d
-           on d.organization_id = v.organization_id and d.id = v.definition_id
-        where v.id = $4`,
-      [input.organization, runId, input.workUnitId, input.versionId, input.initiatorMembership],
-    );
-    await agent.query(`select set_config('app.organization_id', $1, false)`, [input.organization]);
-    for (const status of input.path) {
-      await agent.query(`update ai.agent_runs set status = $2, stop_code = $3 where id = $1`, [
-        runId,
-        status,
-        status === input.path.at(-1) ? (input.stopCode ?? null) : null,
-      ]);
-    }
-    const stepId = randomUUID();
-    await agent.query(
-      `insert into ai.execution_steps
-         (organization_id, id, run_id, step_number, kind, state, label_code, outcome)
-       values ($1, $2, $3, 0, 'model_turn', 'completed', 'THINKING', 'tool_proposed')`,
-      [input.organization, stepId, runId],
-    );
-    if (input.canary) {
-      await agent.query(
-        `insert into ai.step_payloads
-           (organization_id, step_id, kind, classification, content, content_sha256)
-         values ($1, $2, 'completion', 'internal', $3, $4)`,
-        [input.organization, stepId, input.canary, '0'.repeat(64)],
-      );
-    }
-    return runId;
   } finally {
     await agent.end();
     await sql.end();

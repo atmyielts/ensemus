@@ -157,8 +157,8 @@
     },
     {
       "path": "02-architecture/10-nextjs-application-and-authorization.md",
-      "size_bytes": 3951,
-      "sha256": "2b6d06fc9f9ff2e8bd2623b68ad308040278c686a97e4651d9a2678ca2e6d6e2"
+      "size_bytes": 5873,
+      "sha256": "0689b3452817b14e85ee314353e075be3bf8d55da308f4cba73494f086d76a1d"
     },
     {
       "path": "02-architecture/11-monorepo-and-module-contracts.md",
