@@ -736,6 +736,13 @@
       "when": 1794201807506,
       "tag": "0544_shared_upload_after_purge_r5blob",
       "breakpoints": true
+    },
+    {
+      "idx": 105,
+      "version": "7",
+      "when": 1794201807507,
+      "tag": "0545_auth_restore_sso_revocation_r6restore",
+      "breakpoints": true
     }
   ]
 }

@@ -41,6 +41,16 @@ export function restoreCommandReason(error: unknown): string {
     if ('code' in current) {
       if (current.code === '55P03') return 'AUTH_RESTORE_BUSY';
       if (current.code === '42883') return 'AUTH_RESTORE_SCHEMA_UNAVAILABLE';
+      // A database guard's own refusal is a fixed code (RAISE EXCEPTION 'CODE'), never a value, so an
+      // operator can see which guard stopped the step. Any other database message is not repeated.
+      if (
+        typeof current.code === 'string' &&
+        /^[0-9A-Z]{5}$/.test(current.code) &&
+        'message' in current &&
+        typeof current.message === 'string' &&
+        /^[A-Z][A-Z0-9_]{2,79}$/.test(current.message)
+      )
+        return current.message;
     }
     current = 'cause' in current ? current.cause : undefined;
   }

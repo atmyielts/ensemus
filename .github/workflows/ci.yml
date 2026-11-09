@@ -89,7 +89,8 @@ jobs:
     # worker recreated as a hosted deployment (ENSEMUS_MODE=cloud, ENSEMUS_BILLING_ENABLED=true), API-12's check
     # over what every suite recorded, a bundle of every image, six outages with real answers to wait for, and a
     # restore over the whole stack last. air-gap-gate.mjs runs each in that order, all with outbound blocked.
-    timeout-minutes: 60
+    # The restore waits out 0422's fixed 15-minute cooldown before it acknowledges and serves anyone again.
+    timeout-minutes: 80
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0

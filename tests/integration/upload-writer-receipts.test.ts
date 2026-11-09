@@ -417,8 +417,13 @@ describe('ordinary upload writer receipts (0539) and late sharing writers (0544)
   });
 
   describe('a sharing writer whose PUT lands after the shared file was deleted (0544)', () => {
-    /** Two requests from one form: the first publishes; the second registered first and waits. */
-    async function sharedUpload(owner: TenantContext, store: HookedStore) {
+    /** Two requests from one form: the first publishes; the second registered first and waits.
+     * `whileUploading` runs once the second has registered, while the shared row is still uploading. */
+    async function sharedUpload(
+      owner: TenantContext,
+      store: HookedStore,
+      whileUploading?: (key: string, body: Buffer) => Promise<void>,
+    ) {
       const work = await createWorkUnit(app.db, owner, { title: 'Generated late writer work' });
       const input = {
         workUnitId: work.id,
@@ -432,8 +437,12 @@ describe('ordinary upload writer receipts (0539) and late sharing writers (0544)
       let send!: () => void;
       const gate = new Promise<void>((resolve) => (send = resolve));
       const late = new HookedStore();
-      late.beforePut = async () => {
-        reached();
+      late.beforePut = async (key) => {
+        try {
+          await whileUploading?.(key, input.body);
+        } finally {
+          reached();
+        }
         await gate;
       };
       late.afterPut = async (key) => {
@@ -522,6 +531,78 @@ describe('ordinary upload writer receipts (0539) and late sharing writers (0544)
       expect(await blobState(owner, f.first.id)).toBe('purged');
       expect(await claimStates(owner.organizationId, f.key)).toEqual(['proven']);
       expect(await purgeDueBlobs(app.db, store, owner, later())).toEqual({ purged: 0, failed: 0 });
+    });
+
+    it('refuses to owe a purged row whose key is not its ordinary one, and changes nothing', async () => {
+      const owner = await tenant(),
+        store = new HookedStore(),
+        writeId = randomUUID();
+      // A writer of this test's own, registered while the shared row is still uploading, so the
+      // settlement below is the same call the uploader makes after its PUT.
+      let mine: boolean | undefined;
+      const f = await sharedUpload(owner, store, async (key, body) => {
+        mine = await register(owner, idOf(key), writeId, hashOf(body));
+      });
+      expect(mine).toBe(true);
+      await deleteArtifact(app.db, store, owner, { workUnitId: f.work.id, artifactId: f.first.id });
+      expect(await blobState(owner, f.first.id)).toBe('purged');
+      // No production path gives an ordinary upload row another key: every writer is registered only
+      // under tenant/artifacts/id (0539). The generated fixture writes the row an inconsistent repair or
+      // restore would leave, as the superuser, so 0544's refusal is reached (0544 lines 70-75).
+      const otherKey = objectKey(owner.organizationId, randomUUID());
+      const su = new pg.Client({ connectionString: urls.superuser() });
+      await su.connect();
+      try {
+        await inFixtureTenant(su, owner.organizationId, () =>
+          su.query(
+            `update platform.blob_lifecycle set object_key=$3
+             where organization_id=$1 and artifact_id=$2 and state='purged'`,
+            [owner.organizationId, f.first.id, otherKey],
+          ),
+        );
+        await expect(settle(owner, f.first.id, writeId)).rejects.toEqual(
+          expect.objectContaining({
+            cause: expect.objectContaining({ code: 'EN850', message: 'OBJECT_DELETE_UNCONFIRMED' }),
+          }),
+        );
+        // The refusal rolled the whole settlement back: still purged under that key, the writer
+        // still registered, and no new claim on either key.
+        const row = await su.query<{ state: string; object_key: string; purged: boolean }>(
+          `select state, object_key, purged_at is not null as purged from platform.blob_lifecycle
+           where organization_id=$1 and artifact_id=$2`,
+          [owner.organizationId, f.first.id],
+        );
+        expect(row.rows).toEqual([{ state: 'purged', object_key: otherKey, purged: true }]);
+        const writer = await su.query<{ state: string }>(
+          `select state from lifecycle.upload_writes
+           where organization_id=$1 and artifact_id=$2 and write_id=$3`,
+          [owner.organizationId, f.first.id, writeId],
+        );
+        expect(writer.rows).toEqual([{ state: 'registered' }]);
+      } finally {
+        await su.end();
+      }
+      expect(await claimStates(owner.organizationId, f.key)).toEqual(['proven']);
+      expect(await claimStates(owner.organizationId, otherKey)).toEqual([]);
+      // The same row under its ordinary key is owed again, so the refusal above is the key's alone.
+      const su2 = new pg.Client({ connectionString: urls.superuser() });
+      await su2.connect();
+      try {
+        await inFixtureTenant(su2, owner.organizationId, () =>
+          su2.query(
+            `update platform.blob_lifecycle set object_key=$3
+             where organization_id=$1 and artifact_id=$2 and state='purged'`,
+            [owner.organizationId, f.first.id, f.key],
+          ),
+        );
+      } finally {
+        await su2.end();
+      }
+      expect(await settle(owner, f.first.id, writeId)).toBe('owed');
+      expect(await blobState(owner, f.first.id)).toBe('deleting');
+      // Let the sharing request finish; its own settlement answers on the now-owed row.
+      f.send();
+      await f.sharing;
     });
   });
 });
