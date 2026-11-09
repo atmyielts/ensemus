@@ -42,8 +42,8 @@
     },
     {
       "path": "00-foundation/adr/ADR-026-tombstones-survive-restore.md",
-      "size_bytes": 19371,
-      "sha256": "acbaed5614cc383f95fdbc7817c2b93e17182ad7b29afacf12da5fcefe898bea"
+      "size_bytes": 20936,
+      "sha256": "4a3b37c7e8e6a3dd1c9d349218232fac80949224cd3e61e91e4dcf18334fcd60"
     },
     {
       "path": "00-foundation/adr/ADR-027-verified-external-actions.md",
@@ -157,8 +157,8 @@
     },
     {
       "path": "02-architecture/10-nextjs-application-and-authorization.md",
-      "size_bytes": 5873,
-      "sha256": "0689b3452817b14e85ee314353e075be3bf8d55da308f4cba73494f086d76a1d"
+      "size_bytes": 6287,
+      "sha256": "9adacddb035399657ab29185bf39d43c640b6d3884811268ae1ca47b58042f88"
     },
     {
       "path": "02-architecture/11-monorepo-and-module-contracts.md",
@@ -317,8 +317,8 @@
     },
     {
       "path": "05-operations/sovereign/backup-and-restore.md",
-      "size_bytes": 23982,
-      "sha256": "79944fc87ab4710391b9b056821f7444dd522622e2df0ece90b0961025ed2a94"
+      "size_bytes": 25424,
+      "sha256": "e997ba30ece1b4c4f994bb2dd05a0ea39b01b0bd578ced9b129f76f306612ce7"
     },
     {
       "path": "05-operations/sovereign/diagnostics.md",
@@ -1062,8 +1062,8 @@
     },
     {
       "path": "specifications/openapi.yaml",
-      "size_bytes": 374749,
-      "sha256": "d0085ac47df4ba55310bbf7ba0dc918ed92bd65bc89f912e4868531587da1b54"
+      "size_bytes": 374944,
+      "sha256": "24910012e9b133f9b87c09baeba322f715b39d22f2ab4559fe1428747f517394"
     },
     {
       "path": "specifications/qa-scenarios.csv",
