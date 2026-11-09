@@ -550,10 +550,17 @@ export async function decidePublishReview(
   });
 }
 
+/** What a publication returns: the review it settled, and the immutable version or spec it produced. */
+export type PublicationReceipt = { id: string; publishedRef: string };
+
 /**
  * Needs `studio.publish` and recent MFA. Under a lock: the draft's current hash still equals the review's,
  * or SIMULATION_STALE. M4 publication joins this transaction through an actual savepoint: its activation
  * and the review receipt either both commit or both roll back. A process uses publishProcessSpecInTx.
+ *
+ * The transaction's own result names the review (`id`). An idempotent caller stores that result, not the
+ * value its wrapper returns afterwards, so a receipt without the review's id committed the publication and
+ * then answered INVALID_STATE (409) to the HTTP route, the native form and every replay of the same key.
  */
 export async function publishApproved(
   database: AppDatabase,
@@ -561,19 +568,23 @@ export async function publishApproved(
   ports: Pick<ProductPorts, 'agentRegistry'>,
   proof: SessionProof | null,
   input: { reviewId: string; expectedVersion: number },
-): Promise<{ publishedRef: string }> {
-  return withTenantTx(database, context, async (tx) => {
+): Promise<PublicationReceipt> {
+  return withTenantTx(database, context, async (tx): Promise<PublicationReceipt> => {
     const actor = await studioPerson(tx, context, 'studio.publish');
     await assertRecentMfa(tx, actor, 'studio.publish', proof);
     const [receipt] = await tx
-      .select({ status: publishReviews.status, publishedRef: publishReviews.publishedRef })
+      .select({
+        id: publishReviews.id,
+        status: publishReviews.status,
+        publishedRef: publishReviews.publishedRef,
+      })
       .from(publishReviews)
       .where(eq(publishReviews.id, canonicalId(input.reviewId)));
     if (receipt?.status === 'published' && receipt.publishedRef)
-      return { publishedRef: receipt.publishedRef };
+      return { id: receipt.id, publishedRef: receipt.publishedRef };
     const { review, current } = await lockedReview(tx, actor, input.reviewId);
     if (review.status === 'published' && review.publishedRef)
-      return { publishedRef: review.publishedRef };
+      return { id: review.id, publishedRef: review.publishedRef };
     if (review.version !== input.expectedVersion) throw new AppError('VERSION_CONFLICT');
     if (review.status !== 'approved') throw new AppError('REVIEW_NOT_APPROVED');
     if (current.hash !== review.subjectSha256) throw new AppError('SIMULATION_STALE');
@@ -674,6 +685,6 @@ export async function publishApproved(
         published_ref: publishedRef,
       },
     });
-    return { publishedRef };
+    return { id: review.id, publishedRef };
   });
 }

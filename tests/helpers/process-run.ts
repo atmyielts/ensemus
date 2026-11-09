@@ -31,8 +31,13 @@ export async function publishGeneratedProcess(person: Person, organization: stri
       },
       body: JSON.stringify(body),
     });
-    if (!response.ok) throw new Error(`TEST_PUBLICATION_HTTP_${response.status}`);
-    return (await response.json()) as Record<string, unknown>;
+    const answer = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+    // The fixed refusal code says which precondition refused; it never carries request content.
+    if (!response.ok)
+      throw new Error(
+        `TEST_PUBLICATION_HTTP_${response.status}:${method} ${suffix.replace(/[0-9a-f-]{36}/g, '{id}')}:${String(answer.code)}`,
+      );
+    return answer;
   }
   const name = `Generated human workflow ${randomUUID().slice(0, 8)}`,
     draft = await call('POST', '/process-drafts', { name, classification: 'internal' });
@@ -99,6 +104,11 @@ export async function publishGeneratedProcess(person: Person, organization: stri
     {},
     review.version,
   );
-  if (typeof published.published_ref !== 'string') throw new Error('TEST_PUBLICATION_REFUSED');
+  if (
+    published.id !== reviewId ||
+    published.status !== 'published' ||
+    typeof published.published_ref !== 'string'
+  )
+    throw new Error('TEST_PUBLICATION_REFUSED');
   return { specId: published.published_ref, name };
 }
