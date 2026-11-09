@@ -1,5 +1,6 @@
 import { openAccountExportArchive } from '@ensemus/application/saas/exports';
 import { errorCode } from '@ensemus/telemetry';
+import { declaredLength } from '@/lib/declared-length';
 import { apiLog, apiRoute } from '@/server/api';
 import { getStore } from '@/server/runtime';
 import { archiveHeaders, archiveStream, exportParams } from '@/server/sovereign-dto';
@@ -16,7 +17,11 @@ export const GET = apiRoute(
     const body = archiveStream(archive.chunks, (error) =>
       apiLog.error('export.download_failed', { requestId, errorCode: errorCode(error) }),
     );
-    return new Response(body, { headers: archiveHeaders(archive) });
+    // The length is known before the first part leaves. Next.js drops Content-Length, so the proxy restores
+    // it from the declared length, and a stream that fails part way is then a short, broken download.
+    return new Response(body, {
+      headers: { ...archiveHeaders(archive), ...declaredLength(archive.totalBytes) },
+    });
   },
   'account',
 );

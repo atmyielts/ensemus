@@ -20,12 +20,32 @@ const FORGED = '203.0.113.66';
 const CLIENT = '198.51.100.7';
 const READY_WITHIN_MS = 20_000;
 
+// The /length/ answers are chunked, as Next.js sends every route's response, and some declare their
+// length the way apps/web/src/lib/declared-length.ts does. One says it is encoded (br, which nothing on
+// the way decodes), so its declared length is not the length of what is sent.
 const UPSTREAM = `{
 	admin off
 	auto_https off
 }
 http://:3000 {
-	respond "xff={header.X-Forwarded-For}|xfh={header.X-Forwarded-Host}|xfp={header.X-Forwarded-Proto}|host={host}" 200
+	handle /length/declared {
+		header Transfer-Encoding chunked
+		header X-Ensemus-Body-Length 5
+		respond "hello" 200
+	}
+	handle /length/encoded {
+		header Transfer-Encoding chunked
+		header Content-Encoding br
+		header X-Ensemus-Body-Length 5
+		respond "hello" 200
+	}
+	handle /length/undeclared {
+		header Transfer-Encoding chunked
+		respond "hello" 200
+	}
+	handle {
+		respond "xff={header.X-Forwarded-For}|xfh={header.X-Forwarded-Host}|xfp={header.X-Forwarded-Proto}|host={host}" 200
+	}
 }
 `;
 const START = `printf '%s' "$UPSTREAM" > /tmp/upstream
@@ -101,6 +121,34 @@ function request(container, host, headers = []) {
   return Object.fromEntries(result.stdout.split('|').map((field) => field.split(/=(.*)/s)));
 }
 
+/** The body and the response headers (names in lower case) a client receives for a path. */
+function fetched(container, host, path) {
+  const result = spawnSync(
+    'docker',
+    [
+      'exec',
+      container,
+      'wget',
+      '-q',
+      '-S',
+      '-O',
+      '-',
+      '-T',
+      '5',
+      '--no-check-certificate',
+      `https://${host}${path}`,
+    ],
+    { encoding: 'utf8' },
+  );
+  if (result.status !== 0) return null;
+  const headers = new Map();
+  for (const line of result.stderr.split('\n')) {
+    const field = /^\s*([A-Za-z0-9-]+):\s*(.*?)\s*$/.exec(line);
+    if (field) headers.set(field[1].toLowerCase(), field[2]);
+  }
+  return { body: result.stdout, headers };
+}
+
 async function untilAnswered(container, host) {
   const deadline = Date.now() + READY_WITHIN_MS;
   while (Date.now() < deadline) {
@@ -168,6 +216,45 @@ await withProxy({ answersAs: 'localhost' }, (container, label) => {
   check(`${label}: a forged scheme is replaced`, forged?.xfp, 'https');
   check(`${label}: no claim`, request(container, 'localhost')?.xff, LOCAL_ADDRESSES);
   check(`${label}: another name is refused`, request(container, NAME), null);
+
+  // Next.js drops Content-Length from a route's response. The proxy restores it from a length the app
+  // declared, and only for an unencoded body, and the internal header never reaches a client.
+  const declared = fetched(container, 'localhost', '/length/declared');
+  check(`${label}: a declared length is sent whole`, declared?.body, 'hello');
+  check(
+    `${label}: a declared length becomes Content-Length`,
+    declared?.headers.get('content-length'),
+    '5',
+  );
+  check(
+    `${label}: a declared body is not chunked`,
+    declared?.headers.get('transfer-encoding'),
+    undefined,
+  );
+  check(
+    `${label}: the declared length header is not passed on`,
+    declared?.headers.has('x-ensemus-body-length'),
+    false,
+  );
+  const encoded = fetched(container, 'localhost', '/length/encoded');
+  check(`${label}: an encoded body is still sent`, encoded?.body, 'hello');
+  check(
+    `${label}: an encoded body gets no declared length`,
+    encoded?.headers.get('content-length'),
+    undefined,
+  );
+  check(
+    `${label}: nor is its declared length header passed on`,
+    encoded?.headers.has('x-ensemus-body-length'),
+    false,
+  );
+  const undeclared = fetched(container, 'localhost', '/length/undeclared');
+  check(`${label}: an undeclared body is still sent`, undeclared?.body, 'hello');
+  check(
+    `${label}: an undeclared body is given no length`,
+    undeclared?.headers.get('content-length'),
+    undefined,
+  );
 });
 
 // The hostname setting: the site answers as that name and no longer as localhost.
