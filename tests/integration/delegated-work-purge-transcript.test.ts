@@ -256,9 +256,10 @@ describe('delegated Work purge erases the transcripts of the runs it closes (FD-
       expect(await f.payloadCount()).toBe(1);
       expect(await f.checkpoint()).toMatchObject({ fencedAt: expect.any(Date), purgedAt: null });
       expect(await f.closures()).toEqual([]);
-      // A retry under the same hold changes nothing either (the first wraps the cursor).
-      await f.purge();
-      await f.purge();
+      // A retry under the same hold changes nothing either: each pass wraps its cursor back to the
+      // run (wrapCursorPage) and the hold refuses the erasure again.
+      expect(await f.purge()).toMatchObject({ confirmed: false, controlsRemaining: 1 });
+      expect(await f.purge()).toMatchObject({ confirmed: false, controlsRemaining: 1 });
       expect(await f.payloadCount()).toBe(1);
       expect(await f.closures()).toEqual([]);
     } finally {
@@ -268,10 +269,11 @@ describe('delegated Work purge erases the transcripts of the runs it closes (FD-
           where organization_id=${f.organizationId}::uuid and id=${holdId}::uuid`),
       );
     }
-    // The cursor has moved past the run, so the next cycle wraps it and the one after retries it.
-    let result = await f.purge();
-    if (result.controlsRemaining !== 0) result = await f.purge();
-    expect(result).toMatchObject({ controlsRemaining: 0 });
+    // The held passes left the cursor on the run with nothing open past it. Exactly one pass after the
+    // release wraps to the start in that same pass (wrapCursorPage, delegated-record-purge.ts; proven
+    // on the persisted cursor in delegated-purge-cursor-wrap.test.ts), ends nothing new, erases the
+    // payloads, marks the checkpoint purged and records the closure.
+    expect(await f.purge()).toMatchObject({ controlsRemaining: 0, remaining: 0, unproven: 0 });
     expect(await f.payloadCount()).toBe(0);
     expect(await f.checkpoint()).toMatchObject({ purgedAt: expect.any(Date) });
     expect(await f.closures()).toHaveLength(1);
