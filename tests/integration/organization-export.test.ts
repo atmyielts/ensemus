@@ -104,6 +104,15 @@ class MemoryStore implements ObjectStore {
   async exists(key: string) {
     return this.objects.has(key);
   }
+  // Test-only memory forms of the admitted single-DELETE and positive-absence capabilities the
+  // runtime store provides (0508), so deleting a file takes its bytes on the production path.
+  async deleteForPurge(key: string): Promise<{ transport: 'deleted'; capabilityVerified: true }> {
+    this.objects.delete(key);
+    return { transport: 'deleted', capabilityVerified: true };
+  }
+  async isPhysicallyAbsent(key: string) {
+    return !this.objects.has(key);
+  }
   exportKeys() {
     return [...this.objects.keys()].filter((key) => key.startsWith(EXPORT_OBJECT_PREFIX));
   }
@@ -543,9 +552,13 @@ describe('organization export', () => {
           // Linked to both, so it is exported, and only the link to restricted work stays out.
           { organizationId, workUnitId: restricted.id, artifactId: both.id },
         ]);
+        // Open work waits on the other two, so both can still become ready below: a dependent with
+        // an incomplete prerequisite cannot (PREREQUISITES_INCOMPLETE, work-unit.ts), and a
+        // dependency can only be added while its dependent is queued or blocked (addDependency).
+        // The edge to restricted work still touches it, so it still has to stay out.
         await tx.insert(workDependencies).values([
-          { organizationId, prerequisiteId: open.id, dependentId: second.id },
-          { organizationId, prerequisiteId: open.id, dependentId: restricted.id },
+          { organizationId, prerequisiteId: second.id, dependentId: open.id },
+          { organizationId, prerequisiteId: restricted.id, dependentId: open.id },
         ]);
         await tx.insert(workAssignments).values([
           { organizationId, workUnitId: second.id, membershipId: reviewerId },
@@ -1222,11 +1235,27 @@ describe('organization export', () => {
       await expect(read()).rejects.toMatchObject({ code: 'EXPORT_SUPERSEDED' });
     });
 
-    it('during the export leaves it absent, and in the tombstones', async () => {
-      // After every byte and every record about it has been written, before the tombstones are read.
-      const step = await drive(owner, store, exportId, deps, remove);
-      expect(step.state).toBe('finished');
-      const opened = await downloadAndOpen(owner, store, exportId);
+    // A deletion while an export runs advances the tenant's export epoch (0303: the tombstone and
+    // work.artifacts triggers), so the copy in progress is superseded and can never be downloaded;
+    // a new export is required (docs/06-delivery/evidence/M6-portability-source-followup.md, item 4).
+    // These cases used to expect the same copy to finish with the file left out. They now check that
+    // the copy is refused, that the workflow can close it, and that the new export leaves the file
+    // out and lists its tombstone, which is what each case was there to show.
+    const supersededThenAgain = async (run: Promise<unknown>) => {
+      await expect(run).rejects.toMatchObject({ code: 'EXPORT_SUPERSEDED' });
+      const view = await getOrganizationExport(db(), owner, exportId);
+      expect(view.downloadable).toBe(false);
+      // Superseded is not lost: nothing reported a file as missing or changed.
+      expect(view.status).toBe('running');
+      expect(view.failureCode).toBeNull();
+      await expect(openExportArchive(db(), store, owner, exportId)).rejects.toMatchObject({
+        code: 'EXPORT_NOT_READY',
+      });
+      // What the workflow does with a step that answered EXPORT_SUPERSEDED (portability-workflow.ts).
+      await failExport(db(), worker(owner), { exportId, code: 'SECTION_FAILED' });
+      const again = await request(owner);
+      expect((await drive(owner, store, again)).state).toBe('finished');
+      const opened = await downloadAndOpen(owner, store, again);
       expect(opened.parts.has(artifactPartPath(fileId))).toBe(false);
       expect(opened.manifest.parts.map((part) => part.path)).not.toContain(
         artifactPartPath(fileId),
@@ -1235,13 +1264,21 @@ describe('organization export', () => {
       expect(opened.text).not.toContain(BYTES);
       expect(recordsOf(opened, 'artifact').map((row) => row.name)).toEqual(['stays.txt']);
       expect(recordsOf(opened, 'tombstone').map((row) => row.target_id)).toContain(fileId);
-      // Its sealed bytes have left the store too, and what is left is exactly what is listed.
-      const expected = opened.manifest.parts.length + 1;
-      expect(store.exportKeys()).toHaveLength(expected);
-      for (const key of store.exportKeys()) expect(key).not.toContain(fileId);
+      return { again, opened };
+    };
+
+    it('during the export supersedes it, and a new one leaves it absent and in the tombstones', async () => {
+      // After every byte and every record about it has been written, before the tombstones are read.
+      const { again, opened } = await supersededThenAgain(
+        drive(owner, store, exportId, deps, remove),
+      );
+      // The new archive's sealed objects are exactly what it lists, and none is the deleted file.
+      const keys = store.exportKeys().filter((key) => key.includes(`/${again}/`));
+      expect(keys).toHaveLength(opened.manifest.parts.length + 1);
+      for (const key of keys) expect(key).not.toContain(fileId);
     });
 
-    it('between the bytes and the records leaves no trace but the tombstone', async () => {
+    it('between the bytes and the records supersedes it, and a new one leaves no trace but the tombstone', async () => {
       const service = worker(owner);
       let step = await beginExport(db(), service, { exportId }, deps);
       // Stop as soon as this file's bytes have been written.
@@ -1250,20 +1287,20 @@ describe('organization export', () => {
       }
       expect(store.puts.some((key) => key.includes(fileId))).toBe(true);
       await remove();
-      while (step.state === 'continue') {
-        step = await exportNextBatch(db(), store, service, { exportId }, deps);
-      }
-      do {
-        step = await finishExport(db(), store, service, { exportId }, deps);
-      } while (step.state === 'continue');
-      expect(step.state).toBe('finished');
-      const opened = await downloadAndOpen(owner, store, exportId);
-      expect(opened.text).not.toContain(NAME);
-      expect(opened.text).not.toContain(BYTES);
-      expect(recordsOf(opened, 'tombstone').map((row) => row.target_id)).toContain(fileId);
+      await supersededThenAgain(
+        (async () => {
+          while (step.state === 'continue') {
+            step = await exportNextBatch(db(), store, service, { exportId }, deps);
+          }
+          do {
+            step = await finishExport(db(), store, service, { exportId }, deps);
+          } while (step.state === 'continue');
+          return step;
+        })(),
+      );
     });
 
-    it('during the bytes being read is skipped, not reported as lost', async () => {
+    it('during the bytes being read supersedes it, and is not reported as lost', async () => {
       const service = worker(owner);
       const racing: ObjectStore = {
         put: (key, body) => store.put(key, body),
@@ -1277,11 +1314,15 @@ describe('organization export', () => {
           return store.get(key);
         },
       };
-      let step = await beginExport(db(), service, { exportId }, deps);
-      while (step.state === 'continue') {
-        step = await exportNextBatch(db(), racing, service, { exportId }, deps);
-      }
-      expect(step.state).toBe('finished');
+      await supersededThenAgain(
+        (async () => {
+          let step = await beginExport(db(), service, { exportId }, deps);
+          while (step.state === 'continue') {
+            step = await exportNextBatch(db(), racing, service, { exportId }, deps);
+          }
+          return step;
+        })(),
+      );
     });
   });
 

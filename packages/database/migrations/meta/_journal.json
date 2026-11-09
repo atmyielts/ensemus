@@ -589,6 +589,27 @@
       "when": 1794201807485,
       "tag": "0523_raw_unknown_write_supersede",
       "breakpoints": true
+    },
+    {
+      "idx": 84,
+      "version": "7",
+      "when": 1794201807486,
+      "tag": "0524_r2portability_import_effect_scope",
+      "breakpoints": true
+    },
+    {
+      "idx": 85,
+      "version": "7",
+      "when": 1794201807487,
+      "tag": "0525_r2portability_purge_demotion_prior",
+      "breakpoints": true
+    },
+    {
+      "idx": 86,
+      "version": "7",
+      "when": 1794201807488,
+      "tag": "0526_r2portability_archive_debt_serialize",
+      "breakpoints": true
     }
   ]
 }

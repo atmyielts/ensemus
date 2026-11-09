@@ -621,13 +621,14 @@ describe('native admitted portability authority', () => {
         expect(
           (await scoped.execute(sql`select id from studio.agent_drafts where id=${id}::uuid`)).rows,
         ).toEqual([{ id }]);
-        expect(
-          (
-            await scoped.execute(
-              sql`delete from studio.agent_drafts where id=${id}::uuid returning id`,
-            )
-          ).rows,
-        ).toEqual([]);
+        // ensemus_app has never held DELETE on studio.agent_drafts (0401 grants SELECT, INSERT and
+        // named UPDATE columns only), so the export scope cannot delete it: the privilege check
+        // refuses before any row policy runs. In its own savepoint, so the update check still runs.
+        await expect(
+          scoped.transaction((inner) =>
+            inner.execute(sql`delete from studio.agent_drafts where id=${id}::uuid returning id`),
+          ),
+        ).rejects.toMatchObject({ cause: { code: '42501' } });
         expect(
           (
             await scoped.execute(

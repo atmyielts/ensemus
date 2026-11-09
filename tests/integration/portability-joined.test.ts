@@ -27,6 +27,7 @@ import {
   finishExport,
   openExportArchive,
 } from '@ensemus/application';
+import { withRawKnowledgeObjects } from '@ensemus/application/knowledge/raw-objects';
 import { sql } from 'drizzle-orm';
 import { testRecipient, nativeSovereignContext } from '../helpers/sovereign';
 import { urls } from '../helpers/stack';
@@ -316,25 +317,35 @@ describe('joined portable definitions and restore audits', () => {
       );
       const objects = new Map<string, Buffer>();
       let puts = 0;
-      const store = {
-        put: async (key: string, bytes: Buffer) => {
-          puts += 1;
-          if (fault) throw new Error('test store failure');
-          objects.set(key, bytes);
+      // A test-only memory transport composed with the native raw Knowledge port exactly as the web
+      // and worker runtimes compose theirs (0516): original bytes go only through admitted
+      // single-attempt PUTs, and a direct put of a knowledge key is refused by the composition.
+      const store = withRawKnowledgeObjects({
+        database: app.db,
+        store: {
+          put: async (key: string, bytes: Buffer) => {
+            objects.set(key, bytes);
+          },
+          putSingleAttempt: async (key: string, bytes: Buffer) => {
+            puts += 1;
+            if (fault) throw new Error('test store failure');
+            objects.set(key, Buffer.from(bytes));
+            return { transport: 'written' as const };
+          },
+          get: async (key: string) => {
+            const bytes = objects.get(key);
+            if (!bytes) throw new Error('test missing');
+            return bytes;
+          },
+          delete: async (key: string) => {
+            objects.delete(key);
+          },
+          exists: async (key: string) => objects.has(key),
+          async *listPages() {
+            yield [] as string[];
+          },
         },
-        get: async (key: string) => {
-          const bytes = objects.get(key);
-          if (!bytes) throw new Error('test missing');
-          return bytes;
-        },
-        delete: async (key: string) => {
-          objects.delete(key);
-        },
-        exists: async (key: string) => objects.has(key),
-        async *listPages() {
-          yield [] as string[];
-        },
-      };
+      });
       const requested = await requestOrganizationImport(app.db, a);
       const run = () =>
         runOrganizationImport(

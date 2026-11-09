@@ -91,6 +91,7 @@ import { assertPortableDefinitionIntegrity } from '@ensemus/domain/portable-defi
 import { withPrivilegeTx, assertInteractivePrivilege } from './product/privileged';
 import { withPortabilityScope } from './portability-scope';
 import { quarantineArchiveFile, ArchiveFileStorageFailure } from './portability-archive-files';
+import { settleObjectWrite, type ObjectWrite } from './knowledge/object-writes';
 
 export { parentsFirst } from './portability-sections-import';
 
@@ -257,8 +258,13 @@ export type ImportRunDeps = {
    * which the operator's guide states as a limit (ADR-030 D8).
    */
   ledger: Pick<LedgerReader, 'listPages' | 'get'>;
-  /** Private inert archive custody. The SQL writer receipt precedes every put; no live artifact is created. */
-  store: Pick<ObjectStore, 'put' | 'get' | 'exists' | 'delete'>;
+  /**
+   * Private inert archive custody. The SQL writer receipt precedes every put; no live artifact is created.
+   * Upload originals are raw Knowledge bytes and go only through the store's native `rawKnowledge` port
+   * (0516), as the web and worker runtimes compose it with `withRawKnowledgeObjects`.
+   */
+  store: Pick<ObjectStore, 'put' | 'get' | 'exists' | 'delete'> &
+    Partial<Pick<ObjectStore, 'rawKnowledge'>>;
 };
 
 export type ImportRunResult = {
@@ -1104,12 +1110,15 @@ async function applyParts(
 }
 
 /** Reserve the exact document/writer before any store call. A crashed or unknown writer must be
- * positively fenced by the knowledge recovery adapter; neither a lease nor an absent HEAD clears it. */
+ * positively fenced by the knowledge recovery adapter; neither a lease nor an absent HEAD clears it.
+ * The bytes go through the native raw port (admit, one single-attempt PUT, finish) and the writer
+ * settles only on that native receipt, exactly as an ordinary upload does (0516). */
 async function storeKnowledgeBytes(
   opened: OpenedArchive,
   database: AppDatabase,
   context: TenantContext,
-  store: Pick<ObjectStore, 'put' | 'delete' | 'exists'> & Partial<Pick<ObjectStore, 'get'>>,
+  store: Pick<ObjectStore, 'put' | 'delete' | 'exists'> &
+    Partial<Pick<ObjectStore, 'get' | 'rawKnowledge'>>,
   raw: readonly unknown[],
   tombstoned: TombstoneSet,
   parts: ReadonlyMap<string, ManifestPart>,
@@ -1134,6 +1143,9 @@ async function storeKnowledgeBytes(
       finishedPaths.push(part);
       continue;
     }
+    // Checked before any reservation, so a store without the native port leaves no writer intent.
+    const raw = store.rawKnowledge;
+    if (!raw) throw new ImportFailure('STORE_UNAVAILABLE');
     const token = randomUUID();
     const key = `${context.organizationId}/knowledge/${record.id}`;
     const reservation = await withTenantTx(database, context, (outer) =>
@@ -1201,7 +1213,24 @@ async function storeKnowledgeBytes(
       if (existing.length !== record.size_bytes || sha256(existing) !== record.content_sha256)
         throw new ImportFailure('PART_CHANGED');
     } else {
-      await store.put(key, bytes, record.media_type);
+      const write: ObjectWrite = {
+        documentId: record.id,
+        sourceId: record.source_id,
+        writeId: token,
+        generation: 1,
+      };
+      try {
+        await raw.put(context, write, bytes, record.media_type);
+      } catch (error) {
+        // An unknown or unfinished native PUT, or a transport without the single-attempt PUT, is an
+        // outage. Its writer stays active and is never resent; a refused admission stays a refusal.
+        if (
+          error instanceof AppError &&
+          (error.code === 'OBJECT_DELETE_UNCONFIRMED' || error.code === 'CAPABILITY_UNAVAILABLE')
+        )
+          throw new ImportFailure('STORE_UNAVAILABLE');
+        throw error;
+      }
       await withTenantTx(database, context, async (tx) => {
         const [source] = await queryRows<{ state: string }>(
           tx,
@@ -1209,10 +1238,7 @@ async function storeKnowledgeBytes(
           where organization_id=${context.organizationId}::uuid and id=${record.source_id}::uuid for update`,
         );
         if (source?.state !== 'active') throw new RecordRefused();
-        const settled = await tx.execute(sql`update knowledge.object_writers set state='settled'
-          where organization_id=${context.organizationId}::uuid and document_id=${record.id}::uuid
-          and write_id=${token}::uuid and generation=1 and state='active' returning document_id`);
-        if (settled.rows.length !== 1) throw new RecordRefused();
+        await settleObjectWrite(tx, write);
       });
     }
     keep.push(record);
