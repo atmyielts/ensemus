@@ -10,7 +10,11 @@ import { createKnowledgeCallStore } from '@ensemus/application/ai-knowledge-call
 import { bindKnowledgeModelReceipts } from '@ensemus/application/ai-knowledge-result-consumer';
 import { runKnowledgeModelJob } from '@ensemus/application/ai-knowledge-model-jobs';
 import { requestModelQualification } from '@ensemus/application/knowledge/model-jobs';
-import { AppError } from '@ensemus/application';
+import {
+  AppError,
+  refusalFromDatabase,
+  TENANT_BUSY_RETRY_AFTER_SECONDS,
+} from '@ensemus/application';
 import { startSubscription } from '@ensemus/application/saas/subscriptions';
 import { createEntitlements, FEATURE_AGENT_RUN, FEATURE_MODEL_CALL } from '@ensemus/commercial';
 import { createKnowledgeModelGateway, createEmbeddingAdapter } from '@ensemus/intelligence';
@@ -51,36 +55,34 @@ export async function nativeModelContext(database: AppDatabase, owner: TenantCon
   return nativePersonContext(database, person, owner.organizationId);
 }
 
-/** PostgreSQL's lock_not_available: a NOWAIT row lock found the row held by another transaction. */
-const LOCK_NOT_AVAILABLE = '55P03';
+/** At most this many sends of one fixture write, TENANT_BUSY_RETRY_AFTER_SECONDS apart: 20 seconds. */
 const BUSY_ATTEMPTS = 20;
-const BUSY_DELAY_MS = 500;
-
-function lockNotAvailable(error: unknown): boolean {
-  let current: unknown = error;
-  for (let depth = 0; depth < 5 && current && typeof current === 'object'; depth++) {
-    if ((current as { code?: unknown }).code === LOCK_NOT_AVAILABLE) return true;
-    current = (current as { cause?: unknown }).cause;
-  }
-  return false;
-}
 
 /**
- * Sends one fixture write again while PostgreSQL refuses it as busy, a bounded number of times. The
- * erasure birth fence (lifecycle.refuse_erasing_birth, 0515 and 0533) takes the tenant's organization
- * row FOR SHARE NOWAIT on every insert it guards, so such a write is refused at once (55P03) while a
- * background job in the same tenant holds that row FOR NO KEY UPDATE, as a source purge does
- * (0514-0516; CI run 42692158422: the qualification insert, right after a revocation). The refused
- * write's transaction rolled back, so the same write is sent again. Any other error, and a row still
- * busy after the last attempt, fails the fixture exactly as before; the fence itself is unchanged.
+ * What a person is told for a write that failed, as the API and the forms tell it: an AppError as it
+ * is, and a database refusal through refusalFromDatabase, the translation both use.
+ */
+const refusalOf = (error: unknown) =>
+  error instanceof AppError ? error : refusalFromDatabase(error);
+
+/**
+ * Sends one fixture write again, a bounded number of times, while it is refused as TENANT_BUSY and only
+ * then. The erasure birth fence (lifecycle.refuse_erasing_birth, 0515 and 0533) takes the tenant's
+ * organization row FOR SHARE NOWAIT on every insert it guards, so such a write is refused at once while
+ * a background job in the same tenant holds that row FOR NO KEY UPDATE, as a source purge does
+ * (0514-0516; CI run 42692158422: the qualification insert, right after a revocation). That refusal is
+ * TENANT_BUSY (errors.ts), which the API documents as retryable after Retry-After: the write's
+ * transaction rolled back, so the same write is sent again after the same wait. Any other refusal,
+ * VERSION_CONFLICT among them, and a write still busy after the last attempt, fails the fixture at once;
+ * the fence itself is unchanged.
  */
 async function whileBusy<T>(write: () => Promise<T>): Promise<T> {
   for (let attempt = 1; ; attempt++) {
     try {
       return await write();
     } catch (error) {
-      if (!lockNotAvailable(error) || attempt >= BUSY_ATTEMPTS) throw error;
-      await new Promise((done) => setTimeout(done, BUSY_DELAY_MS));
+      if (refusalOf(error)?.code !== 'TENANT_BUSY' || attempt >= BUSY_ATTEMPTS) throw error;
+      await new Promise((done) => setTimeout(done, TENANT_BUSY_RETRY_AFTER_SECONDS * 1000));
     }
   }
 }

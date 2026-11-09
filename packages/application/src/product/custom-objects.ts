@@ -37,7 +37,7 @@ import {
   OBJECT_MIGRATION_REQUESTED,
 } from '@ensemus/domain/product-events';
 import { and, asc, eq, gt, isNull, sql, type SQL } from 'drizzle-orm';
-import { AppError, pgCode } from '../errors';
+import { AppError, busyFromDatabase, pgCode } from '../errors';
 import { idSchema } from '../ids';
 import { emit } from '../events';
 import { auditAction } from '../work';
@@ -209,7 +209,11 @@ async function translated<T>(effect: () => Promise<T>): Promise<T> {
     if (pgCode(e) === 'EN403') throw new AppError('OBJECT_SCHEMA_INVALID');
     if (pgCode(e) === 'EN405') throw new AppError('MFA_REQUIRED');
     if (pgCode(e) === 'EN410') throw new AppError('SSO_REQUIRED');
-    if (pgCode(e) === '55P03') throw new AppError('VERSION_CONFLICT');
+    // A NOWAIT lock found a row held elsewhere, usually the tenant's organization row under a record
+    // purge (the erasure birth fence, 0533). Nothing the caller read has changed, so this is not a
+    // version conflict: the same request, with the same If-Match, can simply be sent again.
+    const busy = busyFromDatabase(e);
+    if (busy) throw busy;
     throw e;
   }
 }

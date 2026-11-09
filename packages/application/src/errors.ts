@@ -26,6 +26,7 @@ export type ErrorCode =
   | 'INVITATION_INVALID'
   | 'LAST_OWNER'
   | 'RESTORE_PENDING'
+  | 'TENANT_BUSY'
   | 'EXTERNAL_ACTION_NOT_EDITABLE'
   | 'EXTERNAL_ACTION_NOT_RESOLVABLE'
   | 'EXTERNAL_ACTION_NOT_RETRYABLE'
@@ -137,6 +138,8 @@ const MESSAGES: Record<ErrorCode, string> = {
   LAST_OWNER: 'An organization must keep at least one owner.',
   RESTORE_PENDING:
     'This organization is being restored from a backup, and is unavailable until that is finished.',
+  TENANT_BUSY:
+    'This organization is busy with another change right now, so nothing was changed. Try again in a moment.',
   EXTERNAL_ACTION_NOT_EDITABLE:
     'This can no longer be changed, because Ensemus has already tried to send it.',
   EXTERNAL_ACTION_NOT_RESOLVABLE: 'Only an action in an unknown state can be resolved.',
@@ -280,6 +283,7 @@ export const HTTP_STATUS: Record<ErrorCode, number> = {
   INVITATION_INVALID: 400,
   LAST_OWNER: 409,
   RESTORE_PENDING: 503,
+  TENANT_BUSY: 503,
   EXTERNAL_ACTION_NOT_EDITABLE: 409,
   EXTERNAL_ACTION_NOT_RESOLVABLE: 409,
   EXTERNAL_ACTION_NOT_RETRYABLE: 409,
@@ -370,11 +374,43 @@ export function pgCode(error: unknown): string | undefined {
 }
 
 /**
+ * PostgreSQL's lock_not_available: a NOWAIT row lock, or a statement past its lock_timeout, found a row
+ * held by another transaction, and the transaction that asked was rolled back whole. The usual holder is
+ * a background purge in the same tenant: a record or source purge holds the tenant's organization row
+ * FOR NO KEY UPDATE NOWAIT (0514-0516), and the erasure birth fence takes that row FOR SHARE NOWAIT on
+ * every insert it guards (0508, 0533), so such an insert is refused at once instead of waiting.
+ */
+export const LOCK_NOT_AVAILABLE = '55P03';
+
+/** How long a caller refused as TENANT_BUSY is asked to wait before it sends the same request again. */
+export const TENANT_BUSY_RETRY_AFTER_SECONDS = 1;
+
+/**
+ * Refusals after which the identical request can be sent again: it did nothing, and what stood in its
+ * way ends without the caller doing anything. Every other refusal needs the caller to change something.
+ */
+export const RETRYABLE_CODES: ReadonlySet<string> = new Set<ErrorCode>([
+  'RESTORE_PENDING',
+  'TENANT_BUSY',
+]);
+
+/**
+ * Lock contention as the refusal a person is told: the tenant is busy, nothing was changed, and the same
+ * request can be sent again. It is never a version conflict, because nothing the caller read has changed.
+ */
+export function busyFromDatabase(error: unknown): AppError | null {
+  return pgCode(error) === LOCK_NOT_AVAILABLE ? new AppError('TENANT_BUSY') : null;
+}
+
+/**
  * What PostgreSQL refused below the application, as what a person is told (ADR-032 D5, D6). A write in a
- * tenant that is not served in full, and a deletion under a legal hold, reach here from any path at all.
+ * tenant that is not served in full, and a deletion under a legal hold, reach here from any path at all,
+ * and so does a write refused because a purge in the same tenant held a row it needed (TENANT_BUSY).
  */
 export function refusalFromDatabase(error: unknown): AppError | null {
   const code = pgCode(error);
+  const busy = busyFromDatabase(error);
+  if (busy) return busy;
   if (code === '25006') return new AppError('TENANT_READ_ONLY');
   if (code === 'EN850') return new AppError('OBJECT_DELETE_UNCONFIRMED');
   if (code === 'EN851') return new AppError('OBJECT_DELETE_IN_PROGRESS');

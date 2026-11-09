@@ -39,7 +39,7 @@ import {
 import { can, type Classification } from '@ensemus/domain/policy';
 import { strongestClass } from '@ensemus/domain/knowledge';
 import { and, asc, eq, gt, isNull, sql } from 'drizzle-orm';
-import { AppError } from '../errors';
+import { AppError, busyFromDatabase } from '../errors';
 import { emit } from '../events';
 import { idFromRequest } from '../request-id';
 import { canonicalJson } from '@ensemus/domain/approval';
@@ -80,6 +80,9 @@ export async function requestModelQualification(
   const parsed = requestModelQualificationSchema.safeParse(raw);
   if (!parsed.success) throw new AppError('INVALID_INPUT');
   const input = parsed.data;
+  // The qualification and job inserts are under the erasure birth fence (0533), which is refused at
+  // once (55P03) while a purge in this tenant holds its organization row. Nothing was written, and the
+  // same request key can be sent again, so the caller hears that the tenant is busy, never a 500.
   return withTenantTx(database, context, async (tx) => {
     await requireManager(tx, context);
     await admission.assertInTx(tx, context);
@@ -198,6 +201,8 @@ export async function requestModelQualification(
       decision: 'allow',
     });
     return { qualificationId, jobId };
+  }).catch((error: unknown) => {
+    throw busyFromDatabase(error) ?? error;
   });
 }
 

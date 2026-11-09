@@ -21,6 +21,14 @@ describe('wording for an error code from the address bar', () => {
   it('echoes nothing from an unknown code', () => {
     expect(messageFor('<b>pwned</b>')).toBe(GENERIC);
   });
+  it('tells a busy tenant to try again, in the same words as the API, and never as a conflict', () => {
+    const message = messageFor('TENANT_BUSY');
+    expect(message).toBe(new AppError('TENANT_BUSY').message);
+    expect(message).toContain('nothing was changed');
+    expect(message).toContain('Try again');
+    expect(message).not.toBe(messageFor('VERSION_CONFLICT'));
+    expect(message).not.toContain('Someone else changed');
+  });
   it('explains revoked exports consistently for source and permission changes', () => {
     const message = messageFor('EXPORT_SUPERSEDED');
     expect(message).toBe(new AppError('EXPORT_SUPERSEDED').message);
