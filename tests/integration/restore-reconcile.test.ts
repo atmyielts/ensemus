@@ -358,7 +358,10 @@ describe('reconciling after a restore', () => {
   describe('runs', () => {
     async function heldRun(context: TenantContext, store: MemoryStore) {
       // A run is only asked for on planned work that a person has marked ready, as in the product.
-      const work = await createWorkUnit(db(), context, { title: 'Run', executionPlan: 'checklist' });
+      const work = await createWorkUnit(db(), context, {
+        title: 'Run',
+        executionPlan: 'checklist',
+      });
       await transitionWorkUnit(db(), context, {
         id: work.id,
         expectedVersion: work.version,
