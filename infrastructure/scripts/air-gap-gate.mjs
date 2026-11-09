@@ -318,6 +318,25 @@ const MODE_SERVICES = ['web', 'web-2', 'worker'];
 const recreate = (env) =>
   composeWith(env, 'up', '-d', '--no-deps', '--force-recreate', '--wait', ...MODE_SERVICES);
 
+/**
+ * Recreating web, web-2 and the worker loses their logs, and CI's own log step only sees the new containers, so
+ * a failed suite's server-side codes are printed here first. Logs carry codes and IDs only (never content), and
+ * only warning and error lines are shown.
+ */
+function showServerProblems(label) {
+  try {
+    const lines = compose('logs', '--no-color', ...MODE_SERVICES, 'dispatcher')
+      .split('\n')
+      .filter((line) => /"level":"(warn|error)"/.test(line));
+    console.error(`Server warnings and errors during ${label} (${lines.length}, last 200):`);
+    for (const line of lines.slice(-200)) console.error(line);
+  } catch (error) {
+    console.error(
+      `Could not read the service logs: ${error instanceof Error ? error.message : error}`,
+    );
+  }
+}
+
 // API-12's check reads what every other suite recorded, so its file runs after all of them, both modes included.
 const API_SUITE = 'tests/stack/api.test.ts';
 // The drill stops the whole stack and restores its databases over it, leaving authentication fenced until an
@@ -410,7 +429,10 @@ try {
   } else {
     if (!outagesOnly) {
       const everyOther = ['--exclude', API_SUITE, '--exclude', RESTORE_SUITE];
-      if (!stackTests('the stack test suite', everyOther)) failed = true;
+      if (!stackTests('the stack test suite', everyOther)) {
+        failed = true;
+        showServerProblems('the stack test suite');
+      }
 
       console.log('Recreating web, web-2 and worker as a hosted deployment with billing on...');
       recreate(HOSTED);

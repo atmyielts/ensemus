@@ -31,6 +31,11 @@ import { PORTABILITY_SECTIONS } from './portability-sections';
 
 import { workerProductPorts } from './product-ports';
 import { createSaasPorts } from './saas-ports';
+import {
+  assertActivityCapacity,
+  PLATFORM_ACTIVITY_SLOTS,
+  PLATFORM_DATABASE_POOL,
+} from './worker-limits';
 
 const log = createLogger('worker');
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -46,7 +51,10 @@ async function main() {
   const connection = await NativeConnection.connect({
     address: process.env.TEMPORAL_ADDRESS ?? 'temporal:7233',
   });
-  const { db, close } = openAppDatabase(readSecret('DATABASE_URL_APP'));
+  assertActivityCapacity(PLATFORM_DATABASE_POOL, PLATFORM_ACTIVITY_SLOTS);
+  const { db, close } = openAppDatabase(readSecret('DATABASE_URL_APP'), {
+    max: PLATFORM_DATABASE_POOL,
+  });
   const nativeStore = new S3ObjectStore({
     endpoint: process.env.OBJECT_STORAGE_ENDPOINT ?? 'http://objects:8333',
     bucket: process.env.OBJECT_STORAGE_BUCKET ?? 'ensemus',
@@ -91,6 +99,8 @@ async function main() {
     connection,
     namespace: process.env.TEMPORAL_NAMESPACE ?? 'default',
     taskQueue: PLATFORM_TASK_QUEUE,
+    // Activities wait in Temporal's queue, not on the database pool, whose checkout has a deadline (WORK-06).
+    maxConcurrentActivityTaskExecutions: PLATFORM_ACTIVITY_SLOTS,
     workflowBundle: { codePath: path.join(here, 'workflow-bundle.cjs') },
     activities: {
       ...createActivities({ database: db, store: generatedObjects, probeWorkflow }),

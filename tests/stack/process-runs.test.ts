@@ -48,6 +48,8 @@ describe('actual workflow execution HTTP contracts', () => {
       status: response.status,
       body: text ? (JSON.parse(text) as Record<string, unknown>) : null,
       headers: response.headers,
+      // Said with a failed status check, so a refusal names its code and request ID in the CI log.
+      text,
     };
   }
   it('refuses missing identity, foreign tenant, malformed body/filter and cross-origin start', async () => {
@@ -152,7 +154,7 @@ describe('actual workflow execution HTTP contracts', () => {
         {},
         { 'if-match': version, 'idempotency-key': key },
       );
-    expect(one.status).toBe(202);
+    expect(one.status, one.text).toBe(202);
     expect(one.body?.stop_code).toBe('STOP_REQUESTED');
     const replay = await call(
       owner,
@@ -161,7 +163,7 @@ describe('actual workflow execution HTTP contracts', () => {
       {},
       { 'if-match': version, 'idempotency-key': key },
     );
-    expect(replay.status).toBe(202);
+    expect(replay.status, replay.text).toBe(202);
     expect(replay.body?.id).toBe(runId);
   });
   it('has validated one successful actual response from each of the five owned operations', () => {

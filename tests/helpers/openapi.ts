@@ -187,7 +187,9 @@ const API_PREFIX = '/api/v1';
  * API-12's record: every operation a real response under 400 has been seen for, matching the spec. Each stack
  * test file runs in a worker of its own, so a record kept in memory holds what one file saw and nothing more.
  * With ENSEMUS_API_RECORD_DIR set, as infrastructure/scripts/air-gap-gate.mjs sets it for one run, every file
- * appends to the same record, and validatedOperations() reads them all back.
+ * appends to the same record, and validatedOperations() reads them all back. In the stack project,
+ * tests/helpers/api-record-setup.ts passes every real public-API response a suite receives through
+ * contractProblems, so a call made only to set something up is recorded as well, once it matches the spec.
  */
 const RECORD_FILE = 'validated-operations.txt';
 const recordedHere = new Set<string>();
