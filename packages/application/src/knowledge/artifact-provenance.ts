@@ -244,13 +244,21 @@ export function inheritedInfluenceInputs(rows: readonly InheritedInfluenceRef[])
     sourceIds: [...sourceIds].sort(),
   };
 }
-const noInheritedInfluence = inheritedInfluenceInputs([]);
 /**
  * The refs of every unredacted delegated input receipt this run inherits, exactly the receipts
  * ai.current_main_input_inventory folds into its inherited_influence entries (0419). Nonlocking
- * metadata reads, as the inventory port requires; only an agent session may resolve them.
+ * metadata reads, as the inventory port requires; only an agent session writing for its own
+ * agent_run may resolve them. A system template, or any other actor, inherits nothing and reads
+ * nothing.
  */
-async function inheritedInfluenceInTx(tx: Tx, context: TenantContext, runId: string) {
+export async function inheritedInfluenceInTx(
+  tx: Tx,
+  context: TenantContext,
+  execution: ArtifactExecution,
+) {
+  if (execution.kind !== 'agent_run' || context.actorType !== 'agent')
+    return inheritedInfluenceInputs([]);
+  const runId = execution.id;
   const result = await tx.execute<InheritedInfluenceRef>(sql`
     select ref.ref_kind kind,ref.ref_id::text id,ref.content_sha256 sha256,ref.classification,
       ref.proof_kind "proofKind",ref.source_id::text "sourceId"
@@ -494,14 +502,15 @@ async function currentInventory(
     proof.workUnitId !== workUnitId
   )
     throw new AppError('INVALID_STATE');
+  // 0208: the trusted inventory's own structured ledger is an explicit list naming the target Work,
+  // checked on its own before anything is merged into it. A missing, empty or unrelated list is
+  // refused here, before any read or object put; inherited refs never stand in for it.
+  const ownRecords = normalizeStructuredInputs(proof.recordInputs, workUnitId);
   // An agent run's inherited influence (a delegated child's parent reads) is part of what its file
   // was derived from; see inheritedInfluenceInputs. A system template inherits nothing.
-  const inherited =
-    input.execution.kind === 'agent_run' && context.actorType === 'agent'
-      ? await inheritedInfluenceInTx(tx, context, input.execution.id)
-      : noInheritedInfluence;
+  const inherited = await inheritedInfluenceInTx(tx, context, input.execution);
   const directRecords = normalizeStructuredInputs(
-    [...proof.recordInputs, ...inherited.records],
+    [...ownRecords, ...inherited.records],
     workUnitId,
   );
   // Optional is legacy wire compatibility, never a current-class lookup that repairs missing
