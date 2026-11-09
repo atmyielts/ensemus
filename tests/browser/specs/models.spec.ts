@@ -4,7 +4,8 @@
 // setting, so a hosted key stays refused here, as it must in CI (ADR-028 FD-21).
 import { randomBytes, randomUUID } from 'node:crypto';
 import type { APIRequestContext, Page } from '@playwright/test';
-import { BASE } from '../../helpers/forms';
+import { BASE, createOrganization, signUp } from '../../helpers/forms';
+import { enrollAuthenticator } from '../../helpers/native-mfa';
 import { expect, test } from '../support/fixtures';
 import { axeFindings } from '../support/look';
 
@@ -268,15 +269,28 @@ test.describe('the model settings', () => {
     expect(after).toMatchObject({ has_credential: false, status: 'draft' });
   });
 
-  test('the API has no way to say a profile is active', async ({ open, world }) => {
-    const page = await open(world.alice);
-    const profile = await createProfile(page.request, world.organization);
-    const refused = await page.request.patch(`${base(world.organization)}/${profile.id}`, {
+  test('the API has no way to say a profile is active', async ({ open }) => {
+    // 0404 makes asking for a probe an always-MFA action. An owner of their own organization turns on an
+    // authenticator as a person does, so the shared world's owner keeps the sign-in it has.
+    const owner = await signUp('Generated probe owner');
+    const organization = await createOrganization(owner, 'Generated probe company');
+    const page = await open(owner);
+    const profile = await createProfile(page.request, organization);
+    const refused = await page.request.patch(`${base(organization)}/${profile.id}`, {
       headers: write,
       data: { expected_version: profile.version, status: 'active' },
     });
     expect(refused.status()).toBe(400);
-    const asked = await page.request.post(`${base(world.organization)}/${profile.id}/activation`, {
+    const unproved = await page.request.post(`${base(organization)}/${profile.id}/activation`, {
+      headers: write,
+      data: { expected_version: profile.version },
+    });
+    expect(unproved.status()).toBe(403);
+    expect(((await unproved.json()) as { code: string }).code).toBe('MFA_REQUIRED');
+    // A browser opened after enrollment carries the session the confirmation just proved.
+    await enrollAuthenticator(owner, organization);
+    const proved = await open(owner);
+    const asked = await proved.request.post(`${base(organization)}/${profile.id}/activation`, {
       headers: write,
       data: { expected_version: profile.version },
     });

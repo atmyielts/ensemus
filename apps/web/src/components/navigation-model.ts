@@ -288,6 +288,17 @@ export function workspaceNavigation(input: {
   return groups;
 }
 
+/**
+ * The destination the navigation's one live region names: the latest one on its way, until that one
+ * arrives. A link that settles never clears another link that is still on its way.
+ */
+export function pendingDestination(current: string | null, label: string, pending: boolean) {
+  if (pending) return label;
+  return current === label ? null : current;
+}
+
+export const pendingDestinationText = (label: string | null) => (label ? `Loading ${label}` : '');
+
 export function currentNavigation(groups: readonly NavGroup[], pathname: string) {
   for (const group of groups)
     for (const item of group.items) {

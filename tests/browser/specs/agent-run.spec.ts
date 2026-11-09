@@ -47,6 +47,9 @@ async function seedAgent(organization: string, ownerMembership: string): Promise
       evaluation: { suite_ref: 'evaluations/agents/work-brief', min_pass_rate: 0.9 },
     };
     const hash = '0'.repeat(64);
+    // Every tenant row is born inside its own tenant's context, as the application writes it: the
+    // erasure birth fence (0529, 0533) refuses an insert whose organization is not the current one.
+    await sql.query(`select set_config('app.organization_id', $1, false)`, [organization]);
     await sql.query(
       `insert into org.service_identities (organization_id, id, owner_membership_id, purpose)
        values ($1, $2, $3, 'test agent')`,
@@ -115,6 +118,8 @@ async function seedRun(input: {
   await agent.connect();
   try {
     const runId = randomUUID();
+    // Born in its own tenant's context, as the birth fence (0529, 0533) requires.
+    await sql.query(`select set_config('app.organization_id', $1, false)`, [input.organization]);
     await sql.query(
       `insert into ai.agent_runs
          (organization_id, id, work_unit_id, agent_version_id, initiator_membership_id,

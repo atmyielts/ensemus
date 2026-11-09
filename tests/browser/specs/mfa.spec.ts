@@ -33,7 +33,10 @@ test('enrolls and confirms an authenticator with JavaScript disabled, without ex
     .getByLabel('Verification code', { exact: true })
     .fill(totpCode(key, Date.now() - 30000));
   await page.getByRole('button', { name: 'Confirm and turn on' }).click();
-  await expect(page.getByRole('status')).toHaveText('Two-step sign-in is on.');
+  // The page's own notice. Each form's submit button keeps an empty status of its own beside it.
+  await expect(page.getByRole('main').getByRole('status').filter({ hasText: /\S/ })).toHaveText(
+    'Two-step sign-in is on.',
+  );
   await page.goto(`/o/${organization}/security/two-factor`);
   for (const code of recovery) await expect(page.getByText(code, { exact: true })).toHaveCount(0);
   await expect(page.getByText(key, { exact: true })).toHaveCount(0);

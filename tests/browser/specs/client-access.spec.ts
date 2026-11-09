@@ -35,7 +35,11 @@ test('named client access works without JavaScript and revokes on the next read'
   expect(await sidewaysOverflow(owner)).toBe(0);
   expect(await axeFindings(owner)).toEqual([]);
   await reader.goto(base);
-  await expect(reader.getByText(name, { exact: true })).toBeVisible();
+  // Once readable, the name is both a row in the list and a choice in the new project form, so the
+  // row is what says it appeared. Every absence check stays page-wide.
+  await expect(
+    reader.getByRole('listitem').filter({ has: reader.getByText(name, { exact: true }) }),
+  ).toBeVisible();
   expect((await reader.goto(accessPath))?.status()).toBe(404);
   await owner.getByRole('checkbox', { name: 'Bob Okafor' }).uncheck();
   await owner.getByRole('button', { name: 'Save access' }).click();

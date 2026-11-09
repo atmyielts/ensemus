@@ -132,6 +132,13 @@ a {
   color: var(--accent);
   text-underline-offset: 2px;
 }
+/* A link on a line of its own, outside any sentence, is a target in its own right, so it is at least 24px
+   tall even beside another control (WCAG 2.5.8). A link inside a sentence keeps the sentence's line. */
+.link-line > a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 1.5rem;
+}
 small,
 .muted {
   color: var(--muted);
@@ -769,14 +776,16 @@ dl.facts dt {
   font-size: 0.8125rem;
 }
 
-/* Status */
+/* Status. A badge keeps to one line wherever it fits, and wraps only when its container is narrower than
+   it, such as "Waiting for approval" beside a term on a 320px screen, instead of pushing the page sideways. */
 .badge {
   display: inline-block;
+  max-width: 100%;
   padding: 0.0625rem 0.5rem;
   border-radius: 999px;
   font-size: 0.8125rem;
   font-weight: 540;
-  white-space: nowrap;
+  white-space: normal;
   background: var(--surface-2);
   color: var(--muted);
 }
@@ -796,11 +805,9 @@ dl.facts dt {
   background: var(--danger-soft);
   color: var(--danger);
 }
-/* The longest badge there is, so it may wrap on a phone instead of pushing the page sideways. */
 .badge.unknown {
   background: var(--unknown-soft);
   color: var(--unknown);
-  white-space: normal;
 }
 .notice.unknown {
   background: var(--unknown-soft);

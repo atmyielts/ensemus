@@ -55,7 +55,9 @@ test.describe('native Knowledge model authority controls', () => {
       .filter({ has: page.getByRole('button', { name: 'Request capability test' }) });
     await expect(form.locator('[name=maxCostMicros]')).toHaveValue('');
     await expect(form.locator('[name=maxTotalTokens]')).toHaveValue('');
-    await form.getByLabel('Capability', { exact: true }).selectOption('embed');
+    // A label that wraps its select also holds the chosen option's words, so the select is found by its
+    // accessible name, which is the label's own words only.
+    await form.getByRole('combobox', { name: 'Capability', exact: true }).selectOption('embed');
     await form.getByLabel('Embedding dimensions').fill('3');
     await form.getByLabel('Embedding space version').fill('generated-space');
     for (const [name, value] of Object.entries({
@@ -104,12 +106,12 @@ test.describe('native Knowledge model authority controls', () => {
     const form = page
       .locator('form')
       .filter({ has: page.getByRole('button', { name: 'Approve workload', exact: true }) });
-    await form.getByLabel('Workload', { exact: true }).selectOption('query');
-    await form.getByLabel('Scope', { exact: true }).selectOption('organization');
+    await form.getByRole('combobox', { name: 'Workload', exact: true }).selectOption('query');
+    await form.getByRole('combobox', { name: 'Scope', exact: true }).selectOption('organization');
     await form.getByLabel('Semantic indexing', { exact: true }).check();
     await form.locator(`[name=qualificationIds][value="${route.qualificationId}"]`).check();
     await form
-      .getByLabel('Highest permitted classification', { exact: true })
+      .getByRole('combobox', { name: 'Highest permitted classification', exact: true })
       .selectOption('internal');
     for (const [name, value] of Object.entries({
       maxCalls: '2',

@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import type { ReactNode } from 'react';
 import { DraftScope } from '@/components/kept-field';
-import { MainNav, WorkspaceContext } from '@/components/main-nav';
+import { MainNav, NavigationPendingRegion, WorkspaceContext } from '@/components/main-nav';
 import { workspaceNavigation } from '@/components/navigation-model';
 import { SubmitButton } from '@/components/submit-button';
 import { signOutAction } from '@/server/actions';
@@ -59,15 +59,17 @@ export default async function OrganizationLayout({
               </Link>
             )}
           </div>
-          <div className="desktop-navigation">
-            <MainNav groups={navigation} />
-          </div>
-          <details className="mobile-navigation">
-            <summary>
-              Workspace menu <span aria-hidden="true">⌄</span>
-            </summary>
-            <MainNav groups={navigation} label="Mobile main" />
-          </details>
+          <NavigationPendingRegion>
+            <div className="desktop-navigation">
+              <MainNav groups={navigation} />
+            </div>
+            <details className="mobile-navigation">
+              <summary>
+                Workspace menu <span aria-hidden="true">⌄</span>
+              </summary>
+              <MainNav groups={navigation} label="Mobile main" />
+            </details>
+          </NavigationPendingRegion>
           <div className="sidebar-end">
             <span className="account-avatar" aria-hidden="true">
               {Array.from(actor.name)[0]?.toUpperCase() ?? 'E'}
