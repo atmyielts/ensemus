@@ -1,5 +1,6 @@
-// An ACTIVE Knowledge source a restore left in raw debt (check finding 6, 0550), against real RLS, the
-// real raw object authority and the native raw object port. FLAGGED FOR HUMAN SECURITY REVIEW, not yet
+// An ACTIVE Knowledge source a restore left in raw debt (check finding 6, 0550; its closure and purge,
+// 0551, which raw-restore-active-source-closure.test.ts covers further), against real RLS, the real raw
+// object authority and the native raw object port. FLAGGED FOR HUMAN SECURITY REVIEW, not yet
 // reviewed by a person. The material restore generation is rotated the way the native restore rotates
 // it, which is global: this file runs serially, as the whole integration project does
 // (fileParallelism: false). Storage is an explicit memory test double; nothing here qualifies a provider.
@@ -15,6 +16,7 @@ import {
   requalifyRawRestoreOrganization,
   type ObjectStore,
 } from '@ensemus/application';
+import { ingestDocument } from '@ensemus/application/knowledge/ingest';
 import { revokeSource } from '@ensemus/application/knowledge/purge';
 import {
   addDocumentVersion,
@@ -25,6 +27,7 @@ import { openAppDatabase, withTenantTx, type TenantContext } from '@ensemus/data
 import { openAgentDatabase } from '@ensemus/database/agent';
 import { createServiceContext } from '@ensemus/database/service';
 import { knowledgeObjectKey } from '@ensemus/domain/knowledge';
+import { parseDocument } from '@ensemus/knowledge/parsing';
 import { pgCode } from '../../packages/application/src/errors';
 import {
   readRequalifications,
@@ -173,25 +176,38 @@ describe('an active source a restore left in raw debt (0550)', () => {
         ${`{${documents.join(',')}}`}::uuid[],${`{${hashes.join(',')}}`}::text[],${`{${sizes.join(',')}}`}::bigint[])`),
     );
 
-  /** An open source with one raw object, uploaded natively before the restore. */
+  /**
+   * An open source with one raw object, uploaded natively before the restore and ingested by the
+   * service the way the ingest worker does, so its first version is searchable as a real source's is.
+   * A version still received or parsing refuses a new version in the application (INVALID_STATE)
+   * before the raw writer guard this file is about is ever reached.
+   */
   const prepare = async (title: string): Promise<Active> => {
     const tenant = await seedAiTenant(app.db, { commercialMode: 'sovereign' });
     const bucket = new Bucket();
-    const source = await addUploadedSource(
-      app.db,
-      nativeKnowledgeStore(app.db, bucket),
-      tenant.owner,
-      {
-        title,
-        mediaType: 'text/plain',
-        body: Buffer.from(`Generated ${title}.`),
-        classification: 'internal',
-        grants: [],
-      },
-    );
+    const store = nativeKnowledgeStore(app.db, bucket);
+    const source = await addUploadedSource(app.db, store, tenant.owner, {
+      title,
+      mediaType: 'text/plain',
+      body: Buffer.from(`Generated ${title}.`),
+      classification: 'internal',
+      grants: [],
+    });
     const key = knowledgeObjectKey(tenant.organizationId, source.documentId);
     const bytes = bucket.objects.get(key);
     expect(bytes).toBeDefined();
+    expect(
+      await ingestDocument(
+        app.db,
+        store,
+        createServiceContext(tenant.organizationId),
+        {
+          parse: async (body, type) => parseDocument(body, type),
+          contentScan: { scan: () => ({ raiseTo: null, codes: [] }) },
+        },
+        { documentId: source.documentId },
+      ),
+    ).toMatchObject({ outcome: 'searchable' });
     return {
       bucket,
       owner: tenant.owner,
@@ -206,6 +222,7 @@ describe('an active source a restore left in raw debt (0550)', () => {
 
   // A is requalified and then closed; B's tenant marker is never requalified.
   let a: Active, b: Active;
+  let secondDocumentId = '';
 
   it('prepares two open sources before the restore', async () => {
     a = await prepare('active source requalified');
@@ -349,6 +366,7 @@ describe('an active source a restore left in raw debt (0550)', () => {
     // The version the refused attempt left behind is resumed by the same upload.
     const second = await newVersion(a);
     expect(second.unchanged).toBe(true);
+    secondDocumentId = second.documentId;
     const secondKey = knowledgeObjectKey(a.organizationId, second.documentId);
     expect(a.bucket.objects.get(secondKey)).toEqual(SECOND_VERSION);
     expect(a.bucket.objects.get(a.key)).toEqual(a.bytes);
@@ -356,17 +374,22 @@ describe('an active source a restore left in raw debt (0550)', () => {
     expect(await proofs(a)).toEqual([{ documents: [a.documentId], current: true }]);
   });
 
-  it('closes the requalified source, keeping its raw debt owed and unsealed', async () => {
+  it('closes the requalified source, and its ordinary purge deletes every object of it (0551)', async () => {
+    const secondKey = knowledgeObjectKey(a.organizationId, secondDocumentId);
+    expect(a.bucket.objects.has(secondKey)).toBe(true);
     const { purgeJobId } = await revoke(a);
     expect((await getSource(app.db, a.owner, a.sourceId)).state).toBe('revoked');
+    // The inventory stays restore debt, never sealed: its generation is immutable.
     expect(await inventory(a)).toMatchObject({
       state: 'restore_debt',
       sealed: false,
       job: purgeJobId,
       current: false,
     });
-    // Its older bytes are restore debt no 0516, 0543 or 0547 proof accepts while unsealed, so the
-    // purge does not complete and they stay (0550's header: a separately reviewed path is owed).
+    // 0551 (check finding 4 (i)) supersedes 0550's "a separately reviewed path is owed": the ordinary
+    // purge of a closed source whose debt a proof of this generation still pins deletes its objects of
+    // every generation and its projections through 0516's own claim, DELETE and absence proof, and
+    // only then completes.
     expect(
       await runNativeKnowledgePurge({
         app: app.db,
@@ -375,8 +398,16 @@ describe('an active source a restore left in raw debt (0550)', () => {
         organizationId: a.organizationId,
         sourceId: a.sourceId,
       }),
-    ).toMatchObject({ state: 'failed' });
-    expect(a.bucket.objects.has(a.key)).toBe(true);
+    ).toMatchObject({ state: 'completed' });
+    expect(a.bucket.objects.has(a.key)).toBe(false);
+    expect(a.bucket.objects.has(secondKey)).toBe(false);
+    const left = await control.query<{ documents: number; chunks: number; proven: number }>(
+      `select (select count(*)::int from knowledge.documents where organization_id=$1 and source_id=$2) documents,
+        (select count(*)::int from knowledge.chunks where organization_id=$1 and source_id=$2) chunks,
+        (select count(*)::int from lifecycle.object_deletion_claims where organization_id=$1 and raw_source_id=$2 and state='proven') proven`,
+      [a.organizationId, a.sourceId],
+    );
+    expect(left.rows[0]).toEqual({ documents: 0, chunks: 0, proven: 2 });
     // A closed source is not re-proven as active again.
     expect(await refusal(observe(a, [a.documentId], [sha256(a.bytes)], [a.bytes.length]))).toEqual({
       code: 'EN850',
@@ -393,7 +424,7 @@ describe('an active source a restore left in raw debt (0550)', () => {
     });
   });
 
-  it("refuses a tenant whose marker was not re-proven, and 0550's postcondition its own redefinition", async () => {
+  it("refuses a tenant whose marker was not re-proven, and the postcondition 0550's entry point's redefinition", async () => {
     // A new rotation makes every earlier proof stale, B's marker included. Without re-proving the
     // marker in this generation, the source cannot be re-proven.
     await rotate();
@@ -402,9 +433,16 @@ describe('an active source a restore left in raw debt (0550)', () => {
       reason: 'RAW_ORG_RESTORE_REQUALIFICATION_REQUIRED',
     });
     expect(await proofs(b)).toEqual([]);
-    // 0550's own postcondition refuses an entry point that does anything before its refusal.
+    // The postcondition refuses an entry point that does anything before its refusal. 0551 (check
+    // finding 1) moved 0516's revoke transition off 0550's predicate, so 0550's own postcondition, which
+    // counts that predicate twice in record_raw_native_birth, no longer describes the migrated
+    // database. 0551's postcondition asserts the same opening refusal, in 0549's exact form, for both
+    // of 0550's entry points and for its own, so it is what judges this redefinition now.
     const statements = readFileSync(
-      join(repoRoot, 'packages/database/migrations/0550_raw_restore_active_source_r8restore.sql'),
+      join(
+        repoRoot,
+        'packages/database/migrations/0551_raw_restore_active_source_closure_r9restore.sql',
+      ),
       'utf8',
     ).split('--> statement-breakpoint');
     const postcondition = statements.at(-1)!;
@@ -419,7 +457,8 @@ describe('an active source a restore left in raw debt (0550)', () => {
       );
       await expect(migrator.query(postcondition)).rejects.toMatchObject({
         code: 'EN850',
-        message: 'RAW_ACTIVE_RESTORE_POSTCONDITION',
+        message: 'RAW_ACTIVE_CLOSURE_POSTCONDITION',
+        detail: 'lifecycle.requalify_raw_restore_active_source(uuid,uuid[],text[],bigint[])',
       });
     } finally {
       await migrator.query('rollback');

@@ -778,6 +778,13 @@
       "when": 1794201807512,
       "tag": "0550_raw_restore_active_source_r8restore",
       "breakpoints": true
+    },
+    {
+      "idx": 111,
+      "version": "7",
+      "when": 1794201807513,
+      "tag": "0551_raw_restore_active_source_closure_r9restore",
+      "breakpoints": true
     }
   ]
 }
