@@ -29,6 +29,10 @@ type Answer = {
 
 /** The in-subnet fake model (compose.test.yaml), which the stack's workers may reach. */
 const FAKE_MODEL_ENDPOINT = 'http://fake-model:8000/v1';
+/** How long a revocation's purge may take to end. Each workflow attempt is bounded, three at most. */
+const PURGE_END_WAIT_MS = 90_000;
+/** Longer than knowledgePurgeWorkflow's longest wait between two attempts (two seconds), with margin. */
+const PURGE_SETTLED_FAILED_MS = 8_000;
 
 async function sessionOf(person: Person) {
   const response = await fetch(`${BASE}/api/auth/get-session`, {
@@ -96,6 +100,31 @@ describe('operations a running test had not reached (API-12)', () => {
   async function hiddenFromOutsider(method: string, suffix: string, body?: unknown) {
     const answer = await call(outsider, method, suffix, body === undefined ? {} : { body });
     expect(answer.status, answer.text).toBe(404);
+  }
+
+  /**
+   * Waits for a closed source's purge to end, through its own status operation. The revocation's outbox
+   * event starts knowledgePurgeWorkflow, whose attempts (up to three, one and then two seconds apart)
+   * take this tenant's organization row FOR NO KEY UPDATE NOWAIT (0515, 0516). Until it ends, a write in
+   * this tenant that the erasure birth fence guards (0533, FOR SHARE NOWAIT) is refused at once with
+   * 55P03: in CI run 42692158422 that was the next test's qualification insert, while the knowledge
+   * worker was still running this purge. Completed is final. Failed can still be between two attempts,
+   * so it counts as ended only once it has stayed failed for longer than the workflow waits between them.
+   */
+  async function purgeEnded(sourceId: string) {
+    const deadline = Date.now() + PURGE_END_WAIT_MS;
+    let failedSince: number | null = null;
+    for (;;) {
+      const status = await call(owner, 'GET', `knowledge/sources/${sourceId}/purge`);
+      expect(status.status, status.text).toBe(200);
+      expect(status.json.source_id).toBe(sourceId);
+      const state = String(status.json.state);
+      if (state === 'completed') return;
+      failedSince = state === 'failed' ? (failedSince ?? Date.now()) : null;
+      if (failedSince !== null && Date.now() - failedSince >= PURGE_SETTLED_FAILED_MS) return;
+      if (Date.now() > deadline) throw new Error(`TEST_PURGE_DID_NOT_END:${state}`);
+      await new Promise((done) => setTimeout(done, 1_000));
+    }
   }
 
   /** An upload through the API, as a person adds a document. */
@@ -264,6 +293,9 @@ describe('operations a running test had not reached (API-12)', () => {
     expect(revoked.status, revoked.text).toBe(202);
     expect(revoked.json.source_id).toBe(source.id);
     await hiddenFromOutsider('POST', `knowledge/sources/${source.id}/revoke`, body);
+    // The purge this revocation started works on this tenant's organization row. The tests after this
+    // one write in the same tenant, so it has to have ended first (see purgeEnded).
+    await purgeEnded(source.id);
   });
 
   it('approves a model workload, queues a semantic query under it, reads the job, and revokes it', async () => {
