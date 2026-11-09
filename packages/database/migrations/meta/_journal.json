@@ -706,6 +706,13 @@
       "idx": 100,
       "version": "7",
       "when": 1794201807502,
+      "tag": "0540_delegated_birth_queued_ceiling_owner_g4agentmat",
+      "breakpoints": true
+    },
+    {
+      "idx": 101,
+      "version": "7",
+      "when": 1794201807503,
       "tag": "0542_raw_restore_proof_lost_deferred_r4knowledge",
       "breakpoints": true
     }

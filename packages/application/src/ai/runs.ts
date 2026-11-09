@@ -663,6 +663,22 @@ export async function readRunFacts(
   };
 }
 
+/**
+ * This run's own read-scope and authority-v1 admission (0414, 0417), in a savepoint, so a refusal rolls
+ * back every protocol marker it set and leaves the transaction usable. False when the run is refused;
+ * anything else, such as NOWAIT contention, is thrown on for the caller's retry.
+ */
+async function admitOwnRunInTx(tx: Tx, context: AgentContext): Promise<boolean> {
+  try {
+    await tx.transaction((inner) => loadAgentReadScopeInTx(inner, context));
+    return true;
+  } catch (error) {
+    if (isAccessRefusal(error) || (error instanceof AppError && error.code === 'POLICY_DENIED'))
+      return false;
+    throw error;
+  }
+}
+
 /** Reads the controls and the switches. Anything that cannot be read about a switch counts as halted. */
 export async function readRunDirective(
   database: AppDatabase,
@@ -670,6 +686,12 @@ export async function readRunDirective(
   input: { agentRunId: string; temporalRunId: string; halt: () => HaltCheck },
 ): Promise<'continue' | 'pause' | 'stop' | 'halted'> {
   return withTenantTx(database, context, async (tx) => {
+    // 0417's authority_work_body hides the Work from an authority-v1 run's agent transaction until
+    // that transaction has its own read-scope and authority-v1 admission, so without it the join
+    // below finds no row and every running run read as stopped. Admit it as claimQueuedRun and
+    // reclaimRun do, inside a savepoint so a refusal leaves no partial protocol marker behind. A run
+    // that can no longer be admitted keeps the fail-closed answer it had with no row: it stops.
+    if (!(await admitOwnRunInTx(tx, context))) return 'stop';
     const [row] = await tx
       .select({
         status: agentRuns.status,

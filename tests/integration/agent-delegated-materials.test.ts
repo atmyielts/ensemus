@@ -72,6 +72,18 @@ import { urls } from '../helpers/stack';
 import { seedSearchableSource } from '../helpers/knowledge';
 
 const hash = (value: string) => createHash('sha256').update(value).digest('hex');
+/**
+ * A PostgreSQL refusal as `code:constraint`, or `code:message` when no constraint is named. Anything
+ * else (an assertion inside the transaction, say) keeps its own message, so a failure names itself.
+ */
+const refusalOf = (error: unknown) => {
+  const found = error as {
+    message?: unknown;
+    cause?: { code?: unknown; constraint?: unknown; message?: unknown };
+  } | null;
+  const cause = found?.cause;
+  return `${String(cause?.code)}:${String(cause?.constraint ?? cause?.message ?? found?.message)}`;
+};
 const noObjects: ObjectStore = {
   async put() {
     throw new Error('TEST_UNEXPECTED_OBJECT_PUT');
@@ -914,7 +926,7 @@ describe('delegated material birth evidence (0419)', () => {
 
   it('records only an actual Work INSERT and rolls the copied body back without its reciprocal child receipt', async () => {
     const f = await fixture();
-    // The same assertion as a toSatisfy on the code, written so a failure prints the actual code.
+    // Born as every Work is, 'queued' by default: the untouched birth state 0540's witness guard asks.
     const refused = await withTenantTx(agent.db, f.context, async (tx) => {
       await loadAgentReadScopeInTx(tx, f.context);
       await tx.insert(workUnits).values({
@@ -937,11 +949,9 @@ describe('delegated material birth evidence (0419)', () => {
       () => null,
       (error: unknown) => error,
     );
-    // Compared with the raised message beside it, so a refusal by any earlier guard names itself.
-    expect({
-      code: pgCode(refused),
-      message: (refused as { cause?: { message?: string } } | null)?.cause?.message,
-    }).toMatchObject({ code: '23503' });
+    // The deferred reciprocal receipt FK itself, by name. Any earlier guard's refusal prints its own
+    // message here instead: 0419's witness guard named a 'draft' status no Work can hold (0540).
+    expect(refusalOf(refused)).toBe('23503:delegated_work_births_receipt_fk');
     expect(
       await withTenantTx(app.db, a.owner, (tx) =>
         tx.select({ id: workUnits.id }).from(workUnits).where(eq(workUnits.id, f.childWorkId)),
@@ -953,6 +963,40 @@ describe('delegated material birth evidence (0419)', () => {
           .select()
           .from(delegatedWorkBirths)
           .where(eq(delegatedWorkBirths.workUnitId, f.childWorkId)),
+      ),
+    ).toEqual([]);
+  });
+
+  it('refuses a copied Work INSERT that is not the untouched queued birth of its proposal (0540)', async () => {
+    const f = await fixture();
+    const copy = (overrides: Partial<typeof workUnits.$inferInsert>) =>
+      withTenantTx(agent.db, f.context, async (tx) => {
+        await loadAgentReadScopeInTx(tx, f.context);
+        await tx.insert(workUnits).values({
+          organizationId: a.organizationId,
+          id: f.childWorkId,
+          parentId: f.work.id,
+          ownerMembershipId: a.owner.membershipId,
+          createdByMembershipId: a.owner.membershipId,
+          title: 'Actual copied child',
+          classification: 'internal',
+          ...overrides,
+        });
+      }).then(
+        () => null,
+        (error: unknown) => error,
+      );
+    // A status a fresh Work is never born with, and a title other than the proposal's derived body.
+    // Each is the witness guard's own refusal, before any receipt or deferred check is reached.
+    const mismatch = 'EN119:DELEGATED_WORK_INSERT_WITNESS_MISMATCH';
+    expect(refusalOf(await copy({ status: 'ready' }))).toBe(mismatch);
+    expect(refusalOf(await copy({ title: 'A different copied title' }))).toBe(mismatch);
+    expect(refusalOf(await copy({ objective: 'An objective the proposal never had.' }))).toBe(
+      mismatch,
+    );
+    expect(
+      await withTenantTx(app.db, a.owner, (tx) =>
+        tx.select({ id: workUnits.id }).from(workUnits).where(eq(workUnits.id, f.childWorkId)),
       ),
     ).toEqual([]);
   });
@@ -1038,8 +1082,21 @@ describe('delegated material birth evidence (0419)', () => {
             ),
           ),
       );
+      // 0414's interim ai.delegation_influence_ready stays false until root qualifies the 0419
+      // lifecycle, and 0419's child-run birth guard refuses DELEGATION_INPUT_PROOF_UNAVAILABLE while
+      // it is. Read as the run reads it, so a closed capability is named rather than guessed at.
+      const ready = await withTenantTx(
+        agent.db,
+        f.context,
+        async (tx) =>
+          (
+            await tx.execute<{ ready: boolean | null }>(
+              sql`select ai.delegation_influence_ready(${f.runId}::uuid,${f.childRunId}::uuid) ready`,
+            )
+          ).rows[0]?.ready,
+      );
       throw new Error(
-        `TEST_GENUINE_CHILD_NOT_ADMITTED:${created.code}:${denials.map((row) => row.reason).join(',')}`,
+        `TEST_GENUINE_CHILD_NOT_ADMITTED:${created.code}:${denials.map((row) => row.reason).join(',')}:delegation_influence_ready=${String(ready)}`,
       );
     }
     expect(created).toMatchObject({ childRunId: f.childRunId, childWorkUnitId: f.childWorkId });
