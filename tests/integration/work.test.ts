@@ -1,5 +1,5 @@
 // WORK-01 to WORK-05, ID-02, LIFE-01, UX-15, UX-16, QA-001 to QA-007, Gate B. Real roles, real SQL.
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
@@ -1486,42 +1486,134 @@ describe('work', () => {
       expect(await purgeDueBlobs(db(), lying, a)).toEqual({ purged: 0, failed: 1 });
     });
 
-    // 0508 (begin_object_deletion admits only a tombstoned, catalogued file; M8 lifecycle join source,
-    // "orphan uploading rows without completion remain unconfirmed"): no grace period proves an orphan's
-    // PUT has finished, so a sweep never deletes it. It stays recorded as owed, and is never dropped.
-    it('keeps an upload whose row never arrived as owed, and never deletes it unproven', async () => {
+    /** A store that keeps the bytes and then runs `after`, as if the Work changed during the PUT. */
+    const storingThen = (
+      store: MemoryStore,
+      after: (key: string) => Promise<void>,
+    ): ObjectStore => ({
+      put: async (key, body) => {
+        store.objects.set(key, body);
+        await after(key);
+      },
+      get: store.get.bind(store),
+      exists: store.exists.bind(store),
+      delete: store.delete.bind(store),
+      deleteForPurge: store.deleteForPurge.bind(store),
+      isPhysicallyAbsent: store.isPhysicallyAbsent.bind(store),
+    });
+    const cancel = (context: TenantContext, workUnitId: string) =>
+      transitionWorkUnit(db(), context, { id: workUnitId, expectedVersion: 1, to: 'cancelled' });
+    const blobRows = (context: TenantContext) =>
+      withTenantTx(db(), context, (tx) =>
+        tx.execute(`select state, attempts, purged_at from platform.blob_lifecycle`),
+      );
+    const artifactIdOf = (key: string) => key.split('/').at(-1)!;
+    const uploadHash = createHash('sha256').update('content').digest('hex');
+
+    // LIFE-01 with 0508's deletion authority and 0539's writer receipt. No grace period proves that an
+    // orphan's PUT has finished (M8 join source: orphan rows without completion remain unconfirmed),
+    // but the writer itself does: after its own PUT fulfilled and its row did not arrive, it settles
+    // its receipt, the row is fenced, and the sweep removes the bytes through the hold-aware authority.
+    it('removes an upload whose row never arrived once its writer proved its PUT finished', async () => {
       const a = await newOrg();
       const store = new MemoryStore();
       const work = await createWorkUnit(db(), a, { title: 'W' });
-      const failing: ObjectStore = {
-        put: async (key, body) => {
-          store.objects.set(key, body);
-          // Bytes stored, then the work is stopped before the row can arrive.
-          await transitionWorkUnit(db(), a, {
-            id: work.id,
-            expectedVersion: 1,
-            to: 'cancelled',
-          });
-        },
-        get: store.get.bind(store),
-        exists: store.exists.bind(store),
-        delete: store.delete.bind(store),
-        deleteForPurge: store.deleteForPurge.bind(store),
-        isPhysicallyAbsent: store.isPhysicallyAbsent.bind(store),
-      };
+      // Bytes stored, then the work is stopped before the row can arrive.
+      const failing = storingThen(store, () => cancel(a, work.id).then(() => undefined));
       await expect(upload(a, failing, work.id)).rejects.toEqual(code('INVALID_STATE'));
       expect(store.objects.size).toBe(1);
 
-      // Not while it could still be on its way; and after the grace period, still not without a proven
-      // writer, so the bytes stay and the attempt is counted rather than reported as purged.
+      // Not inside the grace period, and then the bytes go and the row reaches purged, once.
       expect(await purgeDueBlobs(db(), store, a)).toEqual({ purged: 0, failed: 0 });
+      expect(store.objects.size).toBe(1);
+      const later = new Date(Date.now() + 2 * 60 * 60 * 1000);
+      expect(await purgeDueBlobs(db(), store, a, later)).toEqual({ purged: 1, failed: 0 });
+      expect(store.objects.size).toBe(0);
+      expect(await purgeDueBlobs(db(), store, a, later)).toEqual({ purged: 0, failed: 0 });
+      const rows = await blobRows(a);
+      expect(rows.rows).toMatchObject([{ state: 'purged', attempts: 0 }]);
+      expect(rows.rows[0]?.purged_at).toBeTruthy();
+    });
+
+    it('never deletes an orphan upload whose writer did not prove its PUT finished', async () => {
+      const a = await newOrg();
+      const store = new MemoryStore();
+      const work = await createWorkUnit(db(), a, { title: 'W' });
+      // The bytes may have landed, but the PUT itself was refused: an unknown outcome, never settled.
+      const unknown = storingThen(store, async () => {
+        throw new Error('connection reset after the request was sent');
+      });
+      await expect(upload(a, unknown, work.id)).rejects.toThrow('connection reset');
+      const key = [...store.objects.keys()][0]!;
+      const later = new Date(Date.now() + 2 * 60 * 60 * 1000);
+      expect(await purgeDueBlobs(db(), store, a, later)).toEqual({ purged: 0, failed: 1 });
+      expect(store.objects.has(key)).toBe(true);
+      // The app role cannot forge the fence either: a tombstone and a 'deleting' row without the
+      // writer's settled receipt still admit no deletion (0539 begin_object_deletion).
+      await withTenantTx(db(), a, async (tx) => {
+        await tx.execute(
+          sql`update platform.blob_lifecycle set state = 'deleting' where artifact_id = ${artifactIdOf(key)}::uuid`,
+        );
+        await tx.execute(sql`insert into platform.tombstones (organization_id, target_type, target_id, reason_code)
+          values (${a.organizationId}::uuid, 'artifact', ${artifactIdOf(key)}::uuid, 'USER_DELETED')`);
+      });
+      const muchLater = new Date(later.getTime() + 3 * 24 * 60 * 60 * 1000);
+      expect(await purgeDueBlobs(db(), store, a, muchLater)).toEqual({ purged: 0, failed: 1 });
+      expect(store.objects.has(key)).toBe(true);
+      expect((await blobRows(a)).rows).toMatchObject([{ state: 'deleting', attempts: 2 }]);
+    });
+
+    it('waits for every writer sharing an orphan row before removing its bytes', async () => {
+      const a = await newOrg();
+      const store = new MemoryStore();
+      const work = await createWorkUnit(db(), a, { title: 'W' });
+      const other = randomUUID();
+      const register = (artifactId: string, writeId: string) =>
+        withTenantTx(
+          db(),
+          a,
+          async (tx) =>
+            (
+              await tx.execute<{ ok: boolean }>(
+                sql`select lifecycle.register_upload_write(${artifactId}::uuid, ${writeId}::uuid, ${uploadHash}) as ok`,
+              )
+            ).rows[0]?.ok,
+        );
+      const settle = (artifactId: string, writeId: string) =>
+        withTenantTx(
+          db(),
+          a,
+          async (tx) =>
+            (
+              await tx.execute<{ outcome: string }>(
+                sql`select lifecycle.settle_upload_write(${artifactId}::uuid, ${writeId}::uuid) as outcome`,
+              )
+            ).rows[0]?.outcome,
+        );
+      // A second request for the same row is still sending its bytes when the first one gives up.
+      let id = '';
+      const sharing = storingThen(store, async (key) => {
+        id = artifactIdOf(key);
+        expect(await register(id, other)).toBe(true);
+        await cancel(a, work.id);
+      });
+      await expect(upload(a, sharing, work.id)).rejects.toEqual(code('INVALID_STATE'));
+      // A token nobody registered settles nothing.
+      expect(await settle(id, randomUUID())).toBe('unknown');
+
       const later = new Date(Date.now() + 2 * 60 * 60 * 1000);
       expect(await purgeDueBlobs(db(), store, a, later)).toEqual({ purged: 0, failed: 1 });
       expect(store.objects.size).toBe(1);
-      const rows = await withTenantTx(db(), a, (tx) =>
-        tx.execute(`select state, attempts from platform.blob_lifecycle where state <> 'purged'`),
-      );
-      expect(rows.rows).toEqual([{ state: 'uploading', attempts: 1 }]);
+      expect((await blobRows(a)).rows).toMatchObject([{ state: 'uploading', attempts: 1 }]);
+
+      // Its PUT finishes too, and it settles: now every writer is done, and the bytes go.
+      expect(await settle(id, other)).toBe('fenced');
+      // A fenced row takes no new writer.
+      expect(await register(id, randomUUID())).toBe(false);
+      const after = new Date(later.getTime() + 30 * 60 * 1000);
+      expect(await purgeDueBlobs(db(), store, a, after)).toEqual({ purged: 1, failed: 0 });
+      expect(store.objects.size).toBe(0);
+      expect((await blobRows(a)).rows).toMatchObject([{ state: 'purged' }]);
     });
 
     it('leaves no record behind for an upload that succeeded', async () => {
