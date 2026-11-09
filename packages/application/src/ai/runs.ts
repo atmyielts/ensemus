@@ -45,7 +45,7 @@ import {
 import { AGENT_RUN_FINISHED, AGENT_RUN_STARTED } from '@ensemus/domain/ai-events';
 import { and, desc, eq, inArray, lte, sql } from 'drizzle-orm';
 import { z } from 'zod';
-import { AppError } from '../errors';
+import { AppError, pgCode } from '../errors';
 import { emit } from '../events';
 import {
   applyTransition,
@@ -55,7 +55,12 @@ import {
   releaseTerminalWorkInTx,
 } from '../work';
 import type { HaltCheck, TurnStart, TurnStore } from './ports';
-import { assertRunInputsOpen, lockRunInputsForContent, workInputClassInTx } from './input-ledger';
+import {
+  assertRunInputsOpen,
+  createRunTranscriptPurge,
+  lockRunInputsForContent,
+  workInputClassInTx,
+} from './input-ledger';
 import { assertWithinAgentCeiling, loadAgentReadScopeInTx } from './read-scope';
 import { bindModelResultWriteInTx } from './model-admission';
 import {
@@ -327,10 +332,16 @@ async function refuseClaim(
 /**
  * What a finished run leaves behind. A hold on a call that may have reached a provider is not released
  * without a charge: the caller has charged those already, or, with no way to charge them because the
- * initiator has gone, passes `keepLost` so the budget goes on over-counting (FD-12). Prompts and answers go
- * now (FD-5), and nothing further can act on a proposal.
+ * initiator has gone, passes `keepLost` so the budget goes on over-counting (FD-12). Nothing further can
+ * act on a proposal. Prompts and answers go here only when `payloads` says so: an agent transaction can
+ * neither see nor delete them (0417, 0515), so after `finishRun` they go through
+ * `purgeEndedRunTranscript` instead (FD-5).
  */
-async function clearRunLeftovers(tx: Tx, agentRunId: string, options: { keepLost: boolean }) {
+async function clearRunLeftovers(
+  tx: Tx,
+  agentRunId: string,
+  options: { keepLost: boolean; payloads: boolean },
+) {
   const held = await tx
     .select({
       id: budgetReservations.id,
@@ -375,18 +386,64 @@ async function clearRunLeftovers(tx: Tx, agentRunId: string, options: { keepLost
         inArray(toolProposals.status, ['proposed', 'awaiting_approval', 'approved']),
       ),
     );
-  await tx
-    .delete(stepPayloads)
-    .where(
-      inArray(
-        stepPayloads.stepId,
-        tx
-          .select({ id: executionSteps.id })
-          .from(executionSteps)
-          .where(eq(executionSteps.runId, agentRunId)),
-      ),
-    );
+  if (options.payloads)
+    await tx
+      .delete(stepPayloads)
+      .where(
+        inArray(
+          stepPayloads.stepId,
+          tx
+            .select({ id: executionSteps.id })
+            .from(executionSteps)
+            .where(eq(executionSteps.runId, agentRunId)),
+        ),
+      );
   await tx.delete(agentAssignments).where(eq(agentAssignments.agentRunId, agentRunId));
+}
+
+const isHeldMaterial = (error: unknown) =>
+  pgCode(error) === 'EN119' &&
+  (error as { cause?: { message?: unknown } }).cause?.message ===
+    'MATERIAL_DELETE_HOLD_UNCONFIRMED';
+
+/**
+ * FD-5: an ended run's prompts and answers go as it ends. Not in the initiator's agent transaction, where
+ * `finishRun` used to try: 0417's authority_transcript_body hides an authority-v1 run's payloads from it,
+ * so that DELETE matched no row and left every transcript behind (the stack canary's tool arguments), and
+ * 0515's material barrier admits a payload DELETE only from a service actor on the agent role, once the run
+ * is fenced. Ending the run fenced it (0214), so this is the same native purge every other transcript
+ * erasure uses (`createRunTranscriptPurge`), for this one ended run. Agent code may not make a service
+ * context (ADR-028 FD-3), so the agent worker's composition passes its own, after `finishRun` has
+ * committed, as it already does for `reconcileRun`. An active legal hold refuses the DELETE in 0515 and
+ * keeps the transcript, as a hold must: the run is fenced, so no agent transaction can read it, and the
+ * checkpoint stays unpurged for a later purge. That answers 'held'. Anything else, such as NOWAIT
+ * contention, is thrown on, and a retry repeats this.
+ */
+export async function purgeEndedRunTranscript(
+  database: AppDatabase,
+  context: TenantContext,
+  input: { agentRunId: string },
+): Promise<'purged' | 'held'> {
+  if (context.actorType !== 'service') throw new AppError('FORBIDDEN');
+  try {
+    return await withTenantTx(database, context, async (tx) => {
+      const [run] = await tx
+        .select({ status: agentRuns.status })
+        .from(agentRuns)
+        .where(eq(agentRuns.id, input.agentRunId));
+      if (!run) throw new AppError('NOT_FOUND');
+      // A live run's transcript is the next turn's input. Only an ended, fenced run gives it up here.
+      if (!isTerminalAgentRun(run.status as AgentRunStatus)) throw new AppError('INVALID_STATE');
+      const erased = await createRunTranscriptPurge().purgeUsing(tx, context, {
+        runIds: [input.agentRunId],
+      });
+      if (erased.remaining !== 0) throw new AppError('INVALID_STATE');
+      return 'purged' as const;
+    });
+  } catch (error) {
+    if (isHeldMaterial(error)) return 'held';
+    throw error;
+  }
 }
 
 const mayHaveReachedProvider = (row: {
@@ -987,7 +1044,10 @@ export async function listLostAttempts(
   });
 }
 
-/** Terminal status, reservations released, payloads purged. Safe to repeat. */
+/**
+ * Terminal status and reservations released. Safe to repeat. Its prompts and answers are erased after
+ * this commits, by `purgeEndedRunTranscript` under the worker's service context (FD-5).
+ */
 export async function finishRun(
   database: AppDatabase,
   context: AgentContext,
@@ -997,14 +1057,14 @@ export async function finishRun(
     const run = await lockRun(tx, input.agentRunId);
     if (!run) throw new AppError('NOT_FOUND');
     if (isTerminalAgentRun(run.status as AgentRunStatus)) {
-      await clearRunLeftovers(tx, run.id, { keepLost: false });
+      await clearRunLeftovers(tx, run.id, { keepLost: false, payloads: false });
       // An older bundle may have fenced/ended this run while terminal body RLS correctly hid its
       // Work. Retry only the exact conservative metadata effect, never a new model/tool attempt.
       await releaseWork(tx, context, run, run.status as AgentRunStatus);
       return;
     }
     const ended = await moveRun(tx, run, input.status, input.stopCode);
-    await clearRunLeftovers(tx, run.id, { keepLost: false });
+    await clearRunLeftovers(tx, run.id, { keepLost: false, payloads: false });
     await releaseWork(tx, context, run, input.status);
     await appendAudit(tx, {
       organizationId: context.organizationId,
@@ -1081,7 +1141,7 @@ export async function closeRunWithoutContext(
       const ended = await moveRun(tx, run, input.status, input.stopCode);
       await auditRun(tx, input.organizationId, ended, 'ai.run_finished', 'deny', input.stopCode);
     }
-    await clearRunLeftovers(tx, run.id, { keepLost: true });
+    await clearRunLeftovers(tx, run.id, { keepLost: true, payloads: true });
     await releaseTerminalWorkForLookupInTx(tx, input.organizationId, run.id);
   });
 }
@@ -1215,6 +1275,19 @@ export async function verifyOutput(
   input: { agentRunId: string },
 ): Promise<'completed' | 'outcome_unverified'> {
   return withTenantTx(database, context, async (tx) => {
+    // 0414/0417: the run's steps, its payloads and its manifest are read, and the verification step is
+    // written, only behind this run's own read-scope and authority-v1 admission, exactly as reclaimRun
+    // and readRunDirective take it. Without it 0417's authority_transcript_body hides the answer and
+    // its authority_step_write refuses the step. A run that can no longer be admitted, such as one whose
+    // inputs were fenced, verifies nothing, replays no earlier verdict and writes no step: it is refused
+    // FORBIDDEN, which the workflow ends as policy_denied (stopForFailure). Admission takes its body
+    // locks before the run's UPDATE lock, the order read-scope.ts keeps for ordinary reads. The
+    // admission is the context's own run, so it says nothing about any other.
+    if (
+      input.agentRunId.toLowerCase() !== context.agentRunId ||
+      !(await admitOwnRunInTx(tx, context))
+    )
+      throw new AppError('FORBIDDEN');
     const run = await lockRun(tx, input.agentRunId);
     if (!run) throw new AppError('NOT_FOUND');
     const [earlier] = await tx
