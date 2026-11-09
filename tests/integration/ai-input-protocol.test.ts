@@ -102,23 +102,34 @@ describe('durable agent input protocol and content fence as actual roles', () =>
    * `knowledge` names the Knowledge sources the published manifest grants (0414: an agent reads no
    * source its immutable manifest does not name). It runs after the tenant exists and before the
    * version is published, as an owner would create a source and then publish an agent that reads it.
+   * `scopes` adds manifest data scopes. A run whose manifest names a Knowledge source has its read
+   * scope required (0414), and such a run reads nothing above confidential unless the manifest grants
+   * `data.restricted.read` (0414's ai.run_company_ceiling defaults to confidential).
    */
   async function fixture(
-    options: { knowledge?: (tenant: AiTenant) => Promise<readonly string[]> } = {},
+    options: {
+      knowledge?: (tenant: AiTenant) => Promise<readonly string[]>;
+      scopes?: readonly string[];
+    } = {},
   ) {
     const tenant = await seedAiTenant(app.db),
       work = await createWorkUnit(app.db, tenant.owner, {
         title: 'Actual target Work',
         objective: 'Synthetic input protocol.',
       });
-    const sources = options.knowledge ? await options.knowledge(tenant) : [];
+    const sources = options.knowledge ? await options.knowledge(tenant) : [],
+      scopes = options.scopes ?? [];
     const version = await seedAgentVersion(
         app.db,
         tenant.owner,
-        sources.length
+        sources.length || scopes.length
           ? testAgentSpec({
               context: {
-                allowed_scopes: ['work.read', ...sources.map((id) => `knowledge.${id}.read`)],
+                allowed_scopes: [
+                  'work.read',
+                  ...scopes,
+                  ...sources.map((id) => `knowledge.${id}.read`),
+                ],
                 memory_write_policy: 'none',
               },
             })
@@ -538,6 +549,37 @@ describe('durable agent input protocol and content fence as actual roles', () =>
         tx.select().from(artifacts).where(eq(artifacts.id, value.draftId)),
       ),
     ).toEqual([]);
+    // The block is durable: the fulfilled put's file is tombstoned, which runs 0501's hold check.
+    expect(
+      await withTenantTx(app.db, value.service, (tx) =>
+        tx
+          .select({ reason: tombstones.reasonCode })
+          .from(tombstones)
+          .where(
+            and(eq(tombstones.targetType, 'artifact'), eq(tombstones.targetId, value.draftId)),
+          ),
+      ),
+    ).toEqual([{ reason: 'KNOWLEDGE_SOURCE_PURGED' }]);
+  });
+  it('plans a non-agent transaction on the agent role over every ceiling-bounded body table (0536)', async () => {
+    const value = await fixture();
+    // 0417's project/client/file body policies call ai.run_company_ceiling with no run for a
+    // non-agent actor, and the planner runs it while estimating their class comparison. 0414 raised
+    // AGENT_SCOPE_INVALID there; 0536 answers 0, which no class satisfies, so such a read plans and
+    // still admits only what the first policy arm admits for that actor.
+    await expect(
+      withTenantTx(agent.db, value.service, (tx) => tx.select().from(projects).limit(1)),
+    ).resolves.toBeDefined();
+    await expect(
+      withTenantTx(agent.db, value.service, (tx) => tx.select().from(clients).limit(1)),
+    ).resolves.toBeDefined();
+    await expect(
+      withTenantTx(agent.db, value.service, (tx) => tx.select().from(artifacts).limit(1)),
+    ).resolves.toBeDefined();
+    // An agent transaction bound to its run still plans against that run's own ceiling lookup.
+    await expect(
+      withTenantTx(agent.db, value.context, (tx) => tx.select().from(artifacts).limit(1)),
+    ).resolves.toBeDefined();
   });
   it('keeps a rejected or unknown put started and refuses a blind duplicate despite absent HEAD', async () => {
     const value = await fixture(),
@@ -909,7 +951,11 @@ describe('durable agent input protocol and content fence as actual roles', () =>
   it('captures the actual private fact parent before material leaves, then retains it across reparenting', async () => {
     const word = `factparent${randomUUID().replaceAll('-', '')}`;
     let source!: Awaited<ReturnType<typeof seedSearchableSource>>;
+    // The fact's parent client is restricted, so the Work this run reads is restricted through its
+    // project. A run that names a Knowledge source has a required read scope (0414), and its manifest
+    // must grant data.restricted.read to read restricted material at all (0414 ai.run_company_ceiling).
     const value = await fixture({
+        scopes: ['data.restricted.read'],
         knowledge: async (tenant) => {
           source = await seedSearchableSource(app.db, tenant.owner, {
             passages: [word],

@@ -329,6 +329,23 @@ describe('native raw object orchestration', () => {
     ).rejects.toMatchObject({ code: 'INVALID_INPUT' });
     expect(f.execute).not.toHaveBeenCalled();
   });
+  it('reports a held source capture as the hold refusal and passes every other refusal through', async () => {
+    const f = fixture(),
+      port = createRawKnowledgeObjectPort(f),
+      input = { sourceId: f.write.sourceId, sourceVersion: 2, purgeJobId: randomUUID() };
+    // The shape the driver gives a raised PL/pgSQL exception: the SQLSTATE and text on `cause`.
+    const raised = (message: string) =>
+      Object.assign(new Error('Failed query'), {
+        cause: Object.assign(new Error(message), { code: 'EN850' }),
+      });
+    f.execute.mockRejectedValueOnce(raised('RAW_SOURCE_HOLD_UNCONFIRMED'));
+    await expect(port.captureSource(f.service, input)).rejects.toMatchObject({
+      code: 'POLICY_DENIED',
+    });
+    const legacy = raised('RAW_LEGACY_INVENTORY_UNCONFIRMED');
+    f.execute.mockRejectedValueOnce(legacy);
+    await expect(port.captureSource(f.service, input)).rejects.toBe(legacy);
+  });
   it.each([-1, 26, Number.MAX_SAFE_INTEGER + 1, null])(
     'refuses malformed recovery progress %s rather than reporting zero',
     async (changed) => {

@@ -6,7 +6,7 @@ import { knowledgeObjectKey } from '@ensemus/domain/knowledge';
 import { sql } from 'drizzle-orm';
 import { z } from 'zod';
 import type { ObjectStore } from '../artifacts';
-import { AppError } from '../errors';
+import { AppError, pgCode } from '../errors';
 import { idSchema } from '../ids';
 import {
   createObjectDeletionExecutor,
@@ -161,7 +161,18 @@ export function createRawKnowledgeObjectPort(deps: {
       const result = await withTenantTx(deps.database, context, (tx) =>
         tx.execute<{ more: boolean }>(sql`select * from lifecycle.capture_raw_source_inventory(
         ${idSchema.parse(input.sourceId)}::uuid,${input.sourceVersion}::bigint,${idSchema.parse(input.purgeJobId)}::uuid)`),
-      );
+      ).catch((error: unknown) => {
+        // 0516's capture refuses first while a hold covers this source's projections (or no
+        // current restore generation exists). That is the refusal assertMaterialHoldFree reports,
+        // so the source purge records a held source, never an unexplained PURGE_FAILED.
+        if (
+          pgCode(error) === 'EN850' &&
+          (error as { cause?: { message?: unknown } }).cause?.message ===
+            'RAW_SOURCE_HOLD_UNCONFIRMED'
+        )
+          throw new AppError('POLICY_DENIED');
+        throw error;
+      });
       if (result.rows.length !== 1 || typeof result.rows[0]?.more !== 'boolean')
         throw new AppError('PREREQUISITES_INCOMPLETE');
       return { more: result.rows[0].more };

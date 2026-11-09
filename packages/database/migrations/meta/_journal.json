@@ -673,6 +673,13 @@
       "when": 1794201807497,
       "tag": "0535_legacy_checklist_requalify_upgrade",
       "breakpoints": true
+    },
+    {
+      "idx": 96,
+      "version": "7",
+      "when": 1794201807498,
+      "tag": "0536_run_ceiling_without_run_agentmat",
+      "breakpoints": true
     }
   ]
 }

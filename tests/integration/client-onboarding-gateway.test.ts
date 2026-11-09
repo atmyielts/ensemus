@@ -12,8 +12,7 @@ import {
 } from '@ensemus/application';
 import { agentSpecSha256, publishAgentVersion } from '@ensemus/application/ai-agents';
 import { startAgentRun } from '@ensemus/application/ai-run-control';
-import { createRunInputInventory } from '@ensemus/application/ai-input-ledger';
-import { addGeneratedArtifact } from '@ensemus/application/knowledge/artifact-provenance';
+import { compileEvidence } from '@ensemus/application/knowledge/compiler';
 import { revokeSource } from '@ensemus/application/knowledge/purge';
 import { createOnboardingAgentRuns } from '@ensemus/application/knowledge/onboarding-run-port';
 import {
@@ -27,8 +26,6 @@ import {
   clientOnboardings,
   connections,
   domainEvents,
-  knowledgeEvidenceItems,
-  knowledgeEvidencePackages,
   memberships,
   openAppDatabase,
   outboxEvents,
@@ -52,9 +49,12 @@ import {
   seedOrganizationBudget,
   testAgentSpec,
   thisPeriod,
+  type AiTenant,
 } from '../helpers/ai/fixtures';
+import { draftRunOutput, startRunning } from '../helpers/ai/run-output';
 import { inFixtureTenant } from '../helpers/fixture-tenant';
-import { seedSearchableSource, sha256 } from '../helpers/knowledge';
+import { seedSearchableSource } from '../helpers/knowledge';
+import { createScriptedModelPort } from '@ensemus/knowledge/testing';
 import { urls } from '../helpers/stack';
 
 const port = createOnboardingAgentRuns();
@@ -79,7 +79,17 @@ describe('onboarding uses one authorized actual M4 run', () => {
     await su?.end();
   });
 
-  async function fixture(options: { publish?: boolean } = {}) {
+  /**
+   * `knowledge` names the Knowledge sources the published brief agent reads. It runs after the
+   * tenant exists and before publication, as an owner creates a source and then publishes an agent
+   * whose manifest grants it (0414: an agent turn retrieves only from declared sources).
+   */
+  async function fixture(
+    options: {
+      publish?: boolean;
+      knowledge?: (tenant: AiTenant) => Promise<readonly string[]>;
+    } = {},
+  ) {
     const tenant = await seedAiTenant(app.db);
     const { owner, member: reviewer } = tenant;
     const service = createServiceContext(tenant.organizationId);
@@ -104,7 +114,20 @@ describe('onboarding uses one authorized actual M4 run', () => {
     });
     await seedActiveProfile(app.db, agent.db, owner);
     await seedOrganizationBudget(app.db, owner, 1_000_000);
-    const spec = agentSpecV1Schema.parse(testAgentSpec({ id: 'client-brief' }));
+    const sources = options.knowledge ? await options.knowledge(tenant) : [];
+    const spec = agentSpecV1Schema.parse(
+      testAgentSpec({
+        id: 'client-brief',
+        ...(sources.length
+          ? {
+              context: {
+                allowed_scopes: ['work.read', ...sources.map((id) => `knowledge.${id}.read`)],
+                memory_write_policy: 'none',
+              },
+            }
+          : {}),
+      }),
+    );
     const published =
       options.publish === false
         ? null
@@ -580,42 +603,41 @@ describe('onboarding uses one authorized actual M4 run', () => {
   });
 
   it('returns only a bound output of this actual run and removes it immediately after source revocation', async () => {
-    const f = await fixture(),
+    const text = 'Generated gateway evidence.';
+    let source!: Awaited<ReturnType<typeof seedSearchableSource>>;
+    const f = await fixture({
+        knowledge: async (tenant) => {
+          source = await seedSearchableSource(app.db, tenant.owner, {
+            passages: [text],
+            grants: [{ kind: 'membership', membershipId: tenant.owner.membershipId }],
+          });
+          return [source.sourceId];
+        },
+      }),
       run = await f.requestRun();
     const writer = await prepareRunInputContext(agent.db, f.organizationId, run.agentRunId);
-    const text = 'Generated gateway evidence.';
-    const source = await seedSearchableSource(app.db, f.owner, {
-      passages: [text],
-      grants: [{ kind: 'membership', membershipId: f.owner.membershipId }],
-    });
-    await withTenantTx(app.db, f.service, async (tx) => {
-      const packageId = randomUUID();
-      await tx.insert(knowledgeEvidencePackages).values({
-        organizationId: f.organizationId,
-        id: packageId,
-        purpose: 'agent_turn',
-        workUnitId: f.request.workUnitId,
-        runId: run.agentRunId,
-        viewerMembershipId: f.owner.membershipId,
-        querySha256: sha256('generated query'),
-        policyVersion: 'test/gateway',
-        budgetTokens: 1000,
-        usedTokens: 10,
-        strongestClassification: 'internal',
-        packageSha256: sha256(packageId),
-      });
-      await tx.insert(knowledgeEvidenceItems).values({
-        organizationId: f.organizationId,
-        packageId,
-        ordinal: 1,
-        chunkId: source.chunkIds[0]!,
-        documentId: source.documentId,
-        sourceId: source.sourceId,
-        contentSha256: sha256(text),
-        classification: 'internal',
-        tokenEstimate: 10,
-      });
-    });
+    await startRunning(agent.db, writer);
+    // The run genuinely retrieves the source in an agent turn, so its evidence package is a real
+    // read of this run (the runtime's egress decision for the turn is authorized as the other
+    // agent-turn fixtures authorize theirs). An evidence package written by the service is not a
+    // read, and read admission refuses a package source the manifest does not name (0414).
+    expect(
+      await compileEvidence(
+        agent.db,
+        writer,
+        { model: createScriptedModelPort({}), authorizeAgentContext: async () => true },
+        {
+          purpose: 'agent_turn',
+          question: text,
+          queryClassification: 'internal',
+          workUnitId: f.request.workUnitId,
+          runId: run.agentRunId,
+          sourceIds: [source.sourceId],
+          budgetTokens: 1000,
+          signal: AbortSignal.timeout(10_000),
+        },
+      ),
+    ).toMatchObject({ ok: true, items: [{ sourceId: source.sourceId }] });
     const objects = new Map<string, Buffer>();
     const store: ObjectStore = {
       put: async (key, body) => {
@@ -631,20 +653,14 @@ describe('onboarding uses one authorized actual M4 run', () => {
       },
       exists: async (key) => objects.has(key),
     };
-    const output = await addGeneratedArtifact(
-      agent.db,
-      store,
-      writer,
-      {
-        workUnitId: f.request.workUnitId,
-        name: 'Generated brief.txt',
-        mimeType: 'text/plain',
-        body: Buffer.from(text),
-        execution: { kind: 'agent_run', id: run.agentRunId },
-        requestKey: randomUUID(),
-      },
-      { inventory: createRunInputInventory() },
-    );
+    // The run's own file, through the tool gateway's draft path (an authority-v1 run's output
+    // inventory exists only behind that run's own admission, 0525).
+    const output = await draftRunOutput(agent.db, store, writer, {
+      workUnitId: f.request.workUnitId,
+      stepNumber: 1,
+      name: 'Generated brief.txt',
+      text,
+    });
     const status = () =>
       withTenantTx(app.db, f.delegated, (tx) => port.statusOf(tx, f.delegated, run.agentRunId));
     expect((await status())?.artifactIds).toEqual([output.id]);
@@ -683,6 +699,7 @@ describe('onboarding uses one authorized actual M4 run', () => {
     const f = await fixture(),
       run = await f.requestRun();
     const writer = await prepareRunInputContext(agent.db, f.organizationId, run.agentRunId);
+    await startRunning(agent.db, writer);
     const text = 'Generated multi-output brief evidence.';
     const objects = new Map<string, Buffer>();
     const store: ObjectStore = {
@@ -699,23 +716,16 @@ describe('onboarding uses one authorized actual M4 run', () => {
       },
       exists: async (key) => objects.has(key),
     };
-    const create = (name: string) =>
-      addGeneratedArtifact(
-        agent.db,
-        store,
-        writer,
-        {
-          workUnitId: f.request.workUnitId,
-          name,
-          mimeType: 'text/plain',
-          body: Buffer.from(text),
-          execution: { kind: 'agent_run', id: run.agentRunId },
-          requestKey: randomUUID(),
-        },
-        { inventory: createRunInputInventory() },
-      );
-    const first = await create('First actual generated output.txt');
-    const second = await create('Second actual generated output.txt');
+    // Two of the run's own files from two tool steps, each through the tool gateway's draft path.
+    const create = (name: string, stepNumber: number) =>
+      draftRunOutput(agent.db, store, writer, {
+        workUnitId: f.request.workUnitId,
+        stepNumber,
+        name,
+        text,
+      });
+    const first = await create('First actual generated output.txt', 1);
+    const second = await create('Second actual generated output.txt', 2);
     const status = () =>
       withTenantTx(app.db, f.delegated, (tx) => port.statusOf(tx, f.delegated, run.agentRunId));
     expect(await status()).toMatchObject({ artifactState: 'ambiguous', artifactIds: [] });
@@ -737,8 +747,9 @@ describe('onboarding uses one authorized actual M4 run', () => {
     );
     expect(actual.rows[0]).toEqual({ first: false, second: true });
     expect(await status()).toMatchObject({ artifactState: 'ambiguous', artifactIds: [] });
+    // The run is already running (it wrote its files), so it finishes from there.
     await withRunLookupTx(agent.db, f.organizationId, async (tx) => {
-      for (const state of ['preparing', 'running', 'verifying', 'completed'])
+      for (const state of ['verifying', 'completed'])
         await tx.update(agentRuns).set({ status: state }).where(eq(agentRuns.id, run.agentRunId));
     });
     expect(

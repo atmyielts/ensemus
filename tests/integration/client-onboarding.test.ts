@@ -6,8 +6,6 @@ import { AppError, getWorkDetail, listWorkOverview } from '@ensemus/application'
 import { agentSpecSha256, publishAgentVersion } from '@ensemus/application/ai-agents';
 import { createOnboardingAgentRuns } from '@ensemus/application/knowledge/onboarding-run-port';
 import { compileEvidence } from '@ensemus/application/knowledge/compiler';
-import { addGeneratedArtifact } from '@ensemus/application/knowledge/artifact-provenance';
-import { createRunInputInventory } from '@ensemus/application/ai-input-ledger';
 import { agentSpecV1Schema } from '@ensemus/contracts/ai';
 import { createScriptedModelPort } from '@ensemus/knowledge/testing';
 import {
@@ -17,6 +15,7 @@ import {
   seedOrganizationBudget,
   testAgentSpec,
 } from '../helpers/ai/fixtures';
+import { draftRunOutput, startRunning } from '../helpers/ai/run-output';
 import {
   startClientOnboarding,
   getClientOnboarding,
@@ -311,12 +310,17 @@ describe('deal won to one verified onboarding', () => {
     const text = briefText,
       source = briefSource;
     const writer = await prepareRunInputContext(agent.db, owner.organizationId, stored.agentRunId!);
+    // The run works as a running run does: the tool gateway admits its draft effects only then.
+    await startRunning(agent.db, writer);
     // Exercise actual retrieval/capture before generation; a later citation cannot invent an input.
-    // This scripted model port is confined to the synthetic state-machine test.
+    // This scripted model port is confined to the synthetic state-machine test. An agent turn that
+    // selects evidence also needs the runtime's own egress decision for it (compileEvidence answers
+    // EGRESS_DENIED without one); the runtime routes it, and this synthetic turn is authorized as the
+    // other agent-turn fixtures authorize theirs.
     const compiled = await compileEvidence(
       agent.db,
       writer,
-      { model: createScriptedModelPort({}) },
+      { model: createScriptedModelPort({}), authorizeAgentContext: async () => true },
       {
         purpose: 'agent_turn',
         question: text,
@@ -329,20 +333,14 @@ describe('deal won to one verified onboarding', () => {
       },
     );
     expect(compiled).toMatchObject({ ok: true, items: [{ sourceId: source.sourceId }] });
-    const artifact = await addGeneratedArtifact(
-      agent.db,
-      store,
-      writer,
-      {
-        workUnitId: stored.briefWorkUnitId!,
-        name: 'Generated brief.txt',
-        mimeType: 'text/plain',
-        body: Buffer.from(text),
-        execution: { kind: 'agent_run', id: stored.agentRunId! },
-        requestKey: randomUUID(),
-      },
-      { inventory: createRunInputInventory() },
-    );
+    // The brief is the run's own file, written through the tool gateway's draft path: an
+    // authority-v1 run's output inventory exists only behind that run's own admission (0525).
+    const artifact = await draftRunOutput(agent.db, store, writer, {
+      workUnitId: stored.briefWorkUnitId!,
+      stepNumber: 1,
+      name: 'Generated brief.txt',
+      text,
+    });
     await recordArtifactCitations(database.db, owner, {
       workUnitId: stored.briefWorkUnitId!,
       artifactId: artifact.id,
