@@ -398,7 +398,9 @@ describe('ADR-028 typed-record deletion outbox (8a)', () => {
       expectedVersion: record.version,
     });
     // Its copied-Work part proves (it has no child material), so the next proof reaches the
-    // production generated-file proof, which refuses a custom object record (no admitted lineage).
+    // production generated-file proof, which proves it under its own kind (finding 3: the composite
+    // used to refuse object_record, so its purge never completed and every sweep counted it as failed;
+    // tests/integration/object-record-purge-sweep.test.ts covers the whole purge).
     const materials = createKnowledgeTranscriptActivities({
       database: agent.db,
       transcripts: createRunTranscriptPurge(),
@@ -434,9 +436,17 @@ describe('ADR-028 typed-record deletion outbox (8a)', () => {
     });
     const claim = await production.claimRecordPurgeRestarts({ organizationId: a.organizationId });
     const due = claim.due.map((item) => `${item.kind}:${item.id}`);
-    // The genuine child's closed input is still due; the object record is counted, not restarted.
+    // The genuine child's closed input is still due. The object record's proof now completes, so it is
+    // neither restarted nor a failure: the same proof the claim ran reads completed.
     expect(due).toContain(`work_unit:${f.input.id}`);
     expect(due).not.toContain(`object_record:${record.id}`);
-    expect(claim.failed).toBeGreaterThanOrEqual(1);
+    expect(
+      await production.readRecordPurgeState({
+        organizationId: a.organizationId,
+        kind: 'object_record',
+        id: record.id,
+        limit: 25,
+      }),
+    ).toMatchObject({ state: 'completed', filesRemaining: 0 });
   });
 });

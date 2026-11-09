@@ -63,23 +63,68 @@ describe('claimRecordPurgeRestarts', () => {
   beforeEach(() => listed.candidates.mockReset());
 
   it('counts a record whose file proof refuses as failed and keeps claiming the ones behind it', async () => {
-    // The production composition refuses a custom object record's file proof (INVALID_INPUT) once its
-    // copied Work is proved; ranked first, it must not abort the pass.
-    listed.candidates.mockResolvedValue([
-      candidate(1, 'object_record'),
-      candidate(2),
-      candidate(3),
-    ]);
+    // A file proof that refuses once the copied Work is proved (here a missing lifecycle binding);
+    // ranked first, it must not abort the pass.
+    listed.candidates.mockResolvedValue([candidate(1, 'project'), candidate(2), candidate(3)]);
     const claim = activities(
       (id) => (id === idOf(2) ? open : done),
       (kind) => {
-        if (kind === 'object_record') throw new AppError('INVALID_INPUT');
+        if (kind === 'project') throw new AppError('CAPABILITY_UNAVAILABLE');
         return { remaining: 0 };
       },
     );
     const result = await claim.claimRecordPurgeRestarts({ organizationId });
     expect(result.failed).toBe(1);
     expect(result.due.map((record) => record.id)).toEqual([idOf(2)]);
+  });
+
+  it('stops restarting or failing a deleted custom object record once its proof completes', async () => {
+    // Finding 3: a deleted object record starts the typed-record purge, so its proof must be able to
+    // complete under its own kind. Before its copied Work is proved it is restarted (due), never failed.
+    let workProved = false;
+    const kinds: string[] = [];
+    listed.candidates.mockResolvedValue([candidate(1, 'object_record'), candidate(2)]);
+    const claim = activities(
+      (id) => (id === idOf(1) && !workProved ? open : done),
+      (kind) => {
+        kinds.push(kind);
+        return { remaining: 0 };
+      },
+    );
+    expect(await claim.claimRecordPurgeRestarts({ organizationId })).toEqual({
+      failed: 0,
+      due: [{ organizationId, kind: 'object_record', id: idOf(1), limit: 25 }],
+    });
+    // The file proof is never asked before the copied Work proves.
+    expect(kinds).toEqual(['work_unit']);
+    workProved = true;
+    for (let pass = 0; pass < 2; pass++)
+      expect(await claim.claimRecordPurgeRestarts({ organizationId })).toEqual({
+        failed: 0,
+        due: [],
+      });
+    // Proved under its own kind, never cast into a supported one.
+    expect(kinds.filter((kind) => kind === 'object_record')).toHaveLength(2);
+    expect(
+      await claim.readRecordPurgeState({
+        organizationId,
+        kind: 'object_record',
+        id: idOf(1),
+        limit: 25,
+      }),
+    ).toMatchObject({ state: 'completed', filesRemaining: 0 });
+  });
+
+  it('keeps a deleted custom object record due while a generated file still depends on it', async () => {
+    listed.candidates.mockResolvedValue([candidate(1, 'object_record')]);
+    const claim = activities(
+      () => done,
+      (kind) => ({ remaining: kind === 'object_record' ? 1 : 0 }),
+    );
+    expect(await claim.claimRecordPurgeRestarts({ organizationId })).toEqual({
+      failed: 0,
+      due: [{ organizationId, kind: 'object_record', id: idOf(1), limit: 25 }],
+    });
   });
 
   it('counts any other thrown proof as failed, never as proved and never as an aborted pass', async () => {

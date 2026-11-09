@@ -59,11 +59,16 @@ export function createKnowledgePurgeActivities(deps: KnowledgeWorkerDeps) {
      * confirmRecordPurge uses. Only a record PostgreSQL does not prove purged is due. Nothing is stored:
      * the next sweep simply proves again, so no retry counter can run out and no Temporal result is reused.
      *
-     * One record's proof failing never stops the others: any other refusal (for example the generated-file
-     * proof's INVALID_INPUT for a custom object record, which has no admitted file lineage yet, or
-     * OBJECT_DELETE_UNCONFIRMED while an object deletion is unresolved) counts that record as failed, and
-     * the pass goes on to the next candidate. A failed record is not restarted: its purge would stop at the
-     * same refusal. It stays a candidate, so the next sweep proves it again.
+     * Every kind a deletion routes here is proved under its own kind, a custom object record included: its
+     * copied Work first, then the generated-file proof that no file still depends on it (with the archive's
+     * files), never by casting it into a Work, project or client kind. Once that proof holds, the record is
+     * neither restarted nor counted as failed.
+     *
+     * One record's proof failing never stops the others: any other refusal (for example
+     * OBJECT_DELETE_UNCONFIRMED while an object deletion is unresolved, or a lifecycle binding the worker
+     * lacks) counts that record as failed, and the pass goes on to the next candidate. A failed record is
+     * not restarted: its purge would stop at the same refusal. It stays a candidate, so the next sweep
+     * proves it again.
      */
     async claimRecordPurgeRestarts(input: {
       organizationId: string;
