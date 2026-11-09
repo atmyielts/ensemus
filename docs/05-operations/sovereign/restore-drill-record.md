@@ -1,6 +1,6 @@
 # Restore drill record
 
-What `infrastructure/scripts/restore-drill.mjs` does and writes, field by field. **Nobody has run it through to a record yet, and none of this is evidence until someone has.** In CI (run 42657525639, on commit 503b3c6) it has only been started with a project name that does not say `drill`, and it stopped there, before asking anything, as it should. `tests/stack/restore-drill.test.ts` takes the same steps with the same commands and passed in that run, but it takes them itself: it does not run this script. The unit tests of the script's helpers (`tests/unit/restore-drill-authority.test.ts`) have run.
+What `infrastructure/scripts/restore-drill.mjs` does and writes, field by field. **Nobody has run it through to a record yet, and none of this is evidence until someone has.** In CI (run 42675052977, on commit 26a76eb) it has only been started with a project name that does not say `drill`, and it stopped there, before asking anything, as it should. `tests/stack/restore-drill.test.ts` takes the same steps with the same commands and passed in that run, but it takes them itself: it does not run this script. The unit tests of the script's helpers (`tests/unit/restore-drill-authority.test.ts`) have run.
 
 It writes two files: the path you give with `--record`, for a person, and the same path with `.json` added, for anything that wants to compare records. Both refuse to replace an existing file. It writes them only at the end: a drill that stops part way writes no record.
 

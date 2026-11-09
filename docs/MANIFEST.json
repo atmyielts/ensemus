@@ -42,8 +42,8 @@
     },
     {
       "path": "00-foundation/adr/ADR-026-tombstones-survive-restore.md",
-      "size_bytes": 20936,
-      "sha256": "4a3b37c7e8e6a3dd1c9d349218232fac80949224cd3e61e91e4dcf18334fcd60"
+      "size_bytes": 22152,
+      "sha256": "97b4fb958462bd50585ddcfad288c0adf37cec188d1395f42116d6054acb3d73"
     },
     {
       "path": "00-foundation/adr/ADR-027-verified-external-actions.md",
@@ -317,8 +317,8 @@
     },
     {
       "path": "05-operations/sovereign/backup-and-restore.md",
-      "size_bytes": 25424,
-      "sha256": "e997ba30ece1b4c4f994bb2dd05a0ea39b01b0bd578ced9b129f76f306612ce7"
+      "size_bytes": 26486,
+      "sha256": "4526980f79222061b40dfcb1b3874ce358967774a42c5f72b0302ea2c8cbd5a7"
     },
     {
       "path": "05-operations/sovereign/diagnostics.md",
@@ -353,7 +353,7 @@
     {
       "path": "05-operations/sovereign/restore-drill-record.md",
       "size_bytes": 12029,
-      "sha256": "8cba95213c8052cfa7bcc059c6bdc491e711fdd633d11c1722c6ec962cb409b1"
+      "sha256": "9825049e22890b0101ba9c12e100ebf7a3054a4c0e5f1549bfc8069215b29e01"
     },
     {
       "path": "05-operations/sovereign/supported-branches.md",
@@ -452,8 +452,8 @@
     },
     {
       "path": "06-delivery/evidence/M6-M7-joined-authority-source.files.json",
-      "size_bytes": 13047,
-      "sha256": "019a4304f3b72bccf1f9a7866f8e6620cfb0af8e921052fbe8363cf57f6043fd"
+      "size_bytes": 15905,
+      "sha256": "16999fc3cb093f27bcdd6a97a95dc24a552e5f0eb587944455ba072687f40a70"
     },
     {
       "path": "06-delivery/evidence/M6-M7-joined-authority-source.md",
@@ -877,8 +877,8 @@
     },
     {
       "path": "06-delivery/m6-slices.md",
-      "size_bytes": 43191,
-      "sha256": "210580511bba7fd2a351fea1400aac967d38b2614aea9cf02fcf8dab0398ca67"
+      "size_bytes": 46001,
+      "sha256": "77624a91e79546111cb4c6a5c7384a2942ab408cd7f3591b4dcec8baafc24b02"
     },
     {
       "path": "06-delivery/m7-slices.md",
@@ -1062,8 +1062,8 @@
     },
     {
       "path": "specifications/openapi.yaml",
-      "size_bytes": 374944,
-      "sha256": "24910012e9b133f9b87c09baeba322f715b39d22f2ab4559fe1428747f517394"
+      "size_bytes": 375003,
+      "sha256": "d6dead3b3def5b0144648b369155985efca09bd8b59af3e10af09303d2cd2eb7"
     },
     {
       "path": "specifications/qa-scenarios.csv",
