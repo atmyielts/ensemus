@@ -27,6 +27,7 @@ import { parseDocument } from '@ensemus/knowledge/parsing';
 import { eq } from 'drizzle-orm';
 import { fakeJson, fakeProvider } from '../helpers/fake-provider';
 import { knowledgeCanary } from '../helpers/knowledge';
+import { memoryTransport, nativeKnowledgeStore } from '../helpers/knowledge-native';
 import { urls } from '../helpers/stack';
 
 const credential = () =>
@@ -237,17 +238,9 @@ describe('Google provider permissions join the live source ACL', () => {
       body: content.bytes,
     });
     if (!staged) throw new Error('MISSING_TEST_DOCUMENT');
-    const blobs = new Map<string, Buffer>(),
-      store = {
-        put: async (key: string, body: Buffer) => {
-          blobs.set(key, Buffer.from(body));
-        },
-        get: async (key: string) => Buffer.from(blobs.get(key)!),
-        delete: async (key: string) => {
-          blobs.delete(key);
-        },
-        exists: async (key: string) => blobs.has(key),
-      };
+    // The runtime's native raw Knowledge port over a memory transport, as the knowledge worker wires
+    // it: ingest writes the staged connector bytes only through SQL admission and one PUT (0516).
+    const store = nativeKnowledgeStore(database.db, memoryTransport(new Map<string, Buffer>()));
     expect(
       await ingestDocument(
         database.db,

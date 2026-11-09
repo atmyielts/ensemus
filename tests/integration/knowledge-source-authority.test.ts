@@ -22,8 +22,11 @@ import { createServiceContext, createDelegatedContext } from '@ensemus/database/
 import {
   beginObjectWrite,
   settleObjectWrite,
+  type ObjectWrite,
 } from '../../packages/application/src/knowledge/object-writes';
+import { rawKnowledgeObjects } from '../../packages/application/src/knowledge/raw-objects';
 import { seedMember, sha256 } from '../helpers/knowledge';
+import { memoryTransport, nativeKnowledgeStore } from '../helpers/knowledge-native';
 import { urls } from '../helpers/stack';
 
 describe('human source mutation authority at the SQL boundary (0212)', () => {
@@ -31,23 +34,19 @@ describe('human source mutation authority at the SQL boundary (0212)', () => {
     auth: pg.Client,
     owner: TenantContext,
     reader: TenantContext;
-  const objects = new Map<string, Buffer>(),
-    store: ObjectStore = {
-      put: async (key, bytes) => {
-        objects.set(key, Buffer.from(bytes));
-      },
-      get: async (key) => {
-        const bytes = objects.get(key);
-        if (!bytes) throw new Error('GENERATED_MISSING');
-        return bytes;
-      },
-      delete: async (key) => {
-        objects.delete(key);
-      },
-      exists: async (key) => objects.has(key),
-    };
+  // The runtime's native raw Knowledge composition over a memory transport (see knowledge-native):
+  // raw bytes are written only through SQL admission and one single-attempt PUT (0516).
+  const objects = new Map<string, Buffer>();
+  let store: ObjectStore;
+  /** What storeUpload does after beginObjectWrite: the admitted native PUT of the document's exact
+   * bytes, then the writer settles on that finished native generation. Never a bare settle. */
+  async function finishWrite(context: TenantContext, write: ObjectWrite, body: string) {
+    await rawKnowledgeObjects(store).put(context, write, Buffer.from(body), 'text/plain');
+    await withTenantTx(database.db, context, (tx) => settleObjectWrite(tx, write));
+  }
   beforeAll(async () => {
     database = openAppDatabase(urls.app(), { max: 2 });
+    store = nativeKnowledgeStore(database.db, memoryTransport(objects));
     auth = new pg.Client({ connectionString: urls.auth() });
     await auth.connect();
     const userId = randomUUID();
@@ -205,7 +204,7 @@ describe('human source mutation authority at the SQL boundary (0212)', () => {
           .where(eq(knowledgeObjectWriters.documentId, pending.id)),
       ),
     ).rejects.toThrow();
-    await withTenantTx(database.db, owner, (tx) => settleObjectWrite(tx, write));
+    await finishWrite(owner, write, 'Generated replacement');
   });
   it('never treats a delegated worker as a human source owner or a trusted ingestion service', async () => {
     const row = await source(),
@@ -257,7 +256,7 @@ describe('human source mutation authority at the SQL boundary (0212)', () => {
           .where(eq(knowledgeObjectWriters.documentId, pending.id)),
       ),
     ).rejects.toThrow();
-    await withTenantTx(database.db, owner, (tx) => settleObjectWrite(tx, write));
+    await finishWrite(owner, write, 'Generated replacement');
   });
   it('allows a readable manager with the actual grantor/uploader and explicit trusted service ingestion', async () => {
     const row = await addUploadedSource(database.db, store, reader, {
@@ -278,14 +277,11 @@ describe('human source mutation authority at the SQL boundary (0212)', () => {
       row,
     );
     const pending = document(row.sourceId, owner.membershipId);
-    await withTenantTx(database.db, owner, async (tx) => {
+    const write = await withTenantTx(database.db, owner, async (tx) => {
       await tx.insert(knowledgeDocuments).values(pending);
-      const write = await beginObjectWrite(tx, owner, {
-        sourceId: row.sourceId,
-        documentId: pending.id,
-      });
-      await settleObjectWrite(tx, write);
+      return beginObjectWrite(tx, owner, { sourceId: row.sourceId, documentId: pending.id });
     });
+    await finishWrite(owner, write, 'Generated replacement');
     await withTenantTx(database.db, owner, (tx) =>
       tx
         .insert(knowledgeSourceGrants)

@@ -53,6 +53,7 @@ import {
   testAgentSpec,
   thisPeriod,
 } from '../helpers/ai/fixtures';
+import { inFixtureTenant } from '../helpers/fixture-tenant';
 import { seedSearchableSource, sha256 } from '../helpers/knowledge';
 import { urls } from '../helpers/stack';
 
@@ -459,10 +460,14 @@ describe('onboarding uses one authorized actual M4 run', () => {
           id: f.request.workUnitId,
           membershipId: f.member.membershipId,
         });
+      // The generated superuser write still binds the row's tenant for the export epoch trigger
+      // (0303/0522), as every superuser fixture does; it changes nothing else about the write.
       if (change === 'hierarchy')
-        await su.query(
-          'update work.work_units set parent_id=null where organization_id=$1 and id=$2',
-          [f.organizationId, f.request.workUnitId],
+        await inFixtureTenant(su, f.organizationId, () =>
+          su.query('update work.work_units set parent_id=null where organization_id=$1 and id=$2', [
+            f.organizationId,
+            f.request.workUnitId,
+          ]),
         );
       if (change === 'project')
         await withTenantTx(app.db, f.owner, (tx) =>

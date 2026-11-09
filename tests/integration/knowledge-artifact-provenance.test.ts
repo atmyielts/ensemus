@@ -44,6 +44,7 @@ import {
   openAgentTestDatabase,
   prepareRunInputContext,
   seedAgentVersion,
+  testAgentSpec,
 } from '../helpers/ai/fixtures';
 import { nativeMfaOwner } from '../helpers/knowledge-native';
 import {
@@ -106,7 +107,21 @@ describe('generated artifact all-input privacy and erasure protocol (0208)', () 
     const execution: ArtifactExecution = options.system
       ? { kind: 'system', id: randomUUID(), template: 'test/checklist/v1' }
       : { kind: 'agent_run', id: randomUUID() };
-    const version = options.system ? null : await seedAgentVersion(database.db, owner);
+    // The run's evidence package below names this source, so its manifest declares it, as a real
+    // agent reading that source must: read admission refuses a run whose actual package names an
+    // undeclared source (loadAgentReadScopeInTx, POLICY_DENIED).
+    const version = options.system
+      ? null
+      : await seedAgentVersion(
+          database.db,
+          owner,
+          testAgentSpec({
+            context: {
+              allowed_scopes: ['work.read', `knowledge.${source.sourceId}.read`],
+              memory_write_policy: 'none',
+            },
+          }),
+        );
     const ensureRun = async (execution: ArtifactExecution) => {
       if (execution.kind !== 'agent_run' || !version) return null;
       const found = await withTenantTx(database.db, owner, (tx) =>
@@ -208,8 +223,15 @@ describe('generated artifact all-input privacy and erasure protocol (0208)', () 
       isPhysicallyAbsent: async (key) => !bodies.has(key),
     };
     const inputs: { artifactId: string; sha256: string }[] = [];
+    // Each structured read carries its actual captured read-time class, as the runtime inventory
+    // supplies it; a classless record is refused INVALID_STATE before any object I/O.
     const records: StructuredArtifactInput[] = [
-      { kind: 'work_unit', id: work.id, sha256: sha256(JSON.stringify(work)) },
+      {
+        kind: 'work_unit',
+        id: work.id,
+        sha256: sha256(JSON.stringify(work)),
+        classification: options.classification ?? 'internal',
+      },
     ];
     const inventory: ArtifactInputInventory = {
       inspectInTx: async (_tx, _context, input) => ({
@@ -768,7 +790,12 @@ describe('generated artifact all-input privacy and erasure protocol (0208)', () 
         id: work.id,
         membershipId: value.owner.membershipId,
       });
-    value.records.push({ kind: 'work_unit', id: work.id, sha256: sha256(JSON.stringify(work)) });
+    value.records.push({
+      kind: 'work_unit',
+      id: work.id,
+      sha256: sha256(JSON.stringify(work)),
+      classification,
+    });
     return work;
   }
   async function privateProject(value: Fixture) {
@@ -796,8 +823,18 @@ describe('generated artifact all-input privacy and erasure protocol (0208)', () 
       });
     });
     value.records.push(
-      { kind: 'client', id: clientId, sha256: sha256(`actual-client-read:${clientId}`) },
-      { kind: 'project', id: projectId, sha256: sha256(`actual-project-read:${projectId}`) },
+      {
+        kind: 'client',
+        id: clientId,
+        sha256: sha256(`actual-client-read:${clientId}`),
+        classification: 'restricted',
+      },
+      {
+        kind: 'project',
+        id: projectId,
+        sha256: sha256(`actual-project-read:${projectId}`),
+        classification: 'restricted',
+      },
     );
     return { clientId, projectId };
   }
@@ -824,7 +861,12 @@ describe('generated artifact all-input privacy and erasure protocol (0208)', () 
   it('retains multiple actual historical hashes and ignores routine mutable Work changes while serving', async () => {
     const value = await fixture(),
       work = await otherWork(value, 'internal');
-    value.records.push({ kind: 'work_unit', id: work.id, sha256: sha256('a later actual read') });
+    value.records.push({
+      kind: 'work_unit',
+      id: work.id,
+      sha256: sha256('a later actual read'),
+      classification: 'internal',
+    });
     const output = await value.create();
     await withTenantTx(database.db, value.member, (tx) =>
       tx
@@ -976,6 +1018,7 @@ describe('generated artifact all-input privacy and erasure protocol (0208)', () 
       kind: 'work_unit',
       id: foreign.work.id,
       sha256: sha256(JSON.stringify(foreign.work)),
+      classification: 'internal',
     });
     await expect(value.create()).rejects.toMatchObject({ code: 'NOT_FOUND' });
     value.records.splice(1, 1, { kind: 'work_unit', id: value.work.id, sha256: 'invalid' });
