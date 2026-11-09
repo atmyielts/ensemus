@@ -2,8 +2,9 @@
 // download declares its length in a header of its own and the proxy restores Content-Length from it
 // (apps/web/src/lib/declared-length.ts). These hold the app's half, and hold every proxy in front of the
 // app to the same rule. infrastructure/scripts/check-proxy.mjs runs the deployed proxy with it, and
-// tests/stack/sovereign-api.test.ts sees a real download arrive with its length.
-import { readFileSync } from 'node:fs';
+// tests/stack/sovereign-api.test.ts and tests/stack/work-file-download.test.ts see real downloads arrive
+// with their length.
+import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { DECLARED_LENGTH_HEADER, declaredLength } from '../../apps/web/src/lib/declared-length';
@@ -17,7 +18,37 @@ const PROXIES = [
 const ROUTES = [
   'apps/web/src/app/api/v1/organizations/[organizationId]/imports/[importId]/files/[sourceArtifactId]/download/route.ts',
   'apps/web/src/app/api/v1/organizations/[organizationId]/exports/[exportId]/archive/route.ts',
+  'apps/web/src/app/o/[organizationId]/work/[workUnitId]/files/[fileId]/route.ts',
 ];
+
+/** Every Route Handler in the app, by its path from the repository root. */
+const routeHandlers = () =>
+  readdirSync(join(repoRoot, 'apps/web/src/app'), { recursive: true, encoding: 'utf8' })
+    .filter((path) => /(^|[\\/])route\.tsx?$/.test(path))
+    .map((path) => `apps/web/src/app/${path.replaceAll('\\', '/')}`);
+
+/** A Content-Length a route sets by itself, which Next.js drops without a word. Comments left out. */
+const bareLength = (source: string) =>
+  /['"`]content-length['"`]\s*:/i.test(
+    source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, ''),
+  );
+
+/**
+ * Every Cache-Control a download states, in its route and in the headers helper it spreads. The app's own
+ * compression gzips a text, CSV or tar body unless told no-transform, and an encoded body leaves with no
+ * Content-Length at all, so a declared length holds only for a body nothing may transform.
+ */
+const cacheControls = (route: string) => {
+  const source = read(route);
+  const helpers = source.includes('...archiveHeaders(')
+    ? [read('apps/web/src/server/sovereign-dto.ts')]
+    : [];
+  return [source, ...helpers].flatMap((text) =>
+    [...text.matchAll(/['"]Cache-Control['"]\s*:\s*['"]([^'"]*)['"]/g)].map(([, value]) => value),
+  );
+};
+const transformable = (values: (string | undefined)[]) =>
+  values.length === 0 || values.some((value) => !/(^|,)\s*no-transform\s*(,|$)/.test(value ?? ''));
 
 /** The body of each `<directive> ... {` block, braces matched, comments left out. */
 function blocks(source: string, opening: RegExp): string[] {
@@ -90,6 +121,34 @@ describe('a declared body length', () => {
 
   it.each(ROUTES)('is what %s sends', (route) => {
     expect(read(route)).toMatch(/\.\.\.declaredLength\(/);
+  });
+
+  it('is the only way any route states a length', () => {
+    const handlers = routeHandlers();
+    expect(handlers).toEqual(expect.arrayContaining(ROUTES));
+    expect(handlers.filter((route) => bareLength(read(route)))).toEqual([]);
+  });
+
+  it.each(ROUTES)('%s lets nothing between encode what it declared', (route) => {
+    expect(transformable(cacheControls(route))).toBe(false);
+  });
+
+  it('the check finds a download that may be encoded on the way', () => {
+    expect(transformable(['private, no-store, no-transform'])).toBe(false);
+    expect(transformable(['no-store, no-transform'])).toBe(false);
+    expect(transformable(['private, no-store'])).toBe(true);
+    expect(transformable(['no-store', 'no-store, no-transform'])).toBe(true);
+    expect(transformable(['no-store, no-transformation'])).toBe(true);
+    expect(transformable([])).toBe(true);
+  });
+
+  it('the check finds a route that sets Content-Length by itself', () => {
+    expect(bareLength("headers: { 'Content-Length': String(file.body.length) }")).toBe(true);
+    expect(bareLength('headers: { "content-length": "3" }')).toBe(true);
+    expect(bareLength('headers: { ...declaredLength(file.body.length) }')).toBe(false);
+    expect(bareLength("// Next.js drops 'Content-Length': here, so ...declaredLength(n)")).toBe(
+      false,
+    );
   });
 });
 

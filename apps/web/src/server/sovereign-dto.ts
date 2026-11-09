@@ -130,7 +130,9 @@ export function archiveHeaders(archive: Pick<ExportArchive, 'fileName' | 'totalB
     'Content-Type': 'application/x-tar',
     'Content-Disposition': `attachment; filename="${name}"`,
     'Content-Length': String(archive.totalBytes),
-    'Cache-Control': 'no-store',
+    // application/x-tar is a type the app's own compression gzips, and an encoded archive leaves with no
+    // Content-Length, so a cut-off download would look whole. no-transform keeps the bytes as declared.
+    'Cache-Control': 'no-store, no-transform',
     'X-Content-Type-Options': 'nosniff',
   };
 }

@@ -433,7 +433,9 @@ describe('what the Sovereign routes answer with', () => {
       dto.archiveHeaders({ fileName: 'export "x"\r\nSet-Cookie: a.tar', totalBytes: 12 }),
     );
     expect(headers.get('content-type')).toBe('application/x-tar');
-    expect(headers.get('cache-control')).toBe('no-store');
+    // no-transform as well, so the app's compression leaves the declared length true (ADR-030 D7: the
+    // archive is streamed a part at a time; apps/web/src/lib/declared-length.ts).
+    expect(headers.get('cache-control')).toBe('no-store, no-transform');
     expect(headers.get('content-length')).toBe('12');
     expect(headers.get('content-disposition')).toMatch(/^attachment; filename="[A-Za-z0-9._-]+"$/);
     expect(
@@ -457,7 +459,17 @@ describe('what the Sovereign routes answer with', () => {
         headers,
       }).problems.join(),
     ).toContain('Cache-Control');
+    // Kept by nothing, but open to being encoded on the way, and then sent with no length at all.
     headers.set('cache-control', 'no-store');
+    expect(
+      contractProblems({
+        method: 'GET',
+        path: `${organizationPath}/exports/${ID}/archive`,
+        status: 200,
+        headers,
+      }).problems.join(),
+    ).toContain('Cache-Control');
+    headers.set('cache-control', 'no-store, no-transform');
     headers.set('content-disposition', 'inline');
     expect(
       contractProblems({
