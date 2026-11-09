@@ -1,8 +1,12 @@
 -- REVIEWED SECURITY SQL (ADR-024 D4, ADR-028). Changes here need human review, never agent approval.
 -- FLAGGED FOR HUMAN SECURITY REVIEW, not yet reviewed by a person
 -- 0548 (deleg): ADR-028 open question 12, decided by the project owner on 2026-11-09 ("build it now").
--- Reserved number: renumbered at merge, when its journal entry is added (this branch does not journal it,
--- so nothing here, and no integration suite that qualifies the capability, can run until that merge).
+-- Written as 0590 (reserved) and journaled as 0548 at idx 108 on merge. Edited in place once after that
+-- push (CI run 42669475831): the RESTRICTIVE-policy premise also matched 0422's auth_restore_0422_* policies,
+-- which apply only TO ensemus_operator/support/eraser (0999 extends them to every table those roles reach),
+-- so 0548 raised DELEGATION_READINESS_PREMISE_CHANGED on every database and never applied anywhere. The
+-- premise now considers only restrictive read policies that bind PUBLIC, ensemus_app or ensemus_agent,
+-- which is the visibility the predicate's NOT EXISTS depends on.
 --
 -- Part 1 store: ai.delegation_birth_capabilities, append-only, written only by a non-superuser migrator
 -- login session and read at runtime only through ai.delegation_birth_capability_on() (boolean). NO row is
@@ -73,7 +77,8 @@ DO $$ DECLARE readiness regprocedure:=to_regprocedure('ai.delegation_influence_r
   OR NOT EXISTS(SELECT 1 FROM pg_policy p WHERE p.polrelid='ai.unproven_child_work_inputs'::regclass AND p.polname='child_input_read'
     AND p.polpermissive AND p.polcmd='r' AND p.polroles=ARRAY['ensemus_app'::regrole::oid]
     AND regexp_replace(pg_get_expr(p.polqual,p.polrelid),'\s+','','g')='(organization_id=app.current_organization_id())')
-  OR EXISTS(SELECT 1 FROM pg_policy p WHERE p.polrelid='ai.unproven_child_work_inputs'::regclass AND NOT p.polpermissive AND p.polcmd IN('r','*'))
+  OR EXISTS(SELECT 1 FROM pg_policy p WHERE p.polrelid='ai.unproven_child_work_inputs'::regclass AND NOT p.polpermissive AND p.polcmd IN('r','*')
+    AND p.polroles && ARRAY[0::oid,'ensemus_app'::regrole::oid,'ensemus_agent'::regrole::oid])
   OR NOT pg_has_role('ensemus_agent','ensemus_app','USAGE')
   OR NOT EXISTS(SELECT 1 FROM pg_trigger t JOIN pg_proc p ON p.oid=t.tgfoid WHERE t.tgrelid='ai.run_input_checkpoints'::regclass
     AND t.tgname='run_input_checkpoint_immutable' AND t.tgenabled='O'
