@@ -295,6 +295,67 @@ describe('operator erasure material-witness composition', () => {
       );
       expect(ports.erase).not.toHaveBeenCalled();
     });
+    // 0515 folds the delegated material proof into lifecycle.tenant_object_proofs_complete, so in a real
+    // database the physical proof refuses while a child receipt is unredacted, and the seal is never tried.
+    it('restarts the record purges before the seal when the physical proof refuses with no object owed', async () => {
+      ports.physical.mockResolvedValue({ confirmed: false, objectsRemaining: 0 });
+      const records = [
+        { kind: 'work_unit', id: randomUUID() },
+        { kind: 'work_unit', id: randomUUID() },
+      ];
+      ports.restarts.mockResolvedValue(records);
+      const start = vi.fn(async () => undefined);
+      const result = await run(undefined, { workflow: { start } });
+      expect(result.code).toBe(1);
+      expect(result.report).toEqual({
+        state: 'pending',
+        reasonCode: 'MATERIAL_PURGE_PENDING',
+        restarted: 2,
+      });
+      expect(ports.restarts).toHaveBeenCalledOnce();
+      expect(start).toHaveBeenCalledTimes(2);
+      for (const record of records)
+        expect(start).toHaveBeenCalledWith(
+          'knowledgeRecordPurgeWorkflow',
+          expect.objectContaining({
+            args: [{ organizationId: result.input.organizationId, ...record, limit: 25 }],
+          }),
+        );
+      expect(ports.seal).not.toHaveBeenCalled();
+      expect(ports.erase).not.toHaveBeenCalled();
+      expect(ports.finish).not.toHaveBeenCalled();
+    });
+    it('reports BLOB_PURGE_PENDING and restarts nothing while an object is still owed', async () => {
+      ports.physical.mockResolvedValue({ confirmed: false, objectsRemaining: 1 });
+      ports.restarts.mockResolvedValue([{ kind: 'work_unit', id: randomUUID() }]);
+      const start = vi.fn(async () => undefined);
+      const result = await run(undefined, { workflow: { start } });
+      expect(result.code).toBe(1);
+      expect(result.report).toEqual({
+        state: 'pending',
+        reasonCode: 'BLOB_PURGE_PENDING',
+        count: 1,
+      });
+      expect(ports.restarts).not.toHaveBeenCalled();
+      expect(start).not.toHaveBeenCalled();
+      expect(ports.seal).not.toHaveBeenCalled();
+      expect(ports.erase).not.toHaveBeenCalled();
+    });
+    it('reports BLOB_PURGE_PENDING when the physical proof refuses and no record purge is due', async () => {
+      ports.physical.mockResolvedValue({ confirmed: false, objectsRemaining: 0 });
+      const start = vi.fn(async () => undefined);
+      const result = await run(undefined, { workflow: { start } });
+      expect(result.code).toBe(1);
+      expect(result.report).toEqual({
+        state: 'pending',
+        reasonCode: 'BLOB_PURGE_PENDING',
+        count: 0,
+      });
+      expect(ports.restarts).toHaveBeenCalledOnce();
+      expect(start).not.toHaveBeenCalled();
+      expect(ports.seal).not.toHaveBeenCalled();
+      expect(ports.erase).not.toHaveBeenCalled();
+    });
     it('lists no restarts once the seal holds', async () => {
       const start = vi.fn(async () => undefined);
       expect((await run(undefined, { workflow: { start } })).code).toBe(0);

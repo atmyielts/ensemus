@@ -227,9 +227,56 @@ export async function eraseCommand(
       )
         break;
     }
+    // ADR-028 items 8a and 8b. An offboarding tenant has no knowledge sweep, so this run is the restart
+    // path: it starts again the purge of every closed record an unredacted child receipt still names.
+    // Starting is idempotent (one workflow ID per record; a live one is left running).
+    const database = app.db;
+    const listMaterialRestarts = () =>
+      withTenantTx(database, context, (tx) =>
+        listDelegatedRecordPurgeRestartsInTx(tx, context, input),
+      );
+    const restartMaterialPurges = async (
+      restarts: Awaited<ReturnType<typeof listMaterialRestarts>>,
+    ) => {
+      let restarted = 0;
+      for (const record of restarts) {
+        const start = recordPurgeStartFor({
+          eventType: KNOWLEDGE_RECORD_CLOSED,
+          aggregateType: record.kind,
+          aggregateId: record.id,
+          organizationId: input.organizationId,
+        });
+        if (!start) continue;
+        if (!recordPurges) {
+          temporal = openRecordPurgeStarter();
+          recordPurges = temporal.starter;
+        }
+        await startRecordPurge(recordPurges, start);
+        restarted += 1;
+      }
+      return restarted;
+    };
+    const materialPending = (restarted: number) => {
+      writeReport({ state: 'pending', reasonCode: 'MATERIAL_PURGE_PENDING', restarted });
+      log.warn('erasure.pending', {
+        organizationId: input.organizationId,
+        reasonCode: 'MATERIAL_PURGE_PENDING',
+        count: restarted,
+      });
+      return 1;
+    };
     pending = await inspectErasure(app.db, context, input);
     if (pending.activeHolds) throw new AppError('LEGAL_HOLD_ACTIVE');
     const physical = await objectErasure.confirm(context, input);
+    // 0515 folds the delegated material proof into lifecycle.tenant_object_proofs_complete, so with no
+    // file pending and no object left the physical proof refuses only for material that is not a file:
+    // an unredacted child receipt or an unpurged run transcript. Its record purges are restarted here,
+    // before the seal is tried, or the restart path below the seal would never be reached. A file
+    // still owed is reported as BLOB_PURGE_PENDING, as before.
+    if (!pending.blobsPending && !physical.confirmed && physical.objectsRemaining === 0) {
+      const restarts = await listMaterialRestarts();
+      if (restarts.length) return materialPending(await restartMaterialPurges(restarts));
+    }
     if (pending.blobsPending || !physical.confirmed) {
       writeReport({
         state: 'pending',
@@ -248,37 +295,7 @@ export async function eraseCommand(
     const sealed = await withTenantTx(app.db, context, (tx) =>
       sealDelegatedErasureInTx(tx, context, input),
     );
-    if (!sealed) {
-      // ADR-028 items 8a/8b. An offboarding tenant has no knowledge sweep, so this run is the restart
-      // path: it starts again the purge of every closed record an unredacted child receipt still names.
-      // Starting is idempotent (one workflow ID per record; a live one is left running).
-      const restarts = await withTenantTx(app.db, context, (tx) =>
-        listDelegatedRecordPurgeRestartsInTx(tx, context, input),
-      );
-      let restarted = 0;
-      for (const record of restarts) {
-        const start = recordPurgeStartFor({
-          eventType: KNOWLEDGE_RECORD_CLOSED,
-          aggregateType: record.kind,
-          aggregateId: record.id,
-          organizationId: input.organizationId,
-        });
-        if (!start) continue;
-        if (!recordPurges) {
-          temporal = openRecordPurgeStarter();
-          recordPurges = temporal.starter;
-        }
-        await startRecordPurge(recordPurges, start);
-        restarted += 1;
-      }
-      writeReport({ state: 'pending', reasonCode: 'MATERIAL_PURGE_PENDING', restarted });
-      log.warn('erasure.pending', {
-        organizationId: input.organizationId,
-        reasonCode: 'MATERIAL_PURGE_PENDING',
-        count: restarted,
-      });
-      return 1;
-    }
+    if (!sealed) return materialPending(await restartMaterialPurges(await listMaterialRestarts()));
     const tables = await eraseTenantRows(eraser.db, input.organizationId),
       finished = await finishErasure(
         app.db,

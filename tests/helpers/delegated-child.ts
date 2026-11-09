@@ -81,9 +81,15 @@ export type DelegatedChildDeps = {
 export function delegatedChildHarness(deps: DelegatedChildDeps) {
   const { app, agent } = deps;
 
+  /**
+   * `classification` is the class the parent's model step is admitted at. It must be at least the class of
+   * what the parent read before that step (admitMainModelInTx refuses CLASS_DENIED otherwise), and the
+   * suite's profile must list it (decideEgress refuses CLASS_NOT_ON_PROFILE otherwise).
+   */
   async function fixture(
     scopes?: string[],
     beforeModel?: (context: AgentContext) => Promise<void>,
+    classification: 'internal' | 'confidential' = 'internal',
   ) {
     const a = deps.tenant(),
       profileId = deps.profileId(),
@@ -154,7 +160,7 @@ export function delegatedChildHarness(deps: DelegatedChildDeps) {
       agentVersionId: version.versionId,
       workUnitId: work.id,
       purpose: 'reason',
-      classification: 'internal',
+      classification,
       profileId,
       profileVersion: 1,
       ceiling: { inputTokens: 30, outputTokens: 5 },
@@ -355,22 +361,40 @@ export function delegatedChildHarness(deps: DelegatedChildDeps) {
   // ADR-028 'Decision: defining ai.delegation_influence_ready' (project owner, 2026-11-09; 0548_deleg).
   // These are genuine full-composition gates: a child is born only through createChildRun, with the
   // part-1 capability qualified for the suite and every 0419 birth check passing. They are not skipped.
+  /**
+   * `inputClassification` is the class of the record the parent reads before its delegating step. At
+   * 'internal' (the default) every active member can read it (0519), so the copied child Work, which
+   * createChildRun classifies at the strongest class the parent read, is internal too. At
+   * 'confidential' the child Work is born confidential and assigned to the initiator, so only its named
+   * viewers (the accountable owner, the initiator, an owner or admin) can read it; the parent's model
+   * step is admitted at that class, and the suite's profile must list it.
+   */
   async function genuineChildWithRecord(
-    options: { scopes?: string[]; beforeModel?: (context: AgentContext) => Promise<void> } = {},
+    options: {
+      scopes?: string[];
+      beforeModel?: (context: AgentContext) => Promise<void>;
+      inputClassification?: 'internal' | 'confidential';
+    } = {},
   ) {
-    const a = deps.tenant();
+    const a = deps.tenant(),
+      inputClassification = options.inputClassification ?? 'internal';
     const input = await createWorkUnit(app, a.owner, {
       title: 'Actual inherited record material',
+      ...(inputClassification === 'internal' ? {} : { classification: inputClassification }),
     });
-    const f = await fixture(options.scopes, async (context) => {
-      await createContextSource({
-        database: agent,
-        readObject: async () => {
-          throw new Error('TEST_UNEXPECTED_BYTES');
-        },
-      }).loadWork(context, input.id);
-      await options.beforeModel?.(context);
-    });
+    const f = await fixture(
+      options.scopes,
+      async (context) => {
+        await createContextSource({
+          database: agent,
+          readObject: async () => {
+            throw new Error('TEST_UNEXPECTED_BYTES');
+          },
+        }).loadWork(context, input.id);
+        await options.beforeModel?.(context);
+      },
+      inputClassification,
+    );
     const created = await underDelegationPolicy(() =>
       createChildRun(agent, f.context, { parentRunId: f.runId, stepNumber: 2 }),
     );

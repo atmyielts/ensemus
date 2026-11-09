@@ -8,8 +8,8 @@
 // A fixture row is accepted, and counts, only in a cluster that holds the NOLOGIN marker role
 // ensemus_delegation_qualification_ci, which tests/integration/global-setup.ts creates as the test
 // superuser. In any other database the ledger refuses the append, and ignores a fixture row, so nothing
-// here can open birth outside CI. This needs 0548 applied: it is not journaled on its branch, so these
-// suites cannot run until the merge that journals it.
+// here can open birth outside CI. This needs 0548 applied. 0548 is journaled (idx 108) and applies in CI,
+// so the suites that use this helper run in the integration shards.
 import pg from 'pg';
 import { urls } from './stack';
 

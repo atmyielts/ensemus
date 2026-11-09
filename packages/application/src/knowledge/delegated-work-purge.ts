@@ -16,6 +16,7 @@ import { z } from 'zod';
 import { closeRunWithoutContext, purgeEndedRunTranscript } from '../ai/runs';
 import { AppError } from '../errors';
 import { idSchema } from '../ids';
+import { wrapCursorPage } from './delegated-record-purge';
 import { redactDelegatedWorkInTx } from './delegated-work-redaction';
 import type { DelegatedWorkPurge, DelegatedWorkPurgeCounts } from './ports';
 
@@ -193,21 +194,25 @@ export function createDelegatedWorkPurge(deps: {
       const controls = await withTenantTx(database, context, async (tx) => {
         const state = await sourceState(tx, sourceId),
           cursor = cursorFor(state, 'run');
-        const rows = await tx.execute<{
-          id: string;
-        }>(sql`select actual.run_id id from ai.source_input_runs(${sourceId}::uuid) actual(run_id)
+        const open = async (after: string | null) =>
+          (
+            await tx.execute<{
+              id: string;
+            }>(sql`select actual.run_id id from ai.source_input_runs(${sourceId}::uuid) actual(run_id)
           left join ai.agent_runs run on run.organization_id=${context.organizationId}::uuid and run.id=actual.run_id
           left join ai.run_input_checkpoints checkpoint on checkpoint.organization_id=${context.organizationId}::uuid and checkpoint.run_id=actual.run_id
-          where (${cursor.after}::uuid is null or actual.run_id>${cursor.after}::uuid) and(run.id is null or checkpoint.run_id is null or checkpoint.fenced_at is null
+          where (${after}::uuid is null or actual.run_id>${after}::uuid) and(run.id is null or checkpoint.run_id is null or checkpoint.fenced_at is null
             or checkpoint.payloads_purged_at is null or checkpoint.purged_fence_generation is distinct from checkpoint.fence_generation
             or checkpoint.purged_restore_generation is distinct from ai.current_material_restore_generation()
             or run.status not in('completed','failed','cancelled','budget_exhausted','policy_denied','timed_out','outcome_unverified')
             or not exists(select 1 from ai.source_run_closures closure where closure.organization_id=${context.organizationId}::uuid
               and closure.source_id=${sourceId}::uuid and closure.source_version=${state.source.version}::bigint and closure.run_id=actual.run_id
               and closure.restore_generation=ai.current_material_restore_generation()
-              and closure.fence_generation=checkpoint.fence_generation and closure.terminal_version<=run.version)) order by actual.run_id limit ${input.limit}`);
-        if (!rows.rows.length && cursor.after !== null) await advance(tx, cursor, null);
-        return { cursor, rows: rows.rows };
+              and closure.fence_generation=checkpoint.fence_generation and closure.terminal_version<=run.version)) order by actual.run_id limit ${input.limit}`)
+          ).rows;
+        // A pass after a refused one wraps to the start in the same pass (see wrapCursorPage).
+        const rows = await wrapCursorPage(cursor.after, open, () => advance(tx, cursor, null));
+        return { cursor, rows };
       });
       for (const row of controls.rows) {
         try {
@@ -266,16 +271,19 @@ export function createDelegatedWorkPurge(deps: {
           counts = await countsInTx(tx, state),
           cursor = cursorFor(state, 'child');
         if (counts.controlsRemaining !== 0) return { cursor, rows: [], jobId: state.job.id };
-        const rows = await tx.execute<{
-          id: string;
-          workUnitId: string;
-        }>(sql`select receipt.child_run_id id,receipt.child_work_unit_id "workUnitId"
+        const open = async (after: string | null) =>
+          (
+            await tx.execute<{
+              id: string;
+              workUnitId: string;
+            }>(sql`select receipt.child_run_id id,receipt.child_work_unit_id "workUnitId"
           from ai.delegated_input_receipts receipt where receipt.organization_id=${context.organizationId}::uuid
-            and (${cursor.after}::uuid is null or receipt.child_run_id>${cursor.after}::uuid) and not ai.delegated_body_disposed(receipt.child_run_id)
+            and (${after}::uuid is null or receipt.child_run_id>${after}::uuid) and not ai.delegated_body_disposed(receipt.child_run_id)
             and exists(select 1 from ai.delegated_input_refs ref where ref.organization_id=receipt.organization_id and ref.child_run_id=receipt.child_run_id
-              and((ref.ref_kind='source' and ref.ref_id=${sourceId}::uuid) or ref.source_id=${sourceId}::uuid)) order by receipt.child_run_id limit ${input.limit}`);
-        if (!rows.rows.length && cursor.after !== null) await advance(tx, cursor, null);
-        return { cursor, rows: rows.rows, jobId: state.job.id };
+              and((ref.ref_kind='source' and ref.ref_id=${sourceId}::uuid) or ref.source_id=${sourceId}::uuid)) order by receipt.child_run_id limit ${input.limit}`)
+          ).rows;
+        const rows = await wrapCursorPage(cursor.after, open, () => advance(tx, cursor, null));
+        return { cursor, rows, jobId: state.job.id };
       });
       for (const row of bodies.rows) {
         try {

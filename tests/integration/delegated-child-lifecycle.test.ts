@@ -12,6 +12,7 @@ import { createWorkUnit, getWorkUnit, readArtifact, type ObjectStore } from '@en
 import { createKnowledgeCallStore } from '@ensemus/application/ai-knowledge-call-store';
 import { createHaltCheck } from '@ensemus/application/ai-halt';
 import { createRunTranscriptPurge } from '@ensemus/application/ai-input-ledger';
+import { createContextSource } from '@ensemus/application/ai-context-source';
 import { controlAgentRun } from '@ensemus/application/ai-run-control';
 import { finishRun, purgeEndedRunTranscript } from '@ensemus/application/ai-runs';
 import { createToolStepStore } from '@ensemus/application/ai-tool-steps';
@@ -89,7 +90,12 @@ describe('ADR-028 delegated child lifecycle qualification', () => {
   beforeAll(async () => {
     capability = await qualifyDelegationForSuite('delegated-child-lifecycle');
     a = await seedAiTenant(app.db, { commercialMode: 'sovereign' });
-    profileId = await seedActiveProfile(app.db, agent.db, a.owner);
+    // Confidential is listed for the L1 case, whose parent reads a confidential record before it
+    // delegates; every other case here stays internal. A self-hosted profile may carry it (the local
+    // column of the egress matrix, approved_local_policy).
+    profileId = await seedActiveProfile(app.db, agent.db, a.owner, {
+      allowedClasses: ['public', 'internal', 'confidential'],
+    });
     rateCardId = await seedRateCard(app.db, a.owner, profileId);
     await seedOrganizationBudget(app.db, a.owner, 1_000_000);
   });
@@ -118,15 +124,28 @@ describe('ADR-028 delegated child lifecycle qualification', () => {
    * NOT the runtime's start: claimQueuedRun (initiator access, ceiling and Work-claim checks, assignment
    * and first step) and openStep are skipped, so a check they would apply to a delegated child is not
    * exercised by the L2 and L7 cases. The database guards on every write still apply.
+   *
+   * While preparing, the child reads its own copied Work through the real context source, as a run's
+   * context build does (and as prepareRunInputContext does for the parent). A generated file's inventory
+   * (createRunInputInventory) is known only for a run whose observations include its own Work, so without
+   * this read noteDraftUpload refuses INVALID_STATE before any authority guard is reached.
    */
   async function runningChild(f: { childRunId: string; childWorkId: string }) {
     const context = await childContextOf(f.childRunId),
       store = new Store(),
       tools = createToolStepStore({ database: agent.db, objects: store });
-    await withTenantTx(agent.db, context, async (tx) => {
-      await tx.update(agentRuns).set({ status: 'preparing' }).where(eq(agentRuns.id, f.childRunId));
-      await tx.update(agentRuns).set({ status: 'running' }).where(eq(agentRuns.id, f.childRunId));
-    });
+    await withTenantTx(agent.db, context, (tx) =>
+      tx.update(agentRuns).set({ status: 'preparing' }).where(eq(agentRuns.id, f.childRunId)),
+    );
+    await createContextSource({
+      database: agent.db,
+      readObject: async () => {
+        throw new Error('TEST_UNEXPECTED_OBJECT_READ');
+      },
+    }).loadWork(context, f.childWorkId);
+    await withTenantTx(agent.db, context, (tx) =>
+      tx.update(agentRuns).set({ status: 'running' }).where(eq(agentRuns.id, f.childRunId)),
+    );
     const stepId = randomUUID();
     await withAdmittedRunTx(agent.db, context, (tx) =>
       tx.insert(executionSteps).values({
@@ -208,25 +227,40 @@ describe('ADR-028 delegated child lifecycle qualification', () => {
   }
 
   it('[ADR028-Q12-L1] full lifecycle: inherited serving admits only named viewers of the copied child Work', async () => {
-    const f = await genuineChildWithRecord();
+    // Internal Work is readable by every active member (0519's work_own_scope_readable_0419), so a child
+    // copied only from internal records has no viewer to refuse. The parent therefore reads a
+    // confidential record first: createChildRun classifies the copied Work at the strongest class the
+    // parent read and assigns it to the initiator, so its named viewers are the accountable owner, the
+    // initiator and an owner or admin, never an ordinary member (ADR-028 open question 12, L1).
+    const f = await genuineChildWithRecord({ inputClassification: 'confidential' });
     const child = await getWorkUnit(app.db, a.owner, f.childWorkId);
     expect(child.title).toBe('Actual copied child');
+    expect(child.classification).toBe('confidential');
+    // The member still reads the parent's own internal Work, so the refusal below is the child's.
+    expect((await getWorkUnit(app.db, a.member, f.work.id)).id).toBe(f.work.id);
     await expect(getWorkUnit(app.db, a.member, f.childWorkId)).rejects.toMatchObject({
       code: 'NOT_FOUND',
     });
-    const readable = (viewer: string) =>
+    const readable = (
+      fn: 'work_scope_readable' | 'inherited_work_inputs_readable',
+      viewer: string,
+    ) =>
       withTenantTx(
         app.db,
         a.owner,
         async (tx) =>
           (
             await tx.execute<{ readable: boolean }>(
-              sql`select knowledge.work_scope_readable(${f.childWorkId}::uuid,${viewer}::uuid) readable`,
+              sql`select knowledge.${sql.raw(fn)}(${f.childWorkId}::uuid,${viewer}::uuid) readable`,
             )
           ).rows[0]?.readable,
       );
-    expect(await readable(a.owner.membershipId)).toBe(true);
-    expect(await readable(a.member.membershipId)).toBe(false);
+    expect(await readable('work_scope_readable', a.owner.membershipId)).toBe(true);
+    expect(await readable('work_scope_readable', a.member.membershipId)).toBe(false);
+    // The 0419 graph on its own, apart from the child's own class: the member cannot read one of the
+    // inputs the child inherited, so the inherited half refuses them too, and admits the owner.
+    expect(await readable('inherited_work_inputs_readable', a.owner.membershipId)).toBe(true);
+    expect(await readable('inherited_work_inputs_readable', a.member.membershipId)).toBe(false);
     const childContext: AgentContext = await childContextOf(f.childRunId);
     expect(
       await withTenantTx(
