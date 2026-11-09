@@ -350,7 +350,13 @@ describe('restricted erasure independently verifies every tenant-content table',
           "select set_config('app.organization_id',$1,true),set_config('app.actor_type','service',true),set_config('app.user_id','',true),set_config('app.membership_id','',true),set_config('app.agent_run_id','',true),set_config('lifecycle.erasure_tombstone_org',$1,true),set_config('lifecycle.erasure_tombstone_token',$2,true)",
           [owner.organizationId, 'b'.repeat(64)],
         );
-        await expect(agent.query(`select ${probe}($1::uuid)`, [agentStray])).rejects.toThrow();
+        // The same 0541 guard as the app session above: erasure_artifact_tombstone_birth finds no
+        // grant for the forged token (and no app login), so the row is refused by RLS, not by anything
+        // earlier such as a missing schema or function privilege.
+        await expect(agent.query(`select ${probe}($1::uuid)`, [agentStray])).rejects.toMatchObject({
+          code: '42501',
+          message: expect.stringMatching(/row-level security policy for table "tombstones"/),
+        });
       } finally {
         await agent.query('rollback');
       }

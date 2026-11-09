@@ -28,6 +28,7 @@ import { runBoundCharge } from '@ensemus/connectors/payment';
 import { storeSecret } from '@ensemus/secrets/seal';
 import { SECRET_PURPOSE_PAYMENT_PROCESSOR } from '@ensemus/connectors/payment';
 import { hashCustomerRef, type PaymentEventFact } from '@ensemus/saas/payment';
+import { webhookInboxConsumer, webhookInboxEventId } from '@ensemus/domain/webhook';
 import { nativePaymentFixture } from '../helpers/native-payment';
 import { nativePaymentWebhook } from '../helpers/native-payment-webhook';
 import { seedTaxTreatment } from '../helpers/saas';
@@ -116,6 +117,86 @@ describe('native verified payment events keep source, merchant and financial eff
     );
   const financialRows = (who: Fixture) =>
     withTenantTx(database.db, who.f.who.service, (tx) => tx.select().from(paymentEvents));
+  /** A refusal raised by a payment webhook guard in SQL (0512, 0541), reached through Drizzle. */
+  const refusedBy = (message: string) => ({ cause: { code: 'EN850', message } });
+  const inboxRows = (who: Fixture, endpointId: string, providerEventId: string) =>
+    withTenantTx(database.db, who.f.operatorContext, (tx) =>
+      tx
+        .select()
+        .from(inboxEvents)
+        .where(
+          and(
+            eq(inboxEvents.consumerId, webhookInboxConsumer(endpointId)),
+            eq(inboxEvents.eventId, webhookInboxEventId(endpointId, providerEventId)),
+          ),
+        ),
+    );
+  const deliveryState = async (who: Fixture, id: string) =>
+    (
+      await withTenantTx(database.db, who.f.operatorContext, (tx) =>
+        tx
+          .select({ state: webhookDeliveries.state })
+          .from(webhookDeliveries)
+          .where(eq(webhookDeliveries.id, id)),
+      )
+    )[0]?.state;
+  /**
+   * Two verified deliveries for the same inbox key, made to overlap for certain: the first holds 0541's
+   * per-key lock inside its payment effect until the second is seen waiting on that same lock in
+   * pg_locks, and only then goes on to commit. Answers the second one's settled result.
+   */
+  async function contend(
+    who: Fixture,
+    first: Awaited<ReturnType<Fixture['webhook']['verify']>>,
+    second: Awaited<ReturnType<Fixture['webhook']['verify']>>,
+  ) {
+    const observer = new pg.Client({ connectionString: urls.superuser() }),
+      endpointId = who.f.endpoint.endpointId,
+      key = `payment_webhook_inbox:${who.f.operator.organizationId}:${webhookInboxConsumer(endpointId)}:${webhookInboxEventId(endpointId, first.providerEventId)}`;
+    let reached!: () => void, release!: () => void;
+    const inside = new Promise<void>((resolve) => (reached = resolve)),
+      gate = new Promise<void>((resolve) => (release = resolve));
+    await observer.connect();
+    try {
+      const winner = who.webhook.apply(first, {
+        ...who.webhook.handlers,
+        async recordPaymentEvent(...args) {
+          reached();
+          await gate;
+          return who.webhook.handlers.recordPaymentEvent(...args);
+        },
+      });
+      // If the first delivery finishes or fails without reaching its effect, it never held the lock.
+      const stalled = winner.then(
+        () => Promise.reject(new Error('TEST_FIRST_DELIVERY_NEVER_HELD_THE_INBOX_LOCK')),
+        (error: unknown) => Promise.reject(error),
+      );
+      stalled.catch(() => undefined);
+      await Promise.race([inside, stalled]);
+      const loser = who.webhook.apply(second);
+      loser.catch(() => undefined);
+      await expect
+        .poll(
+          async () =>
+            (
+              await observer.query<{ n: number }>(
+                `select count(*)::int as n from pg_locks l,(select hashtextextended($1,0) as v) k
+                 where l.locktype='advisory' and not l.granted and l.objsubid=1
+                  and l.classid::bigint=((k.v>>32)&4294967295) and l.objid::bigint=(k.v&4294967295)`,
+                [key],
+              )
+            ).rows[0]?.n,
+          { timeout: 15_000, interval: 100 },
+        )
+        .toBe(1);
+      release();
+      expect(await winner).toBe('applied');
+      return await Promise.allSettled([loser]).then(([result]) => result!);
+    } finally {
+      release();
+      await observer.end();
+    }
+  }
   it('actual app and agent SET ROLE app cannot invoke the secrets-only native webhook mint', async () => {
     const who = await setup(),
       agent = new pg.Client({ connectionString: urls.agent() });
@@ -250,6 +331,101 @@ describe('native verified payment events keep source, merchant and financial eff
       ).rejects.toThrow();
       expect(await who.webhook.apply(verified)).toBe('applied');
       expect(await financialRows(who)).toEqual([]);
+    } finally {
+      await who.f.close();
+    }
+  });
+  it('refuses a verified token on any other inbox key, on its own endpoint and on a rotated one (0541 PAYMENT_WEBHOOK_INBOX_MISMATCH)', async () => {
+    const who = await setup();
+    try {
+      const source = await who.webhook.post(who.fact),
+        verified = await who.webhook.verify(source);
+      // Its own delivery and endpoint, but an inbox key for another provider event ID.
+      await expect(
+        who.webhook.apply({ ...verified, providerEventId: randomUUID() }),
+      ).rejects.toMatchObject(refusedBy('PAYMENT_WEBHOOK_INBOX_MISMATCH'));
+      // The same signed fact delivered to a rotated endpoint: that endpoint's inbox key is not the one
+      // the token was attested for.
+      const rotated = await createWebhookEndpoint(database.db, who.f.operator, {
+        connectionId: who.f.connection.id,
+        signingSecretId: who.f.signing.secretRef,
+        signatureScheme: 'ensemus_hmac_sha256_v1',
+      });
+      const elsewhere = await who.webhook.post(who.fact, { endpoint: rotated });
+      await expect(
+        who.webhook.apply({ ...verified, deliveryId: elsewhere.id }),
+      ).rejects.toMatchObject(refusedBy('PAYMENT_WEBHOOK_INBOX_MISMATCH'));
+      expect(await inboxRows(who, rotated.endpointId, who.fact.providerEventId)).toEqual([]);
+      expect(await deliveryState(who, elsewhere.id)).toBe('received');
+      expect(
+        await withTenantTx(database.db, who.f.operatorContext, (tx) =>
+          tx.select().from(paymentWebhookEvents),
+        ),
+      ).toEqual([]);
+      expect(await financialRows(who)).toEqual([]);
+      // Neither refusal burned the proof for its own inbox key.
+      expect(await who.webhook.apply(verified)).toBe('applied');
+      expect(
+        await inboxRows(who, who.f.endpoint.endpointId, who.fact.providerEventId),
+      ).toHaveLength(1);
+    } finally {
+      await who.f.close();
+    }
+  });
+  it('lets two overlapping deliveries of one signed fact birth one inbox row, deduplicating the second (0541 lock)', async () => {
+    const who = await setup();
+    try {
+      const first = await who.webhook.verify(await who.webhook.post(who.fact));
+      // A new timestamp header makes the same signed fact a second delivery, not the same bytes.
+      await new Promise((resolve) => setTimeout(resolve, 1100));
+      const again = await who.webhook.post(who.fact),
+        second = await who.webhook.verify(again);
+      const loser = await contend(who, first, second);
+      expect(loser).toEqual({ status: 'fulfilled', value: 'duplicate' });
+      expect(await deliveryState(who, again.id)).toBe('duplicate');
+      expect(
+        await inboxRows(who, who.f.endpoint.endpointId, who.fact.providerEventId),
+      ).toHaveLength(1);
+      const receipts = await withTenantTx(database.db, who.f.operatorContext, (tx) =>
+        tx.select().from(paymentWebhookEvents),
+      );
+      expect(receipts).toHaveLength(1);
+      expect(await route(who, receipts[0]!.id)).toBe('applied');
+      expect(await route(who, receipts[0]!.id)).toBe('already_done');
+      expect(await financialRows(who)).toHaveLength(1);
+    } finally {
+      await who.f.close();
+    }
+  });
+  it('refuses the second of two overlapping deliveries of one event ID with a changed fact, never deduplicating it (0541 lock)', async () => {
+    const who = await setup();
+    try {
+      const first = await who.webhook.verify(await who.webhook.post(who.fact));
+      const changed = await who.webhook.post({ ...who.fact, amountMicros: '1' }),
+        second = await who.webhook.verify(changed);
+      // Without the per-key lock the second would pass the comparison before the first committed, then
+      // meet the committed inbox row in ON CONFLICT DO NOTHING and be recorded as a duplicate.
+      const loser = await contend(who, first, second);
+      expect(loser.status).toBe('rejected');
+      expect(loser.status === 'rejected' && loser.reason).toMatchObject(
+        refusedBy('PAYMENT_WEBHOOK_EVENT_CONFLICT'),
+      );
+      expect(await deliveryState(who, changed.id)).toBe('received');
+      expect(
+        await inboxRows(who, who.f.endpoint.endpointId, who.fact.providerEventId),
+      ).toHaveLength(1);
+      const receipts = await withTenantTx(database.db, who.f.operatorContext, (tx) =>
+        tx.select().from(paymentWebhookEvents),
+      );
+      expect(receipts).toHaveLength(1);
+      expect(receipts[0]!.amountMicros).toBe(BigInt(who.fact.amountMicros!));
+      expect(await route(who, receipts[0]!.id)).toBe('applied');
+      expect(await financialRows(who)).toHaveLength(1);
+      // Processed again later, the changed delivery is still refused, not swallowed.
+      await expect(who.webhook.process(changed)).rejects.toMatchObject(
+        refusedBy('PAYMENT_WEBHOOK_EVENT_CONFLICT'),
+      );
+      expect(await financialRows(who)).toHaveLength(1);
     } finally {
       await who.f.close();
     }
@@ -450,9 +626,14 @@ describe('native verified payment events keep source, merchant and financial eff
       const first = await capture(who);
       expect(await route(who, first.receipt.id)).toBe('applied');
       // 0541: a validly signed but changed fact for an event ID whose inbox row already exists is a
-      // conflict, refused rather than deduplicated, on the original endpoint as on a rotated one.
+      // conflict, refused rather than deduplicated, on the original endpoint as on a rotated one. The
+      // key matches its own attestation, so it is the comparison with the birth attestation, not
+      // PAYMENT_WEBHOOK_INBOX_MISMATCH, that refuses it.
       const changedOriginal = await who.webhook.post({ ...who.fact, amountMicros: '1' });
-      await expect(who.webhook.process(changedOriginal)).rejects.toThrow();
+      await expect(who.webhook.process(changedOriginal)).rejects.toMatchObject(
+        refusedBy('PAYMENT_WEBHOOK_EVENT_CONFLICT'),
+      );
+      expect(await deliveryState(who, changedOriginal.id)).toBe('received');
       expect(await financialRows(who)).toHaveLength(1);
       const rotated = await createWebhookEndpoint(database.db, who.f.operator, {
         connectionId: who.f.connection.id,
@@ -477,7 +658,10 @@ describe('native verified payment events keep source, merchant and financial eff
         { ...who.fact, amountMicros: '1' },
         { endpoint: rotated },
       );
-      await expect(who.webhook.process(changed)).rejects.toThrow();
+      await expect(who.webhook.process(changed)).rejects.toMatchObject(
+        refusedBy('PAYMENT_WEBHOOK_EVENT_CONFLICT'),
+      );
+      expect(await deliveryState(who, changed.id)).toBe('received');
       expect(await financialRows(who)).toHaveLength(1);
       // The same signed fact again is still an ordinary duplicate. A new timestamp header makes it a
       // new delivery rather than the same bytes at the door.
