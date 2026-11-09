@@ -8,8 +8,10 @@ import {
   type KnowledgeArtifactPurgePorts,
 } from './purge-composition';
 import type { StructuredRecordPurge } from './artifact-provenance';
+import { AppError } from '../errors';
 
 type Result = Awaited<ReturnType<StructuredRecordPurge['purgeSource']>>;
+type RecordKind = Parameters<StructuredRecordPurge['purgeRecord']>[1]['kind'];
 const context = createServiceContext(randomUUID()),
   sourceId = randomUUID();
 const tx = {} as Tx;
@@ -39,18 +41,14 @@ function port(
     purgeRecord: vi.fn(
       async (
         _context: TenantContext,
-        _input: { kind: 'work_unit' | 'project' | 'client'; id: string; limit: number },
+        _input: { kind: RecordKind; id: string; limit: number },
       ): Promise<Result> => {
         events.push(`${name}.record`);
         return next as Result;
       },
     ),
     confirmRecordInTx: vi.fn(
-      async (
-        _tx: Tx,
-        _context: TenantContext,
-        _input: { kind: 'work_unit' | 'project' | 'client'; id: string },
-      ) => {
+      async (_tx: Tx, _context: TenantContext, _input: { kind: RecordKind; id: string }) => {
         events.push(`${name}.record-confirm`);
         return { remaining: (next as Result).remaining };
       },
@@ -224,16 +222,71 @@ describe('required generated and archive purge composition', () => {
     expect(f.derived.confirmRecordInTx).toHaveBeenCalledWith(tx, context, selected);
     expect(f.archive.confirmRecordInTx).toHaveBeenCalledWith(tx, context, selected);
   });
-  it('does not certify unsupported generated custom-record lineage using archive cleanup alone', async () => {
+  // A deleted custom object record starts the typed-record purge (RECORD_PURGE_KINDS, ADR-028 item 8a).
+  // Refusing it here kept it a sweep candidate that never completed, re-proved on every pass.
+  it('proves a custom object record under its own kind through both contributors', async () => {
     const f = fixture(),
-      input = { kind: 'object_record', id: randomUUID(), limit: 25 } as unknown as Parameters<
-        StructuredRecordPurge['purgeRecord']
-      >[1];
-    await expect(f.combined.purgeRecord(context, input)).rejects.toMatchObject({
-      code: 'INVALID_INPUT',
+      input = { kind: 'object_record' as const, id: randomUUID(), limit: 100 };
+    f.derived.set({ removed: 1, remaining: 0, held: 0, confirmed: true });
+    expect(await f.combined.purgeRecord(context, input)).toEqual({
+      removed: 1,
+      remaining: 0,
+      held: 0,
+      confirmed: true,
     });
-    expect(f.events).toEqual([]);
+    // Never cast into a Work, project or client kind.
+    expect(f.derived.purgeRecord).toHaveBeenCalledWith(context, { ...input, limit: 25 });
+    expect(f.archive.purgeRecord).toHaveBeenCalledWith(context, { ...input, limit: 25 });
+    const selected = { kind: input.kind, id: input.id };
+    expect(await f.combined.confirmRecordInTx(tx, context, selected)).toEqual({ remaining: 0 });
+    expect(f.derived.confirmRecordInTx).toHaveBeenCalledWith(tx, context, selected);
+    expect(f.archive.confirmRecordInTx).toHaveBeenCalledWith(tx, context, selected);
+    expect(f.events).toEqual([
+      'derived.record',
+      'archive.record',
+      'derived.record-confirm',
+      'archive.record-confirm',
+    ]);
   });
+  it('never certifies a custom object record from archive cleanup alone', async () => {
+    const f = fixture(),
+      input = { kind: 'object_record' as const, id: randomUUID(), limit: 25 },
+      selected = { kind: input.kind, id: input.id };
+    // A generated file still depends on the record: the archive's zero does not complete it.
+    f.derived.set({ removed: 0, remaining: 1, held: 0, confirmed: false });
+    expect(await f.combined.purgeRecord(context, input)).toMatchObject({
+      remaining: 1,
+      confirmed: false,
+    });
+    expect(await f.combined.confirmRecordInTx(tx, context, selected)).toEqual({ remaining: 1 });
+    // A generated proof that fails is never replaced by the archive's result.
+    f.derived.purgeRecord.mockRejectedValue(new Error('GENERATED_LINEAGE_UNAVAILABLE'));
+    await expect(f.combined.purgeRecord(context, input)).rejects.toMatchObject({
+      code: 'INVALID_STATE',
+    });
+    const abort = new AppError('INVALID_STATE');
+    f.derived.confirmRecordInTx.mockRejectedValue(abort);
+    f.archive.confirmRecordInTx.mockClear();
+    await expect(f.combined.confirmRecordInTx(tx, context, selected)).rejects.toBe(abort);
+    expect(f.archive.confirmRecordInTx).not.toHaveBeenCalled();
+  });
+  it.each(['artifact', 'knowledge_source', 'custom_object_record', '', undefined])(
+    'refuses record kind %s before either contributor runs',
+    async (kind) => {
+      const f = fixture(),
+        id = randomUUID(),
+        input = { kind, id, limit: 25 } as unknown as Parameters<
+          StructuredRecordPurge['purgeRecord']
+        >[1];
+      await expect(f.combined.purgeRecord(context, input)).rejects.toMatchObject({
+        code: 'INVALID_INPUT',
+      });
+      await expect(
+        f.combined.confirmRecordInTx(tx, context, { kind: input.kind, id }),
+      ).rejects.toMatchObject({ code: 'INVALID_INPUT' });
+      expect(f.events).toEqual([]);
+    },
+  );
   it('requires both complete port objects at construction', () => {
     const f = fixture();
     expect(() =>

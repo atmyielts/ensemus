@@ -1,13 +1,15 @@
 // File categories have different retained identities and proof ledgers. Neither may certify the
 // other empty, and missing lifecycle authority must never become a zero-count default.
 import type { TenantContext, Tx } from '@ensemus/database';
+import { isRecordPurgeKind } from '@ensemus/domain/knowledge-events';
 import { AppError } from '../errors';
 import type { StructuredRecordPurge } from './artifact-provenance';
 
 export type KnowledgeArtifactPurgePorts = {
+  /** The generated-file contributor. It is the only one that can prove a record has no remaining
+   * generated-file lineage, so a record purge never completes without its own zero. */
   derived: StructuredRecordPurge;
-  /** Only the shared admitted record kinds are consumed here. The actual archive adapter also
-   * supports custom records, which cannot certify missing generated custom-record lineage. */
+  /** Imported archive files. Its zero says nothing about generated files, for any record kind. */
   archive: StructuredRecordPurge;
 };
 type Result = Awaited<ReturnType<StructuredRecordPurge['purgeSource']>>;
@@ -51,10 +53,18 @@ function boundedLimit(limit: number) {
   if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100) throw new AppError('INVALID_INPUT');
   return Math.min(limit, MAX_PER_CATEGORY);
 }
-const record = (input: Parameters<StructuredRecordPurge['confirmRecordInTx']>[2]) => {
-  // Generated-file custom-record lineage has no admitted implementation yet. Archive cleanup alone
-  // cannot certify it, so do not cast a custom object into one of the supported record kinds.
-  if (!['work_unit', 'project', 'client'].includes(input.kind)) throw new AppError('INVALID_INPUT');
+/**
+ * Every typed-record kind a deletion routes here (RECORD_PURGE_KINDS), each under its own kind. A custom
+ * object record is proved like the others, never cast into a Work, project or client kind: the generated
+ * contributor's own record proof (knowledge.derived_structured_artifacts_remaining, 0419) names it
+ * directly, through artifact_lineage_records (which admit object_record since 0407) and the frozen
+ * authority refs of artifact_depends_on_record (0419), and still counts every generated file whose
+ * structured inventory is incomplete. That proof also requires the record's copied Work purged first
+ * (RECORD_WORK_PURGE_UNCONFIRMED). Archive cleanup alone never certifies a record: completion below needs
+ * both contributors' zeros. Any other kind is refused before either contributor runs.
+ */
+const record = <T extends Parameters<StructuredRecordPurge['confirmRecordInTx']>[2]>(input: T) => {
+  if (!input || !isRecordPurgeKind(input.kind)) throw new AppError('INVALID_INPUT');
   return input;
 };
 
