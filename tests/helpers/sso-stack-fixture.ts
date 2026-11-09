@@ -5,6 +5,7 @@ import { inspectSsoProvider, verifySsoDomain } from '@ensemus/database/sso-opera
 import {
   BASE,
   PASSWORD,
+  aClientAddress,
   assembled,
   formsIn,
   post,
@@ -105,6 +106,7 @@ export async function ssoStackFixture(options: { browserProvider?: boolean } = {
     `${BASE}/api/auth/sso/saml2/sp/metadata?providerId=${connection.provider_id}`,
   );
   if (metadata.status !== 200) throw new Error('GENERATED_SSO_SP_METADATA_MISSING');
+  const spMetadata = await metadata.text();
   return {
     domain,
     owner,
@@ -115,7 +117,7 @@ export async function ssoStackFixture(options: { browserProvider?: boolean } = {
     path,
     api,
     connection,
-    spMetadata: await metadata.text(),
+    spMetadata,
     async requireSso() {
       const response = await fetch(`${BASE}/api/v1/organizations/${organization}/security-policy`, {
         method: 'PATCH',
@@ -133,11 +135,62 @@ export async function ssoStackFixture(options: { browserProvider?: boolean } = {
       });
       if (response.status !== 200) throw new Error('GENERATED_SSO_POLICY_NOT_SET');
     },
+    /**
+     * The member's own explicit connection (0421). Their password account's address is unverified,
+     * and ordinary company sign-in never links it implicitly (`account_not_linked`); the person
+     * connects it with consent and local proof through the same native endpoint the /sign-in/sso
+     * "Connect company sign-in" form uses, then answers that request with a signed assertion.
+     */
+    async connectMember() {
+      const jar = { cookie: member.jar.cookie },
+        client = aClientAddress();
+      const started = await fetch(`${BASE}/api/auth/sso/link-self`, {
+        method: 'POST',
+        headers: {
+          cookie: jar.cookie,
+          origin: BASE,
+          'content-type': 'application/json',
+          'x-ensemus-test-client': client,
+        },
+        body: JSON.stringify({
+          password: PASSWORD,
+          callbackURL: `${BASE}/sso/complete`,
+          consent: 'connect',
+        }),
+        redirect: 'manual',
+      });
+      remember(jar, started);
+      if (started.status !== 200) throw new Error('GENERATED_SSO_SELF_LINK_NOT_STARTED');
+      const { url } = (await started.json()) as { url: string },
+        signed = await idp.response(url, spMetadata, member.email);
+      const answered = await fetch(`${BASE}/api/auth/sso/saml2/sp/acs/${connection.provider_id}`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/x-www-form-urlencoded',
+          cookie: jar.cookie,
+          origin: 'https://generated-idp.example.invalid',
+          'x-ensemus-test-client': client,
+        },
+        body: new URLSearchParams({
+          SAMLResponse: signed.SAMLResponse,
+          RelayState: signed.RelayState,
+        }),
+        redirect: 'manual',
+      });
+      if (answered.status !== 302 || (answered.headers.get('location') ?? '').includes('error='))
+        throw new Error('GENERATED_SSO_SELF_LINK_NOT_COMPLETED');
+    },
     async signIn(email = member.email) {
       const jar = { cookie: '' };
+      // Company sign-in starts are limited per client address (3 in 10 s), and every test really
+      // arrives from one; each flow is its own browser, as forms.ts gives every other request.
       const response = await fetch(`${BASE}/api/auth/sign-in/sso`, {
         method: 'POST',
-        headers: { origin: BASE, 'content-type': 'application/json' },
+        headers: {
+          origin: BASE,
+          'content-type': 'application/json',
+          'x-ensemus-test-client': aClientAddress(),
+        },
         body: JSON.stringify({
           providerId: connection.provider_id,
           providerType: 'saml',

@@ -133,6 +133,23 @@ describe('SAML admission, company isolation and SCIM on actual roles', () => {
     }
     return { ...row, owner };
   }
+  // The tenant's policy row and its set of active connections are shared by every test that uses
+  // tenants.a. A test that requires SSO or relies on its connection being the only active one gets a
+  // company of its own (as effectPerson below does), and requires SSO at the version it actually reads.
+  async function ownConnection() {
+    const own = await makeTwoTenants(database.db);
+    await proveSecondFactor(own.a.owner);
+    return { ...(await connection(true, own.a.owner)), neighbour: own.b };
+  }
+  async function requireSso(owner: Awaited<ReturnType<typeof connection>>['owner']) {
+    const policy = await getSecurityPolicy(database.db, owner.context);
+    await updateSecurityPolicy(database.db, owner.context, proof(owner), {
+      expectedVersion: policy.version,
+      mfaForAdministration: false,
+      mfaMaxAgeSeconds: 900,
+      ssoEnforcement: 'required',
+    });
+  }
   async function person(
     f: Awaited<ReturnType<typeof connection>>,
     join = true,
@@ -1211,25 +1228,28 @@ describe('SAML admission, company isolation and SCIM on actual roles', () => {
     },
   );
   it('keeps required SSO tenant-specific, leaves owners in and releases members when the active connection is disabled', async () => {
-    const f = await connection(),
+    // ADR-031 D9: only a tenant with no active connection releases its members, so this company's
+    // one connection is the only active one.
+    const f = await ownConnection(),
       p = await person(f);
-    await updateSecurityPolicy(database.db, f.owner.context, proof(), {
-      expectedVersion: 1,
-      mfaForAdministration: false,
-      mfaMaxAgeSeconds: 900,
-      ssoEnforcement: 'required',
-    });
+    await requireSso(f.owner);
     await expect(
       assertTenantSignIn(database.db, p.context!, { sessionId: p.sessionId }),
     ).rejects.toMatchObject({ code: 'SSO_REQUIRED' });
     await expect(
-      assertTenantSignIn(database.db, f.owner.context, proof()),
+      assertTenantSignIn(database.db, f.owner.context, proof(f.owner)),
     ).resolves.toBeUndefined();
     const current = await accepted(f, p);
     await expect(
       assertTenantSignIn(database.db, p.context!, { sessionId: current.identity.sessionId }),
     ).resolves.toBeUndefined();
-    await updateSsoConnection(database.db, f.owner.context, proof(), {
+    // Another company still requires nothing of its members.
+    await expect(
+      assertTenantSignIn(database.db, f.neighbour.member.context, {
+        sessionId: f.neighbour.member.sessionId,
+      }),
+    ).resolves.toBeUndefined();
+    await updateSsoConnection(database.db, f.owner.context, proof(f.owner), {
       connectionId: f.id,
       expectedVersion: f.version,
       state: 'disabled',
@@ -1239,17 +1259,12 @@ describe('SAML admission, company isolation and SCIM on actual roles', () => {
     ).resolves.toBeUndefined();
   });
   it('denies a late SSO receipt after SCIM disable and human re-enable while the actual provider link remains deprovisioned', async () => {
-    const f = await connection(),
+    const f = await ownConnection(),
       p = await person(f),
       signed = await accepted(f, p),
       key = await token(f),
       reviewed = await inspectSsoProvider(urls.migrator(), f.providerId);
-    await updateSecurityPolicy(database.db, f.owner.context, proof(), {
-      expectedVersion: 1,
-      mfaForAdministration: false,
-      mfaMaxAgeSeconds: 900,
-      ssoEnforcement: 'required',
-    });
+    await requireSso(f.owner);
     await expect(
       assertTenantSignIn(database.db, p.context!, { sessionId: signed.identity.sessionId }),
     ).resolves.toBeUndefined();
@@ -1299,16 +1314,11 @@ describe('SAML admission, company isolation and SCIM on actual roles', () => {
     ).rejects.toMatchObject({ code: 'SSO_REQUIRED' });
   });
   it('rechecks actual provider trust and live session metadata without exposing provider configuration or session tokens to the app', async () => {
-    const f = await connection(),
+    const f = await ownConnection(),
       p = await person(f),
       signed = await accepted(f, p),
       other = await connection(true, tenants.b.owner);
-    await updateSecurityPolicy(database.db, f.owner.context, proof(), {
-      expectedVersion: 1,
-      mfaForAdministration: false,
-      mfaMaxAgeSeconds: 900,
-      ssoEnforcement: 'required',
-    });
+    await requireSso(f.owner);
     expect(
       await withTenantTx(database.db, p.context!, (tx) =>
         tx
