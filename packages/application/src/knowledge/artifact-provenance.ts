@@ -192,6 +192,75 @@ export function normalizeStructuredInputs(
     `${a.kind}:${a.id}:${a.sha256}`.localeCompare(`${b.kind}:${b.id}:${b.sha256}`),
   );
 }
+/** One retained ref of a delegated input receipt (ai.delegated_input_refs), metadata only. */
+export type InheritedInfluenceRef = {
+  kind: string;
+  id: string;
+  sha256: string | null;
+  classification: string;
+  proofKind: string;
+  sourceId: string | null;
+};
+const structuredKinds: readonly string[] = ['work_unit', 'project', 'client', 'object_record'];
+const classifications: readonly string[] = ['public', 'internal', 'confidential', 'restricted'];
+/**
+ * What a run's inherited influence adds to its file's flattened lineage. 0419's
+ * artifact_authority_bindings_complete (checked by the run_output_writes proof guard and again at
+ * commit) requires every actual-content ref the artifact authority receipt froze, the inherited
+ * envelope of ai.current_main_input_inventory included, to survive in the flattened lineage: a
+ * structured record as an artifact_lineage_records row with its read hash, a file as an
+ * artifact_lineage_inputs row, an evidence package as an artifact_lineage_packages row and every
+ * source a ref names as an artifact_lineage_sources row. A delegated child's own observations hold
+ * only its own reads, so without these its generated file can never be proven.
+ */
+export function inheritedInfluenceInputs(rows: readonly InheritedInfluenceRef[]) {
+  if (rows.length > MAX_INPUTS) throw new AppError('INVALID_INPUT');
+  const records: StructuredArtifactInput[] = [],
+    artifacts: { artifactId: string; sha256: string }[] = [],
+    packageIds = new Set<string>(),
+    sourceIds = new Set<string>();
+  for (const row of rows) {
+    if (!classifications.includes(row.classification)) throw new AppError('INVALID_STATE');
+    const actual = row.proofKind === 'actual_content';
+    if (actual && structuredKinds.includes(row.kind)) {
+      if (row.sha256 === null) throw new AppError('INVALID_STATE');
+      records.push({
+        kind: row.kind as StructuredArtifactInput['kind'],
+        id: checkedId(row.id),
+        sha256: checkedHash(row.sha256),
+        classification: row.classification as Classification,
+      });
+    } else if (actual && row.kind === 'artifact') {
+      if (row.sha256 === null) throw new AppError('INVALID_STATE');
+      artifacts.push({ artifactId: checkedId(row.id), sha256: checkedHash(row.sha256) });
+    } else if (row.kind === 'evidence_package') packageIds.add(checkedId(row.id));
+    const sourceId = row.sourceId ?? (row.kind === 'source' ? row.id : null);
+    if (sourceId !== null) sourceIds.add(checkedId(sourceId));
+  }
+  return {
+    records,
+    artifacts,
+    packageIds: [...packageIds].sort(),
+    sourceIds: [...sourceIds].sort(),
+  };
+}
+const noInheritedInfluence = inheritedInfluenceInputs([]);
+/**
+ * The refs of every unredacted delegated input receipt this run inherits, exactly the receipts
+ * ai.current_main_input_inventory folds into its inherited_influence entries (0419). Nonlocking
+ * metadata reads, as the inventory port requires; only an agent session may resolve them.
+ */
+async function inheritedInfluenceInTx(tx: Tx, context: TenantContext, runId: string) {
+  const result = await tx.execute<InheritedInfluenceRef>(sql`
+    select ref.ref_kind kind,ref.ref_id::text id,ref.content_sha256 sha256,ref.classification,
+      ref.proof_kind "proofKind",ref.source_id::text "sourceId"
+    from ai.delegated_input_refs ref join ai.delegated_input_receipts receipt
+      on receipt.organization_id=ref.organization_id and receipt.child_run_id=ref.child_run_id
+    where receipt.organization_id=${context.organizationId}::uuid and receipt.redacted_at is null
+      and receipt.child_run_id in(select ai.run_inherited_receipt_ids(${checkedId(runId)}::uuid))
+    order by ref.child_run_id,ref.proof_key_sha256 limit ${MAX_INPUTS + 1}`);
+  return inheritedInfluenceInputs(result.rows);
+}
 type StructuredSnapshot = StructuredArtifactInput & { classification: Classification };
 const recordKey = (record: { kind: string; id: string }) => `${record.kind}:${record.id}`;
 async function noLockWait<T>(operation: Promise<T>): Promise<T> {
@@ -425,7 +494,16 @@ async function currentInventory(
     proof.workUnitId !== workUnitId
   )
     throw new AppError('INVALID_STATE');
-  const directRecords = normalizeStructuredInputs(proof.recordInputs, workUnitId);
+  // An agent run's inherited influence (a delegated child's parent reads) is part of what its file
+  // was derived from; see inheritedInfluenceInputs. A system template inherits nothing.
+  const inherited =
+    input.execution.kind === 'agent_run' && context.actorType === 'agent'
+      ? await inheritedInfluenceInTx(tx, context, input.execution.id)
+      : noInheritedInfluence;
+  const directRecords = normalizeStructuredInputs(
+    [...proof.recordInputs, ...inherited.records],
+    workUnitId,
+  );
   // Optional is legacy wire compatibility, never a current-class lookup that repairs missing
   // historical protection. Every new generated write supplies its actual captured classes.
   if (directRecords.some((record) => record.classification === undefined))
@@ -458,6 +536,7 @@ async function currentInventory(
     if (inputs.size > MAX_INPUTS) throw new AppError('INVALID_INPUT');
   };
   proof.artifactInputs.forEach((value) => add(value.artifactId, value.sha256));
+  inherited.artifacts.forEach((value) => add(value.artifactId, value.sha256));
   for (let previous = -1; previous !== inputs.size;) {
     previous = inputs.size;
     if (!previous) break;
@@ -496,7 +575,7 @@ async function currentInventory(
     packages.some((value) => value.viewerMembershipId !== viewer || value.workUnitId !== workUnitId)
   )
     throw new AppError('INVALID_STATE');
-  const inherited = inputIds.length
+  const inheritedPackages = inputIds.length
     ? await tx
         .select()
         .from(artifactLineagePackages)
@@ -505,7 +584,8 @@ async function currentInventory(
   const packageIds = [
     ...new Set([
       ...packages.map((value) => value.id),
-      ...inherited.map((value) => value.packageId),
+      ...inheritedPackages.map((value) => value.packageId),
+      ...inherited.packageIds,
     ]),
   ].sort();
   if (packageIds.length > MAX_INPUTS) throw new AppError('INVALID_INPUT');
@@ -517,7 +597,7 @@ async function currentInventory(
         .orderBy(asc(knowledgeEvidencePackages.id))
     : [];
   if (packageRows.length !== packageIds.length) throw new AppError('INVALID_STATE');
-  const sourceIds = new Set<string>();
+  const sourceIds = new Set<string>(inherited.sourceIds);
   if (packageIds.length) {
     const items = await tx
       .select({ id: knowledgeEvidenceItems.sourceId })
