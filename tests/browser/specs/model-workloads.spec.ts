@@ -5,11 +5,20 @@ import { openAppDatabase, resolveTenantContext } from '@ensemus/database';
 import { createOrganization, signUp, BASE } from '../../helpers/forms';
 import { proveSecondFactor } from '../../helpers/product';
 import { seedQualifiedKnowledgeRoute } from '../../helpers/knowledge-models';
-import { urls } from '../../helpers/stack';
+import { compose, urls } from '../../helpers/stack';
 import { test, expect } from '../support/fixtures';
 import { axeFindings } from '../support/look';
 
 const headers = { 'content-type': 'application/json', origin: new URL(BASE).origin };
+/** The in-subnet fake model (compose.test.yaml), which web and the stack's agent worker reach. */
+const FAKE_MODEL_ENDPOINT =
+  process.env.ENSEMUS_TEST_PRIVATE_MODEL_ENDPOINT ?? 'http://fake-model:8000/v1';
+/**
+ * Tests the stack's own agent worker has to serve. The browser gate runs these first, while it is
+ * up, and stops it for every other spec (.github/workflows/ci.yml,
+ * infrastructure/scripts/run-all-gates.sh).
+ */
+const AGENT_WORKER = '@agent-worker';
 const bounds = {
   max_calls: 2,
   max_input_tokens: 1000,
@@ -33,8 +42,7 @@ test.describe('native Knowledge model authority controls', () => {
         provider_kind: 'local_openai_compatible',
         model_id: 'generated-settings-model',
         alias: 'Qualification target',
-        endpoint_url:
-          process.env.ENSEMUS_TEST_PRIVATE_MODEL_ENDPOINT ?? 'http://fake-model:8000/v1',
+        endpoint_url: FAKE_MODEL_ENDPOINT,
         billing_owner: 'customer',
         region: null,
         capabilities: ['text'],
@@ -82,74 +90,89 @@ test.describe('native Knowledge model authority controls', () => {
     expect(((await evidence.json()) as { items: unknown[] }).items).toEqual([]);
   });
 
-  test('an owner approves exact qualified evidence and revokes without fresh MFA, without JavaScript', async ({
-    open,
-    world,
-  }) => {
-    const owner = await signUp(`Bounded operator ${randomUUID()}`);
-    const org = await createOrganization(owner, 'Workload fixture');
-    const person = await world.sql.query<{ userId: string; sessionId: string }>(
-      'select u.id "userId",s.id "sessionId" from identity.users u join identity.sessions s on s.user_id=u.id where u.email=$1 order by s.created_at desc limit 1',
-      [owner.email],
-    );
-    const identity = person.rows[0];
-    if (!identity) throw new Error('TEST_NATIVE_SESSION_MISSING');
-    const database = openAppDatabase(urls.app());
-    let route: Awaited<ReturnType<typeof seedQualifiedKnowledgeRoute>>;
-    try {
-      const context = await resolveTenantContext(database.db, identity.userId, org);
-      route = await seedQualifiedKnowledgeRoute(database.db, context, { dimension: 3 });
-    } finally {
-      await database.close();
-    }
-    await proveSecondFactor(identity);
-    const page = await open(owner, { javaScriptEnabled: false });
-    await page.goto(`/o/${org}/settings/models/workloads`);
-    await expect(
-      page.getByRole('heading', { name: 'Knowledge workload approvals', exact: true }),
-    ).toBeVisible();
-    const form = page
-      .locator('form')
-      .filter({ has: page.getByRole('button', { name: 'Approve workload', exact: true }) });
-    await form.getByRole('combobox', { name: 'Workload', exact: true }).selectOption('query');
-    await form.getByRole('combobox', { name: 'Scope', exact: true }).selectOption('organization');
-    await form.getByLabel('Semantic indexing', { exact: true }).check();
-    await form.locator(`[name=qualificationIds][value="${route.qualificationId}"]`).check();
-    await form
-      .getByRole('combobox', { name: 'Highest permitted classification', exact: true })
-      .selectOption('internal');
-    for (const [name, value] of Object.entries({
-      maxCalls: '2',
-      maxInputTokens: '1000',
-      maxOutputTokens: '100',
-      maxTotalTokens: '2200',
-      maxCostMicros: '500',
-      timeoutSeconds: '60',
-    }))
-      await form.locator(`[name=${name}]`).fill(value);
-    await form
-      .getByLabel('Expiry, including timezone')
-      .fill(new Date(Date.now() + 3600000).toISOString());
-    await form.getByRole('button', { name: 'Approve workload', exact: true }).click();
-    await expect(page.getByText('Approved within limits', { exact: true })).toBeVisible();
-    const response = await page.request.get(approvals(org));
-    expect(response.status()).toBe(200);
-    const body = (await response.json()) as {
-      items: { id: string; qualifications: { id: string; usable: boolean }[] }[];
-    };
-    const approval = body.items[0];
-    expect(approval?.qualifications).toEqual([{ id: route.qualificationId, usable: true }]);
-    if (!approval) throw new Error('TEST_APPROVAL_MISSING');
-    await proveSecondFactor(identity, new Date(Date.now() - 86400000));
-    const confirm = page
-      .locator('details')
-      .filter({ has: page.locator(`input[name=approvalId][value="${approval.id}"]`) });
-    await confirm.locator('summary').click();
-    await confirm.locator('input[name=confirm]').check();
-    await confirm.getByRole('button', { name: `Confirm revocation of ${approval.id}` }).click();
-    await expect(page.getByText('Revoked', { exact: true })).toBeVisible();
-    expect(await axeFindings(page)).toEqual([]);
-  });
+  test(
+    'an owner approves exact qualified evidence and revokes without fresh MFA, without JavaScript',
+    {
+      tag: AGENT_WORKER,
+    },
+    async ({ open, world }) => {
+      // The outbox wakes the stack's own knowledgeModelJobWorkflow for every requested job, so
+      // that worker is this qualification's one runner. A second runner in this process raced it
+      // for the same job, and either one's refusal fences the job for both
+      // (tests/helpers/knowledge-models.ts).
+      expect(
+        compose('ps', '-q', 'agent-worker').trim(),
+        `the stack's agent worker must be up for ${AGENT_WORKER} tests`,
+      ).not.toBe('');
+      const owner = await signUp(`Bounded operator ${randomUUID()}`);
+      const org = await createOrganization(owner, 'Workload fixture');
+      const person = await world.sql.query<{ userId: string; sessionId: string }>(
+        'select u.id "userId",s.id "sessionId" from identity.users u join identity.sessions s on s.user_id=u.id where u.email=$1 order by s.created_at desc limit 1',
+        [owner.email],
+      );
+      const identity = person.rows[0];
+      if (!identity) throw new Error('TEST_NATIVE_SESSION_MISSING');
+      const database = openAppDatabase(urls.app());
+      let route: Awaited<ReturnType<typeof seedQualifiedKnowledgeRoute>>;
+      try {
+        const context = await resolveTenantContext(database.db, identity.userId, org);
+        route = await seedQualifiedKnowledgeRoute(database.db, context, {
+          dimension: 3,
+          endpointUrl: FAKE_MODEL_ENDPOINT,
+          runner: 'stack',
+        });
+      } finally {
+        await database.close();
+      }
+      await proveSecondFactor(identity);
+      const page = await open(owner, { javaScriptEnabled: false });
+      await page.goto(`/o/${org}/settings/models/workloads`);
+      await expect(
+        page.getByRole('heading', { name: 'Knowledge workload approvals', exact: true }),
+      ).toBeVisible();
+      const form = page
+        .locator('form')
+        .filter({ has: page.getByRole('button', { name: 'Approve workload', exact: true }) });
+      await form.getByRole('combobox', { name: 'Workload', exact: true }).selectOption('query');
+      await form.getByRole('combobox', { name: 'Scope', exact: true }).selectOption('organization');
+      await form.getByLabel('Semantic indexing', { exact: true }).check();
+      await form.locator(`[name=qualificationIds][value="${route.qualificationId}"]`).check();
+      await form
+        .getByRole('combobox', { name: 'Highest permitted classification', exact: true })
+        .selectOption('internal');
+      for (const [name, value] of Object.entries({
+        maxCalls: '2',
+        maxInputTokens: '1000',
+        maxOutputTokens: '100',
+        maxTotalTokens: '2200',
+        maxCostMicros: '500',
+        timeoutSeconds: '60',
+      }))
+        await form.locator(`[name=${name}]`).fill(value);
+      await form
+        .getByLabel('Expiry, including timezone')
+        .fill(new Date(Date.now() + 3600000).toISOString());
+      await form.getByRole('button', { name: 'Approve workload', exact: true }).click();
+      await expect(page.getByText('Approved within limits', { exact: true })).toBeVisible();
+      const response = await page.request.get(approvals(org));
+      expect(response.status()).toBe(200);
+      const body = (await response.json()) as {
+        items: { id: string; qualifications: { id: string; usable: boolean }[] }[];
+      };
+      const approval = body.items[0];
+      expect(approval?.qualifications).toEqual([{ id: route.qualificationId, usable: true }]);
+      if (!approval) throw new Error('TEST_APPROVAL_MISSING');
+      await proveSecondFactor(identity, new Date(Date.now() - 86400000));
+      const confirm = page
+        .locator('details')
+        .filter({ has: page.locator(`input[name=approvalId][value="${approval.id}"]`) });
+      await confirm.locator('summary').click();
+      await confirm.locator('input[name=confirm]').check();
+      await confirm.getByRole('button', { name: `Confirm revocation of ${approval.id}` }).click();
+      await expect(page.getByText('Revoked', { exact: true })).toBeVisible();
+      expect(await axeFindings(page)).toEqual([]);
+    },
+  );
 
   test('member, foreign-tenant and identity-smuggling API requests cannot create authority', async ({
     open,
