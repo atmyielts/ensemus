@@ -352,7 +352,8 @@ describe('restore debt requalification (0543, 0545)', () => {
       const grants = await control.query<{ fn: string; grantee: string }>(
         `select p.oid::regprocedure::text fn,a.grantee::regrole::text grantee from pg_proc p
           cross join lateral aclexplode(coalesce(p.proacl,acldefault('f',p.proowner))) a
-          where p.oid=any($1::regprocedure[]) and a.privilege_type='EXECUTE' order by 1 collate "C",2 collate "C"`,
+          where p.oid=any($1::regprocedure[]) and a.privilege_type='EXECUTE'
+          order by p.oid::regprocedure::text collate "C",a.grantee::regrole::text collate "C"`,
         [SERVICE_ENTRY_POINTS],
       );
       expect(grants.rows).toEqual(
