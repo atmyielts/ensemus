@@ -29,7 +29,6 @@ import {
 } from './schema';
 import { externalActions } from './schema-integrations';
 import { approvals, artifacts, workSchema, workUnits } from './schema-work';
-import { modelCallAttempts, modelJobs } from './schema-model-jobs';
 
 const createdAt = () => timestamp({ withTimezone: true }).notNull().defaultNow();
 const tenantId = () =>
@@ -670,14 +669,8 @@ export const budgets = platformSchema.table(
   },
   (t) => [
     primaryKey({ columns: [t.organizationId, t.id] }),
-    foreignKey({
-      columns: [t.organizationId, t.agentVersionId],
-      foreignColumns: [agentVersions.organizationId, agentVersions.id],
-    }),
-    foreignKey({
-      columns: [t.organizationId, t.createdByMembershipId],
-      foreignColumns: [memberships.organizationId, memberships.id],
-    }),
+    // Retained through erasure (LIFE-04), so the agent version and membership are historical UUIDs
+    // with no FK into the tables the eraser empties (0552). setBudget checks the version at birth.
     uniqueIndex('budgets_scope_key').on(
       t.organizationId,
       t.scope,
@@ -719,28 +712,11 @@ export const budgetReservations = platformSchema.table(
       columns: [t.organizationId, t.budgetId],
       foreignColumns: [budgets.organizationId, budgets.id],
     }),
-    foreignKey({
-      columns: [t.organizationId, t.runId],
-      foreignColumns: [agentRuns.organizationId, agentRuns.id],
-    }),
-    foreignKey({
-      columns: [t.organizationId, t.stepId],
-      foreignColumns: [executionSteps.organizationId, executionSteps.id],
-    }),
+    // Run, step, model job and model call are historical UUIDs of a retained row: no FK (0552).
     uniqueIndex('budget_reservations_step_key')
       .on(t.organizationId, t.budgetId, t.stepId, t.attempt)
       .where(sql`${t.modelCallId} is null`),
     unique('budget_reservations_call_key').on(t.organizationId, t.budgetId, t.modelCallId),
-    foreignKey({
-      name: 'budget_reservations_model_job_fk',
-      columns: [t.organizationId, t.modelJobId],
-      foreignColumns: [modelJobs.organizationId, modelJobs.id],
-    }),
-    foreignKey({
-      name: 'budget_reservations_model_call_fk',
-      columns: [t.organizationId, t.modelCallId],
-      foreignColumns: [modelCallAttempts.organizationId, modelCallAttempts.id],
-    }),
     check(
       'budget_reservations_principal',
       sql`(${t.modelCallId} is null and ${t.modelJobId} is null and ${t.runId} is not null and ${t.stepId} is not null) or (${t.modelCallId} is not null and ((${t.modelJobId} is not null and ${t.runId} is null and ${t.stepId} is null) or (${t.modelJobId} is null and ${t.runId} is not null and ${t.stepId} is not null)))`,
@@ -785,29 +761,11 @@ export const usageLedger = platformSchema.table(
   (t) => [
     primaryKey({ columns: [t.organizationId, t.id] }),
     unique('usage_ledger_idempotency_key').on(t.organizationId, t.idempotencyKey),
-    foreignKey({
-      columns: [t.organizationId, t.rateCardId],
-      foreignColumns: [rateCards.organizationId, rateCards.id],
-    }),
+    // Rate card, work, run, step, profile, model job and model call are historical UUIDs of retained
+    // evidence (LIFE-04): no FK into the tables the eraser empties (0552). FKs between retained rows stay.
     foreignKey({
       columns: [t.organizationId, t.reservationId],
       foreignColumns: [budgetReservations.organizationId, budgetReservations.id],
-    }),
-    foreignKey({
-      columns: [t.organizationId, t.workUnitId],
-      foreignColumns: [workUnits.organizationId, workUnits.id],
-    }),
-    foreignKey({
-      columns: [t.organizationId, t.runId],
-      foreignColumns: [agentRuns.organizationId, agentRuns.id],
-    }),
-    foreignKey({
-      columns: [t.organizationId, t.stepId],
-      foreignColumns: [executionSteps.organizationId, executionSteps.id],
-    }),
-    foreignKey({
-      columns: [t.organizationId, t.profileId],
-      foreignColumns: [modelProfiles.organizationId, modelProfiles.id],
     }),
     foreignKey({
       columns: [t.organizationId, t.correctsId],
@@ -815,16 +773,6 @@ export const usageLedger = platformSchema.table(
     }),
     index('usage_ledger_run_idx').on(t.organizationId, t.runId),
     index('usage_ledger_model_job_idx').on(t.organizationId, t.modelJobId),
-    foreignKey({
-      name: 'usage_ledger_model_job_fk',
-      columns: [t.organizationId, t.modelJobId],
-      foreignColumns: [modelJobs.organizationId, modelJobs.id],
-    }),
-    foreignKey({
-      name: 'usage_ledger_model_call_fk',
-      columns: [t.organizationId, t.modelCallId],
-      foreignColumns: [modelCallAttempts.organizationId, modelCallAttempts.id],
-    }),
     check(
       'usage_ledger_principal',
       sql`(${t.modelJobId} is null and ${t.runId} is not null and ${t.workUnitId} is not null) or (${t.modelJobId} is not null and ${t.modelCallId} is not null and ${t.runId} is null and ${t.workUnitId} is null and ${t.stepId} is null)`,
@@ -890,18 +838,7 @@ export const egressDecisions = governanceSchema.table(
   },
   (t) => [
     primaryKey({ columns: [t.organizationId, t.id] }),
-    foreignKey({
-      columns: [t.organizationId, t.runId],
-      foreignColumns: [agentRuns.organizationId, agentRuns.id],
-    }),
-    foreignKey({
-      columns: [t.organizationId, t.stepId],
-      foreignColumns: [executionSteps.organizationId, executionSteps.id],
-    }),
-    foreignKey({
-      columns: [t.organizationId, t.profileId],
-      foreignColumns: [modelProfiles.organizationId, modelProfiles.id],
-    }),
+    // Run, step and profile are historical UUIDs of a retained decision: no FK (0552).
     index('egress_decisions_run_idx').on(t.organizationId, t.runId),
     index('egress_decisions_time_idx').on(t.organizationId, t.createdAt),
     classificationCheck('egress_decisions_class_check', t.dataClass),
@@ -929,10 +866,7 @@ export const policyBundles = governanceSchema.table(
   },
   (t) => [
     primaryKey({ columns: [t.organizationId, t.id] }),
-    foreignKey({
-      columns: [t.organizationId, t.createdByMembershipId],
-      foreignColumns: [memberships.organizationId, memberships.id],
-    }),
+    // The author's membership is a historical UUID of a retained bundle: no FK (0552).
     unique('policy_bundles_version_key').on(t.organizationId, t.version),
     uniqueIndex('policy_bundles_one_active')
       .on(t.organizationId)
@@ -961,14 +895,7 @@ export const killSwitches = governanceSchema.table(
     releasedByMembershipId: uuid(),
   },
   (t) => [
-    foreignKey({
-      columns: [t.organizationId, t.engagedByMembershipId],
-      foreignColumns: [memberships.organizationId, memberships.id],
-    }),
-    foreignKey({
-      columns: [t.organizationId, t.releasedByMembershipId],
-      foreignColumns: [memberships.organizationId, memberships.id],
-    }),
+    // Who engaged and released it are historical UUIDs of a retained switch: no FK (0552).
     index('kill_switches_live_idx')
       .on(t.organizationId, t.scope)
       .where(sql`${t.releasedAt} IS NULL`),
