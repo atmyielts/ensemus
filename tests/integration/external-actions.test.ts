@@ -425,6 +425,26 @@ describe('verified external actions', () => {
       await expect(propose({ workUnitId: work })).rejects.toEqual(code('INVALID_INPUT'));
     });
 
+    // Migration 0519: 0419 read class ranks off by one, so a member could not review internal work
+    // and an admin could not review confidential work. Slice 2's proposals answered 400 from this.
+    it('asks a member to review internal work, and an admin confidential work, on the 1-4 scale', async () => {
+      const internal = await propose({ workUnitId: await newWork(owner) });
+      expect((await rowOf(internal.externalActionId)).status).toBe('awaiting_approval');
+      const adminUser = await makeUser('admin-reviewer');
+      const adminId = randomUUID();
+      await withTenantTx(db(), owner, (tx) =>
+        tx.execute(
+          sql`insert into org.memberships (organization_id, id, user_id, role)
+              values (${owner.organizationId}, ${adminId}, ${adminUser}, 'admin')`,
+        ),
+      );
+      const confidential = await newWork(owner, { classification: 'confidential' });
+      // A plain member still cannot be asked about confidential work.
+      await expect(propose({ workUnitId: confidential })).rejects.toEqual(code('INVALID_INPUT'));
+      const proposal = await propose({ workUnitId: confidential, approverMembershipId: adminId });
+      expect((await rowOf(proposal.externalActionId)).status).toBe('awaiting_approval');
+    });
+
     it('refuses a connection that is not active', async () => {
       const revoked = await seedConnection(db(), owner, {
         config: { fromAddress: SENDER },
