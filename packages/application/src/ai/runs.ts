@@ -540,6 +540,19 @@ export async function reclaimRun(
     if (isTerminalAgentRun(run.status as AgentRunStatus) || !run.temporalRunId) return null;
     if (run.temporalRunId === input.temporalRunId) return claimedView(tx, run);
 
+    // 0417's authority_work_body hides the Work from an authority-v1 run's agent transaction until
+    // that transaction has its own read-scope and authority-v1 admission. Admit it here exactly as
+    // claimQueuedRun does; a run that can no longer be admitted takes no hold over.
+    try {
+      await loadAgentReadScopeInTx(tx, context);
+    } catch (error) {
+      if (
+        error instanceof AppError &&
+        ['POLICY_DENIED', 'NOT_FOUND', 'FORBIDDEN'].includes(error.code)
+      )
+        return null;
+      throw error;
+    }
     const work = await loadChangeable(tx, context, input.workUnitId);
     if (work.runId !== null && work.runId !== run.temporalRunId) return null;
     if (work.runId !== null) {

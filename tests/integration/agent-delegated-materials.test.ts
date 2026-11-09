@@ -36,7 +36,9 @@ import {
 import { createToolStepStore, storeProposal } from '@ensemus/application/ai-tool-steps';
 import { createUsageLedger } from '@ensemus/application/ai-usage';
 import {
+  agentPublications,
   agentRuns,
+  auditEvents,
   delegatedInputReceipts,
   delegatedWorkBirths,
   mainInputSnapshots,
@@ -123,6 +125,15 @@ describe('delegated material birth evidence (0419)', () => {
     });
     const version = await seedAgentVersion(app.db, a.owner, spec);
     const childVersion = await seedAgentVersion(app.db, a.owner, spec);
+    // createChildRun starts only a version with a live publication (agent_publications), so the
+    // delegated version is published by the MFA-stepped-up owner, as publishing requires (0404).
+    await withTenantTx(app.db, a.owner, (tx) =>
+      tx.insert(agentPublications).values({
+        organizationId: a.organizationId,
+        definitionId: childVersion.definitionId,
+        versionId: childVersion.versionId,
+      }),
+    );
     const runId = await seedQueuedRun(app.db, a.owner, {
       workUnitId: work.id,
       version,
@@ -452,11 +463,14 @@ describe('delegated material birth evidence (0419)', () => {
       status: 'cancelled',
       stopCode: 'STOPPED_BY_PERSON',
     });
+    // 0101's run state machine (agent_runs_check_change, EN006 AGENT_RUN_INVALID_TRANSITION) fires
+    // before 0419's fenced_terminal_run_no_revival (EN119): BEFORE triggers run in name order, and
+    // 0101 has never allowed any move out of a terminal status. Either refusal keeps it closed.
     await expect(
       withTenantTx(agent.db, f.context, (tx) =>
         tx.update(agentRuns).set({ status: 'running' }).where(eq(agentRuns.id, f.runId)),
       ),
-    ).rejects.toSatisfy((error: unknown) => pgCode(error) === 'EN119');
+    ).rejects.toSatisfy((error: unknown) => pgCode(error) === 'EN006');
     const [metadata] = await withTenantTx(agent.db, f.context, (tx) =>
       tx
         .update(agentRuns)
@@ -854,27 +868,30 @@ describe('delegated material birth evidence (0419)', () => {
 
   it('records only an actual Work INSERT and rolls the copied body back without its reciprocal child receipt', async () => {
     const f = await fixture();
-    await expect(
-      withTenantTx(agent.db, f.context, async (tx) => {
-        await loadAgentReadScopeInTx(tx, f.context);
-        await tx.insert(workUnits).values({
-          organizationId: a.organizationId,
-          id: f.childWorkId,
-          parentId: f.work.id,
-          ownerMembershipId: a.owner.membershipId,
-          createdByMembershipId: a.owner.membershipId,
-          title: 'Actual copied child',
-          classification: 'internal',
-        });
-        expect(
-          await tx
-            .select({ runId: delegatedWorkBirths.childRunId })
-            .from(delegatedWorkBirths)
-            .where(eq(delegatedWorkBirths.workUnitId, f.childWorkId)),
-        ).toEqual([{ runId: f.childRunId }]);
-        // No genuine child run/receipt is written: deferred reciprocal FK must reject the commit.
-      }),
-    ).rejects.toSatisfy((error: unknown) => pgCode(error) === '23503');
+    // The same assertion as a toSatisfy on the code, written so a failure prints the actual code.
+    const refused = await withTenantTx(agent.db, f.context, async (tx) => {
+      await loadAgentReadScopeInTx(tx, f.context);
+      await tx.insert(workUnits).values({
+        organizationId: a.organizationId,
+        id: f.childWorkId,
+        parentId: f.work.id,
+        ownerMembershipId: a.owner.membershipId,
+        createdByMembershipId: a.owner.membershipId,
+        title: 'Actual copied child',
+        classification: 'internal',
+      });
+      expect(
+        await tx
+          .select({ runId: delegatedWorkBirths.childRunId })
+          .from(delegatedWorkBirths)
+          .where(eq(delegatedWorkBirths.workUnitId, f.childWorkId)),
+      ).toEqual([{ runId: f.childRunId }]);
+      // No genuine child run/receipt is written: deferred reciprocal FK must reject the commit.
+    }).then(
+      () => null,
+      (error: unknown) => error,
+    );
+    expect(pgCode(refused)).toBe('23503');
     expect(
       await withTenantTx(app.db, a.owner, (tx) =>
         tx.select({ id: workUnits.id }).from(workUnits).where(eq(workUnits.id, f.childWorkId)),
@@ -929,7 +946,23 @@ describe('delegated material birth evidence (0419)', () => {
       parentRunId: f.runId,
       stepNumber: 2,
     });
-    if (created.kind !== 'created') throw new Error('TEST_GENUINE_CHILD_NOT_ADMITTED');
+    if (created.kind !== 'created') {
+      // The refusal's safe reason is audited; name it so a failure says which gate refused.
+      const denials = await withTenantTx(app.db, a.owner, (tx) =>
+        tx
+          .select({ reason: auditEvents.safeReason })
+          .from(auditEvents)
+          .where(
+            and(
+              eq(auditEvents.targetRef, `agent_run:${f.runId}`),
+              eq(auditEvents.action, 'agent_run.delegation_denied'),
+            ),
+          ),
+      );
+      throw new Error(
+        `TEST_GENUINE_CHILD_NOT_ADMITTED:${created.code}:${denials.map((row) => row.reason).join(',')}`,
+      );
+    }
     expect(created).toMatchObject({ childRunId: f.childRunId, childWorkUnitId: f.childWorkId });
     const child = await getWorkUnit(app.db, a.owner, f.childWorkId);
     expect(child.title).toBe('Actual copied child');

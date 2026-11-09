@@ -50,7 +50,9 @@ import {
   seedAiTenant,
   seedQueuedRun,
   sha256Of,
+  testAgentSpec,
   withAdmittedRunTx,
+  type AiTenant,
 } from '../helpers/ai/fixtures';
 import { seedSearchableSource } from '../helpers/knowledge';
 import { urls } from '../helpers/stack';
@@ -93,13 +95,32 @@ describe('durable agent input protocol and content fence as actual roles', () =>
   afterAll(async () => {
     await Promise.all([app.close(), agent.close()]);
   });
-  async function fixture() {
+  /**
+   * `knowledge` names the Knowledge sources the published manifest grants (0414: an agent reads no
+   * source its immutable manifest does not name). It runs after the tenant exists and before the
+   * version is published, as an owner would create a source and then publish an agent that reads it.
+   */
+  async function fixture(
+    options: { knowledge?: (tenant: AiTenant) => Promise<readonly string[]> } = {},
+  ) {
     const tenant = await seedAiTenant(app.db),
       work = await createWorkUnit(app.db, tenant.owner, {
         title: 'Actual target Work',
         objective: 'Synthetic input protocol.',
       });
-    const version = await seedAgentVersion(app.db, tenant.owner),
+    const sources = options.knowledge ? await options.knowledge(tenant) : [];
+    const version = await seedAgentVersion(
+        app.db,
+        tenant.owner,
+        sources.length
+          ? testAgentSpec({
+              context: {
+                allowed_scopes: ['work.read', ...sources.map((id) => `knowledge.${id}.read`)],
+                memory_write_policy: 'none',
+              },
+            })
+          : testAgentSpec(),
+      ),
       runId = await seedQueuedRun(app.db, tenant.owner, { workUnitId: work.id, version });
     const context = await prepareRunInputContext(agent.db, tenant.organizationId, runId),
       service = createServiceContext(tenant.organizationId),
@@ -124,13 +145,18 @@ describe('durable agent input protocol and content fence as actual roles', () =>
     );
     const draftId = tools.draftIdFor(context, { runId, stepNumber: 0 }),
       text = 'Synthetic generated output.';
+    // The tool gateway's gate: every draft effect runs in the transaction that has just read the run
+    // with readRun(lock: true), which admits the run's read scope and authority-v1 binding (0417) or
+    // clears them. Nothing here admits anything the gateway would not.
     const note = () =>
-      withTenantTx(agent.db, context, (tx) =>
-        tools.noteDraftUpload(tx, context, { draftId, workUnitId: work.id, runId, text }),
-      );
+      withTenantTx(agent.db, context, async (tx) => {
+        await tools.readRun(tx, context, runId, { lock: true });
+        return tools.noteDraftUpload(tx, context, { draftId, workUnitId: work.id, runId, text });
+      });
     const publish = (write: Awaited<ReturnType<typeof note>>, bound = tools) =>
-      bound.withTx(context, (tx) =>
-        bound.insertDraft(tx, context, {
+      bound.withTx(context, async (tx) => {
+        await bound.readRun(tx, context, runId, { lock: true });
+        return bound.insertDraft(tx, context, {
           draftId,
           runId,
           stepId,
@@ -140,8 +166,18 @@ describe('durable agent input protocol and content fence as actual roles', () =>
           classification: 'internal',
           evidence: [],
           write,
-        }),
-      );
+        });
+      });
+    /** The output inventory exactly as the draft effect reads it, behind the same gate. */
+    const inspect = () =>
+      withTenantTx(agent.db, context, async (tx) => {
+        await tools.readRun(tx, context, runId, { lock: true });
+        return createRunInputInventory().inspectInTx(tx, context, {
+          execution: { kind: 'agent_run', id: runId },
+          workUnitId: work.id,
+          artifactSha256: sha256Of(text),
+        });
+      });
     return {
       ...tenant,
       work,
@@ -157,6 +193,7 @@ describe('durable agent input protocol and content fence as actual roles', () =>
       text,
       note,
       publish,
+      inspect,
     };
   }
   async function denied(operation: Promise<unknown>, code: string) {
@@ -231,19 +268,16 @@ describe('durable agent input protocol and content fence as actual roles', () =>
       expect.arrayContaining([value.work.id, other.id]),
     );
     expect(JSON.stringify(observed)).not.toContain('Other private Work');
+    // Before the revocation the same gate does produce the inventory, so the refusal below is the
+    // revocation's doing (bounded run output authority, 0524).
+    expect(await value.inspect()).toMatchObject({ known: true, workUnitId: value.work.id });
     await unassign(app.db, value.member, { id: other.id, membershipId: value.owner.membershipId });
+    // 0414's run-level current + historical input proof (currentRunCompanyClassInTx) refuses the
+    // whole run once a retained input is unreadable, before any per-record read: POLICY_DENIED.
     await expect(value.source.loadTranscript(value.context, value.runId)).rejects.toMatchObject({
-      code: 'NOT_FOUND',
+      code: 'POLICY_DENIED',
     });
-    expect(
-      await withTenantTx(agent.db, value.context, (tx) =>
-        createRunInputInventory().inspectInTx(tx, value.context, {
-          execution: { kind: 'agent_run', id: value.runId },
-          workUnitId: value.work.id,
-          artifactSha256: sha256Of(value.text),
-        }),
-      ),
-    ).toEqual({ known: false });
+    expect(await value.inspect()).toEqual({ known: false });
   });
   it('keeps historic mutable record reads without making routine title changes a revocation', async () => {
     const value = await fixture();
@@ -253,13 +287,7 @@ describe('durable agent input protocol and content fence as actual roles', () =>
       ),
     );
     await value.source.loadWork(value.context, value.work.id);
-    const proof = await withTenantTx(agent.db, value.context, (tx) =>
-      createRunInputInventory().inspectInTx(tx, value.context, {
-        execution: { kind: 'agent_run', id: value.runId },
-        workUnitId: value.work.id,
-        artifactSha256: sha256Of(value.text),
-      }),
-    );
+    const proof = await value.inspect();
     expect(
       proof.known && proof.recordInputs.filter((row) => row.id === value.work.id),
     ).toHaveLength(2);
@@ -581,11 +609,109 @@ describe('durable agent input protocol and content fence as actual roles', () =>
     await expect(value.note()).rejects.toMatchObject({ code: 'INVALID_STATE' });
     expect(value.store.puts).toBe(1);
   });
-  it('captures the actual private fact parent before material leaves, then retains it across reparenting', async () => {
+  it('binds a run’s generated file to its own lineage and class, and only behind its own admission (0524)', async () => {
     const value = await fixture(),
+      other = await createWorkUnit(app.db, value.owner, {
+        title: 'Other readable Work',
+        objective: 'Not this run’s lineage.',
+      });
+    const refusal = async (operation: Promise<unknown>) => {
+      try {
+        await operation;
+        return null;
+      } catch (error) {
+        return {
+          code: pgCode(error),
+          message: (error as { cause?: { message?: string } }).cause?.message,
+        };
+      }
+    };
+    /** A pending header shaped exactly as beginInTx writes one; only the named fields differ. */
+    const header = (overrides: Partial<typeof artifactLineage.$inferInsert>) => {
+      const artifactId = randomUUID();
+      return {
+        organizationId: value.organizationId,
+        artifactId,
+        workUnitId: value.work.id,
+        objectKey: `${value.organizationId}/artifacts/${artifactId}`,
+        artifactSha256: sha256Of('Synthetic bounded output.'),
+        sizeBytes: 25,
+        classification: 'internal',
+        executionKind: 'agent_run',
+        executionId: value.runId,
+        executorRef: 'agent-run/v1',
+        viewerMembershipId: value.context.membershipId,
+        inventorySha256: sha256Of('synthetic inventory'),
+        inventoryComplete: true,
+        structuredInventoryComplete: true,
+        state: 'pending',
+        writeId: randomUUID(),
+        generation: 1,
+        writeState: 'active',
+        ...overrides,
+      };
+    };
+    const gated = (row: ReturnType<typeof header>) =>
+      withTenantTx(agent.db, value.context, async (tx) => {
+        await value.tools.readRun(tx, value.context, value.runId, { lock: true });
+        await tx.insert(artifactLineage).values(row);
+      });
+    // Below the run's own class (internal): refused even behind the run's own admission.
+    expect(await refusal(gated(header({ classification: 'public' })))).toEqual({
+      code: 'EN119',
+      message: 'RUN_OUTPUT_AUTHORITY_UNBOUND',
+    });
+    // Another Work the same person may read is not this run's lineage.
+    expect(await refusal(gated(header({ workUnitId: other.id })))).toEqual({
+      code: 'EN119',
+      message: 'RUN_OUTPUT_AUTHORITY_UNBOUND',
+    });
+    // Its own lineage and class, but without this transaction's authority-v1 admission (0417).
+    expect(
+      await refusal(
+        withTenantTx(agent.db, value.context, (tx) =>
+          tx.insert(artifactLineage).values(header({})),
+        ),
+      ),
+    ).toEqual({ code: 'EN119', message: 'RUN_AUTHORITY_PROTOCOL_REQUIRED' });
+    // Nor does the output inventory exist for it outside the gate.
+    expect(
+      await withTenantTx(agent.db, value.context, (tx) =>
+        createRunInputInventory().inspectInTx(tx, value.context, {
+          execution: { kind: 'agent_run', id: value.runId },
+          workUnitId: value.work.id,
+          artifactSha256: sha256Of(value.text),
+        }),
+      ),
+    ).toEqual({ known: false });
+    // The same run, behind the gate, at its own class and lineage: the real draft path publishes.
+    const write = await value.note();
+    expect(write).toMatchObject({ workUnitId: value.work.id, classification: 'internal' });
+    await value.tools.putDraft(value.context, { draftId: value.draftId, text: value.text, write });
+    await value.publish(write);
+    expect(
+      await withTenantTx(agent.db, value.service, (tx) =>
+        tx
+          .select({ state: artifactLineage.state })
+          .from(artifactLineage)
+          .where(eq(artifactLineage.artifactId, value.draftId)),
+      ),
+    ).toEqual([{ state: 'bound' }]);
+  });
+  it('captures the actual private fact parent before material leaves, then retains it across reparenting', async () => {
+    const word = `factparent${randomUUID().replaceAll('-', '')}`;
+    let source!: Awaited<ReturnType<typeof seedSearchableSource>>;
+    const value = await fixture({
+        knowledge: async (tenant) => {
+          source = await seedSearchableSource(app.db, tenant.owner, {
+            passages: [word],
+            grants: [{ kind: 'organization' }],
+          });
+          return [source.sourceId];
+        },
+      }),
       clientId = randomUUID(),
-      projectId = randomUUID(),
-      word = `factparent${randomUUID().replaceAll('-', '')}`;
+      projectId = randomUUID();
     await withTenantTx(app.db, value.service, async (tx) => {
       await tx.insert(clients).values({
         organizationId: value.organizationId,
@@ -614,10 +740,6 @@ describe('durable agent input protocol and content fence as actual roles', () =>
       tx.select().from(projects).where(eq(projects.id, projectId)),
     );
     if (!project) throw new Error('TEST_PROJECT_MISSING');
-    const source = await seedSearchableSource(app.db, value.owner, {
-      passages: [word],
-      grants: [{ kind: 'organization' }],
-    });
     const fact = await proposeFact(app.db, value.member, {
       subjectRef: `project:${projectId}`,
       predicate: 'generated_fact_parent',
@@ -667,8 +789,10 @@ describe('durable agent input protocol and content fence as actual roles', () =>
     await withTenantTx(app.db, value.service, (tx) =>
       tx.delete(clientReaders).where(eq(clientReaders.clientId, clientId)),
     );
+    // The retained client read is now unreadable to the initiator, so 0414's run-level input proof
+    // (currentRunCompanyClassInTx, reached first through assertRunInputsOpen) refuses dispatch.
     await expect(checkRunInputDispatch(agent.db, value.context)).rejects.toMatchObject({
-      code: 'NOT_FOUND',
+      code: 'POLICY_DENIED',
     });
   });
   it('refuses a mismatched compiler run and a user claiming a run before model material or routing', async () => {
@@ -692,12 +816,19 @@ describe('durable agent input protocol and content fence as actual roles', () =>
     expect(model.calls).toEqual([]);
   });
   it('finds uncited source-bearing artifact reads in actual source transcript purge', async () => {
-    const value = await fixture(),
-      text = 'Synthetic retained source.',
-      source = await seedSearchableSource(app.db, value.owner, {
-        passages: [text],
-        grants: [{ kind: 'membership', membershipId: value.owner.membershipId }],
-      });
+    const text = 'Synthetic retained source.';
+    let source!: Awaited<ReturnType<typeof seedSearchableSource>>;
+    // The manifest names the source (0414/0419: a source-derived file is invisible to a run whose
+    // immutable scope does not), so the run's read of the citing file is a genuine one.
+    const value = await fixture({
+      knowledge: async (tenant) => {
+        source = await seedSearchableSource(app.db, tenant.owner, {
+          passages: [text],
+          grants: [{ kind: 'membership', membershipId: tenant.owner.membershipId }],
+        });
+        return [source.sourceId];
+      },
+    });
     const file = await addArtifact(app.db, value.store, value.owner, {
       workUnitId: value.work.id,
       name: 'source-input.txt',
@@ -709,11 +840,13 @@ describe('durable agent input protocol and content fence as actual roles', () =>
       artifactId: file.id,
       citations: [{ chunkId: source.chunkIds[0]!, artifactStart: 0, artifactEnd: text.length }],
     });
-    await value.source.loadArtifactText(value.context, {
-      workUnitId: value.work.id,
-      artifactId: file.id,
-      maxBytes: 1000,
-    });
+    expect(
+      await value.source.loadArtifactText(value.context, {
+        workUnitId: value.work.id,
+        artifactId: file.id,
+        maxBytes: 1000,
+      }),
+    ).toMatchObject({ id: file.id, text });
     await storeStepPayload(agent.db, value.context, {
       stepId: value.stepId,
       kind: 'tool_output',

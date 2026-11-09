@@ -223,9 +223,21 @@ export function createRunInputInventory(): ArtifactInputInventory {
       const authority = await tx.execute<{ protocol: string | null }>(
         sql`select ai.run_authority_protocol_version(${context.agentRunId}::uuid) protocol`,
       );
-      // 0419 must carry the genuine read-time closures into retained file lineage/serving/purge.
-      // A normal Work-only inventory cannot discard an original parent after reparenting.
-      if (authority.rows[0]?.protocol !== 'legacy') return { known: false };
+      const protocol = authority.rows[0]?.protocol;
+      if (protocol !== 'legacy' && protocol !== 'authority-v1') return { known: false };
+      if (protocol === 'authority-v1') {
+        // Bounded run output authority (0524). An authority-v1 run's file inventory exists only in a
+        // transaction that holds this run's own read-scope and authority-v1 admission (the tool
+        // gate's readRun, or assertRunInputsOpen) and whose retained read authority is complete.
+        // The genuine read-time closures are not carried here: 0419's artifact authority receipt
+        // freezes them from ai.current_main_input_inventory at lineage birth, and 0524's lineage
+        // gate admits only this run's own Work, viewer and at least its own class.
+        const bound = await tx.execute<{ bound: boolean }>(
+          sql`select ai.run_authority_read_admitted(${context.agentRunId}::uuid)
+            and ai.run_authority_ready(${context.agentRunId}::uuid,${context.membershipId}::uuid) as bound`,
+        );
+        if (bound.rows[0]?.bound !== true) return { known: false };
+      }
       const [run] = await tx
         .select()
         .from(agentRuns)

@@ -589,6 +589,13 @@
       "when": 1794201807485,
       "tag": "0523_raw_unknown_write_supersede",
       "breakpoints": true
+    },
+    {
+      "idx": 84,
+      "version": "7",
+      "when": 1794201807486,
+      "tag": "0524_ai_bounded_run_output_authority",
+      "breakpoints": true
     }
   ]
 }

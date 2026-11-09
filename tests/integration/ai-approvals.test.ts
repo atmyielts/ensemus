@@ -6,6 +6,7 @@
 // here that reaches one fails until the final merge. Nobody should report it as passing before then.
 import { randomUUID } from 'node:crypto';
 import {
+  createApprovalInTx,
   createWorkUnit,
   decideApproval,
   requestApproval,
@@ -224,6 +225,17 @@ describe('binding an agent action to a person, as the real roles', () => {
       binder().recheck(tx, seeded.context, { proposalId: seeded.proposalId }),
     );
 
+  /** What the gate's readRun(lock: true) reports, which the gateway stops on before any recheck. */
+  const gateFacts = (seeded: { runId: string; context: AgentContext }) =>
+    withTenantTx(agent.db, seeded.context, (tx) =>
+      createToolStepStore({ database: agent.db, objects: unusedObjects }).readRun(
+        tx,
+        seeded.context,
+        seeded.runId,
+        { lock: true },
+      ),
+    );
+
   const approvalRow = async (context: TenantContext, approvalId: string) => {
     const [row] = await withTenantTx(app.db, context, (tx) =>
       tx.select().from(approvals).where(eq(approvals.id, approvalId)),
@@ -363,19 +375,30 @@ describe('binding an agent action to a person, as the real roles', () => {
   describe('who may decide', () => {
     it('refuses naming the initiator as approver, through any path (APPROVAL_SELF_APPROVAL)', async () => {
       const seeded = await seedProposal(a, a.member, { owner: a.owner });
+      const selfApproval = {
+        workUnitId: seeded.workUnitId,
+        action: {
+          toolName: 'email.send',
+          toolVersion: '1',
+          targetRef: `connection:${connectionA}`,
+          payload: testEmailPayload(),
+        },
+        approverMembershipId: a.member.membershipId,
+        expiresAt: new Date(Date.now() + 60_000),
+      };
+      // Behind the run's own admission (the tool gate), the self-approval rule itself refuses.
       await expect(
-        requestApproval(agent.db, seeded.context, {
-          workUnitId: seeded.workUnitId,
-          action: {
-            toolName: 'email.send',
-            toolVersion: '1',
-            targetRef: `connection:${connectionA}`,
-            payload: testEmailPayload(),
-          },
-          approverMembershipId: a.member.membershipId,
-          expiresAt: new Date(Date.now() + 60_000),
-        }),
+        inToolGate(seeded, (tx) => createApprovalInTx(tx, seeded.context, selfApproval)),
       ).rejects.toEqual(code('APPROVAL_SELF_APPROVAL'));
+      // Without it, an authority-v1 run's transaction cannot even see the Work (0417
+      // authority_work_body), so the bare path is refused before it could ask anyone.
+      await expect(requestApproval(agent.db, seeded.context, selfApproval)).rejects.toEqual(
+        code('NOT_FOUND'),
+      );
+      const rows = await withTenantTx(app.db, a.owner, (tx) =>
+        tx.select().from(approvals).where(eq(approvals.workUnitId, seeded.workUnitId)),
+      );
+      expect(rows).toEqual([]);
     });
 
     it('refuses the initiator deciding what was asked of someone else', async () => {
@@ -516,7 +539,11 @@ describe('binding an agent action to a person, as the real roles', () => {
       });
       await stopping.stop;
       expect(stopped).toBe(true);
-      await expect(recheck(seeded)).resolves.toEqual({ ok: false, code: 'RUN_NOT_RUNNING' });
+      // The gate sees the stop and admits nothing for the ended run.
+      expect(await gateFacts(seeded)).toMatchObject({ status: 'cancelled', inputsOpen: false });
+      // Unadmitted, the run's transaction cannot read the Work (0417 authority_work_body), so the
+      // recheck cannot even establish the binding and refuses it as not valid, before RUN_NOT_RUNNING.
+      await expect(recheck(seeded)).resolves.toEqual({ ok: false, code: 'APPROVAL_NOT_VALID' });
     });
 
     it('stops at a kill switch engaged after the approval', async () => {
@@ -574,7 +601,10 @@ describe('binding an agent action to a person, as the real roles', () => {
       const seeded = await approved();
       await setMemberStatus(a.member.membershipId, 'disabled');
       try {
-        await expect(recheck(seeded)).resolves.toEqual({ ok: false, code: 'POLICY_DENIED' });
+        // The gate finds no active initiator (the gateway's INITIATOR_INACTIVE stop) and admits
+        // nothing, so, as above, the recheck cannot read the Work (0417) and refuses as not valid.
+        expect(await gateFacts(seeded)).toMatchObject({ initiatorRole: null, inputsOpen: false });
+        await expect(recheck(seeded)).resolves.toEqual({ ok: false, code: 'APPROVAL_NOT_VALID' });
       } finally {
         await setMemberStatus(a.member.membershipId, 'active');
       }
@@ -591,7 +621,11 @@ describe('binding an agent action to a person, as the real roles', () => {
         id: seeded.workUnitId,
         membershipId: a.member.membershipId,
       });
-      await expect(recheck(seeded)).resolves.toEqual({ ok: false, code: 'POLICY_DENIED' });
+      // The run is still running, but its read of the confidential Work is no longer the
+      // initiator's to have (0414 input proof), so the gate admits nothing (the gateway's
+      // RESOURCE_NOT_PERMITTED stop) and the recheck cannot read the Work (0417): not valid.
+      expect(await gateFacts(seeded)).toMatchObject({ status: 'running', inputsOpen: false });
+      await expect(recheck(seeded)).resolves.toEqual({ ok: false, code: 'APPROVAL_NOT_VALID' });
     });
   });
 
