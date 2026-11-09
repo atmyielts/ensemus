@@ -4,15 +4,19 @@
 //   node dist/reapply-ledger.js [--confirm <entry>]... [--confirm-file <path>]... [--quarantine <entry or key>]...
 //     [--requalify-organization <org>]... [--requalify-artifact <org>/<artifact>]...
 //     [--requalify-archive <org>/<import>/<source artifact>]... [--requalify-source <org>/<source>]...
+//     [--delete-raw-survivor <org>/<source>/<document>]...
 // An <entry> is what this prints as ledgerEntry. --confirm says that a deletion it could not take on
 // the ledger's word alone is real, and --confirm-file says the same of each entry a file lists.
 // --quarantine says that it is not, and moves the object aside. Each --requalify-* names one object a
 // restore left in restore debt, for the service to re-prove once the restore was admitted (0543, 0545):
 // it observes the object and records that observation; the deletion is still proven by the ordinary
-// lifecycle (the generated-file one runs in the re-apply below).
+// lifecycle (the generated-file one runs in the re-apply below). --delete-raw-survivor names one raw
+// object whose bytes survived the restore (0548, FLAGGED FOR HUMAN SECURITY REVIEW, not yet reviewed
+// by a person): the ordinary lifecycle deletes and proves it, and only then is its source re-proven.
 import { readFileSync } from 'node:fs';
 import { parseArgs } from 'node:util';
 import {
+  deleteRawRestoreSurvivor,
   quarantineLedgerObject,
   reapplyTombstoneLedger,
   requalifyArchiveRestoreDebt,
@@ -22,6 +26,7 @@ import {
   type LedgerReader,
   type ObjectStore,
   type ReapplyOptions,
+  type RawRestoreSurvivorStore,
   type ReapplyResult,
   type RestoreRequalification,
 } from '@ensemus/application';
@@ -71,12 +76,16 @@ export function readConfirmFile(path: string): string[] {
   return lines;
 }
 
-/** One restored object or tenant an operator names for re-proof after an admitted restore (0543, 0545). */
+/**
+ * One restored object or tenant an operator names for re-proof after an admitted restore (0543,
+ * 0545), or one raw object that survived it, to delete (0548).
+ */
 export type RestoreRequalificationRequest =
   | { kind: 'artifact'; organizationId: string; artifactId: string }
   | { kind: 'archive'; organizationId: string; importId: string; sourceArtifactId: string }
   | { kind: 'source'; organizationId: string; sourceId: string }
-  | { kind: 'organization'; organizationId: string };
+  | { kind: 'organization'; organizationId: string }
+  | { kind: 'survivor'; organizationId: string; sourceId: string; documentId: string };
 
 /** The options that name them. Each names exactly one object by its IDs: never a pattern or a count. */
 const exactObjects = () => ({
@@ -89,6 +98,7 @@ export const REQUALIFY_OPTIONS = {
   'requalify-archive': exactObjects(),
   'requalify-source': exactObjects(),
   'requalify-organization': exactObjects(),
+  'delete-raw-survivor': exactObjects(),
 };
 
 /** The service-only requalifications a run calls. Only a test replaces them. */
@@ -97,6 +107,7 @@ export type RequalifyFunctions = {
   archive: typeof requalifyArchiveRestoreDebt;
   source: typeof requalifyRawRestoreSource;
   organization: typeof requalifyRawRestoreOrganization;
+  survivor?: typeof deleteRawRestoreSurvivor;
 };
 
 const EXACT_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -110,12 +121,15 @@ function exactIds(given: string, count: number): string[] {
 
 /**
  * Reads `--requalify-artifact <organization>/<artifact>`, `--requalify-archive
- * <organization>/<import>/<source artifact>`, `--requalify-source <organization>/<source>` and
- * `--requalify-organization <organization>`. Anything else refuses the whole command before it starts.
+ * <organization>/<import>/<source artifact>`, `--requalify-source <organization>/<source>`,
+ * `--requalify-organization <organization>` and `--delete-raw-survivor
+ * <organization>/<source>/<document>`. Anything else refuses the whole command before it starts.
  */
-export function readRequalifications(values: {
-  [K in keyof typeof REQUALIFY_OPTIONS]: string[];
-}): RestoreRequalificationRequest[] {
+export function readRequalifications(
+  values: {
+    [K in Exclude<keyof typeof REQUALIFY_OPTIONS, 'delete-raw-survivor'>]: string[];
+  } & { 'delete-raw-survivor'?: string[] },
+): RestoreRequalificationRequest[] {
   return [
     ...values['requalify-organization'].map((given) => {
       const [organizationId] = exactIds(given, 1);
@@ -142,27 +156,47 @@ export function readRequalifications(values: {
       const [organizationId, sourceId] = exactIds(given, 2);
       return { kind: 'source' as const, organizationId: organizationId!, sourceId: sourceId! };
     }),
+    // One object, always all three IDs: a source or a tenant alone is refused, like a pattern.
+    ...(values['delete-raw-survivor'] ?? []).map((given) => {
+      const [organizationId, sourceId, documentId] = exactIds(given, 3);
+      return {
+        kind: 'survivor' as const,
+        organizationId: organizationId!,
+        sourceId: sourceId!,
+        documentId: documentId!,
+      };
+    }),
   ];
 }
 
 export type RequalificationOutcome = {
   request: RestoreRequalificationRequest;
-  /** `requalified`, `present`, `unconfirmed`, or `refused` when SQL or the store refused it. */
-  state: 'requalified' | 'present' | 'unconfirmed' | 'refused';
+  /**
+   * `requalified`, `present`, `unconfirmed`, `held` (a legal hold refused a survivor's deletion), or
+   * `refused` when SQL or the store refused it. For a survivor, the state of its source once the
+   * deletion was proven, with `deleted` set.
+   */
+  state: 'requalified' | 'present' | 'unconfirmed' | 'held' | 'refused';
   observed?: 'present' | 'absent';
   documentIds?: readonly string[];
+  deleted?: true;
   errorCode?: string;
 };
+
+/** What a run uses of the store: the physical-absence check, and for a survivor its purge capability. */
+export type RequalificationStore = RawRestoreSurvivorStore;
 
 /**
  * Re-proves each named object through the application's service-only requalification, one at a time.
  * The organization marker goes first, since it is what lets new raw births be native again. Nothing is
- * deleted here: each proof only lets the ordinary lifecycle (the ledger re-apply that follows, or a
- * source's purge) prove the deletion itself. A refusal is reported and leaves its debt in place.
+ * deleted by a re-proof: each only lets the ordinary lifecycle (the ledger re-apply that follows, or a
+ * source's purge) prove the deletion itself. A named raw survivor is deleted through that same
+ * lifecycle, and its source re-proven only after the deletion is proven (0548). A refusal is reported
+ * and leaves its debt in place.
  */
 export async function runRequalifications(
   database: AppDatabase,
-  store: Pick<ObjectStore, 'isPhysicallyAbsent'>,
+  store: RequalificationStore,
   requests: readonly RestoreRequalificationRequest[],
   deps: { requalify?: RequalifyFunctions } = {},
 ): Promise<RequalificationOutcome[]> {
@@ -172,12 +206,33 @@ export async function runRequalifications(
     source: requalifyRawRestoreSource,
     organization: requalifyRawRestoreOrganization,
   };
+  const survivor = requalify.survivor ?? deleteRawRestoreSurvivor;
   const outcomes: RequalificationOutcome[] = [];
   for (const request of requests) {
     const context = createServiceContext(request.organizationId);
     try {
       if (request.kind === 'organization') {
         outcomes.push({ request, state: (await requalify.organization(database, context)).state });
+        continue;
+      }
+      if (request.kind === 'survivor') {
+        const deletion = await survivor(database, store, context, {
+          sourceId: request.sourceId,
+          documentId: request.documentId,
+        });
+        if (deletion.state !== 'deleted') {
+          outcomes.push({ request, state: deletion.state });
+          continue;
+        }
+        const outcome: RequalificationOutcome = {
+          request,
+          state: deletion.source.state,
+          deleted: true,
+        };
+        if (deletion.source.state === 'present') outcome.documentIds = deletion.source.documentIds;
+        else if (deletion.source.state === 'requalified')
+          outcome.observed = deletion.source.observed;
+        outcomes.push(outcome);
         continue;
       }
       const answer: RestoreRequalification =
@@ -279,7 +334,10 @@ export async function reapplyCommand(
     log[requalificationLeftToDo(outcome) ? 'warn' : 'info']('restore_debt.requalification', {
       organizationId: outcome.request.organizationId,
       reasonCode: `REQUALIFY_${outcome.request.kind.toUpperCase()}`,
-      status: outcome.observed ? `${outcome.state}:${outcome.observed}` : outcome.state,
+      status: `${outcome.deleted ? 'deleted:' : ''}${outcome.observed ? `${outcome.state}:${outcome.observed}` : outcome.state}`,
+      ...(outcome.request.kind === 'survivor'
+        ? { sourceId: outcome.request.sourceId, documentId: outcome.request.documentId }
+        : {}),
       ...(outcome.documentIds ? { count: outcome.documentIds.length } : {}),
       ...(outcome.errorCode ? { errorCode: outcome.errorCode } : {}),
     });

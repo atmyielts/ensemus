@@ -750,6 +750,13 @@
       "when": 1794201807508,
       "tag": "0546_auth_restore_sso_revocation_r6restore",
       "breakpoints": true
+    },
+    {
+      "idx": 107,
+      "version": "7",
+      "when": 1794201807509,
+      "tag": "0548_raw_restore_survivor_deletion_r7restore",
+      "breakpoints": true
     }
   ]
 }
