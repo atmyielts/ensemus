@@ -63,6 +63,29 @@ export function composeArguments(values) {
   ];
 }
 
+/** The compose command itself (`run`, `exec`, `stop`...), past any `--profile <name>` before it. */
+export function composeCommand(args) {
+  for (let index = 0; index < args.length; index++) {
+    if (args[index] === '--profile') index++;
+    else if (!String(args[index]).startsWith('-')) return String(args[index]);
+  }
+  return 'compose';
+}
+
+/**
+ * Why a failed compose call failed, as a code and nothing else: the last line it wrote to standard error,
+ * kept only when that line is a bare code such as a one-shot's own refusal (AUTH_RESTORE_READERS_STILL_CONNECTED).
+ * Anything else, which can quote a path, a host or a key, is dropped, and the refusal names the command alone.
+ */
+export function composeFailureCode(stderr) {
+  const last = String(stderr ?? '')
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .at(-1);
+  return last && /^[A-Z][A-Z0-9_]{2,79}$/.test(last) ? last : undefined;
+}
+
 /** Compose, waited for, with its output returned. A failure stops everything. */
 export function compose(values, ...args) {
   const result = spawnSync('docker', [...composeArguments(values), ...args], {
@@ -70,7 +93,10 @@ export function compose(values, ...args) {
     encoding: 'utf8',
     maxBuffer: 64 * 1024 * 1024,
   });
-  if (result.status !== 0) stop(`COMPOSE_FAILED_${args[0]}`);
+  if (result.status !== 0) {
+    const code = composeFailureCode(result.stderr);
+    stop(`COMPOSE_FAILED_${composeCommand(args)}${code ? `:${code}` : ''}`);
+  }
   return result.stdout;
 }
 

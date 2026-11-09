@@ -6,8 +6,13 @@
 // It needs the `restore-reconcile` one-shot service in compose.yaml (profile `ops`), which holds both database
 // URLs, and the tools built into workers/workflow/dist/tools, which the air-gap gate builds before it starts. It
 // restores over the running stack, so it runs on its own in the stack project.
+//
+// The restore leaves authentication fenced (0422): every runtime role is refused until an operator inspects
+// the restored authority, records an external review and acknowledges it, which 0422 allows no sooner than 15
+// minutes after begin. The drill does each of those steps itself, with the real migrator login and the real
+// cooldown, before it asks the tenant anything, as backup-and-restore.md tells an operator to.
 import { execFileSync, spawnSync } from 'node:child_process';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -27,14 +32,21 @@ import {
   resolveTenantContext,
   type TenantContext,
 } from '@ensemus/database';
+import {
+  acknowledgeAuthenticationRestore,
+  inspectAuthenticationRestore,
+} from '@ensemus/database/auth-restore-operator';
 import { ledgerKeyFor } from '@ensemus/domain/tombstone-ledger';
 import { S3ObjectStore } from '@ensemus/storage';
+import { inFixtureTenant } from '../helpers/fixture-tenant';
 import { testRecipient } from '../helpers/sovereign';
-import { compose, repoRoot, secret, urls } from '../helpers/stack';
+import { compose, dbUrl, repoRoot, secret, urls } from '../helpers/stack';
 
 const STORE_ENDPOINT = 'http://127.0.0.1:58333';
 const LEDGER_WAIT = { timeout: 90_000, interval: 250 };
 const LONG = 600_000;
+/** The whole drill: a backup, a restore, 0422's fixed 15-minute cooldown before admission, and the reconcile. */
+const DRILL = 40 * 60_000;
 
 const scripts = join(repoRoot, 'infrastructure', 'scripts');
 const tools = join(repoRoot, 'workers', 'workflow', 'dist', 'tools');
@@ -164,6 +176,110 @@ describe('a backup, a deletion, and a restore', () => {
   const ledgerCounts = (lines: Record<string, unknown>[]) =>
     lines.find((line) => line.event === 'restore_reconcile.ledger');
 
+  /** As the test superuser, which every restore step leaves alone. */
+  async function asSuperuser<T>(database: string, use: (client: pg.Client) => Promise<T>) {
+    const client = new pg.Client({
+      connectionString: dbUrl('postgres', 'db_superuser_password', database),
+    });
+    await client.connect();
+    try {
+      return await use(client);
+    } finally {
+      await client.end();
+    }
+  }
+
+  /**
+   * An active verified SSO connection with automatic joining and a live SCIM bearer on it: authority a backup
+   * can bring back, which 0422 begin must revoke as it closes admission (0545). No production path issues
+   * them without a person's interactive MFA proof, so the generated fixture writes them as the superuser,
+   * bound to the tenant so every SSO trigger still checks them.
+   */
+  const activeScimBearer = (context: TenantContext) =>
+    asSuperuser('ensemus', (su) =>
+      inFixtureTenant(su, context.organizationId, async () => {
+        const connection = await su.query<{ id: string }>(
+          `insert into org.sso_connections(organization_id,provider_id,display_name,domain,domain_state,
+            domain_verified_at,state,auto_join,created_by_membership_id)
+           values($1,$2,'Generated provider',$3,'verified',now(),'active',true,$4) returning id`,
+          [
+            context.organizationId,
+            `generated-${randomUUID()}`,
+            `restore-${randomUUID()}.example.invalid`,
+            context.membershipId,
+          ],
+        );
+        const token = await su.query<{ id: string }>(
+          `insert into org.scim_tokens(organization_id,connection_id,token_hash,created_by_membership_id)
+           values($1,$2,$3,$4) returning id`,
+          [
+            context.organizationId,
+            connection.rows[0]!.id,
+            createHash('sha256').update(randomUUID()).digest('hex'),
+            context.membershipId,
+          ],
+        );
+        return token.rows[0]!.id;
+      }),
+    );
+
+  const scimState = (organizationId: string, tokenId: string) =>
+    asSuperuser('ensemus', async (su) => {
+      const rows = await su.query<{ state: string; revoked: boolean }>(
+        'select state, revoked_at is not null as revoked from org.scim_tokens where organization_id=$1 and id=$2',
+        [organizationId, tokenId],
+      );
+      return rows.rows;
+    });
+
+  /**
+   * What an operator does after the restore and before anyone is served: inspect the restored authority,
+   * record a review of it, wait out 0422's cooldown and acknowledge. Each step is the real migrator helper.
+   */
+  async function admitAfterReview(generation: string, manifestSha256: string) {
+    const inspection = await inspectAuthenticationRestore(urls.migrator(), generation);
+    expect(inspection).toMatchObject({ generation, manifestSha256, phase: 'invalidated' });
+    // The cooldown is 0422's and is not shortened: it is the time a stopped process gets to notice.
+    const wait = Date.parse(inspection.notBefore) - Date.now() + 5_000;
+    if (wait > 0) await new Promise((done) => setTimeout(done, wait));
+    const review = Buffer.from(
+      JSON.stringify({
+        version: 1,
+        generation,
+        backupId: inspection.backupId,
+        manifestSha256,
+        securitySha256: inspection.securitySha256,
+        reviewer: 'Generated restore drill operator',
+        reviewedAt: new Date().toISOString(),
+        authorityEvidence: 'Generated drill: the restored authority was inspected in this run.',
+        inFlightEffectsEvidence:
+          'Generated drill: every reader and worker stayed stopped throughout.',
+      }),
+    );
+    expect(
+      await acknowledgeAuthenticationRestore(urls.migrator(), {
+        generation,
+        manifestSha256,
+        securitySha256: inspection.securitySha256,
+        review,
+      }),
+    ).toBe(generation);
+    return inspection;
+  }
+
+  /** Every table each restored database holds, by OID. A restore drops and recreates them all. */
+  const tablesOf = (database: string) =>
+    asSuperuser(database, async (su) => {
+      const rows = await su.query<{ tables: string | null }>(
+        `select string_agg(n.nspname||'.'||c.relname||'#'||c.oid::text, ',' order by c.oid) as tables
+         from pg_class c join pg_namespace n on n.oid=c.relnamespace
+         where c.relkind in ('r','p') and n.nspname not in ('pg_catalog','information_schema')
+           and n.nspname not like 'pg_toast%'`,
+      );
+      return rows.rows[0]?.tables ?? '';
+    });
+  const restoredDatabases = ['ensemus', 'temporal', 'temporal_visibility'];
+
   it(
     'keeps it deleted, serves the tenant again, and leaves the other one alone',
     async () => {
@@ -181,6 +297,11 @@ describe('a backup, a deletion, and a restore', () => {
       const doomed = await addTo(a, workA.id, 'same-name.txt');
       const kept = await addTo(a, workA.id, 'kept.txt');
       const other = await addTo(b, workB.id, 'same-name.txt');
+      // Authority the backup holds and the restore must not hand back.
+      const bearer = await activeScimBearer(a);
+      expect(await scimState(a.organizationId, bearer)).toEqual([
+        { state: 'active', revoked: false },
+      ]);
 
       // The backup. The script itself refuses to go on if the ledger backlog has not drained.
       const backedUp = execFileSync(
@@ -238,15 +359,39 @@ describe('a backup, a deletion, and a restore', () => {
           ],
           { cwd: repoRoot, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 },
         );
-        app = openAppDatabase(urls.app());
-        appOpen = true;
-        const objectStep = linesOf(restored).find(
+        const restoreLines = linesOf(restored);
+        const objectStep = restoreLines.find(
           (line) => line.event === 'sovereign_restore.step' && line.component === 'objects',
         );
         expect(objectStep).toMatchObject({ refused_by_key: 0, left_out_as_tombstoned: 1 });
         expect(await store.exists(entryKey)).toBe(true);
         expect(await store.exists(objectKey(a.organizationId, doomed.id))).toBe(false);
 
+        // Authentication is fenced, and begin revoked the bearer the backup held (0422, 0545).
+        const finishedRestore = restoreLines.find(
+          (line) => line.event === 'sovereign_restore.finished',
+        );
+        expect(finishedRestore).toMatchObject({
+          next: 'INSPECT_RECONCILE_REVIEW_ACKNOWLEDGE_AUTHORITY_THEN_RECONCILE_MATERIAL',
+          readers_and_workers: 'STAY_STOPPED_NO_AUTOMATIC_RESUME',
+        });
+        expect(await scimState(a.organizationId, bearer)).toEqual([
+          { state: 'revoked', revoked: true },
+        ]);
+        const inspection = await admitAfterReview(
+          String(finishedRestore!.auth_restore_generation),
+          String(finishedRestore!.manifest_sealed_sha256),
+        );
+        const reviewedBearer = (
+          inspection.security.scimTokens as { organizationId: string; id: string; state: string }[]
+        ).find((token) => token.id === bearer);
+        expect(reviewedBearer).toMatchObject({
+          organizationId: a.organizationId,
+          state: 'revoked',
+        });
+
+        app = openAppDatabase(urls.app());
+        appOpen = true;
         compose('up', '-d', '--wait', '--no-deps', 'temporal');
 
         // Skipping the re-apply: the row is back, and the gate's own count refuses the tenant. The other is clear.
@@ -288,6 +433,66 @@ describe('a backup, a deletion, and a restore', () => {
           bytesRemoved: 0,
         });
       } finally {
+        compose('up', '-d', '--wait');
+      }
+    },
+    DRILL,
+  );
+
+  it(
+    'stops before it replaces any database while a runtime role is still connected',
+    async () => {
+      // The backup the drill above took. A session held from outside the project is exactly what stopping
+      // every service cannot end, so the restore asks PostgreSQL who is connected before it replaces anything.
+      expect(existsSync(backup), 'the drill above took no backup').toBe(true);
+      const reader = new pg.Client({ connectionString: urls.app() });
+      await reader.connect();
+      try {
+        expect((await reader.query('select current_user as role')).rows).toEqual([
+          { role: 'ensemus_app' },
+        ]);
+        const before = await Promise.all(restoredDatabases.map(tablesOf));
+        expect(before.every((tables) => tables.length > 0)).toBe(true);
+        const refused = spawnSync(
+          process.execPath,
+          [
+            join(scripts, 'sovereign-restore.mjs'),
+            '--backup',
+            backup,
+            '--key',
+            keyFile,
+            '--project',
+            PROJECT,
+            '--replace-databases-of',
+            PROJECT,
+            ...objectArguments,
+            ...composeFileArguments,
+          ],
+          { cwd: repoRoot, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 },
+        );
+        expect(refused.status).not.toBe(0);
+        expect(refused.stderr).toContain('Refused: RESTORE_READERS_STILL_CONNECTED');
+        const lines = linesOf(refused.stdout);
+        // It verified the backup and stopped the services first, then refused...
+        expect(lines.map((line) => line.event)).toEqual([
+          'sovereign_restore.verified',
+          'sovereign_restore.stopped',
+          'sovereign_restore.readers_still_connected',
+        ]);
+        // ...naming this reader by its role and count only...
+        expect(
+          lines.find((line) => line.event === 'sovereign_restore.readers_still_connected'),
+        ).toMatchObject({
+          readers: expect.arrayContaining([
+            { role: 'ensemus_app', sessions: expect.any(Number) as number },
+          ]),
+        });
+        // ...and replaced none of the three databases: every table is the same one it was.
+        expect(await Promise.all(restoredDatabases.map(tablesOf))).toEqual(before);
+        // The reader it named is still connected, to the same database.
+        expect((await reader.query('select 1 as alive')).rows).toEqual([{ alive: 1 }]);
+      } finally {
+        await reader.end();
         compose('up', '-d', '--wait');
       }
     },
