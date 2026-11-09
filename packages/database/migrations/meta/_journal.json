@@ -645,6 +645,13 @@
       "when": 1794201807493,
       "tag": "0531_erasure_artifact_tombstone_policy_saas",
       "breakpoints": true
+    },
+    {
+      "idx": 92,
+      "version": "7",
+      "when": 1794201807494,
+      "tag": "0532_legacy_checklist_requalify_upgrade",
+      "breakpoints": true
     }
   ]
 }
