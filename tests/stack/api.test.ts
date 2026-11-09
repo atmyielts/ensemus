@@ -11,6 +11,7 @@ import {
   operations,
   requestLimit,
   spec,
+  validatedOperations,
 } from '../helpers/openapi';
 import {
   BASE,
@@ -37,10 +38,10 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const INTERNALS =
   /\bselect\b[\s\S]*\bfrom\b|insert into|update \S+ set|delete from|stack|postgres|drizzle|node_modules|\bat \S+:\d+:\d+/i;
 
-/** The operations a real, successful response has been validated for in this run. */
-const validated = new Set<string>();
-
-/** Fails the test if this response is not what the contract says. */
+/**
+ * Fails the test if this response is not what the contract says. A matching response under 400 is recorded by
+ * contractProblems itself, in the record every stack suite of this run shares (tests/helpers/openapi.ts).
+ */
 function checkContract(
   method: string,
   path: string,
@@ -48,7 +49,7 @@ function checkContract(
   headers: Headers,
   text?: string,
 ) {
-  const { operation, problems } = contractProblems({
+  const { problems } = contractProblems({
     method,
     path,
     status,
@@ -56,7 +57,6 @@ function checkContract(
     ...(text === undefined ? {} : { text }),
   });
   expect(problems).toEqual([]);
-  if (operation && status < 400) validated.add(operation);
 }
 
 type Result = { status: number; headers: Headers; text: string; json: unknown };
@@ -1213,18 +1213,26 @@ describe('public API', () => {
     });
 
     it('has validated a real response from every operation that exists', () => {
+      // These operations have their own successful-response coverage assertion.
+      const ownCoverage = (path: string) =>
+        /\/(external-actions|connections|agent-runs|agent-versions|model-profiles|budgets|usage|entitlements|object-types|object-records|studio|process-specs|process-runs|outcome-drafts|onboarding)(\/|$)/.test(
+          path,
+        );
       const implemented = operations()
         .filter((operation) => operation.status === undefined)
-        // These operations have their own successful-response coverage assertion.
-        .filter(
-          ({ path }) =>
-            !/\/(external-actions|connections|agent-runs|agent-versions|model-profiles|budgets|usage|entitlements|object-types|object-records|studio|process-specs|process-runs|outcome-drafts|onboarding)(\/|$)/.test(
-              path,
-            ),
-        )
+        .filter(({ path }) => !ownCoverage(path))
         .map(({ method, path }) => operationName(method, path));
       expect(implemented.length).toBeGreaterThan(0);
-      expect([...validated].sort()).toEqual(implemented.sort());
+      // Every suite of this run counts, whichever file saw the response: the gate runs this file after all the
+      // others, in both modes, sharing one record. Without that record only this file's responses are known.
+      const { operations: seen, shared } = validatedOperations();
+      const validated = [...seen].filter((name) => !ownCoverage(name.slice(name.indexOf(' ') + 1)));
+      expect(
+        validated.sort(),
+        shared
+          ? 'Operations no stack suite in this run saw a successful real response for'
+          : 'ENSEMUS_API_RECORD_DIR is not set, so only this file was recorded: run it through air-gap-gate.mjs',
+      ).toEqual(implemented.sort());
     });
   });
 });

@@ -21,6 +21,29 @@ import { urls } from '../helpers/stack';
  */
 const HOSTED_DEPLOYMENT = (process.env.ENSEMUS_MODE ?? 'sovereign') !== 'sovereign';
 
+/**
+ * One read of the invoice API, held to docs/specifications/openapi.yaml before a test looks at it (API-12).
+ * The air-gap gate runs this file on the Sovereign stack and again on a hosted one, with ENSEMUS_MODE=cloud.
+ */
+async function readInvoices(person: Person, org: string, path: string) {
+  const apiPath = `/api/v1/organizations/${org}/billing/invoices${path}`;
+  const response = await fetch(`${BASE}${apiPath}`, { headers: { cookie: person.jar.cookie } });
+  const text = await response.text();
+  const { problems } = contractProblems({
+    method: 'GET',
+    path: apiPath,
+    status: response.status,
+    headers: response.headers,
+    text,
+  });
+  expect(problems, text).toEqual([]);
+  // The body was read to check it, so the test gets the same answer again, unread.
+  return new Response(text === '' ? null : text, {
+    status: response.status,
+    headers: response.headers,
+  });
+}
+
 describe.runIf(!HOSTED_DEPLOYMENT)('invoice API on a Sovereign deployment', () => {
   let owner: Person, member: Person, outsider: Person, org: string;
   const database = openAppDatabase(urls.app());
@@ -36,10 +59,8 @@ describe.runIf(!HOSTED_DEPLOYMENT)('invoice API on a Sovereign deployment', () =
     await auth.end();
     await database.close();
   });
-  const call = (person: Person, path = '') =>
-    fetch(`${BASE}/api/v1/organizations/${org}/billing/invoices${path}`, {
-      headers: { cookie: person.jar.cookie },
-    });
+  const call = (person: Person, path = '') => readInvoices(person, org, path);
+
   it('refuses to start a subscription, so there is never an invoice to show', async () => {
     const user = await auth.query('select id from identity.users where email=$1', [owner.email]);
     const context = await resolveTenantContext(database.db, user.rows[0].id, org);
@@ -105,10 +126,8 @@ describe.runIf(HOSTED_DEPLOYMENT)(
       await auth.end();
       await database.close();
     });
-    const call = (person: Person, path = '') =>
-      fetch(`${BASE}/api/v1/organizations/${org}/billing/invoices${path}`, {
-        headers: { cookie: person.jar.cookie },
-      });
+    const call = (person: Person, path = '') => readInvoices(person, org, path);
+
     it('member, outsider and unknown IDs share the ordinary missing response', async () => {
       for (const person of [member, outsider]) {
         expect((await call(person)).status).toBe(404);

@@ -1,7 +1,14 @@
 // API-12: checks real responses against docs/specifications/openapi.yaml, with a JSON Schema 2020-12
 // validator over the file itself. Nothing here is written by hand from the spec, so a change to either
 // the spec or a route that makes them disagree fails a test.
-import { readdirSync, readFileSync, statSync } from 'node:fs';
+import {
+  appendFileSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  statSync,
+} from 'node:fs';
 import { join, relative, sep } from 'node:path';
 import { Ajv2020, type ValidateFunction } from 'ajv/dist/2020.js';
 import addFormats from 'ajv-formats';
@@ -176,8 +183,55 @@ export type ObservedResponse = {
 
 const API_PREFIX = '/api/v1';
 
-/** What is wrong with this response, by the spec. An empty list means it matches. */
+/**
+ * API-12's record: every operation a real response under 400 has been seen for, matching the spec. Each stack
+ * test file runs in a worker of its own, so a record kept in memory holds what one file saw and nothing more.
+ * With ENSEMUS_API_RECORD_DIR set, as infrastructure/scripts/air-gap-gate.mjs sets it for one run, every file
+ * appends to the same record, and validatedOperations() reads them all back.
+ */
+const RECORD_FILE = 'validated-operations.txt';
+const recordedHere = new Set<string>();
+
+function recordValidated(operation: string) {
+  if (recordedHere.has(operation)) return;
+  recordedHere.add(operation);
+  const folder = process.env.ENSEMUS_API_RECORD_DIR;
+  if (!folder) return;
+  mkdirSync(folder, { recursive: true });
+  // One short line per append, so files writing at once cannot interleave within a line.
+  appendFileSync(join(folder, RECORD_FILE), `${operation}\n`);
+}
+
+/**
+ * The operations validated so far: in this file, and, with a shared record, in every file of this run. `shared`
+ * says which, so a check can say why it saw so little.
+ */
+export function validatedOperations(): { operations: Set<string>; shared: boolean } {
+  const operations = new Set(recordedHere);
+  const folder = process.env.ENSEMUS_API_RECORD_DIR;
+  const file = folder ? join(folder, RECORD_FILE) : undefined;
+  if (file && existsSync(file)) {
+    for (const line of readFileSync(file, 'utf8').split('\n')) if (line) operations.add(line);
+  }
+  return { operations, shared: Boolean(folder) };
+}
+
+/**
+ * What is wrong with this response, by the spec. An empty list means it matches, and a matching response
+ * under 400 is recorded as validated for its operation.
+ */
 export function contractProblems(observed: ObservedResponse): {
+  operation?: string;
+  problems: string[];
+} {
+  const result = checkResponse(observed);
+  if (result.operation && result.problems.length === 0 && observed.status < 400) {
+    recordValidated(result.operation);
+  }
+  return result;
+}
+
+function checkResponse(observed: ObservedResponse): {
   operation?: string;
   problems: string[];
 } {

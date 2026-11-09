@@ -8,6 +8,7 @@
 import { File } from 'node:buffer';
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { tmpdir } from 'node:os';
@@ -68,6 +69,9 @@ const run = (cmd, args, options = {}) =>
     ...options,
   });
 const compose = (...args) => run('docker', ['compose', ...composeFiles, ...args]);
+/** The same, with settings the compose files read from the environment. */
+const composeWith = (env, ...args) =>
+  run('docker', ['compose', ...composeFiles, ...args], { env: { ...process.env, ...env } });
 const firewall = (...args) =>
   run('docker', ['run', '--rm', '--privileged', '--network', 'host', TOOLS, 'iptables', ...args]);
 
@@ -275,6 +279,51 @@ async function exerciseOutages() {
   return [...wrong];
 }
 
+/**
+ * Where every stack suite records the operations it saw a real, successful response for that matched the spec
+ * (tests/helpers/openapi.ts). Each test file runs in its own worker, so an in-memory record held only what one
+ * file saw, and API-12's check in tests/stack/api.test.ts saw 9 of 95 operations. One folder for this run, so
+ * nothing from an earlier run counts.
+ */
+const API_RECORD = mkdtempSync(join(tmpdir(), 'ensemus-api-record-'));
+
+/** Runs stack test files with outbound traffic blocked. Every run in one gate shares the record. */
+function stackTests(label, files, env = {}) {
+  console.log(`Running ${label} with outbound traffic blocked...`);
+  const tests = spawnSync('pnpm', ['exec', 'vitest', 'run', '--project', 'stack', ...files], {
+    cwd: root,
+    stdio: 'inherit',
+    shell: process.platform === 'win32',
+    env: {
+      ...process.env,
+      ENSEMUS_COMPOSE_AIRGAP: '1',
+      ENSEMUS_API_RECORD_DIR: API_RECORD,
+      ...env,
+    },
+  });
+  if (tests.status === 0) return true;
+  console.error(`FAILED: ${label} did not pass while offline.`);
+  return false;
+}
+
+// The suites that hold billing's hosted behaviour (ADR-032 D1). The stack runs Sovereign, where billing can
+// never be on, so these run again on web, web-2 and the worker recreated as a hosted deployment with billing
+// named on. No payment processor is set, so nothing here has a way out, and the count below still holds.
+const HOSTED = { ENSEMUS_MODE: 'cloud', ENSEMUS_BILLING_ENABLED: 'true' };
+const HOSTED_SUITES = [
+  'tests/stack/saas-billing-api.test.ts',
+  'tests/stack/saas-invoices-api.test.ts',
+];
+const MODE_SERVICES = ['web', 'web-2', 'worker'];
+const recreate = (env) =>
+  composeWith(env, 'up', '-d', '--no-deps', '--force-recreate', '--wait', ...MODE_SERVICES);
+
+// API-12's check reads what every other suite recorded, so its file runs after all of them, both modes included.
+const API_SUITE = 'tests/stack/api.test.ts';
+// The drill stops the whole stack and restores its databases over it, leaving authentication fenced until an
+// operator acknowledges (backup-and-restore.md). Nothing may run after it, so it is the last thing the gate does.
+const RESTORE_SUITE = 'tests/stack/restore-drill.test.ts';
+
 const control = process.argv.includes('--control');
 const outagesOnly = process.argv.includes('--outages');
 let failed = false;
@@ -360,19 +409,26 @@ try {
     }
   } else {
     if (!outagesOnly) {
-      console.log('Running the stack test suite with outbound traffic blocked...');
-      const tests = spawnSync('pnpm', ['exec', 'vitest', 'run', '--project', 'stack'], {
-        cwd: root,
-        stdio: 'inherit',
-        shell: process.platform === 'win32',
-        env: { ...process.env, ENSEMUS_COMPOSE_AIRGAP: '1' },
-      });
-      if (tests.status !== 0) {
-        console.error('FAILED: stack tests did not pass while offline.');
+      const everyOther = ['--exclude', API_SUITE, '--exclude', RESTORE_SUITE];
+      if (!stackTests('the stack test suite', everyOther)) failed = true;
+
+      console.log('Recreating web, web-2 and worker as a hosted deployment with billing on...');
+      recreate(HOSTED);
+      refuseUnlessOnTheWatchedSubnet();
+      try {
+        if (!stackTests('the hosted billing suites', HOSTED_SUITES, HOSTED)) failed = true;
+      } finally {
+        // Back to what compose.yaml says, which is what everything after this expects.
+        recreate({});
+      }
+      refuseUnlessOnTheWatchedSubnet();
+
+      if (!stackTests('the public API contract, over what every suite recorded', [API_SUITE])) {
         failed = true;
       }
     }
     const wrongAnswers = await exerciseOutages();
+    if (!outagesOnly && !stackTests('the restore drill', [RESTORE_SUITE])) failed = true;
     refuseUnlessOnTheWatchedSubnet();
     const seen = attempts() - before;
     console.log(`Outbound attempts during the run: ${seen}`);
@@ -397,6 +453,7 @@ try {
 } finally {
   spawnSync('docker', ['rm', '-f', CAPTURE_CONTAINER], { stdio: 'ignore' });
   removeRule();
+  rmSync(API_RECORD, { recursive: true, force: true });
   if (!process.argv.includes('--keep')) down();
 }
 process.exit(failed ? 1 : 0);

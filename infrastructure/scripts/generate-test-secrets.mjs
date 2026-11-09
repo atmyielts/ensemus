@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Creates throwaway secrets for local and CI stacks under .local/secrets (ignored by git).
 // These are test values only. Real deployments supply their own through a secret mount.
-import { generateKeyPairSync, randomBytes } from 'node:crypto';
+import { createPrivateKey, createPublicKey, generateKeyPairSync, randomBytes } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -83,4 +83,49 @@ if (!existsSync(join(dir, 'sealing_private_key.pem'))) {
   writeFileSync(join(dir, 'sealing_private_key.pem'), privateKey, { mode: 0o644 });
   writeFileSync(join(dir, 'sealing_public_key.pem'), publicKey, { mode: 0o644 });
 }
+
+// A license trust root for the test stack (ADR-030 D3), and the generated key it trusts. compose.test.yaml
+// mounts only the trust root, which holds public keys alone, into web, web-2 and worker. The private half stays
+// here, outside every container, for tests/stack/sovereign-api.test.ts to sign test documents with. The key is
+// marked test_only, so everything it signs says so on every page, and no real deployment trusts it.
+const sovereignTest = join(root, '.local', 'sovereign-test');
+mkdirSync(sovereignTest, { recursive: true });
+const SIGNING_KEY_ID = 'stack-test-key';
+const signingKeyFile = join(sovereignTest, 'test-signing-key.pem');
+if (!existsSync(signingKeyFile)) {
+  const { privateKey } = generateKeyPairSync('ed25519');
+  writeFileSync(signingKeyFile, privateKey.export({ type: 'pkcs8', format: 'pem' }), {
+    mode: 0o600,
+  });
+}
+writeFileSync(join(sovereignTest, 'test-signing-key.id'), `${SIGNING_KEY_ID}\n`, { mode: 0o644 });
+// Worked out from the private key every time, so the trust root can never name a key that is not there.
+const signingPublicKey = createPublicKey(createPrivateKey(readFileSync(signingKeyFile)));
+writeFileSync(
+  join(sovereignTest, 'trust-root.json'),
+  JSON.stringify({
+    format: 'ensemus.trust_root',
+    format_version: 1,
+    keys: [
+      {
+        key_id: SIGNING_KEY_ID,
+        algorithm: 'ed25519',
+        public_key: signingPublicKey.export({ type: 'spki', format: 'der' }).toString('base64'),
+        purposes: [
+          'license',
+          'maintenance',
+          'advisory',
+          'support_policy',
+          'bundle',
+          'diagnostic_recipient',
+        ],
+        retired_on: null,
+        compromised_on: null,
+        test_only: true,
+      },
+    ],
+    thresholds: {},
+  }),
+  { mode: 0o644 },
+);
 console.log(`Test secrets ready in ${dir}`);

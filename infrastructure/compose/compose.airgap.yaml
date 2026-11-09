@@ -9,6 +9,7 @@ services:
   web: *dns
   web-2: *dns
   worker: *dns
+  knowledge-worker: *dns
   agent-worker: *dns
   dispatcher: *dns
   connector-worker: *dns
@@ -17,6 +18,9 @@ services:
   fake-model: *dns
   fake-model-test-port: *dns
   migrate: *dns
+  # The `ops` one-shots, which tests/stack/restore-drill.test.ts runs under the gate.
+  auth-restore: *dns
+  restore-reconcile: *dns
   provision-roles: *dns
   postgres: *dns
   temporal: *dns
