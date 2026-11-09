@@ -35,6 +35,7 @@ import {
 } from '@ensemus/domain/tombstone-ledger';
 import { eq, sql } from 'drizzle-orm';
 import { urls } from '../helpers/stack';
+import { nativeKnowledgeStore } from '../helpers/knowledge-native';
 import {
   addGeneratedArtifact,
   eraseDerivedArtifactMetadata,
@@ -45,9 +46,16 @@ import {
 describe('knowledge source ledger reapply', () => {
   let database: ReturnType<typeof openAppDatabase>, auth: pg.Client, owner: TenantContext;
   const objects = new Map<string, Buffer>();
-  const store: ObjectStore & LedgerReader = {
+  // The memory transport under the runtime's native raw Knowledge port (0516), as apps/web and the
+  // worker compose theirs: an upload's raw bytes go only through SQL admission and its single-attempt
+  // PUT. It keeps the ledger listing and exposes no purge capability, as before.
+  const transport: ObjectStore & LedgerReader = {
     put: async (key, body) => {
       objects.set(key, Buffer.from(body));
+    },
+    putSingleAttempt: async (key, body) => {
+      objects.set(key, Buffer.from(body));
+      return { transport: 'written' };
     },
     get: async (key) => {
       const body = objects.get(key);
@@ -62,8 +70,10 @@ describe('knowledge source ledger reapply', () => {
       yield [...objects.keys()].filter((key) => key.startsWith(prefix));
     },
   };
+  let store: ObjectStore & LedgerReader;
   beforeAll(async () => {
     database = openAppDatabase(urls.app());
+    store = nativeKnowledgeStore(database.db, transport);
     auth = new pg.Client({ connectionString: urls.auth() });
     await auth.connect();
     const userId = randomUUID();
@@ -134,7 +144,8 @@ describe('knowledge source ledger reapply', () => {
   });
   it('automatically closes a restored source when its already-deleted bytes do not survive', async () => {
     const source = await fixture();
-    await store.delete(`${owner.organizationId}/knowledge/${source.documentId}`);
+    // The bytes vanish in storage itself; the native port refuses any raw delete outside a purge.
+    objects.delete(`${owner.organizationId}/knowledge/${source.documentId}`);
     const applied = await reapply();
     expect(applied).toMatchObject({ unconfirmed: 0, tombstonesAdded: 1, failed: 0 });
     const [mark] = await withTenantTx(
@@ -233,6 +244,8 @@ describe('knowledge source ledger reapply', () => {
                 {
                   kind: 'work_unit',
                   id: work.id,
+                  // The actual captured read-time class, which every new generated write supplies.
+                  classification: 'internal',
                   sha256: createHash('sha256').update(JSON.stringify(work)).digest('hex'),
                 },
               ],

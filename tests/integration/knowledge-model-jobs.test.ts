@@ -632,6 +632,20 @@ describe('bounded Knowledge model jobs and principal-bound result receipts (0216
         attempt: 1,
       }),
     ).rejects.toMatchObject({ code: 'POLICY_DENIED' });
+    // An older bundle writes without the attempt binding. With no row of that kind to replace, the
+    // 0216 result guard refuses its INSERT (MODEL_RESULT_ATTEMPT_STALE).
+    expect(
+      await codeOf(() =>
+        storeStepPayload(agent.db, f.context, {
+          stepId: f.main.stepId,
+          kind: 'prompt',
+          classification: 'internal',
+          content: 'Generated older-bundle prompt',
+        }),
+      ),
+    ).toBe('EN119');
+    // Replacing the current completion is refused before that INSERT: 0515's material delete guard
+    // lets only the native agent service delete a step payload (MATERIAL_DELETE_NATIVE_OPERATION_REQUIRED).
     expect(
       await codeOf(() =>
         storeStepPayload(agent.db, f.context, {
@@ -641,7 +655,7 @@ describe('bounded Knowledge model jobs and principal-bound result receipts (0216
           content: 'Generated older-bundle completion',
         }),
       ),
-    ).toBe('EN119');
+    ).toBe('42501');
     expect(
       await withTenantTx(agent.db, f.context, (tx) =>
         tx

@@ -57,7 +57,9 @@ describe('deal won to one verified onboarding', () => {
     reviewer: TenantContext,
     reader: TenantContext,
     foreign: TenantContext,
-    connectionId: string;
+    connectionId: string,
+    briefSource: Awaited<ReturnType<typeof seedSearchableSource>>;
+  const briefText = 'Generated cited client brief.';
   const service = () => createServiceContext(owner.organizationId);
   beforeAll(async () => {
     database = openAppDatabase(urls.app());
@@ -99,7 +101,22 @@ describe('deal won to one verified onboarding', () => {
     );
     await seedActiveProfile(database.db, agent.db, owner);
     await seedOrganizationBudget(database.db, owner, 1_000_000);
-    const spec = agentSpecV1Schema.parse(testAgentSpec({ id: 'client-brief' }));
+    // The brief's run retrieves from this source, so the published manifest declares it, as a real
+    // agent's must: an agent turn retrieves only from declared sources (compileEvidence refuses an
+    // undeclared scope with EGRESS_DENIED, and read admission refuses an undeclared package source).
+    briefSource = await seedSearchableSource(database.db, owner, {
+      passages: [briefText],
+      grants: [{ kind: 'organization' }],
+    });
+    const spec = agentSpecV1Schema.parse(
+      testAgentSpec({
+        id: 'client-brief',
+        context: {
+          allowed_scopes: ['work.read', `knowledge.${briefSource.sourceId}.read`],
+          memory_write_policy: 'none',
+        },
+      }),
+    );
     await publishAgentVersion(database.db, owner, {
       spec,
       policyVersion: 'default',
@@ -291,12 +308,9 @@ describe('deal won to one verified onboarding', () => {
         },
         exists: async (key: string) => objects.has(key),
       };
-    const text = 'Generated cited client brief.';
+    const text = briefText,
+      source = briefSource;
     const writer = await prepareRunInputContext(agent.db, owner.organizationId, stored.agentRunId!);
-    const source = await seedSearchableSource(database.db, owner, {
-      passages: [text],
-      grants: [{ kind: 'organization' }],
-    });
     // Exercise actual retrieval/capture before generation; a later citation cannot invent an input.
     // This scripted model port is confined to the synthetic state-machine test.
     const compiled = await compileEvidence(

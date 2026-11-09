@@ -28,7 +28,9 @@ import { canReadWork } from '@ensemus/domain/policy';
 import { eq, sql } from 'drizzle-orm';
 import { knowledgeCanary, seedMember, seedSearchableSource, sha256 } from '../helpers/knowledge';
 import { urls } from '../helpers/stack';
-import { seedQualifiedKnowledgeRoute } from '../helpers/knowledge-models';
+import { nativeModelContext, seedQualifiedKnowledgeRoute } from '../helpers/knowledge-models';
+import { nativeMfaOwner } from '../helpers/knowledge-native';
+import { revokeConnection } from '@ensemus/application';
 import { ensureEmbeddingSpace } from '@ensemus/application/knowledge/embeddings';
 
 const sqlState = (code: string) =>
@@ -257,19 +259,26 @@ describe('knowledge rules in the database', () => {
       expect((await chunksVisibleTo(reader)).map((c) => c.id)).not.toContain(chunkId);
 
       // Revoking the connection stops it too, with the grant back in place.
-      await withTenantTx(database.db, service, async (tx) => {
-        await tx.insert(externalResourceAcl).values({
+      await withTenantTx(database.db, service, (tx) =>
+        tx.insert(externalResourceAcl).values({
           organizationId,
           resourceId,
           principalKind: 'user',
           principalExternalId: 'reader@example.invalid',
           access: 'read',
           membershipId: reader.membershipId,
-        });
-        await tx
-          .update(connections)
-          .set({ state: 'revoked' })
-          .where(eq(connections.id, connectionId));
+        }),
+      );
+      expect((await chunksVisibleTo(reader)).map((c) => c.id)).toContain(chunkId);
+      // A connection is revoked by its manager through the product's revocation, which 0404 binds
+      // to a native session with a fresh second factor (connection.manage); a service cannot.
+      const manager = await nativeModelContext(database.db, ownerA);
+      const [current] = await withTenantTx(database.db, manager, (tx) =>
+        tx.select().from(connections).where(eq(connections.id, connectionId)),
+      );
+      await revokeConnection(database.db, manager, {
+        connectionId,
+        expectedVersion: current!.version,
       });
       expect((await chunksVisibleTo(reader)).map((c) => c.id)).not.toContain(chunkId);
     });
@@ -423,17 +432,21 @@ describe('knowledge rules in the database', () => {
 
   describe('embedding spaces', () => {
     it('refuses a vector of the wrong size for its space (QA-017)', async () => {
-      const { sourceId, chunkIds } = await seedSearchableSource(database.db, ownerA, {
-        grants: [{ kind: 'membership', membershipId: ownerA.membershipId }],
+      // Qualifying a route makes a real model call. A BYOM tenant is entitled to one only with
+      // billing enabled and a current subscription (ADR-032 D5), which this file's BYOM tenants do
+      // not have; a Sovereign tenant pays its own provider, as in the other embedding tests.
+      const owner = await nativeMfaOwner(database.db, 'generated-qa017-owner', 'sovereign');
+      const { sourceId, chunkIds } = await seedSearchableSource(database.db, owner, {
+        grants: [{ kind: 'membership', membershipId: owner.membershipId }],
         passages: ['Words.'],
       });
-      const service = createServiceContext(ownerA.organizationId);
-      const route = await seedQualifiedKnowledgeRoute(database.db, ownerA, { dimension: 3 });
+      const service = createServiceContext(owner.organizationId);
+      const route = await seedQualifiedKnowledgeRoute(database.db, owner, { dimension: 3 });
       const spaceId = (await ensureEmbeddingSpace(database.db, service, route)).id;
       const insert = (dimension: number, embedding: number[]) =>
         withTenantTx(database.db, service, (tx) =>
           tx.insert(knowledgeEmbeddings).values({
-            organizationId: ownerA.organizationId,
+            organizationId: owner.organizationId,
             chunkId: chunkIds[0] as string,
             sourceId,
             spaceId,
