@@ -308,12 +308,25 @@ function stackTests(label, files, env = {}) {
 
 // The suites that hold billing's hosted behaviour (ADR-032 D1). The stack runs Sovereign, where billing can
 // never be on, so these run again on web, web-2, the worker and the agent-worker recreated as a hosted
-// deployment with billing named on. No payment processor is set, so nothing here has a way out, and the count
-// below still holds. The agent canary's Cloud and BYOM cases are hosted behaviour too: a Cloud or BYOM tenant
-// is entitled to model calls only through a hosted subscription, which a Sovereign deployment cannot have, so
-// those cases run here, where the agent-worker's gateway sees billing on (its model endpoint is the in-subnet
-// fake). Its Sovereign case runs in the Sovereign phase.
-const HOSTED = { ENSEMUS_MODE: 'cloud', ENSEMUS_BILLING_ENABLED: 'true' };
+// deployment with billing named on. The agent canary's Cloud and BYOM cases are hosted behaviour too: a Cloud or
+// BYOM tenant is entitled to model calls only through a hosted subscription, which a Sovereign deployment cannot
+// have, so those cases run here, where the agent-worker's gateway sees billing on (its model endpoint is the
+// in-subnet fake). Its Sovereign case runs in the Sovereign phase.
+//
+// Two operations exist only where an operator named more than billing, so this phase names them too, for web and
+// web-2 (compose.test.yaml passes them through; compose.yaml names neither, and no other phase sets them):
+// - asking to charge an invoice needs a payment processor (D4). This is the generated test processor's name
+//   (tests/helpers/native-payment.ts), never a real one: no credential, connection or adapter stands behind it,
+//   and no connector worker runs in this gate, so a charge waits in its queue and nothing has a way out.
+// - a customer's decision on a break-glass request needs break-glass on, with a limit (D8). It grants no read path.
+// So the count below still holds.
+const HOSTED = {
+  ENSEMUS_MODE: 'cloud',
+  ENSEMUS_BILLING_ENABLED: 'true',
+  ENSEMUS_PAYMENT_PROCESSOR: 'test_scripted',
+  ENSEMUS_BREAK_GLASS_ENABLED: 'true',
+  ENSEMUS_BREAK_GLASS_MAX_MINUTES: '5',
+};
 const HOSTED_SUITES = [
   'tests/stack/saas-billing-api.test.ts',
   'tests/stack/saas-invoices-api.test.ts',
@@ -441,7 +454,7 @@ try {
       }
 
       console.log(
-        'Recreating web, web-2, worker and agent-worker as a hosted deployment with billing on...',
+        'Recreating web, web-2, worker and agent-worker as a hosted deployment with billing, the test processor and break-glass on...',
       );
       recreate(HOSTED);
       refuseUnlessOnTheWatchedSubnet();
