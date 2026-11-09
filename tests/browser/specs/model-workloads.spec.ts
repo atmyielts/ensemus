@@ -69,7 +69,12 @@ test.describe('native Knowledge model authority controls', () => {
     }))
       await form.locator(`[name=${name}]`).fill(value);
     await form.getByRole('button', { name: 'Request capability test' }).click();
-    await expect(page).toHaveURL(/step-up/);
+    // MFA_REQUIRED sends every privileged form to the one confirmation page, which returns to this
+    // profile once a code is entered (ADR-031 D8, apps/web/src/lib/step-up.ts). There is no other
+    // step-up route, so the exact address says the request was refused for want of a second factor.
+    await expect(page).toHaveURL(
+      `${new URL(BASE).origin}/o/${org}/security/confirm?next=${encodeURIComponent(path)}`,
+    );
     const evidence = await page.request.get(
       `/api/v1/organizations/${org}/model-profiles/${profile.id}/qualifications`,
     );

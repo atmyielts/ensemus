@@ -3,8 +3,17 @@
 // in ADR-028. Agents and models are seeded directly, because their own pages belong to other slices, and
 // no worker runs here, so the run's later states are moved by hand as the agent role would move them.
 import { randomUUID } from 'node:crypto';
+import {
+  modelProfiles,
+  openAppDatabase,
+  resolveTenantContext,
+  withTenantTx,
+} from '@ensemus/database';
+import { authSchema, openAuthDatabase } from '@ensemus/database/auth';
+import { eq } from 'drizzle-orm';
 import pg from 'pg';
 import { BASE, formOn, onReplica, post, read, visit, type Person } from '../../helpers/forms';
+import { nativeModelContext } from '../../helpers/knowledge-models';
 import { urls } from '../../helpers/stack';
 import { expect, test } from '../support/fixtures';
 import { axeFindings } from '../support/look';
@@ -12,8 +21,54 @@ import { createWork, superuser } from '../support/world';
 
 type Seeded = { versionId: string };
 
+/**
+ * The owner asks for the probe as the product's own request does (0404): in a native session that the auth
+ * role has verified, with a second factor that role recorded, and the effect checked in the same
+ * transaction. The shared world's owner has no authenticator, so the proof is held only for this step and
+ * her account is put back as it was: later specs keep the sign-in, and the step-up refusals, they expect.
+ */
+async function askForProbeAs(
+  sql: pg.Client,
+  owner: Person,
+  organization: string,
+  profileId: string,
+) {
+  const found = await sql.query<{ id: string; two_factor_enabled: boolean | null }>(
+    'select id, two_factor_enabled from identity.users where email = $1',
+    [owner.email],
+  );
+  const user = found.rows[0];
+  if (!user) throw new Error('TEST_OWNER_MISSING');
+  const database = openAppDatabase(urls.app());
+  try {
+    const owned = await resolveTenantContext(database.db, user.id, organization);
+    const context = await nativeModelContext(database.db, owned);
+    await withTenantTx(database.db, context, (tx) =>
+      tx
+        .update(modelProfiles)
+        .set({ status: 'probing', probeRequestedByMembershipId: context.membershipId })
+        .where(eq(modelProfiles.id, profileId)),
+    );
+  } finally {
+    await database.close();
+    const auth = openAuthDatabase(urls.auth());
+    try {
+      await auth.db
+        .update(authSchema.user)
+        .set({ twoFactorEnabled: user.two_factor_enabled ?? false })
+        .where(eq(authSchema.user.id, user.id));
+    } finally {
+      await auth.close();
+    }
+  }
+}
+
 /** A published agent, an active model and a budget, for this organization. Generated values only. */
-async function seedAgent(organization: string, ownerMembership: string): Promise<Seeded> {
+async function seedAgent(
+  organization: string,
+  ownerMembership: string,
+  owner: Person,
+): Promise<Seeded> {
   const sql = await superuser();
   const agent = new pg.Client({ connectionString: urls.agent() });
   await agent.connect();
@@ -83,9 +138,11 @@ async function seedAgent(organization: string, ownerMembership: string): Promise
                '{reason,compose}', 'self_hosted', 'draft')`,
       [organization, profileId, `test-${profileId.slice(0, 8)}`],
     );
+    // Asking for a probe is an always-MFA action (0404): only an owner or administrator, in their own
+    // interactive session with a recent second factor, can move a profile to `probing`.
+    await askForProbeAs(sql, owner, organization, profileId);
     // Only the agent role can record a passed probe. That is the rule, so the seed goes through it.
     await agent.query(`select set_config('app.organization_id', $1, false)`, [organization]);
-    await agent.query(`update ai.model_profiles set status = 'probing' where id = $1`, [profileId]);
     await agent.query(
       `update ai.model_profiles set status = 'active', qualified_at = now() where id = $1`,
       [profileId],
@@ -200,7 +257,7 @@ test.describe('an agent run, as a person sees it', () => {
   let seeded: Seeded;
 
   test.beforeAll(async ({ world }) => {
-    seeded = await seedAgent(world.organization, world.membership.alice);
+    seeded = await seedAgent(world.organization, world.membership.alice, world.alice);
   });
 
   const running = async (
