@@ -333,15 +333,12 @@ async function refuseClaim(
  * What a finished run leaves behind. A hold on a call that may have reached a provider is not released
  * without a charge: the caller has charged those already, or, with no way to charge them because the
  * initiator has gone, passes `keepLost` so the budget goes on over-counting (FD-12). Nothing further can
- * act on a proposal. Prompts and answers go here only when `payloads` says so: an agent transaction can
- * neither see nor delete them (0417, 0515), so after `finishRun` they go through
- * `purgeEndedRunTranscript` instead (FD-5).
+ * act on a proposal. Prompts and answers never go here: neither an agent transaction nor a run lookup
+ * transaction is the service actor 0515's material barrier admits to delete them (42501
+ * MATERIAL_DELETE_NATIVE_OPERATION_REQUIRED), and 0417 hides an authority-v1 run's payloads from the
+ * agent anyway. Once the run's end has committed they go through `purgeEndedRunTranscript` (FD-5).
  */
-async function clearRunLeftovers(
-  tx: Tx,
-  agentRunId: string,
-  options: { keepLost: boolean; payloads: boolean },
-) {
+async function clearRunLeftovers(tx: Tx, agentRunId: string, options: { keepLost: boolean }) {
   const held = await tx
     .select({
       id: budgetReservations.id,
@@ -386,18 +383,6 @@ async function clearRunLeftovers(
         inArray(toolProposals.status, ['proposed', 'awaiting_approval', 'approved']),
       ),
     );
-  if (options.payloads)
-    await tx
-      .delete(stepPayloads)
-      .where(
-        inArray(
-          stepPayloads.stepId,
-          tx
-            .select({ id: executionSteps.id })
-            .from(executionSteps)
-            .where(eq(executionSteps.runId, agentRunId)),
-        ),
-      );
   await tx.delete(agentAssignments).where(eq(agentAssignments.agentRunId, agentRunId));
 }
 
@@ -1057,14 +1042,14 @@ export async function finishRun(
     const run = await lockRun(tx, input.agentRunId);
     if (!run) throw new AppError('NOT_FOUND');
     if (isTerminalAgentRun(run.status as AgentRunStatus)) {
-      await clearRunLeftovers(tx, run.id, { keepLost: false, payloads: false });
+      await clearRunLeftovers(tx, run.id, { keepLost: false });
       // An older bundle may have fenced/ended this run while terminal body RLS correctly hid its
       // Work. Retry only the exact conservative metadata effect, never a new model/tool attempt.
       await releaseWork(tx, context, run, run.status as AgentRunStatus);
       return;
     }
     const ended = await moveRun(tx, run, input.status, input.stopCode);
-    await clearRunLeftovers(tx, run.id, { keepLost: false, payloads: false });
+    await clearRunLeftovers(tx, run.id, { keepLost: false });
     await releaseWork(tx, context, run, input.status);
     await appendAudit(tx, {
       organizationId: context.organizationId,
@@ -1123,7 +1108,10 @@ async function releaseWork(
 /**
  * The initiator has gone, so no agent context can be made for this run, and every service needs one. This
  * preserves conservative holds and uses only the fixed terminal metadata control for new-protocol
- * Work. No inactive person is cast back into an AgentContext or given body-serving authority.
+ * Work. No inactive person is cast back into an AgentContext or given body-serving authority. Its
+ * transcript is not deleted here: this lookup transaction has no service actor, so 0515's barrier
+ * would refuse the DELETE (42501) and roll back the run's end with it. The caller purges it through
+ * `purgeEndedRunTranscript` once this has committed (FD-5).
  */
 export async function closeRunWithoutContext(
   database: AppDatabase,
@@ -1141,7 +1129,7 @@ export async function closeRunWithoutContext(
       const ended = await moveRun(tx, run, input.status, input.stopCode);
       await auditRun(tx, input.organizationId, ended, 'ai.run_finished', 'deny', input.stopCode);
     }
-    await clearRunLeftovers(tx, run.id, { keepLost: true, payloads: true });
+    await clearRunLeftovers(tx, run.id, { keepLost: true });
     await releaseTerminalWorkForLookupInTx(tx, input.organizationId, run.id);
   });
 }

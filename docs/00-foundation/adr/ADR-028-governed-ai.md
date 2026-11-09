@@ -170,6 +170,54 @@ Each has a safe default already in the code, and each can be changed later.
 9. **Does M3's email connector count as M4's side effect?** Default: yes, once M3's slices merge. Tests use a fake connector meanwhile.
 10. **Organization limits on agents?** Default: a `governance.policy_bundles` document may set them, and with none, the spec's own ranges apply and delegation depth is 0.
 11. **Should each worker get its own sealing key?** See "What changed" above. The review should decide. Default: one key, as ADR-027 has it.
+12. **When may a delegated child be born?** Default: never, because `ai.delegation_influence_ready` returns `false`. See the proposal below. The owner and the security owner must define the predicate before any migration changes it.
+
+### Proposal: defining `ai.delegation_influence_ready` (open question 12)
+
+**Status:** Proposed, not decided. No migration implements it. Raised in CI repair round 6 (finding F15).
+
+**What exists.** 0414 created `ai.delegation_influence_ready(p_parent uuid, p_child uuid)` as `SELECT false`. Its comment says that "0416 replaces this OID only when a real immutable delegation-birth dependency is available". 0416, 0417 and 0419 never replaced it. 0419's `ai.guard_delegation_input_birth()` raises `DELEGATION_INPUT_PROOF_UNAVAILABLE` (EN119) for every child `ai.agent_runs` INSERT unless both `ai.delegation_influence_ready(parent, child)` and `ai.validate_delegation_birth(NEW)` are true. 0540 left that unchanged. So `createChildRun` audits `DELEGATION_WIDENED` with the reason `DELEGATION_INPUT_PROOF_UNAVAILABLE`, and FD-16 delegation cannot happen in any organization, even under a policy bundle that allows depth and fan-out.
+
+**What is missing.** Nothing defines what the predicate tests. This ADR, `docs/03-intelligence/02-agent-runtime.md` and `08-agent-safety.md` describe delegation only as depth, budget and scope limits. The evidence pages `docs/06-delivery/evidence/m5/agent-manifest-scope.md`, `delegated-material-authority.md` and `delegated-material-join.md` say only that it stays false until root qualifies the whole 0419 lifecycle. They then list what that qualification needs, without saying which of those conditions the function itself checks:
+
+- inherited serving for named viewers, through the 0414 unproven-input fence and the 0419 graph;
+- generated-file authority capture and serving, publication and put binding;
+- source and record purge confirmation with truthful separate Work counts (`createDelegatedRecordPurge`, `createDelegatedWorkPurge`);
+- the mandatory 0510 hold helper `lifecycle.delegated_work_hold_free` on the redaction path;
+- transcript purge and version proof for the child and parent runs (FD-5 and 0515);
+- restricted eraser ordering and positive physical disposition (0515 and 0516);
+- the 0417 new-v1 output guard, which also stays closed;
+- the canonical typed-record deletion outbox binding and the `sealDelegatedErasureInTx` offboarding binding, both listed as unbound in `delegated-material-join.md`.
+
+The function also cannot be defined in the abstract. The question is whether readiness means a property of one parent/child pair, or a deployment capability that a reviewed migration turns on once the lifecycle has been qualified.
+
+**Proposed definition, for decision.** Readiness has two parts, and both must hold.
+
+1. **A reviewed deployment capability.** A single migration records that the lifecycle above was qualified on a fresh database, citing the CI run and the human review. It must carry the header "REVIEWED SECURITY SQL (ADR-024 D4, ADR-028)". No runtime role can write this record, and nothing can derive it from data.
+2. **A per-birth check that the parent can bear a child.** This check is pure metadata and never reads a body:
+   - `p_parent` is the transaction's own `app.agent_run_id`, and `app.agent_scope_protocol` is `scoped-v1:<p_parent>`, so only the parent's own admitted transaction qualifies;
+   - the parent's `ai.run_input_checkpoints` row exists and is not fenced;
+   - the parent is in a live status;
+   - `p_child` does not exist yet;
+   - no `ai.unproven_child_work_inputs` row names the parent's Work.
+
+   `ai.validate_delegation_birth(NEW)` stays a separate condition and is not folded into this function.
+
+**Out of scope for this proposal.** Changing `ai.validate_delegation_birth`, 0414's unproven-input inventory, or any purge or serving guard.
+
+**Owner decisions needed.**
+
+- (a) Confirm or replace the two-part definition.
+- (b) Name which lifecycle items must be qualified before part 1 may be recorded. The default is every item listed above.
+- (c) Name the security reviewer for the migration that implements it.
+
+**Effect until decided.** Delegation stays closed. Three integration cases are the only known failing tests that depend on this. Each fails at `genuineChildWithRecord` with `TEST_GENUINE_CHILD_NOT_ADMITTED:DELEGATION_WIDENED:DELEGATION_INPUT_PROOF_UNAVAILABLE:delegation_influence_ready=false`. They are deliberately not skipped, because they are the acceptance gate for this decision:
+
+- `tests/integration/agent-delegated-materials.test.ts`: "full lifecycle: captures actual inheritance and permanently redacts copied Work once after real closure"
+- `tests/integration/agent-delegated-materials.test.ts`: "full lifecycle: an actual hold preserves the copied body debt until a genuine release"
+- `tests/integration/agent-delegated-materials.test.ts`: "full lifecycle: unavailable transcript completion cannot clear real Work/control debt"
+
+`tests/helpers/agent-scope-upgrade.ts` asserts the function is `false` today. The migration that implements the decision must change that helper's expectation and cite this section.
 
 ## Reversal
 

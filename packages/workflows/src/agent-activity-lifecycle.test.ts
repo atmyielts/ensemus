@@ -1,7 +1,9 @@
 // Exercises the Activity with the real halt watcher: each slice's own doubles hid their ownership and
 // unknown-provider mismatch. Database effects are doubled here; the real roles have integration tests.
 import { randomUUID } from 'node:crypto';
+import { AppError } from '@ensemus/application';
 import {
+  closeRunWithoutContext,
   completeTurn,
   contextForRun,
   createTurnStore,
@@ -17,7 +19,11 @@ import { currentRunInputClass } from '@ensemus/application/ai-model-admission';
 import type { TurnOutcome } from '@ensemus/intelligence';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createHaltWatcher, type HaltWatcher } from '../../../workers/workflow/src/kill-switch';
-import { createAgentActivities, type AgentActivityDeps } from './agent-activities';
+import {
+  createAgentActivities,
+  type AgentActivityDeps,
+  type TranscriptPurgePort,
+} from './agent-activities';
 import type { StepInput } from './agent-schemas';
 import type { RunRef as CompileRunRef } from '@ensemus/agent-runtime/context';
 
@@ -28,6 +34,7 @@ vi.mock('@ensemus/application/ai-model-admission', () => ({
 
 vi.mock('@ensemus/application/ai-runs', async (original) => ({
   ...(await original<typeof import('@ensemus/application/ai-runs')>()),
+  closeRunWithoutContext: vi.fn(),
   completeTurn: vi.fn(),
   contextForRun: vi.fn(),
   createTurnStore: vi.fn(),
@@ -119,8 +126,12 @@ function fixture(compileEffect?: () => Promise<void>) {
       return answer.promise;
     },
   );
+  const purgeEnded = vi.fn<TranscriptPurgePort['purgeEnded']>(async () => 'purged');
+  const reconcileRun = vi.fn(async () => undefined);
   const activities = createAgentActivities({
     database: {} as AppDatabase,
+    transcripts: { purgeEnded },
+    modelAccounting: { reconcileRun },
     gateway: { turn },
     tools: { handle: vi.fn() },
     context: {
@@ -153,6 +164,9 @@ function fixture(compileEffect?: () => Promise<void>) {
     pulse: () => ({ heartbeat, signal: temporal.signal }),
   });
   return {
+    activities,
+    purgeEnded,
+    reconcileRun,
     watcher,
     read,
     temporal,
@@ -190,6 +204,7 @@ beforeEach(() => {
   vi.mocked(completeTurn).mockResolvedValue(counters);
   vi.mocked(storeStepPayload).mockResolvedValue();
   vi.mocked(currentRunInputClass).mockResolvedValue('internal');
+  vi.mocked(closeRunWithoutContext).mockResolvedValue();
 });
 
 afterEach(async () => {
@@ -389,5 +404,107 @@ describe('an Activity owns its halt watch for one call', () => {
         }),
       }),
     );
+  });
+});
+
+describe('an ended run hands its transcript to the required service purge (FD-5)', () => {
+  const ref = {
+    organizationId: input.organizationId,
+    workUnitId: input.workUnitId,
+    agentRunId: input.agentRunId,
+    temporalRunId: input.temporalRunId,
+  };
+  // The two INITIATOR_INACTIVE call sites: no agent context can be made, so the run is closed by
+  // lookup and its transcript can only go through the service purge the composition binds.
+  const inactive = {
+    reclaimAgentRun: (world: ReturnType<typeof fixture>) => world.activities.reclaimAgentRun(ref),
+    finishAgentRun: (world: ReturnType<typeof fixture>) =>
+      world.activities.finishAgentRun({ ...ref, status: 'completed', stopCode: null }),
+  } as const;
+  const paths = Object.keys(inactive) as (keyof typeof inactive)[];
+
+  it('refuses to compose agent Activities without the transcript purge', () => {
+    const { transcripts: _unbound, ...unbound } = {
+      database: {} as AppDatabase,
+      transcripts: { purgeEnded: vi.fn() },
+      gateway: { turn: vi.fn() },
+      tools: { handle: vi.fn() },
+      context: { compile: vi.fn() },
+    };
+    expect(() => createAgentActivities(unbound as unknown as AgentActivityDeps)).toThrow(
+      'AGENT_TRANSCRIPT_PURGE_REQUIRED',
+    );
+  });
+
+  it.each(paths)(
+    '%s: an inactive initiator closes the run, then reconciles and purges it',
+    async (path) => {
+      vi.mocked(contextForRun).mockRejectedValue(new TenantAccessDenied());
+      const world = fixture();
+      const result = await inactive[path](world);
+      if (path === 'reclaimAgentRun') expect(result).toEqual({ kind: 'nothing_queued' });
+      expect(closeRunWithoutContext).toHaveBeenCalledWith(expect.anything(), {
+        organizationId: ref.organizationId,
+        agentRunId: ref.agentRunId,
+        status: 'cancelled',
+        stopCode: 'INITIATOR_INACTIVE',
+      });
+      expect(world.purgeEnded).toHaveBeenCalledExactlyOnceWith(ref.organizationId, ref.agentRunId);
+      // Only after the run's end has committed: the purge refuses a live run.
+      const closed = vi.mocked(closeRunWithoutContext).mock.invocationCallOrder[0]!;
+      expect(world.purgeEnded.mock.invocationCallOrder[0]).toBeGreaterThan(closed);
+      expect(world.reconcileRun.mock.invocationCallOrder[0]).toBeGreaterThan(closed);
+    },
+  );
+
+  it.each(paths)('%s: a held transcript still lets the run close', async (path) => {
+    vi.mocked(contextForRun).mockRejectedValue(new TenantAccessDenied());
+    const world = fixture();
+    world.purgeEnded.mockResolvedValue('held');
+    await inactive[path](world);
+    expect(closeRunWithoutContext).toHaveBeenCalledOnce();
+    expect(world.purgeEnded).toHaveBeenCalledOnce();
+  });
+
+  it.each(
+    paths.flatMap((path) =>
+      (['NOT_FOUND', 'INVALID_STATE'] as const).map((code) => [path, code] as const),
+    ),
+  )(
+    '%s: the purge refusing %s is a terminal answer, not a retried or failed close',
+    async (path, code) => {
+      vi.mocked(contextForRun).mockRejectedValue(new TenantAccessDenied());
+      const world = fixture();
+      world.purgeEnded.mockRejectedValue(new AppError(code));
+      // Thrown on, this would end the closing Activity after the run had already ended. No retry
+      // changes the answer, so it resolves, once, and the unpurged checkpoint stays as debt.
+      await inactive[path](world);
+      expect(closeRunWithoutContext).toHaveBeenCalledOnce();
+      expect(world.purgeEnded).toHaveBeenCalledOnce();
+    },
+  );
+
+  it.each(paths)('%s: an outage in the purge is retried, never answered', async (path) => {
+    vi.mocked(contextForRun).mockRejectedValue(new TenantAccessDenied());
+    const world = fixture();
+    world.purgeEnded.mockRejectedValue(
+      Object.assign(new Error('PRIVATE_LOCK_ERROR_CANARY'), { code: '55P03' }),
+    );
+    await expect(inactive[path](world)).rejects.toMatchObject({
+      type: '55P03',
+      nonRetryable: false,
+      message: 'Agent activity failed',
+    });
+  });
+
+  it.each(paths)('%s: any other refusal from the purge still ends the Activity', async (path) => {
+    vi.mocked(contextForRun).mockRejectedValue(new TenantAccessDenied());
+    const world = fixture();
+    // A composition that bound a non-service context: a decision, visible, not an 'unconfirmed'.
+    world.purgeEnded.mockRejectedValue(new AppError('FORBIDDEN'));
+    await expect(inactive[path](world)).rejects.toMatchObject({
+      type: 'FORBIDDEN',
+      nonRetryable: true,
+    });
   });
 });

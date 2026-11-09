@@ -7,6 +7,7 @@ import { and, eq, sql } from 'drizzle-orm';
 import { createWorkUnit } from '@ensemus/application';
 import { createRunTranscriptPurge } from '@ensemus/application/ai-input-ledger';
 import {
+  closeRunWithoutContext,
   finishRun,
   purgeEndedRunTranscript,
   setRunStatus,
@@ -211,6 +212,42 @@ describe('run verification and run-end transcript erasure as actual roles', () =
       'purged',
     );
     expect(await f.payloadCount()).toBe(0);
+  });
+
+  it('ends a run without its initiator and leaves the transcript to the service purge (FD-5, 0515)', async () => {
+    const f = await fixture();
+    await storeToolOutput(f);
+    const close = () =>
+      closeRunWithoutContext(agent.db, {
+        organizationId: f.organizationId,
+        agentRunId: f.runId,
+        status: 'cancelled',
+        stopCode: 'INITIATOR_INACTIVE',
+      });
+    // The lookup transaction has no service actor. It used to DELETE the payloads itself, which
+    // 0515's barrier refuses (42501 MATERIAL_DELETE_NATIVE_OPERATION_REQUIRED) and which would roll
+    // the run's end back with it. It now ends the run and leaves them, and claims nothing purged.
+    await expect(close()).resolves.toBeUndefined();
+    const [run] = await withTenantTx(app.db, f.owner, (tx) =>
+      tx
+        .select({ status: agentRuns.status, stopCode: agentRuns.stopCode })
+        .from(agentRuns)
+        .where(eq(agentRuns.id, f.runId)),
+    );
+    expect(run).toEqual({ status: 'cancelled', stopCode: 'INITIATOR_INACTIVE' });
+    expect(await f.payloadCount()).toBe(1);
+    expect(await f.checkpoint()).toEqual({ fencedAt: expect.any(Date), purgedAt: null });
+    // Safe to repeat, as the closing Activity's retry does, and still deletes nothing itself.
+    await expect(close()).resolves.toBeUndefined();
+    expect(await f.payloadCount()).toBe(1);
+    expect(await purgeEndedRunTranscript(agent.db, f.service, { agentRunId: f.runId })).toBe(
+      'purged',
+    );
+    expect(await f.payloadCount()).toBe(0);
+    expect(await f.checkpoint()).toEqual({
+      fencedAt: expect.any(Date),
+      purgedAt: expect.any(Date),
+    });
   });
 
   it('erases nothing for a live run, nor for anyone but the service', async () => {
