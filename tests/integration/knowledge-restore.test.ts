@@ -10,6 +10,7 @@ import {
   createWorkUnit,
   readArtifact,
   reapplyTombstoneLedger,
+  requalifyGeneratedRestoreDebt,
   requestExecution,
   transitionWorkUnit,
   type LedgerReader,
@@ -36,6 +37,7 @@ import {
   type LedgerEntry,
 } from '@ensemus/domain/tombstone-ledger';
 import { eq, sql } from 'drizzle-orm';
+import { pgCode } from '../../packages/application/src/errors';
 import { urls } from '../helpers/stack';
 import { nativeKnowledgeStore } from '../helpers/knowledge-native';
 import {
@@ -45,13 +47,13 @@ import {
 import { createObjectDeletionLifecycle } from '../../packages/application/src/saas/object-deletion';
 import { createActivities } from '@ensemus/workflows/activities';
 
-describe('knowledge source ledger reapply', () => {
-  let database: ReturnType<typeof openAppDatabase>, auth: pg.Client, owner: TenantContext;
-  const objects = new Map<string, Buffer>();
-  // The memory transport under the runtime's native raw Knowledge port (0516), as apps/web and the
-  // worker compose theirs: an upload's raw bytes go only through SQL admission and its single-attempt
-  // PUT. It keeps the ledger listing and exposes no purge capability, as before.
-  const transport: ObjectStore & LedgerReader = {
+/**
+ * The memory transport under the runtime's native raw Knowledge port (0516), as apps/web and the
+ * worker compose theirs: an upload's raw bytes go only through SQL admission and its single-attempt
+ * PUT. It keeps the ledger listing and exposes no purge or physical-absence capability.
+ */
+function ledgerTransport(objects: Map<string, Buffer>): ObjectStore & LedgerReader {
+  return {
     put: async (key, body) => {
       objects.set(key, Buffer.from(body));
     },
@@ -72,6 +74,12 @@ describe('knowledge source ledger reapply', () => {
       yield [...objects.keys()].filter((key) => key.startsWith(prefix));
     },
   };
+}
+
+describe('knowledge source ledger reapply', () => {
+  let database: ReturnType<typeof openAppDatabase>, auth: pg.Client, owner: TenantContext;
+  const objects = new Map<string, Buffer>();
+  const transport = ledgerTransport(objects);
   let store: ObjectStore & LedgerReader;
   beforeAll(async () => {
     database = openAppDatabase(urls.app());
@@ -356,5 +364,190 @@ describe('knowledge source ledger reapply', () => {
       ),
     );
     expect(owed.rows[0]?.unconfirmed).toBeGreaterThan(0);
+    // 0543 gives this debt a way out: the operator's per-object re-proof after an admitted restore.
+    // A person cannot give it, and it is no deletion proof: the bytes are observed absent (they were
+    // removed above), the proof is recorded, and still the hand-marked purge certifies nothing. The
+    // header stays pending and the tenant stays closed until the ordinary lifecycle proves a DELETE,
+    // which the hand-marked blob row now refuses to admit.
+    await expect(
+      requalifyGeneratedRestoreDebt(database.db, purgeCapable, owner, artifact.id),
+    ).rejects.toEqual(new AppError('FORBIDDEN'));
+    await expect(
+      withTenantTx(database.db, owner, (tx) =>
+        tx.execute(
+          sql`select lifecycle.requalify_object_restore_debt(${artifact.id}::uuid,'absent')`,
+        ),
+      ),
+    ).rejects.toSatisfy((error: unknown) => pgCode(error) === '42501');
+    expect(
+      await requalifyGeneratedRestoreDebt(database.db, purgeCapable, service, artifact.id),
+    ).toEqual({ state: 'requalified', observed: 'absent' });
+    expect((await perform(claiming)).failed).toBe(1);
+    expect((await perform(production.derived)).failed).toBe(1);
+    expect(await countUnappliedTombstones(database.db, store, owner)).toBe(1);
+    expect(await header()).toMatchObject({ restoreReapplyPending: true, physicalPurgedAt: null });
+    await expect(
+      createRestoreGate({ database: database.db, store }).assertServing(owner),
+    ).rejects.toEqual(new AppError('RESTORE_PENDING'));
+  });
+
+  it('purges a restored generated deletion once its restore debt is requalified, and only then', async () => {
+    // Its own tenant and bucket: the tenant above stays closed on purpose, and the ledger is global.
+    const bucket = new Map<string, Buffer>();
+    const transport: ObjectStore & LedgerReader = {
+      ...ledgerTransport(bucket),
+      deleteForPurge: async (objectKey) => {
+        bucket.delete(objectKey);
+        return { transport: 'deleted', capabilityVerified: true };
+      },
+      isPhysicallyAbsent: async (objectKey) => !bucket.has(objectKey),
+    };
+    const local = nativeKnowledgeStore(database.db, transport);
+    const userId = randomUUID();
+    await auth.query('insert into identity.users(id,name,email) values($1,$2,$3)', [
+      userId,
+      'Generated requalification owner',
+      `${userId}@example.invalid`,
+    ]);
+    const org = await createOrganization(database.db, {
+      userId,
+      name: 'Generated requalified company',
+      commercialMode: 'sovereign',
+    });
+    const tenant = await resolveTenantContext(database.db, userId, org.organizationId);
+    const service = createServiceContext(tenant.organizationId);
+    const work = await createWorkUnit(database.db, tenant, {
+      title: 'Generated requalification work',
+      objective: 'Check a synthetic template output.',
+      classification: 'internal',
+      executionPlan: 'checklist',
+    });
+    await transitionWorkUnit(database.db, tenant, {
+      id: work.id,
+      expectedVersion: work.version,
+      to: 'ready',
+    });
+    await requestExecution(database.db, tenant, work.id);
+    const run = { organizationId: tenant.organizationId, workUnitId: work.id, runId: randomUUID() },
+      activities = createActivities({ database: database.db, store: local });
+    expect(await activities.prepareWork(run)).toMatchObject({ status: 'running' });
+    const artifactId = (await activities.produceChecklistArtifact(run)).artifactId;
+    const key = `${tenant.organizationId}/artifacts/${artifactId}`;
+    expect(bucket.has(key)).toBe(true);
+    const entry: LedgerEntry = {
+      organizationId: tenant.organizationId,
+      targetType: 'artifact',
+      targetId: artifactId,
+      deletedAt: new Date(),
+    };
+    await local.put(ledgerKeyFor(entry), serializeLedgerEntry(entry), 'application/json');
+    const production = createObjectDeletionLifecycle({ database: database.db, store: transport });
+    const failures: unknown[] = [];
+    const perform = (derivedArtifacts?: DerivedArtifactLifecycle) =>
+      reapplyTombstoneLedger(
+        database.db,
+        local,
+        createServiceContext,
+        (error) => failures.push(error),
+        {
+          confirmed: new Set([ledgerRef(entry)]),
+          ...(derivedArtifacts ? { derivedArtifacts } : {}),
+        },
+      );
+    const header = () =>
+      withTenantTx(
+        database.db,
+        service,
+        async (tx) =>
+          (
+            await tx
+              .select()
+              .from(artifactLineage)
+              .where(eq(artifactLineage.artifactId, artifactId))
+          )[0]!,
+      );
+    const owed = async () =>
+      (
+        await withTenantTx(database.db, service, (tx) =>
+          tx.execute<{ unconfirmed: number }>(
+            sql`select unconfirmed from lifecycle.object_delete_counts()`,
+          ),
+        )
+      ).rows[0]?.unconfirmed;
+    // The restored deletion: the serving barrier commits and the lifecycle binding is missing.
+    expect((await perform()).failed).toBe(1);
+    expect(await header()).toMatchObject({ restoreReapplyPending: true, physicalPurgedAt: null });
+
+    // (a) Before the re-proof the debt blocks the production lifecycle, keeps the deletion owed in
+    // every source purge's completion check (purge_jobs_0508_delete_proof) and the tenant closed.
+    expect((await perform(production.derived)).failed).toBe(1);
+    expect(bucket.has(key)).toBe(true);
+    expect(await owed()).toBeGreaterThan(0);
+    expect(await countUnappliedTombstones(database.db, local, tenant)).toBe(1);
+    await expect(
+      createRestoreGate({ database: database.db, store: local }).assertServing(tenant),
+    ).rejects.toEqual(new AppError('RESTORE_PENDING'));
+    // Only an object that carries this debt can be requalified, and only by the service.
+    await expect(
+      withTenantTx(database.db, service, (tx) =>
+        tx.execute(
+          sql`select lifecycle.requalify_object_restore_debt(${randomUUID()}::uuid,'absent')`,
+        ),
+      ),
+    ).rejects.toSatisfy((error: unknown) => pgCode(error) === 'EN850');
+    await expect(
+      withTenantTx(database.db, service, (tx) =>
+        tx.execute(sql`select lifecycle.requalify_object_restore_debt(${artifactId}::uuid,'gone')`),
+      ),
+    ).rejects.toSatisfy((error: unknown) => pgCode(error) === '42501');
+    await expect(
+      requalifyGeneratedRestoreDebt(database.db, transport, tenant, artifactId),
+    ).rejects.toEqual(new AppError('FORBIDDEN'));
+    // A store that cannot certify physical absence observes nothing and records nothing.
+    expect(
+      await requalifyGeneratedRestoreDebt(
+        database.db,
+        ledgerTransport(bucket),
+        service,
+        artifactId,
+      ),
+    ).toEqual({ state: 'unconfirmed' });
+    expect((await perform(production.derived)).failed).toBe(1);
+
+    // (b) The re-proof: the bytes survived the restore, which is what the observation records. Twice
+    // is the same proof. The ordinary lifecycle then admits, deletes and proves the object, which
+    // clears the header (0210) and opens the tenant.
+    expect(
+      await requalifyGeneratedRestoreDebt(database.db, transport, service, artifactId),
+    ).toEqual({ state: 'requalified', observed: 'present' });
+    expect(
+      await requalifyGeneratedRestoreDebt(database.db, transport, service, artifactId),
+    ).toEqual({ state: 'requalified', observed: 'present' });
+    failures.length = 0;
+    expect(await perform(production.derived)).toMatchObject({
+      failed: 0,
+      unconfirmed: 0,
+      artifactsRemoved: 1,
+      bytesRemoved: 1,
+    });
+    expect(failures).toEqual([]);
+    expect(bucket.has(key)).toBe(false);
+    const purged = await header();
+    expect(purged.restoreReapplyPending).toBe(false);
+    expect(purged.physicalPurgedAt).not.toBeNull();
+    expect(await owed()).toBe(0);
+    expect(await countUnappliedTombstones(database.db, local, tenant)).toBe(0);
+    await expect(
+      createRestoreGate({ database: database.db, store: local }).assertServing(tenant),
+    ).resolves.toBeUndefined();
+    // Re-applying an entry that is already applied changes nothing, even with no lifecycle binding.
+    expect(await perform()).toMatchObject({
+      failed: 0,
+      unconfirmed: 0,
+      tombstonesAdded: 0,
+      artifactsRemoved: 0,
+      bytesRemoved: 0,
+    });
+    expect(failures).toEqual([]);
   });
 });

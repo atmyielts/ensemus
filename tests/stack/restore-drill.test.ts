@@ -63,6 +63,11 @@ function linesOf(output: string) {
 describe('a backup, a deletion, and a restore', () => {
   let app: ReturnType<typeof openAppDatabase>;
   let auth: pg.Client;
+  // This suite's own connections are readers like any other. 0422's identity.begin_auth_restore
+  // refuses while any runtime role is connected (AUTH_RESTORE_READERS_STILL_CONNECTED), so they are
+  // closed across the restore, as an operator's are, and the app pool is opened again afterwards.
+  let appOpen = false;
+  let authOpen = false;
   const folder = mkdtempSync(join(tmpdir(), 'restore-drill-'));
   const backup = join(folder, 'backup');
   const accessFile = join(folder, 'access');
@@ -91,8 +96,10 @@ describe('a backup, a deletion, and a restore', () => {
       throw new Error('Build the tools first: workers/workflow/scripts/build-sovereign-tools.mjs');
     }
     app = openAppDatabase(urls.app());
+    appOpen = true;
     auth = new pg.Client({ connectionString: urls.auth() });
     await auth.connect();
+    authOpen = true;
     const recipient = testRecipient();
     writeFileSync(recipientFile, recipient.publicKeyBase64);
     writeFileSync(keyFile, recipient.privateKeyPem);
@@ -102,9 +109,21 @@ describe('a backup, a deletion, and a restore', () => {
 
   afterAll(async () => {
     rmSync(folder, { recursive: true, force: true });
-    await app?.close();
-    await auth?.end();
+    if (appOpen) await app.close();
+    if (authOpen) await auth.end();
   });
+
+  /** Closes this suite's own database sessions, so that nothing it holds is connected to a restore. */
+  async function disconnect() {
+    if (appOpen) {
+      appOpen = false;
+      await app.close();
+    }
+    if (authOpen) {
+      authOpen = false;
+      await auth.end();
+    }
+  }
 
   async function newOrg(): Promise<TenantContext> {
     const id = randomUUID();
@@ -199,6 +218,7 @@ describe('a backup, a deletion, and a restore', () => {
 
       // The restore stops the whole stack and leaves it stopped, as the runbook says, so whatever happens
       // below, the stack is started again for the suites after this one.
+      await disconnect();
       try {
         // The restore, with no reconcile yet. The ledger survives it, and the bytes do not come back.
         const restored = execFileSync(
@@ -218,6 +238,8 @@ describe('a backup, a deletion, and a restore', () => {
           ],
           { cwd: repoRoot, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 },
         );
+        app = openAppDatabase(urls.app());
+        appOpen = true;
         const objectStep = linesOf(restored).find(
           (line) => line.event === 'sovereign_restore.step' && line.component === 'objects',
         );

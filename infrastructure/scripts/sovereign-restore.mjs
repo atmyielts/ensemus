@@ -97,6 +97,74 @@ function stopEverything(values) {
   say({ event: 'sovereign_restore.stopped', services, finished_at: new Date().toISOString() });
 }
 
+/**
+ * The runtime roles 0422's identity.begin_auth_restore refuses to see connected to the database it is
+ * about to fence (AUTH_RESTORE_READERS_STILL_CONNECTED). Stopping every service does not end a session
+ * held from outside the project, so the restore asks before it replaces anything: refusing at begin
+ * would leave the databases already replaced, with the backup's own authentication state in them.
+ */
+export const RESTORE_READER_ROLES = Object.freeze([
+  'ensemus_app',
+  'ensemus_agent',
+  'ensemus_auth',
+  'ensemus_dispatcher',
+  'ensemus_secrets',
+  'ensemus_operator',
+  'ensemus_support',
+  'ensemus_eraser',
+]);
+
+export const RESTORE_READER_SESSIONS_SQL = `select usename, count(*) from pg_stat_activity where datname = 'ensemus' and usename in (${RESTORE_READER_ROLES.map((role) => `'${role}'`).join(', ')}) group by usename order by usename`;
+
+/** Reads `role|sessions` lines. Anything else is not an answer, and the restore does not guess one. */
+export function readersStillConnected(output) {
+  const readers = [];
+  for (const line of output.split('\n')) {
+    const text = line.trim();
+    if (!text) continue;
+    const match = /^(ensemus_[a-z]+)\|([1-9][0-9]{0,6})$/.exec(text);
+    if (!match || !RESTORE_READER_ROLES.includes(match[1])) {
+      throw Object.assign(new Error('RESTORE_READER_CHECK_UNREADABLE'), {
+        code: 'RESTORE_READER_CHECK_UNREADABLE',
+      });
+    }
+    readers.push({ role: match[1], sessions: Number(match[2]) });
+  }
+  return readers;
+}
+
+/** Role names and counts only, which say where the session comes from without saying whose it is. */
+function refuseConnectedReaders(values) {
+  const readers = readersStillConnected(
+    compose(
+      values,
+      'exec',
+      '-T',
+      'postgres',
+      'psql',
+      '-U',
+      'postgres',
+      '-d',
+      'ensemus',
+      '-v',
+      'ON_ERROR_STOP=1',
+      '-tA',
+      '-F',
+      '|',
+      '-c',
+      RESTORE_READER_SESSIONS_SQL,
+    ),
+  );
+  if (readers.length > 0) {
+    say({
+      event: 'sovereign_restore.readers_still_connected',
+      readers,
+      finished_at: new Date().toISOString(),
+    });
+    stop('RESTORE_READERS_STILL_CONNECTED');
+  }
+}
+
 export function authRestoreResult(output, event) {
   const matches = [];
   for (const line of output.split('\n')) {
@@ -325,6 +393,7 @@ async function main() {
   const manifest = await tools.readManifest(values.backup, key);
 
   stopEverything(values);
+  refuseConnectedReaders(values);
   await restoreDump(values, tools, manifest, key, 'postgres_ensemus', 'ensemus');
   await restoreDump(values, tools, manifest, key, 'postgres_temporal', 'temporal');
   await restoreDump(

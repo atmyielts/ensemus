@@ -4,7 +4,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { eq, sql } from 'drizzle-orm';
-import { createWorkUnit } from '@ensemus/application';
+import { AppError, createWorkUnit, requalifyRawRestoreSource } from '@ensemus/application';
 import { createKnowledgeCallStore } from '@ensemus/application/ai-knowledge-call-store';
 import { createHaltCheck } from '@ensemus/application/ai-halt';
 import { createRunTranscriptPurge } from '@ensemus/application/ai-input-ledger';
@@ -247,17 +247,18 @@ describe('actual protected material restore admission (0515)', () => {
     // rotation's commit marked this source's raw inventory restore_debt (raw_org_restore_proof_lost,
     // deferred by 0542), which guard_raw_inventory_change lets no transition leave and which is never
     // sealed in the current generation, so knowledge.guard_raw_purge_completion raises
-    // RAW_SOURCE_UNCONFIRMED. 0516 has no requalification path for raw restore debt; this replaces an
-    // expectation written before 0516 that the repaired job would complete.
-    const refusal = await withTenantTx(app.db, service, (tx) =>
-      tx
-        .update(knowledgePurgeJobs)
-        .set({ state: 'completed', completedAt: new Date() })
-        .where(eq(knowledgePurgeJobs.id, source.purgeJobId)),
-    ).then(
-      () => null,
-      (error: unknown) => error,
-    );
+    // RAW_SOURCE_UNCONFIRMED until the inventory is re-proven (0543, below).
+    const complete = () =>
+      withTenantTx(app.db, service, (tx) =>
+        tx
+          .update(knowledgePurgeJobs)
+          .set({ state: 'completed', completedAt: new Date() })
+          .where(eq(knowledgePurgeJobs.id, source.purgeJobId)),
+      ).then(
+        () => null,
+        (error: unknown) => error,
+      );
+    const refusal = await complete();
     expect(pgCode(refusal)).toBe('EN850');
     expect((refusal as { cause?: { message?: string } }).cause?.message).toBe(
       'RAW_SOURCE_UNCONFIRMED',
@@ -271,5 +272,44 @@ describe('actual protected material restore admission (0515)', () => {
     expect(repaired?.delegatedWorkRestoreGeneration).toBe(currentGeneration);
     expect(repaired?.documentsRemoved).toBe(source.job.documentsRemoved);
     expect(repaired?.transcriptsRemoved).toBe(source.job.transcriptsRemoved);
+
+    // 0543: the way out ADR-026's restore model implies. After the admitted restore the service
+    // re-proves this inventory's exact raw object set (here empty: the source never held a document)
+    // as physically absent. A person cannot, and a set that is not the inventory's records nothing.
+    await expect(
+      requalifyRawRestoreSource(app.db, memoryTransport(), tenant.owner, source.sourceId),
+    ).rejects.toEqual(new AppError('FORBIDDEN'));
+    for (const context of [tenant.owner, service])
+      await expect(
+        withTenantTx(app.db, context, (tx) =>
+          tx.execute(
+            sql`select lifecycle.requalify_raw_restore_source(${source.sourceId}::uuid,ARRAY[${randomUUID()}::uuid])`,
+          ),
+        ),
+      ).rejects.toSatisfy((error: unknown) => ['42501', 'EN850'].includes(pgCode(error) ?? ''));
+    // A source with no restore debt has nothing to requalify.
+    await expect(
+      withTenantTx(app.db, service, (tx) =>
+        tx.execute(
+          sql`select lifecycle.requalify_raw_restore_source(${randomUUID()}::uuid,'{}'::uuid[])`,
+        ),
+      ),
+    ).rejects.toSatisfy((error: unknown) => pgCode(error) === 'EN850');
+    expect(pgCode(await complete())).toBe('EN850');
+    expect(
+      await requalifyRawRestoreSource(app.db, memoryTransport(), service, source.sourceId),
+    ).toEqual({ state: 'requalified', observed: 'absent' });
+    // The same proof again changes nothing.
+    expect(
+      await requalifyRawRestoreSource(app.db, memoryTransport(), service, source.sourceId),
+    ).toEqual({ state: 'requalified', observed: 'absent' });
+    // The proven source's purge now completes under 0516's own completion guard, unchanged.
+    expect(await complete()).toBeNull();
+    const [completed] = await withTenantTx(app.db, tenant.owner, (tx) =>
+      tx.select().from(knowledgePurgeJobs).where(eq(knowledgePurgeJobs.id, source.purgeJobId)),
+    );
+    expect(completed?.state).toBe('completed');
+    expect(completed?.completedAt).not.toBeNull();
+    expect(completed?.priorCompletedAt).toEqual(source.job.completedAt);
   });
 });

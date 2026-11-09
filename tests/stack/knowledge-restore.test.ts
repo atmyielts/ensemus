@@ -30,6 +30,19 @@ import { runNativeKnowledgePurge } from '../helpers/knowledge-native';
 import { compose, secret, urls } from '../helpers/stack';
 import { withRawKnowledgeObjects } from '@ensemus/application/knowledge/raw-objects';
 
+/** Only codes this product or PostgreSQL gave, joined, for an assertion message. */
+function failureCodes(error: unknown): string {
+  const codes: string[] = [];
+  let current: unknown = error;
+  for (let depth = 0; depth < 4 && current && typeof current === 'object'; depth++) {
+    const { code, message } = current as { code?: unknown; message?: unknown };
+    if (typeof code === 'string' && /^[A-Z0-9_]{2,64}$/.test(code)) codes.push(code);
+    if (typeof message === 'string' && /^[A-Z][A-Z0-9_]{2,63}$/.test(message)) codes.push(message);
+    current = (current as { cause?: unknown }).cause;
+  }
+  return codes.length ? codes.join('/') : 'UNCODED';
+}
+
 describe('knowledge survives a real database restore as a closed source', () => {
   it('reapplies the external tombstone before restored bytes can be served', async () => {
     // This generated basename is the only container temporary artifact this test removes.
@@ -169,8 +182,16 @@ describe('knowledge survives a real database restore as a closed source', () => 
       await expect(
         createRestoreGate({ database: database.db, store }).assertServing(owner),
       ).rejects.toEqual(new AppError('RESTORE_PENDING'));
-      const applied = await reapplyTombstoneLedger(database.db, store, createServiceContext);
-      expect(applied.failed).toBe(0);
+      // The ledger is the stack's own and holds every earlier suite's deletions too, so a failure is
+      // named by its codes (never a key or a name) and the next run says which entry kind failed.
+      const failures: string[] = [];
+      const applied = await reapplyTombstoneLedger(
+        database.db,
+        store,
+        createServiceContext,
+        (error) => failures.push(failureCodes(error)),
+      );
+      expect(applied.failed, failures.join('; ')).toBe(0);
       expect(applied.tombstonesAdded).toBeGreaterThanOrEqual(1);
       const [closed] = await withTenantTx(database.db, service, (tx) =>
         tx.select().from(knowledgeSources).where(eq(knowledgeSources.id, source.sourceId)),
