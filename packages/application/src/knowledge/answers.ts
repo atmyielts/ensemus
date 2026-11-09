@@ -77,7 +77,11 @@ export type AnswerView = {
   finishedAt: Date | null;
 };
 
-/** Refuses a service context. Writes the row and `knowledge.answer_requested` in one transaction. */
+/**
+ * Refuses a service context. Writes the row and `knowledge.answer_requested` in one transaction, and
+ * returns that transaction's result: runIdempotent stores the key's response from it (API-12), so a
+ * transaction that returned nothing would store a null response body.
+ */
 export async function askQuestion(
   database: AppDatabase,
   context: TenantContext,
@@ -113,7 +117,7 @@ export async function askQuestion(
         ]),
       }
     : null;
-  await withTenantTx(database, context, async (tx) => {
+  return withTenantTx(database, context, async (tx) => {
     await requireSearchPerson(tx, context);
     const [inserted] = await tx
       .insert(knowledgeAnswers)
@@ -141,7 +145,7 @@ export async function askQuestion(
         (modelRequest && existingJob?.requestHash !== modelRequestHash(modelRequest))
       )
         throw new AppError('INVALID_INPUT');
-      return;
+      return { answerId };
     }
     if (modelRequest) await requestKnowledgeModelJobInTx(tx, context, modelRequest);
     await emit(tx, context, {
@@ -152,8 +156,8 @@ export async function askQuestion(
       classification,
       payload: { answer_id: answerId },
     });
+    return { answerId };
   });
-  return { answerId };
 }
 
 /**

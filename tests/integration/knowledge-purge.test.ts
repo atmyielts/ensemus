@@ -53,7 +53,8 @@ import { pgCode } from '../../packages/application/src/errors';
 describe('closed sources purge only after durable writer and transcript fences', () => {
   let database: ReturnType<typeof openAppDatabase>,
     agent: ReturnType<typeof openAgentDatabase>,
-    auth: pg.Client;
+    auth: pg.Client,
+    migrator: pg.Client;
   let owner: TenantContext, reader: TenantContext, reviewer: TenantContext, foreign: TenantContext;
   const bytes = new Map<string, Buffer>();
   let deletes = 0,
@@ -142,6 +143,8 @@ describe('closed sources purge only after durable writer and transcript fences',
     store = nativeKnowledgeStore(database.db, transport);
     auth = new pg.Client({ connectionString: urls.auth() });
     await auth.connect();
+    migrator = new pg.Client({ connectionString: urls.migrator() });
+    await migrator.connect();
     const makeOwner = async () => {
       const userId = randomUUID();
       await auth.query('insert into identity.users(id,name,email) values($1,$2,$3)', [
@@ -164,6 +167,7 @@ describe('closed sources purge only after durable writer and transcript fences',
     reviewer = await resolveTenantContext(database.db, admin.userId, owner.organizationId);
   });
   afterAll(async () => {
+    await migrator?.end();
     await auth?.end();
     await agent?.close();
     await database?.close();
@@ -649,6 +653,135 @@ describe('closed sources purge only after durable writer and transcript fences',
     const completed = await purge(source.sourceId, store, derived);
     expect(completed).toMatchObject({ state: 'completed', artifacts: 3, documents: 1 });
     expect(await purge(source.sourceId, store, derived)).toEqual(completed);
+  });
+  // 0532's two guards, branch by branch. Each refusal is the guard's own RAISE (SQLSTATE 42501, its
+  // message, and its function named in the error context), and the row is unchanged afterwards.
+  const raised = async (attempt: () => Promise<unknown>) => {
+    try {
+      await attempt();
+    } catch (error) {
+      // drizzle wraps the driver's error; a bare pg.Client raises it directly.
+      return ((error as { cause?: unknown }).cause ?? error) as {
+        code?: string;
+        message?: string;
+        where?: string;
+      };
+    }
+    throw new Error('TEST_REFUSAL_EXPECTED');
+  };
+  const presenceOf = async (documentId: string) =>
+    (
+      await withTenantTx(database.db, service(), (tx) =>
+        tx.select().from(knowledgeDocuments).where(eq(knowledgeDocuments.id, documentId)),
+      )
+    )[0];
+  const observe = (context: TenantContext, documentId: string, value: boolean | null) =>
+    withTenantTx(database.db, context, (tx) =>
+      tx
+        .update(knowledgeDocuments)
+        .set({ objectPresentBeforePurge: value })
+        .where(eq(knowledgeDocuments.id, documentId))
+        .returning({ id: knowledgeDocuments.id }),
+    );
+  it('refuses every presence observation 0532 does not permit (KNOWLEDGE_PURGE_PRESENCE_IMMUTABLE) and changes no document', async () => {
+    const immutable = {
+      code: '42501',
+      message: 'KNOWLEDGE_PURGE_PRESENCE_IMMUTABLE',
+      where: expect.stringContaining('guard_document_purge_presence'),
+    };
+    // Branch: the source is still active. A source never reopens, so an observation is taken only
+    // once no new bytes can arrive.
+    const active = await upload();
+    const activeBefore = await presenceOf(active.documentId);
+    expect(activeBefore?.objectPresentBeforePurge).toBeNull();
+    expect(await raised(() => observe(service(), active.documentId, true))).toMatchObject(
+      immutable,
+    );
+    expect(await presenceOf(active.documentId)).toEqual(activeBefore);
+
+    const closed = await upload();
+    await close(closed.sourceId);
+    const unobserved = await presenceOf(closed.documentId);
+    expect(unobserved?.objectPresentBeforePurge).toBeNull();
+    // Branch: not the service actor. For the app role, 0201's service_update policy already hides
+    // the row from a person, so nothing is written and no guard is reached.
+    for (const person of [owner, reader, reviewer])
+      expect(await observe(person, closed.documentId, true)).toEqual([]);
+    expect(await presenceOf(closed.documentId)).toEqual(unobserved);
+    // The one other UPDATE path on knowledge.documents is 0516's raw_document_receipt_update policy
+    // for the migrator under its raw metadata scope. Without a service actor the 0532 guard refuses
+    // it first, before that policy's own WITH CHECK is evaluated.
+    await migrator.query('begin');
+    try {
+      await migrator.query("select set_config('lifecycle.raw_object_org',$1,true)", [
+        owner.organizationId,
+      ]);
+      expect(
+        await raised(() =>
+          migrator.query(
+            'update knowledge.documents set object_present_before_purge=true where organization_id=$1 and id=$2',
+            [owner.organizationId, closed.documentId],
+          ),
+        ),
+      ).toMatchObject(immutable);
+    } finally {
+      await migrator.query('rollback');
+    }
+    expect(await presenceOf(closed.documentId)).toEqual(unobserved);
+    // Permitted: the service records the first observation of a closed source's document.
+    expect(await observe(service(), closed.documentId, true)).toHaveLength(1);
+    const observed = await presenceOf(closed.documentId);
+    expect(observed?.objectPresentBeforePurge).toBe(true);
+    // An unchanged value is not a change and is not refused.
+    expect(await observe(service(), closed.documentId, true)).toHaveLength(1);
+    // Branch: an observation already made cannot change, to the other answer or back to unknown
+    // (NULL), even by the service.
+    for (const value of [false, null])
+      expect(await raised(() => observe(service(), closed.documentId, value))).toMatchObject(
+        immutable,
+      );
+    expect(await presenceOf(closed.documentId)).toEqual(observed);
+  });
+  it('refuses a person and any decrease of blobs_absent (KNOWLEDGE_PURGE_UNCONFIRMED) and changes no purge job', async () => {
+    const unconfirmed = {
+      code: '42501',
+      message: 'KNOWLEDGE_PURGE_UNCONFIRMED',
+      where: expect.stringContaining('guard_purge_absent_count'),
+    };
+    const source = await upload();
+    await close(source.sourceId);
+    const jobOf = async () =>
+      (
+        await withTenantTx(database.db, service(), (tx) =>
+          tx
+            .select()
+            .from(knowledgePurgeJobs)
+            .where(eq(knowledgePurgeJobs.sourceId, source.sourceId)),
+        )
+      )[0];
+    const count = (context: TenantContext, value: number) =>
+      withTenantTx(database.db, context, (tx) =>
+        tx
+          .update(knowledgePurgeJobs)
+          .set({ blobsAbsent: value })
+          .where(eq(knowledgePurgeJobs.sourceId, source.sourceId))
+          .returning({ id: knowledgePurgeJobs.id }),
+      );
+    const fresh = await jobOf();
+    expect(fresh).toMatchObject({ state: 'pending', blobsAbsent: 0 });
+    // Branch: not the service actor. 0201's tenant policy lets a person reach the job row, and the
+    // 0532 guard refuses the count before any other purge-job proof is consulted.
+    for (const person of [owner, reader, reviewer])
+      expect(await raised(() => count(person, 1))).toMatchObject(unconfirmed);
+    expect(await jobOf()).toEqual(fresh);
+    // Permitted: the service raises the count.
+    expect(await count(service(), 2)).toHaveLength(1);
+    const counted = await jobOf();
+    expect(counted?.blobsAbsent).toBe(2);
+    // Branch: the count never falls, whoever asks.
+    for (const value of [1, 0])
+      expect(await raised(() => count(service(), value))).toMatchObject(unconfirmed);
+    expect(await jobOf()).toEqual(counted);
   });
   // Last, because each source here stays unconfirmed for ever by design. A DELETE whose request
   // failed in flight may still have reached the provider, and a DELETE the capability preflight
