@@ -138,6 +138,35 @@ describe('the re-apply command', () => {
     expect(store.objects.has(quarantineKeyFor(key))).toBe(true);
   });
 
+  it('re-proves only restore debt that exists, and exits non-zero for anything it could not record', async () => {
+    // 0543/0545 through the command: each named object goes to the service-only SQL proof. A tenant
+    // no restore touched has no debt, so every proof is refused and nothing is recorded or deleted.
+    const store = Object.assign(new MemoryStore(), {
+      isPhysicallyAbsent: async (key: string) => !store.objects.has(key),
+    });
+    const a = await newOrg();
+    const file = await wholeFile(store, a);
+    await expect(
+      run(
+        store,
+        '--confirm',
+        file.ref,
+        '--requalify-organization',
+        a.organizationId,
+        '--requalify-artifact',
+        `${a.organizationId}/${file.id}`,
+        '--requalify-source',
+        `${a.organizationId}/${randomUUID()}`,
+        '--requalify-archive',
+        `${a.organizationId}/${randomUUID()}/${randomUUID()}`,
+      ),
+    ).resolves.toBe(1);
+    // The ledger re-apply still ran: the confirmed deletion is done.
+    expect(store.objects.has(bytesOf(a, file.id))).toBe(false);
+    // With nothing to re-prove, the same deletion is already applied and nothing is left to do.
+    await expect(run(store)).resolves.toBe(0);
+  });
+
   it('exits non-zero for an entry it could not finish', async () => {
     const store = new MemoryStore();
     const a = await newOrg();

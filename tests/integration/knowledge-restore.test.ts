@@ -17,6 +17,7 @@ import {
   type ObjectStore,
 } from '@ensemus/application';
 import { addUploadedSource, getSource } from '@ensemus/application/knowledge/sources';
+import { revokeSource } from '@ensemus/application/knowledge/purge';
 import {
   createOrganization,
   artifactLineage,
@@ -29,6 +30,7 @@ import {
   withTenantTx,
   type TenantContext,
 } from '@ensemus/database';
+import { openAgentDatabase } from '@ensemus/database/agent';
 import { createServiceContext } from '@ensemus/database/service';
 import {
   ledgerKeyFor,
@@ -39,7 +41,7 @@ import {
 import { eq, sql } from 'drizzle-orm';
 import { pgCode } from '../../packages/application/src/errors';
 import { urls } from '../helpers/stack';
-import { nativeKnowledgeStore } from '../helpers/knowledge-native';
+import { nativeKnowledgeStore, runNativeKnowledgePurge } from '../helpers/knowledge-native';
 import {
   eraseDerivedArtifactMetadata,
   type DerivedArtifactLifecycle,
@@ -77,12 +79,16 @@ function ledgerTransport(objects: Map<string, Buffer>): ObjectStore & LedgerRead
 }
 
 describe('knowledge source ledger reapply', () => {
-  let database: ReturnType<typeof openAppDatabase>, auth: pg.Client, owner: TenantContext;
+  let database: ReturnType<typeof openAppDatabase>,
+    agent: ReturnType<typeof openAgentDatabase>,
+    auth: pg.Client,
+    owner: TenantContext;
   const objects = new Map<string, Buffer>();
   const transport = ledgerTransport(objects);
   let store: ObjectStore & LedgerReader;
   beforeAll(async () => {
     database = openAppDatabase(urls.app());
+    agent = openAgentDatabase(urls.agent());
     store = nativeKnowledgeStore(database.db, transport);
     auth = new pg.Client({ connectionString: urls.auth() });
     await auth.connect();
@@ -101,6 +107,7 @@ describe('knowledge source ledger reapply', () => {
   });
   afterAll(async () => {
     await auth?.end();
+    await agent?.close();
     await database?.close();
   });
   const fixture = async () => {
@@ -523,6 +530,34 @@ describe('knowledge source ledger reapply', () => {
     expect(
       await requalifyGeneratedRestoreDebt(database.db, transport, service, artifactId),
     ).toEqual({ state: 'requalified', observed: 'present' });
+    // 0545: an observation that the bytes survived is no deletion. Until the lifecycle proves one, the
+    // object stays owed (object_delete_counts), and so every source purge completion in the tenant
+    // stays refused by purge_jobs_0508_delete_proof, however complete that source's own purge is.
+    expect(bucket.has(key)).toBe(true);
+    expect(await owed()).toBeGreaterThan(0);
+    const unrelated = await addUploadedSource(database.db, local, tenant, {
+      title: 'Generated unrelated source',
+      mediaType: 'text/plain',
+      body: Buffer.from('Generated words purged while restored bytes survive.'),
+      classification: 'internal',
+      grants: [],
+    });
+    await revokeSource(database.db, tenant, {
+      sourceId: unrelated.sourceId,
+      expectedVersion: (await getSource(database.db, tenant, unrelated.sourceId)).version,
+      reason: 'Generated closure during restore requalification',
+    });
+    const purgeUnrelated = () =>
+      runNativeKnowledgePurge({
+        app: database.db,
+        agent: agent.db,
+        store: local,
+        organizationId: tenant.organizationId,
+        sourceId: unrelated.sourceId,
+      });
+    expect(await purgeUnrelated()).toMatchObject({ state: 'failed' });
+    expect(await owed()).toBeGreaterThan(0);
+    expect(bucket.has(key)).toBe(true);
     failures.length = 0;
     expect(await perform(production.derived)).toMatchObject({
       failed: 0,
@@ -536,18 +571,75 @@ describe('knowledge source ledger reapply', () => {
     expect(purged.restoreReapplyPending).toBe(false);
     expect(purged.physicalPurgedAt).not.toBeNull();
     expect(await owed()).toBe(0);
+    // Only now, with the deletion proven, may the unrelated source's purge complete (its retry).
+    expect(await purgeUnrelated()).toMatchObject({ state: 'completed' });
     expect(await countUnappliedTombstones(database.db, local, tenant)).toBe(0);
     await expect(
       createRestoreGate({ database: database.db, store: local }).assertServing(tenant),
     ).resolves.toBeUndefined();
     // Re-applying an entry that is already applied changes nothing, even with no lifecycle binding.
-    expect(await perform()).toMatchObject({
+    const applied = {
       failed: 0,
       unconfirmed: 0,
       tombstonesAdded: 0,
       artifactsRemoved: 0,
       bytesRemoved: 0,
-    });
+    };
+    expect(await perform()).toMatchObject(applied);
+    expect(failures).toEqual([]);
+
+    // "Already applied" needs every piece of that end state, the bytes' absence proven the way the
+    // requalification proves it (the store's physical-absence check, never a HEAD). Each piece a
+    // restored database or store lacks sends the entry down the whole path, which without a lifecycle
+    // binding refuses (INVALID_STATE) and changes nothing.
+    const refusedWithout = async (reapplied: Promise<{ failed: number }>) => {
+      failures.length = 0;
+      expect(await reapplied).toMatchObject({ failed: 1 });
+      expect(failures).toEqual([new AppError('INVALID_STATE')]);
+      failures.length = 0;
+    };
+    const performWith = (reader: ObjectStore & LedgerReader) =>
+      reapplyTombstoneLedger(
+        database.db,
+        reader,
+        createServiceContext,
+        (error) => failures.push(error),
+        { confirmed: new Set([ledgerRef(entry)]) },
+      );
+    // The tombstone is here and the bytes are back.
+    bucket.set(key, Buffer.from('A restored copy of the deleted checklist.'));
+    await refusedWithout(perform());
+    bucket.delete(key);
+    expect(await perform()).toMatchObject(applied);
+    // A HEAD says absent, but a versioned store still keeps an older version.
+    await refusedWithout(
+      performWith(
+        nativeKnowledgeStore(database.db, { ...transport, isPhysicallyAbsent: async () => false }),
+      ),
+    );
+    // A store that cannot certify absence at all proves nothing.
+    await refusedWithout(performWith(nativeKnowledgeStore(database.db, ledgerTransport(bucket))));
+    // The database's own row says otherwise: a blob not purged, or a blob for another key. These are
+    // what an older restored row looks like, so they are written the way a restore writes them.
+    const restoredRow = new pg.Client({ connectionString: urls.superuser() });
+    await restoredRow.connect();
+    try {
+      const blob = (assignment: string, values: unknown[] = []) =>
+        restoredRow.query(
+          `update platform.blob_lifecycle set ${assignment} where organization_id=$1 and artifact_id=$2`,
+          [tenant.organizationId, artifactId, ...values],
+        );
+      await blob(`state='deleting',purged_at=null`);
+      await refusedWithout(perform());
+      await blob(`state='purged',purged_at=clock_timestamp()`);
+      expect(await perform()).toMatchObject(applied);
+      await blob('object_key=$3', [`${tenant.organizationId}/artifacts/${randomUUID()}`]);
+      await refusedWithout(perform());
+      await blob('object_key=$3', [key]);
+      expect(await perform()).toMatchObject(applied);
+    } finally {
+      await restoredRow.end();
+    }
     expect(failures).toEqual([]);
   });
 });

@@ -150,6 +150,9 @@ describe('the joined inventory names every migrated table', () => {
     // 0543 restore-debt requalification proofs.
     ['lifecycle.object_restore_requalifications', 'history'],
     ['lifecycle.raw_restore_requalifications', 'knowledge'],
+    // 0545 archive restore-debt proofs and raw organization marker re-admissions.
+    ['lifecycle.archive_restore_requalifications', 'history'],
+    ['lifecycle.raw_org_restore_requalifications', 'knowledge'],
   ])('keeps %s as native proof that no archive carries or restores', (table, section) => {
     const entries = PORTABILITY_INVENTORY.filter((entry) => entry.table === table);
     expect(entries).toEqual([{ table, section, disposition: 'operational_excluded', version: 1 }]);

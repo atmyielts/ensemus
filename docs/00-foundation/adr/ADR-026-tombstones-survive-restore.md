@@ -58,6 +58,18 @@ A real deletion normally needs no decision, because its bytes went when it happe
 
 **Why not a signature.** An entry signed with a key the dispatcher does not hold would prove more, and stop the gate closing too. But the dispatcher writes entries from event metadata and may see nothing else (D2), so the signature would have to travel through a new column of `domain_events` with a new grant, and web and worker would need a new long-lived secret, with key rotation for entries that are kept indefinitely. The rule above needs none of that. If the security owner wants forged entries refused outright, a signature is the next step, and it does not conflict with this.
 
+### D3a: Restore debt is re-proven per object, and present bytes stay owed (0543, 0545)
+
+FLAGGED FOR HUMAN SECURITY REVIEW, not yet reviewed by a person
+
+A re-applied generated-file deletion (0508 derived restore debt), a reopened archive quarantine file (0508 archive restore debt), a source's raw inventory and the organization's raw inventory marker that a restore rotation moved to `restore_debt` (0516) each had no way out. After the restore is admitted (0422), the service re-proves each one, and only through these narrow calls:
+
+- **Generated file** (`--requalify-artifact <org>/<artifact>`, 0543) and **archive file** (`--requalify-archive <org>/<import>/<source artifact>`, 0545): the object is observed with the store's physical-absence check, never a HEAD, and the observation is recorded for that object, its exact writer token and the current material generation. It is never a deletion proof. The ordinary 0508 lifecycle (claim, one DELETE, independent absence) still proves the deletion, and only that clears the restore-pending header. **A file observed present stays owed** in `object_delete_counts()` and in every source purge completion check (`purge_jobs_0508_delete_proof`) until a deletion claim for that exact object and writer, admitted after the observation, is proven. A file observed absent no longer counts as owed bytes. A proof naming another writer admits nothing.
+- **Source raw inventory** (`--requalify-source <org>/<source>`, 0543): every raw object the inventory names must be observed absent and named exactly; a present object is reported, nothing is recorded, and the source stays unconfirmed. The proof stops counting the moment its capture, writers, claims or headers drift.
+- **Organization raw marker** (`--requalify-organization <org>`, 0545): re-admits native raw births in the current generation. It proves nothing about an older object. The tenant erasure witness accepts a restore-debt source only through that source's own proof, and never a legacy (protocol 0) marker.
+
+Every proof is service-only, per object or tenant, idempotent within a generation and bound to it, so a later restore reopens it. Nothing is cleared, rewritten or deleted, and there is no age, bulk, pattern or role-name clearing. Raw objects that survived a restore still have no deletion path: the source stays unconfirmed (see What this does not cover).
+
 ### D4: The serving gate looks at the data
 
 Nothing has to be remembered for the gate to work. A tombstone commits before its entry can be written and is never removed, so in ordinary running the ledger can only be behind the database. A ledger entry the database lacks therefore proves the database went back in time.
@@ -90,6 +102,7 @@ While the store is quick, the first request after an interval waits for the chec
 - **Forged entries, short of destroying a whole file.** The gate compares keys and reads no bodies, so whoever holds the ledger identity can refuse any tenant by writing one object, and it stays refused until an operator quarantines that object. They can also delete real entries, or replace one with a bad body. An entry naming a file whose bytes have already gone is applied without asking, which removes a row that could not be read anyway. An operator who confirms a forged entry destroys that file, so the runbook asks them to confirm only after a restore they know about. After a forgery, rotate `objects_ledger_*`, or the same credential can write it again.
 - **The backup itself.** A dump still holds deleted names and rows until it expires. This stops them returning to the product, and does not erase them from backups. Backup retention is `LIFE-02`. The ledger stops short of that: it keeps IDs and times indefinitely until `LIFE-02` sets retention and `LIFE-04` covers offboarding.
 - **Everything else a restore disturbs.** Work created after the backup is lost. Uploads made after the backup leave unreferenced bytes. Temporal may remember runs the database no longer has. Queued events in the dump are delivered again. Reconciling these is `OPS-02`.
+- **Raw Knowledge bytes that survived a restore.** `requalifyRawRestoreSource` reports them as `present` and records nothing, so that source's purge stays unconfirmed. Deleting them needs a raw deletion admission for a restore-debt inventory, which does not exist yet and needs its own reviewed migration.
 - **Tombstones written before this change.** They have no ledger entry and there is no backfill, because no deployment is known to exist.
 - **Other kinds of source.** Only files are tombstoned today. When search chunks, embeddings and memory arrive (M3 onward), they need their own type and re-apply step.
 

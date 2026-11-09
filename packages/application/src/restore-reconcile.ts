@@ -803,11 +803,18 @@ function requireRestoreService(context: TenantContext, id: string) {
   if (!IS_UUID.test(id)) throw new AppError('INVALID_INPUT');
 }
 
-/** The store's own physical-absence answer, never a HEAD: a versioned store may keep old bytes. */
-async function observeAbsent(store: AbsenceStore, key: string): Promise<boolean | null> {
+/**
+ * The store's own physical-absence answer, never a HEAD: a versioned store may keep old bytes that a
+ * HEAD does not see. `null` means the store cannot certify absence, or could not be asked, which proves
+ * nothing either way. Restore requalification and the ledger's already-applied check share this.
+ */
+export async function observePhysicalAbsence(
+  store: AbsenceStore,
+  key: string,
+): Promise<boolean | null> {
   if (!store.isPhysicallyAbsent) return null;
   try {
-    return await store.isPhysicallyAbsent(key);
+    return (await store.isPhysicallyAbsent(key)) === true;
   } catch {
     return null;
   }
@@ -834,7 +841,7 @@ export async function requalifyGeneratedRestoreDebt(
       .where(eq(artifactLineage.artifactId, artifactId)),
   );
   if (!header) return { state: 'unconfirmed' };
-  const absent = await observeAbsent(store, header.objectKey);
+  const absent = await observePhysicalAbsence(store, header.objectKey);
   if (absent === null) return { state: 'unconfirmed' };
   const observed = absent ? 'absent' : 'present';
   await withTenantTx(database, context, (tx) =>
@@ -868,7 +875,7 @@ export async function requalifyRawRestoreSource(
   if (!documents || documents.some((id) => !IS_UUID.test(id))) return { state: 'unconfirmed' };
   const present: string[] = [];
   for (const documentId of documents) {
-    const absent = await observeAbsent(
+    const absent = await observePhysicalAbsence(
       store,
       knowledgeObjectKey(context.organizationId, documentId),
     );
@@ -890,4 +897,56 @@ export async function requalifyRawRestoreSource(
     ),
   );
   return { state: 'requalified', observed: 'absent' };
+}
+
+/**
+ * Re-proves one imported archive file whose restored row left 0508 archive restore debt (0545), the
+ * archive counterpart of `requalifyGeneratedRestoreDebt`. The quarantine object is observed, and one
+ * service-only SQL call records the observation for that file and its exact writer token in the
+ * current generation. It deletes nothing: the archive quarantine lifecycle proves the deletion. A file
+ * observed present stays owed (object_delete_counts) until that deletion is proven.
+ */
+export async function requalifyArchiveRestoreDebt(
+  database: AppDatabase,
+  store: AbsenceStore,
+  context: TenantContext,
+  input: { importId: string; sourceArtifactId: string },
+): Promise<RestoreRequalification> {
+  requireRestoreService(context, input.importId);
+  requireRestoreService(context, input.sourceArtifactId);
+  const key = await withTenantTx(database, context, async (tx) => {
+    const result = await tx.execute<{ key: string | null }>(
+      sql`select lifecycle.archive_restore_requalification_key(${input.importId}::uuid,${input.sourceArtifactId}::uuid) as key`,
+    );
+    return result.rows[0]?.key ?? null;
+  });
+  if (!key || !key.startsWith(`${context.organizationId}/archive-quarantine/`))
+    return { state: 'unconfirmed' };
+  const absent = await observePhysicalAbsence(store, key);
+  if (absent === null) return { state: 'unconfirmed' };
+  const observed = absent ? 'absent' : 'present';
+  await withTenantTx(database, context, (tx) =>
+    tx.execute(
+      sql`select lifecycle.requalify_archive_restore_debt(${input.importId}::uuid,${input.sourceArtifactId}::uuid,${observed}) as state`,
+    ),
+  );
+  return { state: 'requalified', observed };
+}
+
+/**
+ * Re-admits native raw Knowledge births for one tenant after an admitted restore (0545). A restore
+ * rotation leaves the organization's raw inventory marker as restore debt, which refuses every native
+ * raw upload and the raw erasure witness for ever. This records, for the current generation only,
+ * that new births follow the native protocol again. It proves nothing about any older object: each
+ * source a restore left in debt keeps its own debt until `requalifyRawRestoreSource` proves it.
+ */
+export async function requalifyRawRestoreOrganization(
+  database: AppDatabase,
+  context: TenantContext,
+): Promise<{ state: 'requalified' }> {
+  requireRestoreService(context, context.organizationId);
+  await withTenantTx(database, context, (tx) =>
+    tx.execute(sql`select lifecycle.requalify_raw_restore_org() as state`),
+  );
+  return { state: 'requalified' };
 }

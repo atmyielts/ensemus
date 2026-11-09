@@ -105,6 +105,18 @@ procedure until the composed migrations, native-role gate and actual isolated dr
    node dist/restore-reconcile.js --apply
    ```
 
+   **Re-prove restore debt, one object at a time** (ADR-026 D3a; 0543, 0545). FLAGGED FOR HUMAN SECURITY REVIEW, not yet reviewed by a person. Once the restore is admitted, name each object the report or a purge left in restore debt:
+
+   ```sh
+   node dist/restore-reconcile.js --apply \
+     --requalify-organization <org> \
+     --requalify-artifact <org>/<artifact> \
+     --requalify-archive <org>/<import>/<source artifact> \
+     --requalify-source <org>/<source>
+   ```
+
+   Each option names exactly one object by its IDs; there is no pattern and no form for a whole tenant. `--requalify-organization` lets the tenant upload Knowledge again after the restore. The command observes each object with the store's physical-absence check and records what it saw; it deletes nothing itself. A generated file is then deleted by the ledger re-apply in the same run, and an archive file by the archive quarantine purge. **An object observed present stays owed**: every source purge in that tenant stays refused until its deletion is proven. A source whose raw bytes survived prints `present` with their document IDs and is not re-proven; it stays unconfirmed (below). Anything not re-proven makes the command exit 1. `reapply-ledger.js` takes the same options.
+
 8. **Review what it lists**, below. Running it again is always safe, and changes nothing that has already been done.
 9. **Start the web tier and other workers only after exact-generation authority acknowledgment AND
    actual material reconciliation.** Then, after explicit intent/charge/send review, start the connector
@@ -212,6 +224,7 @@ It prints one line of JSON for each thing, with counts, IDs, codes and keys Ense
 - **A lost ledger**, above. The ledger shares a store with the bytes. Object lock and a narrower identity belong with the production choice of store, as ADR-026 says.
 - **An email that went after the backup.** Nothing can tell, as above. An SMTP relay cannot be asked.
 - **Work done after the backup.** It is gone. Tell people what the restore point is.
+- **Raw Knowledge bytes that survived the restore.** `--requalify-source` reports them as `present` and records nothing, so that source's purge stays unconfirmed. There is no reviewed deletion path for them yet.
 - **Secrets.** Keys that seal secrets and the private key that opens a backup are yours to keep elsewhere. A backup that holds sealed secrets is no use without the key that opens them.
 
 ## Drills

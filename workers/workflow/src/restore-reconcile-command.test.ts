@@ -135,6 +135,21 @@ describe('the arguments', () => {
     ['a confirm file with nothing in it', ['--confirm-file', fileWith('')]],
     ['a quarantine that is not an entry', ['--apply', '--quarantine', 'everything']],
     ['a quarantine with no apply, which would have to change something', ['--quarantine', entry()]],
+    [
+      'a re-proof with no apply, which would record something',
+      ['--requalify-organization', randomUUID()],
+    ],
+    ['a re-proof naming a pattern', ['--apply', '--requalify-artifact', `${randomUUID()}/*`]],
+    [
+      'a re-proof missing an ID',
+      ['--apply', '--requalify-archive', `${randomUUID()}/${randomUUID()}`],
+    ],
+    [
+      'a re-proof with an ID too many',
+      ['--apply', '--requalify-source', `${randomUUID()}/${randomUUID()}/${randomUUID()}`],
+    ],
+    ['a re-proof in capitals', ['--apply', '--requalify-organization', randomUUID().toUpperCase()]],
+    ['a re-proof of all tenants', ['--apply', '--requalify-organization', 'all']],
   ])('refuses %s with status 2, having done nothing', async (_name, args) => {
     const { result, reconcile, quarantine } = run(args);
     await expect(result).resolves.toBe(2);
@@ -232,9 +247,156 @@ describe('the command', () => {
     expect(parsed[3]).toMatchObject({ needsAttention: 2, tenants: 1 });
   });
 
+  it('passes the generated-file lifecycle to the ledger only when it applies', async () => {
+    const derivedArtifacts = { erase: vi.fn() };
+    for (const [args, expected] of [
+      [['--apply'], derivedArtifacts],
+      [[], undefined],
+    ] as const) {
+      const reconcile = vi.fn(async (): Promise<RestoreReport> => ({
+        mode: args.length ? 'apply' : 'report',
+        ledger: emptyLedger,
+        tenants: [],
+        objectsWithoutTenant: 0,
+        contributorsNotRun: [],
+        needsAttention: 0,
+      }));
+      await restoreReconcileCommand([...args], {
+        database: noDatabase,
+        store: noStore,
+        listOrganizations: async () => [],
+        probeRun: async () => 'unknown',
+        contributors: [],
+        write: () => undefined,
+        reconcile: reconcile as never,
+        derivedArtifacts: derivedArtifacts as never,
+      });
+      const input = (
+        reconcile.mock.calls as unknown as [unknown, unknown, { ledgerOptions?: object }][]
+      )[0]?.[2];
+      expect((input?.ledgerOptions as { derivedArtifacts?: unknown })?.derivedArtifacts).toBe(
+        expected,
+      );
+    }
+    expect(derivedArtifacts.erase).not.toHaveBeenCalled();
+  });
+
   it('registers every required audit while missing runtime recovery remains nonqualifying', () => {
     expect(RESTORE_CONTRIBUTORS.map((item) => item.name)).toEqual(REQUIRED_RESTORE_CONTRIBUTORS);
   });
+});
+
+describe('re-proving restore debt (0543, 0545)', () => {
+  const org = randomUUID(),
+    artifact = randomUUID(),
+    importId = randomUUID(),
+    source = randomUUID();
+  const fakes = (
+    overrides: Partial<Record<'artifact' | 'archive' | 'source' | 'organization', unknown>> = {},
+  ) => {
+    const calls: string[] = [];
+    const answer =
+      (name: string, value: unknown) =>
+      async (...args: unknown[]) => {
+        calls.push(name === 'organization' ? name : `${name}:${JSON.stringify(args.at(-1))}`);
+        if (value instanceof Error) throw value;
+        return value;
+      };
+    return {
+      calls,
+      requalify: {
+        organization: answer('organization', overrides.organization ?? { state: 'requalified' }),
+        artifact: answer(
+          'artifact',
+          overrides.artifact ?? { state: 'requalified', observed: 'present' },
+        ),
+        archive: answer(
+          'archive',
+          overrides.archive ?? { state: 'requalified', observed: 'absent' },
+        ),
+        source: answer('source', overrides.source ?? { state: 'requalified', observed: 'absent' }),
+      } as never,
+    };
+  };
+  const all = [
+    '--apply',
+    '--requalify-artifact',
+    `${org}/${artifact}`,
+    '--requalify-archive',
+    `${org}/${importId}/${artifact}`,
+    '--requalify-source',
+    `${org}/${source}`,
+    '--requalify-organization',
+    org,
+  ];
+  const runWith = async (args: string[], requalify: never) => {
+    const lines: string[] = [];
+    const reconcile = vi.fn(async (): Promise<RestoreReport> => ({
+      mode: 'apply',
+      ledger: emptyLedger,
+      tenants: [],
+      objectsWithoutTenant: 0,
+      contributorsNotRun: [],
+      needsAttention: 0,
+    }));
+    const code = await restoreReconcileCommand(args, {
+      database: noDatabase,
+      store: noStore,
+      listOrganizations: async () => [],
+      probeRun: async () => 'unknown',
+      contributors: [],
+      write: (line) => lines.push(line),
+      reconcile: reconcile as never,
+      requalify,
+    });
+    return {
+      code,
+      lines: lines.map((line) => JSON.parse(line) as Record<string, unknown>),
+      reconcile,
+    };
+  };
+
+  it('re-proves each named object once, the organization first, before the ledger', async () => {
+    const { calls, requalify } = fakes();
+    const { code, lines, reconcile } = await runWith(all, requalify);
+    expect(code).toBe(0);
+    expect(calls).toEqual([
+      'organization',
+      `artifact:${JSON.stringify(artifact)}`,
+      `archive:${JSON.stringify({ importId, sourceArtifactId: artifact })}`,
+      `source:${JSON.stringify(source)}`,
+    ]);
+    const printed = lines.filter((line) => line.event === 'restore_reconcile.requalification');
+    expect(printed).toHaveLength(4);
+    expect(printed[1]).toMatchObject({
+      kind: 'artifact',
+      organizationId: org,
+      artifactId: artifact,
+      state: 'requalified',
+      observed: 'present',
+    });
+    expect(reconcile).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    ['surviving raw bytes', { source: { state: 'present', documentIds: [randomUUID()] } }],
+    ['a store that cannot certify absence', { artifact: { state: 'unconfirmed' } }],
+    ['a refusal by the database', { archive: Object.assign(new Error('x'), { code: 'EN850' }) }],
+  ])(
+    'exits 1 for %s, records nothing for it, and still runs the rest',
+    async (_name, overrides) => {
+      const { calls, requalify } = fakes(overrides);
+      const { code, lines } = await runWith(all, requalify);
+      expect(code).toBe(1);
+      expect(calls).toHaveLength(4);
+      expect(
+        lines.filter(
+          (line) =>
+            line.event === 'restore_reconcile.requalification' && line.state !== 'requalified',
+        ),
+      ).toHaveLength(1);
+    },
+  );
 });
 
 describe('asking Temporal about a run', () => {

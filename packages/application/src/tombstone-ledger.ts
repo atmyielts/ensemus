@@ -30,6 +30,7 @@ import { objectKey, type ObjectStore } from './artifacts';
 import { AppError } from './errors';
 import { closeOutdatedReviews, loadChangeable } from './work';
 import { reapplyKnowledgeSourceEntry } from './knowledge/purge';
+import { observePhysicalAbsence } from './restore-reconcile';
 
 export interface LedgerReader {
   listPages(prefix: string): AsyncIterable<string[]>;
@@ -324,7 +325,9 @@ async function reapplyEntry(
     // An entry this database already applied changes nothing (ADR-026 D3): the tombstone is here, the
     // file's metadata is gone, its purge was proven (0508 refuses physical_purged_at without a proven
     // claim and no open restore debt) and the bytes are absent. A restore that predates the deletion
-    // leaves none of that true, so it still takes the whole path below.
+    // leaves none of that true, so it still takes the whole path below. Absence is the store's own
+    // physical-absence proof, the one restore requalification uses: a HEAD cannot see the older
+    // versions a versioned store keeps, and a store that cannot answer proves nothing here.
     if (
       header &&
       generated.tombstoned &&
@@ -335,7 +338,7 @@ async function reapplyEntry(
       !generated.catalog?.alive &&
       generated.blob?.state === 'purged' &&
       generated.blob.objectKey === header.objectKey &&
-      !(await store.exists(header.objectKey))
+      (await observePhysicalAbsence(store, header.objectKey)) === true
     )
       return;
     // A missing header is unknown provenance, never an ordinary upload or permission to guess.
@@ -434,10 +437,15 @@ async function reapplyEntry(
         !['settled', 'fenced'].includes(current.writeState)
       )
         throw new AppError('INVALID_STATE');
+      // The 0508 lifecycle's proof step normally records all three itself. Never write back a purge
+      // time it already recorded: the database keeps microseconds and a Date only milliseconds, so the
+      // value would differ, and 0208 refuses any change to a recorded purge time (the restored deletion
+      // then failed after it had been proven). What is still to clear goes through the same guards.
+      if (current.physicalPurgedAt && !current.held && !current.restoreReapplyPending) return;
       await tx
         .update(artifactLineage)
         .set({
-          physicalPurgedAt: current.physicalPurgedAt ?? new Date(),
+          ...(current.physicalPurgedAt ? {} : { physicalPurgedAt: new Date() }),
           held: false,
           restoreReapplyPending: false,
         })

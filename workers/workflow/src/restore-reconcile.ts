@@ -1,5 +1,6 @@
 // Operator command, run after a restore and before anyone is let back in (ADR-030 D11). All it does itself is
 // open the connections: restore-reconcile-command.ts is the command.
+import { createObjectDeletionLifecycle } from '@ensemus/application/saas/object-deletion';
 import { readSecret } from '@ensemus/config';
 import { openAppDatabase } from '@ensemus/database';
 import { listOrganizationIds, openDispatcherDatabase } from '@ensemus/database/dispatcher';
@@ -41,6 +42,8 @@ async function main() {
       ),
     ),
     contributors: createLifecycleRestoreContributors(store),
+    // The production generated-file lifecycle (0508), as the knowledge worker composes it.
+    derivedArtifacts: createObjectDeletionLifecycle({ database: db, store }).derived,
   });
   await close();
   await dispatcher.close();

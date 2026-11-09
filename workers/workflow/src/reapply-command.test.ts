@@ -8,7 +8,14 @@ import type { ReapplyResult } from '@ensemus/application';
 import type { AppDatabase } from '@ensemus/database';
 import { ledgerRef } from '@ensemus/domain/tombstone-ledger';
 import { afterAll, describe, expect, it } from 'vitest';
-import { exitCodeFor, reapplyCommand, readConfirmFile } from './reapply-command';
+import {
+  exitCodeFor,
+  reapplyCommand,
+  readConfirmFile,
+  readRequalifications,
+  requalificationLeftToDo,
+  runRequalifications,
+} from './reapply-command';
 
 const folder = mkdtempSync(join(tmpdir(), 'reapply-command-'));
 afterAll(() => rmSync(folder, { recursive: true, force: true }));
@@ -106,6 +113,17 @@ describe('refusing to start', () => {
     ['a file with nothing after it', ['--confirm-file']],
     ['a word that is no option', ['all']],
     ['a file that is not there', ['--confirm-file', join(folder, 'not-there')]],
+    ['a re-proof of every tenant', ['--requalify-organization', 'all']],
+    ['a re-proof naming a pattern', ['--requalify-artifact', `${randomUUID()}/*`]],
+    ['a re-proof missing its object', ['--requalify-source', randomUUID()]],
+    [
+      'a re-proof with an ID too many',
+      ['--requalify-artifact', `${randomUUID()}/${randomUUID()}/${randomUUID()}`],
+    ],
+    [
+      'a re-proof in capitals',
+      ['--requalify-archive', `${randomUUID()}/${randomUUID()}/${randomUUID()}`.toUpperCase()],
+    ],
   ])('for %s, before anything is done', async (_name, args) => {
     await expect(refusedBy(...args)).resolves.toBe(2);
   });
@@ -117,10 +135,85 @@ describe('refusing to start', () => {
   });
 });
 
+describe('re-proving restore debt (0543, 0545)', () => {
+  const org = randomUUID(),
+    id = randomUUID(),
+    other = randomUUID();
+  const none = {
+    'requalify-artifact': [],
+    'requalify-archive': [],
+    'requalify-source': [],
+    'requalify-organization': [],
+  };
+
+  it('reads each option as exactly one object, the organization first', () => {
+    expect(
+      readRequalifications({
+        ...none,
+        'requalify-artifact': [`${org}/${id}`],
+        'requalify-archive': [`${org}/${id}/${other}`],
+        'requalify-source': [`${org}/${other}`],
+        'requalify-organization': [org],
+      }),
+    ).toEqual([
+      { kind: 'organization', organizationId: org },
+      { kind: 'artifact', organizationId: org, artifactId: id },
+      { kind: 'archive', organizationId: org, importId: id, sourceArtifactId: other },
+      { kind: 'source', organizationId: org, sourceId: other },
+    ]);
+    expect(readRequalifications(none)).toEqual([]);
+  });
+
+  it('asks the service of the named tenant, and reports what was not recorded', async () => {
+    const asked: string[] = [];
+    const answer =
+      (value: unknown) =>
+      async (_db: unknown, ...rest: unknown[]) => {
+        const context = (rest.length === 1 ? rest[0] : rest[1]) as {
+          organizationId: string;
+          actorType: string;
+        };
+        asked.push(`${context.actorType}:${context.organizationId}`);
+        if (value instanceof Error) throw value;
+        return value;
+      };
+    const outcomes = await runRequalifications(
+      {} as AppDatabase,
+      {},
+      readRequalifications({
+        ...none,
+        'requalify-artifact': [`${org}/${id}`],
+        'requalify-source': [`${org}/${other}`],
+        'requalify-organization': [org],
+      }),
+      {
+        requalify: {
+          organization: answer({ state: 'requalified' }),
+          artifact: answer(Object.assign(new Error('refused'), { code: 'EN850' })),
+          archive: answer({ state: 'unconfirmed' }),
+          source: answer({ state: 'present', documentIds: [id] }),
+        } as never,
+      },
+    );
+    expect(asked).toEqual([`service:${org}`, `service:${org}`, `service:${org}`]);
+    expect(outcomes.map((outcome) => outcome.state)).toEqual(['requalified', 'refused', 'present']);
+    expect(outcomes[1]).toMatchObject({ errorCode: 'EN850' });
+    expect(outcomes[2]).toMatchObject({ documentIds: [id] });
+    expect(outcomes.map(requalificationLeftToDo)).toEqual([false, true, true]);
+  });
+});
+
 describe('the operator command', () => {
   it('exits with what the command answers, and nothing of its own', () => {
     const source = readFileSync(new URL('./reapply-ledger.ts', import.meta.url), 'utf8');
     expect(source).toContain('reapplyCommand(process.argv.slice(2)');
     expect(source).toContain('process.exit(code)');
+  });
+
+  it('gives the re-apply the production generated-file lifecycle', () => {
+    const source = readFileSync(new URL('./reapply-ledger.ts', import.meta.url), 'utf8');
+    expect(source).toContain(
+      'derivedArtifacts: createObjectDeletionLifecycle({ database: db, store }).derived',
+    );
   });
 });
