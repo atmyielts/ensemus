@@ -5,6 +5,7 @@
 //
 //   node infrastructure/scripts/restore-drill.mjs --project <name with "drill" in it> --wipe-project <same name>
 //     --backup <folder> --key <private key file> --record <new file>
+//     --review-directory <empty private folder>
 //     --object-endpoint <url> --object-access-key-file <file> --object-secret-key-file <file>
 //     [--bucket ensemus] [--compose-file <file>]...
 //
@@ -12,13 +13,30 @@
 // the plan's exit needs someone other than the owner to have done this, and code cannot supply that. With no
 // answer the field stays empty, the record says so, and the command exits non-zero. It records what it saw and
 // judges nothing, so it states no time to beat and no target.
+//
+// The restore leaves authentication fenced (0422), and the drill takes the operator's steps from
+// backup-and-restore.md, in that order, before any reconcile: inspect the restored authority into the review
+// folder, apply the revocations an independent review wrote there (if it found any) and inspect again, write the
+// review declaration from what the person answers, wait out 0422's cooldown, and acknowledge through the
+// migrator's own one-shot. The review folder is mounted at /review and holds every body; the command lines carry
+// IDs and hashes only. A reconcile attempted before the acknowledgment is recorded, and must be refused.
 import { spawnSync } from 'node:child_process';
-import { writeFileSync, existsSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { writeFileSync, existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { resolve, join } from 'node:path';
 import { stdin, stdout } from 'node:process';
 import { createInterface } from 'node:readline/promises';
+import { pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
-import { compose, repoRoot, stop } from './sovereign-backup.mjs';
+import {
+  compose,
+  composeArguments,
+  composeFailureCode,
+  repoRoot,
+  say,
+  stop,
+} from './sovereign-backup.mjs';
+import { authRestoreResult } from './sovereign-restore.mjs';
 
 const OPTIONS = {
   project: { type: 'string' },
@@ -26,6 +44,7 @@ const OPTIONS = {
   backup: { type: 'string' },
   key: { type: 'string' },
   record: { type: 'string' },
+  'review-directory': { type: 'string' },
   'object-endpoint': { type: 'string' },
   'object-access-key-file': { type: 'string' },
   'object-secret-key-file': { type: 'string' },
@@ -35,6 +54,135 @@ const OPTIONS = {
 
 /** The one-shot service that holds what the command needs. See the operator notes. */
 const RECONCILE_SERVICE = 'restore-reconcile';
+
+/**
+ * The one-shot whose only database login is ensemus_migrator, the one login 0422 lets inspect, reconcile and
+ * acknowledge a restore. Never an app, auth, agent, support, secrets or eraser login (backup-and-restore.md).
+ */
+export const AUTHORITY_SERVICE = 'migrate';
+
+/** Where the private review folder is mounted in that one-shot. */
+export const REVIEW_MOUNT = '/review';
+
+/** The review declaration's fields, exactly, in 0422's order (parseAuthRestoreExternalReview). */
+export const REVIEW_FIELDS = Object.freeze([
+  'version',
+  'generation',
+  'backupId',
+  'manifestSha256',
+  'securitySha256',
+  'reviewer',
+  'reviewedAt',
+  'authorityEvidence',
+  'inFlightEffectsEvidence',
+]);
+
+/** A margin past 0422's notBefore, so a clock a little behind PostgreSQL's is not refused. */
+export const COOLDOWN_MARGIN_MS = 5_000;
+
+const refuse = (code) => Object.assign(new Error(code), { code });
+
+/**
+ * The review folder has to be private and empty: it will hold the restored authority snapshot and the review, and
+ * an earlier review must never be reused or overwritten. On a system with no owner IDs only the emptiness is
+ * checked.
+ */
+export function checkReviewDirectory(stat, entries, uid) {
+  if (!stat.isDirectory()) throw refuse('REVIEW_DIRECTORY_NOT_A_DIRECTORY');
+  if (uid !== undefined && (stat.uid !== uid || (stat.mode & 0o077) !== 0)) {
+    throw refuse('REVIEW_DIRECTORY_NOT_PRIVATE');
+  }
+  if (entries.length > 0) throw refuse('REVIEW_DIRECTORY_NOT_EMPTY');
+}
+
+/**
+ * The one-shot runs as the operator's own user, so it can write into a folder only that user can open, and as
+ * nothing else: the review folder is the only thing mounted, read-only except for inspect.
+ */
+export function operatorIdentity(proc = process) {
+  return typeof proc.getuid === 'function' && typeof proc.getgid === 'function'
+    ? `${proc.getuid()}:${proc.getgid()}`
+    : null;
+}
+
+/** The docker arguments for one auth-restore step: IDs and hashes on the command line, every body in /review. */
+export function authorityArguments(values, { reviewDirectory, writable, user }, ...args) {
+  return [
+    ...composeArguments(values),
+    'run',
+    '--rm',
+    '--no-deps',
+    ...(user ? ['--user', user] : []),
+    '--volume',
+    `${reviewDirectory}:${REVIEW_MOUNT}${writable ? '' : ':ro'}`,
+    AUTHORITY_SERVICE,
+    'node',
+    'dist/auth-restore.js',
+    ...args,
+  ];
+}
+
+/**
+ * The snapshot inspect wrote, checked against what it printed: the same bytes, generation and authority hash.
+ * Anything else is not the snapshot that step produced, and the drill does not review it.
+ */
+export function readInspection(directory, name, printed) {
+  const bytes = readFileSync(join(directory, name));
+  const inspection = JSON.parse(bytes.toString('utf8'));
+  if (
+    createHash('sha256').update(bytes).digest('hex') !== printed.snapshot_sha256 ||
+    inspection?.generation !== printed.generation ||
+    inspection?.securitySha256 !== printed.security_sha256 ||
+    inspection?.phase !== printed.phase ||
+    typeof inspection?.backupId !== 'string' ||
+    typeof inspection?.manifestSha256 !== 'string' ||
+    !Number.isFinite(Date.parse(inspection?.notBefore))
+  ) {
+    throw refuse('AUTHORITY_SNAPSHOT_DOES_NOT_MATCH');
+  }
+  return inspection;
+}
+
+/**
+ * The review declaration, from the snapshot it reviewed and what the person answered. Nothing is filled in for
+ * them: a missing answer refuses before the database is asked.
+ */
+export function authorityReview(inspection, answers, reviewedAt = new Date()) {
+  for (const field of ['reviewer', 'authorityEvidence', 'inFlightEffectsEvidence']) {
+    if (typeof answers[field] !== 'string' || answers[field].trim() === '') {
+      throw refuse('AUTHORITY_REVIEW_NOT_ANSWERED');
+    }
+  }
+  const review = {
+    version: 1,
+    generation: inspection.generation,
+    backupId: inspection.backupId,
+    manifestSha256: inspection.manifestSha256,
+    securitySha256: inspection.securitySha256,
+    reviewer: answers.reviewer,
+    reviewedAt: reviewedAt.toISOString(),
+    authorityEvidence: answers.authorityEvidence,
+    inFlightEffectsEvidence: answers.inFlightEffectsEvidence,
+  };
+  return Buffer.from(`${JSON.stringify(review, REVIEW_FIELDS)}\n`);
+}
+
+/** How long until 0422 admits an acknowledgment. The cooldown is 0422's, and nothing here shortens it. */
+export function cooldownWait(notBefore, now = Date.now()) {
+  const at = Date.parse(notBefore);
+  if (!Number.isFinite(at)) throw refuse('AUTHORITY_COOLDOWN_UNKNOWN');
+  return Math.max(0, at - now + COOLDOWN_MARGIN_MS);
+}
+
+/** A reconcile before the acknowledgment has to be refused by 0422's fence, and change nothing. */
+export function refusedBeforeAcknowledgment(run) {
+  return (
+    run.exit_status === 1 &&
+    run.failed?.errorCode === 'RESTORE_PENDING' &&
+    run.ledger === null &&
+    run.finished === null
+  );
+}
 
 async function ask(question) {
   if (!stdin.isTTY) return null;
@@ -100,9 +248,24 @@ function reconcile(values, ...args) {
     exit_status: result.status,
     ledger: of('restore_reconcile.ledger')[0] ?? null,
     finished: of('restore_reconcile.finished')[0] ?? null,
+    failed: of('restore_reconcile.failed')[0] ?? null,
     tenants: of('restore_reconcile.tenant'),
     findings: of('restore_reconcile.finding'),
   };
+}
+
+/** One auth-restore step through the migrator's one-shot. Any refusal stops the drill, naming its code. */
+function authority(values, mount, event, ...args) {
+  const result = spawnSync('docker', authorityArguments(values, mount, ...args), {
+    cwd: repoRoot,
+    encoding: 'utf8',
+    maxBuffer: 64 * 1024 * 1024,
+  });
+  if (result.status !== 0) {
+    const code = composeFailureCode(result.stderr);
+    stop(`AUTHORITY_${args[0]}_REFUSED${code ? `:${code}` : ''}`);
+  }
+  return authRestoreResult(result.stdout, event);
 }
 
 const composeFiles = (values) =>
@@ -165,6 +328,22 @@ What one run of \`restore-drill.mjs\` saw. It records and does not judge. Times 
 
 ${record.tenant_ids.length > 0 ? record.tenant_ids.map((id) => `- ${id}`).join('\n') : '- None found'}
 
+## Authority review and acknowledgment (0422)
+
+- Generation: ${value(record.authority.generation)}
+- Restored authority SHA-256, first inspection: ${value(record.authority.first_security_sha256)}
+- Revocations applied: ${value(record.authority.revocations_changed)}
+- Authority SHA-256 reviewed: ${value(record.authority.reviewed_security_sha256)}
+- Reviewed by: ${value(record.authority.reviewer)}
+- Review SHA-256: ${value(record.authority.review_sha256)}
+- Cooldown not before: ${value(record.authority.not_before)}
+- Acknowledged: ${value(record.authority.admitted_at)}
+
+## Reconcile: attempted before the acknowledgment, and refused
+
+- Exit status: ${value(record.reconcile_before_acknowledgment.exit_status)}
+- Refused with: ${value(record.reconcile_before_acknowledgment.failed?.errorCode)}
+
 ## Reconcile: report, before anything changed
 
 ${counts(record.reconcile_report)}
@@ -191,6 +370,7 @@ async function main() {
     'backup',
     'key',
     'record',
+    'review-directory',
     'object-endpoint',
     'object-access-key-file',
     'object-secret-key-file',
@@ -201,6 +381,14 @@ async function main() {
   if (values['wipe-project'] !== values.project) stop('WIPE_PROJECT_DOES_NOT_MATCH');
   const recordPath = resolve(values.record);
   if (existsSync(recordPath)) stop('RECORD_EXISTS');
+  const reviewDirectory = resolve(values['review-directory']);
+  checkReviewDirectory(
+    statSync(reviewDirectory),
+    readdirSync(reviewDirectory),
+    typeof process.getuid === 'function' ? process.getuid() : undefined,
+  );
+  // The authority review is a person's, and the drill cannot acknowledge without one.
+  if (!stdin.isTTY) stop('DRILL_NEEDS_A_PERSON_AT_A_TERMINAL');
 
   const ranBy = await ask('Who is running this drill? Write your own name:');
   const isOwner = await ask('Are you the owner of this product? Write yes or no:');
@@ -241,8 +429,118 @@ async function main() {
       (line) => line.event === 'sovereign_restore.step' && line.component === 'objects',
     ) ?? {};
 
-  // Migrations newer than the backup, then Temporal, because the reconcile asks it about runs. Nothing else.
+  const restoreFinished = restored.find((line) => line.event === 'sovereign_restore.finished');
+  if (!restoreFinished) stop('RESTORE_DID_NOT_FINISH');
+
+  // Migrations newer than the backup, before the authority is inspected, so the snapshot is the one acknowledged.
   compose(base, 'run', '--rm', '--no-deps', 'migrate');
+
+  // The authority the restore brought back, as backup-and-restore.md has an operator review it, in order.
+  const generation = String(restoreFinished.auth_restore_generation);
+  const user = operatorIdentity();
+  const writable = { reviewDirectory, writable: true, user };
+  const readOnly = { reviewDirectory, writable: false, user };
+  const inspect = (name) => {
+    const printed = authority(
+      base,
+      writable,
+      'auth_restore.inspected',
+      'inspect',
+      '--generation',
+      generation,
+      '--out',
+      `${REVIEW_MOUNT}/${name}`,
+    );
+    return readInspection(reviewDirectory, name, printed);
+  };
+  // 1. Inspect: a new file in the review folder, and hashes, phase and IDs on the terminal.
+  const first = inspect('snapshot-1.json');
+  if (
+    first.backupId !== restoreFinished.backup_id ||
+    first.manifestSha256 !== restoreFinished.manifest_sealed_sha256
+  ) {
+    stop('AUTHORITY_SNAPSHOT_IS_NOT_THIS_RESTORE');
+  }
+  say({
+    event: 'restore_drill.authority_inspected',
+    generation,
+    snapshot: join(reviewDirectory, 'snapshot-1.json'),
+    security_sha256: first.securitySha256,
+    not_before: first.notBefore,
+  });
+
+  // 2. The external-authority review: what independent, current authority says the restored dump got wrong.
+  const revocationsFile = join(reviewDirectory, 'revocations.json');
+  const needsRevocation = await ask(
+    `Compare ${join(reviewDirectory, 'snapshot-1.json')} with current independent identity, membership, team, provider and SCIM authority. If anything must be revoked, write it to ${revocationsFile} as a JSON array of exact IDs first. Does it need anything revoked? Write yes or no:`,
+  );
+  if (needsRevocation !== 'yes' && needsRevocation !== 'no') stop('AUTHORITY_REVIEW_NOT_ANSWERED');
+  let reviewed = first;
+  let revocationsChanged = 0;
+  if (needsRevocation === 'yes') {
+    if (!existsSync(revocationsFile) || !statSync(revocationsFile).isFile()) {
+      stop('REVOCATIONS_FILE_MISSING');
+    }
+    const reconciled = authority(
+      base,
+      readOnly,
+      'auth_restore.reconciled',
+      'reconcile',
+      '--generation',
+      generation,
+      '--snapshot',
+      first.securitySha256,
+      '--actions',
+      `${REVIEW_MOUNT}/revocations.json`,
+    );
+    revocationsChanged = reconciled.changed;
+    // Any change makes the earlier snapshot stale: the new fingerprint is the one reviewed and acknowledged.
+    reviewed = inspect('snapshot-2.json');
+    if (reviewed.securitySha256 !== reconciled.security_sha256)
+      stop('AUTHORITY_CHANGED_AFTER_REVIEW');
+  }
+
+  // 3. The review declaration, from the snapshot reviewed and what the person says. Nothing is filled in.
+  const answers = {
+    reviewer: await ask('Who reviewed this authority? Write their name:'),
+    authorityEvidence: await ask(
+      'Which independent identity and provider reports did they compare it with? Name them:',
+    ),
+    inFlightEffectsEvidence: await ask(
+      'What shows no send, charge or other effect was still in flight? Name the evidence:',
+    ),
+  };
+  const review = authorityReview(reviewed, answers);
+  writeFileSync(join(reviewDirectory, 'review.json'), review, { flag: 'wx', mode: 0o600 });
+
+  // Before the acknowledgment the reconcile must be refused by 0422's fence. A report, so it changes nothing.
+  const reconcileBeforeAcknowledgment = reconcile(values);
+  if (!refusedBeforeAcknowledgment(reconcileBeforeAcknowledgment)) {
+    stop('RECONCILE_NOT_REFUSED_BEFORE_ACKNOWLEDGMENT');
+  }
+
+  // 4. Acknowledge, through the migrator's one-shot, once 0422's cooldown has passed. Not before.
+  const wait = cooldownWait(reviewed.notBefore);
+  say({ event: 'restore_drill.waiting_for_cooldown', not_before: reviewed.notBefore });
+  if (wait > 0) await new Promise((done) => setTimeout(done, wait));
+  const admitted = authority(
+    base,
+    readOnly,
+    'auth_restore.admitted',
+    'acknowledge',
+    '--generation',
+    generation,
+    '--manifest',
+    reviewed.manifestSha256,
+    '--snapshot',
+    reviewed.securitySha256,
+    '--review',
+    `${REVIEW_MOUNT}/review.json`,
+  );
+  if (admitted.generation !== generation) stop('AUTH_RESTORE_GENERATION_CHANGED');
+  const admittedAt = new Date().toISOString();
+
+  // 5. Only then the reconcile. Temporal first, because the reconcile asks it about runs. Nothing else.
   compose(base, 'up', '--detach', '--wait', '--no-deps', 'temporal');
 
   const reconcileReport = reconcile(values);
@@ -282,6 +580,17 @@ async function main() {
         'show server_version',
       ).trim(),
     },
+    authority: {
+      generation,
+      first_security_sha256: first.securitySha256,
+      revocations_changed: revocationsChanged,
+      reviewed_security_sha256: reviewed.securitySha256,
+      reviewer: answers.reviewer,
+      review_sha256: admitted.review_sha256,
+      not_before: reviewed.notBefore,
+      admitted_at: admittedAt,
+    },
+    reconcile_before_acknowledgment: reconcileBeforeAcknowledgment,
     reconcile_report: reconcileReport,
     reconcile_apply: reconcileApply,
     reconcile_second: reconcileSecond,
@@ -294,6 +603,8 @@ async function main() {
   if (!ranBy || !isOwner) stop('NOBODY_SAID_WHO_RAN_THIS');
 }
 
-main().catch((error) => {
-  stop(typeof error?.code === 'string' ? error.code : 'DRILL_FAILED');
-});
+if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
+  main().catch((error) => {
+    stop(typeof error?.code === 'string' ? error.code : 'DRILL_FAILED');
+  });
+}

@@ -8,12 +8,15 @@
 // restores over the running stack, so it runs on its own in the stack project.
 //
 // The restore leaves authentication fenced (0422): every runtime role is refused until an operator inspects
-// the restored authority, records an external review and acknowledges it, which 0422 allows no sooner than 15
-// minutes after begin. The drill does each of those steps itself, with the real migrator login and the real
-// cooldown, before it asks the tenant anything, as backup-and-restore.md tells an operator to.
+// the restored authority, applies what an external review says to revoke, records that review and acknowledges
+// it, which 0422 allows no sooner than 15 minutes after begin. The drill takes each of those steps itself, in
+// backup-and-restore.md's order and with its commands: auth-restore.js in the `migrate` one-shot (the migrator
+// login), a private review folder mounted at /review, and nothing but IDs and hashes on the command line. It
+// shows the reconcile refused before the acknowledgment, waits out the real cooldown, and only then reconciles.
+// infrastructure/scripts/restore-drill.mjs runs the same sequence for an operator.
 import { execFileSync, spawnSync } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import pg from 'pg';
@@ -32,10 +35,7 @@ import {
   resolveTenantContext,
   type TenantContext,
 } from '@ensemus/database';
-import {
-  acknowledgeAuthenticationRestore,
-  inspectAuthenticationRestore,
-} from '@ensemus/database/auth-restore-operator';
+import type { AuthRestoreInspection } from '@ensemus/database/auth-restore-operator';
 import { ledgerKeyFor } from '@ensemus/domain/tombstone-ledger';
 import { S3ObjectStore } from '@ensemus/storage';
 import { inFixtureTenant } from '../helpers/fixture-tenant';
@@ -219,7 +219,7 @@ describe('a backup, a deletion, and a restore', () => {
             context.membershipId,
           ],
         );
-        return token.rows[0]!.id;
+        return { connectionId: connection.rows[0]!.id, tokenId: token.rows[0]!.id };
       }),
     );
 
@@ -233,21 +233,76 @@ describe('a backup, a deletion, and a restore', () => {
     });
 
   /**
-   * What an operator does after the restore and before anyone is served: inspect the restored authority,
-   * record a review of it, wait out 0422's cooldown and acknowledge. Each step is the real migrator helper.
+   * backup-and-restore.md's private review folder, mounted at /review in the migrator's one-shot. The one-shot
+   * runs as this test's own user, so it can write into a folder only that user can open.
    */
-  async function admitAfterReview(generation: string, manifestSha256: string) {
-    const inspection = await inspectAuthenticationRestore(urls.migrator(), generation);
-    expect(inspection).toMatchObject({ generation, manifestSha256, phase: 'invalidated' });
-    // The cooldown is 0422's and is not shortened: it is the time a stopped process gets to notice.
-    const wait = Date.parse(inspection.notBefore) - Date.now() + 5_000;
-    if (wait > 0) await new Promise((done) => setTimeout(done, wait));
-    const review = Buffer.from(
+  const reviewFolder = join(folder, 'review');
+  const operator =
+    typeof process.getuid === 'function' && typeof process.getgid === 'function'
+      ? ['--user', `${process.getuid()}:${process.getgid()}`]
+      : [];
+
+  /**
+   * One step of the authority review exactly as an operator runs it: auth-restore.js in the `migrate` one-shot,
+   * whose only database login is ensemus_migrator. IDs and hashes go on the command line; every body is a file
+   * in the review folder, which only inspect may write to.
+   */
+  const authority = (writable: boolean, ...args: string[]) => {
+    const result = spawnSync(
+      'docker',
+      [
+        'compose',
+        '-p',
+        PROJECT,
+        ...COMPOSE_FILES.flatMap((file) => ['-f', file]),
+        'run',
+        '--rm',
+        '--no-deps',
+        ...operator,
+        '--volume',
+        `${reviewFolder}:/review${writable ? '' : ':ro'}`,
+        'migrate',
+        'node',
+        'dist/auth-restore.js',
+        ...args,
+      ],
+      { cwd: repoRoot, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 },
+    );
+    return {
+      status: result.status,
+      lines: linesOf(result.stdout),
+      // auth-restore.js writes its refusal as a bare code on a line of its own.
+      refusals: result.stderr.split('\n').map((line) => line.trim()),
+    };
+  };
+
+  const only = (lines: Record<string, unknown>[], event: string) => {
+    const found = lines.filter((line) => line.event === event);
+    expect(found, event).toHaveLength(1);
+    return found[0]!;
+  };
+
+  /** A snapshot inspect wrote, with the hash of its bytes. */
+  const snapshot = (name: string) => {
+    const bytes = readFileSync(join(reviewFolder, name));
+    return {
+      sha256: createHash('sha256').update(bytes).digest('hex'),
+      body: JSON.parse(bytes.toString('utf8')) as AuthRestoreInspection,
+    };
+  };
+
+  type ReviewedRow = { organizationId: string; id: string; state: string; autoJoin?: boolean };
+  const reviewedRows = (inspection: AuthRestoreInspection, kind: 'scimTokens' | 'connections') =>
+    inspection.security[kind] as ReviewedRow[];
+
+  /** The review declaration with exactly 0422's nine fields, for the snapshot it reviewed. */
+  const writeReview = (name: string, inspection: AuthRestoreInspection) => {
+    const bytes = Buffer.from(
       JSON.stringify({
         version: 1,
-        generation,
+        generation: inspection.generation,
         backupId: inspection.backupId,
-        manifestSha256,
+        manifestSha256: inspection.manifestSha256,
         securitySha256: inspection.securitySha256,
         reviewer: 'Generated restore drill operator',
         reviewedAt: new Date().toISOString(),
@@ -256,16 +311,22 @@ describe('a backup, a deletion, and a restore', () => {
           'Generated drill: every reader and worker stayed stopped throughout.',
       }),
     );
-    expect(
-      await acknowledgeAuthenticationRestore(urls.migrator(), {
-        generation,
-        manifestSha256,
-        securitySha256: inspection.securitySha256,
-        review,
-      }),
-    ).toBe(generation);
-    return inspection;
-  }
+    writeFileSync(join(reviewFolder, name), bytes, { flag: 'wx', mode: 0o600 });
+    return bytes;
+  };
+
+  /** The roles backup-and-restore.md names as unable to acknowledge, and the one login that can. */
+  const ACKNOWLEDGE = 'identity.acknowledge_auth_restore(uuid,uuid,text,text,text,integer)';
+  const ACKNOWLEDGE_CALL =
+    'select identity.acknowledge_auth_restore($1::uuid,$2::uuid,$3,$4,$5,$6) as generation';
+  const NOT_ACKNOWLEDGING = [
+    'ensemus_agent',
+    'ensemus_app',
+    'ensemus_auth',
+    'ensemus_eraser',
+    'ensemus_secrets',
+    'ensemus_support',
+  ];
 
   /** Every table each restored database holds, by OID. A restore drops and recreates them all. */
   const tablesOf = (database: string) =>
@@ -299,7 +360,7 @@ describe('a backup, a deletion, and a restore', () => {
       const other = await addTo(b, workB.id, 'same-name.txt');
       // Authority the backup holds and the restore must not hand back.
       const bearer = await activeScimBearer(a);
-      expect(await scimState(a.organizationId, bearer)).toEqual([
+      expect(await scimState(a.organizationId, bearer.tokenId)).toEqual([
         { state: 'active', revoked: false },
       ]);
 
@@ -375,21 +436,203 @@ describe('a backup, a deletion, and a restore', () => {
           next: 'INSPECT_RECONCILE_REVIEW_ACKNOWLEDGE_AUTHORITY_THEN_RECONCILE_MATERIAL',
           readers_and_workers: 'STAY_STOPPED_NO_AUTOMATIC_RESUME',
         });
-        expect(await scimState(a.organizationId, bearer)).toEqual([
+        expect(await scimState(a.organizationId, bearer.tokenId)).toEqual([
           { state: 'revoked', revoked: true },
         ]);
-        const inspection = await admitAfterReview(
-          String(finishedRestore!.auth_restore_generation),
-          String(finishedRestore!.manifest_sealed_sha256),
+        const generation = String(finishedRestore!.auth_restore_generation);
+        const manifestSha256 = String(finishedRestore!.manifest_sealed_sha256);
+
+        // The operator's sequence from backup-and-restore.md, in order, through the real one-shot.
+        mkdirSync(reviewFolder, { mode: 0o700 });
+
+        // 1. Inspect writes a new file and prints hashes, phase and IDs only.
+        const inspected = authority(
+          true,
+          'inspect',
+          '--generation',
+          generation,
+          '--out',
+          '/review/snapshot-1.json',
         );
-        const reviewedBearer = (
-          inspection.security.scimTokens as { organizationId: string; id: string; state: string }[]
-        ).find((token) => token.id === bearer);
-        expect(reviewedBearer).toMatchObject({
-          organizationId: a.organizationId,
-          state: 'revoked',
+        expect(inspected.status, inspected.refusals.join('\n')).toBe(0);
+        const firstPrinted = only(inspected.lines, 'auth_restore.inspected');
+        expect(Object.keys(firstPrinted).sort()).toEqual([
+          'event',
+          'generation',
+          'phase',
+          'security_sha256',
+          'snapshot_sha256',
+        ]);
+        const first = snapshot('snapshot-1.json');
+        expect(firstPrinted).toEqual({
+          event: 'auth_restore.inspected',
+          generation,
+          phase: 'invalidated',
+          security_sha256: first.body.securitySha256,
+          snapshot_sha256: first.sha256,
+        });
+        expect(first.body).toMatchObject({
+          generation,
+          backupId: finishedRestore!.backup_id,
+          manifestSha256,
+          phase: 'invalidated',
+        });
+        // Begin revoked the bearer (0422, 0546). The provider it was issued on is still active, for the review.
+        expect(
+          reviewedRows(first.body, 'scimTokens').find((token) => token.id === bearer.tokenId),
+        ).toMatchObject({ organizationId: a.organizationId, state: 'revoked' });
+        expect(
+          reviewedRows(first.body, 'connections').find((row) => row.id === bearer.connectionId),
+        ).toMatchObject({ organizationId: a.organizationId, state: 'active', autoJoin: true });
+        // Inspect never overwrites a review already written.
+        const overwrite = authority(
+          true,
+          'inspect',
+          '--generation',
+          generation,
+          '--out',
+          '/review/snapshot-1.json',
+        );
+        expect(overwrite.status).not.toBe(0);
+        expect(snapshot('snapshot-1.json').sha256).toBe(first.sha256);
+
+        // 2. The external-authority review found the provider must go. A stale snapshot hash rolls back...
+        writeFileSync(
+          join(reviewFolder, 'revocations.json'),
+          JSON.stringify([
+            { kind: 'disable_provider', organizationId: a.organizationId, id: bearer.connectionId },
+          ]),
+          { flag: 'wx', mode: 0o600 },
+        );
+        const revoke = (securitySha256: string) =>
+          authority(
+            false,
+            'reconcile',
+            '--generation',
+            generation,
+            '--snapshot',
+            securitySha256,
+            '--actions',
+            '/review/revocations.json',
+          );
+        const stale = revoke('0'.repeat(64));
+        expect(stale.status).not.toBe(0);
+        expect(stale.refusals).toContain('AUTH_RESTORE_REVIEW_CHANGED');
+        // ...and the current one applies it, one row, changing the fingerprint.
+        const revoked = revoke(first.body.securitySha256);
+        expect(revoked.status, revoked.refusals.join('\n')).toBe(0);
+        const reconciled = only(revoked.lines, 'auth_restore.reconciled');
+        expect(reconciled).toMatchObject({ generation, changed: 1 });
+        expect(reconciled.security_sha256).not.toBe(first.body.securitySha256);
+
+        // Any change makes the first snapshot stale, so it is inspected again and that is what is reviewed.
+        const reinspected = authority(
+          true,
+          'inspect',
+          '--generation',
+          generation,
+          '--out',
+          '/review/snapshot-2.json',
+        );
+        expect(reinspected.status, reinspected.refusals.join('\n')).toBe(0);
+        const reviewed = snapshot('snapshot-2.json');
+        expect(only(reinspected.lines, 'auth_restore.inspected')).toMatchObject({
+          generation,
+          security_sha256: reconciled.security_sha256,
+          snapshot_sha256: reviewed.sha256,
+        });
+        expect(reviewed.body.securitySha256).toBe(reconciled.security_sha256);
+        expect(
+          reviewedRows(reviewed.body, 'connections').find((row) => row.id === bearer.connectionId),
+        ).toMatchObject({ state: 'disabled', autoJoin: false });
+
+        // 3. The bounded review declaration, for the snapshot reviewed, and one for the stale snapshot.
+        const review = writeReview('review.json', reviewed.body);
+        writeReview('review-stale.json', first.body);
+
+        // Before the acknowledgment the reconcile is refused by 0422's fence, report and apply alike.
+        for (const refused of [reconcile(), reconcile('--apply')]) {
+          expect(refused.status).toBe(1);
+          expect(
+            refused.lines.find((line) => line.event === 'restore_reconcile.failed'),
+          ).toMatchObject({ errorCode: 'RESTORE_PENDING' });
+          expect(ledgerCounts(refused.lines)).toBeUndefined();
+          expect(
+            refused.lines.find((line) => line.event === 'restore_reconcile.finished'),
+          ).toBeUndefined();
+        }
+
+        // 4. Only the migrator's own login can acknowledge. Each runtime login is refused the function...
+        for (const url of [urls.app(), urls.auth(), urls.agent(), urls.secrets()]) {
+          const runtime = new pg.Client({ connectionString: url });
+          await runtime.connect();
+          try {
+            await expect(
+              runtime.query(ACKNOWLEDGE_CALL, [
+                generation,
+                reviewed.body.backupId,
+                manifestSha256,
+                reviewed.body.securitySha256,
+                createHash('sha256').update(review).digest('hex'),
+                review.byteLength,
+              ]),
+            ).rejects.toMatchObject({ code: '42501' });
+          } finally {
+            await runtime.end();
+          }
+        }
+        // ...and no runtime role, the NOLOGIN support and eraser ones included, holds it.
+        expect(
+          await asSuperuser('ensemus', async (su) => {
+            const rows = await su.query<{ role: string; allowed: boolean }>(
+              `select rolname as role, has_function_privilege(rolname,$1,'EXECUTE') as allowed
+               from pg_roles where rolname = any($2) order by rolname`,
+              [ACKNOWLEDGE, [...NOT_ACKNOWLEDGING, 'ensemus_migrator']],
+            );
+            return rows.rows;
+          }),
+        ).toEqual(
+          [...NOT_ACKNOWLEDGING, 'ensemus_migrator']
+            .sort()
+            .map((role) => ({ role, allowed: role === 'ensemus_migrator' })),
+        );
+
+        const acknowledge = (securitySha256: string, reviewFile: string) =>
+          authority(
+            false,
+            'acknowledge',
+            '--generation',
+            generation,
+            '--manifest',
+            manifestSha256,
+            '--snapshot',
+            securitySha256,
+            '--review',
+            `/review/${reviewFile}`,
+          );
+        // The stale snapshot is refused, whatever the time...
+        const staleAcknowledgment = acknowledge(first.body.securitySha256, 'review-stale.json');
+        expect(staleAcknowledgment.status).not.toBe(0);
+        expect(staleAcknowledgment.refusals).toContain('AUTH_RESTORE_REVIEW_CHANGED');
+        // ...and the current one is refused until 0422's fixed cooldown has passed.
+        expect(Date.now() + 60_000).toBeLessThan(Date.parse(reviewed.body.notBefore));
+        const early = acknowledge(reviewed.body.securitySha256, 'review.json');
+        expect(early.status).not.toBe(0);
+        expect(early.refusals).toContain('AUTH_RESTORE_COOLDOWN_REQUIRED');
+
+        // The cooldown is 0422's and is not shortened: it is the time a stopped process gets to notice.
+        const wait = Date.parse(reviewed.body.notBefore) - Date.now() + 5_000;
+        if (wait > 0) await new Promise((done) => setTimeout(done, wait));
+        const acknowledged = acknowledge(reviewed.body.securitySha256, 'review.json');
+        expect(acknowledged.status, acknowledged.refusals.join('\n')).toBe(0);
+        expect(only(acknowledged.lines, 'auth_restore.admitted')).toEqual({
+          event: 'auth_restore.admitted',
+          generation,
+          review_sha256: createHash('sha256').update(review).digest('hex'),
+          review_bytes: review.byteLength,
         });
 
+        // 5. Only now the reconcile, with Temporal first.
         app = openAppDatabase(urls.app());
         appOpen = true;
         compose('up', '-d', '--wait', '--no-deps', 'temporal');
@@ -538,6 +781,8 @@ describe('a backup, a deletion, and a restore', () => {
         keyFile,
         '--record',
         join(folder, 'record.md'),
+        '--review-directory',
+        join(folder, 'drill-review'),
         ...objectArguments,
       ],
       { cwd: repoRoot, encoding: 'utf8' },
