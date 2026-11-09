@@ -219,6 +219,10 @@ describe('raw objects that survived a restore (0547)', () => {
       }),
     ).toMatchObject({ state: 'completed' });
     expect(bucket.objects.has(key)).toBe(false);
+    // The native purge sent the one DELETE its proven claim records. Every count after this is the
+    // survivor path's own, so the purge's DELETE is set aside here rather than in each assertion.
+    expect(bucket.deletes).toBe(1);
+    bucket.deletes = 0;
     const version = Number(
       (
         await control.query<{ version: string }>(
@@ -413,29 +417,34 @@ describe('raw objects that survived a restore (0547)', () => {
       matterRef: randomUUID(),
       scopes: [{ type: 'organization', id: null }],
     });
-    expect(await erase(h)).toEqual({ state: 'held' });
-    const [outcome] = await runRequalifications(
-      app.db,
-      h.bucket,
-      readRequalifications({
-        'requalify-artifact': [],
-        'requalify-archive': [],
-        'requalify-source': [],
-        'requalify-organization': [],
-        'delete-raw-survivor': [`${h.organizationId}/${h.sourceId}/${h.documentId}`],
-      }),
-    );
-    expect(outcome).toMatchObject({ state: 'held' });
-    expect(outcome?.deleted).toBeUndefined();
-    expect(h.bucket.deletes).toBe(0);
-    expect(h.bucket.objects.has(h.key)).toBe(true);
-    expect(await claims(h)).toEqual([{ state: 'proven', current: false }]);
-    expect(await sourceComplete(h)).toBe(false);
-    await releaseLegalHold(app.db, h.owner, {
-      holdId: hold.holdId,
-      expectedVersion: 1,
-      reasonCode: 'GENERATED_TEST_RELEASE',
-    });
+    // Released whatever happens here, so one failed assertion cannot leave the tenant held and
+    // fail the later tests that need it free.
+    try {
+      expect(await erase(h)).toEqual({ state: 'held' });
+      const [outcome] = await runRequalifications(
+        app.db,
+        h.bucket,
+        readRequalifications({
+          'requalify-artifact': [],
+          'requalify-archive': [],
+          'requalify-source': [],
+          'requalify-organization': [],
+          'delete-raw-survivor': [`${h.organizationId}/${h.sourceId}/${h.documentId}`],
+        }),
+      );
+      expect(outcome).toMatchObject({ state: 'held' });
+      expect(outcome?.deleted).toBeUndefined();
+      expect(h.bucket.deletes).toBe(0);
+      expect(h.bucket.objects.has(h.key)).toBe(true);
+      expect(await claims(h)).toEqual([{ state: 'proven', current: false }]);
+      expect(await sourceComplete(h)).toBe(false);
+    } finally {
+      await releaseLegalHold(app.db, h.owner, {
+        holdId: hold.holdId,
+        expectedVersion: 1,
+        reasonCode: 'GENERATED_TEST_RELEASE',
+      });
+    }
   });
 
   it('refuses a source that is not in restore debt', async () => {
