@@ -209,6 +209,37 @@ describe('SAML metadata and verified session boundary', () => {
       expect((result as Response).status).toBe(400);
     },
   );
+  it.each([
+    ['sha256 signature and digest', 'rsa-sha256', 'sha256', 'ds', true],
+    ['an RSA-SHA1 signature', 'rsa-sha1', 'sha256', 'ds', false],
+    ['a SHA-1 digest', 'rsa-sha256', 'sha1', 'ds', false],
+    ['a SHA-1 method in a lookalike namespace', 'rsa-sha1', 'sha1', 'x', false],
+  ] as const)(
+    'admits only ADR-031 sha256 XML signatures before the native verifier: %s',
+    async (_name, signature, digest, prefix, admitted) => {
+      const methods = {
+        'rsa-sha256': 'http://www.w3.org/2001/04/xmldsig-more#rsa-sha256',
+        'rsa-sha1': 'http://www.w3.org/2000/09/xmldsig#rsa-sha1',
+        sha256: 'http://www.w3.org/2001/04/xmlenc#sha256',
+        sha1: 'http://www.w3.org/2000/09/xmldsig#sha1',
+      };
+      const namespace =
+        prefix === 'ds' ? 'http://www.w3.org/2000/09/xmldsig#' : 'urn:generated:lookalike';
+      const xml = `<p:Response xmlns:p="urn:oasis:names:tc:SAML:2.0:protocol" xmlns:a="urn:oasis:names:tc:SAML:2.0:assertion" xmlns:${prefix}="${namespace}"><a:Assertion ID="_a"><a:Issuer>https://idp.invalid</a:Issuer><${prefix}:Signature><${prefix}:SignedInfo><${prefix}:SignatureMethod Algorithm="${methods[signature]}"/><${prefix}:Reference URI="#_a"><${prefix}:DigestMethod Algorithm="${methods[digest]}"/><${prefix}:DigestValue>AA==</${prefix}:DigestValue></${prefix}:Reference></${prefix}:SignedInfo><${prefix}:SignatureValue>AA==</${prefix}:SignatureValue></${prefix}:Signature><a:Subject><a:NameID>subject</a:NameID></a:Subject><a:AuthnStatement AuthnInstant="${new Date(Date.now() - 1000).toISOString()}"/></a:Assertion></p:Response>`;
+      const result = await guardSamlRequest(
+        new Request('https://ensemus.example.invalid/api/auth/sso/saml2/sp/acs/generated', {
+          method: 'POST',
+          headers: { 'content-type': 'application/x-www-form-urlencoded' },
+          body: new URLSearchParams({ SAMLResponse: Buffer.from(xml).toString('base64') }),
+        }),
+      );
+      if (admitted) expect(result).not.toBeInstanceOf(Response);
+      else {
+        expect(result).toBeInstanceOf(Response);
+        expect((result as Response).status).toBe(400);
+      }
+    },
+  );
   it('captures an untrusted assertion envelope and preserves its exact POST body for the real verifier', async () => {
     const xml = `<p:Response xmlns:p="urn:oasis:names:tc:SAML:2.0:protocol" xmlns:a="urn:oasis:names:tc:SAML:2.0:assertion"><a:Assertion><a:Issuer>https://idp.invalid</a:Issuer><a:Subject><a:NameID>subject</a:NameID></a:Subject><a:AuthnStatement AuthnInstant="${new Date(Date.now() - 1000).toISOString()}"/></a:Assertion></p:Response>`;
     const body = new URLSearchParams({

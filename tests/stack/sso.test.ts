@@ -5,8 +5,11 @@ import { tamperSaml } from '../helpers/saml-idp';
 
 describe('SAML and SCIM through actual built HTTP routes', () => {
   it('uses a real signed browser-carried assertion and refuses its replay without another session', async () => {
-    const f = await ssoStackFixture(),
-      flow = await f.signIn(),
+    const f = await ssoStackFixture();
+    // The member's password account was never linked implicitly (0421); they connect it once, and
+    // ordinary company sign-in below then admits the already-linked subject.
+    await f.connectMember();
+    const flow = await f.signIn(),
       signed = await f.idp.response(flow.url, f.spMetadata, f.member.email);
     const send = () =>
       fetch(`${BASE}/api/auth/sso/saml2/sp/acs/${f.connection.provider_id}`, {
@@ -65,8 +68,9 @@ describe('SAML and SCIM through actual built HTTP routes', () => {
     }
   });
   it('shows a provisioning token once, scopes deprovisioning to its company, and returns the same401 for absent/unknown/revoked tokens', async () => {
-    const f = await ssoStackFixture(),
-      flow = await f.signIn(),
+    const f = await ssoStackFixture();
+    await f.connectMember();
+    const flow = await f.signIn(),
       signed = await f.idp.response(flow.url, f.spMetadata, f.member.email),
       response = await fetch(`${BASE}/api/auth/sso/saml2/sp/acs/${f.connection.provider_id}`, {
         method: 'POST',
@@ -77,6 +81,8 @@ describe('SAML and SCIM through actual built HTTP routes', () => {
         }),
         redirect: 'manual',
       });
+    // The later 404 proves deprovisioning only if this browser really holds a company session.
+    expect(response.headers.get('location')).not.toContain('error=');
     remember(flow.jar, response);
     const issued = await submit(f.path, f.owner.jar, /Create provisioning token/);
     expect(issued.status).toBe(200);

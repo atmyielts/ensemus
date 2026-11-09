@@ -43,6 +43,51 @@ describe('generated SAML provider uses actual request validation and assertion s
     });
   });
 
+  it('keeps a genuinely RSA-SHA1 signed assertion out at the application input fence', async () => {
+    const generated = await generatedSamlIdp(),
+      idp = IdentityProvider({ metadata: generated.metadata }),
+      request = ServiceProvider({ metadata }).createLoginRequest(idp, 'redirect'),
+      answer = await generated.response(request.context, metadata, 'generated@example.invalid', {
+        algorithm: 'http://www.w3.org/2000/09/xmldsig#rsa-sha1',
+      }),
+      xml = Buffer.from(answer.SAMLResponse, 'base64').toString('utf8');
+    expect(xml).toContain('Algorithm="http://www.w3.org/2000/09/xmldsig#rsa-sha1"');
+    const guarded = await guardSamlRequest(
+      new Request('https://generated-sp.example.invalid/api/auth/sso/saml2/sp/acs/generated', {
+        method: 'POST',
+        body: new URLSearchParams({
+          SAMLResponse: answer.SAMLResponse,
+          RelayState: answer.RelayState,
+        }),
+      }),
+    );
+    expect(guarded).toBeInstanceOf(Response);
+    expect((guarded as Response).status).toBe(400);
+  });
+
+  it('leaves the product’s own schema validator in place after parsing a request', async () => {
+    // In an integration process the product's SAML library has registered its own validator in this
+    // same samlify module. The fixture's XSDs must judge only the request it parses, never replace it.
+    const context = (
+        createRequire(import.meta.url)('samlify/build/src/api') as {
+          getContext: () => { validate?: ((xml: string) => Promise<unknown>) | undefined };
+        }
+      ).getContext(),
+      before = context.validate,
+      deployed = vi.fn(async () => 'SUCCESS_VALIDATE_XML');
+    context.validate = deployed;
+    try {
+      const generated = await generatedSamlIdp(),
+        idp = IdentityProvider({ metadata: generated.metadata }),
+        request = ServiceProvider({ metadata }).createLoginRequest(idp, 'redirect');
+      await generated.response(request.context, metadata, 'generated@example.invalid');
+      expect(context.validate).toBe(deployed);
+      expect(deployed).not.toHaveBeenCalled();
+    } finally {
+      context.validate = before;
+    }
+  });
+
   it('refuses well-formed XML that violates the actual SAML request schema', async () => {
     const generated = await generatedSamlIdp(),
       idp = IdentityProvider({ metadata: generated.metadata }),

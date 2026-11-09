@@ -12,6 +12,22 @@ export type SamlEnvelope = {
   relaySha256?: string | null;
 };
 const ASSERTION = 'urn:oasis:names:tc:SAML:2.0:assertion';
+// ADR-031 D9: signed assertions use sha256. The pinned library applies its algorithm allow-list to
+// the redirect binding's SigAlg parameter only, never to the algorithms an HTTP-POST XML signature
+// names inside itself, so its verifier would accept an RSA-SHA1 signature or a SHA-1 digest.
+const SIGNED_WITH: ReadonlyArray<readonly [string, string]> = [
+  ['SignatureMethod', 'http://www.w3.org/2001/04/xmldsig-more#rsa-sha256'],
+  ['DigestMethod', 'http://www.w3.org/2001/04/xmlenc#sha256'],
+];
+/** Every signature and digest method anywhere in the response, in any namespace, is sha256. */
+function sha256Only(root: Element): boolean {
+  for (const [localName, algorithm] of SIGNED_WITH) {
+    const methods = root.getElementsByTagNameNS('*', localName);
+    for (let index = 0; index < methods.length; index++)
+      if (methods.item(index)?.getAttribute('Algorithm') !== algorithm) return false;
+  }
+  return true;
+}
 function children(parent: Element, namespace: string, localName: string): Element[] {
   const found: Element[] = [];
   for (let node = parent.firstChild; node; node = node.nextSibling)
@@ -43,7 +59,8 @@ function envelope(xml: string, body: Buffer): SamlEnvelope | null {
     root.getElementsByTagNameNS(ASSERTION, 'EncryptedAssertion').length ||
     root.getElementsByTagNameNS('http://www.w3.org/2001/04/xmlenc#', '*').length ||
     root.getElementsByTagNameNS('http://www.w3.org/2009/xmlenc11#', '*').length ||
-    root.getElementsByTagNameNS(ASSERTION, 'Assertion').length !== 1
+    root.getElementsByTagNameNS(ASSERTION, 'Assertion').length !== 1 ||
+    !sha256Only(root)
   )
     return null;
   const assertions = children(root, ASSERTION, 'Assertion');

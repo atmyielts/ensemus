@@ -4,16 +4,30 @@ import { createRequire } from 'node:module';
 import { generate } from 'selfsigned';
 // Pinned samlify is CommonJS with getter exports; load its actual module identically in native
 // ESM, Playwright and tsx/Vitest transforms. No default/namespace interop heuristic.
-const { IdentityProvider, ServiceProvider, SamlLib, setSchemaValidator } = createRequire(
-  import.meta.url,
-)('samlify') as typeof import('samlify');
+const load = createRequire(import.meta.url);
+const { IdentityProvider, ServiceProvider, SamlLib } = load('samlify') as typeof import('samlify');
 // This generated IdP parses real outbound requests in its own test process. Use the actual bundled
 // SAML protocol/assertion XSDs; a permissive validator would hide malformed product requests.
-setSchemaValidator(
-  createRequire(import.meta.url)('@authenio/samlify-node-xmllint') as Parameters<
-    typeof setSchemaValidator
-  >[0],
-);
+const xsd = load('@authenio/samlify-node-xmllint') as {
+  validate: (xml: string) => Promise<unknown>;
+};
+// Pinned samlify keeps ONE validator for the whole process. Where the product under test runs in
+// this same process (integration), a global registration would also replace the validator the
+// product's own SAML library registered, so its inbound responses would be judged by this fixture's
+// XSDs instead of the deployed check. The XSDs therefore apply only while this IdP parses a request.
+const { getContext } = load('samlify/build/src/api') as {
+  getContext: () => { validate?: ((xml: string) => Promise<unknown>) | undefined };
+};
+async function withRequestSchemas<T>(work: () => Promise<T>): Promise<T> {
+  const context = getContext(),
+    deployed = context.validate;
+  context.validate = xsd.validate;
+  try {
+    return await work();
+  } finally {
+    context.validate = deployed;
+  }
+}
 const SHA256 = 'http://www.w3.org/2001/04/xmldsig-more#rsa-sha256';
 const esc = (value: string) =>
   value
@@ -66,9 +80,11 @@ export async function generatedSamlIdp(
     ) {
       const sp = ServiceProvider({ metadata: spMetadata }),
         url = new URL(authorizationURL);
-      const request = await idp.parseLoginRequest(sp, 'redirect', {
-        query: Object.fromEntries(url.searchParams),
-      });
+      const request = await withRequestSchemas(() =>
+        idp.parseLoginRequest(sp, 'redirect', {
+          query: Object.fromEntries(url.searchParams),
+        }),
+      );
       const requestId = options.requestId ?? request.extract.request?.id;
       if (typeof requestId !== 'string') throw new Error('GENERATED_REQUEST_MISSING');
       const assertionId = `_${randomUUID()}`,
