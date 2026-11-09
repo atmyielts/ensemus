@@ -263,7 +263,8 @@ describe.skipIf(!enabled)('M4 real agent-run confidentiality', () => {
    * deployment with billing named on, and a Sovereign deployment can never have one. So the Cloud and BYOM
    * cases run in the air-gap gate's hosted phase (infrastructure/scripts/air-gap-gate.mjs HOSTED_SUITES), where
    * web, web-2, the worker and the agent-worker run hosted with billing on and this process gets the same
-   * settings. The Sovereign case runs in the Sovereign phase. The control runs in both.
+   * settings. The Sovereign phase runs the Sovereign case and the Cloud/BYOM refusal on that deployment. The
+   * control runs in both.
    */
   const hostedEntitlement = async (
     mode: 'cloud' | 'byom',
@@ -358,6 +359,81 @@ describe.skipIf(!enabled)('M4 real agent-run confidentiality', () => {
       expect(profile).toEqual([
         { billing_owner: 'ensemus', endpoint_url: MODEL_ORIGIN, keyless: true },
       ]);
+      // Nothing reached the provider, so nothing was charged, drafted or kept.
+      const captured = await fixture.requests();
+      expect(captured.historyTruncated).toBe(false);
+      expect(captured.requests).toEqual([]);
+      const { rows: modelUsage } = await fixture.su.query(
+        `select meter from platform.usage_ledger
+          where organization_id = $1 and run_id = $2 and left(meter, 6) = 'model_'`,
+        [fixture.organizationId, fixture.runId],
+      );
+      expect(modelUsage).toEqual([]);
+      const { rows: draftEvidence } = await fixture.su.query(
+        'select artifact_id from ai.artifact_evidence where organization_id = $1',
+        [fixture.organizationId],
+      );
+      expect(draftEvidence).toEqual([]);
+      expect(await payloadsOf(fixture)).toEqual([]);
+      await scanSurfaces(fixture, apiBodies, named);
+    },
+    120000,
+  );
+
+  // The Sovereign phase's negative (ADR-032 D1): this deployment never has billing on, so
+  // evaluateEntitlement answers a Cloud or BYOM tenant BILLING_NOT_ENABLED before anything else and its
+  // model.call is ENTITLEMENT_DENIED; Cloud is also closed outright until real prepaid holds bind to
+  // dispatch (packages/commercial createEntitlements, 7a2e5ed; M8-standing-runtime-bindings.md). The
+  // run therefore ends at the gateway's first step, before a profile is bound or any provider is called,
+  // with no usage row and no payload, and its canaries reach no surface. The hosted phase above holds the
+  // same two modes to their hosted outcome; this one holds them to their refusal here.
+  it.runIf(!HOSTED).each(['cloud', 'byom'] as const)(
+    '%s: is refused model calls on this Sovereign deployment before any provider sees a canary, and keeps them off persistence, logs, audit and views',
+    async (mode) => {
+      const { canaries, named } = plant(mode);
+      const fixture = await startAiCanaryRun(canaries, mode);
+      fixtures.push(fixture);
+      const apiBodies = [fixture.start.text];
+      // The turn is counted as started (agent-activities' mainStarted) and the gateway refuses it at
+      // its first step, the entitlement; the reducer ends the run with that turn's own stop code.
+      await ended(fixture, apiBodies, {
+        status: 'policy_denied',
+        stop_code: 'ENTITLEMENT_DENIED',
+        model_turns: 1,
+        tool_calls: 0,
+      });
+      const handle = temporal.workflow.getHandle(
+        `work-${fixture.organizationId}-${fixture.workUnitId}`,
+      );
+      await expect.poll(async () => (await handle.describe()).status.name, poll).toBe('COMPLETED');
+      expect(await handle.result()).toMatchObject({
+        status: 'policy_denied',
+        agentRunId: fixture.runId,
+      });
+      // The stored mode is the one asked for, and the refusal came before any profile was bound.
+      const { rows: bound } = await fixture.su.query(
+        `select o.commercial_mode, r.bound_profile_id from ai.agent_runs r
+           join org.organizations o on o.id = r.organization_id
+          where r.organization_id = $1 and r.id = $2`,
+        [fixture.organizationId, fixture.runId],
+      );
+      expect(bound).toEqual([{ commercial_mode: mode, bound_profile_id: null }]);
+      if (mode === 'cloud') {
+        // The explicit Cloud grant is there, so the refusal is the deployment's and Cloud's closure,
+        // not a missing grant.
+        const { rows: grants } = await fixture.su.query(
+          `select mode, period, features from platform.entitlements
+            where organization_id = $1 order by version desc limit 1`,
+          [fixture.organizationId],
+        );
+        expect(grants).toEqual([
+          {
+            mode: 'cloud',
+            period: new Date().toISOString().slice(0, 7),
+            features: ['agent.run', 'model.call'],
+          },
+        ]);
+      }
       // Nothing reached the provider, so nothing was charged, drafted or kept.
       const captured = await fixture.requests();
       expect(captured.historyTruncated).toBe(false);
