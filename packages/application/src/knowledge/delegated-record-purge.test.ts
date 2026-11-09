@@ -1,5 +1,7 @@
 // The record purge's page cursor, without PostgreSQL. Its effects and final proof are integration cases
-// (agent-delegated-materials.test.ts L4/L5, record-deletion-outbox.test.ts L8a).
+// (agent-delegated-materials.test.ts L4/L5). The wrap itself, on real PostgreSQL for both the source and
+// the record purge (a pass refused by a hold leaves the cursor past every open row, and the first pass
+// after the release wraps and proves in that pass), is tests/integration/delegated-purge-cursor-wrap.test.ts.
 import { describe, expect, it, vi } from 'vitest';
 import { wrapCursorPage } from './delegated-record-purge';
 
