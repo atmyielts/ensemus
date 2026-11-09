@@ -10720,9 +10720,11 @@ export interface components {
                 "application/json": components["schemas"]["Error"];
             };
         };
-        /** @description This organization's database was restored from a backup and is behind the tombstone ledger, so nothing is served until an operator has re-applied the ledger. The code is RESTORE_PENDING, the request did nothing, and it can be repeated. Only members of the organization see this. */
+        /** @description The organization cannot take this request right now, and the request did nothing. RESTORE_PENDING means its database was restored from a backup and is behind the tombstone ledger, so nothing is served until an operator has re-applied the ledger. TENANT_BUSY means a background job in the organization, such as the purge of a deleted record, held a row this request needed; send the same request again, with the same Idempotency-Key and If-Match, after the seconds in Retry-After. Both are retryable. Only members of the organization see this. */
         RestorePending: {
             headers: {
+                /** @description Seconds to wait before sending the same request again. Sent with TENANT_BUSY. */
+                "Retry-After"?: string;
                 [name: string]: unknown;
             };
             content: {

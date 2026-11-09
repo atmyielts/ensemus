@@ -4,9 +4,17 @@ import { beforeAll, describe, it, expect } from 'vitest';
 import { BASE, signUp, createOrganization, type Person } from '../helpers/forms';
 import { contractProblems, operationName, operations } from '../helpers/openapi';
 
-/** Bounds the resend of a write refused only because a background purge held the tenant's row. */
+/**
+ * Bounds the resend of a request the API refused as TENANT_BUSY (503, retryable, with Retry-After;
+ * packages/application/src/errors.ts). Deleting a record starts its typed-record purge in the stack's
+ * workers (ADR-028 lifecycle item 8a), which holds this tenant's organization row FOR NO KEY UPDATE
+ * NOWAIT (0514 lifecycle.record_purge_hold_free). Every objects.* insert passes the erasure birth fence
+ * (0508), which takes the same row FOR SHARE NOWAIT (0533), so a write made while that purge runs is
+ * refused at once and did nothing. CI run 42706818569: such a refusal, then reported as a 409, left a
+ * record uncreated, and the relation to it was refused as malformed (400).
+ */
 const BUSY_ATTEMPTS = 20;
-const BUSY_DELAY_MS = 500;
+const MAX_RETRY_AFTER_SECONDS = 5;
 
 describe('custom object HTTP contracts through the proxy', () => {
   let owner: Person, outsider: Person, organization: string;
@@ -17,6 +25,12 @@ describe('custom object HTTP contracts through the proxy', () => {
     outsider = await signUp('Object API outsider');
     await createOrganization(outsider, 'Other generated object tenant');
   });
+  /**
+   * One request, checked against the spec. A TENANT_BUSY refusal is itself checked (503, retryable,
+   * Retry-After) and the identical request, with the same Idempotency-Key and If-Match, is sent again
+   * after the wait it names, as the API documents. No other answer is ever resent: a 409, a VERSION_
+   * CONFLICT among them, is returned at once, so every assertion below still sees it.
+   */
   async function call(
     person: Person | undefined,
     method: string,
@@ -24,69 +38,54 @@ describe('custom object HTTP contracts through the proxy', () => {
     body?: unknown,
     extra: Record<string, string> = {},
   ) {
-    const path = `/api/v1/organizations/${organization}/${suffix}`,
-      response = await fetch(BASE + path, {
+    const path = `/api/v1/organizations/${organization}/${suffix}`;
+    for (let attempt = 1; ; attempt++) {
+      const response = await fetch(BASE + path, {
+          method,
+          headers: {
+            ...(person ? { cookie: person.jar.cookie } : {}),
+            ...(method === 'GET' ? {} : { origin: BASE }),
+            ...(body === undefined ? {} : { 'content-type': 'application/json' }),
+            ...extra,
+          },
+          ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+          redirect: 'manual',
+        }),
+        text = await response.text();
+      const contract = contractProblems({
         method,
-        headers: {
-          ...(person ? { cookie: person.jar.cookie } : {}),
-          ...(method === 'GET' ? {} : { origin: BASE }),
-          ...(body === undefined ? {} : { 'content-type': 'application/json' }),
-          ...extra,
-        },
-        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-        redirect: 'manual',
-      }),
-      text = await response.text();
-    const contract = contractProblems({
-      method,
-      path,
-      status: response.status,
-      headers: response.headers,
-      text,
-    });
-    expect(contract.problems, text).toEqual([]);
-    if (contract.operation && response.status < 400) validated.add(contract.operation);
-    expect(response.headers.get('cache-control')).toContain('no-store');
-    return {
-      status: response.status,
-      body: text ? (JSON.parse(text) as Record<string, unknown>) : null,
-      headers: response.headers,
-      text,
-    };
+        path,
+        status: response.status,
+        headers: response.headers,
+        text,
+      });
+      expect(contract.problems, text).toEqual([]);
+      if (contract.operation && response.status < 400) validated.add(contract.operation);
+      expect(response.headers.get('cache-control')).toContain('no-store');
+      const answer = {
+        status: response.status,
+        body: text ? (JSON.parse(text) as Record<string, unknown>) : null,
+        headers: response.headers,
+        text,
+      };
+      if (answer.status !== 503 || answer.body?.code !== 'TENANT_BUSY' || attempt >= BUSY_ATTEMPTS)
+        return answer;
+      expect(answer.body.retryable, text).toBe(true);
+      const wait = Number(response.headers.get('retry-after'));
+      expect(Number.isInteger(wait) && wait > 0, text).toBe(true);
+      await new Promise((resolve) =>
+        setTimeout(resolve, Math.min(wait, MAX_RETRY_AFTER_SECONDS) * 1000),
+      );
+    }
   }
-  /**
-   * The owner's write with If-Match, which is expected to succeed, sent again while the busy refusal
-   * below is all that stood in its way. Deleting a record starts its typed-record purge in the stack's
-   * workers (ADR-028 lifecycle item 8a), which holds this tenant's organization row FOR NO KEY UPDATE
-   * NOWAIT (0514 lifecycle.record_purge_hold_free). Every objects.* table is under the erasure birth
-   * fence (0508), which takes the same row FOR SHARE NOWAIT (0533) on each insert its triggers make, so
-   * such a write is refused at once with 55P03, which custom-objects.ts reports as VERSION_CONFLICT
-   * (CI run 42692158422: a correct If-Match answered 409 right after the previous test's deletion).
-   * A 409 is taken for that refusal only while `resource` still carries the exact version the request
-   * named. A real version conflict has moved it on, and that 409 is returned at once, so no assertion
-   * on a stale or a current If-Match changes.
-   */
-  async function preconditioned(
+  /** The owner's write with If-Match: what the API answers, with nothing resent but a busy refusal. */
+  const preconditioned = (
     method: string,
     suffix: string,
     body: unknown,
     ifMatch: string,
-    resource: string,
     extra: Record<string, string> = {},
-  ) {
-    for (let attempt = 1; ; attempt++) {
-      const answer = await call(owner, method, suffix, body, { ...extra, 'if-match': ifMatch });
-      if (
-        answer.status !== 409 ||
-        answer.body?.code !== 'VERSION_CONFLICT' ||
-        attempt >= BUSY_ATTEMPTS
-      )
-        return answer;
-      const current = await call(owner, 'GET', resource);
-      if (current.status !== 200 || current.headers.get('etag') !== ifMatch) return answer;
-      await new Promise((resolve) => setTimeout(resolve, BUSY_DELAY_MS));
-    }
-  }
+  ) => call(owner, method, suffix, body, { ...extra, 'if-match': ifMatch });
   const typeInput = () => {
     const slug = `kind_${randomUUID().replaceAll('-', '')}`;
     return {
@@ -148,7 +147,6 @@ describe('custom object HTTP contracts through the proxy', () => {
           `object-records/${id}`,
           undefined,
           first.headers.get('etag') ?? '',
-          `object-records/${id}`,
         )
       ).status,
     ).toBe(204);
@@ -185,6 +183,10 @@ describe('custom object HTTP contracts through the proxy', () => {
       a = String(first.body?.id),
       b = String(second.body?.id),
       apath = `object-records/${a}`;
+    // Both records have to exist before anything relates them: an unchecked refusal here once reached
+    // the relation below as to_record_id "undefined" (CI run 42706818569, 400 INVALID_INPUT).
+    expect(first.status, first.text).toBe(201);
+    expect(second.status, second.text).toBe(201);
     expect((await call(owner, 'GET', `${tpath}/records?limit=1`)).status).toBe(200);
     expect((await call(owner, 'GET', apath)).status).toBe(200);
     expect((await call(owner, 'PATCH', apath, { display_name: 'Missing version' })).status).toBe(
@@ -195,7 +197,6 @@ describe('custom object HTTP contracts through the proxy', () => {
       apath,
       { display_name: 'Edited One' },
       first.headers.get('etag') ?? '',
-      apath,
     );
     expect(edited.status, edited.text).toBe(200);
     expect(
@@ -213,14 +214,13 @@ describe('custom object HTTP contracts through the proxy', () => {
       relation_key: 'related',
       to_record_id: b,
     });
-    expect(relation.status).toBe(201);
+    expect(relation.status, relation.text).toBe(201);
     expect((await call(owner, 'GET', `${apath}/relations`)).status).toBe(200);
     expect(
       (await call(owner, 'DELETE', `${apath}/relations/${String(relation.body?.id)}`)).status,
     ).toBe(204);
     expect(
-      (await preconditioned('DELETE', apath, undefined, edited.headers.get('etag') ?? '', apath))
-        .status,
+      (await preconditioned('DELETE', apath, undefined, edited.headers.get('etag') ?? '')).status,
     ).toBe(204);
     expect(
       (
@@ -229,7 +229,6 @@ describe('custom object HTTP contracts through the proxy', () => {
           `object-records/${b}`,
           undefined,
           second.headers.get('etag') ?? '',
-          `object-records/${b}`,
         )
       ).status,
     ).toBe(204);
@@ -238,7 +237,6 @@ describe('custom object HTTP contracts through the proxy', () => {
       tpath,
       { classification: 'confidential' },
       created.headers.get('etag') ?? '',
-      tpath,
     );
     expect(raised.status, raised.text).toBe(200);
     const queued = await preconditioned(
@@ -251,7 +249,6 @@ describe('custom object HTTP contracts through the proxy', () => {
         relations: definition.relations,
       },
       raised.headers.get('etag') ?? '',
-      tpath,
     );
     expect(queued.status, queued.text).toBe(202);
     expect(queued.body?.migration_id).toEqual(expect.any(String));
@@ -280,7 +277,6 @@ describe('custom object HTTP contracts through the proxy', () => {
         `${tpath}/versions`,
         { fields: [{ ...fields[0], indexed: true }], relations: [] },
         created.headers.get('etag') ?? '',
-        tpath,
       );
     expect(record.status, record.text).toBe(201);
     expect(queued.status, queued.text).toBe(202);
@@ -304,7 +300,6 @@ describe('custom object HTTP contracts through the proxy', () => {
           recordPath,
           { attributes: { name: 'corrected' } },
           record.headers.get('etag') ?? '',
-          recordPath,
         )
       ).status,
     ).toBe(200);
@@ -315,7 +310,6 @@ describe('custom object HTTP contracts through the proxy', () => {
         `${migrationPath}/retry`,
         undefined,
         current.headers.get('etag') ?? '',
-        tpath,
         { 'idempotency-key': randomUUID() },
       );
     expect(retry.status, retry.text).toBe(202);

@@ -19,7 +19,9 @@ import {
   requestHash,
   reviseExternalAction,
   retryExternalAction,
+  RETRYABLE_CODES,
   runIdempotent,
+  TENANT_BUSY_RETRY_AFTER_SECONDS,
   type ConnectionView,
   type ExternalActionDetail,
   type ExternalActionSummary,
@@ -131,16 +133,20 @@ function errorResponse(
     code,
     message,
     request_id: requestId,
-    // A restore ends without the caller doing anything, and the request did nothing. Every other
-    // refusal needs the caller to change something first, and after an unknown failure we cannot
-    // promise that repeating the request is safe.
-    retryable: code === 'RESTORE_PENDING',
+    // A restore, and a purge holding a row this request needed (TENANT_BUSY), end without the caller
+    // doing anything, and the request did nothing. Every other refusal needs the caller to change
+    // something first, and after an unknown failure we cannot promise that repeating it is safe.
+    retryable: RETRYABLE_CODES.has(code),
     ...(details ? { details } : {}),
   };
-  return Response.json(body, { status });
+  // A busy tenant is a matter of a moment, so the caller is told when to send the same request again.
+  const headers: Record<string, string> =
+    code === 'TENANT_BUSY' ? { 'Retry-After': String(TENANT_BUSY_RETRY_AFTER_SECONDS) } : {};
+  return Response.json(body, { status, headers });
 }
 
-function toErrorResponse(error: unknown, requestId: string) {
+/** Any failure as the documented error answer. Exported for its unit test only. */
+export function toErrorResponse(error: unknown, requestId: string) {
   if (isRestoreAdmissionDenied(error)) {
     const pending = new AppError('RESTORE_PENDING');
     return errorResponse(HTTP_STATUS.RESTORE_PENDING, requestId, pending.code, pending.message);

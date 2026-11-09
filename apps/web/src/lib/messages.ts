@@ -67,6 +67,10 @@ const MESSAGE_FOR = new Map<string, string>([
   ['LAST_OWNER', 'An organization must keep at least one owner.'],
   ['RESTORE_PENDING', 'This organization is being restored from a backup. Try again later.'],
   [
+    'TENANT_BUSY',
+    'This organization is busy with another change right now, so nothing was changed. Try again in a moment.',
+  ],
+  [
     'EXTERNAL_ACTION_NOT_EDITABLE',
     'This can no longer be changed, because Ensemus has already tried to send it.',
   ],
