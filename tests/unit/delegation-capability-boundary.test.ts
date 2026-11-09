@@ -45,6 +45,7 @@ describe('the delegation capability boundary', () => {
     'delegation_birth_capabilities',
     'delegation_birth_capability_on',
     'helpers/delegation-capability',
+    'ensemus_delegation_qualification_ci',
   ])('no package or worker names %s', (name) => {
     const naming = shipped
       .filter((path) => readFileSync(path, 'utf8').includes(name))

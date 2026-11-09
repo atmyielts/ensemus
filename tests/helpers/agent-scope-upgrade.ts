@@ -236,8 +236,11 @@ export async function assertLegacyChildAfterAgentScopeMigration(
       ).rows[0]?.ready,
       false,
     );
-    // Nor can the legacy child act as a parent, even with its own scoped marker: 0414 recorded its
-    // Work in the unproven inventory, and the predicate refuses a parent whose Work is listed there.
+    // Nor can the legacy child act as a parent, even with its own scoped marker. This is false for
+    // several reasons at once (no capability is qualified here, the legacy child is not running or
+    // waiting_for_child, and it has no v1 history_complete checkpoint), so it does NOT isolate the 0414
+    // unproven-inventory clause; it would stay false with that clause removed. The inventory negative
+    // that does isolate it is the superuser case in tests/integration/delegation-birth-readiness.test.ts.
     await tx.execute(
       sql`select set_config('app.agent_scope_protocol',${`scoped-v1:${f.childRunId}`},true)`,
     );

@@ -3,6 +3,7 @@
 // unit-tested (workers/workflow/src/record-purge-route.test.ts) and this file proves the PostgreSQL side:
 // the producers write the event and its outbox row, and the sweep's claim re-proves each dead record from
 // PostgreSQL. The capability is qualified for this file through the migrator and restored afterwards.
+// Not runnable until the merge journals 0590 (its reserved number is unjournaled on its branch).
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { and, eq, sql } from 'drizzle-orm';
@@ -43,9 +44,17 @@ import {
   type AiTenant,
 } from '../helpers/ai/fixtures';
 import { makeTwoTenants } from '../helpers/product';
+import { nativeSovereignContext } from '../helpers/sovereign';
 import { urls } from '../helpers/stack';
 import { delegatedChildHarness, noObjects } from '../helpers/delegated-child';
 import { qualifyDelegationForSuite } from '../helpers/delegation-capability';
+import {
+  createObjectDeletionLifecycle,
+  refuseUnadmittedDeletes,
+} from '@ensemus/application/saas/object-deletion';
+import { withRawKnowledgeObjects } from '@ensemus/application/knowledge/raw-objects';
+import { createKnowledgePurgePorts } from '../../workers/workflow/src/knowledge-ports';
+import { LifecycleMemoryStore } from './saas-lifecycle-fixture';
 
 describe('ADR-028 typed-record deletion outbox (8a)', () => {
   const app = openAppDatabase(urls.app(), { max: 4 }),
@@ -74,8 +83,9 @@ describe('ADR-028 typed-record deletion outbox (8a)', () => {
     profileId: () => profileId,
     rateCardId: () => rateCardId,
   });
-  /** The knowledge worker's Activities over the app role. Generated files are out of this file's
-   * scope (the children here write none), so their proof is a fixed zero, never a skipped check. */
+  /** The knowledge worker's Activities over the app role, with the generated-file proof fixed at zero
+   * (the children here write no file). It isolates the copied-Work proof; the last case below runs the
+   * production file-proof composition instead, which this stub would hide. */
   const knowledge = () =>
     createKnowledgePurgeActivities({
       database: app.db,
@@ -123,7 +133,7 @@ describe('ADR-028 typed-record deletion outbox (8a)', () => {
       relations: [],
     });
   const dueFor = async (organizationId: string) =>
-    (await knowledge().claimRecordPurgeRestarts({ organizationId })).map(
+    (await knowledge().claimRecordPurgeRestarts({ organizationId })).due.map(
       (record) => `${record.kind}:${record.id}`,
     );
 
@@ -140,7 +150,7 @@ describe('ADR-028 typed-record deletion outbox (8a)', () => {
         recordId: record.id,
         expectedVersion: record.version + 1,
       }),
-    ).rejects.toBeTruthy();
+    ).rejects.toMatchObject({ code: 'VERSION_CONFLICT' });
     expect((await closedEvents(people.a.owner.context, record.id)).events).toEqual([]);
     await deleteObjectRecord(app.db, people.a.member.context, {
       recordId: record.id,
@@ -313,9 +323,95 @@ describe('ADR-028 typed-record deletion outbox (8a)', () => {
         (result) => ({ result }),
         (error: unknown) => ({ error }),
       );
-    if ('result' in outcome) expect(outcome.result).toMatchObject({ confirmed: false, removed: 0 });
+    // A live record has no purge snapshot (ai.lock_record_purge_snapshot is NULL), so the purge refuses
+    // with INVALID_STATE before it touches anything.
+    expect(outcome).toEqual({ error: expect.objectContaining({ code: 'INVALID_STATE' }) });
     expect(await snapshot()).toEqual(before);
     expect((await getWorkUnit(app.db, a.owner, f.childWorkId)).title).toBe('Actual copied child');
     expect(await dueFor(a.organizationId)).not.toContain(`work_unit:${f.input.id}`);
+    // The forged event is older than the record's real closure, so it does not suppress the genuine
+    // event and outbox row when the record is really closed later; a repeat for that closure does.
+    await withTenantTx(app.db, a.owner, async (tx) => {
+      await tx.insert(tombstones).values({
+        organizationId: a.organizationId,
+        targetType: 'work_unit',
+        targetId: f.input.id,
+        reasonCode: 'USER_DELETED',
+      });
+      expect(await emitRecordClosedInTx(tx, a.owner, { kind: 'work_unit', id: f.input.id })).toBe(
+        true,
+      );
+    });
+    expect(
+      await withTenantTx(app.db, service, (tx) =>
+        emitRecordClosedInTx(tx, service, { kind: 'work_unit', id: f.input.id }),
+      ),
+    ).toBe(false);
+    const { events, outbox } = await closedEvents(service, f.input.id);
+    expect(events.map((event) => event.aggregateVersion).sort()).toEqual([1, 2]);
+    expect(outbox).toEqual(['queued', 'queued']);
+  });
+
+  it('[ADR028-Q12-L8a] with the production purge composition, a deleted custom object record never stops the restart claim', async () => {
+    const f = await genuineChildWithRecord(),
+      owner = await nativeSovereignContext(app.db, a.owner.userId, a.organizationId);
+    await closeRecord(f.input.id);
+    const type = await createObjectType(app.db, owner, {
+      slug: `outbox_${randomUUID().replaceAll('-', '')}`,
+      displayName: 'Outbox items',
+      classification: 'internal',
+      fields: [{ key: 'name', label: 'Name', kind: 'text', required: true, indexed: true }],
+      relations: [],
+    });
+    const record = await createObjectRecord(app.db, owner, {
+      typeId: type.id,
+      displayName: 'Deleted while a child is pending',
+      attributes: { name: 'deleted' },
+    });
+    await deleteObjectRecord(app.db, owner, {
+      recordId: record.id,
+      expectedVersion: record.version,
+    });
+    // Its copied-Work part proves (it has no child material), so the next proof reaches the
+    // production generated-file proof, which refuses a custom object record (no admitted lineage).
+    const materials = createKnowledgeTranscriptActivities({
+      database: agent.db,
+      transcripts: createRunTranscriptPurge(),
+      delegatedRecords: recordAdapter(),
+    });
+    expect(
+      await materials.purgeRecordMaterials({
+        organizationId: a.organizationId,
+        kind: 'object_record',
+        id: record.id,
+        limit: 25,
+      }),
+    ).toMatchObject({ confirmed: true, remaining: 0 });
+    // The knowledge worker's real composition (workers/workflow/src/knowledge-worker.ts), not a stub.
+    const store = new LifecycleMemoryStore(),
+      guarded = withRawKnowledgeObjects({
+        database: app.db,
+        store,
+        exposedStore: refuseUnadmittedDeletes(store),
+      }),
+      lifecycle = createObjectDeletionLifecycle({ database: app.db, store });
+    const production = createKnowledgePurgeActivities({
+      database: app.db,
+      store: guarded,
+      ingest: {} as never,
+      recordWorks: { confirmRecordInTx: confirmRecordWorkPurgeInTx },
+      ...createKnowledgePurgePorts({
+        database: app.db,
+        store: guarded,
+        derivedLifecycle: lifecycle.derived,
+        archiveLifecycle: lifecycle.archive,
+      }),
+    });
+    const claim = await production.claimRecordPurgeRestarts({ organizationId: a.organizationId });
+    const due = claim.due.map((item) => `${item.kind}:${item.id}`);
+    // The genuine child's closed input is still due; the object record is counted, not restarted.
+    expect(due).toContain(`work_unit:${f.input.id}`);
+    expect(due).not.toContain(`object_record:${record.id}`);
+    expect(claim.failed).toBeGreaterThanOrEqual(1);
   });
 });

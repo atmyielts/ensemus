@@ -47,6 +47,12 @@ const readyIn = async (tx: Tx, parent: string | null, child: string | null) =>
     )
   ).rows[0]?.ready;
 
+/** The text PostgreSQL raised, whether the driver error is the pg error itself or wraps it as cause. */
+const raisedMessage = (error: unknown) => {
+  const outer = error as { message?: unknown; cause?: { message?: unknown } };
+  return typeof outer.cause?.message === 'string' ? outer.cause.message : outer.message;
+};
+
 async function client(url: string) {
   const connection = new pg.Client({ connectionString: url });
   await connection.connect();
@@ -105,7 +111,12 @@ describe('ADR-028 delegated child birth readiness (0590_deleg)', () => {
       await loadAgentReadScopeInTx(tx, context);
       return readyIn(tx, parent, child);
     });
-  /** createChildRun refused, either as a denied result or a refused call. */
+  /**
+   * createChildRun refused, either as a denied result or a refused call, by whatever gate comes first.
+   * For a fenced, verifying or ended parent an application gate may refuse before the 0590 predicate
+   * runs, so this leg shows only that no child is born end to end (with nothingBorn). That the predicate
+   * itself refuses is shown by the direct readyIn checks in the same case, never by this helper.
+   */
   const refusedBirth = async (attempt: Promise<{ kind: string }>) => {
     const result = await attempt.then(
       (value) => value.kind,
@@ -183,7 +194,10 @@ describe('ADR-028 delegated child birth readiness (0590_deleg)', () => {
           delegatedScopes: { tools: ['work.read'] },
         });
       }),
-    ).rejects.toSatisfy((error: unknown) => pgCode(error) === 'EN119');
+    ).rejects.toSatisfy(
+      (error: unknown) =>
+        pgCode(error) === 'EN119' && raisedMessage(error) === 'DELEGATION_INPUT_PROOF_UNAVAILABLE',
+    );
     await nothingBorn(a, f);
     const created = await tenantA.underDelegationPolicy(() =>
       createChildRun(agent.db, f.context, { parentRunId: f.runId, stepNumber: 2 }),
@@ -460,6 +474,15 @@ describe('ADR-028 delegated child birth readiness (0590_deleg)', () => {
           [tags],
         ),
       ).toBe('23514');
+      // A deployment row must cite a real commit: every other field valid, the all-zero commit refused,
+      // and the same row with a non-zero commit accepted (rolled back).
+      const deployment = (commit: string) =>
+        `insert into ${ledger}(state,evidence_kind,migration_tag,ci_run_id,source_commit,qualification_tests,review_ref)
+         values('qualified','deployment_migration','0591_delegation_birth_capability_record_deleg','github-actions:12345678','${commit}',$1::text[],'x')`;
+      expect(await refusal(deployment('0'.repeat(40)), [tags])).toBe('23514');
+      expect(await refusal(deployment('0123456789abcdef'.repeat(3).slice(0, 40)), [tags])).toBe(
+        'ok:1',
+      );
     } finally {
       await migrator.end();
     }
@@ -491,6 +514,54 @@ describe('ADR-028 delegated child birth readiness (0590_deleg)', () => {
     } finally {
       await su.end();
     }
+  });
+
+  it('[ADR028-Q12-P2] a fixture row opens nothing outside a qualification database; a deployment row does', async () => {
+    const f = await tenantA.fixture();
+    const ledger = 'ai.delegation_birth_capabilities',
+      tags = [...DELEGATION_QUALIFICATION_TAGS],
+      marker = 'ensemus_delegation_qualification_ci';
+    const deployment = (state: 'qualified' | 'revoked') =>
+      `insert into ${ledger}(state,evidence_kind,migration_tag,ci_run_id,source_commit,qualification_tests,review_ref)
+       values('${state}','deployment_migration','0591_delegation_birth_capability_record_deleg','github-actions:12345678',
+         '${'0123456789abcdef'.repeat(3).slice(0, 40)}',$1::text[],'P2 deployment evidence case')`;
+    // Positive control: in this CI cluster the suite's fixture row is the latest, and it counts.
+    expect(await readyInScope(f.context, f.runId, f.childRunId)).toBe(true);
+    const su = await client(urls.superuser()),
+      migrator = await client(urls.migrator());
+    try {
+      // Without the installation-time marker, the same fixture row is ignored...
+      await su.query(`drop role ${marker}`);
+      expect(await readyInScope(f.context, f.runId, f.childRunId)).toBe(false);
+      // ...and no new fixture row can be appended at all, even by the migrator login.
+      await expect(
+        migrator.query(
+          `insert into ${ledger}(state,evidence_kind,ci_run_id,source_commit,qualification_tests,review_ref)
+           values('qualified','qualification_fixture','fixture:no-marker','${'0'.repeat(40)}',$1::text[],'no marker')`,
+          [tags],
+        ),
+      ).rejects.toMatchObject({
+        code: '42501',
+        message: 'DELEGATION_CAPABILITY_FIXTURE_OUTSIDE_QUALIFICATION',
+      });
+      expect(await readyInScope(f.context, f.runId, f.childRunId)).toBe(false);
+      // A deployment row counts in any database, and a later deployment 'revoked' row closes again.
+      expect(await outcome(migrator, deployment('qualified'), [tags])).toBe('ok:1');
+      expect(await readyInScope(f.context, f.runId, f.childRunId)).toBe(true);
+      expect(await outcome(migrator, deployment('revoked'), [[]])).toBe('ok:1');
+      expect(await readyInScope(f.context, f.runId, f.childRunId)).toBe(false);
+    } finally {
+      await su.query(`do $$ begin
+        if not exists(select 1 from pg_roles where rolname='${marker}') then
+          create role ${marker} nologin nosuperuser nocreaterole nobypassrls noinherit;
+        end if;
+      end $$`);
+      await migrator.end();
+      await su.end();
+    }
+    // With the marker back, the suite's fixture capability is appended again and counts.
+    await appendDelegationCapability('qualified', 'readiness-marker-restored');
+    expect(await readyInScope(f.context, f.runId, f.childRunId)).toBe(true);
   });
 
   it('[ADR028-Q12-P2] needs the exact scoped-v1 marker for this parent and an agent actor', async () => {

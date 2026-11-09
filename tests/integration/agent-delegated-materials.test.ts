@@ -793,8 +793,9 @@ describe('delegated material birth evidence (0419)', () => {
   });
 
   // ADR-028 "Decision: defining ai.delegation_influence_ready" (project owner, 2026-11-09; 0590_deleg).
-  // The genuine-child harness (tests/helpers/delegated-child.ts) is the code that used to live here,
-  // moved unchanged. These three cases are the decision's acceptance gate and are not skipped: the
+  // The genuine-child harness (tests/helpers/delegated-child.ts) is the code that used to live here. The
+  // move added options (scopes, beforeModel), birthDiagnostic and a fuller birth-failure message; the
+  // child and its admissions are unchanged. These three cases are the decision's acceptance gate and are not skipped: the
   // capability is qualified for this suite in beforeAll and restored in afterAll.
 
   it('full lifecycle: captures actual inheritance and permanently redacts copied Work once after real closure [ADR028-Q12-L1] [ADR028-Q12-L3]', async () => {

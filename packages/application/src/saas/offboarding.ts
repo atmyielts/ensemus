@@ -134,6 +134,17 @@ async function effects(tx: Tx, context: TenantContext) {
     payments: count(row?.payments),
   };
 }
+/**
+ * Whether erasure has already destroyed something irreversibly: any TENANT_ERASURE tombstone. Only
+ * erasure writes that reason (the artifact tombstones of `erasing`, and the delegated input closure just
+ * before it), and a tombstone is never removed, so this stays true once it is true. Metadata only.
+ */
+async function erasureHasDestroyed(tx: Tx, context: TenantContext) {
+  const result = await tx.execute<{ destroyed: boolean }>(
+    sql`select exists(select 1 from platform.tombstones where organization_id=${context.organizationId}::uuid and reason_code='TENANT_ERASURE') as destroyed`,
+  );
+  return result.rows[0]?.destroyed === true;
+}
 async function tellOwners(tx: Tx, context: TenantContext, offboardingId: string) {
   const owners = await tx
     .select({ id: memberships.id })
@@ -356,7 +367,15 @@ export async function requestOffboarding(
   });
 }
 
-/** `offboarding.manage`. Only before `erasing`, which is the point of no return. Service comes back. */
+/**
+ * `offboarding.manage`. Only before erasure has destroyed anything, then service comes back. `erasing` is
+ * the state machine's point of no return, but ADR-028 lifecycle item 8b's delegated input closure
+ * (`closeDelegatedRecordInputsInTx`) already tombstones records with TENANT_ERASURE, and starts their
+ * purges, while the offboarding is still `ready_for_erasure`. Those tombstones are permanent, so once any
+ * exists the tenant could not get its records back: cancelling is refused from then on, and the operator
+ * finishes erasure (after any hold placed meanwhile is released). Both this and the closure lock the tenant
+ * and the offboarding row first, so neither can pass the other.
+ */
 export async function cancelOffboarding(
   database: AppDatabase,
   context: TenantContext,
@@ -383,6 +402,7 @@ export async function cancelOffboarding(
     if (row.version !== input.expectedVersion) throw new AppError('VERSION_CONFLICT');
     if (['erasing', 'verified', 'reported'].includes(row.state))
       throw new AppError('OFFBOARDING_NOT_CANCELLABLE');
+    if (await erasureHasDestroyed(tx, context)) throw new AppError('OFFBOARDING_NOT_CANCELLABLE');
     const [prior] = await tx
       .select({ from: standingChanges.fromLifecycle })
       .from(standingChanges)

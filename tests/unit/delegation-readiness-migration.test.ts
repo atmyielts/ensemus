@@ -106,6 +106,103 @@ describe('the reviewed _deleg migrations (ADR-024 D4, ADR-028)', () => {
     );
     expect(code).not.toMatch(/ON ai\.delegation_birth_capabilities FOR (UPDATE|DELETE|ALL)\b/i);
   });
+
+  it('lets a fixture row count, or be appended, only where the CI marker role exists', () => {
+    const reader = (() => {
+      const start = code.indexOf('CREATE FUNCTION ai.delegation_birth_capability_on()');
+      return code.slice(start, code.indexOf('$$;', code.indexOf('AS $$', start) + 5));
+    })();
+    expect(reader).toMatch(/WHERE latest\.evidence_kind='deployment_migration'/);
+    expect(reader).toMatch(
+      /latest\.evidence_kind='qualification_fixture' AND EXISTS\(SELECT 1 FROM pg_roles marker\s+WHERE marker\.rolname='ensemus_delegation_qualification_ci' AND NOT marker\.rolcanlogin/,
+    );
+    const writer = (() => {
+      const start = code.indexOf('CREATE FUNCTION ai.keep_delegation_birth_capabilities()');
+      return code.slice(start, code.indexOf('END $$;', start));
+    })();
+    expect(writer).toMatch(
+      /IF NEW\.evidence_kind='qualification_fixture' AND NOT EXISTS\(SELECT 1 FROM pg_roles marker\s+WHERE marker\.rolname='ensemus_delegation_qualification_ci'/,
+    );
+    expect(writer).toMatch(
+      /'DELEGATION_CAPABILITY_FIXTURE_OUTSIDE_QUALIFICATION' USING ERRCODE='42501'/,
+    );
+    // A deployment row may not cite the all-zero placeholder commit a fixture row may use.
+    expect(code).toMatch(/evidence_kind<>'deployment_migration' OR source_commit !~ '\^0\{40\}\$'/);
+    // The premises refuse any Ensemus role that could create the marker role.
+    expect(code).toMatch(/AND\(r\.rolsuper OR r\.rolcreaterole OR r\.rolbypassrls\)\)/);
+  });
+
+  it('no migration, install script, package or worker creates or names the CI marker role', () => {
+    const scan = (folder: string): string[] =>
+      readdirSync(folder).flatMap((name) => {
+        if (['node_modules', 'dist', '.next', '.turbo', 'coverage'].includes(name)) return [];
+        const path = join(folder, name);
+        if (statSync(path).isDirectory()) return scan(path);
+        return /\.(ts|tsx|js|mjs|cjs|sql|sh|ya?ml|json|env|conf)$/.test(name) ? [path] : [];
+      });
+    const naming = ['infrastructure', 'packages', 'workers', 'apps']
+      .flatMap((folder) => {
+        try {
+          return scan(join(repoRoot, folder));
+        } catch {
+          return [];
+        }
+      })
+      .filter((path) => {
+        const source = readFileSync(path, 'utf8');
+        // 0590 itself names the marker to check for it; it must never create it.
+        if (path === join(migrations, readiness ?? '')) return /CREATE\s+ROLE/i.test(code);
+        return source.includes('ensemus_delegation_qualification_ci');
+      });
+    expect(naming).toEqual([]);
+  });
+
+  it('checks every column and helper the predicate reads is visible to the agent', () => {
+    for (const [relation, column] of [
+      ['ai.unproven_child_work_inputs', 'organization_id'],
+      ['ai.unproven_child_work_inputs', 'work_unit_id'],
+      ['ai.run_input_checkpoints', 'organization_id'],
+      ['ai.run_input_checkpoints', 'run_id'],
+      ['ai.run_input_checkpoints', 'history_complete'],
+      ['ai.run_input_checkpoints', 'protocol_version'],
+      ['ai.run_input_checkpoints', 'fenced_at'],
+      ['ai.agent_runs', 'id'],
+      ['ai.agent_runs', 'organization_id'],
+      ['ai.agent_runs', 'initiator_membership_id'],
+      ['ai.agent_runs', 'status'],
+      ['ai.agent_runs', 'work_unit_id'],
+    ])
+      expect(code, `${relation}.${column}`).toContain(`('${relation}','${column}')`);
+    for (const helper of [
+      'app.current_actor_type()',
+      'app.current_organization_id()',
+      'app.current_membership_id()',
+    ])
+      expect(code).toContain(`has_function_privilege('ensemus_agent','${helper}','EXECUTE')`);
+    // The inventory clause is a NOT EXISTS, so RLS visibility of its rows is itself a premise.
+    expect(code).toMatch(/p\.polname='child_input_read'\s+AND p\.polpermissive AND p\.polcmd='r'/);
+    expect(code).toMatch(/NOT p\.polpermissive AND p\.polcmd IN\('r','\*'\)/);
+  });
+});
+
+describe('journal state is stated honestly (ADR-028 open question 12)', () => {
+  const journal = JSON.parse(readFileSync(join(migrations, 'meta/_journal.json'), 'utf8')) as {
+    entries: { tag: string }[];
+  };
+  const journaled = journal.entries.some((entry) =>
+    entry.tag.endsWith('_delegation_birth_readiness_deleg'),
+  );
+  const adr = readFileSync(join(repoRoot, 'docs/00-foundation/adr/ADR-028-governed-ai.md'), 'utf8');
+  const join_ = readFileSync(
+    join(repoRoot, 'docs/06-delivery/evidence/m5/delegated-material-join.md'),
+    'utf8',
+  );
+  const NOTE = 'Not runnable until the merge journals 0590.';
+
+  it('the ADR and the join evidence carry the not-runnable note exactly while 0590 is unjournaled', () => {
+    expect(adr.includes(NOTE)).toBe(!journaled);
+    expect(join_.includes(NOTE)).toBe(!journaled);
+  });
 });
 
 /** Every `*.test.ts` under a folder, recursively. */

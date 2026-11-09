@@ -1,5 +1,8 @@
-// A genuine delegated child for the integration suites, moved here unchanged from
-// agent-delegated-materials.test.ts so other suites (ADR-028 open question 12 qualification) can use it.
+// A genuine delegated child for the integration suites, moved here from agent-delegated-materials.test.ts
+// so other suites (ADR-028 open question 12 qualification) can use it. Not unchanged: the move added
+// genuineChildWithRecord's scopes and beforeModel options, birthDiagnostic, and the scope and capability
+// state in the birth-failure message. The child it builds, and every admission it goes through, are the
+// same as before the move.
 // Actual app/agent roles and real admission/usage/proposal/step services. No provider or invented
 // observations. A child is born only while the 0590 capability is qualified (tests/helpers/
 // delegation-capability.ts) and under an owner's active policy bundle (underDelegationPolicy).

@@ -6,22 +6,32 @@ import { domainEvents, outboxEvents, type Tx } from '@ensemus/database';
 import { createServiceContext } from '@ensemus/database/service';
 import { emitRecordClosedInTx, listRecordPurgeCandidates } from './record-closure';
 
-function scriptedTx(existing: readonly { id: string }[] = []) {
+/**
+ * A transaction whose first statement is the per-record advisory lock and whose second answers how many
+ * events exist for the record and whether one is at least as new as its tombstone (this closure's).
+ */
+function scriptedTx(prior: { written: number; current: boolean } = { written: 0, current: false }) {
   const inserted: { table: unknown; values: Record<string, unknown> }[] = [];
-  const chain = {
-    from: () => chain,
-    where: () => chain,
-    limit: async () => existing,
-  };
+  const statements: string[] = [];
   const tx = {
-    select: () => chain,
+    execute: async (query: { queryChunks?: unknown[] }) => {
+      const text = (() => {
+        try {
+          return JSON.stringify(query.queryChunks ?? query);
+        } catch {
+          return '';
+        }
+      })();
+      statements.push(text.includes('pg_advisory_xact_lock') ? 'lock' : 'prior');
+      return { rows: statements.length === 1 ? [] : [prior] };
+    },
     insert: (table: unknown) => ({
       values: async (values: Record<string, unknown>) => {
         inserted.push({ table, values });
       },
     }),
   } as unknown as Tx;
-  return { tx, inserted };
+  return { tx, inserted, statements };
 }
 const context = createServiceContext(randomUUID());
 
@@ -46,12 +56,21 @@ describe('the typed-record deletion event', () => {
     ]);
   });
 
-  it('writes nothing again for a record whose event already exists', async () => {
-    const { tx, inserted } = scriptedTx([{ id: randomUUID() }]);
+  it('locks the record before it checks, then writes nothing again for this closure', async () => {
+    const { tx, inserted, statements } = scriptedTx({ written: 1, current: true });
     expect(await emitRecordClosedInTx(tx, context, { kind: 'work_unit', id: randomUUID() })).toBe(
       false,
     );
+    expect(statements).toEqual(['lock', 'prior']);
     expect(inserted).toEqual([]);
+  });
+
+  it('an earlier event older than the record’s closure (a forged or early one) does not suppress it', async () => {
+    const { tx, inserted } = scriptedTx({ written: 1, current: false }),
+      id = randomUUID();
+    expect(await emitRecordClosedInTx(tx, context, { kind: 'work_unit', id })).toBe(true);
+    expect(inserted.map((row) => row.table)).toEqual([domainEvents, outboxEvents]);
+    expect(inserted[0]?.values).toMatchObject({ aggregateId: id, aggregateVersion: 2 });
   });
 
   it('refuses a kind a record purge does not cover and an ID that is not a UUID', async () => {

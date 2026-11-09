@@ -40,8 +40,11 @@ export async function runKnowledgeSweep(ports: {
   modelWorkerAbsent?(error: unknown): boolean;
   purges?(): Promise<readonly { sourceId: string }[]>;
   retryPurge?(sourceId: string): Promise<{ state: 'pending' | 'running' | 'completed' | 'failed' }>;
-  /** Typed records PostgreSQL does not prove purged (ADR-028 lifecycle item 8a). Absent on old histories. */
-  recordPurges?(): Promise<readonly KnowledgeRecordPurgeInput[]>;
+  /**
+   * Typed records PostgreSQL does not prove purged (ADR-028 lifecycle item 8a), and how many candidates'
+   * proofs failed outright (counted as sweep failures, never restarted). Absent on old histories.
+   */
+  recordPurges?(): Promise<{ due: readonly KnowledgeRecordPurgeInput[]; failed: number }>;
   retryRecordPurge?(
     record: KnowledgeRecordPurgeInput,
   ): Promise<{ state: 'completed' | 'unconfirmed' }>;
@@ -128,7 +131,9 @@ export async function runKnowledgeSweep(ports: {
   const recordPurges: NonNullable<KnowledgeSweepResult['recordPurges']>[number][] = [];
   if (ports.recordPurges && ports.retryRecordPurge)
     try {
-      for (const record of (await ports.recordPurges()).slice(0, 5)) {
+      const claimed = await ports.recordPurges();
+      failed += claimed.failed;
+      for (const record of claimed.due.slice(0, 5)) {
         try {
           const result = await ports.retryRecordPurge(record);
           recordPurges.push({ kind: record.kind, id: record.id, state: result.state });

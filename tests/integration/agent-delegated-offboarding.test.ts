@@ -15,11 +15,16 @@ import { createAgentContext } from '@ensemus/database/agent';
 import { finishRun, purgeEndedRunTranscript } from '@ensemus/application/ai-runs';
 import { closeDelegatedRecordInputsInTx } from '@ensemus/application/knowledge/delegated-erasure';
 import { createOffboardingAgentHaltPort } from '@ensemus/application/saas/offboarding-agent-port';
+import { cancelOffboarding, getOffboarding } from '@ensemus/application/saas/offboarding';
 import { placeLegalHold, releaseLegalHold } from '@ensemus/application/saas/legal-holds';
 import { openAppDatabase, withTenantTx } from '@ensemus/database';
 import { createServiceContext } from '@ensemus/database/service';
 import type { eraseTenantRows } from '@ensemus/database/eraser';
 import { eraseCommand } from '../../workers/workflow/src/ops-erase';
+import { recordPurgeStartFor } from '../../workers/workflow/src/record-purge-route';
+import { createRunTranscriptPurge } from '@ensemus/application/ai-input-ledger';
+import { createKnowledgeTranscriptActivities } from '@ensemus/workflows/knowledge-purge-activities';
+import type { KnowledgeRecordPurgeInput } from '@ensemus/workflows/knowledge-schemas';
 import {
   openAgentTestDatabase,
   seedActiveProfile,
@@ -139,6 +144,15 @@ describe('ADR-028 delegated child offboarding (L6, L8b)', () => {
       )
     ).rows;
   let runs = 0;
+  /** Every purge start the erase command asked Temporal for (not running here), in order. */
+  const started: { workflowType: string; workflowId: string; args: unknown[] }[] = [];
+  const recordPurges = {
+    workflow: {
+      start: async (workflowType: string, options: { workflowId: string; args: unknown[] }) => {
+        started.push({ workflowType, workflowId: options.workflowId, args: options.args });
+      },
+    },
+  };
   async function erase(
     ready: { offboardingId: string },
     organizationId: string,
@@ -158,6 +172,7 @@ describe('ADR-028 delegated child offboarding (L6, L8b)', () => {
     const code = await eraseCommand(['run', '--file', file, '--report-file', report], {
       store: new LifecycleMemoryStore(),
       agents: createOffboardingAgentHaltPort(),
+      recordPurges,
       databases: {
         app: { db: app.db, close: async () => undefined },
         eraser: { db: eraserDb, close: async () => undefined },
@@ -169,9 +184,28 @@ describe('ADR-028 delegated child offboarding (L6, L8b)', () => {
         state: string;
         reasonCode?: string;
         errorCode?: string;
+        restarted?: number;
       },
     };
   }
+  /** The knowledge.record_closed outbox rows the closure wrote for one record, as the dispatcher reads them. */
+  const closedOutbox = async (organizationId: string, ref: { kind: string; id: string }) =>
+    (
+      await su.query<{
+        event_type: string;
+        aggregate_type: string;
+        aggregate_id: string;
+        organization_id: string;
+        state: string;
+      }>(
+        `select e.event_type,e.aggregate_type,e.aggregate_id::text,e.organization_id::text,o.state
+           from platform.domain_events e join platform.outbox_events o
+             on o.organization_id=e.organization_id and o.event_id=e.id
+          where e.organization_id=$1 and e.event_type='knowledge.record_closed'
+            and e.aggregate_type=$2 and e.aggregate_id=$3`,
+        [organizationId, ref.kind, ref.id],
+      )
+    ).rows;
 
   it('[ADR028-Q12-L6] [ADR028-Q12-L8b] closes delegated inputs before erasing, seals once the purges prove, then erases', async () => {
     const { tenant, harness, f } = await tenantWithEndedChild(),
@@ -186,15 +220,38 @@ describe('ADR-028 delegated child offboarding (L6, L8b)', () => {
       ]),
     );
     const ready = await readyToErase(app.db, tenant.owner);
-    // Run 1: the closure tombstones every record input and starts its purge; the seal cannot hold yet.
+    // Run 1: the closure tombstones every record input and writes its knowledge.record_closed event; the
+    // seal cannot hold yet, so the command itself restarts each record's purge (no sweep runs for an
+    // offboarding tenant).
+    started.length = 0;
     const first = await erase(ready, organizationId);
     expect(first).toEqual({
       code: 1,
-      report: { state: 'pending', reasonCode: 'MATERIAL_PURGE_PENDING' },
+      report: { state: 'pending', reasonCode: 'MATERIAL_PURGE_PENDING', restarted: refs.length },
     });
+    const expectedStarts = refs.map((ref) => ({
+      workflowType: 'knowledgeRecordPurgeWorkflow',
+      workflowId: `knowledge-record-purge-${organizationId}-${ref.kind}-${ref.id}`,
+      args: [{ organizationId, kind: ref.kind, id: ref.id, limit: 25 }],
+    }));
+    expect(started).toEqual(expectedStarts);
     for (const ref of refs) {
       expect(await tombstoned(organizationId, ref)).toBe(1);
       expect(await closedEvents(organizationId, ref)).toBe(1);
+      // The outbox row the dispatcher consumes routes, through its real route, to the same start.
+      const [row] = await closedOutbox(organizationId, ref);
+      expect(row?.state).toBe('queued');
+      const route = recordPurgeStartFor({
+        eventType: row!.event_type,
+        aggregateType: row!.aggregate_type,
+        aggregateId: row!.aggregate_id,
+        organizationId: row!.organization_id,
+      });
+      expect(route).toEqual({
+        workflowType: 'knowledgeRecordPurgeWorkflow',
+        input: { organizationId, kind: ref.kind, id: ref.id, limit: 25 },
+        workflowId: `knowledge-record-purge-${organizationId}-${ref.kind}-${ref.id}`,
+      });
     }
     expect(await seals(organizationId)).toEqual([]);
     expect(
@@ -205,15 +262,17 @@ describe('ADR-028 delegated child offboarding (L6, L8b)', () => {
         )
       ).rows[0]?.n,
     ).toBeGreaterThan(0);
-    // What the dispatcher and the agent worker would now do: each record's purge and each transcript's.
-    const purger = harness.recordAdapter();
-    for (const ref of refs)
+    // Temporal is not running here, so each started workflow's first Activity (purgeRecordMaterials, on
+    // the agent queue) runs by hand with exactly the input the command started it with. The workflow's
+    // later file step and the transcript purges belong to the knowledge and agent workers.
+    const materials = createKnowledgeTranscriptActivities({
+      database: agent.db,
+      transcripts: createRunTranscriptPurge(),
+      delegatedRecords: harness.recordAdapter(),
+    });
+    for (const start of started)
       expect(
-        await purger.purgeRecord(service, {
-          kind: ref.kind as 'work_unit',
-          id: ref.id,
-          limit: 25,
-        }),
+        await materials.purgeRecordMaterials(start.args[0] as KnowledgeRecordPurgeInput),
       ).toMatchObject({ confirmed: true, remaining: 0, controlsRemaining: 0 });
     for (const runId of [f.childRunId, f.runId])
       expect(await purgeEndedRunTranscript(agent.db, service, { agentRunId: runId })).toBe(
@@ -282,6 +341,54 @@ describe('ADR-028 delegated child offboarding (L6, L8b)', () => {
     }
   });
 
+  it('[ADR028-Q12-L8b] once the closure has tombstoned a record input, the offboarding cannot be cancelled', async () => {
+    // Positive control: before any closure, the owner can still cancel and service comes back.
+    const early = await tenantWithEndedChild(),
+      earlyReady = await readyToErase(app.db, early.tenant.owner),
+      earlyOwner = await nativeSovereignContext(
+        app.db,
+        early.tenant.owner.userId,
+        early.tenant.organizationId,
+      );
+    const earlyView = await getOffboarding(app.db, earlyOwner);
+    expect(earlyView?.state).toBe('ready_for_erasure');
+    await cancelOffboarding(
+      app.db,
+      earlyOwner,
+      { reasonCode: 'TEST_CHANGED_MIND', expectedVersion: earlyView!.version },
+      earlyReady.ports.offboardingAgents,
+    );
+    expect(await getOffboarding(app.db, earlyOwner)).toBeNull();
+
+    const { tenant, f } = await tenantWithEndedChild(),
+      organizationId = tenant.organizationId;
+    const ready = await readyToErase(app.db, tenant.owner),
+      owner = await nativeSovereignContext(app.db, tenant.owner.userId, organizationId);
+    const refs = await recordRefs(organizationId, f.childRunId);
+    // The closure runs while the offboarding is still ready_for_erasure, before the move to erasing.
+    expect(
+      await withTenantTx(app.db, ready.service, (tx) =>
+        closeDelegatedRecordInputsInTx(tx, ready.service, ready),
+      ),
+    ).toEqual({ closed: refs.length, more: false, busy: false });
+    const view = await getOffboarding(app.db, owner);
+    expect(view?.state).toBe('ready_for_erasure');
+    await expect(
+      cancelOffboarding(
+        app.db,
+        owner,
+        { reasonCode: 'TEST_TOO_LATE', expectedVersion: view!.version },
+        ready.ports.offboardingAgents,
+      ),
+    ).rejects.toMatchObject({ code: 'OFFBOARDING_NOT_CANCELLABLE' });
+    // Nothing changed: still ready_for_erasure, the same version, every tombstone kept.
+    expect(await getOffboarding(app.db, owner)).toMatchObject({
+      state: 'ready_for_erasure',
+      version: view!.version,
+    });
+    for (const ref of refs) expect(await tombstoned(organizationId, ref)).toBe(1);
+  });
+
   it('[ADR028-Q12-L8b] the closure is idempotent: a second page writes no second event', async () => {
     const { tenant, f } = await tenantWithEndedChild(),
       organizationId = tenant.organizationId;
@@ -291,8 +398,8 @@ describe('ADR-028 delegated child offboarding (L6, L8b)', () => {
         closeDelegatedRecordInputsInTx(tx, ready.service, ready),
       );
     const refs = await recordRefs(organizationId, f.childRunId);
-    expect(await close()).toEqual({ closed: refs.length, more: false });
-    expect(await close()).toEqual({ closed: 0, more: false });
+    expect(await close()).toEqual({ closed: refs.length, more: false, busy: false });
+    expect(await close()).toEqual({ closed: 0, more: false, busy: false });
     for (const ref of refs) {
       expect(await tombstoned(organizationId, ref)).toBe(1);
       expect(await closedEvents(organizationId, ref)).toBe(1);

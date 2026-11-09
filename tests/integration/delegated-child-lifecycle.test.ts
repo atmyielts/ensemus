@@ -113,8 +113,11 @@ describe('ADR-028 delegated child lifecycle qualification', () => {
     });
 
   /**
-   * The born child, started as the runtime starts a run (queued, preparing, running), with one tool step
-   * open and the generated-draft path wired exactly as the tool gateway drives it.
+   * The born child, moved queued, preparing, running by raw agent-role UPDATEs, with one tool step
+   * inserted directly and the generated-draft path wired exactly as the tool gateway drives it. This is
+   * NOT the runtime's start: claimQueuedRun (initiator access, ceiling and Work-claim checks, assignment
+   * and first step) and openStep are skipped, so a check they would apply to a delegated child is not
+   * exercised by the L2 and L7 cases. The database guards on every write still apply.
    */
   async function runningChild(f: { childRunId: string; childWorkId: string }) {
     const context = await childContextOf(f.childRunId),
@@ -169,10 +172,15 @@ describe('ADR-028 delegated child lifecycle qualification', () => {
       await publish(write);
       return write;
     };
-    /** A pending lineage header shaped as beginInTx writes one, behind the run's own admission. */
-    const gatedHeader = (workUnitId: string) =>
+    /**
+     * A pending lineage header shaped as beginInTx writes one, behind the run's own admission. With
+     * `admitted: false` the run's readRun admission is skipped, so a refusal can only come from the
+     * database's own guards on the insert (0525's output guard is reached before its admission check).
+     */
+    const gatedHeader = (workUnitId: string, options: { admitted?: boolean } = {}) =>
       withTenantTx(agent.db, context, async (tx) => {
-        await tools.readRun(tx, context, f.childRunId, { lock: true });
+        if (options.admitted !== false)
+          await tools.readRun(tx, context, f.childRunId, { lock: true });
         const artifactId = randomUUID();
         await tx.insert(artifactLineage).values({
           organizationId: a.organizationId,
@@ -261,11 +269,25 @@ describe('ADR-028 delegated child lifecycle qualification', () => {
       stopCode: 'STOPPED_BY_PERSON',
     });
     await closeRecord(f.input.id);
+    // Closing the input alone already ends serving, before any purge: the copied child Work becomes
+    // invisible (as in the L1 case), and readArtifact refuses through Work visibility. That refusal is
+    // not evidence about the file's own authority, which is why the retained refs are checked
+    // separately: the closure did not strip the generated file's inherited input ref.
+    const gets = child.store.gets;
+    await expect(served()).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    expect(child.store.gets).toBe(gets);
+    const kept = await withTenantTx(app.db, createServiceContext(a.organizationId), (tx) =>
+      tx
+        .select({ kind: artifactAuthorityRefs.refKind, id: artifactAuthorityRefs.refId })
+        .from(artifactAuthorityRefs)
+        .where(eq(artifactAuthorityRefs.artifactId, child.draftId)),
+    );
+    expect(kept).toEqual(expect.arrayContaining([{ kind: 'work_unit', id: f.input.id }]));
     const service = createServiceContext(a.organizationId);
     expect(
       await recordAdapter().purgeRecord(service, { kind: 'work_unit', id: f.input.id, limit: 25 }),
     ).toMatchObject({ confirmed: true, remaining: 0, controlsRemaining: 0 });
-    const gets = child.store.gets;
+    // After the copied Work's purge, still refused, and still without reading a byte.
     await expect(served()).rejects.toMatchObject({ code: 'NOT_FOUND' });
     expect(child.store.gets).toBe(gets);
   });
@@ -430,11 +452,20 @@ describe('ADR-028 delegated child lifecycle qualification', () => {
     expect(await lineageOf(child.draftId)).toEqual([
       expect.objectContaining({ state: 'bound', workUnitId: f.childWorkId }),
     ]);
+    // Positive control: the same hand-built header for the child's own Work is accepted while it runs,
+    // so a refusal after the stop is not the header's shape or a constraint.
+    const before = await child.gatedHeader(f.childWorkId);
+    expect(await lineageOf(before)).toEqual([
+      expect.objectContaining({ state: 'pending', workUnitId: f.childWorkId }),
+    ]);
     await controlAgentRun(app.db, a.owner, { agentRunId: f.childRunId, kind: 'stop' });
-    const after = await child.gatedHeader(f.childWorkId).then(
-      (artifactId) => ({ artifactId }),
-      (error: unknown) => ({ error }),
-    );
-    expect(after).toHaveProperty('error');
+    // After the stop, the same header is refused by the stop-aware output guard itself (0525: a run
+    // with a 'stop' control is not a writer), not by the application's run admission, which is skipped.
+    expect(await refusalOf(child.gatedHeader(f.childWorkId, { admitted: false }))).toEqual({
+      code: 'EN119',
+      message: 'RUN_OUTPUT_AUTHORITY_UNBOUND',
+    });
+    // And through the admitted path it is refused too, whichever gate comes first.
+    expect(await refusalOf(child.gatedHeader(f.childWorkId))).not.toBeNull();
   });
 });

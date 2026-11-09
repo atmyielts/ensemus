@@ -58,15 +58,22 @@ export function createKnowledgePurgeActivities(deps: KnowledgeWorkerDeps) {
      * by metadata, then each is re-proved, one transaction each, with the same composite proof
      * confirmRecordPurge uses. Only a record PostgreSQL does not prove purged is due. Nothing is stored:
      * the next sweep simply proves again, so no retry counter can run out and no Temporal result is reused.
+     *
+     * One record's proof failing never stops the others: any other refusal (for example the generated-file
+     * proof's INVALID_INPUT for a custom object record, which has no admitted file lineage yet, or
+     * OBJECT_DELETE_UNCONFIRMED while an object deletion is unresolved) counts that record as failed, and
+     * the pass goes on to the next candidate. A failed record is not restarted: its purge would stop at the
+     * same refusal. It stays a candidate, so the next sweep proves it again.
      */
     async claimRecordPurgeRestarts(input: {
       organizationId: string;
-    }): Promise<readonly KnowledgeRecordPurgeInput[]> {
+    }): Promise<{ due: readonly KnowledgeRecordPurgeInput[]; failed: number }> {
       const context = createServiceContext(input.organizationId);
       const candidates = await listRecordPurgeCandidates(deps.database, context, {
         limit: RECORD_PURGE_PAGE_LIMIT,
       });
       const due: KnowledgeRecordPurgeInput[] = [];
+      let failed = 0;
       for (const candidate of candidates) {
         if (due.length >= RECORD_PURGE_RESTARTS) break;
         const record = knowledgeRecordPurgeInputSchema.parse({
@@ -85,10 +92,10 @@ export function createKnowledgePurgeActivities(deps: KnowledgeWorkerDeps) {
             pgCode(error) === '55P03'
           )
             due.push(record);
-          else throw error;
+          else failed += 1;
         }
       }
-      return due;
+      return { due, failed };
     },
     /** The current proof for one record, for a restart that found its workflow already running. */
     async readRecordPurgeState(raw: KnowledgeRecordPurgeInput): Promise<RecordPurgeResult> {

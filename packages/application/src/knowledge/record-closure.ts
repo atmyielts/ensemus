@@ -8,20 +8,14 @@
 // tenant's knowledge sweep (listRecordPurgeCandidates, then the canonical PostgreSQL purge proof), which
 // also reaches a tombstone written by SQL or by any path that forgot the event. A forged event is inert:
 // the record purge refuses a live record (ai.lock_record_purge_snapshot returns NULL for it).
-import {
-  domainEvents,
-  withTenantTx,
-  type AppDatabase,
-  type TenantContext,
-  type Tx,
-} from '@ensemus/database';
+import { withTenantTx, type AppDatabase, type TenantContext, type Tx } from '@ensemus/database';
 import {
   isRecordPurgeKind,
   KNOWLEDGE_RECORD_CLOSED,
   RECORD_PURGE_KINDS,
   type RecordPurgeKind,
 } from '@ensemus/domain/knowledge-events';
-import { and, eq, sql } from 'drizzle-orm';
+import { sql } from 'drizzle-orm';
 import { AppError } from '../errors';
 import { emit } from '../events';
 import { idSchema } from '../ids';
@@ -34,9 +28,16 @@ function recordOf(input: { kind: unknown; id: unknown }): { kind: RecordPurgeKin
 }
 
 /**
- * Writes `knowledge.record_closed` (and its outbox row) once per record. The payload is the two IDs and
- * nothing else, so the event is classified restricted and leaks no record class. Returns whether it was
- * written now: false means an earlier closure of the same record already wrote it.
+ * Writes `knowledge.record_closed` (and its outbox row) once per closure of a record. The payload is the
+ * two IDs and nothing else, so the event is classified restricted and leaks no record class. Returns
+ * whether it was written now: false means this closure already wrote it.
+ *
+ * "This closure" is the record's tombstone: an event counts as already written only if it is at least as
+ * new as the tombstone. ensemus_app can write a domain event for a live record (a forged or early event,
+ * which the purge ignores because a live record has no purge snapshot), and such an event must not
+ * suppress the genuine one when the record really closes later. A record with no tombstone has no
+ * closure time, so any earlier event counts. A transaction-scoped advisory lock per record serializes the
+ * check and the insert, so two concurrent closures write one event.
  */
 export async function emitRecordClosedInTx(
   tx: Tx,
@@ -44,24 +45,25 @@ export async function emitRecordClosedInTx(
   input: { kind: RecordPurgeKind; id: string },
 ): Promise<boolean> {
   const record = recordOf(input);
-  const [existing] = await tx
-    .select({ id: domainEvents.id })
-    .from(domainEvents)
-    .where(
-      and(
-        eq(domainEvents.organizationId, context.organizationId),
-        eq(domainEvents.eventType, KNOWLEDGE_RECORD_CLOSED),
-        eq(domainEvents.aggregateType, record.kind),
-        eq(domainEvents.aggregateId, record.id),
-      ),
-    )
-    .limit(1);
-  if (existing) return false;
+  await tx.execute(
+    sql`select pg_advisory_xact_lock(hashtextextended(${`knowledge.record_closed:${context.organizationId}:${record.kind}:${record.id}`},0))`,
+  );
+  const prior = await tx.execute<{ written: number; current: boolean }>(sql`
+    select count(*)::integer written,
+      coalesce(bool_or(event.occurred_at>=coalesce((select tombstone.created_at from platform.tombstones tombstone
+        where tombstone.organization_id=event.organization_id and tombstone.target_type=${record.kind}
+          and tombstone.target_id=${record.id}::uuid),'-infinity'::timestamptz)),false) current
+      from platform.domain_events event
+     where event.organization_id=${context.organizationId}::uuid
+       and event.event_type=${KNOWLEDGE_RECORD_CLOSED}
+       and event.aggregate_type=${record.kind} and event.aggregate_id=${record.id}::uuid`);
+  const row = prior.rows[0];
+  if (row?.current === true) return false;
   await emit(tx, context, {
     eventType: KNOWLEDGE_RECORD_CLOSED,
     aggregateType: record.kind,
     aggregateId: record.id,
-    aggregateVersion: 1,
+    aggregateVersion: Number(row?.written ?? 0) + 1,
     classification: 'restricted',
     payload: { record_kind: record.kind, record_id: record.id },
   });

@@ -1,6 +1,11 @@
 // ADR-028 open question 12, lifecycle item 8a: the dispatcher's route from a typed-record deletion event
-// to its purge. Pure apart from the start call, so the routing and the reuse policy are unit-tested.
-import { WorkflowExecutionAlreadyStartedError } from '@temporalio/client';
+// to its purge, also used by the operator's erase command to restart purges for an offboarding tenant
+// (item 8b), which has no knowledge sweep. Pure apart from the start call and the lazily opened client,
+// so the routing and the reuse policy are unit-tested.
+import { readSecret } from '@ensemus/config';
+import { AesGcmPayloadCodec } from '@ensemus/workflows/codec';
+import { Client, WorkflowExecutionAlreadyStartedError } from '@temporalio/client';
+import { openDispatcherConnection } from './temporal-connection';
 import { isRecordPurgeKind, KNOWLEDGE_RECORD_CLOSED } from '@ensemus/domain/knowledge-events';
 import { PLATFORM_TASK_QUEUE } from '@ensemus/workflows/constants';
 import {
@@ -74,4 +79,19 @@ export async function startRecordPurge(
   } catch (error) {
     if (!(error instanceof WorkflowExecutionAlreadyStartedError)) throw error;
   }
+}
+
+/**
+ * A Temporal client that can only be used to start record purges, for the operator's erase command. It
+ * encodes payloads with the same codec as every worker (TEMPORAL_CODEC_KEY), and connects lazily, so it
+ * is opened only when a restart is actually due.
+ */
+export function openRecordPurgeStarter(): { starter: RecordPurgeStarter; close(): Promise<void> } {
+  const connection = openDispatcherConnection(process.env.TEMPORAL_ADDRESS ?? 'temporal:7233');
+  const client = new Client({
+    connection,
+    namespace: process.env.TEMPORAL_NAMESPACE ?? 'default',
+    dataConverter: { payloadCodecs: [new AesGcmPayloadCodec(readSecret('TEMPORAL_CODEC_KEY'))] },
+  });
+  return { starter: client, close: () => connection.close() };
 }

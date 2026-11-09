@@ -139,7 +139,10 @@ describe('ingest orchestration', () => {
       const retried: string[] = [];
       const result = await runKnowledgeSweep({
         ...quiet,
-        recordPurges: async () => Array.from({ length: 8 }, (_, i) => record(i)),
+        recordPurges: async () => ({
+          due: Array.from({ length: 8 }, (_, i) => record(i)),
+          failed: 0,
+        }),
         retryRecordPurge: async (child) => {
           retried.push(child.id);
           if (retried.length === 2) throw new Error('TEST_RECORD_PURGE_FAILED');
@@ -154,6 +157,22 @@ describe('ingest orchestration', () => {
         { kind: 'work_unit', id: record(2).id, state: 'unconfirmed' },
         { kind: 'work_unit', id: record(3).id, state: 'completed' },
         { kind: 'work_unit', id: record(4).id, state: 'completed' },
+      ]);
+    });
+    it('counts each candidate whose proof failed, and still restarts the due ones', async () => {
+      const retried: string[] = [];
+      const result = await runKnowledgeSweep({
+        ...quiet,
+        recordPurges: async () => ({ due: [record(7)], failed: 2 }),
+        retryRecordPurge: async (child) => {
+          retried.push(child.id);
+          return { state: 'completed' };
+        },
+      });
+      expect(retried).toEqual([record(7).id]);
+      expect(result.failed).toBe(2);
+      expect(result.recordPurges).toEqual([
+        { kind: 'work_unit', id: record(7).id, state: 'completed' },
       ]);
     });
     it('counts a failed claim once and still reports the other work', async () => {

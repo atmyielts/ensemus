@@ -17,8 +17,10 @@ import type { OffboardingAgentHaltPort } from '@ensemus/application/saas/ports';
 import { createOffboardingAgentHaltPort } from '@ensemus/application/saas/offboarding-agent-port';
 import {
   closeDelegatedRecordInputsInTx,
+  listDelegatedRecordPurgeRestartsInTx,
   sealDelegatedErasureInTx,
 } from '@ensemus/application/knowledge/delegated-erasure';
+import { KNOWLEDGE_RECORD_CLOSED } from '@ensemus/domain/knowledge-events';
 import {
   createTenantObjectErasure,
   type ErasureObjectStore,
@@ -29,15 +31,30 @@ import { createServiceContext } from '@ensemus/database/service';
 import { eraseTenantRows, listErasableTables, openEraserDatabase } from '@ensemus/database/eraser';
 import { S3ObjectStore } from '@ensemus/storage';
 import { createLogger, errorCode } from '@ensemus/telemetry';
+import {
+  openRecordPurgeStarter,
+  recordPurgeStartFor,
+  startRecordPurge,
+  type RecordPurgeStarter,
+} from './record-purge-route';
 
 const log = createLogger('erase-command');
 export { eraseCommandInputSchemas };
-/** At most this many closure pages (100 records each) per run; more is reported as busy, not erased. */
+/**
+ * At most this many closure pages (100 records each) per run. Records left after that are reported as
+ * DELEGATED_INPUTS_REMAINING (rerun: closed records are not listed again); a contended record lock ends
+ * the run at once as DELEGATED_INPUTS_BUSY (rerun later). Neither is erased.
+ */
 const DELEGATED_INPUT_PAGES = 20;
 type DatabaseHandle<T> = { db: T; close(): Promise<void> };
 export type EraseCommandBindings = {
   agents?: OffboardingAgentHaltPort;
   store?: ObjectStore;
+  /**
+   * Starts typed-record purges (ADR-028 items 8a and 8b). Production opens a Temporal client only when a
+   * restart is due; tests hand in a recorder, since Temporal is not running in the integration stack.
+   */
+  recordPurges?: RecordPurgeStarter;
   /**
    * Tests only: already-open handles, used instead of DATABASE_URL_APP and DATABASE_URL_ERASER and left
    * open for the caller to close. The restricted eraser role cannot log in, so a test hands one in.
@@ -92,6 +109,8 @@ export async function eraseCommand(
     eraser: DatabaseHandle<Parameters<typeof eraseTenantRows>[0]> | undefined,
     reportDescriptor: number | undefined;
   const injected = bindings.databases;
+  let recordPurges = bindings.recordPurges,
+    temporal: ReturnType<typeof openRecordPurgeStarter> | undefined;
   let reportWritten = false;
   const writeReport = (report: unknown) => {
     if (reportDescriptor === undefined) throw new Error('ERASURE_REPORT_NOT_OPEN');
@@ -152,25 +171,28 @@ export async function eraseCommand(
     }
     // ADR-028 lifecycle item 8b. Before erasing (which refuses new tombstones, 0533), close every record
     // an unredacted delegated child receipt names, so its typed-record purge can redact the receipt and
-    // the seal below can succeed. A run resumed while already erasing skips this; it ran before.
+    // the seal below can succeed. A run resumed while already erasing skips this; it ran before. This is
+    // irreversible: once it has tombstoned anything the offboarding can no longer be cancelled.
     if (prior.state !== 'erasing') {
       const database = app.db;
-      let busy = true;
+      let left: 'DELEGATED_INPUTS_BUSY' | 'DELEGATED_INPUTS_REMAINING' | null =
+        'DELEGATED_INPUTS_REMAINING';
       for (let page = 0; page < DELEGATED_INPUT_PAGES; page++) {
         const closure = await withTenantTx(database, context, (tx) =>
           closeDelegatedRecordInputsInTx(tx, context, input),
         );
+        if (closure.busy) {
+          left = 'DELEGATED_INPUTS_BUSY';
+          break;
+        }
         if (!closure.more) {
-          busy = false;
+          left = null;
           break;
         }
       }
-      if (busy) {
-        writeReport({ state: 'pending', reasonCode: 'DELEGATED_INPUTS_BUSY' });
-        log.warn('erasure.pending', {
-          organizationId: input.organizationId,
-          reasonCode: 'DELEGATED_INPUTS_BUSY',
-        });
+      if (left) {
+        writeReport({ state: 'pending', reasonCode: left });
+        log.warn('erasure.pending', { organizationId: input.organizationId, reasonCode: left });
         return 1;
       }
     }
@@ -227,10 +249,33 @@ export async function eraseCommand(
       sealDelegatedErasureInTx(tx, context, input),
     );
     if (!sealed) {
-      writeReport({ state: 'pending', reasonCode: 'MATERIAL_PURGE_PENDING' });
+      // ADR-028 items 8a/8b. An offboarding tenant has no knowledge sweep, so this run is the restart
+      // path: it starts again the purge of every closed record an unredacted child receipt still names.
+      // Starting is idempotent (one workflow ID per record; a live one is left running).
+      const restarts = await withTenantTx(app.db, context, (tx) =>
+        listDelegatedRecordPurgeRestartsInTx(tx, context, input),
+      );
+      let restarted = 0;
+      for (const record of restarts) {
+        const start = recordPurgeStartFor({
+          eventType: KNOWLEDGE_RECORD_CLOSED,
+          aggregateType: record.kind,
+          aggregateId: record.id,
+          organizationId: input.organizationId,
+        });
+        if (!start) continue;
+        if (!recordPurges) {
+          temporal = openRecordPurgeStarter();
+          recordPurges = temporal.starter;
+        }
+        await startRecordPurge(recordPurges, start);
+        restarted += 1;
+      }
+      writeReport({ state: 'pending', reasonCode: 'MATERIAL_PURGE_PENDING', restarted });
       log.warn('erasure.pending', {
         organizationId: input.organizationId,
         reasonCode: 'MATERIAL_PURGE_PENDING',
+        count: restarted,
       });
       return 1;
     }
@@ -261,6 +306,7 @@ export async function eraseCommand(
     return 2;
   } finally {
     if (reportDescriptor !== undefined) closeSync(reportDescriptor);
+    await temporal?.close().catch(() => undefined);
     if (!injected) {
       await app?.close();
       await eraser?.close();

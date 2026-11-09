@@ -15,6 +15,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const ports = vi.hoisted(() => ({
   seal: vi.fn(),
   close: vi.fn(),
+  restarts: vi.fn(),
   inspect: vi.fn(),
   erase: vi.fn(),
   finish: vi.fn(),
@@ -43,6 +44,7 @@ vi.mock('@ensemus/database/eraser', () => ({
 vi.mock('@ensemus/application/knowledge/delegated-erasure', () => ({
   sealDelegatedErasureInTx: ports.seal,
   closeDelegatedRecordInputsInTx: ports.close,
+  listDelegatedRecordPurgeRestartsInTx: ports.restarts,
 }));
 vi.mock('@ensemus/application/saas/offboarding', async (original) => ({
   ...(await original<typeof import('@ensemus/application/saas/offboarding')>()),
@@ -84,7 +86,11 @@ beforeEach(() => {
   });
   ports.close.mockImplementation(async () => {
     ports.order.push('close-delegated-inputs');
-    return { closed: 0, more: false };
+    return { closed: 0, more: false, busy: false };
+  });
+  ports.restarts.mockImplementation(async () => {
+    ports.order.push('list-restarts');
+    return [];
   });
   ports.begin.mockResolvedValue({ more: false });
   ports.physical.mockResolvedValue({ confirmed: true, objectsRemaining: 0 });
@@ -105,7 +111,10 @@ afterEach(() => {
   }
   rmdirSync(directory);
 });
-async function run(databases?: EraseCommandBindings['databases']) {
+async function run(
+  databases?: EraseCommandBindings['databases'],
+  recordPurges?: EraseCommandBindings['recordPurges'],
+) {
   const input = {
     organizationId: randomUUID(),
     offboardingId: randomUUID(),
@@ -120,11 +129,16 @@ async function run(databases?: EraseCommandBindings['databases']) {
       releaseOffboardingAgents: async () => undefined,
     },
     ...(databases ? { databases } : {}),
+    ...(recordPurges ? { recordPurges } : {}),
   });
   return {
     code,
     input,
-    report: JSON.parse(readFileSync(report, 'utf8')) as { state: string; reasonCode?: string },
+    report: JSON.parse(readFileSync(report, 'utf8')) as {
+      state: string;
+      reasonCode?: string;
+      restarted?: number;
+    },
   };
 }
 describe('operator erasure material-witness composition', () => {
@@ -147,7 +161,11 @@ describe('operator erasure material-witness composition', () => {
     ports.seal.mockResolvedValue(false);
     const result = await run();
     expect(result.code).toBe(1);
-    expect(result.report).toEqual({ state: 'pending', reasonCode: 'MATERIAL_PURGE_PENDING' });
+    expect(result.report).toEqual({
+      state: 'pending',
+      reasonCode: 'MATERIAL_PURGE_PENDING',
+      restarted: 0,
+    });
     expect(ports.erase).not.toHaveBeenCalled();
     expect(ports.finish).not.toHaveBeenCalled();
   });
@@ -219,18 +237,79 @@ describe('operator erasure material-witness composition', () => {
     });
     it('loops one transaction per page until no more remain', async () => {
       let pages = 0;
-      ports.close.mockImplementation(async () => ({ closed: 100, more: ++pages < 3 }));
+      ports.close.mockImplementation(async () => ({ closed: 100, more: ++pages < 3, busy: false }));
       expect((await run()).code).toBe(0);
       expect(ports.close).toHaveBeenCalledTimes(3);
     });
-    it('reports DELEGATED_INPUTS_BUSY after twenty full pages and neither begins nor erases', async () => {
-      ports.close.mockResolvedValue({ closed: 100, more: true });
+    it('reports DELEGATED_INPUTS_REMAINING after twenty uncontended full pages and neither begins nor erases', async () => {
+      ports.close.mockResolvedValue({ closed: 100, more: true, busy: false });
       const result = await run();
       expect(result.code).toBe(1);
-      expect(result.report).toEqual({ state: 'pending', reasonCode: 'DELEGATED_INPUTS_BUSY' });
+      expect(result.report).toEqual({ state: 'pending', reasonCode: 'DELEGATED_INPUTS_REMAINING' });
       expect(ports.close).toHaveBeenCalledTimes(20);
       expect(ports.begin).not.toHaveBeenCalled();
       expect(ports.seal).not.toHaveBeenCalled();
+      expect(ports.erase).not.toHaveBeenCalled();
+    });
+    it('reports DELEGATED_INPUTS_BUSY at once when a record lock is contended', async () => {
+      let pages = 0;
+      ports.close.mockImplementation(async () =>
+        ++pages === 1
+          ? { closed: 100, more: true, busy: false }
+          : { closed: 3, more: true, busy: true },
+      );
+      const result = await run();
+      expect(result.code).toBe(1);
+      expect(result.report).toEqual({ state: 'pending', reasonCode: 'DELEGATED_INPUTS_BUSY' });
+      expect(ports.close).toHaveBeenCalledTimes(2);
+      expect(ports.begin).not.toHaveBeenCalled();
+      expect(ports.erase).not.toHaveBeenCalled();
+    });
+    it('restarts the purge of every closed input record while the seal cannot hold', async () => {
+      ports.seal.mockResolvedValue(false);
+      const records = [
+        { kind: 'work_unit', id: randomUUID() },
+        { kind: 'object_record', id: randomUUID() },
+      ];
+      ports.restarts.mockResolvedValue(records);
+      const start = vi.fn(async () => undefined);
+      const result = await run(undefined, { workflow: { start } });
+      expect(result.code).toBe(1);
+      expect(result.report).toEqual({
+        state: 'pending',
+        reasonCode: 'MATERIAL_PURGE_PENDING',
+        restarted: 2,
+      });
+      expect(start).toHaveBeenCalledTimes(2);
+      for (const record of records)
+        expect(start).toHaveBeenCalledWith('knowledgeRecordPurgeWorkflow', {
+          args: [{ organizationId: result.input.organizationId, ...record, limit: 25 }],
+          taskQueue: 'ensemus-platform',
+          workflowId: `knowledge-record-purge-${result.input.organizationId}-${record.kind}-${record.id}`,
+          workflowIdReusePolicy: 'ALLOW_DUPLICATE',
+        });
+      expect(ports.restarts).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ organizationId: result.input.organizationId }),
+        result.input,
+      );
+      expect(ports.erase).not.toHaveBeenCalled();
+    });
+    it('lists no restarts once the seal holds', async () => {
+      const start = vi.fn(async () => undefined);
+      expect((await run(undefined, { workflow: { start } })).code).toBe(0);
+      expect(ports.restarts).not.toHaveBeenCalled();
+      expect(start).not.toHaveBeenCalled();
+    });
+    it('a failed restart start is reported as a failure, never as erased', async () => {
+      ports.seal.mockResolvedValue(false);
+      ports.restarts.mockResolvedValue([{ kind: 'work_unit', id: randomUUID() }]);
+      const start = vi.fn(async () => {
+        throw new Error('TEST_TEMPORAL_DOWN');
+      });
+      const result = await run(undefined, { workflow: { start } });
+      expect(result.code).toBe(2);
+      expect(result.report.state).toBe('failed');
       expect(ports.erase).not.toHaveBeenCalled();
     });
     it('skips the closure on a run resumed while erasing', async () => {
@@ -249,7 +328,11 @@ describe('operator erasure material-witness composition', () => {
       ports.seal.mockResolvedValue(false);
       const result = await run();
       expect(result.code).toBe(1);
-      expect(result.report).toEqual({ state: 'pending', reasonCode: 'MATERIAL_PURGE_PENDING' });
+      expect(result.report).toEqual({
+        state: 'pending',
+        reasonCode: 'MATERIAL_PURGE_PENDING',
+        restarted: 0,
+      });
       expect(ports.close).toHaveBeenCalledOnce();
       expect(ports.erase).not.toHaveBeenCalled();
     });
