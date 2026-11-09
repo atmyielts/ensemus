@@ -603,6 +603,27 @@
       "when": 1794201807487,
       "tag": "0525_ai_bounded_run_output_authority",
       "breakpoints": true
+    },
+    {
+      "idx": 86,
+      "version": "7",
+      "when": 1794201807488,
+      "tag": "0526_r2portability_import_effect_scope",
+      "breakpoints": true
+    },
+    {
+      "idx": 87,
+      "version": "7",
+      "when": 1794201807489,
+      "tag": "0527_r2portability_purge_demotion_prior",
+      "breakpoints": true
+    },
+    {
+      "idx": 88,
+      "version": "7",
+      "when": 1794201807490,
+      "tag": "0528_r2portability_archive_debt_serialize",
+      "breakpoints": true
     }
   ]
 }
