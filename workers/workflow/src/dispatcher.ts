@@ -36,6 +36,7 @@ import {
   CLIENT_ONBOARDING_REQUESTED,
   KNOWLEDGE_ANSWER_REQUESTED,
   KNOWLEDGE_DOCUMENT_RECEIVED,
+  KNOWLEDGE_RECORD_CLOSED,
   KNOWLEDGE_SOURCE_CLOSED,
 } from '@ensemus/domain/knowledge-events';
 import {
@@ -132,6 +133,7 @@ import {
   ScheduleAlreadyRunning,
 } from '@temporalio/client';
 import { classifyDeliveryError, needsOnlyTheStore } from './dispatch-errors';
+import { recordPurgeStartFor, startRecordPurge } from './record-purge-route';
 import { openDispatcherConnection } from './temporal-connection';
 import { createLedgerWriter } from './tombstone-ledger';
 
@@ -537,6 +539,15 @@ async function main() {
           workflowIdFor: knowledgePurgeWorkflowIdFor,
         });
         return;
+
+      // A typed record was deleted: purge what a delegated child copied from it (ADR-028 item 8a). The
+      // knowledge sweep restarts any purge PostgreSQL does not yet prove, so this is the fast path only.
+      case KNOWLEDGE_RECORD_CLOSED: {
+        const start = recordPurgeStartFor(event);
+        if (!start) return;
+        await startRecordPurge(client, start);
+        return;
+      }
 
       case MODEL_JOB_REQUESTED:
         if (event.aggregateType !== AGGREGATE_MODEL_JOB) return;

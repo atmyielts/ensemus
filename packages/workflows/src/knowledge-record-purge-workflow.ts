@@ -7,8 +7,10 @@ import type {
 import type { KnowledgeRecordPurgeInput } from './knowledge-schemas';
 import { runRecordPurge, type RecordPurgeResult } from './knowledge-record-purge-step';
 
-/** Metadata only. Starting/restarting this canonical workflow must originate from the genuine
- * record-deletion outbox/control path; it cannot authorize an active record or invent read history. */
+/** Metadata only. Two starters (ADR-028 lifecycle item 8a): the dispatcher, on a genuine
+ * `knowledge.record_closed` outbox event (workers/workflow/src/record-purge-route.ts), and the tenant's
+ * knowledgeSweepWorkflow, which restarts every record PostgreSQL does not yet prove purged. Neither can
+ * authorize an active record or invent read history: a live record yields no purge snapshot. */
 export async function knowledgeRecordPurgeWorkflow(
   input: KnowledgeRecordPurgeInput,
 ): Promise<RecordPurgeResult> {

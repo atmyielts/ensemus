@@ -223,10 +223,31 @@ export async function assertLegacyChildAfterAgentScopeMigration(
         ),
       [],
     );
+    // ADR-028 'Decision: defining ai.delegation_influence_ready' (project owner, 2026-11-09;
+    // 0590_deleg). A legacy pre-0414 child stays refused: this transaction is the child's
+    // (app.agent_run_id is not the parent), the child row already exists, no scoped-v1:<parent>
+    // marker is loaded, and no capability need be recorded. The ADR earlier said this expectation
+    // must change; under the decided definition it stays false.
     assert.equal(
       (
         await tx.execute<{ ready: boolean }>(
           sql`select ai.delegation_influence_ready(${f.parentRunId}::uuid,${f.childRunId}::uuid) ready`,
+        )
+      ).rows[0]?.ready,
+      false,
+    );
+    // Nor can the legacy child act as a parent, even with its own scoped marker. This is false for
+    // several reasons at once (no capability is qualified here, the legacy child is not running or
+    // waiting_for_child, and it has no v1 history_complete checkpoint), so it does NOT isolate the 0414
+    // unproven-inventory clause; it would stay false with that clause removed. The inventory negative
+    // that does isolate it is the superuser case in tests/integration/delegation-birth-readiness.test.ts.
+    await tx.execute(
+      sql`select set_config('app.agent_scope_protocol',${`scoped-v1:${f.childRunId}`},true)`,
+    );
+    assert.equal(
+      (
+        await tx.execute<{ ready: boolean }>(
+          sql`select ai.delegation_influence_ready(${f.childRunId}::uuid,gen_random_uuid()) ready`,
         )
       ).rows[0]?.ready,
       false,

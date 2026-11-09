@@ -134,6 +134,17 @@ async function effects(tx: Tx, context: TenantContext) {
     payments: count(row?.payments),
   };
 }
+/**
+ * Whether erasure has already destroyed something irreversibly: any TENANT_ERASURE tombstone. Only
+ * erasure writes that reason (the artifact tombstones of `erasing`, and the delegated input closure just
+ * before it), and a tombstone is never removed, so this stays true once it is true. Metadata only.
+ */
+async function erasureHasDestroyed(tx: Tx, context: TenantContext) {
+  const result = await tx.execute<{ destroyed: boolean }>(
+    sql`select exists(select 1 from platform.tombstones where organization_id=${context.organizationId}::uuid and reason_code='TENANT_ERASURE') as destroyed`,
+  );
+  return result.rows[0]?.destroyed === true;
+}
 async function tellOwners(tx: Tx, context: TenantContext, offboardingId: string) {
   const owners = await tx
     .select({ id: memberships.id })
@@ -356,7 +367,15 @@ export async function requestOffboarding(
   });
 }
 
-/** `offboarding.manage`. Only before `erasing`, which is the point of no return. Service comes back. */
+/**
+ * `offboarding.manage`. Only before erasure has destroyed anything, then service comes back. `erasing` is
+ * the state machine's point of no return, but ADR-028 lifecycle item 8b's delegated input closure
+ * (`closeDelegatedRecordInputsInTx`) already tombstones records with TENANT_ERASURE, and starts their
+ * purges, while the offboarding is still `ready_for_erasure`. Those tombstones are permanent, so once any
+ * exists the tenant could not get its records back: cancelling is refused from then on, and the operator
+ * finishes erasure (after any hold placed meanwhile is released). Both this and the closure lock the tenant
+ * and the offboarding row first, so neither can pass the other.
+ */
 export async function cancelOffboarding(
   database: AppDatabase,
   context: TenantContext,
@@ -383,6 +402,7 @@ export async function cancelOffboarding(
     if (row.version !== input.expectedVersion) throw new AppError('VERSION_CONFLICT');
     if (['erasing', 'verified', 'reported'].includes(row.state))
       throw new AppError('OFFBOARDING_NOT_CANCELLABLE');
+    if (await erasureHasDestroyed(tx, context)) throw new AppError('OFFBOARDING_NOT_CANCELLABLE');
     const [prior] = await tx
       .select({ from: standingChanges.fromLifecycle })
       .from(standingChanges)
@@ -619,6 +639,30 @@ export async function advanceOffboarding(
 }
 
 /**
+ * The admission beginErasure checks before it moves to `erasing`, shared with the delegated input closure
+ * that must run just before it (ADR-028 lifecycle item 8b). Locks the tenant and the offboarding row.
+ * `finished` means erasure already ended (verified or reported) and nothing may be written. Otherwise
+ * the offboarding is `ready_for_erasure` or `erasing` (so its transition is over), no legal hold is
+ * active (LEGAL_HOLD_ACTIVE), and no external action or payment is unsettled (PREREQUISITES_INCOMPLETE).
+ */
+export async function assertErasureAdmittedInTx(
+  tx: Tx,
+  context: TenantContext,
+  offboardingId: string,
+): Promise<{ row: typeof offboardings.$inferSelect; finished: boolean }> {
+  service(context);
+  const id = idOf(offboardingId);
+  const { row } = await locked(tx, context, id, true);
+  if (row.state === 'reported' || row.state === 'verified') return { row, finished: true };
+  if (!['ready_for_erasure', 'erasing'].includes(row.state))
+    throw new AppError('PREREQUISITES_INCOMPLETE');
+  const pending = await effects(tx, context);
+  if (pending.activeHolds) throw new AppError('LEGAL_HOLD_ACTIVE');
+  if (pending.actions || pending.payments) throw new AppError('PREREQUISITES_INCOMPLETE');
+  return { row, finished: false };
+}
+
+/**
  * The operator's erase command, as the application role: moves to `erasing`, which the database refuses while
  * any hold is active, a step is unfinished or the transition is not over. It tombstones every artifact first,
  * so a restore cannot bring the bytes back (ADR-026). Answers the IDs of what it tombstoned.
@@ -632,13 +676,8 @@ export async function beginErasure(
   const id = idOf(input.offboardingId);
   if (!ref(input.operatorRef)) throw new AppError('INVALID_INPUT');
   return withAccountTx(database, context, async (tx) => {
-    const { row } = await locked(tx, context, id, true);
-    if (row.state === 'reported' || row.state === 'verified') return { tombstoned: 0, more: false };
-    if (!['ready_for_erasure', 'erasing'].includes(row.state))
-      throw new AppError('PREREQUISITES_INCOMPLETE');
-    const pending = await effects(tx, context);
-    if (pending.activeHolds) throw new AppError('LEGAL_HOLD_ACTIVE');
-    if (pending.actions || pending.payments) throw new AppError('PREREQUISITES_INCOMPLETE');
+    const { row, finished } = await assertErasureAdmittedInTx(tx, context, id);
+    if (finished) return { tombstoned: 0, more: false };
     const tables = await contentTables(tx),
       logs = await tx
         .select()

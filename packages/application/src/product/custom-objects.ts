@@ -42,6 +42,7 @@ import { idSchema } from '../ids';
 import { emit } from '../events';
 import { auditAction } from '../work';
 import { assertInteractivePrivilege, lockInteractivePolicy, withPrivilegeTx } from './privileged';
+import { emitRecordClosedInTx } from '../knowledge/record-closure';
 
 type Classification = 'public' | 'internal' | 'confidential' | 'restricted';
 const classes: readonly string[] = ['public', 'internal', 'confidential', 'restricted'];
@@ -708,6 +709,9 @@ export function deleteObjectRecord(
         if (pgCode(error) === '42501') throw new AppError('FORBIDDEN');
         throw error;
       }
+      // The 0407 trigger has written the tombstone. What a delegated child copied from this record is
+      // purged by the typed-record purge this event starts (ADR-028 lifecycle item 8a).
+      await emitRecordClosedInTx(tx, context, { kind: 'object_record', id: recordId });
       await auditAction(tx, context, 'object_record.deleted', `object_record:${recordId}`);
     });
   });
