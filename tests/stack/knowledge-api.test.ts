@@ -99,7 +99,10 @@ describe('knowledge HTTP authorization, uploads and async questions', () => {
     const first = await call(owner, 'POST', 'knowledge/answers', body, headers);
     expect(first.response.status, first.text).toBe(202);
     expect(first.body.question_classification).toBe('restricted');
+    // The key's stored response is the service transaction's own result (API-12); a replay returns
+    // the same accepted answer rather than a second row.
     const repeated = await call(owner, 'POST', 'knowledge/answers', body, headers);
+    expect(repeated.response.status, repeated.text).toBe(202);
     expect(repeated.body.id).toBe(first.body.id);
     const changed = await call(
       owner,

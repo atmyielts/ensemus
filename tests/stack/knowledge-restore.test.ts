@@ -6,11 +6,7 @@ import { describe, expect, it } from 'vitest';
 import { AppError, createRestoreGate, reapplyTombstoneLedger } from '@ensemus/application';
 import { addUploadedSource, openDocumentBytes } from '@ensemus/application/knowledge/sources';
 import { ingestDocument } from '@ensemus/application/knowledge/ingest';
-import {
-  deleteSource,
-  purgeRunTranscriptsForSource,
-  runSourcePurge,
-} from '@ensemus/application/knowledge/purge';
+import { deleteSource } from '@ensemus/application/knowledge/purge';
 import {
   createOrganization,
   knowledgeSources,
@@ -19,6 +15,7 @@ import {
   tombstones,
   withTenantTx,
 } from '@ensemus/database';
+import { openAgentDatabase } from '@ensemus/database/agent';
 import { createServiceContext } from '@ensemus/database/service';
 import { knowledgeObjectKey } from '@ensemus/domain/knowledge';
 import {
@@ -29,6 +26,7 @@ import {
 import { parseDocument } from '@ensemus/knowledge/parsing';
 import { S3ObjectStore } from '@ensemus/storage';
 import { eq } from 'drizzle-orm';
+import { runNativeKnowledgePurge } from '../helpers/knowledge-native';
 import { compose, secret, urls } from '../helpers/stack';
 import { withRawKnowledgeObjects } from '@ensemus/application/knowledge/raw-objects';
 
@@ -40,6 +38,12 @@ describe('knowledge survives a real database restore as a closed source', () => 
       throw new Error('Unsafe generated dump name');
     const path = `/tmp/${basename}`;
     let database = openAppDatabase(urls.app());
+    // 0515: transcript payload purge retains its hold barrier through
+    // lifecycle.source_payload_hold_free, which only the agent role may execute (the app role's
+    // call was refused, so the purge reported TRANSCRIPT_PURGE_UNCONFIRMED). Production runs it in
+    // the agent worker (createKnowledgeTranscriptActivities) on that role's database.
+    const agent = openAgentDatabase(urls.agent());
+    let agentOpen = true;
     const auth = new pg.Client({ connectionString: urls.auth() });
     await auth.connect();
     const transport = new S3ObjectStore({
@@ -114,43 +118,27 @@ describe('knowledge survives a real database restore as a closed source', () => 
         targetId: source.sourceId,
         deletedAt: mark!.createdAt,
       };
-      // Explicit test-only M4 adapter: this source has no agent run or transcript, which is asserted by
-      // the service's provenance query. The integrated M4 fence is exercised by its own acceptance gate.
-      await purgeRunTranscriptsForSource(
-        database.db,
-        service,
-        {
-          transcripts: {
-            fenceUsing: async (_tx, _context, { runIds }) => {
-              expect(runIds).toEqual([]);
-              return { fenced: true };
-            },
-            purgeUsing: async () => ({ removed: 0, remaining: 0 }),
-          },
-        },
-        { sourceId: source.sourceId },
-      );
+      // The purge workflow in its production order: the agent worker's transcript and delegated-Work
+      // activity on the agent role (0515 accepts that proof from no other role, and 0419 requires
+      // the delegated-Work proof for completion), then the knowledge worker's purge with the
+      // runtime's artifact/archive bindings over this real S3 store's native raw port. This source
+      // had no agent run, so no transcript is removed.
       expect(
-        (
-          await runSourcePurge(
-            database.db,
-            store,
-            service,
-            { sourceId: source.sourceId },
-            {
-              derivedArtifacts: {
-                purgeSource: async () => ({ removed: 0, remaining: 0, held: 0, confirmed: true }),
-                confirmInTx: async () => ({ remaining: 0 }),
-              },
-            },
-          )
-        ).state,
-      ).toBe('completed');
+        await runNativeKnowledgePurge({
+          app: database.db,
+          agent: agent.db,
+          store,
+          organizationId: org.organizationId,
+          sourceId: source.sourceId,
+        }),
+      ).toMatchObject({ state: 'completed', documents: 1, transcripts: 0 });
       await store.put(ledgerKeyFor(entry), serializeLedgerEntry(entry), 'application/json');
       expect(await store.exists(knowledgeObjectKey(org.organizationId, source.documentId))).toBe(
         false,
       );
       await database.close();
+      await agent.close();
+      agentOpen = false;
       await auth.end();
       // Deliberately leave the first web replica running, as the operational restore test does.
       compose('stop', 'dispatcher', 'worker', 'web-2');
@@ -196,6 +184,7 @@ describe('knowledge survives a real database restore as a closed source', () => 
       ).resolves.toBeUndefined();
     } finally {
       await database.close();
+      if (agentOpen) await agent.close();
       await auth.end().catch(() => {});
       if (stopped) compose('start', 'dispatcher', 'worker', 'web', 'web-2');
       compose('exec', '-T', 'postgres', 'rm', '-f', path);

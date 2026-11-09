@@ -241,15 +241,31 @@ describe('actual protected material restore admission (0515)', () => {
         { sourceId: source.sourceId, limit: 25 },
       ),
     ).toMatchObject({ confirmed: true });
-    await withTenantTx(app.db, service, (tx) =>
+    // The repaired transcript and Work certificates now satisfy 0515: its generation guard
+    // (purge_jobs_0515_generation, which raised EN119 above) fires before 0516's raw completion guard
+    // (purge_jobs_raw_completion) and no longer refuses. Completion is still refused, by 0516: the
+    // rotation's commit marked this source's raw inventory restore_debt (raw_org_restore_proof_lost,
+    // deferred by 0542), which guard_raw_inventory_change lets no transition leave and which is never
+    // sealed in the current generation, so knowledge.guard_raw_purge_completion raises
+    // RAW_SOURCE_UNCONFIRMED. 0516 has no requalification path for raw restore debt; this replaces an
+    // expectation written before 0516 that the repaired job would complete.
+    const refusal = await withTenantTx(app.db, service, (tx) =>
       tx
         .update(knowledgePurgeJobs)
         .set({ state: 'completed', completedAt: new Date() })
         .where(eq(knowledgePurgeJobs.id, source.purgeJobId)),
+    ).then(
+      () => null,
+      (error: unknown) => error,
+    );
+    expect(pgCode(refusal)).toBe('EN850');
+    expect((refusal as { cause?: { message?: string } }).cause?.message).toBe(
+      'RAW_SOURCE_UNCONFIRMED',
     );
     const [repaired] = await withTenantTx(app.db, tenant.owner, (tx) =>
       tx.select().from(knowledgePurgeJobs).where(eq(knowledgePurgeJobs.id, source.purgeJobId)),
     );
+    expect(repaired).toMatchObject({ state: 'failed', completedAt: null });
     expect(repaired?.priorCompletedAt).toEqual(source.job.completedAt);
     expect(repaired?.transcriptRestoreGeneration).toBe(currentGeneration);
     expect(repaired?.delegatedWorkRestoreGeneration).toBe(currentGeneration);

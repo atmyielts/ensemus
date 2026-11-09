@@ -694,6 +694,13 @@
       "when": 1794201807500,
       "tag": "0538_export_restricted_artifact_count_r3saas",
       "breakpoints": true
+    },
+    {
+      "idx": 99,
+      "version": "7",
+      "when": 1794201807542,
+      "tag": "0542_raw_restore_proof_lost_deferred_r4knowledge",
+      "breakpoints": true
     }
   ]
 }
