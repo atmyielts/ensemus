@@ -5,16 +5,22 @@ import { BASE, signUp, createOrganization, type Person } from '../helpers/forms'
 import { contractProblems, operationName, operations } from '../helpers/openapi';
 
 /**
- * Bounds the resend of a request the API refused as TENANT_BUSY (503, retryable, with Retry-After;
+ * Bounds the resend of a write the API refused as TENANT_BUSY (503, retryable, with Retry-After;
  * packages/application/src/errors.ts). Deleting a record starts its typed-record purge in the stack's
  * workers (ADR-028 lifecycle item 8a), which holds this tenant's organization row FOR NO KEY UPDATE
  * NOWAIT (0514 lifecycle.record_purge_hold_free). Every objects.* insert passes the erasure birth fence
  * (0508), which takes the same row FOR SHARE NOWAIT (0533), so a write made while that purge runs is
  * refused at once and did nothing. CI run 42706818569: such a refusal, then reported as a 409, left a
  * record uncreated, and the relation to it was refused as malformed (400).
+ *
+ * Only a write can meet that fence, a BEFORE INSERT trigger: a read of object types, records or
+ * relations inserts nothing, so it is never refused as busy, and one that is fails the test at once with
+ * the answer it got. A read is never resent, so a busy read cannot be hidden by a retry.
  */
 const BUSY_ATTEMPTS = 20;
 const MAX_RETRY_AFTER_SECONDS = 5;
+/** The methods that write object types, records and relations, and so can meet the birth fence. */
+const WRITE_METHODS: ReadonlySet<string> = new Set(['POST', 'PATCH', 'PUT', 'DELETE']);
 
 describe('custom object HTTP contracts through the proxy', () => {
   let owner: Person, outsider: Person, organization: string;
@@ -26,10 +32,12 @@ describe('custom object HTTP contracts through the proxy', () => {
     await createOrganization(outsider, 'Other generated object tenant');
   });
   /**
-   * One request, checked against the spec. A TENANT_BUSY refusal is itself checked (503, retryable,
-   * Retry-After) and the identical request, with the same Idempotency-Key and If-Match, is sent again
-   * after the wait it names, as the API documents. No other answer is ever resent: a 409, a VERSION_
-   * CONFLICT among them, is returned at once, so every assertion below still sees it.
+   * One request, checked against the spec. A write (POST, PATCH, PUT, DELETE) refused as TENANT_BUSY has
+   * the refusal itself checked (503, retryable, an integer Retry-After) and the identical request, with
+   * the same Idempotency-Key and If-Match, is sent again after the wait it names, as the API documents,
+   * at most BUSY_ATTEMPTS times. A read (GET, and any other method) is sent once and must never be
+   * refused as TENANT_BUSY; such an answer fails the test at once with its text. No other answer is ever
+   * resent: a 409, a VERSION_CONFLICT among them, is returned at once, so every assertion below sees it.
    */
   async function call(
     person: Person | undefined,
@@ -68,9 +76,14 @@ describe('custom object HTTP contracts through the proxy', () => {
         headers: response.headers,
         text,
       };
-      if (answer.status !== 503 || answer.body?.code !== 'TENANT_BUSY' || attempt >= BUSY_ATTEMPTS)
+      const busy = answer.status === 503 && answer.body?.code === 'TENANT_BUSY';
+      if (!WRITE_METHODS.has(method)) {
+        // A read never meets the birth fence: a busy answer here is a defect, never retried.
+        expect(busy, `${method} ${path} was refused as TENANT_BUSY: ${text}`).toBe(false);
         return answer;
-      expect(answer.body.retryable, text).toBe(true);
+      }
+      if (!busy || attempt >= BUSY_ATTEMPTS) return answer;
+      expect(answer.body?.retryable, text).toBe(true);
       const wait = Number(response.headers.get('retry-after'));
       expect(Number.isInteger(wait) && wait > 0, text).toBe(true);
       await new Promise((resolve) =>
