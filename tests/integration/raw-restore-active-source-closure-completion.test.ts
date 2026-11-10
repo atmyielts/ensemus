@@ -100,6 +100,27 @@ const refusal = (work: Promise<unknown>) =>
       reason: (error as { cause?: { message?: string } }).cause?.message,
     }),
   );
+/**
+ * The PL/pgSQL function that raised an error: the innermost frame of PostgreSQL's error context, which
+ * begins "PL/pgSQL function <schema>.<name>() line N at RAISE" when a trigger function raised it. A
+ * re-raise from the function's own EXCEPTION block keeps that frame. Read from the driver's error, or
+ * from the driver error the query builder wraps.
+ */
+const raisedIn = (error: unknown) => {
+  const where =
+    (error as { where?: string }).where ?? (error as { cause?: { where?: string } }).cause?.where;
+  return /PL\/pgSQL function (?:\w+\.)?(\w+)\(/.exec(where ?? '')?.[1];
+};
+/** The same SQL refusal, with the trigger function that raised it. */
+const attributed = (work: Promise<unknown>) =>
+  work.then(
+    () => null,
+    (error: unknown) => ({
+      code: pgCode(error),
+      reason: (error as { cause?: { message?: string } }).cause?.message,
+      raisedIn: raisedIn(error),
+    }),
+  );
 const ingestDeps: IngestDeps = {
   parse: async (body, type) => parseDocument(body, type),
   contentScan: { scan: () => ({ raiseTo: null, codes: [] }) },
@@ -284,22 +305,65 @@ describe('completing the closure of an active source a restore left in raw debt 
       )
     ).rows[0]?.changed;
   /** Completing the purge job again, which 0516's completion guard admits only on a proof. */
-  const complete = (f: Tenant) =>
-    refusal(
-      withTenantTx(app.db, f.service, (tx) =>
-        tx.execute(
-          sql`update knowledge.purge_jobs set state='completed',completed_at=clock_timestamp()
-              where source_id=${f.sourceId}::uuid`,
-        ),
+  const completeJob = (f: Tenant) =>
+    withTenantTx(app.db, f.service, (tx) =>
+      tx.execute(
+        sql`update knowledge.purge_jobs set state='completed',completed_at=clock_timestamp()
+            where source_id=${f.sourceId}::uuid`,
       ),
     );
+  const complete = (f: Tenant) => refusal(completeJob(f));
+  /**
+   * The same completion UPDATE, as ensemus_app with a service actor, with every BEFORE trigger of
+   * knowledge.purge_jobs in place except what `setup` changes first, as the superuser, inside this one
+   * transaction, which is always rolled back: no other session can see it, and nothing is committed.
+   * This is how the completion is asked of 0516's purge_jobs_raw_completion when an earlier guard in
+   * name order would otherwise answer first (the same harness as finding 8's supersedeAtTrigger).
+   * Only the completion UPDATE's own refusal is returned; a failing setup step fails the test.
+   */
+  const completeAtTrigger = async (f: Tenant, setup: (client: pg.Client) => Promise<void>) => {
+    await control.query('begin');
+    try {
+      await setup(control);
+      await control.query('set local session authorization ensemus_app');
+      await control.query(
+        `select set_config('app.organization_id',$1,true),set_config('app.user_id','',true),
+          set_config('app.membership_id','',true),set_config('app.actor_type','service',true),
+          set_config('app.agent_run_id','',true),set_config('app.agent_input_protocol','',true),
+          set_config('app.interactive_session_id','',true)`,
+        [f.organizationId],
+      );
+      return await control
+        .query(
+          `update knowledge.purge_jobs set state='completed',completed_at=clock_timestamp()
+           where organization_id=$1 and source_id=$2`,
+          [f.organizationId, f.sourceId],
+        )
+        .then(
+          (result) => ({ completed: result.rowCount }),
+          (error: unknown) => {
+            const { code, message } = error as { code?: string; message?: string };
+            return { code, reason: message, raisedIn: raisedIn(error) };
+          },
+        );
+    } finally {
+      await control.query('rollback');
+    }
+  };
+  /** Turns off 0508's purge_jobs_0508_delete_proof alone, inside completeAtTrigger's transaction. */
+  const without0508 = async (client: pg.Client) => {
+    await client.query(
+      'alter table knowledge.purge_jobs disable trigger purge_jobs_0508_delete_proof',
+    );
+  };
   /**
    * The question 0516's completion guard (knowledge.guard_raw_purge_completion, BEFORE trigger
    * purge_jobs_raw_completion, as 0527 left it) asks before it admits a completion:
    * lifecycle.raw_source_material_complete at the source's live version, the purge job and the
    * current material generation, as the service. That guard is the one 0551 widened, but on
    * knowledge.purge_jobs BEFORE triggers fire in name order, so an earlier guard may refuse the same
-   * UPDATE first; this reaches 0516's own predicate whichever guard refuses the UPDATE.
+   * UPDATE first; this reaches 0516's own predicate whichever guard refuses the UPDATE, and
+   * completeAtTrigger below reaches 0516's trigger itself.
    */
   const materialComplete = async (f: Tenant) => {
     const target = (
@@ -706,12 +770,32 @@ describe('completing the closure of an active source a restore left in raw debt 
       expect(await witness(a)).toBe(false);
       expect(await sweep(a)).toBe(1);
       expect(await job(a)).toEqual({ state: 'failed', last_error_code: 'RAW_SOURCE_UNCONFIRMED' });
-      // knowledge.purge_jobs' BEFORE triggers fire in name order, and 0508's purge_jobs_0508_delete_proof
-      // (lifecycle.source_purge_delete_proof, 0508:327-337) sorts before 0516's
-      // purge_jobs_raw_completion: it refuses any completion while a deletion claim of the tenant is
-      // not proven (lifecycle.object_delete_counts, 0508:312-324), so it answers first. 0516's own
-      // guard refuses the same completion too: materialComplete above is its predicate, false.
-      expect(await complete(a)).toEqual({ code: 'EN850', reason: 'OBJECT_DELETE_UNCONFIRMED' });
+      // knowledge.purge_jobs' BEFORE triggers fire in name order: model_job_source_purge_guard (0216),
+      // purge_jobs_0508_delete_proof (0508), purge_jobs_0515_generation (0515), purge_jobs_proof
+      // (0205), then 0516's purge_jobs_raw_completion (0532's purge_jobs_absent_count, between them,
+      // fires only on UPDATE OF blobs_absent). 0508's lifecycle.source_purge_delete_proof
+      // (0508:327-337) refuses any completion while lifecycle.object_delete_counts (0508:312-324)
+      // counts a claim of the tenant whose state is not 'proven'. What makes 0516's guard refuse an
+      // unresolved claim is a claim of the same tenant whose state is not 'proven' too
+      // (raw_active_closure_complete, 0551:279-281, and raw_document_material_complete, 0516:530-536),
+      // so every claim that makes 0516 refuse here is one 0508 already counts: with every trigger in
+      // place 0508 is always the first refuser of this scenario, and 0516 is unreachable. The error's
+      // context names 0508's trigger function; materialComplete above is 0516's predicate, false.
+      expect(await attributed(completeJob(a))).toEqual({
+        code: 'EN850',
+        reason: 'OBJECT_DELETE_UNCONFIRMED',
+        raisedIn: 'source_purge_delete_proof',
+      });
+      // 0516's own trigger, asked with 0508's trigger alone turned off in a rolled-back transaction:
+      // 0216's model-payload guard admits, 0515's does (the job's transcript and delegated-work proofs
+      // are of this generation), 0205's does (no writer header is active), and
+      // purge_jobs_raw_completion refuses the completion itself.
+      expect(await completeAtTrigger(a, without0508)).toEqual({
+        code: 'EN850',
+        reason: 'RAW_SOURCE_UNCONFIRMED',
+        raisedIn: 'guard_raw_purge_completion',
+      });
+      expect(await job(a)).toEqual({ state: 'failed', last_error_code: 'RAW_SOURCE_UNCONFIRMED' });
     } finally {
       await asRestored(
         `update lifecycle.object_deletion_claims set state='proven' where organization_id=$1 and id=any($2::uuid[])`,
@@ -721,6 +805,10 @@ describe('completing the closure of an active source a restore left in raw debt 
     expect(await closureComplete(a)).toBe(true);
     expect(await materialComplete(a)).toBe(true);
     expect(await witness(a)).toBe(true);
+    // The same rolled-back transaction, 0508's trigger still off, once the claim is proven again:
+    // 0516 admits the completion, so what it refused above was the unresolved claim, not the harness.
+    expect(await completeAtTrigger(a, without0508)).toEqual({ completed: 1 });
+    expect(await job(a)).toEqual({ state: 'failed', last_error_code: 'RAW_SOURCE_UNCONFIRMED' });
     expect(await complete(a)).toBeNull();
     expect(await sweep(a)).toBe(0);
     expect(await job(a)).toMatchObject({ state: 'completed' });
@@ -804,12 +892,41 @@ describe('completing the closure of an active source a restore left in raw debt 
     expect(await job(a)).toEqual(demoted);
     // It cannot be completed again. In name order 0508's delete proof admits it (every claim is
     // proven, of the previous generation), and 0515's purge_jobs_0515_generation (0515:112-115) refuses
-    // it first: its transcript proof is of the previous generation. 0516's guard, after it, refuses it
-    // as well: materialComplete above is its predicate, false in this generation.
-    expect(await complete(a)).toEqual({
+    // it first: its transcript proof is of the previous generation. The error's context names 0515's
+    // trigger function.
+    expect(await attributed(completeJob(a))).toEqual({
       code: 'EN119',
       reason: 'PURGE_RESTORE_REQUALIFICATION_REQUIRED',
+      raisedIn: 'guard_purge_restore_generation',
     });
+    // 0515 stops refusing once the purge's agent re-proves the job's transcripts and delegated work in
+    // the new generation (0515:86-111), and 0516's guard must still refuse then: the raw material
+    // proof is of the previous generation. The rolled-back transaction stamps exactly 0515's two
+    // generation columns with the current generation, without triggers, in place of that re-proof;
+    // every trigger is then back on, so 0216's model-payload guard, 0508's delete proof and 0515's
+    // generation guard each run and admit, as does 0205's purge proof, and purge_jobs_raw_completion
+    // refuses the completion itself. Nothing else of the job changes.
+    const reproved = async (client: pg.Client) => {
+      await client.query(`set local session_replication_role='replica'`);
+      const stamped = await client.query(
+        `update knowledge.purge_jobs j set transcript_restore_generation=o.material_restore_generation,
+           delegated_work_restore_generation=o.material_restore_generation
+         from org.organizations o where o.id=j.organization_id and j.organization_id=$1 and j.source_id=$2
+          and j.transcript_restore_generation is distinct from o.material_restore_generation
+          and j.delegated_work_restore_generation is distinct from o.material_restore_generation`,
+        [a.organizationId, a.sourceId],
+      );
+      // Both proofs were of the previous generation: what 0515 refused above.
+      expect(stamped.rowCount).toBe(1);
+      await client.query(`set local session_replication_role='origin'`);
+    };
+    expect(await completeAtTrigger(a, reproved)).toEqual({
+      code: 'EN850',
+      reason: 'RAW_SOURCE_UNCONFIRMED',
+      raisedIn: 'guard_raw_purge_completion',
+    });
+    expect(await job(a)).toEqual(demoted);
+    expect(await completion(a)).toEqual({ completed: null, prior: certified.completed });
     expect(await sweep(a)).toBe(0);
     expect(await job(a)).toEqual(demoted);
   });
