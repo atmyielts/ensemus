@@ -925,6 +925,42 @@ describe('completing the closure of an active source a restore left in raw debt 
       reason: 'RAW_SOURCE_UNCONFIRMED',
       raisedIn: 'guard_raw_purge_completion',
     });
+    // Positive control: the same fixture, the same rolled-back transaction, the same re-proof and the
+    // same service UPDATE through completeAtTrigger, with the one thing 0516's guard found missing
+    // carried into the new generation as well: A's raw material proof. 0551's
+    // raw_active_closure_complete (0551:269-284) needs, in the current generation, the 0550 re-proof
+    // that pins the closed debt (raw_active_source_closed through raw_active_source_proof_pinned,
+    // 0551:164-219: a requalification of this generation over the inventory's prior one, the same
+    // catalogue and write count) and a proven deletion claim of this generation for each catalogued
+    // object (0516's raw_document_material_complete, 0516:522-537). Both rows are stamped with the
+    // organization's current generation without triggers, as the re-proof above is; nothing else
+    // changes. The guard then admits the completion, so what it refused above is the previous
+    // generation's raw proof, not the fixture, the stamping harness or the ensemus_app service role.
+    const reprovedWithRawProof = async (client: pg.Client) => {
+      await reproved(client);
+      await client.query(`set local session_replication_role='replica'`);
+      const requalification = await client.query(
+        `update lifecycle.raw_active_source_requalifications q set material_restore_generation=o.material_restore_generation
+         from org.organizations o where o.id=q.organization_id and q.organization_id=$1 and q.source_id=$2
+          and q.material_restore_generation is distinct from o.material_restore_generation`,
+        [a.organizationId, a.sourceId],
+      );
+      // A's one re-proof, of the previous generation (requalifyRawRestoreActiveSource above).
+      expect(requalification.rowCount).toBe(1);
+      const deletion = await client.query(
+        `update lifecycle.object_deletion_claims c set material_restore_generation=o.material_restore_generation
+         from org.organizations o where o.id=c.organization_id and c.organization_id=$1 and c.kind='raw_source'
+          and c.raw_source_id=$2 and c.state='proven' and c.material_restore_generation is distinct from o.material_restore_generation`,
+        [a.organizationId, a.sourceId],
+      );
+      // A's one purge claim, proven in the previous generation (claims(a) above: current false).
+      expect(deletion.rowCount).toBe(1);
+      await client.query(`set local session_replication_role='origin'`);
+    };
+    expect(await completeAtTrigger(a, reprovedWithRawProof)).toEqual({ completed: 1 });
+    // Both transactions were rolled back: the job is still the rotation's demotion, its claim still of
+    // the previous generation.
+    expect(await claims(a)).toMatchObject([{ state: 'proven', current: false }]);
     expect(await job(a)).toEqual(demoted);
     expect(await completion(a)).toEqual({ completed: null, prior: certified.completed });
     expect(await sweep(a)).toBe(0);
