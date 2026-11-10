@@ -28,9 +28,10 @@ import {
   createKnowledgePurgeActivities,
   createKnowledgeTranscriptActivities,
 } from '@ensemus/workflows/knowledge-purge-activities';
-import { sql } from 'drizzle-orm';
+import { placeLegalHold, releaseLegalHold } from '@ensemus/application/saas/legal-holds';
+import { and, eq, sql } from 'drizzle-orm';
 import { pgCode } from '@ensemus/application';
-import { openAppDatabase, withTenantTx, type TenantContext } from '@ensemus/database';
+import { legalHolds, openAppDatabase, withTenantTx, type TenantContext } from '@ensemus/database';
 import { createServiceContext } from '@ensemus/database/service';
 import { runRecordPurge } from '../../packages/workflows/src/knowledge-record-purge-step';
 import { createKnowledgePurgePorts } from '../../workers/workflow/src/knowledge-ports';
@@ -261,25 +262,58 @@ describe('ADR-028 typed-record purge of a deleted custom object record (8a)', ()
     expect(await attest(service)).toBe(0);
     // Its copied Work is proved on the agent role (the job is checked), but a legal hold keeps the
     // composite proof from completing: PostgreSQL refuses the completion (EN119) and writes nothing.
+    // The hold is placed and released by the owner through the real commands (ADR-032 D6,
+    // legal_hold.manage), on the app role, exactly as the product writes it.
     await materials().purgeRecordMaterials(input);
-    const holdId = randomUUID();
-    await withTenantTx(app.db, tenant.owner, async (tx) => {
-      await tx.execute(sql`insert into lifecycle.legal_holds(organization_id,id,matter_ref,placed_by_membership_id)
-        values(${tenant.organizationId}::uuid,${holdId}::uuid,${randomUUID()},${tenant.owner.membershipId}::uuid)`);
-      await tx.execute(
-        sql`insert into lifecycle.legal_hold_scopes(organization_id,hold_id,scope_type) values(${tenant.organizationId}::uuid,${holdId}::uuid,'organization')`,
-      );
+    const { holdId } = await placeLegalHold(app.db, tenant.owner, {
+      matterRef: randomUUID(),
+      scopes: [{ type: 'organization', id: null }],
+    });
+    const hold = () =>
+      withTenantTx(app.db, tenant.owner, async (tx) => {
+        const [row] = await tx
+          .select({
+            status: legalHolds.status,
+            placedByMembershipId: legalHolds.placedByMembershipId,
+            releasedByMembershipId: legalHolds.releasedByMembershipId,
+            releasedAt: legalHolds.releasedAt,
+            releaseReasonCode: legalHolds.releaseReasonCode,
+            version: legalHolds.version,
+          })
+          .from(legalHolds)
+          .where(
+            and(eq(legalHolds.organizationId, tenant.organizationId), eq(legalHolds.id, holdId)),
+          );
+        return row;
+      });
+    const placed = await hold();
+    expect(placed).toEqual({
+      status: 'active',
+      placedByMembershipId: tenant.owner.membershipId,
+      releasedByMembershipId: null,
+      releasedAt: null,
+      releaseReasonCode: null,
+      version: 1,
     });
     try {
       expect(await refusal(attest(service))).toBe('EN119');
       expect(await completion(record.id)).toEqual({ completed: false, current: false });
     } finally {
-      await withTenantTx(app.db, tenant.owner, (tx) =>
-        tx.execute(sql`update lifecycle.legal_holds set status='released',released_by_membership_id=${tenant.owner.membershipId}::uuid,
-          released_at=now(),release_reason_code='TEST_RELEASE',version=version+1
-          where organization_id=${tenant.organizationId}::uuid and id=${holdId}::uuid`),
-      );
+      await releaseLegalHold(app.db, tenant.owner, {
+        holdId,
+        reasonCode: 'TEST_MATTER_CLOSED',
+        expectedVersion: placed!.version,
+      });
     }
+    // The hold row as releaseLegalHold wrote it: released, by the owner's membership, with its reason.
+    expect(await hold()).toEqual({
+      status: 'released',
+      placedByMembershipId: tenant.owner.membershipId,
+      releasedByMembershipId: tenant.owner.membershipId,
+      releasedAt: expect.any(Date),
+      releaseReasonCode: 'TEST_MATTER_CLOSED',
+      version: 2,
+    });
     // The runtime cannot write the completion time or any other column of the job (no privilege), and
     // a person's context reaches no row.
     for (const assignment of [assignments.completedAt, assignments.checkedAt])
