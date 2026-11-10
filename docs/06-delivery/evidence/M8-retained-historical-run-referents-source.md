@@ -140,6 +140,52 @@ trigger enabled, `app.reject_change()`, BEFORE UPDATE, DELETE and TRUNCATE, once
   regression (runtime table, column and PUBLIC grants, RLS not forced, a second policy, the keep trigger
   disabled); the requalification table still refuses UPDATE for its owner; and setBudget's birth check.
 
+## Later update: 0553 restores the birth check (CI repair round 12)
+
+FLAGGED FOR HUMAN SECURITY REVIEW (ADR-032 D7), not yet reviewed by a person. Check finding 1 of
+round 12: 0552 removed the only database check that a retained row names, at birth, a referent of its
+own tenant (the reviewer note above). The additive
+`packages/database/migrations/0553_retained_referent_birth_guards_r12erasure.sql` (journal idx 113,
+renumbered at merge if needed) puts that half back without the lifetime claim, and 0552 is not edited:
+
+- One `BEFORE INSERT ... FOR EACH ROW` trigger per dropped column, `aa_retained_referent_birth_<column>`,
+  on `lifecycle.require_retained_referent('<column>','<schema>','<table>')`. A non-null UUID that names
+  no row of the target with the same `organization_id` is refused: `RETAINED_REFERENT_MISSING`, SQLSTATE
+  `EN423` (previously unused), DETAIL the `schema.table.column`, never a value. A row with no
+  organization that names a referent is refused too.
+- One `BEFORE UPDATE OF <column>, organization_id` trigger, `aa_retained_referent_change_<column>`, on the
+  nine columns of the four tables that can be updated at all (`budget_reservations`, `budgets`,
+  `kill_switches`, `policy_bundles`); `usage_ledger` and `egress_decisions` refuse every UPDATE already.
+  Only `kill_switches.released_by_membership_id` is granted to a runtime role (the release). An UPDATE
+  that leaves the referent and the organization unchanged is not checked again, so a retained row whose
+  referent was erased stays updatable in its other columns.
+- No trigger on DELETE, and none on the referenced tables: erasure is unchanged and still ends with
+  `leftOver: []` (L6 now also asserts the 28 triggers are enabled when it erases).
+- The function is `SECURITY DEFINER`, owned by `ensemus_migrator`, `search_path=pg_catalog, pg_temp`,
+  EXECUTE revoked from PUBLIC. Because the nine referenced tables are forced-RLS with tenant policies
+  `TO ensemus_app` (the obstacle named above), each gets one SELECT policy for the migrator,
+  `retained_referent_birth_probe`, admitting exactly the row whose `organization_id` and `id` equal two
+  transaction-local selectors the function sets and clears, and only while a trigger runs.
+- The `aa_` prefix makes the refusal fire before any other BEFORE ROW guard on these tables.
+- It refuses exactly what the dropped FKs refused at birth, plus a referent named with no organization
+  (MATCH SIMPLE skipped those; no writer produces one). It does not take the FK's KEY SHARE lock, so it
+  proves the referent at birth, not until commit (see the reviewer notes in the migration).
+- `setBudget` keeps its application read as a second guard; 0553 is the primary one.
+- 0553 ends with a postcondition: every one of the nineteen columns has its enabled INSERT-only ROW
+  trigger with no WHEN clause and the reviewed arguments, the nine change triggers exist, the function
+  has exactly those 28 triggers, it is SECURITY DEFINER with the pinned search_path and no EXECUTE for
+  anyone but its owner, and each probe policy is SELECT-only for the migrator with the one-row predicate.
+
+Tests: `tests/integration/retained-referent-birth-guards.test.ts` (each of the nineteen columns, as
+`ensemus_agent` or `ensemus_app`, refuses a never-existing UUID and another tenant's existing one with
+EN423 and writes nothing; setBudget, the run's reserve/record/egress path, the knowledge model-job
+principal, engageKillSwitch and releaseKillSwitch and an owner's policy bundle still write; a release
+naming another tenant's or no person is refused; a row whose referent is gone stays updatable; the
+catalogue shape; and the postcondition, rerun as the migrator, refuses a dropped, disabled, WHEN-gated or
+re-aimed trigger, a dropped change trigger, a widened or dropped probe policy, EXECUTE for PUBLIC or a
+runtime role, a changed search_path, SECURITY INVOKER, and the function on a DELETE trigger). Docker was
+not available to the author: none of this has run locally.
+
 ## Not verified here
 
 Docker was not available, so neither the migration nor either integration file has run. The FK names
