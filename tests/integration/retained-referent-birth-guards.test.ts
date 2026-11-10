@@ -6,10 +6,13 @@
 // switches and policy bundles) in its own tenant: a UUID that names no row, and a UUID that names another
 // tenant's row, are both refused with EN423 RETAINED_REFERENT_MISSING and nothing is written. The real
 // writers (setBudget, the run's reservation, usage and egress, the knowledge model-job principal,
-// engageKillSwitch and releaseKillSwitch, an owner's policy bundle) still write; a retained row whose
-// referent is gone stays updatable in its other columns; and 0553's postcondition, run again as the
-// migrator in a rolled-back transaction, refuses each way the guard could be undone. That erasure still
-// finishes with these triggers in place is agent-delegated-offboarding's L6 (leftOver []).
+// engageKillSwitch and releaseKillSwitch, an owner's policy bundle) still write; a switch whose engager is
+// gone is still released through releaseKillSwitch by another person; an operator's switch (no tenant)
+// that names a person is refused; the migrator-only probe policies admit nothing to a runtime role that
+// sets their selectors, nor to the migrator outside a trigger (CI repair round 13, check findings 4, 5
+// and 8); and 0553's postcondition, run again as the migrator in a rolled-back transaction, refuses each
+// way the guard could be undone. That erasure still finishes with these triggers in place is
+// agent-delegated-offboarding's L6 (leftOver []).
 import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -44,7 +47,9 @@ import {
   type AiTenant,
   type SeededAgentVersion,
 } from '../helpers/ai/fixtures';
+import { inFixtureTenant } from '../helpers/fixture-tenant';
 import { seedQualifiedKnowledgeRoute } from '../helpers/knowledge-models';
+import { makePerson, nativePersonContext } from '../helpers/product';
 import { repoRoot, urls } from '../helpers/stack';
 
 /** The nineteen columns 0552 dropped an FK from, as `[table, column]` (0552's reviewed list). */
@@ -453,27 +458,85 @@ describe('retained evidence names an existing referent of its own tenant at birt
     ]);
   });
 
-  it('[0553] a retained row whose referent is gone stays updatable, and only a changed referent is checked again', async () => {
-    const planted = randomUUID(),
-      gone = randomUUID();
+  /**
+   * The state erasure leaves (0552), reached the way production reaches it: X, an admin (ai.halt,
+   * packages/domain/src/policy.ts), engages a tenant switch through engageKillSwitch, and X's membership is
+   * then deleted as erasure deletes it. The switch keeps X's historical UUID and no membership has it.
+   */
+  const switchWithGoneEngager = async () => {
+    const { organizationId, owner } = ours.tenant;
+    const person = await makePerson('halt-engager');
+    await inFixtureTenant(su, organizationId, () =>
+      su.query(
+        `insert into org.memberships (organization_id, user_id, role, status)
+         values ($1, $2, 'admin', 'active')`,
+        [organizationId, person.userId],
+      ),
+    );
+    const engager = await nativePersonContext(app.db, person, organizationId);
+    // A version no run uses, so the switch halts nothing else in this file.
+    const target = await seedAgentVersion(app.db, owner);
+    const { switchId } = await engageKillSwitch(app.db, engager, {
+      scope: 'agent_version',
+      target_ref: target.versionId,
+      reason_code: 'INCIDENT',
+    });
+    await inFixtureTenant(su, organizationId, () =>
+      su.query('delete from org.memberships where organization_id=$1 and id=$2', [
+        organizationId,
+        engager.membershipId,
+      ]),
+    );
+    expect(
+      (
+        await su.query('select 1 from org.memberships where organization_id=$1 and id=$2', [
+          organizationId,
+          engager.membershipId,
+        ])
+      ).rowCount,
+    ).toBe(0);
+    return { switchId, goneId: engager.membershipId };
+  };
+  const switchState = async (switchId: string) =>
+    (
+      await su.query(
+        `select engaged_by_membership_id::text,released_by_membership_id::text,released_at is not null released
+           from governance.kill_switches where organization_id=$1 and id=$2`,
+        [ours.tenant.organizationId, switchId],
+      )
+    ).rows;
+
+  it('[0553] releaseKillSwitch, by another person with halt authority, releases a switch whose engager is gone', async () => {
+    const { owner } = ours.tenant;
+    const { switchId, goneId } = await switchWithGoneEngager();
+    // Y is the owner: a different member, still present, who holds ai.halt. The release goes through the real
+    // command as ensemus_app. It sets released_at and released_by_membership_id only, so the change trigger on
+    // released_by_membership_id checks Y, and X's gone UUID in engaged_by_membership_id is not checked again.
+    expect(owner.membershipId).not.toBe(goneId);
+    await expect(releaseKillSwitch(app.db, owner, { switchId })).resolves.toBeUndefined();
+    expect(await switchState(switchId)).toEqual([
+      {
+        engaged_by_membership_id: goneId,
+        released_by_membership_id: owner.membershipId,
+        released: true,
+      },
+    ]);
+  });
+
+  it('[0553] engaged_by_membership_id, which no runtime role may update, is checked again only when it changes', async () => {
+    const { switchId, goneId } = await switchWithGoneEngager();
+    // A different column from the release above: 0101 grants ensemus_app UPDATE on released_at and
+    // released_by_membership_id only, and the migrator's policies reach no tenant switch, so only a superuser
+    // past RLS can write this column. Rolled back, so the switch stays as engaged.
     await su.query('begin');
     try {
-      // The state erasure leaves (0552): a retained row naming a person whose membership no longer exists,
-      // planted with triggers off as pg_restore --disable-triggers would, then triggers back on.
-      await su.query("set local session_replication_role='replica'");
-      await su.query(
-        `insert into governance.kill_switches(id,organization_id,scope,reason_code,engaged_by_membership_id)
-         values ($1,$2,'organization','TEST',$3)`,
-        [planted, ours.tenant.organizationId, gone],
-      );
-      await su.query("set local session_replication_role='origin'");
       await su.query(
         'update governance.kill_switches set engaged_by_membership_id=engaged_by_membership_id where id=$1',
-        [planted],
+        [switchId],
       );
       await expect(
         su.query('update governance.kill_switches set engaged_by_membership_id=$2 where id=$1', [
-          planted,
+          switchId,
           randomUUID(),
         ]),
       ).rejects.toMatchObject({
@@ -484,6 +547,197 @@ describe('retained evidence names an existing referent of its own tenant at birt
     } finally {
       await su.query('rollback');
     }
+    expect(await switchState(switchId)).toEqual([
+      { engaged_by_membership_id: goneId, released_by_membership_id: null, released: false },
+    ]);
+  });
+
+  it('[0553] an operator’s switch, which has no tenant, is refused when it names a person', async () => {
+    // 0553 (lines 134-142) refuses a row with a NULL organization_id that names a referent, since no tenant
+    // row can be named without its tenant. 0553 cannot be edited, so this is said here: it matches every real
+    // writer. engageOperatorSwitch (packages/database/src/halt-operator.ts:37-49) writes no membership id;
+    // releaseOperatorSwitch (:53-66) sets only released_at; 0508:766 and 0511:152 insert (organization_id,
+    // scope, reason_code) only; and engageKillSwitch and releaseKillSwitch (packages/application/src/ai/
+    // halt.ts:205-213, 273-276) always carry the tenant's organization_id. No real writer stores a referent
+    // with a NULL organization.
+    const reasonCode = `TEST_R13_${randomUUID().replace(/-/g, '').slice(0, 12).toUpperCase()}`,
+      providerKind = `test-provider-${randomUUID()}`;
+    const write = (membershipId: string | null) =>
+      migrator.query(
+        `insert into governance.kill_switches
+           (organization_id,scope,target_ref,reason_code,engaged_by_membership_id)
+         values (null,'provider',$1,$2,$3::uuid)`,
+        [providerKind, reasonCode, membershipId],
+      );
+    const written = async (client: pg.Client) =>
+      (
+        await client.query<{ n: number }>(
+          'select count(*)::integer n from governance.kill_switches where reason_code=$1',
+          [reasonCode],
+        )
+      ).rows[0]?.n;
+    // As the operator's command writes one: the migrator, under kill_switches_operator (0101:186). Always
+    // rolled back, so no provider stop is ever left behind.
+    await migrator.query('begin');
+    try {
+      await migrator.query('savepoint operator_switch');
+      await expect(write(ours.tenant.owner.membershipId)).rejects.toMatchObject({
+        code: 'EN423',
+        message: 'RETAINED_REFERENT_MISSING',
+        detail: 'governance.kill_switches.engaged_by_membership_id',
+      });
+      await migrator.query('rollback to savepoint operator_switch');
+      // kill_switches_operator shows the migrator every row with no tenant: nothing was written.
+      expect(await written(migrator)).toBe(0);
+      // The same row naming no person, as engageOperatorSwitch writes it, is admitted: the refusal is the
+      // referent's alone.
+      await write(null);
+      expect(await written(migrator)).toBe(1);
+    } finally {
+      await migrator.query('rollback');
+    }
+    expect(await written(su)).toBe(0);
+  });
+
+  describe('the probe policies (0553:150-167) admit nothing outside the guard', () => {
+    /** The nine tables with the migrator's one-row probe policy, each with the other tenant's existing row. */
+    const probedRows = (): readonly (readonly [string, string])[] => [
+      ['ai.agent_runs', theirs.run.runId],
+      ['ai.execution_steps', theirs.stepId],
+      ['ai.model_jobs', theirs.modelJobId],
+      ['ai.model_call_attempts', theirs.modelCallId],
+      ['ai.agent_versions', theirs.run.version.versionId],
+      ['ai.rate_cards', theirs.rateCardId],
+      ['ai.model_profiles', theirs.profileId],
+      ['work.work_units', theirs.run.workUnitId],
+      ['org.memberships', theirs.tenant.owner.membershipId],
+    ];
+    /** Both selectors, transaction-local, as anyone can set them. */
+    const select = (client: pg.Client, organizationId: string, id: string) =>
+      client.query(
+        `select set_config('lifecycle.retained_referent_org',$1,true),
+                set_config('lifecycle.retained_referent_id',$2,true)`,
+        [organizationId, id],
+      );
+    type Outcome = { n: number } | { code: string };
+    /** One count on the superuser connection, already in a transaction, in its own savepoint. */
+    const attempt = async (text: string, values: unknown[]): Promise<Outcome> => {
+      await su.query('savepoint probe');
+      try {
+        const { rows } = await su.query<{ n: number }>(text, values);
+        await su.query('release savepoint probe');
+        return { n: rows[0]?.n ?? -1 };
+      } catch (error) {
+        await su.query('rollback to savepoint probe');
+        return { code: String((error as { code?: unknown }).code) };
+      }
+    };
+
+    it.each(['ensemus_app', 'ensemus_agent', 'ensemus_operator', 'ensemus_support'])(
+      '[0553] %s, setting both selectors to another tenant’s row, sees nothing it could not see before',
+      async (role) => {
+        const present = (
+          await su.query<{ present: boolean }>('select to_regrole($1) is not null present', [role])
+        ).rows[0]?.present;
+        if (!present) {
+          // Skipped: only the SaaS desk roles (0501) may be absent from a build, never the two runtime roles.
+          expect(['ensemus_operator', 'ensemus_support']).toContain(role);
+          return;
+        }
+        const other = theirs.tenant.organizationId;
+        // Each row is there, so a zero below is RLS and not a missing row.
+        for (const [table, id] of probedRows())
+          expect(
+            (
+              await su.query(`select 1 from ${table} where organization_id=$1 and id=$2`, [
+                other,
+                id,
+              ])
+            ).rowCount,
+            table,
+          ).toBe(1);
+        // Bound to our own tenant, as that role runs (ensemus_app as our owner, ensemus_agent as our run),
+        // while naming the other tenant's row in both selectors.
+        const bound =
+          role === 'ensemus_agent'
+            ? ours.run.context
+            : role === 'ensemus_app'
+              ? ours.tenant.owner
+              : null;
+        let readable = 0;
+        await su.query('begin');
+        try {
+          await su.query(`set local role ${role}`);
+          await su.query(
+            `select set_config('app.organization_id',$1,true),set_config('app.user_id',$2,true),
+                    set_config('app.membership_id',$3,true),set_config('app.actor_type',$4,true),
+                    set_config('app.agent_run_id',$5,true)`,
+            [
+              ours.tenant.organizationId,
+              bound?.userId ?? '',
+              bound?.membershipId ?? '',
+              bound?.actorType ?? '',
+              bound?.agentRunId ?? '',
+            ],
+          );
+          for (const [table, id] of probedRows()) {
+            const count = `select count(*)::integer n from ${table} where organization_id=$1`;
+            await select(su, '', '');
+            const before = await attempt(count, [other]);
+            await select(su, other, id);
+            const after = await attempt(count, [other]);
+            // The same answer as without the selectors (a refusal stays the same refusal), and never a row
+            // of the other tenant.
+            expect(after, `${role} ${table}`).toEqual(before);
+            if ('n' in after) {
+              expect(after.n, `${role} ${table}`).toBe(0);
+              readable += 1;
+            }
+          }
+        } finally {
+          await su.query('rollback');
+        }
+        // Not vacuous: the application role reads these tables at all.
+        if (role === 'ensemus_app') expect(readable).toBeGreaterThan(0);
+      },
+    );
+
+    it('[0553] admit nothing to the migrator outside a trigger, with both selectors naming the row', async () => {
+      const other = theirs.tenant.organizationId;
+      // Control, past RLS: with these selectors the probe's other two terms name exactly this row, so the
+      // zero below comes from pg_trigger_depth()>0 alone.
+      await su.query('begin');
+      try {
+        for (const [table, id] of probedRows()) {
+          await select(su, other, id);
+          const { rows } = await su.query<{ n: number }>(
+            `select count(*)::integer n from ${table}
+              where organization_id::text=pg_catalog.current_setting('lifecycle.retained_referent_org',true)
+                and id::text=pg_catalog.current_setting('lifecycle.retained_referent_id',true)`,
+          );
+          expect(rows[0]?.n, table).toBe(1);
+        }
+      } finally {
+        await su.query('rollback');
+      }
+      await migrator.query('begin');
+      try {
+        expect(
+          (await migrator.query<{ depth: number }>('select pg_trigger_depth() depth')).rows[0]
+            ?.depth,
+        ).toBe(0);
+        for (const [table, id] of probedRows()) {
+          await select(migrator, other, id);
+          const { rows } = await migrator.query<{ n: number }>(
+            `select count(*)::integer n from ${table} where organization_id=$1 and id=$2`,
+            [other, id],
+          );
+          expect(rows[0]?.n, table).toBe(0);
+        }
+      } finally {
+        await migrator.query('rollback');
+      }
+    });
   });
 
   it('[0553] the guard is SECURITY DEFINER, pinned, not executable by anyone else, and has no DELETE trigger', async () => {
