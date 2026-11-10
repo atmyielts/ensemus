@@ -52,8 +52,8 @@
     },
     {
       "path": "00-foundation/adr/ADR-028-governed-ai.md",
-      "size_bytes": 41287,
-      "sha256": "e293014ea8f9604eb7e39f8943f364dd53b7cfb465bde2d25c4e7006c20130c5"
+      "size_bytes": 42809,
+      "sha256": "9e3484f65f3d792b6515b77d9462738031557263ee16297b41652bac83309a06"
     },
     {
       "path": "00-foundation/adr/ADR-029-company-knowledge.md",
@@ -562,8 +562,8 @@
     },
     {
       "path": "06-delivery/evidence/M8-retained-historical-run-referents-source.md",
-      "size_bytes": 11032,
-      "sha256": "364fb9800c34e26f9f5b80f81825abc9ae2550403c42aeb65bef2e1f59258e20"
+      "size_bytes": 15034,
+      "sha256": "e3fd172561d02b23fa8518a40977a2189d4c8b574a8ba6872350fb93c2bf70a0"
     },
     {
       "path": "06-delivery/evidence/M8-standing-database-checkpoint.md",
