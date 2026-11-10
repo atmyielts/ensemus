@@ -44,7 +44,7 @@ with **six failed jobs and one passed job** at exact head
 This is the initial failing checkpoint. Later repair attempts must be recorded with their own run
 URL, exact head and actual job results; a pending or partially green rerun does not supersede it.
 
-## Later integration CI: repair rounds 11 and 12 (recorded 2026-11-10)
+## Later integration CI: repair rounds 11 to 13 (recorded 2026-11-10)
 
 This section records GitHub Actions results only. It is separate from the local evidence further
 down, and nothing in it was produced on a workstation. Run conclusions, heads and job conclusions
@@ -92,14 +92,40 @@ That run is therefore **no evidence for or against** anything on that head, incl
 0553 and 0554. It is not a code failure and it is not a pass, and it is listed as neither anywhere
 in this report.
 
-### What the green run does not cover
+### Round 13: run 42736537246, attempt 4, passed all 14 jobs (recorded 2026-11-10)
 
-- Run 42719085697 predates migration 0553 (retained referent birth guards) and migration 0554
-  (record purge completion): neither file exists at `74e12a8`; both are on `49233a9`. Migration
-  0555 is being added in round 13 and is on neither head. These three migrations, and any code that
-  depends on them, have **no CI evidence** yet. They get their own CI evidence only once a run on
-  the round 13 head actually executes and passes, recorded with its run URL, exact head and job
-  results.
+[Run 42736537246](https://github.com/atmyielts/ensemus/actions/runs/42736537246) on round 13 head
+`eb7627be49576945cb9e245d3939979515815f2c` passed all 14 jobs on attempt 4: quality, proxy,
+upgrade, connectors, stack, integration 1/6 to 6/6 and browser 1/3 to 3/3. Attempts 1 to 3 started
+no job, for the same billing reason as run 42731641015, and are evidence of nothing. Job ids for
+attempt 4:
+
+| Job | Result | Job id |
+|---|---|---|
+| quality | Passed | 129718737659 |
+| proxy | Passed | 129718737977 |
+| upgrade | Passed | 129718738042 |
+| connectors | Passed | 129718738070 |
+| stack | Passed | 129718738155 |
+| integration (1/6) | Passed | 129718738026 |
+| integration (2/6) | Passed | 129718738537 |
+| integration (3/6) | Passed | 129718737917 |
+| integration (4/6) | Passed | 129718738071 |
+| integration (5/6) | Passed | 129718738126 |
+| integration (6/6) | Passed | 129718737998 |
+| browser (1/3) | Passed | 129718737978 |
+| browser (2/3) | Passed | 129718738154 |
+| browser (3/3) | Passed | 129718738145 |
+
+This is the first run in which migrations 0553, 0554 and 0555 applied: every integration and
+upgrade job migrated a real PostgreSQL database through them before running. It is CI evidence for
+those jobs' automated checks at `eb7627b` only. It is not a security review of those migrations,
+which remain **FLAGGED FOR HUMAN SECURITY REVIEW**, and it accepts no milestone exit.
+
+### What the green runs do not cover
+
+- Run 42719085697 predates migrations 0553, 0554 and 0555; run 42736537246 covers them at
+  `eb7627b`. Neither run covers any later commit, which needs its own recorded run.
 - A green CI run is not launch readiness and not milestone sign-off. It shows that the named jobs'
   automated checks passed at one commit. It does not accept any milestone exit, and none is marked
   accepted below.
