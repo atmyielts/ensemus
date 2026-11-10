@@ -18,6 +18,8 @@
   --accent-hover: #1b3891;
   --accent-fg: #ffffff;
   --accent-soft: #e8edfb;
+  /* The one point of light in the Ensemus wordmark. Decorative only: never text, never a state. */
+  --brand-light: #c2d45a;
   --good: #17693a;
   --good-soft: #e3f3e8;
   --warn: #7a4f00;
@@ -66,6 +68,7 @@
     --accent-hover: #b6c8f8;
     --accent-fg: #14182a;
     --accent-soft: #252c44;
+    --brand-light: #e2ee7c;
     --good: #7fd39a;
     --good-soft: #1d3325;
     --warn: #e6bb63;
@@ -274,15 +277,10 @@ small,
   min-height: 2rem;
   font-size: var(--text-small);
 }
-.brand-symbol {
-  display: inline-grid;
-  place-items: center;
-  height: 1.75rem;
-  width: 1.75rem;
-  border: 1px solid var(--line-strong);
-  border-radius: var(--radius-sm);
-  font-size: 1rem;
-  letter-spacing: -0.08em;
+.brand-wordmark {
+  display: block;
+  height: 1.5rem;
+  width: auto;
 }
 .workspace-switch {
   display: inline-flex;

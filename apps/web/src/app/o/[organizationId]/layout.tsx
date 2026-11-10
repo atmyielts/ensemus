@@ -3,6 +3,7 @@ import { getOrganization } from '@ensemus/database';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import type { ReactNode } from 'react';
+import { BrandWordmark } from '@/components/brand-wordmark';
 import { DraftScope } from '@/components/kept-field';
 import { MainNav, NavigationPendingRegion, WorkspaceContext } from '@/components/main-nav';
 import { workspaceNavigation } from '@/components/navigation-model';
@@ -45,10 +46,7 @@ export default async function OrganizationLayout({
         <div className="sidebar-inner">
           <div className="workspace-brand">
             <Link className="brand" href={base}>
-              <span className="brand-symbol" aria-hidden="true">
-                E
-              </span>
-              Ensemus
+              <BrandWordmark className="brand-wordmark" />
             </Link>
             <div className="org-name" title={organization.name}>
               {organization.name}
