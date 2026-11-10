@@ -6,7 +6,7 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { and, eq, sql } from 'drizzle-orm';
-import { createWorkUnit, getWorkUnit } from '@ensemus/application';
+import { AppError, createWorkUnit, getWorkUnit, pgCode } from '@ensemus/application';
 import {
   createObjectRecord,
   createObjectType,
@@ -422,24 +422,59 @@ describe('ADR-028 typed-record deletion outbox (8a)', () => {
         exposedStore: refuseUnadmittedDeletes(store),
       }),
       lifecycle = createObjectDeletionLifecycle({ database: app.db, store });
+    // Observed, not replaced: each record whose production proof ran, and the error any proof threw, so
+    // the pass's failure count can be checked exactly against the other candidates of this tenant.
+    const proved: string[] = [],
+      thrown = new Map<string, unknown>();
+    const observe = async <T>(input: { kind: string; id: string }, proof: () => Promise<T>) => {
+      try {
+        return await proof();
+      } catch (error) {
+        thrown.set(`${input.kind}:${input.id}`, error);
+        throw error;
+      }
+    };
+    const ports = createKnowledgePurgePorts({
+      database: app.db,
+      store: guarded,
+      derivedLifecycle: lifecycle.derived,
+      archiveLifecycle: lifecycle.archive,
+    });
     const production = createKnowledgePurgeActivities({
       database: app.db,
       store: guarded,
       ingest: {} as never,
-      recordWorks: { confirmRecordInTx: confirmRecordWorkPurgeInTx },
-      ...createKnowledgePurgePorts({
-        database: app.db,
-        store: guarded,
-        derivedLifecycle: lifecycle.derived,
-        archiveLifecycle: lifecycle.archive,
-      }),
+      recordWorks: {
+        confirmRecordInTx: (tx, context, input) => {
+          proved.push(`${input.kind}:${input.id}`);
+          return observe(input, () => confirmRecordWorkPurgeInTx(tx, context, input));
+        },
+      },
+      derivedArtifacts: {
+        ...ports.derivedArtifacts,
+        confirmRecordInTx: (tx, context, input) =>
+          observe(input, () => ports.derivedArtifacts.confirmRecordInTx(tx, context, input)),
+      },
     });
     const claim = await production.claimRecordPurgeRestarts({ organizationId: a.organizationId });
-    const due = claim.due.map((item) => `${item.kind}:${item.id}`);
+    const due = claim.due.map((item) => `${item.kind}:${item.id}`),
+      objectKey = `object_record:${record.id}`;
     // The genuine child's closed input is still due. The object record's proof now completes, so it is
     // neither restarted nor a failure: the same proof the claim ran reads completed.
     expect(due).toContain(`work_unit:${f.input.id}`);
-    expect(due).not.toContain(`object_record:${record.id}`);
+    expect(due).not.toContain(objectKey);
+    // Finding 2 (round 12): the pass counted no failure for the object record. Its proof ran and threw
+    // nothing, and the failure count is exactly the other candidates' proofs that refused with anything
+    // the claim does not restart (it restarts INVALID_STATE, VERSION_CONFLICT and a busy lock, 55P03).
+    expect(proved).toContain(objectKey);
+    expect(thrown.has(objectKey)).toBe(false);
+    const restarted = (error: unknown) =>
+      (error instanceof AppError &&
+        (error.code === 'INVALID_STATE' || error.code === 'VERSION_CONFLICT')) ||
+      pgCode(error) === '55P03';
+    const failures = [...thrown].filter(([, error]) => !restarted(error)).map(([key]) => key);
+    expect(failures).not.toContain(objectKey);
+    expect(claim.failed).toBe(failures.length);
     expect(
       await production.readRecordPurgeState({
         organizationId: a.organizationId,

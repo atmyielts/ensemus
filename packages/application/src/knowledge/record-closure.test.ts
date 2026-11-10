@@ -4,7 +4,11 @@ import { randomUUID } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import { domainEvents, outboxEvents, type Tx } from '@ensemus/database';
 import { createServiceContext } from '@ensemus/database/service';
-import { emitRecordClosedInTx, listRecordPurgeCandidates } from './record-closure';
+import {
+  emitRecordClosedInTx,
+  listRecordPurgeCandidates,
+  recordRecordPurgeCompletionInTx,
+} from './record-closure';
 
 /**
  * A transaction whose first statement is the per-record advisory lock and whose second answers how many
@@ -91,6 +95,22 @@ describe('the typed-record deletion event', () => {
     expect(inserted).toEqual([]);
   });
 
+  it('lists purge candidates without a record that has a current completion (0554)', async () => {
+    const statements: string[] = [];
+    const database = {
+      transaction: async (_config: unknown, fn: (tx: Tx) => Promise<unknown>) =>
+        fn({
+          execute: async (query: { queryChunks?: unknown[] }) => {
+            statements.push(JSON.stringify(query.queryChunks ?? query));
+            return { rows: [] };
+          },
+        } as unknown as Tx),
+    } as unknown as Parameters<typeof listRecordPurgeCandidates>[0];
+    expect(await listRecordPurgeCandidates(database, context, { limit: 5 })).toEqual([]);
+    expect(statements).toHaveLength(1);
+    expect(statements[0]).toContain('not ai.record_purge_completed(');
+  });
+
   it('lists purge candidates for a service context only, within a bounded page', async () => {
     const database = {} as Parameters<typeof listRecordPurgeCandidates>[0];
     const person = { ...context, actorType: 'user' } as typeof context;
@@ -101,5 +121,96 @@ describe('the typed-record deletion event', () => {
       await expect(listRecordPurgeCandidates(database, context, { limit })).rejects.toMatchObject({
         code: 'INVALID_INPUT',
       });
+  });
+});
+
+describe('the durable record purge completion (0554)', () => {
+  /** A transaction whose savepoint runs one statement, answered by `answer`. */
+  function savepointTx(answer: () => Promise<{ rows: unknown[] }>) {
+    const calls = { savepoints: 0, statements: [] as string[] };
+    const inner = {
+      execute: async (query: { queryChunks?: unknown[] }) => {
+        calls.statements.push(JSON.stringify(query.queryChunks ?? query));
+        return answer();
+      },
+    };
+    const tx = {
+      execute: async () => {
+        throw new Error('TEST_OUTSIDE_SAVEPOINT');
+      },
+      transaction: async (fn: (savepoint: unknown) => Promise<unknown>) => {
+        calls.savepoints += 1;
+        return fn(inner);
+      },
+    } as unknown as Tx;
+    return { tx, calls };
+  }
+  const pgError = (code: string) => Object.assign(new Error('pg'), { cause: { code } });
+
+  it('asks PostgreSQL for the completion in a savepoint, passing no value of its own', async () => {
+    const { tx, calls } = savepointTx(async () => ({ rows: [{ recorded: true }] }));
+    expect(
+      await recordRecordPurgeCompletionInTx(tx, context, {
+        kind: 'object_record',
+        id: randomUUID(),
+      }),
+    ).toBe(true);
+    expect(calls.savepoints).toBe(1);
+    expect(calls.statements).toHaveLength(1);
+    // The value is PostgreSQL's own generation, and the row is the record's current snapshot's job.
+    expect(calls.statements[0]).toContain(
+      'set completed_restore_generation=ai.current_material_restore_generation()',
+    );
+    expect(calls.statements[0]).toContain('ai.lock_record_purge_snapshot(');
+  });
+
+  it('reports no completion when no job is the current snapshot’s, or when PostgreSQL refuses it', async () => {
+    expect(
+      await recordRecordPurgeCompletionInTx(savepointTx(async () => ({ rows: [] })).tx, context, {
+        kind: 'work_unit',
+        id: randomUUID(),
+      }),
+    ).toBe(false);
+    // EN119: 0554's attestation found the composite proof incomplete. 55P03: a lock it needs is busy.
+    for (const code of ['EN119', '55P03'])
+      expect(
+        await recordRecordPurgeCompletionInTx(
+          savepointTx(async () => {
+            throw pgError(code);
+          }).tx,
+          context,
+          { kind: 'work_unit', id: randomUUID() },
+        ),
+      ).toBe(false);
+  });
+
+  it('throws any other failure, such as a refused role, instead of hiding it', async () => {
+    await expect(
+      recordRecordPurgeCompletionInTx(
+        savepointTx(async () => {
+          throw pgError('42501');
+        }).tx,
+        context,
+        { kind: 'client', id: randomUUID() },
+      ),
+    ).rejects.toMatchObject({ cause: { code: '42501' } });
+  });
+
+  it('refuses a person, a kind a record purge does not cover and a non-UUID before any statement', async () => {
+    const person = { ...context, actorType: 'user' } as typeof context;
+    const { tx, calls } = savepointTx(async () => ({ rows: [{ recorded: true }] }));
+    await expect(
+      recordRecordPurgeCompletionInTx(tx, person, { kind: 'client', id: randomUUID() }),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    await expect(
+      recordRecordPurgeCompletionInTx(tx, context, {
+        kind: 'artifact' as 'client',
+        id: randomUUID(),
+      }),
+    ).rejects.toMatchObject({ code: 'INVALID_INPUT' });
+    await expect(
+      recordRecordPurgeCompletionInTx(tx, context, { kind: 'client', id: 'not-a-uuid' }),
+    ).rejects.toMatchObject({ code: 'INVALID_INPUT' });
+    expect(calls).toEqual({ savepoints: 0, statements: [] });
   });
 });

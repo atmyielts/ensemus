@@ -15,7 +15,10 @@ import {
   claimSourcePurgeRetries,
   sourcePurgeWorkerState,
 } from '@ensemus/application/knowledge/purge';
-import { listRecordPurgeCandidates } from '@ensemus/application/knowledge/record-closure';
+import {
+  listRecordPurgeCandidates,
+  recordRecordPurgeCompletionInTx,
+} from '@ensemus/application/knowledge/record-closure';
 import { AppError, pgCode } from '@ensemus/application';
 import { createServiceContext } from '@ensemus/database/service';
 import { withTenantTx } from '@ensemus/database';
@@ -24,7 +27,20 @@ import { withTenantTx } from '@ensemus/database';
 const RECORD_PURGE_RESTARTS = 5;
 
 export function createKnowledgePurgeActivities(deps: KnowledgeWorkerDeps) {
-  /** The canonical record purge proof: copied Work and control first, then generated files. */
+  const proven = (current: {
+    work: { confirmed: boolean; remaining: number; controlsRemaining: number; unproven: number };
+    filesRemaining: number | null;
+  }) =>
+    current.work.confirmed &&
+    current.work.remaining === 0 &&
+    current.work.controlsRemaining === 0 &&
+    current.work.unproven === 0 &&
+    current.filesRemaining === 0;
+  /**
+   * The canonical record purge proof: copied Work and control first, then generated files. When it reads
+   * completed, the same transaction records the record's durable completion (0554), which PostgreSQL
+   * writes only after proving it again itself, so the next sweep no longer lists the record.
+   */
   const confirmRecord = async (input: KnowledgeRecordPurgeInput) => {
     if (!deps.recordWorks || !deps.derivedArtifacts?.confirmRecordInTx)
       throw new Error('RECORD_PURGE_CONFIRM_UNAVAILABLE');
@@ -35,15 +51,11 @@ export function createKnowledgePurgeActivities(deps: KnowledgeWorkerDeps) {
       const work = await records.confirmRecordInTx(tx, context, input);
       if (!work.confirmed) return { work, filesRemaining: null };
       const fileProof = await files(tx, context, input);
-      return { work, filesRemaining: fileProof.remaining };
+      const current = { work, filesRemaining: fileProof.remaining };
+      if (proven(current)) await recordRecordPurgeCompletionInTx(tx, context, input);
+      return current;
     });
   };
-  const proven = (current: Awaited<ReturnType<typeof confirmRecord>>) =>
-    current.work.confirmed &&
-    current.work.remaining === 0 &&
-    current.work.controlsRemaining === 0 &&
-    current.work.unproven === 0 &&
-    current.filesRemaining === 0;
   return {
     async purgeRecordFiles(raw: KnowledgeRecordPurgeInput) {
       const input = knowledgeRecordPurgeInputSchema.parse(raw);
@@ -56,8 +68,11 @@ export function createKnowledgePurgeActivities(deps: KnowledgeWorkerDeps) {
     /**
      * The typed-record restart path (ADR-028 lifecycle item 8a). Dead or tombstoned records are ranked
      * by metadata, then each is re-proved, one transaction each, with the same composite proof
-     * confirmRecordPurge uses. Only a record PostgreSQL does not prove purged is due. Nothing is stored:
-     * the next sweep simply proves again, so no retry counter can run out and no Temporal result is reused.
+     * confirmRecordPurge uses. Only a record PostgreSQL does not prove purged is due. The only thing
+     * stored is a completed proof (0554): a record whose proof reads completed gets a durable completion,
+     * keyed by its snapshot and restore generation, and is no longer listed, so a later sweep neither
+     * proves it again nor takes the organization row lock (0514) for it. Every other record is simply
+     * proved again by the next sweep, so no retry counter can run out and no Temporal result is reused.
      *
      * Every kind a deletion routes here is proved under its own kind, a custom object record included: its
      * copied Work first, then the generated-file proof that no file still depends on it (with the archive's
