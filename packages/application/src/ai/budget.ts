@@ -87,7 +87,10 @@ export async function setBudget(
     if (!budgetId) {
       // A budget is retained evidence (LIFE-04), so since 0552 no FK ties it to the agent version the
       // eraser removes. Its birth still needs that version in this tenant: RLS hides another tenant's,
-      // which then reads exactly as a mistyped one, as engageKillSwitch does for its target.
+      // which then reads exactly as a mistyped one, as engageKillSwitch does for its target. Since 0553
+      // the primary guard is the database's own birth trigger (aa_retained_referent_birth_agent_version_id,
+      // EN423 RETAINED_REFERENT_MISSING); this read stays as a second guard, and is what turns the common
+      // case into FOREIGN_REFERENCE for the person before anything is written.
       if (input.agent_version_id !== null) {
         const [version] = await tx
           .select({ id: agentVersions.id })

@@ -792,6 +792,20 @@
       "when": 1794201807514,
       "tag": "0552_retained_historical_run_referents_r11erasure",
       "breakpoints": true
+    },
+    {
+      "idx": 113,
+      "version": "7",
+      "when": 1794201807515,
+      "tag": "0553_retained_referent_birth_guards_r12erasure",
+      "breakpoints": true
+    },
+    {
+      "idx": 114,
+      "version": "7",
+      "when": 1794201807516,
+      "tag": "0554_record_purge_completion_r12purge",
+      "breakpoints": true
     }
   ]
 }

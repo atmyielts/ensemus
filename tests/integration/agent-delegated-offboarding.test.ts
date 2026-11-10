@@ -5,7 +5,8 @@
 // saas-erasure.test.ts does. Each case erases or offboards its own tenant. The capability is qualified for
 // this file through the migrator and restored afterwards. SQL first runs in the CI run after 0548 was journaled.
 // L6 needs 0552: the tenant's agent reserved and spent budget, and that retained evidence must neither pin
-// the run, profile, rate card or Work it names nor be lost when they are erased.
+// the run, profile, rate card or Work it names nor be lost when they are erased. Since 0553 it is born
+// under the restored referent birth guards, which fire only on INSERT and UPDATE of the retained rows.
 import { randomUUID } from 'node:crypto';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -268,6 +269,16 @@ describe('ADR-028 delegated child offboarding (L6, L8b)', () => {
     expect(evidence.egress).toContainEqual(
       expect.objectContaining({ run_id: f.runId, step_id: null, profile_id: profileId }),
     );
+    // 0553: that evidence was born under the restored referent birth guards, and the erase below runs with
+    // all of them enabled, so its leftOver [] proves they never pin an erasable row.
+    expect(
+      (
+        await su.query<{ n: number }>(
+          `select count(*)::integer n from pg_trigger
+            where tgfoid='lifecycle.require_retained_referent()'::regprocedure and tgenabled in ('O','A')`,
+        )
+      ).rows[0]?.n,
+    ).toBe(28);
     const refs = await recordRefs(organizationId, f.childRunId);
     // The parent's own Work and the input Work it read are both inputs of the copied child.
     expect(refs).toEqual(
