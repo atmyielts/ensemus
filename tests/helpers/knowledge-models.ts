@@ -12,7 +12,7 @@ import { runKnowledgeModelJob } from '@ensemus/application/ai-knowledge-model-jo
 import { requestModelQualification } from '@ensemus/application/knowledge/model-jobs';
 import {
   AppError,
-  refusalFromDatabase,
+  LOCK_NOT_AVAILABLE,
   TENANT_BUSY_RETRY_AFTER_SECONDS,
 } from '@ensemus/application';
 import { startSubscription } from '@ensemus/application/saas/subscriptions';
@@ -59,11 +59,35 @@ export async function nativeModelContext(database: AppDatabase, owner: TenantCon
 const BUSY_ATTEMPTS = 20;
 
 /**
- * What a person is told for a write that failed, as the API and the forms tell it: an AppError as it
- * is, and a database refusal through refusalFromDatabase, the translation both use.
+ * How many links of an error's cause chain are read for PostgreSQL's lock_not_available, the error
+ * itself included. A fixture write reaches here as PostgreSQL's own error (pg's DatabaseError) wrapped by
+ * Drizzle (DrizzleQueryError, whose cause it is), and that wrapper may itself be wrapped once or twice
+ * more by the transaction helper or the application before it is thrown here: five links cover the
+ * deepest of those with room to spare. pgCode (errors.ts), which refusalFromDatabase reads, looks only at
+ * error.cause, one link down, so a lock refusal wrapped any deeper than Drizzle wraps it would not be
+ * recognised as busy and the fixture would fail on a refusal the API documents as retryable. The bound
+ * keeps the walk finite on a cyclic or very long chain.
  */
-const refusalOf = (error: unknown) =>
-  error instanceof AppError ? error : refusalFromDatabase(error);
+const CAUSE_DEPTH = 5;
+
+/** Whether `error` or any error in its cause chain, to CAUSE_DEPTH links, is lock_not_available. */
+function lockNotAvailable(error: unknown): boolean {
+  let current: unknown = error;
+  for (let depth = 0; depth < CAUSE_DEPTH && current && typeof current === 'object'; depth++) {
+    if ((current as { code?: unknown }).code === LOCK_NOT_AVAILABLE) return true;
+    current = (current as { cause?: unknown }).cause;
+  }
+  return false;
+}
+
+/**
+ * Whether a fixture write was refused as TENANT_BUSY and only that: an AppError TENANT_BUSY, as the
+ * application throws it, or a database error with lock_not_available (55P03) anywhere in its cause chain,
+ * which is what busyFromDatabase translates to TENANT_BUSY for the API and the forms. Every other
+ * refusal, VERSION_CONFLICT and SUBSCRIPTION_EXISTS among them, is not busy.
+ */
+const tenantBusy = (error: unknown) =>
+  (error instanceof AppError && error.code === 'TENANT_BUSY') || lockNotAvailable(error);
 
 /**
  * Sends one fixture write again, a bounded number of times, while it is refused as TENANT_BUSY and only
@@ -71,8 +95,9 @@ const refusalOf = (error: unknown) =>
  * organization row FOR SHARE NOWAIT on every insert it guards, so such a write is refused at once while
  * a background job in the same tenant holds that row FOR NO KEY UPDATE, as a source purge does
  * (0514-0516; CI run 42692158422: the qualification insert, right after a revocation). That refusal is
- * TENANT_BUSY (errors.ts), which the API documents as retryable after Retry-After: the write's
- * transaction rolled back, so the same write is sent again after the same wait. Any other refusal,
+ * TENANT_BUSY (errors.ts; recognised here by tenantBusy, through CAUSE_DEPTH links of the cause chain),
+ * which the API documents as retryable after Retry-After: the write's transaction rolled back, so the
+ * same write is sent again after the same wait. Any other refusal,
  * VERSION_CONFLICT among them, and a write still busy after the last attempt, fails the fixture at once;
  * the fence itself is unchanged.
  */
@@ -81,7 +106,7 @@ async function whileBusy<T>(write: () => Promise<T>): Promise<T> {
     try {
       return await write();
     } catch (error) {
-      if (refusalOf(error)?.code !== 'TENANT_BUSY' || attempt >= BUSY_ATTEMPTS) throw error;
+      if (!tenantBusy(error) || attempt >= BUSY_ATTEMPTS) throw error;
       await new Promise((done) => setTimeout(done, TENANT_BUSY_RETRY_AFTER_SECONDS * 1000));
     }
   }
