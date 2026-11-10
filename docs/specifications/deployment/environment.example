@@ -2,6 +2,15 @@
 NODE_ENV=production
 ENSEMUS_MODE=sovereign
 ENSEMUS_PUBLIC_URL=https://ensemus.example.invalid
+# The one name the proxy answers to, with no scheme or port. Use the name in ENSEMUS_PUBLIC_URL. If this is
+# not set the proxy answers only as localhost, and any other name fails at the TLS handshake.
+ENSEMUS_HOSTNAME=ensemus.example.invalid
+# Addresses or CIDR ranges, separated by spaces, of your own proxies in front of the Ensemus proxy, as the
+# Ensemus proxy sees them. Empty means nobody is trusted, and any X-Forwarded-For a client sends is
+# overwritten. Leave it empty if clients connect directly. If a proxy of yours is in front and this is empty,
+# everyone shares that proxy's address, so ten wrong passwords from anyone refuse every sign-in for up to a
+# minute. See "Hostname and client addresses" in docs/05-operations/05-container-deployment-runbook.md.
+ENSEMUS_TRUSTED_PROXIES=
 ENSEMUS_REGION=local
 ENSEMUS_LICENSE_FILE=/run/secrets/ensemus-license
 DATABASE_URL_FILE=/run/secrets/database-url
@@ -10,6 +19,9 @@ TEMPORAL_NAMESPACE=ensemus
 OBJECT_STORAGE_ENDPOINT=https://objects.internal.invalid
 OBJECT_STORAGE_BUCKET=ensemus
 OBJECT_STORAGE_CREDENTIAL_REF=/run/secrets/object-store-credentials
+# For the dispatcher only. An identity that reaches the tombstone-ledger/ prefix and nothing else (ADR-026).
+OBJECT_STORAGE_LEDGER_ACCESS_KEY_FILE=/run/secrets/object-store-ledger-access-key
+OBJECT_STORAGE_LEDGER_SECRET_KEY_FILE=/run/secrets/object-store-ledger-secret-key
 # Key-encryption key for the built-in SecretBroker (ADR-024 D5). Mount for the worker only, never the web tier.
 # An external KMS or vault adapter may replace it.
 SECRET_BROKER_KEK_FILE=/run/secrets/ensemus-kek
@@ -17,3 +29,7 @@ VALKEY_URL=redis://valkey.internal.invalid:6379
 OBSERVABILITY_MODE=local
 MODEL_EGRESS_POLICY=deny-by-default
 # Actual EnvConfig contract must be Zod-validated; *_FILE handling must be built.
+
+# First two parts of the addresses the stack uses inside Docker. Change it only if 172.30.0.0/16 is
+# already in use at your site. The air-gap gate always runs on the default.
+ENSEMUS_NETWORK_PREFIX=172.30

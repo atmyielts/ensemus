@@ -1,0 +1,818 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1793885047525,
+      "tag": "0000_tables",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1793885048816,
+      "tag": "0001_security",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1793893638877,
+      "tag": "0002_work",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1793893641188,
+      "tag": "0003_work_security",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1793898476568,
+      "tag": "0004_work_integrity",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1793898491191,
+      "tag": "0005_work_integrity_security",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1793930721459,
+      "tag": "0006_completion_basis",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1793933675940,
+      "tag": "0007_delegates_refusals_setup",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1793933677249,
+      "tag": "0008_delegates_refusals_setup_security",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1793963052689,
+      "tag": "0009_transition_from_version",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1793963057263,
+      "tag": "0010_closed_review_notifications_security",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1793965199928,
+      "tag": "0011_approvals_by_work",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1793968515493,
+      "tag": "0012_verified_external_actions",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1793968553350,
+      "tag": "0013_verified_external_actions_security",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1793973491114,
+      "tag": "0014_sync_stream_ownership",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1793985699992,
+      "tag": "0100_ai",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1793985699993,
+      "tag": "0101_ai_security",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1794003139118,
+      "tag": "0200_knowledge",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1794003139119,
+      "tag": "0201_knowledge_security",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1794003139120,
+      "tag": "0202_knowledge_question_classification",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1794003139121,
+      "tag": "0203_knowledge_publication_slots",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1794003139122,
+      "tag": "0204_knowledge_fact_trust",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1794003139123,
+      "tag": "0205_knowledge_purge_proof",
+      "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1794003139124,
+      "tag": "0206_artifact_verification_proof",
+      "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1794003139125,
+      "tag": "0207_client_onboarding_state",
+      "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1794003139126,
+      "tag": "0208_derived_artifact_privacy",
+      "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1794003139127,
+      "tag": "0209_client_visibility",
+      "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1794003139128,
+      "tag": "0210_generated_restore_proof",
+      "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1794004260904,
+      "tag": "0211_structured_artifact_provenance",
+      "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1794004260905,
+      "tag": "0212_knowledge_source_authority",
+      "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1794004260906,
+      "tag": "0213_knowledge_evidence_integrity",
+      "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1794007141493,
+      "tag": "0214_agent_input_protocol",
+      "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1794010184887,
+      "tag": "0215_onboarding_run_binding",
+      "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1794010184888,
+      "tag": "0216_knowledge_model_jobs",
+      "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1794010184889,
+      "tag": "0300_sovereign",
+      "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1794010184890,
+      "tag": "0301_sovereign_security",
+      "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1794010184891,
+      "tag": "0302_portable_definitions",
+      "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1794010184892,
+      "tag": "0303_export_revocation_epoch",
+      "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1794010184893,
+      "tag": "0400_product_depth",
+      "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "7",
+      "when": 1794010184894,
+      "tag": "0401_product_depth_security",
+      "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1794010184895,
+      "tag": "0402_second_factor_uniqueness",
+      "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1794010184896,
+      "tag": "0403_scim_human_disable",
+      "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1794010184897,
+      "tag": "0404_interactive_privileges",
+      "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1794010184898,
+      "tag": "0405_pulse_personal_state_authority",
+      "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1794010184899,
+      "tag": "0406_product_agent_binding",
+      "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "7",
+      "when": 1794010184900,
+      "tag": "0407_object_record_authority",
+      "breakpoints": true
+    },
+    {
+      "idx": 46,
+      "version": "7",
+      "when": 1794010184901,
+      "tag": "0410_interactive_sso_authority",
+      "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1794010184902,
+      "tag": "0411_work_parent_authority",
+      "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "7",
+      "when": 1794010184903,
+      "tag": "0412_studio_admission",
+      "breakpoints": true
+    },
+    {
+      "idx": 49,
+      "version": "7",
+      "when": 1794010184904,
+      "tag": "0409_import_intent_authority",
+      "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "7",
+      "when": 1794010184905,
+      "tag": "0408_m7_portability",
+      "breakpoints": true
+    },
+    {
+      "idx": 51,
+      "version": "7",
+      "when": 1794010184906,
+      "tag": "0413_experience_authority",
+      "breakpoints": true
+    },
+    {
+      "idx": 52,
+      "version": "7",
+      "when": 1794010184907,
+      "tag": "0414_agent_scope_protocol",
+      "breakpoints": true
+    },
+    {
+      "idx": 53,
+      "version": "7",
+      "when": 1794010184908,
+      "tag": "0415_archive_file_quarantine",
+      "breakpoints": true
+    },
+    {
+      "idx": 54,
+      "version": "7",
+      "when": 1794010184909,
+      "tag": "0416_delegated_input_receipts",
+      "breakpoints": true
+    },
+    {
+      "idx": 55,
+      "version": "7",
+      "when": 1794010184910,
+      "tag": "0418_process_run_authority",
+      "breakpoints": true
+    },
+    {
+      "idx": 56,
+      "version": "7",
+      "when": 1794010184911,
+      "tag": "0420_process_wake_metadata",
+      "breakpoints": true
+    },
+    {
+      "idx": 57,
+      "version": "7",
+      "when": 1794010184912,
+      "tag": "0500_saas_tables",
+      "breakpoints": true
+    },
+    {
+      "idx": 58,
+      "version": "7",
+      "when": 1794010184913,
+      "tag": "0501_saas_security",
+      "breakpoints": true
+    },
+    {
+      "idx": 59,
+      "version": "7",
+      "when": 1794010184914,
+      "tag": "0503_saas_plan_precision",
+      "breakpoints": true
+    },
+    {
+      "idx": 60,
+      "version": "7",
+      "when": 1794010184915,
+      "tag": "0504_saas_retention_cursors",
+      "breakpoints": true
+    },
+    {
+      "idx": 61,
+      "version": "7",
+      "when": 1794010184916,
+      "tag": "0505_saas_erasure_metadata",
+      "breakpoints": true
+    },
+    {
+      "idx": 62,
+      "version": "7",
+      "when": 1794010184917,
+      "tag": "0506_saas_public_projections",
+      "breakpoints": true
+    },
+    {
+      "idx": 63,
+      "version": "7",
+      "when": 1794010184918,
+      "tag": "0507_saas_support_erasure_fence",
+      "breakpoints": true
+    },
+    {
+      "idx": 64,
+      "version": "7",
+      "when": 1794010184919,
+      "tag": "0508_object_deletion_authority",
+      "breakpoints": true
+    },
+    {
+      "idx": 65,
+      "version": "7",
+      "when": 1794010184920,
+      "tag": "0509_saas_private_reads",
+      "breakpoints": true
+    },
+    {
+      "idx": 66,
+      "version": "7",
+      "when": 1794010184921,
+      "tag": "0511_standing_agent_stops",
+      "breakpoints": true
+    },
+    {
+      "idx": 67,
+      "version": "7",
+      "when": 1794010184922,
+      "tag": "0421_saml_self_link_authority",
+      "breakpoints": true
+    },
+    {
+      "idx": 68,
+      "version": "7",
+      "when": 1794201807470,
+      "tag": "0517_material_restore_anchor",
+      "breakpoints": true
+    },
+    {
+      "idx": 69,
+      "version": "7",
+      "when": 1794201807471,
+      "tag": "0417_read_authority_and_delegation",
+      "breakpoints": true
+    },
+    {
+      "idx": 70,
+      "version": "7",
+      "when": 1794201807472,
+      "tag": "0419_delegated_material_authority",
+      "breakpoints": true
+    },
+    {
+      "idx": 71,
+      "version": "7",
+      "when": 1794201807473,
+      "tag": "0510_delegated_work_hold_barrier",
+      "breakpoints": true
+    },
+    {
+      "idx": 72,
+      "version": "7",
+      "when": 1794201807474,
+      "tag": "0514_record_purge_hold_barrier",
+      "breakpoints": true
+    },
+    {
+      "idx": 73,
+      "version": "7",
+      "when": 1794201807475,
+      "tag": "0515_delegated_material_erasure",
+      "breakpoints": true
+    },
+    {
+      "idx": 74,
+      "version": "7",
+      "when": 1794201807476,
+      "tag": "0422_restore_auth_authority",
+      "breakpoints": true
+    },
+    {
+      "idx": 75,
+      "version": "7",
+      "when": 1794201807477,
+      "tag": "0512_payment_execution_identity",
+      "breakpoints": true
+    },
+    {
+      "idx": 76,
+      "version": "7",
+      "when": 1794201807478,
+      "tag": "0516_raw_source_object_authority",
+      "breakpoints": true
+    },
+    {
+      "idx": 77,
+      "version": "7",
+      "when": 1794201807479,
+      "tag": "0518_proof_inventory_and_payment_referents",
+      "breakpoints": true
+    },
+    {
+      "idx": 78,
+      "version": "7",
+      "when": 1794201807480,
+      "tag": "0999_saas_eraser_reach",
+      "breakpoints": true
+    },
+    {
+      "idx": 79,
+      "version": "7",
+      "when": 1794201807481,
+      "tag": "0519_work_own_scope_class_scale",
+      "breakpoints": true
+    },
+    {
+      "idx": 80,
+      "version": "7",
+      "when": 1794201807482,
+      "tag": "0520_raw_source_lifecycle_repair",
+      "breakpoints": true
+    },
+    {
+      "idx": 81,
+      "version": "7",
+      "when": 1794201807483,
+      "tag": "0521_payment_attestation_schema_usage",
+      "breakpoints": true
+    },
+    {
+      "idx": 82,
+      "version": "7",
+      "when": 1794201807484,
+      "tag": "0522_export_epoch_erasure_advance",
+      "breakpoints": true
+    },
+    {
+      "idx": 83,
+      "version": "7",
+      "when": 1794201807485,
+      "tag": "0523_raw_unknown_write_supersede",
+      "breakpoints": true
+    },
+    {
+      "idx": 84,
+      "version": "7",
+      "when": 1794201807486,
+      "tag": "0524_knowledge_grant_erasure_revision",
+      "breakpoints": true
+    },
+    {
+      "idx": 85,
+      "version": "7",
+      "when": 1794201807487,
+      "tag": "0525_ai_bounded_run_output_authority",
+      "breakpoints": true
+    },
+    {
+      "idx": 86,
+      "version": "7",
+      "when": 1794201807488,
+      "tag": "0526_r2portability_import_effect_scope",
+      "breakpoints": true
+    },
+    {
+      "idx": 87,
+      "version": "7",
+      "when": 1794201807489,
+      "tag": "0527_r2portability_purge_demotion_prior",
+      "breakpoints": true
+    },
+    {
+      "idx": 88,
+      "version": "7",
+      "when": 1794201807490,
+      "tag": "0528_r2portability_archive_debt_serialize",
+      "breakpoints": true
+    },
+    {
+      "idx": 89,
+      "version": "7",
+      "when": 1794201807491,
+      "tag": "0529_support_desk_birth_fence_saas",
+      "breakpoints": true
+    },
+    {
+      "idx": 90,
+      "version": "7",
+      "when": 1794201807492,
+      "tag": "0530_artifact_hold_before_catalog_saas",
+      "breakpoints": true
+    },
+    {
+      "idx": 91,
+      "version": "7",
+      "when": 1794201807493,
+      "tag": "0531_erasure_artifact_tombstone_policy_saas",
+      "breakpoints": true
+    },
+    {
+      "idx": 92,
+      "version": "7",
+      "when": 1794201807494,
+      "tag": "0532_knowledge_purge_absent_blobs_hknowledge",
+      "breakpoints": true
+    },
+    {
+      "idx": 93,
+      "version": "7",
+      "when": 1794201807495,
+      "tag": "0533_support_birth_tenant_binding_hsaas",
+      "breakpoints": true
+    },
+    {
+      "idx": 94,
+      "version": "7",
+      "when": 1794201807496,
+      "tag": "0534_erasure_tombstone_scope_hsaas",
+      "breakpoints": true
+    },
+    {
+      "idx": 95,
+      "version": "7",
+      "when": 1794201807497,
+      "tag": "0535_legacy_checklist_requalify_upgrade",
+      "breakpoints": true
+    },
+    {
+      "idx": 96,
+      "version": "7",
+      "when": 1794201807498,
+      "tag": "0536_run_ceiling_without_run_agentmat",
+      "breakpoints": true
+    },
+    {
+      "idx": 97,
+      "version": "7",
+      "when": 1794201807499,
+      "tag": "0537_eraser_onboarding_assignment_guard_r3saas",
+      "breakpoints": true
+    },
+    {
+      "idx": 98,
+      "version": "7",
+      "when": 1794201807500,
+      "tag": "0538_export_restricted_artifact_count_r3saas",
+      "breakpoints": true
+    },
+    {
+      "idx": 99,
+      "version": "7",
+      "when": 1794201807501,
+      "tag": "0539_orphan_upload_writer_receipt_r4blob",
+      "breakpoints": true
+    },
+    {
+      "idx": 100,
+      "version": "7",
+      "when": 1794201807502,
+      "tag": "0540_delegated_birth_queued_ceiling_owner_g4agentmat",
+      "breakpoints": true
+    },
+    {
+      "idx": 101,
+      "version": "7",
+      "when": 1794201807503,
+      "tag": "0541_erasure_tombstone_token_payment_inbox_conflict_r4saas",
+      "breakpoints": true
+    },
+    {
+      "idx": 102,
+      "version": "7",
+      "when": 1794201807504,
+      "tag": "0542_raw_restore_proof_lost_deferred_r4knowledge",
+      "breakpoints": true
+    },
+    {
+      "idx": 103,
+      "version": "7",
+      "when": 1794201807505,
+      "tag": "0543_raw_restore_debt_requalify_r5restore",
+      "breakpoints": true
+    },
+    {
+      "idx": 104,
+      "version": "7",
+      "when": 1794201807506,
+      "tag": "0544_shared_upload_after_purge_r5blob",
+      "breakpoints": true
+    },
+    {
+      "idx": 105,
+      "version": "7",
+      "when": 1794201807507,
+      "tag": "0545_restore_debt_present_owed_r6restore",
+      "breakpoints": true
+    },
+    {
+      "idx": 106,
+      "version": "7",
+      "when": 1794201807508,
+      "tag": "0546_auth_restore_sso_revocation_r6restore",
+      "breakpoints": true
+    },
+    {
+      "idx": 107,
+      "version": "7",
+      "when": 1794201807509,
+      "tag": "0547_raw_restore_survivor_deletion_r7restore",
+      "breakpoints": true
+    },
+    {
+      "idx": 108,
+      "version": "7",
+      "when": 1794201807510,
+      "tag": "0548_delegation_birth_readiness_deleg",
+      "breakpoints": true
+    },
+    {
+      "idx": 109,
+      "version": "7",
+      "when": 1794201807511,
+      "tag": "0549_restore_entry_refusal_first_r8restore",
+      "breakpoints": true
+    },
+    {
+      "idx": 110,
+      "version": "7",
+      "when": 1794201807512,
+      "tag": "0550_raw_restore_active_source_r8restore",
+      "breakpoints": true
+    },
+    {
+      "idx": 111,
+      "version": "7",
+      "when": 1794201807513,
+      "tag": "0551_raw_restore_active_source_closure_r9restore",
+      "breakpoints": true
+    },
+    {
+      "idx": 112,
+      "version": "7",
+      "when": 1794201807514,
+      "tag": "0552_retained_historical_run_referents_r11erasure",
+      "breakpoints": true
+    },
+    {
+      "idx": 113,
+      "version": "7",
+      "when": 1794201807515,
+      "tag": "0553_retained_referent_birth_guards_r12erasure",
+      "breakpoints": true
+    },
+    {
+      "idx": 114,
+      "version": "7",
+      "when": 1794201807516,
+      "tag": "0554_record_purge_completion_r12purge",
+      "breakpoints": true
+    },
+    {
+      "idx": 115,
+      "version": "7",
+      "when": 1794201807517,
+      "tag": "0555_record_purge_completion_attest_r13purge",
+      "breakpoints": true
+    }
+  ]
+}

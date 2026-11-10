@@ -1,0 +1,182 @@
+# The Sovereign overlay (COMM-04, SOV-03, ADR-030 D4). install-bundle lays it over compose.yaml, from inside a
+# bundle folder, where build-bundle.mjs has put both files in compose/:
+#   docker compose -p <project> [--env-file <file>] -f compose/compose.yaml -f compose/compose.sovereign.yaml ...
+# README.md beside this file says what it has to hold, and why.
+#
+# It changes where things come from, and nothing about how they run:
+#   - every image is one the bundle loaded and install-bundle checked against the signed manifest, and named
+#     ensemus-sovereign/<name>:<release>. Nothing is pulled (pull_policy: never) and nothing is built
+#     (build: !reset null), so a site with no registry and no route out can still start every service;
+#   - every secret comes from the operator's own folder, ENSEMUS_SECRETS_DIR, and never from the bundle;
+#   - the proxy reads the bundle's lower-case copy of its Caddyfile;
+#   - web and worker read the license trust root the operator was given out of band (ADR-030 D3), and the
+#     bundle's own signed manifest, which they check against that trust root before believing it.
+# Networks, addresses, name pins, memory limits and read-only filesystems are compose.yaml's, unchanged.
+#
+# Paths here resolve from the folder of the first file given, compose/ inside the bundle.
+# ENSEMUS_RELEASE is set by install-bundle. ENSEMUS_SECRETS_DIR and ENSEMUS_LICENSE_TRUST_ROOT_PATH are the
+# operator's, usually in the --env-file they pass, and both name places outside the bundle folder.
+
+services:
+  proxy:
+    image: ensemus-sovereign/proxy:${ENSEMUS_RELEASE:?set by install-bundle}
+    pull_policy: never
+    build: !reset null
+    volumes:
+      # Same target as compose.yaml's entry, which this replaces: a bundle's paths are lower case.
+      - ./proxy/caddyfile:/etc/caddy/Caddyfile:ro
+
+  web:
+    image: ensemus-sovereign/web:${ENSEMUS_RELEASE:?set by install-bundle}
+    pull_policy: never
+    build: !reset null
+    environment:
+      ENSEMUS_LICENSE_TRUST_ROOT_FILE: /run/secrets/license_trust_root
+      ENSEMUS_BUNDLE_MANIFEST_FILE: /run/ensemus/bundle-manifest.dsse.json
+    secrets: [license_trust_root]
+    volumes:
+      # The bundle stays in place while the stack runs (offline-bundle.md), so its manifest is there to read.
+      - ../bundle-manifest.dsse.json:/run/ensemus/bundle-manifest.dsse.json:ro
+
+  worker:
+    image: ensemus-sovereign/worker:${ENSEMUS_RELEASE:?set by install-bundle}
+    pull_policy: never
+    build: !reset null
+    environment:
+      # sovereign-license runs from this image, and must accept exactly what web can read back.
+      ENSEMUS_LICENSE_TRUST_ROOT_FILE: /run/secrets/license_trust_root
+      ENSEMUS_BUNDLE_MANIFEST_FILE: /run/ensemus/bundle-manifest.dsse.json
+    secrets: [license_trust_root]
+    volumes:
+      - ../bundle-manifest.dsse.json:/run/ensemus/bundle-manifest.dsse.json:ro
+
+  knowledge-worker:
+    image: ensemus-sovereign/worker:${ENSEMUS_RELEASE:?set by install-bundle}
+    pull_policy: never
+    build: !reset null
+
+  agent-worker:
+    image: ensemus-sovereign/worker:${ENSEMUS_RELEASE:?set by install-bundle}
+    pull_policy: never
+    build: !reset null
+
+  dispatcher:
+    image: ensemus-sovereign/worker:${ENSEMUS_RELEASE:?set by install-bundle}
+    pull_policy: never
+    build: !reset null
+
+  connector-worker:
+    image: ensemus-sovereign/worker:${ENSEMUS_RELEASE:?set by install-bundle}
+    pull_policy: never
+    build: !reset null
+
+  egress-gateway:
+    image: ensemus-sovereign/worker:${ENSEMUS_RELEASE:?set by install-bundle}
+    pull_policy: never
+    build: !reset null
+
+  migrate:
+    image: ensemus-sovereign/worker:${ENSEMUS_RELEASE:?set by install-bundle}
+    pull_policy: never
+    build: !reset null
+
+  auth-restore:
+    image: ensemus-sovereign/worker:${ENSEMUS_RELEASE:?set by install-bundle}
+    pull_policy: never
+    build: !reset null
+
+  restore-reconcile:
+    image: ensemus-sovereign/worker:${ENSEMUS_RELEASE:?set by install-bundle}
+    pull_policy: never
+    build: !reset null
+
+  # compose.yaml runs this with the PostgreSQL image, so it travels as that image.
+  provision-roles:
+    image: ensemus-sovereign/postgres:${ENSEMUS_RELEASE:?set by install-bundle}
+    pull_policy: never
+    build: !reset null
+
+  postgres:
+    image: ensemus-sovereign/postgres:${ENSEMUS_RELEASE:?set by install-bundle}
+    pull_policy: never
+    build: !reset null
+
+  temporal-schema:
+    image: ensemus-sovereign/temporal-admin-tools:${ENSEMUS_RELEASE:?set by install-bundle}
+    pull_policy: never
+    build: !reset null
+
+  temporal:
+    image: ensemus-sovereign/temporal:${ENSEMUS_RELEASE:?set by install-bundle}
+    pull_policy: never
+    build: !reset null
+
+  temporal-namespace:
+    image: ensemus-sovereign/temporal-admin-tools:${ENSEMUS_RELEASE:?set by install-bundle}
+    pull_policy: never
+    build: !reset null
+
+  valkey:
+    image: ensemus-sovereign/valkey:${ENSEMUS_RELEASE:?set by install-bundle}
+    pull_policy: never
+    build: !reset null
+
+  objects:
+    image: ensemus-sovereign/objects:${ENSEMUS_RELEASE:?set by install-bundle}
+    pull_policy: never
+    build: !reset null
+
+# Every secret compose.yaml names, restated from the operator's folder. The names are the files
+# generate-test-secrets.mjs writes, so a folder laid out like .local/secrets works as it is.
+secrets:
+  db_superuser_password:
+    { file: '${ENSEMUS_SECRETS_DIR:?the folder of secrets for this site}/db_superuser_password' }
+  db_migrator_password:
+    { file: '${ENSEMUS_SECRETS_DIR:?the folder of secrets for this site}/db_migrator_password' }
+  db_app_password:
+    { file: '${ENSEMUS_SECRETS_DIR:?the folder of secrets for this site}/db_app_password' }
+  db_agent_password:
+    { file: '${ENSEMUS_SECRETS_DIR:?the folder of secrets for this site}/db_agent_password' }
+  db_auth_password:
+    { file: '${ENSEMUS_SECRETS_DIR:?the folder of secrets for this site}/db_auth_password' }
+  db_dispatcher_password:
+    { file: '${ENSEMUS_SECRETS_DIR:?the folder of secrets for this site}/db_dispatcher_password' }
+  db_secrets_password:
+    { file: '${ENSEMUS_SECRETS_DIR:?the folder of secrets for this site}/db_secrets_password' }
+  db_temporal_password:
+    { file: '${ENSEMUS_SECRETS_DIR:?the folder of secrets for this site}/db_temporal_password' }
+  db_migrator_url:
+    { file: '${ENSEMUS_SECRETS_DIR:?the folder of secrets for this site}/db_migrator_url' }
+  db_app_url: { file: '${ENSEMUS_SECRETS_DIR:?the folder of secrets for this site}/db_app_url' }
+  db_agent_url: { file: '${ENSEMUS_SECRETS_DIR:?the folder of secrets for this site}/db_agent_url' }
+  db_auth_url: { file: '${ENSEMUS_SECRETS_DIR:?the folder of secrets for this site}/db_auth_url' }
+  db_dispatcher_url:
+    { file: '${ENSEMUS_SECRETS_DIR:?the folder of secrets for this site}/db_dispatcher_url' }
+  objects_access_key:
+    { file: '${ENSEMUS_SECRETS_DIR:?the folder of secrets for this site}/objects_access_key' }
+  objects_secret_key:
+    { file: '${ENSEMUS_SECRETS_DIR:?the folder of secrets for this site}/objects_secret_key' }
+  objects_ledger_access_key:
+    {
+      file: '${ENSEMUS_SECRETS_DIR:?the folder of secrets for this site}/objects_ledger_access_key',
+    }
+  objects_ledger_secret_key:
+    {
+      file: '${ENSEMUS_SECRETS_DIR:?the folder of secrets for this site}/objects_ledger_secret_key',
+    }
+  objects_identity:
+    { file: '${ENSEMUS_SECRETS_DIR:?the folder of secrets for this site}/objects_identity.json' }
+  db_secrets_url:
+    { file: '${ENSEMUS_SECRETS_DIR:?the folder of secrets for this site}/db_secrets_url' }
+  auth_secret: { file: '${ENSEMUS_SECRETS_DIR:?the folder of secrets for this site}/auth_secret' }
+  temporal_codec_key:
+    { file: '${ENSEMUS_SECRETS_DIR:?the folder of secrets for this site}/temporal_codec_key' }
+  next_server_actions_key:
+    { file: '${ENSEMUS_SECRETS_DIR:?the folder of secrets for this site}/next_server_actions_key' }
+  sealing_public_key.pem:
+    { file: '${ENSEMUS_SECRETS_DIR:?the folder of secrets for this site}/sealing_public_key.pem' }
+  sealing_private_key.pem:
+    { file: '${ENSEMUS_SECRETS_DIR:?the folder of secrets for this site}/sealing_private_key.pem' }
+  # Public keys only, and the operator's own copy, delivered with the contract. Never one from a bundle.
+  license_trust_root:
+    file: '${ENSEMUS_LICENSE_TRUST_ROOT_PATH:?the trust root file delivered with your contract}'

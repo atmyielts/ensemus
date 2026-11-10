@@ -1,11 +1,11 @@
 id,domain,scenario,expected_result,priority,status
-QA-001,Tenant isolation,Tenant A ID used by tenant B,Denied or not found; no data leak,critical,not_implemented
-QA-002,Tenant isolation,Same client name across two tenants,Search results isolated,critical,not_implemented
-QA-003,Tenant isolation,Tenant switch during streaming,No prior tenant content emitted,critical,not_implemented
-QA-004,Work graph,Insert A->B and B->A,Cycle rejected transactionally,high,not_implemented
-QA-005,Work graph,Concurrent dependency inserts closing cycle,At most valid acyclic graph committed,critical,not_implemented
-QA-006,Work graph,Complete Work Unit without evidence,Completion denied or awaits verifier,high,not_implemented
-QA-007,Approvals,Change email recipients after approval,Previously bound approval invalidated,critical,not_implemented
+QA-001,Tenant isolation,Tenant A ID used by tenant B,Denied or not found; no data leak,critical,verified_ci
+QA-002,Tenant isolation,Same client name across two tenants,Search results isolated,critical,verified_ci
+QA-003,Tenant isolation,Tenant switch during streaming,No prior tenant content emitted,critical,verified_ci
+QA-004,Work graph,Insert A->B and B->A,Cycle rejected transactionally,high,verified_ci
+QA-005,Work graph,Concurrent dependency inserts closing cycle,At most valid acyclic graph committed,critical,verified_ci
+QA-006,Work graph,Complete Work Unit without evidence,Completion denied or awaits verifier,high,verified_ci
+QA-007,Approvals,Change email recipients after approval,Previously bound approval invalidated,critical,partial
 QA-008,Tool execution,Timeout after remote email accepted,Reconcile; do not duplicate send,critical,not_implemented
 QA-009,Provider routing,BYOM provider unavailable,No Ensemus fallback without pre-approval,critical,not_implemented
 QA-010,Provider routing,Restricted document routed to external API,Deny before egress,critical,not_implemented
@@ -27,10 +27,29 @@ QA-025,Ops,Restore backup after source deletion,Revoked source not silently reac
 QA-026,Commercial,Cloud included AI allowance exhausted,Pause/top-up; no surprise bill,high,not_implemented
 QA-027,Commercial,BYOM third-party token use,Customer billed externally; Ensemus not double-charging,high,not_implemented
 QA-028,UX,Keyboard only approval flow,Accessible completion and clear status,medium,not_implemented
-NEXT-01,NEXT,Server Action missing project authorization,Cross-tenant forged action rejected and audited,high,not_implemented
-NEXT-02,NEXT,RSC sends sensitive field via props,Server payload and client bundle contain no secret canary,high,not_implemented
-NEXT-03,NEXT,Next multi-instance cache with ACL revoked,No stale confidential access across web replicas,high,not_implemented
-NEXT-04,NEXT,Web process restart during Temporal run,Run continues and UI reconnects to correct state,high,not_implemented
+QA-029,Pulse,Risk signal rests on work the viewer cannot read,"No signal, count or link reveals it; every signal shown links to its evidence",high,not_implemented
+QA-030,Pulse,Pulse asked about one person,No per-person score or ranking exists in the page or the API,high,not_implemented
+QA-031,Studio,Publish with no passed simulation of the current hash,Denied by the service and by a trigger,critical,not_implemented
+QA-032,Studio,Draft edited after simulation or approval,Publish denied as stale; the old approval cannot be spent,critical,not_implemented
+QA-033,Studio,Author reviews their own elevated-risk agent,"Denied, whatever the application does",critical,not_implemented
+QA-034,Studio,Simulation of an agent holding an external-write tool,"Reported as what it would do; no connector, model or provider is contacted",critical,not_implemented
+QA-035,Workflow graph,Path reaches an external action with no human approval,Compile refuses and points at the node,critical,not_implemented
+QA-036,Workflow graph,"Graph with a cycle, unreachable node or unknown tool",Compile refuses; a published spec never changes,high,not_implemented
+QA-037,Custom objects,Record with an undeclared field or a class below its type,Refused; the same name in another tenant is unaffected,high,not_implemented
+QA-038,Custom objects,New shape could lose data under existing records,"Refused; records stay on the old shape, unchanged",high,not_implemented
+QA-039,Packs,Pack asking for an external-effect tool is installed,No permission changes and nothing can act until each draft is simulated and reviewed,critical,not_implemented
+QA-040,Packs,Pack upgrade adding a capability then rollback,New capability comes back for review; rollback loses no record,high,not_implemented
+QA-041,Composer,Objective read into a preview and changed before saying yes,Nothing runs at any point; a changed preview is refused,critical,not_implemented
+QA-042,Onboarding,New company finishes Journey A with no model provider,"Setup finishes, the simulation has zero side effects, and core work is usable",high,not_implemented
+QA-043,Identity,Tenant identity provider asserts an email outside its verified domain,"Refused; no account, session or membership anywhere",critical,not_implemented
+QA-044,Identity,Provider deprovisions someone mid-session,Their next request in that tenant is denied; other tenants are untouched,critical,not_implemented
+QA-045,Identity,"Privileged action with no, old or forged MFA proof",Denied and audited; a service context can never pass,critical,not_implemented
+QA-046,Workflows,Catalog workflow runs to its end,"Completes with evidence, approvals and measured cost, or stops honestly on what is not connected",high,not_implemented
+QA-047,Assistants,"Stopping a delegated run, and opening someone else’s",The run stops or says it did not; another person gets not found,high,not_implemented
+NEXT-01,NEXT,Server Action missing project authorization,Cross-tenant forged action rejected and audited,high,verified_ci
+NEXT-02,NEXT,RSC sends sensitive field via props,Server payload and client bundle contain no secret canary,high,verified_ci
+NEXT-03,NEXT,Next multi-instance cache with ACL revoked,No stale confidential access across web replicas,high,verified_ci
+NEXT-04,NEXT,Web process restart during Temporal run,Run continues and UI reconnects to correct state,high,verified_ci
 NEXT-05,NEXT,CPU heavy ingestion under interactive request load,Web event-loop latency unaffected within target,high,not_implemented
 AI-TS-01,AI,Worker replay during external action uncertain receipt,Single effect after reconciliation,high,not_implemented
 AI-TS-02,AI,Disallowed model profile fallback,Fail closed and record policy-denied reason,high,not_implemented
@@ -41,3 +60,4 @@ DEP-TS-01,DEP,Concurrent migration jobs attempted,"Exactly one migrator, no data
 DEP-TS-02,DEP,Sovereign image signature verification,Tampered bundle rejected offline,high,not_implemented
 PERF-TS-01,PERF,Many agents during normal work,p95 web latency and fairness within tested thresholds,high,not_implemented
 DATA-TS-01,DATA,Drizzle transaction RLS pool reuse,No tenant context reused across pooled connections,high,not_implemented
+QA-AI-KILL,AI,"Kill switch engaged at each scope, with a stop committed and its signal lost",Queued runs and the next model call or tool effect are blocked; in-flight calls abort; unreadable switch state counts as halted,critical,not_implemented

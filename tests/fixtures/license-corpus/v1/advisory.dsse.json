@@ -1,0 +1,10 @@
+{
+  "payloadType": "application/vnd.ensemus.advisory+json",
+  "payload": "eyJmb3JtYXQiOiJlbnNlbXVzLmFkdmlzb3J5IiwiZm9ybWF0X3ZlcnNpb24iOjEsImFkdmlzb3J5X2lkIjoiQ09SUFVTLUFEVi0xIiwiaXNzdWVkX2F0IjoiMjAyNi0xMS0wNlQwMDowMDowMC4wMDBaIiwic2V2ZXJpdHkiOiJtb2RlcmF0ZSIsInRpdGxlIjoiQ29ycHVzIGFkdmlzb3J5LCBnZW5lcmF0ZWQgZm9yIGEgdGVzdCIsInN1bW1hcnkiOiJUaGlzIGFkdmlzb3J5IGlzIGEgZ2VuZXJhdGVkIHRlc3QgdmFsdWUgYW5kIGRlc2NyaWJlcyBub3RoaW5nIHJlYWwuIiwiYWZmZWN0ZWRfdmVyc2lvbnMiOlsiMi4wLjAiXSwiZml4ZWRfaW5fdmVyc2lvbnMiOlsiMi4wLjEiXX0=",
+  "signatures": [
+    {
+      "keyid": "corpus-v1-advisory",
+      "sig": "/Vc8qZjQZ5NoUgbjMsi4vuvyXbGMcanO07v285QjB0WM2F9CXPZ2oHZRfBrm7fOyhu12GfCuSeYldMg0i9JzAg=="
+    }
+  ]
+}

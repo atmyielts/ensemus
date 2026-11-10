@@ -10,7 +10,7 @@ Native connectors (Google/Microsoft/CRM/accounting) support signed webhooks, inc
 
 ## External callbacks
 
-Next.js Route Handlers own public callbacks. Verify provider signature, timestamp, replay token, body size and tenant/connection mapping before enqueueing work. Keep HTTP callbacks short; durable follow-up is handled by outbox+workers. Never give customer agent unscoped arbitrary fetch to access instance metadata or private networks (SSRF).
+Next.js Route Handlers own public callbacks. They check the body size and the tenant/connection mapping and store what arrived, and a worker verifies the provider signature, timestamp and replay token before anything believes it ([ADR-027](../00-foundation/adr/ADR-027-verified-external-actions.md) D4), because verifying takes a secret and the web tier can only seal them. Keep HTTP callbacks short; durable follow-up is handled by outbox+workers. Never give customer agent unscoped arbitrary fetch to access instance metadata or private networks (SSRF).
 
 ## Connector lifecycle
 

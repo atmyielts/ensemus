@@ -1,0 +1,23 @@
+{
+  "name": "@ensemus/agent-runtime",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./reducer": "./src/reducer.ts",
+    "./context": "./src/context/index.ts",
+    "./tools": "./src/tools/index.ts",
+    "./delegation": "./src/delegation.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@ensemus/application": "workspace:*",
+    "@ensemus/contracts": "workspace:*",
+    "@ensemus/domain": "workspace:*",
+    "@ensemus/intelligence": "workspace:*",
+    "@ensemus/policy": "workspace:*",
+    "zod": "4.6.7"
+  }
+}

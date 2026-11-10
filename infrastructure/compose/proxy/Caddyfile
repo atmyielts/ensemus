@@ -1,0 +1,46 @@
+{
+	# No outbound calls: no ACME, no update checks, no admin API.
+	admin off
+	skip_install_trust
+
+	# Who may state a client's address. The list is empty unless the operator sets one, so nobody may,
+	# and whatever a client claims in X-Forwarded-For is discarded. Read from the right, because a proxy
+	# adds to the right and everything further left came from the client.
+	servers {
+		trusted_proxies static {$ENSEMUS_TRUSTED_PROXIES}
+		trusted_proxies_strict
+	}
+}
+
+{$ENSEMUS_HOSTNAME:localhost} {
+	tls internal
+
+	# Anyone can post here with no session. The route counts bytes too, and this stops them sooner.
+	@webhooks path /api/webhooks/*
+	request_body @webhooks {
+		max_size 1MB
+	}
+
+	# Exactly one address. By default a trusted chain would be passed on whole, and the app reads a chain
+	# as no address at all, which puts everyone into one sign-in allowance.
+	reverse_proxy web:3000 {
+		header_up X-Forwarded-For {client_ip}
+
+		# Next.js drops Content-Length from every route's response and sends it chunked, so a download
+		# whose exact length the app knows states it in X-Ensemus-Body-Length (apps/web/src/lib/
+		# declared-length.ts). That header is read from the app's response only, which no client writes,
+		# and is never passed on. Its value goes out as Content-Length, and only for an unencoded 200 that
+		# has no length of its own. A body of any other length then breaks the download.
+		header_down -X-Ensemus-Body-Length
+		@declared_length {
+			status 200
+			header X-Ensemus-Body-Length *
+			header !Content-Length
+			header !Content-Encoding
+		}
+		handle_response @declared_length {
+			header Content-Length {rp.header.X-Ensemus-Body-Length}
+			copy_response
+		}
+	}
+}

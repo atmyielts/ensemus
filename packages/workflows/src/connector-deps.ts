@@ -1,0 +1,24 @@
+// What the connector worker hands its Activities. Nothing here reaches the web tier (lint).
+import type { SecretLease } from '@ensemus/application';
+import type { ConnectorNetwork, ConnectorRegistry } from '@ensemus/connectors';
+import type { AppDatabase } from '@ensemus/database';
+import type { VerifiedPaymentWebhook } from './webhook-activities';
+
+export type ConnectorActivityDeps = {
+  database: AppDatabase;
+  registry: ConnectorRegistry;
+  /** SecretBroker. The only way to a credential or a signing secret. */
+  secrets: SecretLease;
+  /** The egress gateway. The only way out. */
+  network: ConnectorNetwork;
+  /** Server-owned deployment configuration; absent/partial means payment webhooks refuse. */
+  paymentWebhook?: {
+    billingOrganizationId: string | null;
+    billingConnectionId: string | null;
+    processor: string | null;
+  };
+  /** Native secrets-role adapter only. The proof can be made only after actual signature/body parsing. */
+  attestPaymentWebhook?: (
+    proof: VerifiedPaymentWebhook,
+  ) => Promise<{ token: string; expiresAt: Date }>;
+};

@@ -1,0 +1,1675 @@
+// 0208: actual app/service roles, real SQL RLS/triggers. Synthetic inventory/lifecycle adapters model
+// explicit boundaries; no model quality, provider fence or production legal-hold claim is made here.
+import { randomUUID } from 'node:crypto';
+import pg from 'pg';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { eq, sql } from 'drizzle-orm';
+import {
+  addArtifact,
+  createWorkUnit,
+  readArtifact,
+  purgeDueBlobs,
+  assignContributor,
+  requestExecution,
+  transitionWorkUnit,
+  unassign,
+  type ObjectStore,
+} from '@ensemus/application';
+import { createRunTranscriptPurge, workInputHash } from '@ensemus/application/ai-input-ledger';
+import { createContextSource } from '@ensemus/application/ai-context-source';
+import { createKnowledgeCallStore } from '@ensemus/application/ai-knowledge-call-store';
+import { createHaltCheck } from '@ensemus/application/ai-halt';
+import { createDelegatedWorkPurge } from '@ensemus/application/knowledge/delegated-work-purge';
+import { createDelegatedRecordPurge } from '@ensemus/application/knowledge/delegated-record-purge';
+import { createKnowledgeTranscriptActivities } from '@ensemus/workflows/knowledge-purge-activities';
+import type { Classification } from '@ensemus/domain/policy';
+import {
+  CHECKLIST_TEMPLATE,
+  completionChecklist,
+  createChecklistInputInventory,
+} from '@ensemus/application/knowledge/checklist-template';
+import { createActivities } from '@ensemus/workflows/activities';
+import type { CompletionCriterion } from '@ensemus/domain/work-unit';
+import {
+  artifactAclCatalog,
+  artifactLineage,
+  artifactLineageInputs,
+  artifactLineageRecords,
+  artifactLineageSources,
+  agentRuns,
+  clientReaders,
+  clients,
+  projects,
+  structuredRecordCatalog,
+  structuredWorkAssignments,
+  artifacts,
+  blobLifecycle,
+  knowledgeEvidenceItems,
+  knowledgeEvidencePackages,
+  knowledgeSourceGrants,
+  openAppDatabase,
+  resolveTenantContext,
+  withTenantTx,
+  workArtifacts,
+  workUnits,
+  tombstones,
+  type TenantContext,
+} from '@ensemus/database';
+import { createServiceContext } from '@ensemus/database/service';
+import { withRunLookupTx } from '@ensemus/database/agent';
+import {
+  openAgentTestDatabase,
+  prepareRunInputContext,
+  seedAgentVersion,
+  testAgentSpec,
+  withAdmittedRunTx,
+} from '../helpers/ai/fixtures';
+import { nativeMfaOwner } from '../helpers/knowledge-native';
+import {
+  recordArtifactCitations,
+  checkArtifactGrounding,
+  decideArtifact,
+  getArtifactVerification,
+} from '@ensemus/application/knowledge/verification';
+import { revokeSource } from '@ensemus/application/knowledge/purge';
+import {
+  addGeneratedArtifact,
+  createArtifactProvenance,
+  createDerivedArtifactPurge,
+  type ArtifactExecution,
+  type ArtifactInputInventory,
+  type DerivedArtifactLifecycle,
+  type StructuredArtifactInput,
+} from '../../packages/application/src/knowledge/artifact-provenance';
+import { pgCode } from '../../packages/application/src/errors';
+import { recordRunInputs } from '../../packages/application/src/ai/input-observations';
+import { lockReadAuthorityBeforeBody } from '../../packages/application/src/ai/read-authority';
+import { createObjectDeletionLifecycle } from '../../packages/application/src/saas/object-deletion';
+import { seedMember, seedSearchableSource, sha256 } from '../helpers/knowledge';
+import { urls } from '../helpers/stack';
+
+describe('generated artifact all-input privacy and erasure protocol (0208)', () => {
+  let database: ReturnType<typeof openAppDatabase>,
+    agent: ReturnType<typeof openAgentTestDatabase>,
+    auth: pg.Client;
+  beforeAll(async () => {
+    database = openAppDatabase(urls.app(), { max: 6 });
+    agent = openAgentTestDatabase(6);
+    auth = new pg.Client({ connectionString: urls.auth() });
+    await auth.connect();
+  });
+  afterAll(async () => {
+    await Promise.all([auth?.end(), database?.close(), agent?.close()]);
+  });
+  const refuseObjectIo = async (): Promise<never> => {
+    throw new Error('TEST_UNEXPECTED_OBJECT_IO');
+  };
+  /** The real M2 checklist plan up to its claimed run: ready, requested, then prepareWork. */
+  async function startChecklistRun(
+    owner: TenantContext,
+    work: Awaited<ReturnType<typeof createWorkUnit>>,
+    runId: string,
+  ) {
+    await transitionWorkUnit(database.db, owner, {
+      id: work.id,
+      expectedVersion: work.version,
+      to: 'ready',
+    });
+    await requestExecution(database.db, owner, work.id);
+    const activities = createActivities({
+      database: database.db,
+      store: {
+        put: refuseObjectIo,
+        get: refuseObjectIo,
+        delete: refuseObjectIo,
+        exists: refuseObjectIo,
+      },
+    });
+    expect(
+      await activities.prepareWork({
+        organizationId: owner.organizationId,
+        workUnitId: work.id,
+        runId,
+      }),
+    ).toMatchObject({ status: 'running' });
+    const [current] = await withTenantTx(database.db, owner, (tx) =>
+      tx.select().from(workUnits).where(eq(workUnits.id, work.id)),
+    );
+    if (!current) throw new Error('TEST_CHECKLIST_WORK_MISSING');
+    return current;
+  }
+  async function fixture(
+    options: {
+      noPackages?: boolean;
+      system?: boolean;
+      classification?: 'internal' | 'confidential' | 'restricted';
+      /** The published manifest also grants `data.restricted.read` (see the version below). */
+      readsRestricted?: boolean;
+    } = {},
+  ) {
+    // seedAgentVersion publishes as this owner, and 0404 requires a fresh native second factor for
+    // agent.publish of every real person; a bare resolved context is refused with MFA_REQUIRED.
+    const owner = await nativeMfaOwner(database.db, 'generated-privacy-reviewer', 'sovereign');
+    const seeded = await seedMember(database.db, owner, auth);
+    const member = await resolveTenantContext(database.db, seeded.userId, owner.organizationId);
+    const service = createServiceContext(owner.organizationId);
+    const sourceText = 'Synthetic private input and a generated output.';
+    const execution: ArtifactExecution = options.system
+      ? { kind: 'system', id: randomUUID(), template: CHECKLIST_TEMPLATE }
+      : { kind: 'agent_run', id: randomUUID() };
+    const created = await createWorkUnit(database.db, owner, {
+      title: 'Generated privacy work',
+      objective: 'Check this exact synthetic output.',
+      classification: options.classification ?? 'internal',
+      ...(options.system ? { executionPlan: 'checklist' as const } : {}),
+    });
+    // 0419: the only explicit no-knowledge system output is the exact M2 completion checklist of a
+    // Work its run holds (knowledge.known_checklist_authority). A claimed template label or body is
+    // refused at lineage birth, so the system case runs the real plan: ready, requested, claimed.
+    const work = options.system ? await startChecklistRun(owner, created, execution.id) : created;
+    const text = options.system
+      ? completionChecklist({
+          id: work.id,
+          completionCriteria: work.completionCriteria as CompletionCriterion[],
+        })
+      : sourceText;
+    const source = await seedSearchableSource(database.db, owner, {
+      passages: [sourceText],
+      grants: [{ kind: 'membership', membershipId: owner.membershipId }],
+    });
+    // The run's evidence package below names this source, so its manifest declares it, as a real
+    // agent reading that source must: read admission refuses a run whose actual package names an
+    // undeclared source (loadAgentReadScopeInTx, POLICY_DENIED).
+    // Naming a Knowledge source makes the run's read scope required (0414 ai.run_scope_required).
+    // With no data scope, 0414's agent_scope_protocol_read then caps the run's Work reads at
+    // confidential (coalesce(ai.run_company_ceiling(...),3) on 0201's 1-based class_rank), so a run
+    // that is to read another restricted Work needs its owner to grant data.restricted.read, as a real
+    // agent reading restricted material does (ai-input-protocol's restricted-fact case does the same).
+    const version = options.system
+      ? null
+      : await seedAgentVersion(
+          database.db,
+          owner,
+          testAgentSpec({
+            context: {
+              allowed_scopes: [
+                'work.read',
+                `knowledge.${source.sourceId}.read`,
+                ...(options.readsRestricted ? ['data.restricted.read'] : []),
+              ],
+              memory_write_policy: 'none',
+            },
+          }),
+        );
+    const ensureRun = async (execution: ArtifactExecution) => {
+      if (execution.kind !== 'agent_run' || !version) return null;
+      const found = await withTenantTx(database.db, owner, (tx) =>
+        tx.select({ id: agentRuns.id }).from(agentRuns).where(eq(agentRuns.id, execution.id)),
+      );
+      if (!found.length) {
+        await withRunLookupTx(agent.db, owner.organizationId, (tx) =>
+          tx
+            .update(agentRuns)
+            .set({ status: 'failed', stopCode: 'TEST_REPLACED' })
+            .where(eq(agentRuns.workUnitId, work.id)),
+        );
+        await withTenantTx(database.db, owner, (tx) =>
+          tx.insert(agentRuns).values({
+            organizationId: owner.organizationId,
+            id: execution.id,
+            workUnitId: work.id,
+            agentVersionId: version.versionId,
+            serviceIdentityId: version.serviceIdentityId,
+            initiatorMembershipId: owner.membershipId,
+            effectiveClassification: options.classification ?? 'internal',
+            maxModelTurns: 5,
+            maxToolCalls: 5,
+            maxTotalTokens: 10000,
+            maxCostMicros: 1000000,
+            timeoutSeconds: 60,
+            maxDelegationDepth: 0,
+            delegatedScopes: { tools: [] },
+          }),
+        );
+      }
+      // 0417: a run born under authority-v1 records its Work input only through the runtime's own
+      // read admission (protocol binding, authority lock, then the observation), which is what the
+      // context source does. A bare recordRunInputs is refused RUN_AUTHORITY_PROTOCOL_REQUIRED.
+      const context = await prepareRunInputContext(agent.db, owner.organizationId, execution.id);
+      // 0525: an agent writes a file only while its run is running. The agent worker moves its own
+      // run through preparing to running under the run's agent context, as here.
+      if (!found.length)
+        await withTenantTx(agent.db, context, async (tx) => {
+          await tx
+            .update(agentRuns)
+            .set({ status: 'preparing' })
+            .where(eq(agentRuns.id, execution.id));
+          await tx
+            .update(agentRuns)
+            .set({ status: 'running' })
+            .where(eq(agentRuns.id, execution.id));
+        });
+      return context;
+    };
+    const agentWriter = await ensureRun(execution);
+    const writer = agentWriter ?? service;
+    /** The run's own evidence package naming the source, as its Knowledge retrieval records one. */
+    const addPackage = () =>
+      withTenantTx(database.db, service, async (tx) => {
+        const packageId = randomUUID();
+        await tx.insert(knowledgeEvidencePackages).values({
+          organizationId: owner.organizationId,
+          id: packageId,
+          purpose: 'agent_turn',
+          workUnitId: work.id,
+          runId: execution.id,
+          viewerMembershipId: owner.membershipId,
+          querySha256: sha256('test query'),
+          policyVersion: 'test/0208',
+          budgetTokens: 1000,
+          usedTokens: 12,
+          strongestClassification: 'internal',
+          packageSha256: sha256(packageId),
+        });
+        await tx.insert(knowledgeEvidenceItems).values({
+          organizationId: owner.organizationId,
+          packageId,
+          ordinal: 0,
+          chunkId: source.chunkIds[0]!,
+          documentId: source.documentId,
+          sourceId: source.sourceId,
+          contentSha256: sha256(sourceText),
+          classification: 'internal',
+          tokenEstimate: 12,
+        });
+      });
+    if (!options.noPackages && !options.system) await addPackage();
+    const bodies = new Map<string, Buffer>();
+    const control: {
+      puts: number;
+      gets: number;
+      beforePut: null | (() => Promise<void>);
+      beforeGet: null | (() => Promise<void>);
+      putFails: boolean;
+    } = { puts: 0, gets: 0, beforePut: null, beforeGet: null, putFails: false };
+    const store: ObjectStore = {
+      put: async (key, body) => {
+        control.puts++;
+        await control.beforePut?.();
+        if (control.putFails) throw new Error('SYNTHETIC_UNKNOWN_PUT');
+        bodies.set(key, Buffer.from(body));
+      },
+      get: async (key) => {
+        control.gets++;
+        await control.beforeGet?.();
+        const value = bodies.get(key);
+        if (!value) throw new Error('SYNTHETIC_MISSING');
+        return Buffer.from(value);
+      },
+      exists: async (key) => bodies.has(key),
+      delete: async (key) => {
+        bodies.delete(key);
+      },
+      // Explicit unversioned test map model of the capabilities the production S3 adapter exposes
+      // to purges; without them nothing could certify that the bytes are gone.
+      deleteForPurge: async (key) => {
+        bodies.delete(key);
+        return { transport: 'deleted', capabilityVerified: true };
+      },
+      isPhysicallyAbsent: async (key) => !bodies.has(key),
+    };
+    const inputs: { artifactId: string; sha256: string }[] = [];
+    // Each structured read carries its actual captured read-time class, as the runtime inventory
+    // supplies it; a classless record is refused INVALID_STATE before any object I/O. The target
+    // Work's hash is the one its run actually read (the context source's workInputHash): 0419's
+    // artifact_authority_bindings_complete binds every retained record to the run's frozen read.
+    const records: StructuredArtifactInput[] = [
+      {
+        kind: 'work_unit',
+        id: work.id,
+        sha256: workInputHash(work),
+        classification: options.classification ?? 'internal',
+      },
+    ];
+    const inventory: ArtifactInputInventory = options.system
+      ? createChecklistInputInventory()
+      : {
+          inspectInTx: async (_tx, _context, input) => ({
+            known: true,
+            execution: input.execution,
+            workUnitId: work.id,
+            viewerMembershipId: owner.membershipId,
+            classification: 'internal',
+            noKnowledge: false,
+            artifactInputs: inputs,
+            recordInputs: records,
+          }),
+        };
+    const input = {
+      workUnitId: work.id,
+      name: 'generated.txt',
+      mimeType: 'text/plain',
+      body: Buffer.from(text),
+      execution,
+      requestKey: randomUUID(),
+    };
+    const create = async (
+      changes: Partial<typeof input> = {},
+      port: ArtifactInputInventory = inventory,
+    ) => {
+      const actual = { ...input, ...changes };
+      const agentContext = await ensureRun(actual.execution);
+      return addGeneratedArtifact(
+        agentContext ? agent.db : database.db,
+        store,
+        agentContext ?? service,
+        actual,
+        { inventory: port },
+      );
+    };
+    const close = () =>
+      revokeSource(database.db, owner, {
+        sourceId: source.sourceId,
+        expectedVersion: 1,
+        reason: 'Synthetic revoke',
+      });
+    const raw = async (context: TenantContext) =>
+      withTenantTx(database.db, context, async (tx) => ({
+        files: await tx.select().from(artifacts),
+        links: await tx.select().from(workArtifacts),
+      }));
+    const read = (artifactId: string, context = owner) =>
+      readArtifact(database.db, store, context, { artifactId, workUnitId: work.id });
+    // The production generated-file lifecycle (0508): its exact settled writer, hold check and claim,
+    // one DELETE and an independent absence check. Since 0508 a physical purge receipt on the lineage
+    // (lineage_0508_physical_receipt) exists only through that claim, so a double that erased metadata
+    // and marked the blob purged by hand can no longer certify removal. The map store is unversioned.
+    const lifecycle: DerivedArtifactLifecycle = createObjectDeletionLifecycle({
+      database: database.db,
+      store,
+    }).derived;
+    return {
+      owner,
+      member,
+      service,
+      work,
+      source,
+      text,
+      execution,
+      inventory,
+      input,
+      inputs,
+      records,
+      create,
+      close,
+      read,
+      raw,
+      store,
+      bodies,
+      control,
+      lifecycle,
+      writer,
+      agentWriter,
+      addPackage,
+    };
+  }
+  type Fixture = Awaited<ReturnType<typeof fixture>>;
+  const purge = (value: Fixture, lifecycle: DerivedArtifactLifecycle | null = value.lifecycle) =>
+    createDerivedArtifactPurge({
+      database: database.db,
+      store: value.store,
+      ...(lifecycle ? { lifecycle } : {}),
+    });
+  async function deniedSql(operation: Promise<unknown>, code: string) {
+    let failure: unknown;
+    try {
+      await operation;
+    } catch (error) {
+      failure = error;
+    }
+    expect(pgCode(failure)).toBe(code);
+  }
+  /** The database's refusal code and message, whether a query or the COMMIT raised it. */
+  async function refusalOf(operation: Promise<unknown>) {
+    try {
+      await operation;
+    } catch (error) {
+      const cause = (error as { cause?: unknown }).cause ?? error;
+      return { code: pgCode(error), message: (cause as { message?: string }).message };
+    }
+    return null;
+  }
+  const contextSource = () =>
+    createContextSource({
+      database: agent.db,
+      readObject: async () => {
+        throw new Error('TEST_UNEXPECTED_OBJECT_READ');
+      },
+    });
+  const agentWriterOf = (value: Fixture) => {
+    if (!value.agentWriter) throw new Error('TEST_AGENT_WRITER_MISSING');
+    return value.agentWriter;
+  };
+  /**
+   * addGeneratedArtifact under the run's existing agent context. `value.create` first re-admits the run
+   * through the context source (prepareRunInputContext), whose own admission would answer before
+   * addGeneratedArtifact; this asserts what addGeneratedArtifact itself answers.
+   */
+  const publishAsRun = (value: Fixture, changes: Partial<Fixture['input']> = {}) =>
+    addGeneratedArtifact(
+      agent.db,
+      value.store,
+      agentWriterOf(value),
+      { ...value.input, ...changes },
+      { inventory: value.inventory },
+    );
+  /**
+   * The run actually reads another Work through the runtime's context source (lockReadAuthorityBefore
+   * Body, then the body, then recordRunInputs), as in production. 0419's artifact authority binds a
+   * generated file's structured records only to reads the run actually made: a record the run never
+   * read has no actual-content ref, and ai.guard_output_authority_proof refuses the put claim.
+   */
+  async function runReadsWork(
+    value: Fixture,
+    workUnitId: string,
+  ): Promise<StructuredArtifactInput> {
+    const loaded = await contextSource().loadWork(agentWriterOf(value), workUnitId);
+    return {
+      kind: 'work_unit',
+      id: loaded.id,
+      sha256: workInputHash(loaded),
+      classification: loaded.classification as Classification,
+    };
+  }
+  /**
+   * The run actually reads a project and its client the way the Knowledge fact path does
+   * (knowledge/facts.ts subjectRecord): authority pinned before each body, then recordRunInputs.
+   */
+  async function runReadsProject(
+    value: Fixture,
+    projectId: string,
+  ): Promise<StructuredArtifactInput[]> {
+    const writer = agentWriterOf(value);
+    return withAdmittedRunTx(agent.db, writer, async (tx) => {
+      await lockReadAuthorityBeforeBody(tx, writer, { kind: 'project', id: projectId });
+      const [project] = await tx.select().from(projects).where(eq(projects.id, projectId));
+      if (!project?.clientId) throw new Error('TEST_PROJECT_MISSING');
+      await lockReadAuthorityBeforeBody(tx, writer, { kind: 'client', id: project.clientId });
+      const [client] = await tx.select().from(clients).where(eq(clients.id, project.clientId));
+      if (!client) throw new Error('TEST_CLIENT_MISSING');
+      const protection = client.classification as Classification;
+      const reads = [
+        {
+          kind: 'client' as const,
+          id: client.id,
+          sha256: sha256(JSON.stringify(client)),
+          classification: protection,
+        },
+        {
+          kind: 'project' as const,
+          id: project.id,
+          sha256: sha256(JSON.stringify(project)),
+          classification: protection,
+        },
+      ];
+      await recordRunInputs(tx, writer, reads);
+      return reads;
+    });
+  }
+
+  it('keeps all registered pending output hidden before object put and publishes only after binding', async () => {
+    const value = await fixture();
+    value.control.beforePut = async () => {
+      for (const viewer of [value.owner, value.member, value.service])
+        expect(await value.raw(viewer)).toEqual({ files: [], links: [] });
+    };
+    const output = await value.create();
+    expect((await value.read(output.id)).body.toString()).toBe(value.text);
+    expect((await value.raw(value.owner)).files).toHaveLength(1);
+    expect((await value.raw(value.member)).files).toHaveLength(0);
+  });
+  it('captures an uncited private source from the actual run package and refuses the broader work reader before object get', async () => {
+    const value = await fixture();
+    const output = await value.create();
+    expect(
+      await withTenantTx(database.db, value.service, (tx) =>
+        tx.select().from(artifactLineageSources),
+      ),
+    ).toMatchObject([{ artifactId: output.id, sourceId: value.source.sourceId }]);
+    await expect(value.read(output.id, value.member)).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    expect(value.control.gets).toBe(0);
+    expect((await value.raw(value.member)).links).toHaveLength(0);
+  });
+  it('does not give a service raw serving access to source-bearing generated output', async () => {
+    const value = await fixture();
+    const output = await value.create();
+    expect(await value.raw(value.service)).toEqual({ files: [], links: [] });
+    await expect(value.read(output.id, value.service)).rejects.toMatchObject({ code: 'NOT_FOUND' });
+  });
+  it('allows a bound explicit no-knowledge system inventory, while ordinary human uploads remain ordinary', async () => {
+    const value = await fixture({ system: true });
+    const output = await value.create();
+    expect((await value.read(output.id, value.member)).body.toString()).toBe(value.text);
+    const ordinary = await addArtifact(database.db, value.store, value.owner, {
+      workUnitId: value.work.id,
+      name: 'human.txt',
+      mimeType: 'text/plain',
+      body: Buffer.from('Human upload'),
+    });
+    expect((await value.read(ordinary.id, value.member)).body.toString()).toBe('Human upload');
+  });
+  it('refuses the old non-user upload path before object I/O', async () => {
+    const value = await fixture();
+    await expect(
+      addArtifact(database.db, value.store, value.service, value.input),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    expect(value.control.puts).toBe(0);
+  });
+  it('retains restricted artifact access after Work is lowered and follows fresh assignment revocation', async () => {
+    const value = await fixture({ system: true, classification: 'restricted' });
+    const output = await value.create();
+    const adminSeed = await seedMember(database.db, value.owner, auth, 'admin');
+    const admin = await resolveTenantContext(
+      database.db,
+      adminSeed.userId,
+      value.owner.organizationId,
+    );
+    await withTenantTx(database.db, value.owner, (tx) =>
+      tx
+        .update(workUnits)
+        .set({ classification: 'internal', version: value.work.version + 1 })
+        .where(eq(workUnits.id, value.work.id)),
+    );
+    for (const viewer of [value.member, admin, value.service]) {
+      expect((await value.raw(viewer)).files).toHaveLength(0);
+      await expect(value.read(output.id, viewer)).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    }
+    expect(value.control.gets).toBe(0);
+    await assignContributor(database.db, value.owner, {
+      id: value.work.id,
+      membershipId: value.member.membershipId,
+    });
+    expect((await value.read(output.id, value.member)).body.toString()).toBe(value.text);
+    await unassign(database.db, value.owner, {
+      id: value.work.id,
+      membershipId: value.member.membershipId,
+    });
+    await expect(value.read(output.id, value.member)).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    expect((await value.read(output.id)).body.toString()).toBe(value.text);
+  });
+  it('refuses an unavailable exhaustive inventory before object I/O', async () => {
+    const value = await fixture();
+    await expect(
+      value.create({}, { inspectInTx: async () => ({ known: false }) }),
+    ).rejects.toMatchObject({ code: 'INVALID_STATE' });
+    expect(value.control.puts).toBe(0);
+  });
+  it('refuses a mismatched execution or viewer inventory before object I/O', async () => {
+    const value = await fixture();
+    const original = value.inventory.inspectInTx;
+    await expect(
+      value.create(
+        {},
+        {
+          inspectInTx: async (...args) => {
+            const found = await original(...args);
+            return found.known
+              ? { ...found, execution: { kind: 'agent_run', id: randomUUID() } }
+              : found;
+          },
+        },
+      ),
+    ).rejects.toMatchObject({ code: 'INVALID_STATE' });
+    await expect(
+      value.create(
+        {},
+        {
+          inspectInTx: async (...args) => {
+            const found = await original(...args);
+            return found.known
+              ? { ...found, viewerMembershipId: value.member.membershipId }
+              : found;
+          },
+        },
+      ),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    expect(value.control.puts).toBe(0);
+  });
+  it('makes a published identical retry skip put and retain the original ID', async () => {
+    const value = await fixture();
+    const output = await value.create();
+    expect(await value.create()).toEqual(output);
+    expect(value.control.puts).toBe(1);
+  });
+  it('leaves a failed/unknown put active and refuses a blind retry even when HEAD is absent', async () => {
+    const value = await fixture();
+    value.control.putFails = true;
+    await expect(value.create()).rejects.toThrow('SYNTHETIC_UNKNOWN_PUT');
+    value.control.putFails = false;
+    await expect(value.create()).rejects.toMatchObject({ code: 'INVALID_STATE' });
+    expect(value.control.puts).toBe(1);
+    const [header] = await withTenantTx(database.db, value.service, (tx) =>
+      tx.select().from(artifactLineage),
+    );
+    expect(header).toMatchObject({
+      state: 'pending',
+      writeState: 'active',
+      physicalPurgedAt: null,
+    });
+    await value.close();
+    const unconfirmed = await purge(value, null).purgeSource(value.service, {
+      sourceId: value.source.sourceId,
+      limit: 25,
+    });
+    expect(unconfirmed).toMatchObject({ confirmed: false, remaining: 1, removed: 0 });
+  });
+  it('refuses a direct non-user artifact insert and a non-user uploading row without registration', async () => {
+    const value = await fixture(),
+      artifactId = randomUUID(),
+      key = `${value.owner.organizationId}/artifacts/${artifactId}`;
+    await deniedSql(
+      withTenantTx(database.db, value.service, (tx) =>
+        tx.insert(artifacts).values({
+          organizationId: value.owner.organizationId,
+          id: artifactId,
+          name: 'forged.txt',
+          objectKey: key,
+          sha256: sha256(value.text),
+          mimeType: 'text/plain',
+          sizeBytes: value.text.length,
+          classification: 'internal',
+        }),
+      ),
+      'EN118',
+    );
+    await deniedSql(
+      withTenantTx(database.db, value.service, (tx) =>
+        tx.insert(blobLifecycle).values({
+          organizationId: value.owner.organizationId,
+          artifactId,
+          objectKey: key,
+          state: 'uploading',
+          purgeAfter: new Date(),
+        }),
+      ),
+      'EN118',
+    );
+  });
+  it('requires a pending header to register its upload in the same transaction', async () => {
+    const value = await fixture(),
+      writer = value.agentWriter;
+    if (!writer) throw new Error('TEST_AGENT_WRITER_MISSING');
+    // The tool gate admits the run's read scope and authority-v1 binding in the transaction before
+    // noteDraftUpload calls beginInTx (0414, 0417); only the missing upload row differs here.
+    await deniedSql(
+      withAdmittedRunTx(agent.db, writer, (tx) =>
+        createArtifactProvenance({ inventory: value.inventory }).beginInTx(tx, writer, {
+          execution: value.execution,
+          artifactId: randomUUID(),
+          workUnitId: value.work.id,
+          artifactSha256: sha256(value.text),
+          sizeBytes: value.text.length,
+        }),
+      ),
+      'EN118',
+    );
+  });
+  it('refuses source closure during put, retains blocked lineage, and never publishes the bytes', async () => {
+    const value = await fixture();
+    value.control.beforePut = async () => {
+      await value.close();
+    };
+    // The publishing transaction first holds the run's own read-scope and authority-v1 admission, as
+    // the tool gate does (0414, 0417; addGeneratedArtifact admits the writer since r3). Closing a
+    // source the run read fences the run's inputs, so that admission refuses the publication with the
+    // run fence (POLICY_DENIED) before the inventory's own source check could answer.
+    await expect(value.create()).rejects.toMatchObject({ code: 'POLICY_DENIED' });
+    expect(value.control.puts).toBe(1);
+    expect(await value.raw(value.owner)).toEqual({ files: [], links: [] });
+    expect(
+      await withTenantTx(database.db, value.service, (tx) => tx.select().from(artifactLineage)),
+    ).toMatchObject([{ state: 'blocked', writeState: 'settled', physicalPurgedAt: null }]);
+  });
+  it.each(['revoked', 'ungranted'] as const)(
+    "refuses a source %s after the run's admission at the inventory's own source check",
+    async (closure) => {
+      // The run has no package yet when its publishing transaction is admitted, so the admission
+      // (0414/0417) has no source to lock or fence. Its package naming the source then commits, and
+      // the source closes, before the publishing inventory reads the run's packages: only the
+      // inventory's own source lock and check can refuse it with KNOWLEDGE_SOURCE_CLOSED. A revoked
+      // source fails its state check; a source whose grant to the named viewer was removed stays
+      // active and fails the viewer's readable-source check.
+      const value = await fixture({ noPackages: true });
+      let inspections = 0;
+      const port: ArtifactInputInventory = {
+        inspectInTx: async (...args) => {
+          // The first inspection is beginInTx's; the second is publishInTx's, after the admission.
+          if (++inspections === 2) {
+            await value.addPackage();
+            if (closure === 'revoked') await value.close();
+            else
+              await withTenantTx(database.db, value.owner, (tx) =>
+                tx
+                  .delete(knowledgeSourceGrants)
+                  .where(eq(knowledgeSourceGrants.sourceId, value.source.sourceId)),
+              );
+          }
+          return value.inventory.inspectInTx(...args);
+        },
+      };
+      await expect(value.create({}, port)).rejects.toMatchObject({
+        code: 'KNOWLEDGE_SOURCE_CLOSED',
+      });
+      expect(inspections).toBe(2);
+      expect(value.control.puts).toBe(1);
+      expect(await value.raw(value.owner)).toEqual({ files: [], links: [] });
+      expect(
+        await withTenantTx(database.db, value.service, (tx) => tx.select().from(artifactLineage)),
+      ).toMatchObject([{ state: 'blocked', writeState: 'settled', physicalPurgedAt: null }]);
+    },
+  );
+  it('rechecks source access after the out-of-transaction object read', async () => {
+    const value = await fixture();
+    const output = await value.create();
+    value.control.beforeGet = async () => {
+      await value.close();
+    };
+    await expect(value.read(output.id)).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    expect(value.control.gets).toBe(1);
+  });
+  it('revocation hides names, IDs, downloads and service rows immediately before physical cleanup', async () => {
+    const value = await fixture();
+    const output = await value.create();
+    await value.close();
+    for (const viewer of [value.owner, value.member, value.service]) {
+      expect(await value.raw(viewer)).toEqual({ files: [], links: [] });
+      await expect(value.read(output.id, viewer)).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    }
+    expect(value.bodies.size).toBe(1);
+    expect(value.control.gets).toBe(0);
+  });
+  it('grant removal narrows existing derived output and restoring an unrelated organization grant is not inferred', async () => {
+    const value = await fixture();
+    const output = await value.create();
+    await withTenantTx(database.db, value.owner, (tx) =>
+      tx
+        .delete(knowledgeSourceGrants)
+        .where(eq(knowledgeSourceGrants.sourceId, value.source.sourceId)),
+    );
+    await expect(value.read(output.id)).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    expect(value.control.gets).toBe(0);
+  });
+  it('flattens transitive artifact input lineage and checks every uncited ancestor source', async () => {
+    const value = await fixture();
+    const first = await value.create();
+    value.inputs.push({ artifactId: first.id, sha256: sha256(value.text) });
+    const second = await value.create({
+      execution: { kind: 'agent_run', id: randomUUID() },
+      requestKey: randomUUID(),
+      name: 'second.txt',
+    });
+    expect(
+      await withTenantTx(database.db, value.service, (tx) =>
+        tx
+          .select()
+          .from(artifactLineageInputs)
+          .where(eq(artifactLineageInputs.artifactId, second.id)),
+      ),
+    ).toMatchObject([{ inputArtifactId: first.id, inputSha256: sha256(value.text) }]);
+    await value.close();
+    await expect(value.read(second.id)).rejects.toMatchObject({ code: 'NOT_FOUND' });
+  });
+  it('rejects a changed ancestor hash and cross-tenant artifact inventory before object put', async () => {
+    const value = await fixture();
+    const first = await value.create();
+    value.inputs.push({ artifactId: first.id, sha256: '0'.repeat(64) });
+    await expect(value.create({ requestKey: randomUUID() })).rejects.toMatchObject({
+      code: 'NOT_FOUND',
+    });
+    expect(value.control.puts).toBe(1);
+    const foreign = await fixture();
+    const other = await foreign.create();
+    value.inputs.splice(0, 1, { artifactId: other.id, sha256: sha256(foreign.text) });
+    await expect(value.create({ requestKey: randomUUID() })).rejects.toMatchObject({
+      code: 'NOT_FOUND',
+    });
+    expect(value.control.puts).toBe(1);
+  });
+  it('retains source bindings for ordinary human files once citations are recorded', async () => {
+    const value = await fixture();
+    const output = await addArtifact(database.db, value.store, value.owner, {
+      ...value.input,
+      name: 'human.txt',
+    });
+    await recordArtifactCitations(database.db, value.owner, {
+      artifactId: output.id,
+      workUnitId: value.work.id,
+      citations: [
+        { chunkId: value.source.chunkIds[0]!, artifactStart: 0, artifactEnd: value.text.length },
+      ],
+    });
+    await expect(value.read(output.id, value.member)).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    await value.close();
+    await expect(value.read(output.id)).rejects.toMatchObject({ code: 'NOT_FOUND' });
+  });
+  it('does not let the generic grace-period sweep dispose an unfenced generated writer', async () => {
+    const value = await fixture();
+    value.control.putFails = true;
+    await expect(value.create()).rejects.toThrow();
+    const [header] = await withTenantTx(database.db, value.service, (tx) =>
+      tx.select().from(artifactLineage),
+    );
+    value.bodies.set(header!.objectKey, Buffer.from(value.text));
+    // Since 0508 the sweep no longer skips generated rows: it asks lifecycle.artifact_delete_target,
+    // which names no target for an untombstoned, unsettled generated writer (M8 join source: only
+    // settled exact writers admit cleanup). The row stays unconfirmed and is counted as a failed
+    // attempt, never as purged, and the bytes and the active writer token are kept.
+    expect(
+      await purgeDueBlobs(database.db, value.store, value.service, new Date(Date.now() + 7200000)),
+    ).toEqual({ purged: 0, failed: 1 });
+    expect(value.bodies.has(header!.objectKey)).toBe(true);
+    const [blob] = await withTenantTx(database.db, value.service, (tx) =>
+      tx.select().from(blobLifecycle).where(eq(blobLifecycle.artifactId, header!.artifactId)),
+    );
+    expect(blob).toMatchObject({ state: 'uploading', attempts: 1 });
+    const [kept] = await withTenantTx(database.db, value.service, (tx) =>
+      tx.select().from(artifactLineage).where(eq(artifactLineage.artifactId, header!.artifactId)),
+    );
+    expect(kept).toMatchObject({ state: 'pending', writeState: 'active', physicalPurgedAt: null });
+  });
+  it('keeps missing and held lifecycle adapters incomplete, then releases the hold only through a fresh adapter check', async () => {
+    const value = await fixture();
+    await value.create();
+    await value.close();
+    expect(
+      await purge(value, null).purgeSource(value.service, {
+        sourceId: value.source.sourceId,
+        limit: 25,
+      }),
+    ).toMatchObject({ remaining: 1, confirmed: false, removed: 0 });
+    const held: DerivedArtifactLifecycle = { erase: async () => ({ state: 'held' }) };
+    expect(
+      await purge(value, held).purgeSource(value.service, {
+        sourceId: value.source.sourceId,
+        limit: 25,
+      }),
+    ).toMatchObject({ remaining: 1, held: 1, confirmed: false, removed: 0 });
+    expect(
+      await purge(value).purgeSource(value.service, { sourceId: value.source.sourceId, limit: 25 }),
+    ).toEqual({ remaining: 0, held: 0, confirmed: true, removed: 1 });
+  });
+  it('retains immutable source/object lineage after file deletion and reports cumulative verified removals on retry', async () => {
+    const value = await fixture();
+    const output = await value.create();
+    await value.close();
+    const adapter = purge(value);
+    const proof = await adapter.purgeSource(value.service, {
+      sourceId: value.source.sourceId,
+      limit: 25,
+    });
+    expect(proof).toEqual({ removed: 1, remaining: 0, held: 0, confirmed: true });
+    expect(
+      await adapter.purgeSource(value.service, { sourceId: value.source.sourceId, limit: 25 }),
+    ).toEqual(proof);
+    const [header] = await withTenantTx(database.db, value.service, (tx) =>
+      tx.select().from(artifactLineage),
+    );
+    expect(header?.artifactId).toBe(output.id);
+    expect(header?.physicalPurgedAt).toBeInstanceOf(Date);
+    expect(
+      await withTenantTx(database.db, value.service, (tx) =>
+        tx.select().from(artifactLineageSources),
+      ),
+    ).toHaveLength(1);
+    expect(value.bodies.size).toBe(0);
+  });
+  it('does not trust an adapter claiming erasure while metadata or actual bytes remain', async () => {
+    const value = await fixture();
+    await value.create();
+    await value.close();
+    const lie: DerivedArtifactLifecycle = {
+      erase: async () => ({ state: 'purged', quiescent: true }),
+    };
+    expect(
+      await purge(value, lie).purgeSource(value.service, {
+        sourceId: value.source.sourceId,
+        limit: 25,
+      }),
+    ).toMatchObject({ removed: 0, remaining: 1, confirmed: false });
+  });
+  it('binds acceptance to current full-input source access, exact work/objective and latest human rejection', async () => {
+    const value = await fixture();
+    const output = await value.create();
+    const input = { artifactId: output.id, workUnitId: value.work.id };
+    await recordArtifactCitations(database.db, value.owner, {
+      ...input,
+      citations: [
+        { chunkId: value.source.chunkIds[0]!, artifactStart: 0, artifactEnd: value.text.length },
+      ],
+    });
+    expect(
+      await checkArtifactGrounding(database.db, value.store, value.service, input),
+    ).toMatchObject({ verdict: 'passed' });
+    const review = await getArtifactVerification(database.db, value.owner, input);
+    const accept = {
+      ...input,
+      artifactSha256: sha256(value.text),
+      objectiveSha256: sha256(value.work.objective ?? ''),
+      citationsSha256: review.citationsSha256,
+      verdict: 'accepted' as const,
+    };
+    const accepted = await decideArtifact(database.db, value.owner, accept, { store: value.store });
+    const current = () =>
+      withTenantTx(
+        database.db,
+        value.service,
+        async (tx) =>
+          (
+            await tx.execute<{ id: string | null }>(
+              sql`select knowledge.artifact_acceptance_id(${output.id}::uuid,${value.work.id}::uuid) as id`,
+            )
+          ).rows[0]?.id,
+      );
+    expect(await current()).toBe(accepted.verificationId);
+    await decideArtifact(database.db, value.owner, {
+      ...accept,
+      verdict: 'rejected',
+      reason: 'Synthetic reviewer rejection',
+    });
+    expect(await current()).toBeNull();
+    await decideArtifact(database.db, value.owner, accept, { store: value.store });
+    await value.close();
+    expect(await current()).toBeNull();
+  });
+  it('checks the final source-locked erasure proof from durable state, never an earlier response', async () => {
+    const value = await fixture();
+    await value.create();
+    await value.close();
+    const adapter = purge(value, null);
+    await adapter.purgeSource(value.service, { sourceId: value.source.sourceId, limit: 25 });
+    expect(
+      await withTenantTx(database.db, value.service, (tx) =>
+        adapter.confirmInTx(tx, value.service, { sourceId: value.source.sourceId }),
+      ),
+    ).toEqual({ remaining: 1 });
+  });
+  it('refuses cross-tenant catalog reads and application catalog writes', async () => {
+    const value = await fixture();
+    await value.create();
+    const foreign = await fixture();
+    expect(
+      await withTenantTx(database.db, foreign.service, (tx) =>
+        tx
+          .select()
+          .from(artifactAclCatalog)
+          .where(eq(artifactAclCatalog.organizationId, value.owner.organizationId)),
+      ),
+    ).toEqual([]);
+    await deniedSql(
+      withTenantTx(database.db, value.owner, (tx) =>
+        tx
+          .update(artifactAclCatalog)
+          .set({ alive: false })
+          .where(eq(artifactAclCatalog.organizationId, value.owner.organizationId)),
+      ),
+      '42501',
+    );
+  });
+
+  // 0211 structured observations are trusted executor input, never model citation arguments. A
+  // restricted other Work is read only by a run whose manifest grants data.restricted.read
+  // (fixture({ readsRestricted: true }); 0414 agent_scope_protocol_read, see the fixture).
+  async function otherWork(
+    value: Fixture,
+    classification: 'internal' | 'restricted' = 'restricted',
+  ) {
+    const work = await createWorkUnit(database.db, value.member, {
+      title: 'Other Work actually read',
+      objective: 'Synthetic retained structured material',
+      classification,
+    });
+    if (classification === 'restricted')
+      await assignContributor(database.db, value.member, {
+        id: work.id,
+        membershipId: value.owner.membershipId,
+      });
+    // The run actually read it (0419): the record carries the hash and class of that read.
+    value.records.push(await runReadsWork(value, work.id));
+    return work;
+  }
+  async function privateProject(value: Fixture) {
+    const clientId = randomUUID(),
+      projectId = randomUUID();
+    await withTenantTx(database.db, value.service, async (tx) => {
+      await tx.insert(clients).values({
+        organizationId: value.owner.organizationId,
+        id: clientId,
+        displayName: 'Synthetic restricted client',
+        classification: 'restricted',
+        ownerMembershipId: value.member.membershipId,
+      });
+      await tx.insert(clientReaders).values({
+        organizationId: value.owner.organizationId,
+        clientId,
+        membershipId: value.owner.membershipId,
+        grantedByMembershipId: value.member.membershipId,
+      });
+      await tx.insert(projects).values({
+        organizationId: value.owner.organizationId,
+        id: projectId,
+        clientId,
+        name: 'Synthetic retained project',
+      });
+    });
+    // A system template run reads no parent body, so only an agent run records these actual reads.
+    if (value.agentWriter) value.records.push(...(await runReadsProject(value, projectId)));
+    return { clientId, projectId };
+  }
+  const removeOtherAssignment = (value: Fixture, id: string) =>
+    unassign(database.db, value.member, { id, membershipId: value.owner.membershipId });
+  /**
+   * A restricted other Work the named viewer is assigned to, which this run never reads. Run admission
+   * (0414/0417, currentRunCompanyClassInTx) checks and locks only what the run actually read, so a
+   * record that reaches the generated-artifact inventory without being one of those is answered by the
+   * inventory's own structured check (structuredInventory: knowledge.lock_structured_record NOWAIT, then
+   * knowledge.structured_record_readable for the named viewer) and by nothing before it.
+   */
+  async function unreadWork(value: Fixture) {
+    const work = await createWorkUnit(database.db, value.member, {
+      title: 'Other Work this run never reads',
+      objective: 'Synthetic structured record listed by the inventory only',
+      classification: 'restricted',
+    });
+    await assignContributor(database.db, value.member, {
+      id: work.id,
+      membershipId: value.owner.membershipId,
+    });
+    const record: StructuredArtifactInput = {
+      kind: 'work_unit',
+      id: work.id,
+      sha256: workInputHash(work),
+      classification: 'restricted',
+    };
+    return { work, record };
+  }
+  /** The fixture's inventory, also listing `extra` on the inspections `when` selects. */
+  const listing = (
+    value: Fixture,
+    extra: StructuredArtifactInput,
+    when: (inspection: number) => boolean = () => true,
+  ) => {
+    let inspections = 0;
+    const port: ArtifactInputInventory = {
+      inspectInTx: async (...args) => {
+        const proof = await value.inventory.inspectInTx(...args);
+        return when(++inspections) && proof.known
+          ? { ...proof, recordInputs: [...proof.recordInputs, extra] }
+          : proof;
+      },
+    };
+    return { port, inspections: () => inspections };
+  };
+  const publishListing = (value: Fixture, port: ArtifactInputInventory) =>
+    addGeneratedArtifact(
+      agent.db,
+      value.store,
+      agentWriterOf(value),
+      { ...value.input, requestKey: randomUUID() },
+      { inventory: port },
+    );
+  /** The run's own read admission on its own, exactly as addGeneratedArtifact holds it first. */
+  const runAdmission = (value: Fixture) =>
+    withAdmittedRunTx(agent.db, agentWriterOf(value), async () => 'admitted' as const);
+  const viewerReads = async (value: Fixture, workUnitId: string) =>
+    (
+      await withTenantTx(database.db, value.service, (tx) =>
+        tx.execute<{ allowed: boolean }>(
+          sql`select knowledge.structured_record_readable('work_unit',${workUnitId}::uuid,${value.owner.membershipId}::uuid) as allowed`,
+        ),
+      )
+    ).rows[0]?.allowed;
+  const catalogAlive = async (value: Fixture, workUnitId: string) =>
+    (
+      await withTenantTx(database.db, value.service, (tx) =>
+        tx
+          .select({ alive: structuredRecordCatalog.alive })
+          .from(structuredRecordCatalog)
+          .where(eq(structuredRecordCatalog.recordId, workUnitId)),
+      )
+    ).map((row) => row.alive);
+  /**
+   * The agent worker's record-materials activity, with the agent role, composed exactly as
+   * workers/workflow/src/agent-composition.ts composes its transcript activities.
+   */
+  const purgeRecordMaterials = (
+    value: Fixture,
+    record: { kind: StructuredArtifactInput['kind']; id: string; limit: number },
+  ) => {
+    const accounting = createKnowledgeCallStore(agent.db, { halt: createHaltCheck() });
+    return createKnowledgeTranscriptActivities({
+      database: agent.db,
+      transcripts: createRunTranscriptPurge(),
+      delegatedWorks: createDelegatedWorkPurge({ database: agent.db, accounting }),
+      delegatedRecords: createDelegatedRecordPurge({
+        database: agent.db,
+        accounting,
+        transcripts: createRunTranscriptPurge(),
+      }),
+    }).purgeRecordMaterials({ organizationId: value.owner.organizationId, ...record });
+  };
+
+  it('requires an explicit structured list and target Work before starting any object put', async () => {
+    for (const records of [
+      undefined,
+      [],
+      [{ kind: 'client', id: randomUUID(), sha256: sha256('unrelated') }],
+    ]) {
+      const value = await fixture();
+      const port = {
+        inspectInTx: async (...args: Parameters<ArtifactInputInventory['inspectInTx']>) => {
+          const proof = await value.inventory.inspectInTx(...args);
+          return proof.known ? { ...proof, recordInputs: records } : proof;
+        },
+      } as unknown as ArtifactInputInventory;
+      await expect(value.create({}, port)).rejects.toMatchObject({ code: 'INVALID_STATE' });
+      expect(value.control.puts).toBe(0);
+    }
+  });
+  it('retains multiple actual historical hashes and ignores routine mutable Work changes while serving', async () => {
+    const value = await fixture(),
+      work = await otherWork(value, 'internal');
+    // A later actual read of the same Work after it changed: a second genuine historical hash.
+    await withTenantTx(database.db, value.member, (tx) =>
+      tx
+        .update(workUnits)
+        .set({ title: 'Read again', objective: 'Read again objective', version: work.version + 1 })
+        .where(eq(workUnits.id, work.id)),
+    );
+    value.records.push(await runReadsWork(value, work.id));
+    const output = await value.create();
+    await withTenantTx(database.db, value.member, (tx) =>
+      tx
+        .update(workUnits)
+        .set({ title: 'Changed title', objective: 'Changed objective', version: work.version + 2 })
+        .where(eq(workUnits.id, work.id)),
+    );
+    const records = await withTenantTx(database.db, value.service, (tx) =>
+      tx
+        .select()
+        .from(artifactLineageRecords)
+        .where(eq(artifactLineageRecords.artifactId, output.id)),
+    );
+    expect(records.filter((row) => row.recordId === work.id)).toHaveLength(2);
+    expect((await value.read(output.id)).body.toString()).toBe(value.text);
+  });
+  it('keeps a restricted other Work hidden from a Knowledge-scoped run without data.restricted.read', async () => {
+    // The gate the restricted cases below pass by their manifest grant: the initiator is assigned to
+    // the other Work, but 0414's agent_scope_protocol_read still hides it from this run's body read.
+    const value = await fixture();
+    const work = await createWorkUnit(database.db, value.member, {
+      title: 'Other restricted Work',
+      objective: 'Synthetic restricted material',
+      classification: 'restricted',
+    });
+    await assignContributor(database.db, value.member, {
+      id: work.id,
+      membershipId: value.owner.membershipId,
+    });
+    await expect(runReadsWork(value, work.id)).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    // The same run, admitted the same way, still reads an internal other Work.
+    await otherWork(value, 'internal');
+  });
+  it('checks actual OTHER Work assignments for the named viewer even when the writer is a service', async () => {
+    const value = await fixture({ readsRestricted: true }),
+      work = await otherWork(value);
+    const output = await value.create();
+    expect((await value.read(output.id)).body.toString()).toBe(value.text);
+    await removeOtherAssignment(value, work.id);
+    const gets = value.control.gets;
+    await expect(value.read(output.id)).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    expect(value.control.gets).toBe(gets);
+    // The run actually read the other Work (0419), so its own read admission, which
+    // addGeneratedArtifact holds before any inventory (0414/0417; currentRunCompanyClassInTx), now
+    // refuses the named viewer's lost assignment before the inventory's structured check could. The
+    // next case reaches that inventory check itself, with admission passing.
+    await expect(publishAsRun(value, { requestKey: randomUUID() })).rejects.toMatchObject({
+      code: 'POLICY_DENIED',
+    });
+    expect(value.control.puts).toBe(1);
+  });
+  it("refuses a named viewer's lost assignment at the inventory's own structured check once run admission passes", async () => {
+    const value = await fixture(),
+      { work, record } = await unreadWork(value);
+    expect(await viewerReads(value, work.id)).toBe(true);
+    await removeOtherAssignment(value, work.id);
+    expect(await viewerReads(value, work.id)).toBe(false);
+    // The run never read this Work, so its own admission still passes...
+    expect(await runAdmission(value)).toBe('admitted');
+    // ...and addGeneratedArtifact, which holds that admission first (POLICY_DENIED otherwise), reaches
+    // the inventory. The record's catalog row is alive and its NOWAIT lock is free, so what refuses is
+    // structured_record_readable for the named viewer, before any put claim or object I/O.
+    expect(await catalogAlive(value, work.id)).toEqual([true]);
+    const { port, inspections } = listing(value, record);
+    await expect(publishListing(value, port)).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    expect(inspections()).toBe(1);
+    expect(value.control.puts).toBe(0);
+    expect(await value.raw(value.owner)).toEqual({ files: [], links: [] });
+  });
+  it('rechecks retained structured authority after object get and refuses a revoked in-flight read', async () => {
+    const value = await fixture({ readsRestricted: true }),
+      work = await otherWork(value);
+    const output = await value.create();
+    value.control.beforeGet = () => removeOtherAssignment(value, work.id);
+    await expect(value.read(output.id)).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    expect(value.control.gets).toBe(1);
+  });
+  it('blocks publication after structured revocation during put and keeps durable blocked provenance', async () => {
+    const value = await fixture({ readsRestricted: true }),
+      work = await otherWork(value);
+    value.control.beforePut = () => removeOtherAssignment(value, work.id);
+    // As for source closure during put: the publishing transaction first holds the run's own read
+    // admission (0414/0417), and the run actually read the other Work (0419), so that admission
+    // refuses the named viewer's lost assignment (POLICY_DENIED) before the inventory's own check.
+    // The next case reaches the publishing inventory's own check, with admission passing.
+    await expect(value.create()).rejects.toMatchObject({ code: 'POLICY_DENIED' });
+    expect(value.control.puts).toBe(1);
+    expect(await value.raw(value.owner)).toEqual({ files: [], links: [] });
+    const [header] = await withTenantTx(database.db, value.service, (tx) =>
+      tx.select().from(artifactLineage),
+    );
+    expect(header).toMatchObject({
+      structuredInventoryComplete: true,
+      state: 'blocked',
+      writeState: 'settled',
+      physicalPurgedAt: null,
+    });
+    expect(value.bodies.size).toBe(1);
+  });
+  it("blocks publication at the publishing inventory's own structured check when the named viewer loses an assignment during put", async () => {
+    // Begin and the put claim see only the run's actual reads (0419 binds a claim to those, so a
+    // record listed there that the run never read would be refused at that claim instead). The
+    // publishing inventory, read after that transaction's run admission, also lists a record the run
+    // never read, so admission passes and only the inventory's own viewer check can refuse it.
+    const value = await fixture(),
+      { work, record } = await unreadWork(value);
+    expect(await viewerReads(value, work.id)).toBe(true);
+    const { port, inspections } = listing(value, record, (inspection) => inspection === 2);
+    value.control.beforePut = () => removeOtherAssignment(value, work.id);
+    await expect(publishListing(value, port)).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    expect(inspections()).toBe(2);
+    expect(value.control.puts).toBe(1);
+    expect(await viewerReads(value, work.id)).toBe(false);
+    // The publishing transaction held the run's admission before this inventory (POLICY_DENIED had it
+    // refused), and the record's catalog row is alive, so the refusal is the named viewer's check.
+    expect(await catalogAlive(value, work.id)).toEqual([true]);
+    expect(await value.raw(value.owner)).toEqual({ files: [], links: [] });
+    const [header] = await withTenantTx(database.db, value.service, (tx) =>
+      tx.select().from(artifactLineage),
+    );
+    expect(header).toMatchObject({
+      structuredInventoryComplete: true,
+      state: 'blocked',
+      writeState: 'settled',
+      physicalPurgedAt: null,
+    });
+  });
+  it('closes existing output when a structured source exceeds its pinned class', async () => {
+    const value = await fixture(),
+      work = await otherWork(value, 'internal');
+    const output = await value.create();
+    await withTenantTx(database.db, value.member, (tx) =>
+      tx
+        .update(workUnits)
+        .set({ classification: 'restricted', version: work.version + 1 })
+        .where(eq(workUnits.id, work.id)),
+    );
+    // The viewer remains assigned: the current class alone is now stronger than this internal file.
+    await assignContributor(database.db, value.member, {
+      id: work.id,
+      membershipId: value.owner.membershipId,
+    });
+    await expect(value.read(output.id)).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    expect(value.control.gets).toBe(0);
+  });
+  it('retains the actual private parent read after an authorized project reparent to public material', async () => {
+    const value = await fixture(),
+      records = await privateProject(value);
+    const output = await value.create();
+    await withTenantTx(database.db, value.service, (tx) =>
+      tx.update(projects).set({ clientId: null }).where(eq(projects.id, records.projectId)),
+    );
+    expect((await value.read(output.id)).body.toString()).toBe(value.text);
+    await withTenantTx(database.db, value.service, (tx) =>
+      tx.delete(clientReaders).where(eq(clientReaders.clientId, records.clientId)),
+    );
+    const gets = value.control.gets;
+    await expect(value.read(output.id)).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    expect(value.control.gets).toBe(gets);
+    const pinned = await withTenantTx(database.db, value.service, (tx) =>
+      tx
+        .select()
+        .from(artifactLineageRecords)
+        .where(eq(artifactLineageRecords.artifactId, output.id)),
+    );
+    expect(pinned.map((row) => row.recordId)).toEqual(
+      expect.arrayContaining([records.clientId, records.projectId]),
+    );
+  });
+  it('does not invent an unread parent body/hash when only a Work record was read', async () => {
+    const value = await fixture({ system: true }),
+      records = await privateProject(value);
+    value.records.splice(1);
+    await withTenantTx(database.db, value.owner, (tx) =>
+      tx
+        .update(workUnits)
+        .set({ projectId: records.projectId, version: value.work.version + 1 })
+        .where(eq(workUnits.id, value.work.id)),
+    );
+    const output = await value.create();
+    // Under the restricted client the Work's scope class is restricted (0407 work_scope_class), and so
+    // is this output; restricted material is served only to the Work's owner or an assignee (0519).
+    // The client's own owner is made an assignee, so serving depends only on what was actually read.
+    await assignContributor(database.db, value.owner, {
+      id: value.work.id,
+      membershipId: value.member.membershipId,
+    });
+    await withTenantTx(database.db, value.service, (tx) =>
+      tx.delete(clientReaders).where(eq(clientReaders.clientId, records.clientId)),
+    );
+    expect((await value.read(output.id, value.member)).body.toString()).toBe(value.text);
+    expect(
+      await withTenantTx(database.db, value.service, (tx) =>
+        tx
+          .select()
+          .from(artifactLineageRecords)
+          .where(eq(artifactLineageRecords.artifactId, output.id)),
+      ),
+    ).toMatchObject([{ recordKind: 'work_unit', recordId: value.work.id }]);
+  });
+  it('flattens retained structured ancestors independently of later direct read lists', async () => {
+    const value = await fixture({ readsRestricted: true }),
+      work = await otherWork(value);
+    const first = await value.create();
+    value.inputs.push({ artifactId: first.id, sha256: sha256(value.text) });
+    value.records.splice(1);
+    const second = await value.create({
+      requestKey: randomUUID(),
+      execution: { kind: 'agent_run', id: randomUUID() },
+    });
+    const rows = await withTenantTx(database.db, value.service, (tx) =>
+      tx
+        .select()
+        .from(artifactLineageRecords)
+        .where(eq(artifactLineageRecords.artifactId, second.id)),
+    );
+    expect(rows.some((row) => row.recordKind === 'work_unit' && row.recordId === work.id)).toBe(
+      true,
+    );
+    await removeOtherAssignment(value, work.id);
+    await expect(value.read(second.id)).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    expect(value.control.gets).toBe(0);
+  });
+  it('refuses cross-tenant structured records and malformed hashes before object I/O', async () => {
+    const value = await fixture(),
+      foreign = await fixture();
+    value.records.push({
+      kind: 'work_unit',
+      id: foreign.work.id,
+      sha256: sha256(JSON.stringify(foreign.work)),
+      classification: 'internal',
+    });
+    await expect(value.create()).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    value.records.splice(1, 1, { kind: 'work_unit', id: value.work.id, sha256: 'invalid' });
+    await expect(value.create()).rejects.toMatchObject({ code: 'INVALID_INPUT' });
+    expect(value.control.puts).toBe(0);
+    expect(
+      await withTenantTx(database.db, foreign.service, (tx) =>
+        tx
+          .select()
+          .from(structuredRecordCatalog)
+          .where(eq(structuredRecordCatalog.organizationId, value.owner.organizationId)),
+      ),
+    ).toEqual([]);
+  });
+  it('keeps a missing structured SQL binding incomplete at commit and forbids app catalog/mirror mutations', async () => {
+    const value = await fixture();
+    await value.create();
+    const [header] = await withTenantTx(database.db, value.service, (tx) =>
+      tx.select().from(artifactLineage),
+    );
+    if (!header) throw new Error('TEST_HEADER_MISSING');
+    const id = randomUUID(),
+      objectKey = `${value.owner.organizationId}/artifacts/${id}`,
+      writer = value.agentWriter;
+    if (!writer) throw new Error('TEST_AGENT_WRITER_MISSING');
+    // Under the run's own admission (0414, 0417), so the refusal is the missing structured binding.
+    // Two deferred commit checks refuse it: 0419's artifact_authority_complete_at_birth (every
+    // actual-content Work read needs its structured record binding) and 0211's structured_artifact_commit.
+    // Deferred triggers on one event fire in name order, so 0419's EN119 answers first at COMMIT.
+    const refused = await refusalOf(
+      withAdmittedRunTx(agent.db, writer, async (tx) => {
+        await tx.insert(artifactLineage).values({
+          ...header,
+          artifactId: id,
+          objectKey,
+          writeId: randomUUID(),
+          state: 'pending',
+          writeState: 'active',
+        });
+        await tx.insert(blobLifecycle).values({
+          organizationId: value.owner.organizationId,
+          artifactId: id,
+          objectKey,
+          state: 'uploading',
+          purgeAfter: new Date(),
+        });
+      }),
+    );
+    expect(refused).toEqual({ code: 'EN119', message: 'ARTIFACT_AUTHORITY_INCOMPLETE' });
+    expect(
+      await withTenantTx(database.db, value.service, (tx) =>
+        tx.select().from(artifactLineage).where(eq(artifactLineage.artifactId, id)),
+      ),
+    ).toEqual([]);
+    for (const operation of [
+      () =>
+        withTenantTx(database.db, value.service, (tx) =>
+          tx.update(structuredRecordCatalog).set({ alive: false }),
+        ),
+      () => withTenantTx(database.db, value.service, (tx) => tx.delete(structuredWorkAssignments)),
+      () => withTenantTx(database.db, value.service, (tx) => tx.delete(artifactLineageRecords)),
+    ])
+      await deniedSql(operation(), '42501');
+  });
+  it("rechecks a live header's structured inventory at commit (0211 structured_artifact_commit)", async () => {
+    // 0419's deferred birth check fires on INSERT only; 0211's structured_artifact_commit also
+    // re-validates every later write of a still-live (pending or bound) header at COMMIT. A system
+    // checklist header left pending by an unknown put keeps its write token active and its upload row.
+    const value = await fixture({ system: true });
+    value.control.putFails = true;
+    await expect(value.create()).rejects.toThrow('SYNTHETIC_UNKNOWN_PUT');
+    const [header] = await withTenantTx(database.db, value.service, (tx) =>
+      tx.select().from(artifactLineage),
+    );
+    if (!header) throw new Error('TEST_HEADER_MISSING');
+    expect(header).toMatchObject({
+      state: 'pending',
+      writeState: 'active',
+      classification: 'internal',
+    });
+    let statements = 0;
+    // The narrowest granted header write (0208: held), leaving every identity column unchanged.
+    const write = () =>
+      withTenantTx(database.db, value.service, async (tx) => {
+        await tx
+          .update(artifactLineage)
+          .set({ held: false })
+          .where(eq(artifactLineage.artifactId, header.artifactId));
+        statements++;
+      });
+    expect(await refusalOf(write())).toBeNull();
+    expect(statements).toBe(1);
+    // The target Work's own class rises above the header's pinned internal class. No lock is held
+    // across transactions, so the change commits; the pending header's inventory no longer holds.
+    await withTenantTx(database.db, value.owner, (tx) =>
+      tx
+        .update(workUnits)
+        .set({ classification: 'restricted', version: value.work.version + 1 })
+        .where(eq(workUnits.id, value.work.id)),
+    );
+    // Every BEFORE UPDATE guard admits the statement; only the deferred commit check refuses it.
+    expect(await refusalOf(write())).toEqual({
+      code: 'EN118',
+      message: 'STRUCTURED_INPUT_INVENTORY_REQUIRED',
+    });
+    expect(statements).toBe(2);
+    const [after] = await withTenantTx(database.db, value.service, (tx) =>
+      tx.select().from(artifactLineage).where(eq(artifactLineage.artifactId, header.artifactId)),
+    );
+    expect(after).toMatchObject({ state: 'pending', writeState: 'active', held: false });
+  });
+  it('serializes publication against an actual structured ACL/class writer without waiting or publishing stale material', async () => {
+    const value = await fixture({ readsRestricted: true }),
+      work = await otherWork(value);
+    let release!: () => void, locked!: () => void;
+    const releasePromise = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const lockedPromise = new Promise<void>((resolve) => {
+      locked = resolve;
+    });
+    const writer = withTenantTx(database.db, value.member, async (tx) => {
+      await tx
+        .update(workUnits)
+        .set({ classification: 'internal', version: work.version + 1 })
+        .where(eq(workUnits.id, work.id));
+      locked();
+      await releasePromise;
+    });
+    await lockedPromise;
+    try {
+      // The run actually read the other Work, so addGeneratedArtifact's own run admission meets the
+      // writer's catalog lock first (lock_structured_record NOWAIT, STRUCTURED_INPUT_BUSY 55P03) and
+      // answers the same retryable VERSION_CONFLICT as its inventory, without waiting. The next case
+      // meets the inventory's own lock, with admission passing.
+      await expect(publishAsRun(value)).rejects.toMatchObject({ code: 'VERSION_CONFLICT' });
+    } finally {
+      release();
+      await writer;
+    }
+    expect(value.control.puts).toBe(0);
+  });
+  it("answers a contended structured lock from the inventory's own NOWAIT lock once run admission passes", async () => {
+    const value = await fixture(),
+      { work, record } = await unreadWork(value);
+    let release!: () => void, locked!: () => void;
+    const releasePromise = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const lockedPromise = new Promise<void>((resolve) => {
+      locked = resolve;
+    });
+    // An actual ACL/class writer on a record the run never read holds its catalog row.
+    const writer = withTenantTx(database.db, value.member, async (tx) => {
+      await tx
+        .update(workUnits)
+        .set({ classification: 'internal', version: work.version + 1 })
+        .where(eq(workUnits.id, work.id));
+      locked();
+      await releasePromise;
+    });
+    await lockedPromise;
+    const { port, inspections } = listing(value, record);
+    try {
+      // Admission locks only what the run read, so it passes while the writer holds this record...
+      expect(await runAdmission(value)).toBe('admitted');
+      // ...and the inventory's knowledge.lock_structured_record (FOR SHARE NOWAIT) meets the writer,
+      // answering 55P03 as the retryable VERSION_CONFLICT without waiting.
+      await expect(publishListing(value, port)).rejects.toMatchObject({
+        code: 'VERSION_CONFLICT',
+      });
+      expect(inspections()).toBe(1);
+    } finally {
+      release();
+      await writer;
+    }
+    expect(value.control.puts).toBe(0);
+    expect(await value.raw(value.owner)).toEqual({ files: [], links: [] });
+  });
+  it('closes a deleted structured record, refuses revocation-only erasure, and requires positive byte/fence proof', async () => {
+    const value = await fixture(),
+      project = await privateProject(value);
+    const output = await value.create(),
+      adapter = purge(value, null);
+    const record = { kind: 'project' as const, id: project.projectId, limit: 25 };
+    await expect(adapter.purgeRecord(value.service, record)).rejects.toMatchObject({
+      code: 'INVALID_STATE',
+    });
+    await withTenantTx(database.db, value.service, (tx) =>
+      tx.delete(projects).where(eq(projects.id, project.projectId)),
+    );
+    await expect(value.read(output.id)).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    // 0419: no file count for a typed record is given before that record's run and delegated-Work
+    // materials are proven purged (knowledge.derived_structured_artifacts_remaining raises
+    // RECORD_WORK_PURGE_UNCONFIRMED until ai.record_work_purge_confirmed). This run read the project.
+    expect(
+      await refusalOf(
+        withTenantTx(database.db, value.service, (tx) =>
+          purge(value).confirmRecordInTx(tx, value.service, record),
+        ),
+      ),
+    ).toEqual({ code: 'EN119', message: 'RECORD_WORK_PURGE_UNCONFIRMED' });
+    // The record purge workflow's first step, as production runs it (knowledge-record-purge-step
+    // runRecordPurge: materials, then files, then confirm): the agent worker's activity fences,
+    // purges and closes every run that read the record and certifies the empty delegated-Work set.
+    expect(await purgeRecordMaterials(value, record)).toMatchObject({
+      confirmed: true,
+      remaining: 0,
+      controlsRemaining: 0,
+      unproven: 0,
+    });
+    expect(await adapter.purgeRecord(value.service, record)).toMatchObject({
+      remaining: 1,
+      confirmed: false,
+      removed: 0,
+    });
+    const held: DerivedArtifactLifecycle = { erase: async () => ({ state: 'held' }) };
+    expect(await purge(value, held).purgeRecord(value.service, record)).toMatchObject({
+      remaining: 1,
+      held: 1,
+      confirmed: false,
+    });
+    const lie: DerivedArtifactLifecycle = {
+      erase: async () => ({ state: 'purged', quiescent: true }),
+    };
+    expect(await purge(value, lie).purgeRecord(value.service, record)).toMatchObject({
+      remaining: 1,
+      confirmed: false,
+    });
+    expect(await purge(value).purgeRecord(value.service, record)).toEqual({
+      remaining: 0,
+      removed: 1,
+      held: 0,
+      confirmed: true,
+    });
+    expect(
+      await withTenantTx(database.db, value.service, (tx) =>
+        purge(value).confirmRecordInTx(tx, value.service, record),
+      ),
+    ).toEqual({ remaining: 0 });
+    expect(value.bodies.size).toBe(0);
+    expect(
+      await withTenantTx(database.db, value.service, (tx) =>
+        tx
+          .select()
+          .from(artifactLineageRecords)
+          .where(eq(artifactLineageRecords.artifactId, output.id)),
+      ),
+    ).toHaveLength(3);
+    expect(
+      await withTenantTx(database.db, value.service, (tx) =>
+        tx.select().from(tombstones).where(eq(tombstones.targetId, output.id)),
+      ),
+    ).toMatchObject([{ reasonCode: 'STRUCTURED_INPUT_PURGED' }]);
+  });
+});

@@ -1,0 +1,98 @@
+import type { GraphIssue, ProcessGraph, ProcessNodeKind } from '@ensemus/domain/process-spec';
+import type { ProcessCatalog } from '@ensemus/application/process-specs';
+import { studioToolName } from './studio-present';
+export const WORKFLOW_KIND_NAMES: Record<ProcessNodeKind, string> = {
+  start: 'Start of the workflow',
+  work_item: 'Work for a person',
+  agent_task: 'A published assistant',
+  human_approval: 'Approval by a person',
+  external_action: 'Propose an outside action',
+  evidence_check: 'Check supporting evidence',
+  end: 'Finish the workflow',
+};
+export const WORKFLOW_ISSUES: Record<GraphIssue['code'], string> = {
+  NO_START: 'Add one starting point.',
+  MANY_STARTS: 'Keep only one starting point.',
+  NO_END: 'Add one finishing point.',
+  CYCLE: 'These connections loop back. Remove the loop; workflows move forward only.',
+  UNREACHABLE: 'Connect this point to a path from Start to Finish.',
+  DANGLING_EDGE:
+    'A connection refers to a point that is missing. Explicitly remove or correct that connection.',
+  DUPLICATE_ID:
+    'Two saved points have the same identifier. Correct the duplicate before publication.',
+  TOO_LARGE: 'Keep at most 64 points and 128 connections.',
+  LABEL_TOO_LONG: 'Shorten this point’s name to 120 characters.',
+  UNKNOWN_KIND: 'Choose a supported type for this point.',
+  UNKNOWN_AGENT: 'Choose an assistant currently offered by the published catalog.',
+  UNKNOWN_TOOL: 'Choose an available outside-action tool.',
+  EFFECT_WITHOUT_APPROVAL: 'Every path to an outside action must pass an approval first.',
+  RESTRICTED_EFFECT: 'Restricted workflows cannot use assistants or outside actions.',
+  MISSING_SETTING:
+    'Complete this point’s required options. A workflow needs at least one execution step.',
+};
+export type WorkflowChoices = {
+  agents: readonly { id: string; name: string; versionNumber: number }[] | null;
+  tools: readonly { id: string; name: string }[] | null;
+};
+export function workflowPointLabel(graph: ProcessGraph, id: string) {
+  const at = graph.nodes.findIndex((n) => n.id === id),
+    node = graph.nodes[at];
+  return node ? `Point ${at + 1}: ${node.label}` : 'A connection to a missing point';
+}
+export function workflowConnections(
+  graph: ProcessGraph,
+  nodeId: string,
+  selected: readonly string[],
+) {
+  const options = graph.nodes
+    .filter((n) => n.id !== nodeId)
+    .map((n) => ({ id: n.id, label: workflowPointLabel(graph, n.id) }));
+  for (const id of selected)
+    if (!options.some((o) => o.id === id))
+      options.push({
+        id,
+        label:
+          id === nodeId
+            ? 'This point itself (invalid connection; uncheck to remove)'
+            : 'A saved connection to a missing point (uncheck to remove)',
+      });
+  return options;
+}
+export function workflowNeedsIndependentReview(graph: ProcessGraph, classification: string) {
+  return (
+    classification === 'confidential' ||
+    classification === 'restricted' ||
+    graph.nodes.some((n) => n.kind === 'agent_task' || n.kind === 'external_action')
+  );
+}
+export const WORKFLOW_APPROVER_NAMES = {
+  process_owner: 'The workflow publisher or an eligible organization administrator',
+  named_reviewer: 'An eligible person assigned as reviewer on the run’s main Work',
+  starter_manager: 'Manager approval is unavailable here; no manager relationship is recorded',
+};
+export const WORKFLOW_EVIDENCE_NAMES = {
+  artifact_attached: 'A file is attached to the work',
+  external_receipt: 'A verified outside-action receipt exists',
+  reviewer_approved: 'The current result has human approval',
+};
+/** Labels come from actual active registry metadata, never from an invented name for a UUID. */
+export function workflowChoiceData(
+  catalog: ProcessCatalog,
+  registry: readonly { versionId: string; name: string; active: boolean }[],
+): WorkflowChoices {
+  return {
+    agents:
+      catalog.agents === null
+        ? null
+        : catalog.agents.flatMap((agent) => {
+            const row = registry.find((v) => v.versionId === agent.versionId && v.active);
+            return row
+              ? [{ id: agent.definitionId, name: row.name, versionNumber: agent.versionNumber }]
+              : [];
+          }),
+    tools:
+      catalog.tools === null
+        ? null
+        : catalog.tools.map((tool) => ({ id: tool.id, name: studioToolName(tool.id) })),
+  };
+}

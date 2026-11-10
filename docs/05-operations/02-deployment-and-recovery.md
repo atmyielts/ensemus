@@ -18,7 +18,7 @@ Use one migration job with concurrency lock. Expand compatible schemas first; ru
 
 ## Backup set
 
-PostgreSQL PITR or logical backups with tested restore, object version manifests and content checksums, encrypted credential/KMS key recovery plans, signed entitlements, policy config, agent versions and workflow compatibility metadata, Temporal persistence/retention and workflow recovery strategy. Explicit deletion tombstones prevent erased content from reappearing after restoration. Document ownership and storage regions per commercial mode.
+PostgreSQL PITR or logical backups with tested restore, object version manifests and content checksums, encrypted credential/KMS key recovery plans, signed entitlements, policy config, agent versions and workflow compatibility metadata, Temporal persistence/retention and workflow recovery strategy. Explicit deletion tombstones prevent erased content from reappearing after restoration: they are also kept in a ledger outside the database and re-applied after a restore ([ADR-026](../00-foundation/adr/ADR-026-tombstones-survive-restore.md), and the steps in the [runbook](05-container-deployment-runbook.md#backup-and-restore)). Document ownership and storage regions per commercial mode.
 
 ## Recovery
 
@@ -27,6 +27,8 @@ PostgreSQL PITR or logical backups with tested restore, object version manifests
 3. Reconcile outbox/inbox, agent receipts and external provider state before retrying.
 4. Validate tenant isolation, permissions, task queue health, document revocations and license entitlements.
 5. Rebuild derived search/index/cache projections with fresh ACLs; publish verified recovery result.
+
+**External actions after a restore (ADR-027 D2).** Keep the connector worker stopped until someone has reviewed the intents that were not settled at the backup's time. A restore to before a send loses the attempt row, and the intent goes back to `ready`. If Temporal still has the finished run, `REJECT_DUPLICATE` stops it. If Temporal was restored too, the mail can be sent again. **The code does not enforce this: it is a step for a person to take, and it is a gap until `OPS-02` in M6.** The [runbook's restore steps](05-container-deployment-runbook.md#restore) say how.
 
 ## Cloud / BYOM / Sovereign
 

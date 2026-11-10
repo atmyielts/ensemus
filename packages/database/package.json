@@ -1,0 +1,37 @@
+{
+  "name": "@ensemus/database",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./auth": "./src/auth.ts",
+    "./secrets": "./src/secrets.ts",
+    "./migrate": "./src/migrate.ts",
+    "./service": "./src/service.ts",
+    "./agent": "./src/agent.ts",
+    "./halt-operator": "./src/halt-operator.ts",
+    "./dispatcher": "./src/dispatcher.ts",
+    "./setup-token": "./src/setup-token.ts",
+    "./product": "./src/product.ts",
+    "./sso-operator": "./src/sso-operator.ts",
+    "./auth-restore-operator": "./src/auth-restore-operator.ts",
+    "./account": "./src/account.ts",
+    "./payment-routing": "./src/payment-routing.ts",
+    "./operator": "./src/operator.ts",
+    "./support": "./src/support.ts",
+    "./eraser": "./src/eraser.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "generate": "drizzle-kit generate"
+  },
+  "dependencies": {
+    "drizzle-orm": "0.45.4",
+    "pg": "8.23.1"
+  },
+  "devDependencies": {
+    "@types/pg": "8.23.1",
+    "drizzle-kit": "0.31.11"
+  }
+}

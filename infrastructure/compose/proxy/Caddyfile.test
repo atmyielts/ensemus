@@ -1,0 +1,60 @@
+# Test overlay only: the deployed proxy (Caddyfile) knows one web service, and this file is what lets
+# a test choose a replica. A request with X-Ensemus-Test-Replica: 2 goes to web-2, and anything else
+# goes to web. Same address, so cookies, Origin and the Server Action check all behave as deployed.
+# X-Ensemus-Served-By proves where a response really came from.
+#
+# It also lets a test say which client it is. Sign-in and sign-up are limited per client address, and
+# every test arrives from the same one, so a request with X-Ensemus-Test-Client: 10.1.2.3 reaches the
+# app as if from that address, and anything else as if from where it really came from. The app and its
+# limits are exactly as deployed, and the deployed proxy overwrites whatever a client claims.
+{
+	admin off
+	skip_install_trust
+}
+
+{$ENSEMUS_HOSTNAME:localhost} {
+	tls internal
+
+	@webhooks path /api/webhooks/*
+	request_body @webhooks {
+		max_size 1MB
+	}
+
+	map {header.X-Ensemus-Test-Client} {ensemus_test_client} {
+		~(.+) ${1}
+		default {remote_host}
+	}
+
+	# A declared body length becomes Content-Length exactly as in the deployed Caddyfile, which explains it.
+	@second header X-Ensemus-Test-Replica 2
+	reverse_proxy @second web-2:3000 {
+		header_up X-Forwarded-For {ensemus_test_client}
+		header_down X-Ensemus-Served-By web-2
+		header_down -X-Ensemus-Body-Length
+		@declared_length {
+			status 200
+			header X-Ensemus-Body-Length *
+			header !Content-Length
+			header !Content-Encoding
+		}
+		handle_response @declared_length {
+			header Content-Length {rp.header.X-Ensemus-Body-Length}
+			copy_response
+		}
+	}
+	reverse_proxy web:3000 {
+		header_up X-Forwarded-For {ensemus_test_client}
+		header_down X-Ensemus-Served-By web
+		header_down -X-Ensemus-Body-Length
+		@declared_length {
+			status 200
+			header X-Ensemus-Body-Length *
+			header !Content-Length
+			header !Content-Encoding
+		}
+		handle_response @declared_length {
+			header Content-Length {rp.header.X-Ensemus-Body-Length}
+			copy_response
+		}
+	}
+}

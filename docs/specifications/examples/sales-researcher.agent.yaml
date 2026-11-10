@@ -2,6 +2,7 @@ api_version: ensemus.ai/v1
 id: sales-researcher
 version: 1
 objective: "Produce a source-backed research report for an assigned company account, without contacting the prospect."
+instructions: "Research the assigned account from approved sources only. Cite every claim. Do not contact anyone."
 model:
   required_capabilities: [text, structured_output]
   quality_tier: balanced
@@ -19,7 +20,8 @@ tools:
 execution:
   max_model_turns: 12
   max_tool_calls: 25
-  max_cost_usd: 0.30
+  max_total_tokens: 60000
+  max_cost_usd: "0.30"
   timeout_seconds: 180
   max_delegation_depth: 0
 output:

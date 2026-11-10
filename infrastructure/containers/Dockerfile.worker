@@ -1,0 +1,17 @@
+# Worker and migration image (PLAT-12). Debian-based: the Temporal worker loads a native glibc module.
+FROM node:24-slim@sha256:01d566e8d94d8c619591d78652babfccd3c6992a3dffa9ed5ab39e11cf6c70e9 AS build
+WORKDIR /repo
+RUN corepack enable
+COPY . .
+RUN pnpm install --frozen-lockfile --filter "@ensemus/worker..."
+RUN pnpm --filter @ensemus/worker build
+RUN pnpm --filter @ensemus/worker deploy --legacy --prod /out
+RUN cp -r /repo/workers/workflow/dist /repo/workers/workflow/migrations /out/
+
+FROM node:24-slim@sha256:01d566e8d94d8c619591d78652babfccd3c6992a3dffa9ed5ab39e11cf6c70e9
+ENV NODE_ENV=production
+WORKDIR /app
+COPY --from=build /out ./
+USER node
+HEALTHCHECK --interval=10s --timeout=5s --retries=12 --start-period=20s CMD ["node", "dist/healthcheck.js"]
+CMD ["node", "dist/main.js"]

@@ -22,7 +22,7 @@ Admin enters provider, exact endpoint, account/tenant owner, approved model IDs,
 
 Inputs: tenant, principal, task purpose, data class, provenance/source ACL, provider profile, destination/network address, contractual retention terms, user consent where required. Outputs: allow/deny, justification code, optional redaction transform, expiry, audit reference. Check before initial inference, embedding, reranking, OCR, transcription, evaluator calls, web browsing, file downloads, and external tool output uploads.
 
-Default provider matrix:
+Default provider matrix (where this differs from `specifications/data-egress-matrix.csv`, the stricter reading wins cell by cell, and the CSV is what `@ensemus/policy` is generated from: ADR-028 G7):
 
 | Data class | Ensemus-managed provider | Customer API provider | Customer-local private model |
 |---|---|---|---|

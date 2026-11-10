@@ -1,0 +1,120 @@
+// The tombstone ledger's format (ADR-026). A database restore loses the tombstones written after the
+// backup, so each one is also kept outside the database, as one small object. An entry holds IDs, a
+// type and a time, and this module refuses to read or write anything more. Pure, so the dispatcher,
+// the restore command and the serving gate all agree on it without sharing any privileges.
+
+export const LEDGER_PREFIX = 'tombstone-ledger/v1/';
+
+/** The outbox event that carries a tombstone to the ledger. Its metadata is the whole entry. */
+export const TOMBSTONE_RECORDED = 'tombstone.recorded';
+
+/** Files, and since M5 knowledge sources, whose re-apply step is in ADR-029 D3. */
+const TARGET_TYPES = new Set(['artifact', 'knowledge_source']);
+
+export type LedgerEntry = {
+  organizationId: string;
+  targetType: string;
+  targetId: string;
+  deletedAt: Date;
+};
+
+const UUID = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
+const IS_UUID = new RegExp(`^${UUID}$`);
+const KEY = new RegExp(`^tombstone-ledger/v1/(${UUID})/([a-z_]+)/(${UUID})\\.json$`);
+
+export const ledgerPrefixFor = (organizationId: string) => `${LEDGER_PREFIX}${organizationId}/`;
+
+/**
+ * Where an operator moves an object they have decided is not a real deletion. Nothing reads this as
+ * ledger, so the gate and the re-apply stop seeing it, and the ledger identity cannot reach it, because
+ * its policy stops at `tombstone-ledger/`.
+ */
+export const LEDGER_QUARANTINE_PREFIX = 'tombstone-ledger-quarantine/v1/';
+
+export const quarantineKeyFor = (key: string) =>
+  `${LEDGER_QUARANTINE_PREFIX}${key.slice(LEDGER_PREFIX.length)}`;
+
+/**
+ * Deterministic, so delivering the same tombstone twice lands on the same object. Throws on anything
+ * that is not exactly an ID or a known type, which also keeps every key free of names.
+ */
+export function ledgerKeyFor(entry: Omit<LedgerEntry, 'deletedAt'>): string {
+  if (
+    !IS_UUID.test(entry.organizationId) ||
+    !IS_UUID.test(entry.targetId) ||
+    !TARGET_TYPES.has(entry.targetType)
+  ) {
+    throw new Error('Not a valid ledger entry');
+  }
+  return `${ledgerPrefixFor(entry.organizationId)}${entry.targetType}/${entry.targetId}.json`;
+}
+
+/** What a key names, or null if it is not a ledger entry at all. */
+export function parseLedgerKey(key: string): Omit<LedgerEntry, 'deletedAt'> | null {
+  const match = KEY.exec(key);
+  if (!match || !TARGET_TYPES.has(match[2] as string)) return null;
+  return {
+    organizationId: match[1] as string,
+    targetType: match[2] as string,
+    targetId: match[3] as string,
+  };
+}
+
+/**
+ * How an operator names an entry on a command line. It is IDs and a known type, so it can go in a log
+ * line, which a key cannot: logs refuse values with a slash in them.
+ */
+export const ledgerRef = (entry: Omit<LedgerEntry, 'deletedAt'>) =>
+  `${entry.organizationId}:${entry.targetType}:${entry.targetId}`;
+
+/** The key an operator's reference names, or null unless it is exactly one. */
+export function ledgerKeyFromRef(ref: string): string | null {
+  const [organizationId, targetType, targetId, extra] = ref.split(':');
+  if (!organizationId || !targetType || !targetId || extra !== undefined) return null;
+  try {
+    return ledgerKeyFor({ organizationId, targetType, targetId });
+  } catch {
+    return null;
+  }
+}
+
+export function serializeLedgerEntry(entry: LedgerEntry): Buffer {
+  ledgerKeyFor(entry);
+  return Buffer.from(
+    JSON.stringify({
+      v: 1,
+      organization_id: entry.organizationId,
+      target_type: entry.targetType,
+      target_id: entry.targetId,
+      deleted_at: entry.deletedAt.toISOString(),
+    }),
+  );
+}
+
+const FIELDS = ['deleted_at', 'organization_id', 'target_id', 'target_type', 'v'];
+
+/** Reads an object back, or null unless it is exactly an entry and agrees with its own key. */
+export function parseLedgerEntry(key: string, body: string): LedgerEntry | null {
+  const named = parseLedgerKey(key);
+  if (!named) return null;
+  let raw: unknown;
+  try {
+    raw = JSON.parse(body);
+  } catch {
+    return null;
+  }
+  if (typeof raw !== 'object' || raw === null) return null;
+  const fields = raw as Record<string, unknown>;
+  if (Object.keys(fields).sort().join() !== FIELDS.join()) return null;
+  if (
+    fields.v !== 1 ||
+    fields.organization_id !== named.organizationId ||
+    fields.target_type !== named.targetType ||
+    fields.target_id !== named.targetId ||
+    typeof fields.deleted_at !== 'string'
+  ) {
+    return null;
+  }
+  const deletedAt = new Date(fields.deleted_at);
+  return Number.isNaN(deletedAt.getTime()) ? null : { ...named, deletedAt };
+}

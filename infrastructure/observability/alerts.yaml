@@ -1,0 +1,90 @@
+schemaVersion: 1
+kind: PortableAlertRules
+activation: unbound
+thresholdPolicy: tuning-values-require-measurement-and-operator-review
+rules:
+  - id: cross-tenant-policy
+    priority: P0
+    source: { kind: required_projection, binding: cross_tenant_policy_signals, available: false }
+    fields: [count, reasonCode]
+    condition: { field: count, operator: gte, tuningValue: 1 }
+    runbook: docs/05-operations/08-runbooks.md#identity-misconfiguration
+  - id: forbidden-egress
+    priority: P0
+    source: { kind: required_projection, binding: forbidden_egress_signals, available: false }
+    fields: [count, reasonCode]
+    condition: { field: count, operator: gte, tuningValue: 1 }
+    runbook: docs/05-operations/08-runbooks.md#compromised-credential
+  - id: compromised-key
+    priority: P0
+    source: { kind: required_projection, binding: compromised_key_signals, available: false }
+    fields: [count, reasonCode]
+    condition: { field: count, operator: gte, tuningValue: 1 }
+    runbook: docs/05-operations/08-runbooks.md#compromised-credential
+  - id: repeated-duplicate-effects
+    priority: P0
+    source:
+      { kind: required_projection, binding: verified_duplicate_effect_signals, available: false }
+    fields: [count, reasonCode]
+    condition: { field: count, operator: gte, tuningValue: 2 }
+    runbook: docs/05-operations/08-runbooks.md#unknown-payment
+  - id: unknown-payment
+    priority: P1
+    source: { kind: required_projection, binding: unknown_payment_count, available: false }
+    fields: [count]
+    condition: { field: count, operator: gt, tuningValue: 0 }
+    runbook: docs/05-operations/08-runbooks.md#unknown-payment
+  - id: unmatched-payment-event
+    priority: P1
+    source: { kind: required_projection, binding: unmatched_payment_event_count, available: false }
+    fields: [count]
+    condition: { field: count, operator: gt, tuningValue: 0 }
+    runbook: docs/05-operations/08-runbooks.md#unmatched-payment-event
+  - id: overdue-without-policy
+    priority: P2
+    source:
+      {
+        kind: required_projection,
+        binding: overdue_invoice_without_collection_policy_count,
+        available: false,
+      }
+    fields: [count]
+    condition: { field: count, operator: gt, tuningValue: 0 }
+    runbook: docs/05-operations/08-runbooks.md#suspended-tenant-return
+  - id: erasure-left-over
+    priority: P1
+    source:
+      { kind: log, event: erasure.checked, equals: { reasonCode: LEFT_OVER }, available: true }
+    fields: [count, reasonCode]
+    condition: { field: occurrences, operator: gt, tuningValue: 0 }
+    runbook: docs/05-operations/08-runbooks.md#failed-erasure
+  - id: erasure-pending
+    priority: P2
+    source: { kind: log, event: erasure.pending, available: true }
+    fields: [count, reasonCode]
+    condition: { field: count, operator: gt, tuningValue: 0 }
+    runbook: docs/05-operations/08-runbooks.md#failed-erasure
+  - id: restore-pending
+    priority: P1
+    source: { kind: log, event: restore_gate.closed, available: true }
+    fields: [count]
+    condition: { field: count, operator: gt, tuningValue: 0 }
+    runbook: docs/05-operations/08-runbooks.md#storage-outage
+  - id: tombstone-ledger-backlog
+    priority: P1
+    source: { kind: log, event: tombstone_ledger.backlog, available: true }
+    fields: [count, queued, dead, oldestSeconds]
+    condition: { field: count, operator: gt, tuningValue: 0 }
+    runbook: docs/05-operations/08-runbooks.md#storage-outage
+  - id: outbox-dead
+    priority: P1
+    source: { kind: required_projection, binding: outbox_dead_count, available: false }
+    fields: [dead]
+    condition: { field: dead, operator: gt, tuningValue: 0 }
+    runbook: docs/05-operations/08-runbooks.md#webhook-poison-events
+  - id: outbox-delivery-problem
+    priority: P1
+    source: { kind: log, event: dispatcher.delivery_problem, available: true }
+    fields: [count]
+    condition: { field: count, operator: gt, tuningValue: 0 }
+    runbook: docs/05-operations/08-runbooks.md#webhook-poison-events

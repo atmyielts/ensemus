@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.example.ensemus.invalid/client-brief.v1.json",
+  "title": "Client brief result reference",
+  "description": "The actual artifact's grounding and named human acceptance are checked separately. A manifest reference alone does not claim runtime structured-output enforcement or evaluation qualification.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["artifact_id", "summary", "open_questions"],
+  "properties": {
+    "artifact_id": { "type": "string", "format": "uuid" },
+    "summary": { "type": "string", "minLength": 1, "maxLength": 4000 },
+    "open_questions": { "type": "array", "maxItems": 50, "items": { "type": "string", "minLength": 1, "maxLength": 1000 } }
+  }
+}

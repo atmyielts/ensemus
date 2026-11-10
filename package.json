@@ -1,0 +1,42 @@
+{
+  "name": "ensemus",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.17.0",
+  "engines": {
+    "node": ">=24.0.0 <25"
+  },
+  "scripts": {
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "lint": "eslint --max-warnings 0 .",
+    "typecheck": "pnpm -r --workspace-concurrency=4 typecheck",
+    "test:unit": "vitest run --project unit",
+    "test:integration": "vitest run --project integration",
+    "test:replay": "vitest run --project replay",
+    "test:stack": "vitest run --project stack",
+    "test:browser": "pnpm --filter @ensemus/browser-tests test",
+    "test:upgrade": "node infrastructure/scripts/upgrade-gate.mjs",
+    "check:backlog": "node docs/specifications/tools/check-backlog.mjs",
+    "check:contracts": "pnpm --filter @ensemus/contracts generate && git diff --exit-code packages/contracts/generated",
+    "check:licenses": "node infrastructure/scripts/check-licenses.mjs",
+    "check:proxy": "node infrastructure/scripts/check-proxy.mjs",
+    "measure:m2": "vitest run --project measure",
+    "stack:secrets": "node infrastructure/scripts/generate-test-secrets.mjs",
+    "stack:up": "docker compose -f infrastructure/compose/compose.yaml -f infrastructure/compose/compose.test.yaml up -d --build --wait",
+    "stack:down": "docker compose -f infrastructure/compose/compose.yaml -f infrastructure/compose/compose.test.yaml down -v",
+    "stack:connectors:up": "docker compose --profile connectors -f infrastructure/compose/compose.yaml -f infrastructure/compose/compose.test.yaml up -d --build --wait",
+    "stack:connectors:down": "docker compose --profile connectors -f infrastructure/compose/compose.yaml -f infrastructure/compose/compose.test.yaml down -v",
+    "stack:slice-2": "vitest run --project stack tests/stack/slice-2.test.ts",
+    "db:generate": "pnpm --filter @ensemus/database generate"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "@types/node": "24.19.2",
+    "eslint": "10.14.0",
+    "prettier": "3.9.10",
+    "typescript": "5.9.3",
+    "typescript-eslint": "8.72.1",
+    "vitest": "5.1.0"
+  }
+}

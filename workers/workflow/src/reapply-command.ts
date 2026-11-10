@@ -1,0 +1,401 @@
+// What `node dist/reapply-ledger.js` does. It puts back every deletion the tombstone ledger knows about,
+// and running it again changes nothing. It prints counts and IDs, no names, and answers with the exit
+// status: 0 when nothing is left to do, 1 when something is, and 2 when it refused to start.
+//   node dist/reapply-ledger.js [--confirm <entry>]... [--confirm-file <path>]... [--quarantine <entry or key>]...
+//     [--requalify-organization <org>]... [--requalify-artifact <org>/<artifact>]...
+//     [--requalify-archive <org>/<import>/<source artifact>]... [--requalify-source <org>/<source>]...
+//     [--delete-raw-survivor <org>/<source>/<document>]... [--requalify-active-source <org>/<source>]...
+// An <entry> is what this prints as ledgerEntry. --confirm says that a deletion it could not take on
+// the ledger's word alone is real, and --confirm-file says the same of each entry a file lists.
+// --quarantine says that it is not, and moves the object aside. Each --requalify-* names one object a
+// restore left in restore debt, for the service to re-prove once the restore was admitted (0543, 0545):
+// it observes the object and records that observation; the deletion is still proven by the ordinary
+// lifecycle (the generated-file one runs in the re-apply below). --delete-raw-survivor names one raw
+// object whose bytes survived the restore (0547, FLAGGED FOR HUMAN SECURITY REVIEW, not yet reviewed
+// by a person): the ordinary lifecycle deletes and proves it, and only then is its source re-proven.
+// --requalify-active-source names one source that was still active when a restore left its raw
+// inventory in debt (0550, FLAGGED FOR HUMAN SECURITY REVIEW, not yet reviewed by a person): every
+// catalogued object is read and hashed, and the observation recorded, so the source can be closed
+// and written to again. It needs --requalify-organization for the same tenant first, in this run or
+// an earlier one.
+import { readFileSync } from 'node:fs';
+import { parseArgs } from 'node:util';
+import {
+  deleteRawRestoreSurvivor,
+  quarantineLedgerObject,
+  reapplyTombstoneLedger,
+  requalifyArchiveRestoreDebt,
+  requalifyGeneratedRestoreDebt,
+  requalifyRawRestoreActiveSource,
+  requalifyRawRestoreOrganization,
+  requalifyRawRestoreSource,
+  type LedgerReader,
+  type ObjectStore,
+  type ReapplyOptions,
+  type RawRestoreSurvivorStore,
+  type ReapplyResult,
+  type RestoreRequalification,
+} from '@ensemus/application';
+import type { AppDatabase } from '@ensemus/database';
+import { createServiceContext } from '@ensemus/database/service';
+import { LEDGER_PREFIX, ledgerKeyFromRef, ledgerRef } from '@ensemus/domain/tombstone-ledger';
+import { createLogger, errorCode } from '@ensemus/telemetry';
+
+export const log = createLogger('reapply-ledger');
+
+const LEFT_TO_DO = 1;
+const REFUSED = 2;
+
+/** Stops the command before it has done anything, so a mistake cannot look like an entry dealt with. */
+class Refused extends Error {
+  constructor(readonly reasonCode: string) {
+    super(reasonCode);
+  }
+}
+
+/**
+ * Whether anything is left for someone to do. A tenant stays refused while an entry is invalid or
+ * unconfirmed, so a run that leaves one has not succeeded, whatever else it managed.
+ */
+export const exitCodeFor = (result: ReapplyResult) =>
+  result.failed > 0 || result.invalid > 0 || result.unconfirmed > 0 ? LEFT_TO_DO : 0;
+
+/**
+ * The entries a file names, one to a line. Each line is an exact entry, spelled as this command prints
+ * it, because the file stands for a person naming each one: that is all that stops a forged entry from
+ * destroying a live file (ADR-026 D3). So there is no pattern and no way to say "all of this tenant".
+ * One line that is anything else refuses the whole file, and so does a file that names nothing, which
+ * is what a wrong path or an empty list looks like.
+ */
+export function readConfirmFile(path: string): string[] {
+  let text: string;
+  try {
+    text = readFileSync(path, 'utf8');
+  } catch {
+    throw new Refused('CONFIRM_FILE_UNREADABLE');
+  }
+  // Only what an editor can add without anyone meaning to: a final line ending, or a Windows one.
+  const lines = text.split(/\r?\n/);
+  if (lines.at(-1) === '') lines.pop();
+  if (lines.length === 0) throw new Refused('CONFIRM_FILE_EMPTY');
+  for (const line of lines) if (!ledgerKeyFromRef(line)) throw new Refused('NOT_A_LEDGER_ENTRY');
+  return lines;
+}
+
+/**
+ * One restored object or tenant an operator names for re-proof after an admitted restore (0543,
+ * 0545), or one raw object that survived it, to delete (0547).
+ */
+export type RestoreRequalificationRequest =
+  | { kind: 'artifact'; organizationId: string; artifactId: string }
+  | { kind: 'archive'; organizationId: string; importId: string; sourceArtifactId: string }
+  | { kind: 'source'; organizationId: string; sourceId: string }
+  | { kind: 'organization'; organizationId: string }
+  | { kind: 'active_source'; organizationId: string; sourceId: string }
+  | { kind: 'survivor'; organizationId: string; sourceId: string; documentId: string };
+
+/** The options that name them. Each names exactly one object by its IDs: never a pattern or a count. */
+const exactObjects = () => ({
+  type: 'string' as const,
+  multiple: true as const,
+  default: [] as string[],
+});
+export const REQUALIFY_OPTIONS = {
+  'requalify-artifact': exactObjects(),
+  'requalify-archive': exactObjects(),
+  'requalify-source': exactObjects(),
+  'requalify-organization': exactObjects(),
+  'delete-raw-survivor': exactObjects(),
+  'requalify-active-source': exactObjects(),
+};
+
+/** The service-only requalifications a run calls. Only a test replaces them. */
+export type RequalifyFunctions = {
+  artifact: typeof requalifyGeneratedRestoreDebt;
+  archive: typeof requalifyArchiveRestoreDebt;
+  source: typeof requalifyRawRestoreSource;
+  organization: typeof requalifyRawRestoreOrganization;
+  survivor?: typeof deleteRawRestoreSurvivor;
+  activeSource?: typeof requalifyRawRestoreActiveSource;
+};
+
+const EXACT_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+function exactIds(given: string, count: number): string[] {
+  const parts = given.split('/');
+  if (parts.length !== count || !parts.every((part) => EXACT_ID.test(part)))
+    throw new Refused('NOT_A_RESTORE_OBJECT');
+  return parts;
+}
+
+/**
+ * Reads `--requalify-artifact <organization>/<artifact>`, `--requalify-archive
+ * <organization>/<import>/<source artifact>`, `--requalify-source <organization>/<source>`,
+ * `--requalify-organization <organization>` and `--delete-raw-survivor
+ * <organization>/<source>/<document>` and `--requalify-active-source <organization>/<source>`.
+ * Anything else refuses the whole command before it starts.
+ */
+export function readRequalifications(
+  values: {
+    [
+      K in Exclude<
+        keyof typeof REQUALIFY_OPTIONS,
+        'delete-raw-survivor' | 'requalify-active-source'
+      >
+    ]: string[];
+  } & { 'delete-raw-survivor'?: string[]; 'requalify-active-source'?: string[] },
+): RestoreRequalificationRequest[] {
+  return [
+    ...values['requalify-organization'].map((given) => {
+      const [organizationId] = exactIds(given, 1);
+      return { kind: 'organization' as const, organizationId: organizationId! };
+    }),
+    // After the organization marker, which 0550 requires requalified first.
+    ...(values['requalify-active-source'] ?? []).map((given) => {
+      const [organizationId, sourceId] = exactIds(given, 2);
+      return {
+        kind: 'active_source' as const,
+        organizationId: organizationId!,
+        sourceId: sourceId!,
+      };
+    }),
+    ...values['requalify-artifact'].map((given) => {
+      const [organizationId, artifactId] = exactIds(given, 2);
+      return {
+        kind: 'artifact' as const,
+        organizationId: organizationId!,
+        artifactId: artifactId!,
+      };
+    }),
+    ...values['requalify-archive'].map((given) => {
+      const [organizationId, importId, sourceArtifactId] = exactIds(given, 3);
+      return {
+        kind: 'archive' as const,
+        organizationId: organizationId!,
+        importId: importId!,
+        sourceArtifactId: sourceArtifactId!,
+      };
+    }),
+    ...values['requalify-source'].map((given) => {
+      const [organizationId, sourceId] = exactIds(given, 2);
+      return { kind: 'source' as const, organizationId: organizationId!, sourceId: sourceId! };
+    }),
+    // One object, always all three IDs: a source or a tenant alone is refused, like a pattern.
+    ...(values['delete-raw-survivor'] ?? []).map((given) => {
+      const [organizationId, sourceId, documentId] = exactIds(given, 3);
+      return {
+        kind: 'survivor' as const,
+        organizationId: organizationId!,
+        sourceId: sourceId!,
+        documentId: documentId!,
+      };
+    }),
+  ];
+}
+
+export type RequalificationOutcome = {
+  request: RestoreRequalificationRequest;
+  /**
+   * `requalified`, `present`, `unconfirmed`, `held` (a legal hold refused a survivor's deletion),
+   * `missing` (an active source's catalogued object the store reports absent), or `refused` when SQL
+   * or the store refused it. For a survivor, the state of its source once the deletion was proven,
+   * with `deleted` set.
+   */
+  state: 'requalified' | 'present' | 'unconfirmed' | 'held' | 'missing' | 'refused';
+  observed?: 'present' | 'absent';
+  documentIds?: readonly string[];
+  deleted?: true;
+  errorCode?: string;
+};
+
+/** What a run uses of the store: the physical-absence check, for a survivor its purge capability,
+ * and for an active source the reads of its objects. */
+export type RequalificationStore = RawRestoreSurvivorStore & Partial<Pick<ObjectStore, 'get'>>;
+
+/**
+ * Re-proves each named object through the application's service-only requalification, one at a time.
+ * The organization marker goes first, since it is what lets new raw births be native again. Nothing is
+ * deleted by a re-proof: each only lets the ordinary lifecycle (the ledger re-apply that follows, or a
+ * source's purge) prove the deletion itself. A named raw survivor is deleted through that same
+ * lifecycle, and its source re-proven only after the deletion is proven (0547). A refusal is reported
+ * and leaves its debt in place.
+ */
+export async function runRequalifications(
+  database: AppDatabase,
+  store: RequalificationStore,
+  requests: readonly RestoreRequalificationRequest[],
+  deps: { requalify?: RequalifyFunctions } = {},
+): Promise<RequalificationOutcome[]> {
+  const requalify = deps.requalify ?? {
+    artifact: requalifyGeneratedRestoreDebt,
+    archive: requalifyArchiveRestoreDebt,
+    source: requalifyRawRestoreSource,
+    organization: requalifyRawRestoreOrganization,
+  };
+  const survivor = requalify.survivor ?? deleteRawRestoreSurvivor;
+  const activeSource = requalify.activeSource ?? requalifyRawRestoreActiveSource;
+  const outcomes: RequalificationOutcome[] = [];
+  for (const request of requests) {
+    const context = createServiceContext(request.organizationId);
+    try {
+      if (request.kind === 'organization') {
+        outcomes.push({ request, state: (await requalify.organization(database, context)).state });
+        continue;
+      }
+      if (request.kind === 'active_source') {
+        const answer = await activeSource(database, store, context, request.sourceId);
+        const outcome: RequalificationOutcome = { request, state: answer.state };
+        if (answer.state === 'missing') outcome.documentIds = answer.documentIds;
+        else if (answer.state === 'requalified') outcome.observed = answer.observed;
+        outcomes.push(outcome);
+        continue;
+      }
+      if (request.kind === 'survivor') {
+        const deletion = await survivor(database, store, context, {
+          sourceId: request.sourceId,
+          documentId: request.documentId,
+        });
+        if (deletion.state !== 'deleted') {
+          outcomes.push({ request, state: deletion.state });
+          continue;
+        }
+        const outcome: RequalificationOutcome = {
+          request,
+          state: deletion.source.state,
+          deleted: true,
+        };
+        if (deletion.source.state === 'present') outcome.documentIds = deletion.source.documentIds;
+        else if (deletion.source.state === 'requalified')
+          outcome.observed = deletion.source.observed;
+        outcomes.push(outcome);
+        continue;
+      }
+      const answer: RestoreRequalification =
+        request.kind === 'artifact'
+          ? await requalify.artifact(database, store, context, request.artifactId)
+          : request.kind === 'archive'
+            ? await requalify.archive(database, store, context, {
+                importId: request.importId,
+                sourceArtifactId: request.sourceArtifactId,
+              })
+            : await requalify.source(database, store, context, request.sourceId);
+      const outcome: RequalificationOutcome = { request, state: answer.state };
+      if (answer.state === 'present') outcome.documentIds = answer.documentIds;
+      else if (answer.state === 'requalified') outcome.observed = answer.observed;
+      outcomes.push(outcome);
+    } catch (error) {
+      outcomes.push({ request, state: 'refused', errorCode: errorCode(error) });
+    }
+  }
+  return outcomes;
+}
+
+/** Whether an outcome leaves something for a person: anything but a recorded proof does. */
+export const requalificationLeftToDo = (outcome: RequalificationOutcome) =>
+  outcome.state !== 'requalified';
+
+function readArguments(args: string[]) {
+  let values;
+  try {
+    values = parseArgs({
+      args,
+      options: {
+        confirm: { type: 'string', multiple: true, default: [] },
+        'confirm-file': { type: 'string', multiple: true, default: [] },
+        quarantine: { type: 'string', multiple: true, default: [] },
+        ...REQUALIFY_OPTIONS,
+      },
+    }).values;
+  } catch {
+    throw new Refused('NOT_AN_OPTION');
+  }
+  for (const ref of values.confirm) {
+    if (!ledgerKeyFromRef(ref)) throw new Refused('NOT_A_LEDGER_ENTRY');
+  }
+  const listed = values['confirm-file'].flatMap(readConfirmFile);
+  // A key as well as a reference, because an object with no valid key has no reference to give.
+  const toQuarantine = values.quarantine.map((given) => {
+    const key = given.startsWith(LEDGER_PREFIX) ? given : ledgerKeyFromRef(given);
+    if (!key) throw new Refused('NOT_A_LEDGER_ENTRY');
+    return key;
+  });
+  const requalifications = readRequalifications(values);
+  return {
+    confirmed: new Set([...values.confirm, ...listed]),
+    toQuarantine,
+    listed,
+    requalifications,
+  };
+}
+
+export async function reapplyCommand(
+  args: string[],
+  {
+    database,
+    store,
+    derivedArtifacts,
+    requalify,
+  }: {
+    database: AppDatabase;
+    store: ObjectStore & LedgerReader;
+    /** The production generated-file lifecycle (0508). Without it a generated deletion stays failed. */
+    derivedArtifacts?: ReapplyOptions['derivedArtifacts'];
+    /** Only a test replaces this. */
+    requalify?: RequalifyFunctions;
+  },
+): Promise<number> {
+  let parsed: ReturnType<typeof readArguments>;
+  try {
+    parsed = readArguments(args);
+  } catch (error) {
+    if (!(error instanceof Refused)) throw error;
+    log.error('tombstone_ledger.reapply_refused', { reasonCode: error.reasonCode });
+    return REFUSED;
+  }
+  const { confirmed, toQuarantine, listed, requalifications } = parsed;
+  if (listed.length > 0) log.info('tombstone_ledger.confirm_file_read', { count: listed.length });
+
+  for (const key of toQuarantine) {
+    await quarantineLedgerObject(database, store, createServiceContext, key);
+    log.warn('tombstone_ledger.entry_quarantined', { count: 1 });
+  }
+  const outcomes = await runRequalifications(
+    database,
+    store,
+    requalifications,
+    requalify ? { requalify } : {},
+  );
+  for (const outcome of outcomes)
+    log[requalificationLeftToDo(outcome) ? 'warn' : 'info']('restore_debt.requalification', {
+      organizationId: outcome.request.organizationId,
+      reasonCode: `REQUALIFY_${outcome.request.kind.toUpperCase()}`,
+      status: `${outcome.deleted ? 'deleted:' : ''}${outcome.observed ? `${outcome.state}:${outcome.observed}` : outcome.state}`,
+      ...(outcome.request.kind === 'survivor'
+        ? { sourceId: outcome.request.sourceId, documentId: outcome.request.documentId }
+        : outcome.request.kind === 'active_source'
+          ? { sourceId: outcome.request.sourceId }
+          : {}),
+      ...(outcome.documentIds ? { count: outcome.documentIds.length } : {}),
+      ...(outcome.errorCode ? { errorCode: outcome.errorCode } : {}),
+    });
+  const result = await reapplyTombstoneLedger(
+    database,
+    store,
+    createServiceContext,
+    (error) => log.warn('tombstone_ledger.entry_failed', { errorCode: errorCode(error) }),
+    {
+      ...(derivedArtifacts ? { derivedArtifacts } : {}),
+      confirmed,
+      onUnconfirmed: (entry) =>
+        log.warn('tombstone_ledger.entry_unconfirmed', { ledgerEntry: ledgerRef(entry) }),
+      // A key that names no entry can hold anything, so it stays out of the log. It is in the store.
+      onInvalid: (named) =>
+        log.warn(
+          'tombstone_ledger.entry_invalid',
+          named ? { ledgerEntry: ledgerRef(named) } : { count: 1 },
+        ),
+    },
+  );
+  log.info('tombstone_ledger.reapplied', result);
+  return outcomes.some(requalificationLeftToDo) ? LEFT_TO_DO : exitCodeFor(result);
+}

@@ -1,0 +1,156 @@
+# Test overlay: lets tests reach PostgreSQL and Temporal on localhost. Never used in a real
+# deployment, where only the proxy is reachable.
+services:
+  objects:
+    ports: ['127.0.0.1:${ENSEMUS_TEST_OBJECTS_PORT:-58333}:8333']
+  postgres:
+    ports: ['127.0.0.1:${ENSEMUS_TEST_PG_PORT:-55432}:5432']
+    # Lets tests/measure count statements. Nothing else uses it, and no deployment loads it.
+    command: ['postgres', '-c', 'shared_preload_libraries=pg_stat_statements']
+  # Publishing a port makes Docker accept traffic to that container from other networks, which would
+  # undo the web tier's isolation. So tests reach Temporal through this sidecar instead.
+  temporal-test-port:
+    image: alpine/socat@sha256:466c8a0383e16463fabdb7df01008292fb78d07da60224a46cb5d3142ce122ed
+    command: ['tcp-listen:7233,fork,reuseaddr', 'tcp4-connect:temporal:7233']
+    networks: [temporal]
+    extra_hosts: ['temporal:${ENSEMUS_NETWORK_PREFIX:-172.30}.3.10']
+    ports: ['127.0.0.1:${ENSEMUS_TEST_TEMPORAL_PORT:-57233}:7233']
+    depends_on:
+      temporal-namespace: { condition: service_completed_successfully }
+  web:
+    environment:
+      # Most tests sign up through the form. tests/stack/first-owner.test.ts turns it off, as on a
+      # default install.
+      ENSEMUS_ALLOW_SIGNUP: ${ENSEMUS_ALLOW_SIGNUP:-true}
+      ENSEMUS_PRIVATE_MODEL_ENDPOINTS: http://fake-model:8000
+      # The generated test trust root (ADR-030 D3), so signed documents can be checked and installed.
+      # tests/stack/sovereign-api.test.ts signs with the key it names, which never enters a container.
+      ENSEMUS_LICENSE_TRUST_ROOT_FILE: /run/secrets/license_trust_root
+      # Hosted settings, for the air-gap gate's hosted phase only (infrastructure/scripts/air-gap-gate.mjs), which
+      # sets them while it recreates web and web-2 as a hosted deployment. No value here: unset in the shell and in
+      # .env, each is unset in the container, which is every other phase, every other job and every deployment
+      # (an empty value would not be: the config would refuse it and web would not start). compose.yaml
+      # names none of them. The processor is the generated test processor's name (tests/helpers/native-payment.ts),
+      # with no credential or adapter behind it, and break-glass is off unless named, with a limit (ADR-032 D8).
+      ENSEMUS_PAYMENT_PROCESSOR:
+      ENSEMUS_BREAK_GLASS_ENABLED:
+      ENSEMUS_BREAK_GLASS_MAX_MINUTES:
+    secrets: [license_trust_root]
+  worker:
+    environment:
+      # The operator's sovereign-license command runs from this image, with the same trust root as web.
+      ENSEMUS_LICENSE_TRUST_ROOT_FILE: /run/secrets/license_trust_root
+    secrets: [license_trust_root]
+  agent-worker:
+    extra_hosts: ['fake-model:${ENSEMUS_NETWORK_PREFIX:-172.30}.7.20']
+    environment:
+      ENSEMUS_PRIVATE_MODEL_ENDPOINTS: http://fake-model:8000
+    depends_on:
+      fake-model: { condition: service_healthy }
+  fake-model:
+    image: node:24-slim@sha256:01d566e8d94d8c619591d78652babfccd3c6992a3dffa9ed5ab39e11cf6c70e9
+    command: ['node', '/fixture/server.mjs']
+    user: node
+    read_only: true
+    environment:
+      FAKE_MODEL_HOST: 0.0.0.0
+      FAKE_MODEL_PORT: 8000
+    volumes:
+      - ../../tests/fixtures/fake-model/server.mjs:/fixture/server.mjs:ro
+    networks:
+      agents: { ipv4_address: '${ENSEMUS_NETWORK_PREFIX:-172.30}.7.20' }
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://127.0.0.1:8000/__fake/stats').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))",
+        ]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+  # Docker does not publish ports for a container attached only to an internal network. As for
+  # Temporal above, a test-only relay exposes the fixture controls without giving the model a route out.
+  fake-model-test-port:
+    image: alpine/socat@sha256:466c8a0383e16463fabdb7df01008292fb78d07da60224a46cb5d3142ce122ed
+    command: ['tcp-listen:8000,fork,reuseaddr', 'tcp4-connect:fake-model:8000']
+    networks: [agents, temporal]
+    extra_hosts: ['fake-model:${ENSEMUS_NETWORK_PREFIX:-172.30}.7.20']
+    ports: ['127.0.0.1:${ENSEMUS_TEST_MODEL_CONTROL_PORT:-58026}:8000']
+    depends_on:
+      fake-model: { condition: service_healthy }
+  # A second replica, for what has to hold across instances (API-13, SEC-12, NEXT-03). Same image,
+  # networks and secrets as web. It publishes nothing: tests pick it through the proxy, whose test
+  # routing lives in proxy/Caddyfile.test. compose.yaml itself still has one web service.
+  web-2:
+    extends:
+      file: compose.yaml
+      service: web
+    build: !reset null
+    networks: !override
+      edge: { ipv4_address: '${ENSEMUS_NETWORK_PREFIX:-172.30}.1.11' }
+      data: {}
+    environment:
+      ENSEMUS_ALLOW_SIGNUP: ${ENSEMUS_ALLOW_SIGNUP:-true}
+      ENSEMUS_CONNECTORS_ENABLED: ${ENSEMUS_CONNECTORS_ENABLED:-false}
+      ENSEMUS_PRIVATE_MODEL_ENDPOINTS: http://fake-model:8000
+      ENSEMUS_LICENSE_TRUST_ROOT_FILE: /run/secrets/license_trust_root
+      # The same hosted-phase settings as web above, so both replicas answer alike.
+      ENSEMUS_PAYMENT_PROCESSOR:
+      ENSEMUS_BREAK_GLASS_ENABLED:
+      ENSEMUS_BREAK_GLASS_MAX_MINUTES:
+    # Added to what it extends from web, like the variable above.
+    secrets: [license_trust_root]
+  proxy:
+    extra_hosts: ['web-2:${ENSEMUS_NETWORK_PREFIX:-172.30}.1.11']
+    volumes:
+      - ./proxy/Caddyfile.test:/etc/caddy/Caddyfile:ro
+    depends_on:
+      web-2: { condition: service_healthy }
+  # A test relay in the place of a real one. No real provider is ever contacted. The sink has no TLS,
+  # which is why the worker is told `none` here and nowhere else.
+  connector-worker:
+    environment:
+      ENSEMUS_SMTP_TLS: none
+  egress-gateway:
+    extra_hosts: ['smtp-sink:${ENSEMUS_NETWORK_PREFIX:-172.30}.6.20']
+    environment:
+      ENSEMUS_EGRESS_TARGET: smtp-sink:2525
+  smtp-sink:
+    profiles: ['connectors']
+    image: node:24-slim@sha256:01d566e8d94d8c619591d78652babfccd3c6992a3dffa9ed5ab39e11cf6c70e9
+    command: ['node', '/sink/smtp-sink.mjs']
+    user: node
+    read_only: true
+    volumes:
+      - ../../tests/helpers/fixtures/smtp-sink.mjs:/sink/smtp-sink.mjs:ro
+    networks:
+      outbound: { ipv4_address: '${ENSEMUS_NETWORK_PREFIX:-172.30}.6.20' }
+    # Control only, for tests: messages it took, and which way to misbehave. SMTP is not published.
+    ports: ['127.0.0.1:${ENSEMUS_TEST_SMTP_CONTROL_PORT:-58025}:8025']
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://127.0.0.1:8025/stats').then((r)=>process.exit(r.ok?0:1),()=>process.exit(1))",
+        ]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+  oidc-mock:
+    profiles: ['test-oidc']
+    image: ghcr.io/navikt/mock-oauth2-server:2.3.0
+    ports: ['127.0.0.1:58080:8080']
+    environment:
+      JSON_CONFIG: >-
+        {"interactiveLogin": false, "tokenCallbacks": [{"issuerId": "default",
+        "requestMappings": [{"requestParam": "client_id", "match": "ensemus", "claims": {
+        "sub": "sso-user-1", "email": "sso-user@example.invalid", "name": "SSO User",
+        "email_verified": true}}]}]}
+
+secrets:
+  # Public keys only, written by infrastructure/scripts/generate-test-secrets.mjs (pnpm stack:secrets).
+  license_trust_root: { file: ../../.local/sovereign-test/trust-root.json }

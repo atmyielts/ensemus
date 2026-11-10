@@ -1,0 +1,46 @@
+{
+  "name": "@ensemus/tests",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@ensemus/agent-runtime": "workspace:*",
+    "@ensemus/application": "workspace:*",
+    "@ensemus/commercial": "workspace:*",
+    "@ensemus/intelligence": "workspace:*",
+    "@ensemus/policy": "workspace:*",
+    "@ensemus/auth": "workspace:*",
+    "@ensemus/connectors": "workspace:*",
+    "@ensemus/contracts": "workspace:*",
+    "@ensemus/database": "workspace:*",
+    "@ensemus/domain": "workspace:*",
+    "@ensemus/knowledge": "workspace:*",
+    "@ensemus/secrets": "workspace:*",
+    "@ensemus/sovereign": "workspace:*",
+    "@ensemus/storage": "workspace:*",
+    "@ensemus/telemetry": "workspace:*",
+    "@ensemus/workflows": "workspace:*",
+    "@temporalio/activity": "1.25.0",
+    "@temporalio/client": "1.25.0",
+    "@temporalio/common": "1.25.0",
+    "@temporalio/worker": "1.25.0",
+    "@temporalio/workflow": "1.25.0",
+    "drizzle-orm": "0.45.4",
+    "pg": "8.23.1",
+    "@ensemus/packs": "workspace:*",
+    "@ensemus/config": "workspace:*",
+    "@ensemus/saas": "workspace:*"
+  },
+  "devDependencies": {
+    "@authenio/samlify-node-xmllint": "2.0.0",
+    "@types/pg": "8.23.1",
+    "ajv": "8.20.0",
+    "ajv-formats": "3.0.1",
+    "yaml": "2.9.1",
+    "samlify": "2.15.1",
+    "selfsigned": "5.5.0"
+  }
+}

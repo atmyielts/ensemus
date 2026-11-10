@@ -1,0 +1,620 @@
+# Ensemus stack (PLAT-15). Same images in every commercial mode, with no hosted dependency.
+# Networks enforce ADR-024 D3: the web tier shares no network with Temporal.
+#
+# Internal names are pinned to fixed addresses. Docker's DNS has no answer for a stopped container
+# and forwards the lookup to the host's resolver, so without this an outage of one service sends its
+# name, and the site's search domain, off the network. That breaks the no-outbound promise of an
+# air-gapped install. A pin answers from /etc/hosts, so no lookup happens. Change
+# ENSEMUS_NETWORK_PREFIX if 172.30.0.0/16 is already used at your site. Automatic addresses come from
+# the top half of each subnet, so they can never take a pinned one while its service is stopped.
+# tests/stack/platform.test.ts fails if a pin is missing or wrong.
+#
+# web has a fixed address too, so `docker compose up --scale web=2` cannot work: the second container
+# asks for an address the first already holds. A second replica has to be a service of its own with its
+# own address, added to the proxy's pins and its upstreams. compose.test.yaml shows how, with web-2.
+#
+# Sending email adds a way out, and only for installs that ask for it (ADR-027 D5). One service has
+# credentials and no route out, one has a route out and no credentials, and neither exists without
+# the `connectors` profile. With no profile nothing here can make an outbound attempt.
+name: ensemus
+
+x-secret-file: &restart
+  restart: unless-stopped
+  init: true
+
+services:
+  proxy:
+    <<: *restart
+    image: caddy:2-alpine@sha256:f6228111e5fafa1a5238258d0858e103f10599b8d1659a146e7726681a002bb9
+    # The only published port in this file. A test enforces that.
+    ports: ['${ENSEMUS_BIND_ADDRESS:-127.0.0.1}:${ENSEMUS_HTTPS_PORT:-8443}:443']
+    volumes:
+      - ./proxy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+    networks: [edge]
+    extra_hosts:
+      - web:${ENSEMUS_NETWORK_PREFIX:-172.30}.1.10
+    environment:
+      # The one name this site answers to. It has to match ENSEMUS_PUBLIC_URL.
+      ENSEMUS_HOSTNAME: ${ENSEMUS_HOSTNAME:-localhost}
+      # Who may state a client's address. Empty means nobody, which is right unless another proxy on
+      # this host or site sits in front of this one. See the container deployment runbook.
+      ENSEMUS_TRUSTED_PROXIES: ${ENSEMUS_TRUSTED_PROXIES:-}
+    depends_on:
+      web: { condition: service_healthy }
+
+  web:
+    <<: *restart
+    build:
+      context: ../..
+      dockerfile: infrastructure/containers/Dockerfile.web
+    image: ${ENSEMUS_WEB_IMAGE:-ensemus/web:local}
+    read_only: true
+    tmpfs: ['/tmp', '/app/apps/web/.next/cache']
+    networks:
+      edge: { ipv4_address: '${ENSEMUS_NETWORK_PREFIX:-172.30}.1.10' }
+      data: {}
+    extra_hosts:
+      - postgres:${ENSEMUS_NETWORK_PREFIX:-172.30}.2.10
+      - valkey:${ENSEMUS_NETWORK_PREFIX:-172.30}.2.11
+      - objects:${ENSEMUS_NETWORK_PREFIX:-172.30}.2.12
+    environment:
+      ENSEMUS_MODE: ${ENSEMUS_MODE:-sovereign}
+      ENSEMUS_PUBLIC_URL: ${ENSEMUS_PUBLIC_URL:-https://localhost:8443}
+      ENSEMUS_ALLOW_SIGNUP: ${ENSEMUS_ALLOW_SIGNUP:-false}
+      ENSEMUS_CONNECTORS_ENABLED: ${ENSEMUS_CONNECTORS_ENABLED:-false}
+      # Billing is for a hosted mode that names it on, and a Sovereign deployment refuses to start with it
+      # (ADR-032 D1). Off unless set, here and in the worker, which must agree.
+      ENSEMUS_BILLING_ENABLED: ${ENSEMUS_BILLING_ENABLED:-false}
+      DATABASE_URL_APP_FILE: /run/secrets/db_app_url
+      OBJECT_STORAGE_ENDPOINT: http://objects:8333
+      OBJECT_STORAGE_BUCKET: ensemus
+      OBJECT_STORAGE_ACCESS_KEY_FILE: /run/secrets/objects_access_key
+      OBJECT_STORAGE_SECRET_KEY_FILE: /run/secrets/objects_secret_key
+      DATABASE_URL_AUTH_FILE: /run/secrets/db_auth_url
+      AUTH_SECRET_FILE: /run/secrets/auth_secret
+      SECRET_SEALING_PUBLIC_KEY_FILE: /run/secrets/sealing_public_key.pem
+      NEXT_SERVER_ACTIONS_ENCRYPTION_KEY_FILE: /run/secrets/next_server_actions_key
+    secrets:
+      - db_app_url
+      - db_auth_url
+      - auth_secret
+      - sealing_public_key.pem
+      - next_server_actions_key
+      - objects_access_key
+      - objects_secret_key
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+    deploy:
+      resources: { limits: { memory: 1G } }
+
+  worker:
+    <<: *restart
+    build:
+      context: ../..
+      dockerfile: infrastructure/containers/Dockerfile.worker
+    image: ${ENSEMUS_WORKER_IMAGE:-ensemus/worker:local}
+    read_only: true
+    tmpfs: ['/tmp']
+    networks: [data, temporal]
+    extra_hosts:
+      - postgres:${ENSEMUS_NETWORK_PREFIX:-172.30}.2.10
+      - valkey:${ENSEMUS_NETWORK_PREFIX:-172.30}.2.11
+      - objects:${ENSEMUS_NETWORK_PREFIX:-172.30}.2.12
+      - temporal:${ENSEMUS_NETWORK_PREFIX:-172.30}.3.10
+    environment:
+      TEMPORAL_ADDRESS: temporal:7233
+      TEMPORAL_NAMESPACE: default
+      TEMPORAL_CODEC_KEY_FILE: /run/secrets/temporal_codec_key
+      DATABASE_URL_APP_FILE: /run/secrets/db_app_url
+      OBJECT_STORAGE_ENDPOINT: http://objects:8333
+      OBJECT_STORAGE_BUCKET: ensemus
+      OBJECT_STORAGE_ACCESS_KEY_FILE: /run/secrets/objects_access_key
+      OBJECT_STORAGE_SECRET_KEY_FILE: /run/secrets/objects_secret_key
+      DATABASE_URL_SECRETS_FILE: /run/secrets/db_secrets_url
+      SECRET_SEALING_PRIVATE_KEY_FILE: /run/secrets/sealing_private_key.pem
+      # The same mode and billing setting as web, so loadSaasConfig refuses billing on Sovereign here too.
+      ENSEMUS_MODE: ${ENSEMUS_MODE:-sovereign}
+      ENSEMUS_BILLING_ENABLED: ${ENSEMUS_BILLING_ENABLED:-false}
+    secrets:
+      - temporal_codec_key
+      - db_app_url
+      - db_secrets_url
+      - sealing_private_key.pem
+      - objects_access_key
+      - objects_secret_key
+    depends_on:
+      temporal-namespace: { condition: service_completed_successfully }
+      migrate: { condition: service_completed_successfully }
+    deploy:
+      resources: { limits: { memory: 2G } }
+
+  # Document parsing and ingestion have neither model keys nor an outbound network.
+  knowledge-worker:
+    <<: *restart
+    build:
+      context: ../..
+      dockerfile: infrastructure/containers/Dockerfile.worker
+    image: ${ENSEMUS_WORKER_IMAGE:-ensemus/worker:local}
+    command: ['node', 'dist/knowledge-worker.js']
+    read_only: true
+    tmpfs: ['/tmp']
+    networks: [data, temporal]
+    extra_hosts:
+      - postgres:${ENSEMUS_NETWORK_PREFIX:-172.30}.2.10
+      - objects:${ENSEMUS_NETWORK_PREFIX:-172.30}.2.12
+      - temporal:${ENSEMUS_NETWORK_PREFIX:-172.30}.3.10
+    environment:
+      TEMPORAL_ADDRESS: temporal:7233
+      TEMPORAL_NAMESPACE: default
+      TEMPORAL_CODEC_KEY_FILE: /run/secrets/temporal_codec_key
+      DATABASE_URL_APP_FILE: /run/secrets/db_app_url
+      OBJECT_STORAGE_ENDPOINT: http://objects:8333
+      OBJECT_STORAGE_BUCKET: ensemus
+      OBJECT_STORAGE_ACCESS_KEY_FILE: /run/secrets/objects_access_key
+      OBJECT_STORAGE_SECRET_KEY_FILE: /run/secrets/objects_secret_key
+    secrets:
+      - temporal_codec_key
+      - db_app_url
+      - objects_access_key
+      - objects_secret_key
+    depends_on:
+      temporal-namespace: { condition: service_completed_successfully }
+      migrate: { condition: service_completed_successfully }
+    deploy:
+      resources: { limits: { memory: 1G } }
+
+  agent-worker:
+    <<: *restart
+    build:
+      context: ../..
+      dockerfile: infrastructure/containers/Dockerfile.worker
+    image: ${ENSEMUS_WORKER_IMAGE:-ensemus/worker:local}
+    command: ['node', 'dist/agent-main.js']
+    read_only: true
+    tmpfs: ['/tmp']
+    networks: [agents]
+    extra_hosts:
+      - postgres:${ENSEMUS_NETWORK_PREFIX:-172.30}.7.10
+      - temporal:${ENSEMUS_NETWORK_PREFIX:-172.30}.7.11
+      - objects:${ENSEMUS_NETWORK_PREFIX:-172.30}.7.12
+    environment:
+      TEMPORAL_ADDRESS: temporal:7233
+      TEMPORAL_NAMESPACE: default
+      TEMPORAL_CODEC_KEY_FILE: /run/secrets/temporal_codec_key
+      DATABASE_URL_AGENT_FILE: /run/secrets/db_agent_url
+      DATABASE_URL_SECRETS_FILE: /run/secrets/db_secrets_url
+      SECRET_SEALING_PRIVATE_KEY_FILE: /run/secrets/sealing_private_key.pem
+      OBJECT_STORAGE_ENDPOINT: http://objects:8333
+      OBJECT_STORAGE_BUCKET: ensemus
+      OBJECT_STORAGE_ACCESS_KEY_FILE: /run/secrets/objects_access_key
+      OBJECT_STORAGE_SECRET_KEY_FILE: /run/secrets/objects_secret_key
+      ENSEMUS_PRIVATE_MODEL_ENDPOINTS: ${ENSEMUS_PRIVATE_MODEL_ENDPOINTS:-}
+      ENSEMUS_MODEL_CREDENTIALS_REVIEWED: ${ENSEMUS_MODEL_CREDENTIALS_REVIEWED:-}
+      # The gateway's entitlement check reads these (agent-composition loadSaasConfig). Without them a hosted
+      # deployment's agent-worker always saw billing off and refused every BYOM model call, while web and
+      # the worker ran hosted. The same defaults as web, so billing stays refused on Sovereign here too.
+      ENSEMUS_MODE: ${ENSEMUS_MODE:-sovereign}
+      ENSEMUS_BILLING_ENABLED: ${ENSEMUS_BILLING_ENABLED:-false}
+    secrets:
+      - temporal_codec_key
+      - db_agent_url
+      - db_secrets_url
+      - sealing_private_key.pem
+      - objects_access_key
+      - objects_secret_key
+    depends_on:
+      temporal-namespace: { condition: service_completed_successfully }
+      migrate: { condition: service_completed_successfully }
+    deploy:
+      resources: { limits: { memory: 2G } }
+
+  dispatcher:
+    <<: *restart
+    build:
+      context: ../..
+      dockerfile: infrastructure/containers/Dockerfile.worker
+    image: ${ENSEMUS_WORKER_IMAGE:-ensemus/worker:local}
+    command: ['node', 'dist/dispatcher.js']
+    read_only: true
+    tmpfs: ['/tmp']
+    networks: [data, temporal]
+    extra_hosts:
+      - postgres:${ENSEMUS_NETWORK_PREFIX:-172.30}.2.10
+      - valkey:${ENSEMUS_NETWORK_PREFIX:-172.30}.2.11
+      - objects:${ENSEMUS_NETWORK_PREFIX:-172.30}.2.12
+      - temporal:${ENSEMUS_NETWORK_PREFIX:-172.30}.3.10
+    environment:
+      TEMPORAL_ADDRESS: temporal:7233
+      TEMPORAL_NAMESPACE: default
+      TEMPORAL_CODEC_KEY_FILE: /run/secrets/temporal_codec_key
+      DATABASE_URL_DISPATCHER_FILE: /run/secrets/db_dispatcher_url
+      # Writes the tombstone ledger (ADR-026). This identity reaches that prefix and nothing else.
+      OBJECT_STORAGE_ENDPOINT: http://objects:8333
+      OBJECT_STORAGE_BUCKET: ensemus
+      OBJECT_STORAGE_LEDGER_ACCESS_KEY_FILE: /run/secrets/objects_ledger_access_key
+      OBJECT_STORAGE_LEDGER_SECRET_KEY_FILE: /run/secrets/objects_ledger_secret_key
+    secrets:
+      - temporal_codec_key
+      - db_dispatcher_url
+      - objects_ledger_access_key
+      - objects_ledger_secret_key
+    depends_on:
+      temporal-namespace: { condition: service_completed_successfully }
+      migrate: { condition: service_completed_successfully }
+    deploy:
+      resources: { limits: { memory: 512M } }
+
+  # Holds connector credentials and reads what strangers send, so it gets no route anywhere: it is on
+  # the internal `connectors` network alone, whatever is in a connector, a dependency or a webhook body.
+  connector-worker:
+    <<: *restart
+    profiles: ['connectors']
+    build:
+      context: ../..
+      dockerfile: infrastructure/containers/Dockerfile.worker
+    image: ${ENSEMUS_WORKER_IMAGE:-ensemus/worker:local}
+    command: ['node', 'dist/connector-worker.js']
+    read_only: true
+    tmpfs: ['/tmp']
+    networks: [connectors]
+    extra_hosts:
+      - postgres:${ENSEMUS_NETWORK_PREFIX:-172.30}.5.10
+      - temporal:${ENSEMUS_NETWORK_PREFIX:-172.30}.5.11
+      - egress-gateway:${ENSEMUS_NETWORK_PREFIX:-172.30}.5.12
+    environment:
+      TEMPORAL_ADDRESS: temporal:7233
+      TEMPORAL_NAMESPACE: default
+      TEMPORAL_CODEC_KEY_FILE: /run/secrets/temporal_codec_key
+      DATABASE_URL_APP_FILE: /run/secrets/db_app_url
+      DATABASE_URL_SECRETS_FILE: /run/secrets/db_secrets_url
+      SECRET_SEALING_PRIVATE_KEY_FILE: /run/secrets/sealing_private_key.pem
+      ENSEMUS_EGRESS_GATEWAY: egress-gateway:2525
+      # `none` is for a relay on a trusted site network, and only if an operator says so.
+      ENSEMUS_SMTP_TLS: ${ENSEMUS_SMTP_TLS:-required}
+      ENSEMUS_SMTP_MESSAGE_ID_DOMAIN: ${ENSEMUS_SMTP_MESSAGE_ID_DOMAIN:-ensemus.invalid}
+    secrets:
+      - db_app_url
+      - db_secrets_url
+      - sealing_private_key.pem
+      - temporal_codec_key
+    depends_on:
+      temporal-namespace: { condition: service_completed_successfully }
+      migrate: { condition: service_completed_successfully }
+      egress-gateway: { condition: service_healthy }
+    deploy:
+      resources: { limits: { memory: 1G } }
+
+  # Forwards bytes to the one target an operator set, and refuses to start without one. It holds no
+  # secret and reaches no database. TLS runs through it, so it sees only ciphertext.
+  egress-gateway:
+    <<: *restart
+    profiles: ['connectors']
+    build:
+      context: ../..
+      dockerfile: infrastructure/containers/Dockerfile.worker
+    image: ${ENSEMUS_WORKER_IMAGE:-ensemus/worker:local}
+    command: ['node', 'dist/egress-gateway.js']
+    read_only: true
+    tmpfs: ['/tmp']
+    networks:
+      connectors: { ipv4_address: '${ENSEMUS_NETWORK_PREFIX:-172.30}.5.12' }
+      outbound: {}
+    environment:
+      ENSEMUS_EGRESS_TARGET: ${ENSEMUS_EGRESS_TARGET:-}
+    deploy:
+      resources: { limits: { memory: 128M } }
+
+  provision-roles:
+    image: pgvector/pgvector:pg17@sha256:7d0a41464797aeb9862dfdc0bbf1526b82cfd324cdd8036df19e3545f4a9ccb8
+    user: postgres
+    read_only: true
+    entrypoint: ['/bin/sh', '/provision/upgrade-roles.sh']
+    networks: [data]
+    extra_hosts:
+      - postgres:${ENSEMUS_NETWORK_PREFIX:-172.30}.2.10
+    volumes:
+      - ./postgres/upgrade-roles.sh:/provision/upgrade-roles.sh:ro
+      - ./postgres/upgrade-roles.sql:/provision/upgrade-roles.sql:ro
+      - ./postgres/upgrade-roles-m8.sql:/provision/upgrade-roles-m8.sql:ro
+    secrets: [db_superuser_password, db_agent_password]
+    depends_on:
+      postgres: { condition: service_healthy }
+
+  migrate:
+    build:
+      context: ../..
+      dockerfile: infrastructure/containers/Dockerfile.worker
+    image: ${ENSEMUS_WORKER_IMAGE:-ensemus/worker:local}
+    command: ['node', 'dist/migrate.js']
+    read_only: true
+    tmpfs: ['/tmp']
+    networks: [data]
+    extra_hosts:
+      - postgres:${ENSEMUS_NETWORK_PREFIX:-172.30}.2.10
+      - valkey:${ENSEMUS_NETWORK_PREFIX:-172.30}.2.11
+      - objects:${ENSEMUS_NETWORK_PREFIX:-172.30}.2.12
+    environment:
+      OBJECT_STORAGE_ENDPOINT: http://objects:8333
+      OBJECT_STORAGE_BUCKET: ensemus
+      OBJECT_STORAGE_ACCESS_KEY_FILE: /run/secrets/objects_access_key
+      OBJECT_STORAGE_SECRET_KEY_FILE: /run/secrets/objects_secret_key
+      DATABASE_URL_MIGRATOR_FILE: /run/secrets/db_migrator_url
+    secrets: [db_migrator_url, objects_access_key, objects_secret_key]
+    depends_on:
+      postgres: { condition: service_healthy }
+      # It creates the bucket too. Without this it loses the race whenever PostgreSQL is already up.
+      objects: { condition: service_healthy }
+      provision-roles: { condition: service_completed_successfully }
+
+  # One-shot offline invalidation only. Ordinary workers never receive the native auth DB/key.
+  # Run only after migrator begin has closed admission. No Temporal, object, vault or provider key.
+  auth-restore:
+    profiles: ['ops']
+    build:
+      context: ../..
+      dockerfile: infrastructure/containers/Dockerfile.worker
+    image: ${ENSEMUS_WORKER_IMAGE:-ensemus/worker:local}
+    command: ['node', 'dist/auth-restore.js', 'invalidate']
+    read_only: true
+    tmpfs: ['/tmp']
+    networks: [data]
+    extra_hosts:
+      - postgres:${ENSEMUS_NETWORK_PREFIX:-172.30}.2.10
+    environment:
+      DATABASE_URL_AUTH_FILE: /run/secrets/db_auth_url
+      AUTH_SECRET_FILE: /run/secrets/auth_secret
+    secrets: [db_auth_url, auth_secret]
+
+  # One-shot, after a restore and before anyone is let back in (ADR-030 D11, sovereign/backup-and-restore.md):
+  #   docker compose run --rm --no-deps restore-reconcile [--apply] ...
+  # It reads the tenants through the dispatcher's identity and the rest through the app's, and needs the full
+  # store credential to remove bytes a tombstone names. It asks Temporal only whether a run is open, so it holds
+  # no payload codec. No vault, sealing or model key, and no web or outbound network.
+  restore-reconcile:
+    profiles: ['ops']
+    build:
+      context: ../..
+      dockerfile: infrastructure/containers/Dockerfile.worker
+    image: ${ENSEMUS_WORKER_IMAGE:-ensemus/worker:local}
+    command: ['node', 'dist/restore-reconcile.js']
+    read_only: true
+    tmpfs: ['/tmp']
+    networks: [data, temporal]
+    extra_hosts:
+      - postgres:${ENSEMUS_NETWORK_PREFIX:-172.30}.2.10
+      - objects:${ENSEMUS_NETWORK_PREFIX:-172.30}.2.12
+      - temporal:${ENSEMUS_NETWORK_PREFIX:-172.30}.3.10
+    environment:
+      TEMPORAL_ADDRESS: temporal:7233
+      TEMPORAL_NAMESPACE: default
+      DATABASE_URL_APP_FILE: /run/secrets/db_app_url
+      DATABASE_URL_DISPATCHER_FILE: /run/secrets/db_dispatcher_url
+      OBJECT_STORAGE_ENDPOINT: http://objects:8333
+      OBJECT_STORAGE_BUCKET: ensemus
+      OBJECT_STORAGE_ACCESS_KEY_FILE: /run/secrets/objects_access_key
+      OBJECT_STORAGE_SECRET_KEY_FILE: /run/secrets/objects_secret_key
+    secrets: [db_app_url, db_dispatcher_url, objects_access_key, objects_secret_key]
+
+  postgres:
+    <<: *restart
+    image: pgvector/pgvector:pg17@sha256:7d0a41464797aeb9862dfdc0bbf1526b82cfd324cdd8036df19e3545f4a9ccb8
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD_FILE: /run/secrets/db_superuser_password
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./postgres/10-provision.sh:/docker-entrypoint-initdb.d/10-provision.sh:ro
+      - ./postgres/provision.sql:/provision/provision.sql:ro
+    networks:
+      data: { ipv4_address: '${ENSEMUS_NETWORK_PREFIX:-172.30}.2.10' }
+      temporal-db: { ipv4_address: '${ENSEMUS_NETWORK_PREFIX:-172.30}.4.10' }
+      connectors: { ipv4_address: '${ENSEMUS_NETWORK_PREFIX:-172.30}.5.10' }
+      agents: { ipv4_address: '${ENSEMUS_NETWORK_PREFIX:-172.30}.7.10' }
+    secrets:
+      - db_superuser_password
+      - db_migrator_password
+      - db_app_password
+      - db_agent_password
+      - db_auth_password
+      - db_dispatcher_password
+      - db_secrets_password
+      - db_temporal_password
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -h 127.0.0.1 -U postgres -d ensemus']
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  temporal-schema:
+    image: temporalio/admin-tools@sha256:4a95866efba29d7e17ab012df5232795e8b0ad0f7d5f9d1ec4df321f7792a754
+    entrypoint: ['/bin/sh', '/provision/setup-schema.sh']
+    networks: [temporal-db]
+    extra_hosts:
+      - postgres:${ENSEMUS_NETWORK_PREFIX:-172.30}.4.10
+    volumes:
+      - ./temporal/setup-schema.sh:/provision/setup-schema.sh:ro
+    secrets: [db_temporal_password]
+    depends_on:
+      postgres: { condition: service_healthy }
+
+  temporal:
+    <<: *restart
+    image: temporalio/server@sha256:7bf69188a6232fea14869b9cef3d94aa82a1601d99517f7e86c71f22da4e0670
+    networks:
+      temporal: { ipv4_address: '${ENSEMUS_NETWORK_PREFIX:-172.30}.3.10' }
+      temporal-db: {}
+      connectors: { ipv4_address: '${ENSEMUS_NETWORK_PREFIX:-172.30}.5.11' }
+      agents: { ipv4_address: '${ENSEMUS_NETWORK_PREFIX:-172.30}.7.11' }
+    extra_hosts:
+      - postgres:${ENSEMUS_NETWORK_PREFIX:-172.30}.4.10
+    entrypoint: ['/bin/sh', '/provision/temporal-start.sh']
+    environment:
+      DB: postgres12
+      DB_PORT: '5432'
+      POSTGRES_SEEDS: postgres
+      POSTGRES_USER: temporal
+      # On two networks, so bind to all of them. Otherwise it listens on only one address.
+      BIND_ON_IP: 0.0.0.0
+      # Stops the server calling version-info.temporal.io. See temporal/dynamicconfig.yaml.
+      TEMPORAL_VERSION_CHECK_DISABLED: '1'
+    volumes:
+      - ./temporal/temporal-start.sh:/provision/temporal-start.sh:ro
+      - ./temporal/dynamicconfig.yaml:/etc/temporal/config/dynamicconfig/docker.yaml:ro
+    secrets: [db_temporal_password]
+    depends_on:
+      temporal-schema: { condition: service_completed_successfully }
+    healthcheck:
+      # Listening on 7233 (0x1C41). The namespace job below proves the server really answers.
+      test: ['CMD-SHELL', "grep -q ':1C41 ' /proc/net/tcp /proc/net/tcp6"]
+      interval: 5s
+      timeout: 3s
+      retries: 60
+      start_period: 10s
+
+  temporal-namespace:
+    image: temporalio/admin-tools@sha256:4a95866efba29d7e17ab012df5232795e8b0ad0f7d5f9d1ec4df321f7792a754
+    entrypoint: ['/bin/sh', '/provision/setup-namespace.sh']
+    networks: [temporal]
+    extra_hosts:
+      - temporal:${ENSEMUS_NETWORK_PREFIX:-172.30}.3.10
+    volumes:
+      - ./temporal/setup-namespace.sh:/provision/setup-namespace.sh:ro
+    depends_on:
+      temporal: { condition: service_healthy }
+
+  valkey:
+    <<: *restart
+    image: valkey/valkey:8-alpine@sha256:2602ace2be6569bc2bbb06f873776516ab9089821525be34f4305c67eb9db02a
+    command:
+      [
+        'valkey-server',
+        '--save',
+        '',
+        '--appendonly',
+        'no',
+        '--maxmemory',
+        '256mb',
+        '--maxmemory-policy',
+        'allkeys-lru',
+      ]
+    read_only: true
+    tmpfs: ['/data']
+    networks:
+      data: { ipv4_address: '${ENSEMUS_NETWORK_PREFIX:-172.30}.2.11' }
+    healthcheck:
+      test: ['CMD', 'valkey-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  objects:
+    <<: *restart
+    image: chrislusf/seaweedfs@sha256:c2658820e763294a9e9de7b36c81e59b879e3459148351aee4e31a126ca64860
+    command:
+      - server
+      - -dir=/data
+      - -s3
+      - -s3.port=8333
+      # S3 serves both data and agent networks; the admin/filer listeners keep their default binding.
+      - -s3.ip.bind=0.0.0.0
+      - -s3.config=/run/secrets/objects_identity
+      - -master.volumeSizeLimitMB=256
+    secrets: [objects_identity]
+    volumes:
+      - objects-data:/data
+    networks:
+      data: { ipv4_address: '${ENSEMUS_NETWORK_PREFIX:-172.30}.2.12' }
+      agents: { ipv4_address: '${ENSEMUS_NETWORK_PREFIX:-172.30}.7.12' }
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -q -O /dev/null http://127.0.0.1:9333/cluster/status']
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+networks:
+  edge:
+    ipam:
+      config:
+        - {
+            subnet: '${ENSEMUS_NETWORK_PREFIX:-172.30}.1.0/24',
+            ip_range: '${ENSEMUS_NETWORK_PREFIX:-172.30}.1.128/25',
+          }
+  data:
+    ipam:
+      config:
+        - {
+            subnet: '${ENSEMUS_NETWORK_PREFIX:-172.30}.2.0/24',
+            ip_range: '${ENSEMUS_NETWORK_PREFIX:-172.30}.2.128/25',
+          }
+  temporal:
+    ipam:
+      config:
+        - {
+            subnet: '${ENSEMUS_NETWORK_PREFIX:-172.30}.3.0/24',
+            ip_range: '${ENSEMUS_NETWORK_PREFIX:-172.30}.3.128/25',
+          }
+  temporal-db:
+    ipam:
+      config:
+        - {
+            subnet: '${ENSEMUS_NETWORK_PREFIX:-172.30}.4.0/24',
+            ip_range: '${ENSEMUS_NETWORK_PREFIX:-172.30}.4.128/25',
+          }
+  # No gateway, so nothing on it has a route out. Only the connector worker needs it, and `web` stays off.
+  connectors:
+    internal: true
+    ipam:
+      config:
+        - {
+            subnet: '${ENSEMUS_NETWORK_PREFIX:-172.30}.5.0/24',
+            ip_range: '${ENSEMUS_NETWORK_PREFIX:-172.30}.5.128/25',
+          }
+  # No hosted model route is present by default. An operator may supply a separately reviewed overlay.
+  agents:
+    internal: true
+    ipam:
+      config:
+        - {
+            subnet: '${ENSEMUS_NETWORK_PREFIX:-172.30}.7.0/24',
+            ip_range: '${ENSEMUS_NETWORK_PREFIX:-172.30}.7.128/25',
+          }
+  # The way out, and only the gateway is on it. A sovereign site's firewall limits it to the relay.
+  outbound:
+    ipam:
+      config:
+        - {
+            subnet: '${ENSEMUS_NETWORK_PREFIX:-172.30}.6.0/24',
+            ip_range: '${ENSEMUS_NETWORK_PREFIX:-172.30}.6.128/25',
+          }
+
+volumes:
+  postgres-data: {}
+  caddy-data: {}
+  objects-data: {}
+
+secrets:
+  db_superuser_password: { file: ../../.local/secrets/db_superuser_password }
+  db_migrator_password: { file: ../../.local/secrets/db_migrator_password }
+  db_app_password: { file: ../../.local/secrets/db_app_password }
+  db_agent_password: { file: ../../.local/secrets/db_agent_password }
+  db_auth_password: { file: ../../.local/secrets/db_auth_password }
+  db_dispatcher_password: { file: ../../.local/secrets/db_dispatcher_password }
+  db_secrets_password: { file: ../../.local/secrets/db_secrets_password }
+  db_temporal_password: { file: ../../.local/secrets/db_temporal_password }
+  db_migrator_url: { file: ../../.local/secrets/db_migrator_url }
+  db_app_url: { file: ../../.local/secrets/db_app_url }
+  db_agent_url: { file: ../../.local/secrets/db_agent_url }
+  db_auth_url: { file: ../../.local/secrets/db_auth_url }
+  db_dispatcher_url: { file: ../../.local/secrets/db_dispatcher_url }
+  objects_access_key: { file: ../../.local/secrets/objects_access_key }
+  objects_secret_key: { file: ../../.local/secrets/objects_secret_key }
+  objects_ledger_access_key: { file: ../../.local/secrets/objects_ledger_access_key }
+  objects_ledger_secret_key: { file: ../../.local/secrets/objects_ledger_secret_key }
+  objects_identity: { file: ../../.local/secrets/objects_identity.json }
+  db_secrets_url: { file: ../../.local/secrets/db_secrets_url }
+  auth_secret: { file: ../../.local/secrets/auth_secret }
+  temporal_codec_key: { file: ../../.local/secrets/temporal_codec_key }
+  next_server_actions_key: { file: ../../.local/secrets/next_server_actions_key }
+  sealing_public_key.pem: { file: ../../.local/secrets/sealing_public_key.pem }
+  sealing_private_key.pem: { file: ../../.local/secrets/sealing_private_key.pem }

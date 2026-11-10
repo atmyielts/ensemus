@@ -1,0 +1,28 @@
+{
+  "name": "@ensemus/saas",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./money": "./src/money.ts",
+    "./catalog": "./src/catalog.ts",
+    "./entitlements": "./src/entitlements.ts",
+    "./credits": "./src/credits.ts",
+    "./invoice": "./src/invoice.ts",
+    "./tax": "./src/tax.ts",
+    "./payment": "./src/payment.ts",
+    "./usage": "./src/usage.ts",
+    "./lifecycle": "./src/lifecycle.ts",
+    "./offboarding": "./src/offboarding.ts",
+    "./support": "./src/support.ts",
+    "./operations": "./src/operations.ts",
+    "./events": "./src/events.ts",
+    "./testing": "./src/testing/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@ensemus/domain": "workspace:*"
+  }
+}

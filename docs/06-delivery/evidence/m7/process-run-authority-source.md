@@ -1,0 +1,48 @@
+# Process execution authority source follow-up (AGENT-13 / ADR-031 D7)
+
+This is a source checkpoint, not migration, runtime, provider, or operator acceptance. The five execution HTTP operations and run screens remain pending on this branch until the authority source is reviewed and composed. The focused source gate below has run. SQL and runtime qualification remain open.
+
+Implemented source:
+
+- Exact immutable manifest inventory is mandatory. Missing, duplicate, extra or empty steps are unavailable, never invented pending or completed states. Restricted startable specs are filtered in SQL before LIMIT. Terminal legacy runs without real intent stay immutable/inert; application reads report unavailable rather than qualifying their old completion.
+- Fresh native-user stop and outside-action proposal use actual current membership/role and root Work management, with policy advisory before membership and run locks. An ordinary member who genuinely manages the root can stop without an added MFA rule. Worker/delegated actors cannot impersonate that person.
+- 0418 adds protected `studio.process_run_intents` and `studio.process_step_births`: fixed actual Work INSERT mirrors, exact tenant/spec/initiator/Work bindings, reciprocal deferred checks, and actual requested event/outbox. Same-transaction old Work has no birth receipt and cannot be adopted. Same-key same-content retry is serialized before birth and resumes the original committed run, including after completion.
+- Selectors `app.process_start_run_id`, `app.process_start_spec_id`, `app.process_step_run_id`, `app.process_step_key` are set only around the real Work kernel, inside its actor-bound transaction. Base/facade defaults clear them. They select an intent; they do not create authority.
+- Positive step completion checks real current Work plus exact actual agent/version/initiator/end metadata, person approval/action/hash/decision, bound M3 action/request/attempt/sent receipt, or scoped ancestor evidence. Guarded process-Work completion requires genuine native accountable-owner confirmation and its real kernel transition/outbox receipt. No-criteria Work remains a manual confirmation contract; this source does not reinterpret a generated answer or approved decision as automatic Work completion.
+- Completed assistant/approval/receipt/evidence steps wait for actual Work confirmation. The final run waits with `ROOT_CONFIRMATION_REQUIRED` until its real root is completed. Revoked prerequisite proof stops future effects; negative closure retains historical done rows without claiming their proof is still live.
+- Restricted SELECT/row-lock policies use actual root visibility before LIMIT, and spec body reads allow fresh authors or readers of a real associated root. Scoped process approval guards require the actual current native approver, not service-written approved/decision rows. Inverse row-trigger lock contention is retryable NOWAIT rather than waiting against deprovisioning.
+
+Owned source: process-runs.ts, new process-run-authority.ts, new schema-process-authority.ts,0418 SQL, four binding clears in tenant.ts/transaction-database.ts, focused unit and actual-role test source.
+
+Qualification still owed:
+
+- Parent performed independent read-only 0418 review and requested two fixes: selector restoration on all exits, and explicit absent root/spec plus fail-closed NULL proof gates. Both fixes are in this checkpoint. This review does not prove SQL behavior.13 actual-role cases are authored and unrun; they include same-transaction adoption, raw false completion, actual person approval, role loss, selector restoration, and full two-step/root owner confirmation.
+- Fresh real PostgreSQL migration/role/RLS/FK/lock-barrier proof, including all six kinds and revoked file/approval/source proofs; migration intentionally refuses any active legacy run instead of inventing historical intent. The owned disposable test database may be recreated by the parent; other resources are preserved.
+- Actual Temporal wake/continuation, joined M3/M4 adapter and provider delivery gates. SQL proof reads only actual metadata; it never reads private transcript bodies or performs object/model/network I/O.
+- Root registers the standalone schema, deferred run FK, migration journal/snapshot and lifecycle eraser table ordering. Both protected tables are operational authority and must be explicitly excluded from portable imports/exports. No archive claim may create execution authority. Root must union the four binding clears with its newer native/agent/outcome/portability bindings.
+- HTTP contracts/OAS/generated union, five successful-operation coverage assertions, accessible native run UI and authored browser journeys follow as a separate source slice. No execution runs in HTTP.
+
+Source gate results (2026-11-08):
+
+- Scoped Prettier and ESLint passed for seven changed TypeScript files. A subsequent helper `finally` refinement initially hit `no-unsafe-finally`; it now records restoration failure and throws outside finally, preserving the original aborted-SQL error. Its scoped lint passed.
+- Focused Vitest process-run authority/domain/process-spec batch: 167 tests across 3 files passed, maxWorkers=1. The first attempt was 166 pass / 1 fail because the new table-driven test incorrectly treated arrays as Vitest argument lists; the fixture now wraps each row list explicitly. Counts are not additive.
+- Database and application typechecks passed. Initial application check had missing inherited sovereign workspace links and one cascade diagnostic. Parent authorized `pnpm install --offline --frozen-lockfile --ignore-scripts`: lockfile up to date, resolution skipped, already up to date; application types then passed. Application types passed again after the final retained artifact metadata lookup correction.
+- Tests typecheck passed. The first attempt found one owned import to a nonexistent approvals subpath; the fixture now uses the actual public application export. Its scoped formatting/lint and the repeated tests typecheck passed.
+- No SQL apply, integration/stack/replay/browser execution, build, provider call or Docker operation ran. No migration journal/snapshot was changed. Actual Temporal completion wake and all kind-specific races still need joined runtime gates.
+
+Parent owns the separate 0420 dispatcher metadata wake mapper. The existing durable five-minute timer remains a fallback; immediate real Work/approval/agent/external-action wake qualification is not claimed by this authority checkpoint. Final SQL review also replaced a generic-record CASE with relation-specific IF branches so each trigger references only columns that exist on its actual table. SQL remains unrun.
+
+## Joined local qualification, 2026-11-08
+
+The original source-only statements above describe the author checkpoint. Root subsequently applied
+57 migrations to its own fresh synthetic database, audited the actual constraint names for all 151
+modeled tables (zero missing/renamed), and passed all 15 process/dispatcher-role cases. The wider joined
+product group passed 170 cases in 14 files; the model group separately passed 25 cases. Source helpers
+use an actual published assistant and native MFA/session proof. A genuine delayed M4 port call after
+committed native stop is refused before a new run is born, and a direct delegated binding independently
+fails at the stopped-parent SQL guard. The real event-header mapper passes repeated delivery, foreign
+tenant, missing/irrelevant header, no private-body grants and saved scope restoration checks.
+
+The patched wake-during-Activity logic passes two mocked workflow branches. These tests do not prove
+actual Temporal delivery or replay. Built HTTP/browser journeys, providers and production acceptance
+remain open. No 0417/0419 inherited-input or M8 lifecycle source has been qualified by these results.

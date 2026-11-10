@@ -1,0 +1,59 @@
+{
+  "format": "ensemus.trust_root",
+  "format_version": 1,
+  "keys": [
+    {
+      "key_id": "corpus-v1-license",
+      "algorithm": "ed25519",
+      "public_key": "MCowBQYDK2VwAyEAo1p/7CrnPWDvjaOCFpkh428+DjcV/IjYx3ySV50cFwo=",
+      "purposes": ["license"],
+      "retired_on": null,
+      "compromised_on": null,
+      "test_only": true
+    },
+    {
+      "key_id": "corpus-v1-pilot-license",
+      "algorithm": "ed25519",
+      "public_key": "MCowBQYDK2VwAyEA2BjN82XivCVL08HCTKbBfpR3/U5wgH+eLWuyTxwxhgw=",
+      "purposes": ["license"],
+      "retired_on": null,
+      "compromised_on": null,
+      "test_only": true
+    },
+    {
+      "key_id": "corpus-v1-maintenance",
+      "algorithm": "ed25519",
+      "public_key": "MCowBQYDK2VwAyEALwE1pfExF9ZYA6sZA4Ak4KYxojmNG0j+PKO02izs1eI=",
+      "purposes": ["maintenance"],
+      "retired_on": null,
+      "compromised_on": null,
+      "test_only": true
+    },
+    {
+      "key_id": "corpus-v1-advisory",
+      "algorithm": "ed25519",
+      "public_key": "MCowBQYDK2VwAyEAXpep4BsqW67Szcm1b/9N4nrs7yBGUnU555zYzeg51O8=",
+      "purposes": ["advisory"],
+      "retired_on": null,
+      "compromised_on": null,
+      "test_only": true
+    },
+    {
+      "key_id": "corpus-v1-support-policy",
+      "algorithm": "ed25519",
+      "public_key": "MCowBQYDK2VwAyEA11KY1VNRU8unxGZuVKNza+s6B1N4o0t2P/99il1iPII=",
+      "purposes": ["support_policy"],
+      "retired_on": null,
+      "compromised_on": null,
+      "test_only": true
+    }
+  ],
+  "thresholds": {
+    "license": 1,
+    "maintenance": 1,
+    "advisory": 1,
+    "support_policy": 1,
+    "bundle": 1,
+    "diagnostic_recipient": 1
+  }
+}

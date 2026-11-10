@@ -1,0 +1,231 @@
+name: CI
+
+on:
+  push:
+    branches: [main, 'm*-*']
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  NEXT_TELEMETRY_DISABLED: '1'
+
+jobs:
+  quality:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm format:check
+      - run: pnpm lint
+      - run: pnpm --filter @ensemus/web exec next typegen
+      - run: pnpm typecheck
+      - run: pnpm test:unit
+      - name: Workflow replay corpus
+        run: pnpm test:replay
+      - name: Backlog and traceability
+        run: pnpm check:backlog
+      - name: Contracts match the specification
+        run: pnpm check:contracts
+      - name: Licenses reviewed
+        run: pnpm check:licenses
+      - name: Dependency audit (production, high and above)
+        run: pnpm audit --prod --audit-level high
+      - name: Docs manifest is current
+        run: node docs/specifications/tools/regenerate-manifest.mjs && git diff --exit-code docs/MANIFEST.json
+
+  # Over 120 files on one database, one file at a time, is more than one job's limit. Each shard is its own
+  # runner with its own PostgreSQL, and vitest's --shard gives every file to exactly one of them.
+  integration:
+    name: integration (${{ matrix.shard }}/${{ strategy.job-total }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4, 5, 6]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - name: Real PostgreSQL roles, RLS, auth and secrets
+        run: pnpm test:integration --shard=${{ matrix.shard }}/${{ strategy.job-total }}
+
+  # The stack jobs below run the test overlay's Caddyfile, so this is the one place the deployed Caddyfile
+  # runs. It builds nothing, and needs only the proxy's pinned image.
+  proxy:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+      - name: Deployed proxy - forged client address, trusted proxy and hostname
+        run: node infrastructure/scripts/check-proxy.mjs
+
+  # Each job below starts its own stack on its own runner, so none can collide with another. Run on one
+  # machine, infrastructure/scripts/run-all-gates.sh clears the stack between them instead.
+  stack:
+    runs-on: ubuntu-24.04
+    env:
+      COMPOSE_PROJECT_NAME: ensemus-ci-stack
+      # The test overlay supplies a private wire-format model; these gates must not silently skip.
+      ENSEMUS_AI_ENABLED: 'true'
+    # Two builds, the whole stack suite on the Sovereign stack, the billing suites again on web, web-2 and the
+    # worker recreated as a hosted deployment (ENSEMUS_MODE=cloud, ENSEMUS_BILLING_ENABLED=true, the generated test
+    # processor's name and break-glass on, for web and web-2 only; no connector worker runs), API-12's check
+    # over what every suite recorded, a bundle of every image, six outages with real answers to wait for, and a
+    # restore over the whole stack last. air-gap-gate.mjs runs each in that order, all with outbound blocked.
+    # The restore waits out 0422's fixed 15-minute cooldown before it acknowledges and serves anyone again.
+    timeout-minutes: 80
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - name: Prepare hosted runner disk headroom
+        run: >-
+          sudo --non-interactive --preserve-env=GITHUB_ACTIONS,RUNNER_ENVIRONMENT,RUNNER_OS,GITHUB_WORKSPACE --
+          "$(command -v node)" infrastructure/scripts/ci-disk-preflight.mjs
+      - run: pnpm stack:secrets
+      - name: Control - the air-gap gate detects a deliberate outbound attempt
+        run: node infrastructure/scripts/air-gap-gate.mjs --control
+      - name: Air-gap gate - full stack tests with outbound traffic blocked
+        run: node infrastructure/scripts/air-gap-gate.mjs --keep
+      - name: SBOMs and signed manifest, verified with no network
+        run: node infrastructure/scripts/build-release.mjs
+      - name: Show service logs on failure
+        if: failure()
+        run: docker compose -f infrastructure/compose/compose.yaml -f infrastructure/compose/compose.test.yaml -f infrastructure/compose/compose.airgap.yaml logs --tail 50
+
+  # ADR-027's exit: Slice 2 and the fault tests, on real containers with the connectors profile on. A job
+  # of its own, so the stack job above still proves the stack with no profile and no way out. Both settings
+  # are for the whole job: Compose reads them here, and tests/stack/slice-2.test.ts skips without them.
+  connectors:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      COMPOSE_PROJECT_NAME: ensemus-ci-connectors
+      COMPOSE_PROFILES: connectors
+      ENSEMUS_CONNECTORS_ENABLED: 'true'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - name: Prepare hosted runner disk headroom
+        run: >-
+          sudo --non-interactive --preserve-env=GITHUB_ACTIONS,RUNNER_ENVIRONMENT,RUNNER_OS,GITHUB_WORKSPACE --
+          "$(command -v node)" infrastructure/scripts/ci-disk-preflight.mjs
+      - run: pnpm stack:secrets
+      - name: Start the stack with the connectors profile
+        run: docker compose -f infrastructure/compose/compose.yaml -f infrastructure/compose/compose.test.yaml up -d --build --wait --wait-timeout 300
+      - name: Slice 2, QA-007, QA-008, QA-019 and AI-TS-01 on real containers
+        run: pnpm stack:slice-2
+      - name: Install Chromium for receipt journeys
+        run: pnpm --filter @ensemus/browser-tests exec playwright install --with-deps chromium
+      - name: External action receipts, unknown-state resolution and denied browser journeys
+        run: pnpm --filter @ensemus/browser-tests exec playwright test specs/external-actions.spec.ts
+      - name: Show service logs on failure
+        if: failure()
+        run: docker compose -f infrastructure/compose/compose.yaml -f infrastructure/compose/compose.test.yaml logs --tail 100
+      - name: Stop the stack, so the gate starts from nothing
+        if: always()
+        run: docker compose -f infrastructure/compose/compose.yaml -f infrastructure/compose/compose.test.yaml down -v
+      - name: Air-gap gate - with the profile on, mail through the sink and nothing leaves the subnet
+        run: node infrastructure/scripts/air-gap-gate.mjs --connectors
+
+  # Real browser tests through the proxy (UX-11 to UX-14, API-13). Chromium is installed here and only
+  # here, on the runner, so this stays apart from the air-gap gate above and never runs under it.
+  # 338 tests at about 8 seconds each, one at a time, is about 45 minutes before any failure, and each
+  # failure rebuilds the seeded organization. So the specs are split across runners, each with its own
+  # stack, as the integration job splits its suite.
+  browser:
+    name: browser (${{ matrix.shard }}/${{ strategy.job-total }})
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
+    env:
+      COMPOSE_PROJECT_NAME: ensemus-ci-browser
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - name: Prepare hosted runner disk headroom
+        run: >-
+          sudo --non-interactive --preserve-env=GITHUB_ACTIONS,RUNNER_ENVIRONMENT,RUNNER_OS,GITHUB_WORKSPACE --
+          "$(command -v node)" infrastructure/scripts/ci-disk-preflight.mjs
+      - run: pnpm stack:secrets
+      - name: Start the stack
+        run: docker compose -f infrastructure/compose/compose.yaml -f infrastructure/compose/compose.test.yaml up -d --build --wait --wait-timeout 300
+      - name: Install Chromium
+        run: pnpm --filter @ensemus/browser-tests exec playwright install --with-deps chromium
+      # A test tagged @agent-worker needs the stack's own agent worker, such as a qualification that worker
+      # runs against the in-subnet fake model when the outbox wakes it. They run first, on one shard, while it
+      # is up and before any other spec has queued work for it.
+      - name: Browser tests the stack's own agent worker serves
+        if: matrix.shard == 1
+        run: pnpm test:browser --grep @agent-worker --reporter=line
+      # These UI fixtures advance agent states directly. Real execution is exercised in the stack gate.
+      - name: Keep the agent UI fixtures under test control
+        run: docker compose -f infrastructure/compose/compose.yaml -f infrastructure/compose/compose.test.yaml stop agent-worker
+      # The line reporter prints each failure, with its error, as it happens, so a run stopped at the
+      # job's time limit still says what failed and why.
+      - name: Browser tests - axe, keyboard, live status, forms, no JavaScript
+        run: pnpm test:browser --shard=${{ matrix.shard }}/${{ strategy.job-total }} --grep-invert @agent-worker --reporter=line
+      - name: Keep the screenshots and any failure traces
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: browser-results-${{ matrix.shard }}
+          path: |
+            .local/screenshots
+            .local/playwright-results
+          include-hidden-files: true
+          if-no-files-found: ignore
+      - name: Show service logs on failure
+        if: failure() || cancelled()
+        run: docker compose -f infrastructure/compose/compose.yaml -f infrastructure/compose/compose.test.yaml logs --tail 50
+
+  upgrade:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # It builds an earlier commit.
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+      - name: Prepare hosted runner disk headroom
+        run: >-
+          sudo --non-interactive --preserve-env=GITHUB_ACTIONS,RUNNER_ENVIRONMENT,RUNNER_OS,GITHUB_WORKSPACE --
+          "$(command -v node)" infrastructure/scripts/ci-disk-preflight.mjs
+      - name: A paused approval across a real release upgrade
+        # main holds only the specification so far, so the merge-base has nothing to upgrade from.
+        # Drop --from once a release is on main.
+        run: node infrastructure/scripts/upgrade-gate.mjs --from a603fc9

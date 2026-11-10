@@ -19,3 +19,13 @@ Measure authenticated page p50/p95/p99, API TTFB and latency, event-loop lag, No
 ## Exit criteria
 
 No cross-tenant data or cached content leaks, no unauthorized provider fallback, no duplicate consequential side effect, verified recovery of workflows, graceful backpressure under load, user-visible honest failure states, and target SLOs met under specified reference hardware/traffic. Investigate bottleneck before changing language or introducing microservices.
+
+## Runnable harness and current evidence
+
+`tests/load/run.mjs` implements explicit-target, generated-account measurements; see `tests/load/README.md` for the private fixture/context shapes and commands. `profiles.mjs` contains small, medium, growing and multi-tenant aggregate parameter sets. These retain the persona labels above and are not measured capacity tiers. Request counts, concurrency, dataset sizes and model-call counts are editable test parameters; no retention period or hardware size is inferred.
+
+The built-in A run measures authenticated business API reads only. B–L are named in code and require explicit reviewed environment controls, running faults/agent load concurrently with those reads and returning actual recovery/isolation/effect observations. No missing control silently degrades into a passing read-only run. The harness separates web latency/TTFB, anonymous per-tenant fairness, harness-process event-loop delay, optional measured agent queue wait and actual-ledger cost per verified outcome. Empty or unbound measurements are marked unknown/owed; failures are counted. Server event-loop/heap, database lock/pool and queue exporters still require runtime bindings.
+
+Portable scaling plans live in `infrastructure/autoscaling/`, with per-workload signals and no selected platform, replica budget or metrics adapter. They cannot be applied until translated and configured. The connector cap shown there is a tuning proposal requiring an actual Worker binding, not an enforcement claim.
+
+**No load, chaos or autoscaling scenario has run from this source work.** A future result must name exact release, reference hardware, locality, dataset preparation, traffic, generated cohort, controls and measurements; it must not claim what another company size or production workload can do. The existing proposed internal objectives remain subject to owner agreement and measurement.

@@ -1,0 +1,2 @@
+ALTER TABLE "work"."work_transitions" ADD COLUMN "completion_basis" text;--> statement-breakpoint
+ALTER TABLE "work"."work_transitions" ADD CONSTRAINT "work_transitions_completion_basis_check" CHECK ("work"."work_transitions"."completion_basis" in ('evidence','owner_confirmed'));

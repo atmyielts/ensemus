@@ -1,0 +1,35 @@
+{
+  "name": "@ensemus/contracts",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./external-actions": "./src/external-actions.ts",
+    "./ai": "./src/ai.ts",
+    "./ai-tools": "./src/ai-tools.ts",
+    "./openapi": "./generated/openapi.d.ts",
+    "./knowledge": "./src/knowledge.ts",
+    "./knowledge-models": "./src/knowledge-models.ts",
+    "./studio": "./src/studio.ts",
+    "./custom-objects": "./src/custom-objects.ts",
+    "./packs": "./src/packs.ts",
+    "./experience": "./src/experience.ts",
+    "./identity-admin": "./src/identity-admin.ts",
+    "./sovereign": "./src/sovereign.ts",
+    "./portability-records": "./src/portability-records.ts",
+    "./saas": "./src/saas.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "generate": "openapi-typescript ../../docs/specifications/openapi.yaml -o generated/openapi.d.ts && node --experimental-strip-types scripts/generate-json-schema.ts"
+  },
+  "dependencies": {
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "ajv": "8.20.0",
+    "ajv-formats": "3.0.1",
+    "openapi-typescript": "7.13.0"
+  }
+}

@@ -35,6 +35,8 @@ One concise priorities region, an attention queue grouped by urgency, active wor
 
 ## Design system
 
+All milestones implement the same [interface system](07-interface-system.md), including shared element states and the workspace/Studio/administration hierarchy. Feature-local visual systems are not permitted.
+
 Cohesive typography, neutral base, intentional accent colors, comfortable spacing, light/dark modes, soft but legible corners, meaningful animations with reduced-motion support. Accessible contrast and focus states. Real icon library, no decorative fake buttons, no gradients used as a substitute for hierarchy. Reusable table, entity reference, activity log, trace viewer, and permission disclosure components.
 
 ## Accessibility and performance

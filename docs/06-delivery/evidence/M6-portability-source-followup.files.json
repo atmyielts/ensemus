@@ -1,0 +1,145 @@
+{
+  "baseCommit": "38344e4",
+  "inventoryVersion": "ensemus.m3-m5/1",
+  "qualification": "Source checkpoint only; SQL, integration, browser, provider and operator acceptance unrun",
+  "unitSnapshot": "248 passed, 2 skipped across 9 files before final contributor guard",
+  "finalGuardCheck": "Two-file format/lint and 3 focused unit tests passed",
+  "files": [
+    {
+      "path": "apps/web/src/app/o/[organizationId]/data/definitions/page.tsx",
+      "sha256": "ada3c3c6186cc940fc8d187d7c1dec9f4960b42c0d70cd9661941170d4a74059"
+    },
+    {
+      "path": "apps/web/src/app/o/[organizationId]/data/page.tsx",
+      "sha256": "4631dabe1caf2c2205a876117cab58f39b29686f1b4b1c6c86308448aef272b4"
+    },
+    {
+      "path": "apps/web/src/components/import-summary.tsx",
+      "sha256": "def53c4e14ba4e800cca83a691d7d5f6b0581c8e4aed2e0f7fc0a012af15d009"
+    },
+    {
+      "path": "docs/06-delivery/evidence/M6-portability-source-followup.md",
+      "sha256": "38f3cb829c04f5c1fa61300555f09c631a6ac90d8be1f9ed23177e6f4bfe3bd0"
+    },
+    {
+      "path": "docs/06-delivery/evidence/M6-report.md",
+      "sha256": "74e20938440e33392724df231ce377c1811796f95aa08c937c0e10116dda2f30"
+    },
+    {
+      "path": "packages/application/src/index.ts",
+      "sha256": "3bc54c3731acc1f6b12797316416bc36a2d869c469486628f07a11ee39b6c272"
+    },
+    {
+      "path": "packages/application/src/portability-epoch.ts",
+      "sha256": "73c8511448fe302303721ea9dc2ab237c41b8f107fb553b96fe70aa2662cb5e2"
+    },
+    {
+      "path": "packages/application/src/portability-export.ts",
+      "sha256": "1582154f0410fbb9d9efb4c02a706a96a07f03613354e8bc25d428d74987e3dc"
+    },
+    {
+      "path": "packages/application/src/portability-extensions.ts",
+      "sha256": "9391d17744ad1c0dd231a49e069a2a033e7d0c914db471bea747cc7aff1abf34"
+    },
+    {
+      "path": "packages/application/src/portability-import.ts",
+      "sha256": "c14e5b706044f7f0b144455f76a7020ff78aea595783503c7a76ce67ce57d14f"
+    },
+    {
+      "path": "packages/application/src/portability-sections-export.ts",
+      "sha256": "6f060aec0be4b6701516f847b79007055b07e456c7dd7ffa701667e8b3e8867b"
+    },
+    {
+      "path": "packages/application/src/portability-sql.ts",
+      "sha256": "af645fb93926341499340259fa9ae7be3a5c6f221a147b5883754793d9f62ad2"
+    },
+    {
+      "path": "packages/application/src/restore-contributors.ts",
+      "sha256": "e027cb2a4c6ce859b4277b1fe86202026bc2e96b415b940b859856924c8f6ec7"
+    },
+    {
+      "path": "packages/application/src/restore-reconcile.ts",
+      "sha256": "315c44bb0ffdf41a630413185e7b12595cf52c595d32f3972353c675f47e3e20"
+    },
+    {
+      "path": "packages/application/src/sovereign-ports.ts",
+      "sha256": "19d328fa6a62e364f35ee181f0c05af28462a1cf91c48e52d66efad5ff8d7b0d"
+    },
+    {
+      "path": "packages/contracts/src/portability-records.ts",
+      "sha256": "db584b5d0de403f14f0a886fb6ddbdd381c9f2ecafeb442d7ee697a0726f5d22"
+    },
+    {
+      "path": "packages/database/migrations/0302_portable_definitions.sql",
+      "sha256": "f84adf398ee9242908a164f09c3b209f9a2457a9f13983f309d636ab96aef24f"
+    },
+    {
+      "path": "packages/database/migrations/0303_export_revocation_epoch.sql",
+      "sha256": "f7f868bb3088de38c386d544b0b96830cc4289b78a610407dd3d52ec5a70cb51"
+    },
+    {
+      "path": "packages/database/src/schema-sovereign.ts",
+      "sha256": "97a7a2715c8084055ce060c2b9c2a7886edcba11801d3fbe27ed068b7e0303f8"
+    },
+    {
+      "path": "packages/domain/src/portability.ts",
+      "sha256": "663a2f604e7721fdac78626498b3434a74fc82caf37c9cdc092a9802ed75d546"
+    },
+    {
+      "path": "tests/browser/specs/data-portability.spec.ts",
+      "sha256": "4872a3b796ccb82b115b86d23327f70befab37e9f605d14595a4efe926ee3b25"
+    },
+    {
+      "path": "tests/integration/fixtures/archive-builder.ts",
+      "sha256": "db4b052dbd1e978cf810203fca6862e0b7d938778a655bee0bca31adcda9ded2"
+    },
+    {
+      "path": "tests/integration/organization-export.test.ts",
+      "sha256": "be39bd82f5257cbb0bafdc9dd99e1cee42ebe38543a0165b022dad10b1f13b83"
+    },
+    {
+      "path": "tests/integration/organization-import.test.ts",
+      "sha256": "aa0196687bcaff89d44ccc18932a4c120f116841b5e99b250394c2efcf525eef"
+    },
+    {
+      "path": "tests/integration/portability-joined.test.ts",
+      "sha256": "1c9894e1f9a78679290b38b6f319c11c97d8832a1b54f413a0a3b0f066f19fc3"
+    },
+    {
+      "path": "tests/unit/advisory-rehearsal.test.ts",
+      "sha256": "db58585a55bb39f7504b0e48af710ad7ce5018f9ce44c2ac8fe57e13c5268c3d"
+    },
+    {
+      "path": "tests/unit/hostile-archive.test.ts",
+      "sha256": "ad9adb2992431c16af901807b4614b69e5c9fc44551418294ecf85362aadf8e3"
+    },
+    {
+      "path": "tests/unit/portability-epoch.test.ts",
+      "sha256": "76b744830ccb10a5c2d2ba5a39c26b064d40d0f52aa5c438dcda18745041c1c5"
+    },
+    {
+      "path": "tests/unit/portability-inventory.test.ts",
+      "sha256": "d320fb380ba5dfba5d273fb553cad81d4adb3300c31ea99195edcb7134fb4cac"
+    },
+    {
+      "path": "tests/unit/restore-contributor-inventory.test.ts",
+      "sha256": "c23440293c60523747dcc04b7b8a028ae19de7e7b30a5bfc65c6f14145387ae8"
+    },
+    {
+      "path": "workers/workflow/src/portability-sections.ts",
+      "sha256": "bb3d34fd5b8c66a6cb1059cf258ca791efb66e2a819b7a9e4b07092f14de2e64"
+    },
+    {
+      "path": "workers/workflow/src/restore-contributors.ts",
+      "sha256": "b37ddbd75b31f1b200e14d9a0c551efb4fbac32cf4dd891d121411f4dc4c6702"
+    },
+    {
+      "path": "workers/workflow/src/restore-reconcile-command.test.ts",
+      "sha256": "f029eac678646d0432736e9d96c837c8beae139981c4ff54cd12fb9479235384"
+    },
+    {
+      "path": "workers/workflow/src/tools/open-archive.ts",
+      "sha256": "6a60f6f9079e8c903dc84a6e16a7d3c3147ca5ddecd7a288fc1ec2bb17121986"
+    }
+  ]
+}

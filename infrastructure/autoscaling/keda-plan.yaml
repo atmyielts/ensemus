@@ -1,0 +1,58 @@
+schemaVersion: 1
+kind: PortableKedaPlan
+activation: template-only
+deployment: { platform: null, namespace: null, imageRegistry: null }
+authentication: { secretRef: null, capability: read-only-metrics }
+workloads:
+  - name: web
+    signal:
+      {
+        binding: authenticated_web_latency,
+        scaler: external-http-latency,
+        target: null,
+        available: false,
+      }
+    limits: { minReplicas: null, maxReplicas: null }
+  - name: platform-worker
+    signal:
+      {
+        binding: temporal.platform.schedule-to-start,
+        taskQueue: ensemus-platform,
+        scaler: external-temporal-queue,
+        target: null,
+        available: false,
+      }
+    limits: { minReplicas: null, maxReplicas: null }
+  - name: agent-worker
+    signal:
+      {
+        binding: temporal.agent.schedule-to-start,
+        taskQueue: ensemus-agent,
+        scaler: external-temporal-agent-queue,
+        target: null,
+        available: false,
+      }
+    limits: { minReplicas: null, maxReplicas: null }
+    isolation: { network: agents, publicOrConnectorNetworkAllowed: false }
+    activityConcurrency: { policy: explicit-budget-required, runtimeBinding: missing }
+  - name: connector-worker
+    signal:
+      {
+        binding: temporal.connectors.schedule-to-start,
+        taskQueue: ensemus-connectors,
+        scaler: external-temporal-activity-queue,
+        target: null,
+        available: false,
+      }
+    limits: { minReplicas: null, maxReplicas: null }
+    activityConcurrency:
+      { policy: low-explicit-cap-required, tuningValue: 2, runtimeBinding: missing }
+  - name: dispatcher
+    signal:
+      {
+        binding: outbox.oldest-ready-age,
+        scaler: external-outbox-age,
+        target: null,
+        available: false,
+      }
+    limits: { minReplicas: null, maxReplicas: null }

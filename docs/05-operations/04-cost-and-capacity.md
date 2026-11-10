@@ -30,3 +30,9 @@ Set DB pool limits, per-queue worker concurrency, cache TTL and bounded memory, 
 ## 6. Financial risk dashboard
 
 Show gross margin by Cloud plan, platform cost by BYOM customer, support burden by Sovereign release, high-cost tool and skill profiles, top failed workflows, price drift, and abnormal provider invoices. Trigger tenant-visible budget warnings before hard stops.
+
+## 7. Measurement implementation status
+
+`tests/load/profiles.mjs` holds editable generated test personas matching section 4's ranges, including aggregate multi-tenant traffic. Dataset/concurrency parameters describe intended inputs and need independent fixture evidence; they are not achieved capacity. `tests/load/README.md` requires explicit hardware, release, locality and generated-account context. No load run or node sizing has been measured by this implementation.
+
+The harness's cost field stays `owed` until a reviewed port joins the actual M4 cost ledger to verified accepted outcomes for that exact run/cohort, with explicit currency. It preserves numerator and denominator rather than inventing a credit-to-money conversion, price or exchange rate. BYOM inference remains informational. The portable financial dashboard definition is unbound, as documented in `07-observability.md`; financial projections and alerts require authorized role-scoped bindings before activation.

@@ -1,0 +1,41 @@
+{
+  "name": "@ensemus/domain",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./work-unit": "./src/work-unit.ts",
+    "./approval": "./src/approval.ts",
+    "./policy": "./src/policy.ts",
+    "./tombstone-ledger": "./src/tombstone-ledger.ts",
+    "./external-action": "./src/external-action.ts",
+    "./integration-events": "./src/integration-events.ts",
+    "./webhook": "./src/webhook.ts",
+    "./connector": "./src/connector.ts",
+    "./ai": "./src/ai.ts",
+    "./ai-binding": "./src/ai-binding.ts",
+    "./ai-events": "./src/ai-events.ts",
+    "./ai-tools": "./src/ai-tools.ts",
+    "./knowledge": "./src/knowledge.ts",
+    "./knowledge-models": "./src/knowledge-models.ts",
+    "./knowledge-events": "./src/knowledge-events.ts",
+    "./product-policy": "./src/product-policy.ts",
+    "./product-events": "./src/product-events.ts",
+    "./pulse": "./src/pulse.ts",
+    "./outcome-composer": "./src/outcome-composer.ts",
+    "./agent-draft": "./src/agent-draft.ts",
+    "./simulation": "./src/simulation.ts",
+    "./process-spec": "./src/process-spec.ts",
+    "./process-run": "./src/process-run.ts",
+    "./custom-object": "./src/custom-object.ts",
+    "./pack": "./src/pack.ts",
+    "./onboarding": "./src/onboarding.ts",
+    "./license": "./src/license.ts",
+    "./portability": "./src/portability.ts",
+    "./portable-definition": "./src/portable-definition.ts",
+    "./sovereign-events": "./src/sovereign-events.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  }
+}

@@ -15,7 +15,7 @@ An agent is a **versioned, permissioned executor** operating on a bounded task. 
 
 ## State model
 
-`created → queued → running → waiting_for_approval / waiting_for_dependency → running → verifying → completed` with `failed`, `cancelled`, `budget_exhausted`, `timed_out`, `outcome_unverified`. Persist causal event IDs, actor/delegation, agent version, work unit ID, bound provider profile, source references, outputs, budget receipts, and recovery cursor.
+`queued → preparing → running → paused / waiting_for_approval / waiting_for_child → running → verifying → completed`, with `failed`, `cancelled`, `budget_exhausted`, `policy_denied`, `timed_out` and `outcome_unverified`. The one list is `AGENT_RUN_STATUSES` in `@ensemus/domain/ai`, and migration 0101 holds the same transitions (ADR-028 FD-7). Persist causal event IDs, actor/delegation, agent version, work unit ID, bound provider profile, source references, outputs, budget receipts, and recovery cursor.
 
 ## Bounded agent loop
 
