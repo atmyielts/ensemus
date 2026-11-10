@@ -367,10 +367,36 @@ export const HTTP_STATUS: Record<ErrorCode, number> = {
   BREAK_GLASS_NOT_AUTHORIZABLE: 409,
 };
 
-/** Reads the Postgres error code through the wrapper Drizzle adds. */
+/**
+ * How many links of an error's cause chain pgCode reads, starting at error.cause. Drizzle puts
+ * PostgreSQL's own error one link down (DrizzleQueryError's cause), and a transaction helper or the
+ * application may wrap that wrapper once or twice more before a caller sees it: five links cover the
+ * deepest of those with room to spare, and the bound keeps the walk finite on a cyclic or very long chain.
+ */
+export const PG_CAUSE_DEPTH = 5;
+
+/**
+ * A SQLSTATE: five digits or upper-case letters, PostgreSQL's own (55P03) and Ensemus's raised ones
+ * (EN850) alike. An AppError's own code (TENANT_BUSY) never has this shape.
+ */
+const SQLSTATE = /^[0-9A-Z]{5}$/;
+
+/**
+ * Reads the Postgres error code below the wrapper Drizzle adds: the first SQLSTATE found walking down the
+ * cause chain from error.cause, at most PG_CAUSE_DEPTH links. The error itself is never read, so a thrown
+ * error's own code is never taken for PostgreSQL's, and neither is the code of an AppError anywhere in the
+ * chain. Drizzle's own shape, PostgreSQL's error as error.cause, reads exactly as it always has.
+ */
 export function pgCode(error: unknown): string | undefined {
-  const cause = (error as { cause?: { code?: unknown } })?.cause;
-  return typeof cause?.code === 'string' ? cause.code : undefined;
+  let link: unknown = error;
+  for (let depth = 0; depth < PG_CAUSE_DEPTH; depth++) {
+    if (!link || typeof link !== 'object') return undefined;
+    link = (link as { cause?: unknown }).cause;
+    if (!link || typeof link !== 'object' || link instanceof AppError) continue;
+    const code = (link as { code?: unknown }).code;
+    if (typeof code === 'string' && SQLSTATE.test(code)) return code;
+  }
+  return undefined;
 }
 
 /**
@@ -397,6 +423,7 @@ export const RETRYABLE_CODES: ReadonlySet<string> = new Set<ErrorCode>([
 /**
  * Lock contention as the refusal a person is told: the tenant is busy, nothing was changed, and the same
  * request can be sent again. It is never a version conflict, because nothing the caller read has changed.
+ * The lock refusal is found however deeply it is wrapped, within PG_CAUSE_DEPTH links (pgCode).
  */
 export function busyFromDatabase(error: unknown): AppError | null {
   return pgCode(error) === LOCK_NOT_AVAILABLE ? new AppError('TENANT_BUSY') : null;
