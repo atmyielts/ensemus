@@ -16,7 +16,7 @@ import {
   type RecordPurgeKind,
 } from '@ensemus/domain/knowledge-events';
 import { sql } from 'drizzle-orm';
-import { AppError } from '../errors';
+import { AppError, LOCK_NOT_AVAILABLE, pgCode } from '../errors';
 import { emit } from '../events';
 import { idSchema } from '../ids';
 
@@ -73,6 +73,44 @@ export async function emitRecordClosedInTx(
   return true;
 }
 
+/** SQLSTATEs with which 0554's attestation, or a lock it needs, says "not completed (yet)". */
+const COMPLETION_NOT_PROVEN = new Set(['EN119', LOCK_NOT_AVAILABLE]);
+
+/**
+ * Records that one record's purge is complete, so the sweep stops proving it (ADR-028 item 8a, 0554).
+ * Call it in the transaction whose composite proof (copied Work, then generated and archive files) just
+ * read completed, after that proof. It passes no value: 0419's guard, as rewritten by 0554, re-runs
+ * PostgreSQL's composite proof under the same locks and writes the completion for the record's current
+ * snapshot and restore generation, or raises EN119 and writes nothing. It runs in a savepoint, so a proof
+ * that does not hold (or a busy lock) rolls back only the attempt: the caller's transaction and result
+ * stand, and the record simply stays a sweep candidate. Returns whether a completion was written; any
+ * other error is a fault and is thrown.
+ */
+export async function recordRecordPurgeCompletionInTx(
+  tx: Tx,
+  context: TenantContext,
+  input: { kind: RecordPurgeKind; id: string },
+): Promise<boolean> {
+  if (context.actorType !== 'service') throw new AppError('FORBIDDEN');
+  const record = recordOf(input);
+  try {
+    return await tx.transaction(async (attempt) => {
+      const result = await attempt.execute<{ recorded: boolean }>(sql`
+        with current_snapshot as (select ai.lock_record_purge_snapshot(${record.kind},${record.id}::uuid) snapshot)
+        update ai.record_purge_jobs job set completed_restore_generation=ai.current_material_restore_generation()
+          from current_snapshot
+         where job.organization_id=${context.organizationId}::uuid and job.record_kind=${record.kind}
+           and job.record_id=${record.id}::uuid and job.snapshot_sha256=current_snapshot.snapshot
+        returning job.completed_restore_generation is not null recorded`);
+      return result.rows.length === 1 && result.rows[0]?.recorded === true;
+    });
+  } catch (error) {
+    const code = pgCode(error) ?? (error as { code?: unknown })?.code;
+    if (typeof code === 'string' && COMPLETION_NOT_PROVEN.has(code)) return false;
+    throw error;
+  }
+}
+
 export type RecordPurgeCandidate = {
   kind: RecordPurgeKind;
   id: string;
@@ -84,6 +122,11 @@ export type RecordPurgeCandidate = {
  * Dead or tombstoned typed records of one tenant, the ones a purge pass has not yet proved at the current
  * restore generation first, then the longest untouched. Metadata only. The order only ranks what the
  * sweep re-proves next; it is never itself a proof that anything is purged.
+ *
+ * A record with a current completion (0554 `ai.record_purge_completed`: its job for the record's current
+ * snapshot was attested completed, by PostgreSQL's composite proof, at the current restore generation)
+ * is not listed, so the sweep does not prove it again and takes no organization row lock for it. A new
+ * restore generation, a changed snapshot or an agent purge pass reopens it.
  */
 export async function listRecordPurgeCandidates(
   database: AppDatabase,
@@ -110,6 +153,8 @@ export async function listRecordPurgeCandidates(
         and (not catalog.alive or exists(select 1 from platform.tombstones tombstone
           where tombstone.organization_id=catalog.organization_id and tombstone.target_type=catalog.record_kind
             and tombstone.target_id=catalog.record_id))
+        and not ai.record_purge_completed(catalog.record_kind,catalog.record_id,
+          (select generation from current_generation))
       group by catalog.record_kind,catalog.record_id
       order by 3,max(job.updated_at) nulls first,catalog.record_kind,catalog.record_id
       limit ${input.limit}`);

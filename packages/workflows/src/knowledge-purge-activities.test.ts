@@ -3,9 +3,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AppError } from '@ensemus/application';
 
-const listed = vi.hoisted(() => ({ candidates: vi.fn() }));
+const listed = vi.hoisted(() => ({ candidates: vi.fn(), complete: vi.fn() }));
 vi.mock('@ensemus/application/knowledge/record-closure', () => ({
   listRecordPurgeCandidates: listed.candidates,
+  recordRecordPurgeCompletionInTx: listed.complete,
 }));
 vi.mock('@ensemus/database', async (original) => ({
   ...(await original<typeof import('@ensemus/database')>()),
@@ -60,7 +61,112 @@ function activities(work: (id: string) => Proof, files: (kind: string) => { rema
 }
 
 describe('claimRecordPurgeRestarts', () => {
-  beforeEach(() => listed.candidates.mockReset());
+  beforeEach(() => {
+    listed.candidates.mockReset();
+    listed.complete.mockReset();
+    listed.complete.mockResolvedValue(true);
+  });
+
+  it('records a completed proof, so the next sweep does not prove that record again but still proves an incomplete one', async () => {
+    // Finding 3 (round 12): every sweep used to prove every listed record again, completed ones included,
+    // and each proof took the organization row lock (0514). The listing now leaves out a record with a
+    // current completion (0554), which only a proof that read completed asks PostgreSQL to record.
+    const completed = new Set<string>();
+    listed.complete.mockImplementation(
+      async (_tx: unknown, _context: unknown, input: { id: string }) => {
+        completed.add(input.id);
+        return true;
+      },
+    );
+    listed.candidates.mockImplementation(async () =>
+      [candidate(1, 'object_record'), candidate(2)].filter((row) => !completed.has(row.id)),
+    );
+    const proved: string[] = [];
+    const claim = activities(
+      (id) => {
+        proved.push(id);
+        return id === idOf(2) ? open : done;
+      },
+      () => ({ remaining: 0 }),
+    );
+    const due = [{ organizationId, kind: 'work_unit', id: idOf(2), limit: 25 }];
+    expect(await claim.claimRecordPurgeRestarts({ organizationId })).toEqual({ failed: 0, due });
+    expect(proved).toEqual([idOf(1), idOf(2)]);
+    // Only the proof that read completed recorded a completion, under the record's own kind.
+    expect(listed.complete).toHaveBeenCalledTimes(1);
+    expect(listed.complete.mock.calls[0]?.[2]).toMatchObject({
+      kind: 'object_record',
+      id: idOf(1),
+    });
+    for (let pass = 0; pass < 2; pass++) {
+      proved.length = 0;
+      expect(await claim.claimRecordPurgeRestarts({ organizationId })).toEqual({ failed: 0, due });
+      // The completed record is not proved again (no confirm, so no 0514 lock); the open one still is.
+      expect(proved).toEqual([idOf(2)]);
+    }
+    expect(listed.complete).toHaveBeenCalledTimes(1);
+  });
+
+  it('records no completion for a proof that does not read completed, so the record stays listed', async () => {
+    listed.candidates.mockResolvedValue([
+      candidate(1),
+      candidate(2),
+      candidate(3, 'object_record'),
+    ]);
+    const claim = activities(
+      (id) => {
+        if (id === idOf(1)) return open;
+        if (id === idOf(2)) throw new AppError('INVALID_STATE');
+        return done;
+      },
+      // The copied Work of record 3 is proved, but a generated file still depends on it.
+      () => ({ remaining: 1 }),
+    );
+    const result = await claim.claimRecordPurgeRestarts({ organizationId });
+    expect(result.failed).toBe(0);
+    expect(result.due.map((record) => record.id)).toEqual([idOf(1), idOf(2), idOf(3)]);
+    expect(listed.complete).not.toHaveBeenCalled();
+  });
+
+  it('keeps the proof when PostgreSQL does not record the completion, and the next sweep proves again', async () => {
+    // A completion PostgreSQL refuses to write (its own proof differs, or a lock is busy) changes
+    // nothing for this pass: the record is proved, so it is not due, and it stays a candidate.
+    listed.complete.mockResolvedValue(false);
+    listed.candidates.mockResolvedValue([candidate(1, 'object_record')]);
+    const proved: string[] = [];
+    const claim = activities(
+      (id) => {
+        proved.push(id);
+        return done;
+      },
+      () => ({ remaining: 0 }),
+    );
+    for (let pass = 0; pass < 2; pass++)
+      expect(await claim.claimRecordPurgeRestarts({ organizationId })).toEqual({
+        failed: 0,
+        due: [],
+      });
+    expect(proved).toEqual([idOf(1), idOf(1)]);
+    expect(listed.complete).toHaveBeenCalledTimes(2);
+  });
+
+  it('records the completion from the workflow’s final proof too, never from an unproved one', async () => {
+    const input = { organizationId, kind: 'object_record' as const, id: idOf(1), limit: 25 };
+    let filesRemaining = 1;
+    const claim = activities(
+      () => done,
+      () => ({ remaining: filesRemaining }),
+    );
+    expect(await claim.confirmRecordPurge(input)).toMatchObject({ filesRemaining: 1 });
+    expect(listed.complete).not.toHaveBeenCalled();
+    filesRemaining = 0;
+    expect(await claim.confirmRecordPurge(input)).toMatchObject({ filesRemaining: 0 });
+    expect(listed.complete).toHaveBeenCalledTimes(1);
+    expect(listed.complete.mock.calls[0]?.[2]).toMatchObject({
+      kind: 'object_record',
+      id: idOf(1),
+    });
+  });
 
   it('counts a record whose file proof refuses as failed and keeps claiming the ones behind it', async () => {
     // A file proof that refuses once the copied Work is proved (here a missing lifecycle binding);
