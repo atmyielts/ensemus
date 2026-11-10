@@ -3,6 +3,8 @@
 2026-11-09, Asia/Tashkent. Feature development is paused while the integration's Linux CI failures
 are repaired. A green local unit suite, a source recovery commit and an archived branch are not
 milestone acceptance. This report separates those observations from actual GitHub Actions results.
+Updated 2026-11-10 with the round 11 and round 12 CI runs; a green run is not milestone acceptance
+either.
 
 The required exits remain those in the [delivery plan](../06-end-to-end-delivery-plan.md) and
 [acceptance criteria](../03-acceptance-and-dod.md). No exit requirement has been removed.
@@ -20,7 +22,10 @@ or patch equivalence (23); 25 contain unmatched source preserved for later revie
 has not been declared merged, tested or accepted. Existing working directories were preserved.
 Subsequent CI repairs belong on the one integration branch rather than new feature branches.
 
-## Current integration CI
+## First integration CI checkpoint, kept as history
+
+This section was the current integration result on 2026-11-09. It is kept unchanged as history; the
+later runs are recorded in the next section.
 
 The first PR run, [42565538981](https://github.com/atmyielts/ensemus/actions/runs/42565538981), completed
 with **six failed jobs and one passed job** at exact head
@@ -38,6 +43,78 @@ with **six failed jobs and one passed job** at exact head
 
 This is the initial failing checkpoint. Later repair attempts must be recorded with their own run
 URL, exact head and actual job results; a pending or partially green rerun does not supersede it.
+
+## Later integration CI: repair rounds 11 and 12 (recorded 2026-11-10)
+
+This section records GitHub Actions results only. It is separate from the local evidence further
+down, and nothing in it was produced on a workstation. Run conclusions, heads and job conclusions
+were read with `gh run view --json`; the job-log API was used for the counts quoted below.
+
+### Round 11: run 42719085697 passed all 14 jobs
+
+[Run 42719085697](https://github.com/atmyielts/ensemus/actions/runs/42719085697) (`pull_request`
+event on [draft PR #1](https://github.com/atmyielts/ensemus/pull/1)) ran on exact head
+`74e12a88500393f5ccc87957f0696d34e9a68314`, the round 11 head. Its conclusion is success, and every
+one of its 14 jobs concluded success.
+
+| Job | Result | Job link |
+|---|---|---|
+| quality | Passed | [129508126907](https://github.com/atmyielts/ensemus/actions/runs/42719085697/job/129508126907) |
+| proxy | Passed | [129508126613](https://github.com/atmyielts/ensemus/actions/runs/42719085697/job/129508126613) |
+| connectors | Passed | [129508126956](https://github.com/atmyielts/ensemus/actions/runs/42719085697/job/129508126956) |
+| upgrade | Passed | [129508126899](https://github.com/atmyielts/ensemus/actions/runs/42719085697/job/129508126899) |
+| stack | Passed | [129508126952](https://github.com/atmyielts/ensemus/actions/runs/42719085697/job/129508126952) |
+| integration (1/6) | Passed | [129508127080](https://github.com/atmyielts/ensemus/actions/runs/42719085697/job/129508127080) |
+| integration (2/6) | Passed | [129508126972](https://github.com/atmyielts/ensemus/actions/runs/42719085697/job/129508126972) |
+| integration (3/6) | Passed | [129508126976](https://github.com/atmyielts/ensemus/actions/runs/42719085697/job/129508126976) |
+| integration (4/6) | Passed | [129508127123](https://github.com/atmyielts/ensemus/actions/runs/42719085697/job/129508127123) |
+| integration (5/6) | Passed | [129508126918](https://github.com/atmyielts/ensemus/actions/runs/42719085697/job/129508126918) |
+| integration (6/6) | Passed | [129508127239](https://github.com/atmyielts/ensemus/actions/runs/42719085697/job/129508127239) |
+| browser (1/3) | Passed | [129508127236](https://github.com/atmyielts/ensemus/actions/runs/42719085697/job/129508127236) |
+| browser (2/3) | Passed | [129508127216](https://github.com/atmyielts/ensemus/actions/runs/42719085697/job/129508127216) |
+| browser (3/3) | Passed | [129508127058](https://github.com/atmyielts/ensemus/actions/runs/42719085697/job/129508127058) |
+
+Counts read from the job logs, as limits rather than extra claims: the quality job's unit step
+passed 6,136 tests in 289 files with none skipped; its replay step passed 204 tests with 50 skipped
+and 6 todo (21 of 32 replay files skipped, so the replay corpus is not fully exercised by that
+pass). The connectors job's Slice 2 step passed 15 tests, its external-action browser spec passed
+16, and its connectors-profile air-gap gate passed 15. Every job in the quality, integration, proxy, stack, connectors, browser and upgrade
+definitions in `.github/workflows/ci.yml` at that head ran to success; no job was skipped.
+
+### Round 12: run 42731641015 did not start any job
+
+[Run 42731641015](https://github.com/atmyielts/ensemus/actions/runs/42731641015) on round 12 head
+`49233a97f9fe78edb59f3755e5242742dd640d99` is reported as failed, but none of its 14 jobs started:
+each has zero steps and no log, and each carries the same annotation, that the job was not started
+because recent account payments failed or the spending limit needs to be increased.
+
+That run is therefore **no evidence for or against** anything on that head, including migrations
+0553 and 0554. It is not a code failure and it is not a pass, and it is listed as neither anywhere
+in this report.
+
+### What the green run does not cover
+
+- Run 42719085697 predates migration 0553 (retained referent birth guards) and migration 0554
+  (record purge completion): neither file exists at `74e12a8`; both are on `49233a9`. Migration
+  0555 is being added in round 13 and is on neither head. These three migrations, and any code that
+  depends on them, have **no CI evidence** yet. They get their own CI evidence only once a run on
+  the round 13 head actually executes and passes, recorded with its run URL, exact head and job
+  results.
+- A green CI run is not launch readiness and not milestone sign-off. It shows that the named jobs'
+  automated checks passed at one commit. It does not accept any milestone exit, and none is marked
+  accepted below.
+
+### Still unreviewed or not done
+
+- Human security review of migrations 0519 to 0555, including the 0548 delegation birth readiness
+  migration. Migrations 0553, 0554 and 0555 are **FLAGGED FOR HUMAN SECURITY REVIEW**.
+- ADR-032 D7 (offboarding and operator erasure) still needs the outside security review its status
+  line requires, with D3, D4, D5 and D8.
+- ADR-028: the security reviewer is not yet named (owner decision (c), 2026-11-09).
+- Outside penetration test: not done.
+- Legal review: not done.
+- Accessibility audit by an independent party: not done. Automated axe checks in the browser jobs
+  are not that audit.
 
 ## Historical Linux CI that actually passed
 
@@ -57,13 +134,16 @@ No successful M3–M11 milestone exit evidence was found in the inspected reposi
 
 “Historical subset” below means the named technical checks passed at the historical SHA above.
 It does not mean the complete milestone, the current integration or outside sign-off passed.
+“Round 11 jobs” means the named jobs of run 42719085697 passed at `74e12a8`, as recorded above. It
+is CI evidence for those jobs' checks at that commit only: it does not cover 0553, 0554 or 0555, and
+it does not accept any exit. Every exit below remains unaccepted.
 
 | Milestone | Required exit | What passed in CI | What still lacks CI or external acceptance |
 |---|---|---|---|
-| M0 | Every PRD requirement, QA scenario and threat maps to a ticket; regenerated manifest. | Historical mechanical backlog/traceability, contracts and manifest checks. | Current integration quality failed before those checks; checker success alone is not acceptance of every mapped requirement. |
-| M1 | Phase 0 technical criteria and outside review of D4/D5 before any real credential. | Historical foundation technical subset: actual roles/RLS, auth/secrets tests, built offline stack, confidentiality/network controls and signed-manifest checks. | No complete current milestone exit; outside security review, production signing custody and counsel/license decisions remain separate gates. |
-| M2 | Slice 1, QA-001–007 and NEXT-01–04; measured tenant transaction overhead/dispatcher delay and forecast. | Historical committed core integration, built stack, browser, replay, proxy and upgrade checks. | Newer continuation/current-head verification; exact changed-email-recipient QA-007 was partial until M3. Historical aggregate success does not certify all later behavior or missing measurements. |
-| M3 | Slice 2; QA-007/008/019 and AI-TS-01, including timeout-after-send faults. | No successful milestone exit in inspected CI. | Current connector job failed; complete connector/receipt/fault/replay and isolation confirmation on the integration head remains required. |
+| M0 | Every PRD requirement, QA scenario and threat maps to a ticket; regenerated manifest. | Historical mechanical backlog/traceability, contracts and manifest checks. Round 11 jobs: the quality job passed format, lint, types, units, replay, backlog/traceability, contracts, licenses, audit and docs manifest at `74e12a8`. | The quality checks have no passing run on the round 13 head yet (round 12's run never started). Checker success alone is not acceptance of every mapped requirement. |
+| M1 | Phase 0 technical criteria and outside review of D4/D5 before any real credential. | Historical foundation technical subset: actual roles/RLS, auth/secrets tests, built offline stack, confidentiality/network controls and signed-manifest checks. Round 11 jobs: all six integration shards and the stack job (air-gap control, offline stack suites, SBOMs and signed manifest) passed at `74e12a8`. | No complete current milestone exit; no CI evidence yet for 0553–0555; outside security review, production signing custody and counsel/license decisions remain separate gates. |
+| M2 | Slice 1, QA-001–007 and NEXT-01–04; measured tenant transaction overhead/dispatcher delay and forecast. | Historical committed core integration, built stack, browser, replay, proxy and upgrade checks. Round 11 jobs: integration, stack, all three browser shards, replay (with 50 skipped), proxy and upgrade passed at `74e12a8`. | Verification on the round 13 head, which carries 0553–0555; exact changed-email-recipient QA-007 was partial until M3. Historical aggregate success does not certify all later behavior or missing measurements. |
+| M3 | Slice 2; QA-007/008/019 and AI-TS-01, including timeout-after-send faults. | No successful milestone exit in inspected CI. Round 11 jobs: the connectors job passed its Slice 2 / QA-007 / QA-008 / QA-019 / AI-TS-01 stack step, the external-action receipt browser spec and the connectors-profile air-gap gate at `74e12a8`. | Not yet reviewed against every M3 exit criterion (including timeout-after-send faults) and not accepted; replay was partly skipped; no CI evidence yet on the round 13 head. |
 | M4 | Slice 3; QA-009/010/012–014/018, Gate C for an agent and use with actual approved keys. | No successful milestone exit in inspected CI. | Current composed runtime, API, confidentiality, replay, agent-control and provider acceptance; outside review remains separate. |
 | M5 | Slice 4, Gate D, measured pgvector recall under ACLs and the BYOM pilot gate. | No successful milestone exit in inspected CI. | Full knowledge/provider journeys, actual egress, measured recall, hosted pilot and complete mode acceptance. |
 | M6 | Sovereign offline acceptance on built binaries including packet capture; a restore run independently. | No M6 exit in inspected CI. Earlier foundation offline passes do not qualify the final Sovereign binaries. | Final signed install/local-inference/upgrade/restore acceptance and independently executed restore. Released-binary qualification is required before an air-gap sales claim. |
@@ -105,3 +185,9 @@ read from their linked checkpoint reports; those tests were not rerun for this d
 
 No provider message, real credential, signing key, customer data, deployment or acceptance approval
 was created by this audit. Later CI repairs and their results require separate evidence updates.
+
+The 2026-11-10 update added only the CI section for rounds 11 and 12 and the round 11 entries in the
+exit table. Its run and job conclusions, heads, annotations and quoted counts were read with
+`gh run view --json`, the check-run annotations API and the Actions job-log API; the presence of
+0553 and 0554 on `49233a9` and their absence at `74e12a8` were checked with `git ls-tree`. No test
+was run for that update and no exit was accepted by it.
