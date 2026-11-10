@@ -100,6 +100,113 @@ describe('the spec and the routes', () => {
   });
 });
 
+// ADR-032 D5: every route answers a write refused by lock contention (55P03) as 503 TENANT_BUSY, retryable,
+// with Retry-After, through refusalFromDatabase and toErrorResponse in apps/web/src/server/api.ts. Any route can
+// meet it, so every operation must say so. tests/unit/api-busy-refusal.test.ts sends the real answer through
+// the validator for every one of them.
+type Declared = Record<string, unknown>;
+const SHARED_BUSY = '#/components/responses/RestorePending';
+const ERROR_SCHEMA = '#/components/schemas/Error';
+
+function follow(node: unknown): Declared | undefined {
+  if (node === null || typeof node !== 'object') return undefined;
+  const ref = (node as Declared).$ref;
+  if (typeof ref !== 'string') return node as Declared;
+  if (!ref.startsWith('#/')) return undefined;
+  return follow(
+    ref
+      .slice(2)
+      .split('/')
+      .reduce<unknown>((at, key) => (at as Declared | undefined)?.[key], spec),
+  );
+}
+
+/** What is missing from a 503 declaration for it to carry TENANT_BUSY as api.ts sends it. */
+function busyDeclarationProblems(declared: unknown): string[] {
+  if (declared === undefined) return ['no 503 declared'];
+  if ((declared as Declared | null)?.$ref === SHARED_BUSY) return [];
+  const response = follow(declared);
+  if (!response) return ['the 503 declaration does not resolve'];
+  const problems: string[] = [];
+  const headers = (response.headers ?? {}) as Record<string, unknown>;
+  const name = Object.keys(headers).find((header) => header.toLowerCase() === 'retry-after');
+  const retryAfter = name === undefined ? undefined : follow(headers[name]);
+  const schema = retryAfter?.schema as Declared | undefined;
+  if (!retryAfter) problems.push('no Retry-After header');
+  else if (retryAfter.required === true) problems.push('Retry-After is required on every 503');
+  else if (schema?.type !== 'string' || typeof schema.pattern !== 'string') {
+    problems.push('Retry-After has no whole-seconds schema');
+  }
+  const json = (response.content as Record<string, Declared> | undefined)?.['application/json'];
+  if ((json?.schema as Declared | undefined)?.$ref !== ERROR_SCHEMA) {
+    problems.push('the 503 body is not the Error schema');
+  }
+  return problems;
+}
+
+describe('the busy answer', () => {
+  const shared = follow({ $ref: SHARED_BUSY });
+
+  it('is the shared 503, with Retry-After in whole seconds and the Error body', () => {
+    expect(shared).toBeDefined();
+    expect(busyDeclarationProblems(shared)).toEqual([]);
+    expect(String(shared?.description)).toContain('TENANT_BUSY');
+  });
+
+  it('is declared on every operation, as the shared 503 or one that says the same', () => {
+    const all = operations();
+    // Every operation in the file, so a path added without its 503 cannot hide behind a filter.
+    expect(all.length).toBeGreaterThanOrEqual(174);
+    for (const { method, path } of all) {
+      const { responses } = spec.paths[path]?.[method.toLowerCase()] as {
+        responses: Record<string, unknown>;
+      };
+      expect(busyDeclarationProblems(responses['503']), operationName(method, path)).toEqual([]);
+    }
+  });
+
+  it('refuses a 503 that leaves out what a busy answer carries', () => {
+    const error = { 'application/json': { schema: { $ref: ERROR_SCHEMA } } };
+    const header = { required: false, schema: { type: 'string', pattern: '^[1-9][0-9]{0,3}$' } };
+    expect(busyDeclarationProblems(undefined)).toEqual(['no 503 declared']);
+    expect(busyDeclarationProblems({ $ref: '#/components/responses/Nothing' })).toEqual([
+      'the 503 declaration does not resolve',
+    ]);
+    expect(busyDeclarationProblems({ description: 'x', content: error })).toEqual([
+      'no Retry-After header',
+    ]);
+    expect(
+      busyDeclarationProblems({
+        description: 'x',
+        headers: { 'Retry-After': { ...header, required: true } },
+        content: error,
+      }),
+    ).toEqual(['Retry-After is required on every 503']);
+    expect(
+      busyDeclarationProblems({
+        description: 'x',
+        headers: { 'Retry-After': { schema: { type: 'integer' } } },
+        content: error,
+      }),
+    ).toEqual(['Retry-After has no whole-seconds schema']);
+    expect(
+      busyDeclarationProblems({
+        description: 'x',
+        headers: { 'Retry-After': header },
+        content: { 'application/json': { schema: { type: 'object' } } },
+      }),
+    ).toEqual(['the 503 body is not the Error schema']);
+    // The same, written out in full rather than shared, is accepted.
+    expect(
+      busyDeclarationProblems({
+        description: 'x',
+        headers: { 'Retry-After': header },
+        content: error,
+      }),
+    ).toEqual([]);
+  });
+});
+
 describe('how the API says you sign in', () => {
   it('asks for the session cookie and nothing else', () => {
     expect(spec.security).toEqual([{ sessionCookie: [] }]);
@@ -426,6 +533,7 @@ describe('what the Sovereign routes answer with', () => {
         expect(responses, `${method} ${path} lists ${code}`).toHaveProperty(code);
       }
     }
+    // 503 is not a Sovereign matter alone: every operation declares it, and how, in 'the busy answer'.
   });
 
   it('sends the archive as a download that is never stored, with a name that is safe', () => {

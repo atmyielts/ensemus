@@ -3,7 +3,7 @@
 // reach a caller as a 409 VERSION_CONFLICT from custom objects, or as a 500 from anything else.
 import { describe, expect, it, vi } from 'vitest';
 import { AppError } from '@ensemus/application';
-import { contractProblems } from '../helpers/openapi';
+import { contractProblems, operationName, operations } from '../helpers/openapi';
 
 // Importing the real package from outside a server component throws, which is what it is for.
 vi.mock('../../apps/web/node_modules/server-only/index.js', () => ({}));
@@ -76,4 +76,42 @@ describe('the API answer to a busy tenant', () => {
     expect(restoring.body).toMatchObject({ code: 'RESTORE_PENDING', retryable: true });
     expect(restoring.headers.get('retry-after')).toBeNull();
   });
+});
+
+/** A request path for an operation, every parameter filled with an ID, as a caller would send it. */
+const concrete = (template: string) => `/api/v1${template.replaceAll(/\{[^}]+\}/g, ID)}`;
+
+// refusalFromDatabase maps every 55P03 to TENANT_BUSY on every route and server action, so every operation
+// must accept the answer. tests/unit/openapi-contract.test.ts checks how each declares it.
+describe('the busy answer on every operation', () => {
+  const all = operations();
+
+  it('fills every parameter of a path', () => {
+    expect(concrete('/organizations/{organization_id}/work-units/{work_unit_id}')).toBe(
+      `/api/v1/organizations/${ID}/work-units/${ID}`,
+    );
+  });
+
+  it.each(all.map(({ method, path }) => [operationName(method, path), method, path] as const))(
+    'matches the spec for %s',
+    async (name, method, path) => {
+      for (const error of [
+        new AppError('TENANT_BUSY'),
+        new Error('Private SQL', { cause: { code: '55P03' } }),
+      ]) {
+        const busy = await answer(error);
+        expect(busy.status).toBe(503);
+        expect(busy.headers.get('retry-after')).toBe('1');
+        const observed = { method, path: concrete(path), ...busy };
+        const checkedHere = contractProblems(observed);
+        // The generated path must find this operation, not a neighbour that happens to share its shape.
+        expect(checkedHere.operation).toBe(name);
+        expect(checkedHere.problems).toEqual([]);
+
+        // And the declaration reached is the one that checks the header: a malformed one is refused.
+        busy.headers.set('retry-after', 'soon');
+        expect(contractProblems(observed).problems.join()).toContain('Retry-After');
+      }
+    },
+  );
 });
