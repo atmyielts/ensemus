@@ -6,7 +6,7 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { and, eq, sql } from 'drizzle-orm';
-import { AppError, createWorkUnit, getWorkUnit, pgCode } from '@ensemus/application';
+import { createWorkUnit, getWorkUnit } from '@ensemus/application';
 import {
   createObjectRecord,
   createObjectType,
@@ -423,7 +423,7 @@ describe('ADR-028 typed-record deletion outbox (8a)', () => {
       }),
       lifecycle = createObjectDeletionLifecycle({ database: app.db, store });
     // Observed, not replaced: each record whose production proof ran, and the error any proof threw, so
-    // the pass's failure count can be checked exactly against the other candidates of this tenant.
+    // the object record's own proof can be checked to have run and thrown nothing.
     const proved: string[] = [],
       thrown = new Map<string, unknown>();
     const observe = async <T>(input: { kind: string; id: string }, proof: () => Promise<T>) => {
@@ -464,17 +464,24 @@ describe('ADR-028 typed-record deletion outbox (8a)', () => {
     expect(due).toContain(`work_unit:${f.input.id}`);
     expect(due).not.toContain(objectKey);
     // Finding 2 (round 12): the pass counted no failure for the object record. Its proof ran and threw
-    // nothing, and the failure count is exactly the other candidates' proofs that refused with anything
-    // the claim does not restart (it restarts INVALID_STATE, VERSION_CONFLICT and a busy lock, 55P03).
+    // nothing.
     expect(proved).toContain(objectKey);
     expect(thrown.has(objectKey)).toBe(false);
-    const restarted = (error: unknown) =>
-      (error instanceof AppError &&
-        (error.code === 'INVALID_STATE' || error.code === 'VERSION_CONFLICT')) ||
-      pgCode(error) === '55P03';
-    const failures = [...thrown].filter(([, error]) => !restarted(error)).map(([key]) => key);
-    expect(failures).not.toContain(objectKey);
-    expect(claim.failed).toBe(failures.length);
+    // The failure count is fixed by hand from what this file has left in tenant a, not recomputed from
+    // the claim's own classification (check finding 10, round 13). Tenant a's only dead or tombstoned
+    // typed records here are:
+    // - the input of the "sweep claims ... until PostgreSQL proves its purge" case: purged, and that
+    //   case's last claim recorded its durable completion (0554), so it is no longer listed. Were it
+    //   listed again, its copied-Work proof reads confirmed and its file proof (kind-generic, and the
+    //   child wrote no file) reads 0, so it would be neither due nor failed;
+    // - the input of the "forged event" case: tombstoned there but never purged, so its copied-Work
+    //   proof reads unconfirmed and the claim restarts it (due, not failed), as the sweep case shows;
+    // - this case's input f.input: the same, and asserted due above;
+    // - the deleted object record: its proof completes (asserted above and below), not failed.
+    // Every other closed record of this file belongs to tenant b or to `people`, never listed for a.
+    // So no candidate refuses with a code the claim does not restart: a regression of finding 2 would
+    // count the object record and make this 1.
+    expect(claim.failed).toBe(0);
     expect(
       await production.readRecordPurgeState({
         organizationId: a.organizationId,
