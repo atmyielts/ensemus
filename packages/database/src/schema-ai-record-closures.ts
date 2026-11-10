@@ -35,6 +35,12 @@ export const recordPurgeJobs = ai.table(
     receiptsSha256: text(),
     createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+    // 0554: the durable completion, NULL until PostgreSQL's own composite proof attests it (0419's guard
+    // calls ai.attest_record_purge_completion and clears both on any agent write). Never written from
+    // here: ensemus_app holds UPDATE on completed_restore_generation only, and whatever it sends is
+    // replaced by the guard's value; completed_at has no runtime privilege at all (0555 pins both).
+    completedRestoreGeneration: uuid('completed_restore_generation'),
+    completedAt: timestamp('completed_at', { withTimezone: true }),
   },
   (t) => [
     primaryKey({
@@ -62,6 +68,12 @@ export const recordPurgeJobs = ai.table(
       'record_purge_jobs_proof',
       sql`(${t.checkedAt} is null and ${t.receiptsSha256} is null) or (${t.checkedAt} is not null and ${t.receiptsSha256} is not null and ${t.receiptsSha256} ~ '^[0-9a-f]{64}$'
     and ${t.workRemaining} is not null and ${t.workRemaining}=0 and ${t.unknownWork} is not null and ${t.unknownWork}=0 and ${t.controlsRemaining} is not null and ${t.controlsRemaining}=0)`,
+    ),
+    // 0554:81-83: both completion columns or neither, and only on a checked job, at its own generation.
+    check(
+      'record_purge_jobs_completion',
+      sql`(${t.completedRestoreGeneration} is null and ${t.completedAt} is null) or (${t.completedRestoreGeneration} is not null and ${t.completedAt} is not null and ${t.checkedAt} is not null
+    and ${t.restoreGeneration} is not null and ${t.restoreGeneration}=${t.completedRestoreGeneration})`,
     ),
   ],
 );
