@@ -375,18 +375,18 @@ describe('a typed-record purge completion is written only by PostgreSQL proof (0
     const generation = await complete(tenant, 'work_unit', id);
     const forged = randomUUID();
     // ensemus_agent holds UPDATE(completed_restore_generation) through ensemus_app (0554:87), and 0419's
-    // agent policy lets it reach its tenant's job. 0419's guard, as 0554 rewrote it, sends the write to
-    // 0419's checks, which clear the completion, or refuses it: never the forged value.
-    const outcome = await refusal(
-      withTenantTx(agent.db, service, (tx) =>
-        tx.execute(sql`update ai.record_purge_jobs set completed_restore_generation=${forged}::uuid
-          where record_kind='work_unit' and record_id=${id}::uuid`),
+    // agent policy lets it reach its tenant's job. 0554's opening branch is for ensemus_app only, so the
+    // agent's write reaches 0419's own checks. Nothing else changed, so they pass, and 0554's closing
+    // rewrite clears the completion: the write lands, but never with the forged value.
+    expect(
+      await refusal(
+        withTenantTx(agent.db, service, (tx) =>
+          tx.execute(sql`update ai.record_purge_jobs set completed_restore_generation=${forged}::uuid
+            where record_kind='work_unit' and record_id=${id}::uuid`),
+        ),
       ),
-    );
-    const after = await completion(tenant, 'work_unit', id);
-    expect(after.stored).not.toContain(forged);
-    if (outcome === 'written') expect(after).toMatchObject({ stored: [], current: false });
-    else expect(after).toMatchObject({ stored: [generation], current: true });
+    ).toBe('written');
+    expect(await completion(tenant, 'work_unit', id)).toMatchObject({ stored: [], current: false });
     // completed_at has no runtime privilege at all, on either role.
     for (const database of [agent.db, app.db])
       expect(
@@ -397,14 +397,21 @@ describe('a typed-record purge completion is written only by PostgreSQL proof (0
           ),
         ),
       ).toBe('42501');
-    // The knowledge worker's own UPDATE carries a value too; PostgreSQL stores its proof's generation.
-    await refusal(
-      withTenantTx(app.db, service, (tx) =>
-        tx.execute(sql`update ai.record_purge_jobs set completed_restore_generation=${forged}::uuid
-          where record_kind='work_unit' and record_id=${id}::uuid`),
+    // The knowledge worker's own UPDATE carries a value too. 0554's attestation ignores it: the snapshot,
+    // checked generation and composite proof still hold, so PostgreSQL stores its own proof's generation.
+    expect(
+      await refusal(
+        withTenantTx(app.db, service, (tx) =>
+          tx.execute(sql`update ai.record_purge_jobs set completed_restore_generation=${forged}::uuid
+            where record_kind='work_unit' and record_id=${id}::uuid`),
+        ),
       ),
-    );
-    expect((await completion(tenant, 'work_unit', id)).stored).not.toContain(forged);
+    ).toBe('written');
+    expect(await completion(tenant, 'work_unit', id)).toEqual({
+      stored: [generation],
+      generation,
+      current: true,
+    });
     // The sweep's proof completes it again, at the current generation.
     await sweep(tenant);
     expect(await completion(tenant, 'work_unit', id)).toEqual({
