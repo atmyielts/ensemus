@@ -45,7 +45,7 @@ export function KnowledgeCitation({
         {citation.freshness === 'superseded'
           ? 'A newer source version is available. Review this passage before using it.'
           : 'Source passage'}
-        {citation.sourceModifiedAt ? ` · Updated ${formatDateTime(citation.sourceModifiedAt)}` : ''}
+        {citation.sourceModifiedAt ? <> · Updated {formatDateTime(citation.sourceModifiedAt)}</> : ''}
       </p>
       {citation.sourceVersion && <p className="muted">Version {citation.sourceVersion}</p>}
       <SourceLink url={citation.sourceUrl ?? null} />

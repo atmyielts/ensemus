@@ -54,7 +54,11 @@ export default async function ProcessRunPage({
       <BackLink href={`${base}/studio/runs`}>Workflow runs</BackLink>
       <PageHead
         title={run.title}
-        description={`${run.processName} · Started ${formatDateTime(run.createdAt)}`}
+        description={
+          <>
+            {run.processName} · Started {formatDateTime(run.createdAt)}
+          </>
+        }
         actions={
           <ActionLink href={`${base}/work/${run.rootWorkUnitId}`} variant="secondary">
             Open workflow work

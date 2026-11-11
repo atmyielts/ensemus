@@ -114,9 +114,11 @@ export default async function PacksPage({
                     </Link>
                     <br />
                     <small>
-                      {row.activatedAt
-                        ? `Activated ${formatDateTime(row.activatedAt)}`
-                        : `Asked for ${formatDateTime(row.createdAt)}`}
+                      {row.activatedAt ? (
+                        <>Activated {formatDateTime(row.activatedAt)}</>
+                      ) : (
+                        <>Asked for {formatDateTime(row.createdAt)}</>
+                      )}
                     </small>
                   </span>
                   <PackStatusBadge status={row.status} />

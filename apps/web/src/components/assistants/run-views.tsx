@@ -62,9 +62,11 @@ export function RunList({
               </small>
               <br />
               <small className="muted">
-                {run.finishedAt
-                  ? `Ended ${formatDateTime(run.finishedAt)}`
-                  : `Started ${formatDateTime(run.startedAt)}`}
+                {run.finishedAt ? (
+                  <>Ended {formatDateTime(run.finishedAt)}</>
+                ) : (
+                  <>Started {formatDateTime(run.startedAt)}</>
+                )}
                 {run.cost && `. Cost ${run.cost}`}
               </small>
             </span>

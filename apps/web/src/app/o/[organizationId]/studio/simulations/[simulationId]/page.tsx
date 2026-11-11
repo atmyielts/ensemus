@@ -88,7 +88,7 @@ export default async function SimulationPage({
         <StatusBadge status={status} />
         <p className="muted">
           Requested {formatDateTime(run.createdAt)}
-          {run.finishedAt ? ` · Finished ${formatDateTime(run.finishedAt)}` : ''}
+          {run.finishedAt ? <> · Finished {formatDateTime(run.finishedAt)}</> : ''}
         </p>
       </div>
       {stale && (

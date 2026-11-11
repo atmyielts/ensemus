@@ -1,8 +1,10 @@
 // Shared display pieces (UX-11). Copy follows the spec's employee-facing terms: "work", "approval"
 // and plain status words, never internal names.
 import Link from 'next/link';
+import { BrandWordmark } from './brand-wordmark';
 import { messageFor } from '@/lib/messages';
 import type { ReactNode } from 'react';
+import { LocalTime } from './local-time';
 import { NavigationIcon } from './navigation-icon';
 import type { NavigationIcon as NavigationIconName } from './navigation-model';
 
@@ -84,16 +86,17 @@ const CLASSIFICATION: Record<string, string> = {
   restricted: 'Restricted',
 };
 
+/** Who can see something. A label, not a status, so it is drawn as an outline without a dot. */
 export function ClassificationBadge({ value }: { value: string }) {
-  const tone = value === 'restricted' || value === 'confidential' ? 'attention' : '';
-  return <span className={`badge ${tone}`}>{CLASSIFICATION[value] ?? value}</span>;
+  const tone = value === 'restricted' || value === 'confidential' ? ' attention' : '';
+  return <span className={`badge tag${tone}`}>{CLASSIFICATION[value] ?? value}</span>;
 }
 
 /** The product's name, above the pages shown outside an organization. */
 export function Wordmark() {
   return (
     <Link className="wordmark" href="/">
-      Ensemus
+      <BrandWordmark />
     </Link>
   );
 }
@@ -104,7 +107,7 @@ export function PageHead({
   actions,
 }: {
   title: string;
-  description?: string;
+  description?: ReactNode;
   actions?: ReactNode;
 }) {
   return (
@@ -226,14 +229,11 @@ export function ReloadLink({ href, children }: { href: string; children: ReactNo
 }
 
 const dateFormat = new Intl.DateTimeFormat('en-GB', { dateStyle: 'medium', timeZone: 'UTC' });
-const dateTimeFormat = new Intl.DateTimeFormat('en-GB', {
-  dateStyle: 'medium',
-  timeStyle: 'short',
-  timeZone: 'UTC',
-});
 
+/** A calendar day, such as a due date. Days are stored as whole UTC days, so they are shown as that day. */
 export const formatDate = (value: Date) => dateFormat.format(value);
-export const formatDateTime = (value: Date) => `${dateTimeFormat.format(value)} UTC`;
+/** A moment, shown in the reader's own time zone once the page is in the browser (UTC without JavaScript). */
+export const formatDateTime = (value: Date) => <LocalTime iso={value.toISOString()} />;
 
 export function formatBytes(size: number) {
   if (size < 1024) return `${size} B`;
