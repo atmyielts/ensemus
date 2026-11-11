@@ -1,5 +1,6 @@
 import localFont from 'next/font/local';
 import type { ReactNode } from 'react';
+import { RevealOpenedPanels } from '@/components/reveal-opened-panels';
 import './globals.css';
 
 // icon.svg, favicon.ico and apple-icon.png beside this file are Next's own metadata routes: they are built
@@ -26,7 +27,10 @@ const serif = localFont({
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en" className={serif.variable}>
-      <body>{children}</body>
+      <body>
+        {children}
+        <RevealOpenedPanels />
+      </body>
     </html>
   );
 }
