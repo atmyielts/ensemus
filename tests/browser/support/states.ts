@@ -175,7 +175,7 @@ export const STATES: PageState[] = [
     name: 'home-owner-busy',
     who: alice,
     path: org,
-    shows: (page) => [...heading('Hello, Alice')(page), ...heading('Needs attention')(page)],
+    shows: (page) => [...heading('Hello, Alice')(page), ...heading('Needs you')(page)],
   },
   {
     name: 'home-reviewer',
@@ -183,7 +183,8 @@ export const STATES: PageState[] = [
     path: org,
     shows: (page) => [
       ...heading('Hello, Bob')(page),
-      ...heading('Waiting for your approval')(page),
+      ...heading('Needs you')(page),
+      page.getByText('Your decision').first(),
     ],
   },
 
@@ -325,7 +326,7 @@ export const STATES: PageState[] = [
     shows: workShows(
       'Write the onboarding guide for new clients',
       'Waiting to start',
-      'This work is waiting on prerequisites that are not done.',
+      'This work waits for other work that is not done yet.',
     ),
   },
 
@@ -354,32 +355,32 @@ export const STATES: PageState[] = [
   {
     name: 'approval-approved',
     ...approval('approved'),
-    shows: headed('Approval', 'Approved by Bob Okafor'),
+    shows: headed('About this approval', 'Approved by Bob Okafor'),
   },
   {
     name: 'approval-denied',
     ...approval('denied'),
-    shows: headed('Approval', 'Denied by Bob Okafor'),
+    shows: headed('About this approval', 'Denied by Bob Okafor'),
   },
   {
     name: 'approval-expired',
     ...approval('expired'),
-    shows: headed('Approval', 'The time to decide has passed'),
+    shows: headed('About this approval', 'The time to decide has passed'),
   },
   {
     name: 'approval-closed',
     ...approval('closed'),
-    shows: headed('Approval', 'This was closed without a decision'),
+    shows: headed('About this approval', 'This was closed without a decision'),
   },
   {
     name: 'approval-someone-else-decides',
     ...approval('holding', alice),
-    shows: headed('Approval', 'Bob Okafor decides this one.'),
+    shows: headed('About this approval', 'Bob Okafor decides this one.'),
   },
   {
     name: 'approval-asked-by-me',
     ...approval('asked'),
-    shows: headed('Approval', 'Carol Reyes decides this one.'),
+    shows: headed('About this approval', 'Carol Reyes decides this one.'),
   },
 
   {
@@ -398,7 +399,7 @@ export const STATES: PageState[] = [
     name: 'people-empty',
     who: (w) => w.quiet,
     path: (w) => `${quiet(w)}/people`,
-    shows: headed('People and teams', 'No teams yet.'),
+    shows: headed('People and teams', 'No teams yet'),
   },
   {
     name: 'people-invitation-link-shown',
@@ -416,7 +417,7 @@ export const STATES: PageState[] = [
     name: 'clients-empty',
     who: (w) => w.quiet,
     path: (w) => `${quiet(w)}/clients`,
-    shows: headed('Clients and projects', 'No clients yet.'),
+    shows: headed('Clients and projects', 'No clients yet'),
   },
   {
     name: 'clients-owner',

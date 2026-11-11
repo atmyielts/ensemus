@@ -129,7 +129,7 @@ test.describe('publishing an agent', () => {
     const { owner, organization } = await team();
     const page = await open(owner);
     await page.goto(agentsPath(organization));
-    await expect(page.getByText('No agent has been published yet.')).toBeVisible();
+    await expect(page.getByText('No assistant has been published yet')).toBeVisible();
 
     const spec = testSpec();
     await fillAndPublish(page, spec, reportFor(spec));
@@ -204,7 +204,7 @@ test.describe('what publishing refuses', () => {
       page.getByText('It allows a tool no agent may have', { exact: false }),
     ).toBeVisible();
     await expect(page.getByLabel('Agent manifest')).toHaveValue(pretty(spec));
-    await expect(page.getByText('No agent has been published yet.')).toBeVisible();
+    await expect(page.getByText('No assistant has been published yet')).toBeVisible();
   });
 
   test('a report for another spec', async ({ open }) => {
@@ -216,7 +216,7 @@ test.describe('what publishing refuses', () => {
 
     await expect(refusal(page)).toContainText('needs a passing evaluation');
     await expect(page.getByLabel('Evaluation report')).toHaveValue(pretty(report));
-    await expect(page.getByText('No agent has been published yet.')).toBeVisible();
+    await expect(page.getByText('No assistant has been published yet')).toBeVisible();
   });
 
   test('text that is not JSON', async ({ open }) => {
@@ -252,8 +252,10 @@ test.describe('who can reach this', () => {
 
     const page = await open(member);
     await page.goto(agentsPath(organization));
-    await expect(page.getByRole('heading', { name: 'Agents' })).toBeVisible();
-    await expect(page.getByText('Owners and admins manage agents here.')).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Assistant versions' })).toBeVisible();
+    await expect(
+      page.getByText('Owners and administrators manage assistant versions here.'),
+    ).toBeVisible();
     await expect(page.getByLabel('Agent manifest')).toHaveCount(0);
     await expect(page.getByText('work-brief')).toHaveCount(0);
 

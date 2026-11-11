@@ -103,13 +103,13 @@ test.describe('editing the details', () => {
     const page = await open(alice);
     await page.goto(workPath(organization, id));
     await page.getByText('Edit the details').click();
-    await page.getByLabel('Objective').fill('Half an objective that must survive');
+    await page.getByLabel('Details').fill('Half an objective that must survive');
 
     await page.getByRole('button', { name: 'Mark ready' }).click();
     await expect(page.locator('dt:text-is("Status") + dd .badge')).toHaveText('Ready');
 
-    await expect(page.getByLabel('Objective')).toBeVisible();
-    await expect(page.getByLabel('Objective')).toHaveValue('Half an objective that must survive');
+    await expect(page.getByLabel('Details')).toBeVisible();
+    await expect(page.getByLabel('Details')).toHaveValue('Half an objective that must survive');
 
     // The version moved underneath it, and that was the person's own doing, so it still saves.
     await page.getByRole('button', { name: 'Save changes' }).click();
@@ -123,7 +123,7 @@ test.describe('editing the details', () => {
     const page = await open(alice);
     await page.goto(workPath(organization, id));
     await page.getByText('Edit the details').click();
-    await page.getByLabel('Objective').fill('Saved and finished with');
+    await page.getByLabel('Details').fill('Saved and finished with');
     await page.getByRole('button', { name: 'Save changes' }).click();
     await expect(savedObjective(page)).toHaveText('Saved and finished with');
 
@@ -140,7 +140,7 @@ test.describe('editing the details', () => {
     const page = await open(alice);
     await page.goto(workPath(organization, id));
     await page.getByText('Edit the details').click();
-    await page.getByLabel('Objective').fill('Saved before it was marked ready');
+    await page.getByLabel('Details').fill('Saved before it was marked ready');
 
     // The save waits here for as long as the test says, so this happens inside it every time.
     let letItLand: () => void = () => undefined;

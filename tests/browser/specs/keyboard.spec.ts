@@ -153,7 +153,7 @@ test('someone can open the deny panel, tick the box and deny with only the keybo
 
   const page = await open(bob);
   await page.goto(`/o/${organization}/approvals/${approval}`);
-  await tabTo(page, /^Deny$/);
+  await tabTo(page, /^Deny instead$/);
   await page.keyboard.press('Enter');
   await tabTo(page, /^reason$/);
   await page.keyboard.type('Not this time.');

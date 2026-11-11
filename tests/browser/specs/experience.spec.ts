@@ -42,7 +42,7 @@ test.describe('private outcome and company setup native forms', () => {
       ).toBeVisible();
       await page
         .getByLabel(
-          'I have reviewed the saved owner, sensitivity, date and success requirements.',
+          'I have reviewed the saved owner, who can see it, date and success requirements.',
           { exact: true },
         )
         .check();
@@ -74,7 +74,7 @@ test.describe('private outcome and company setup native forms', () => {
     ).toBeVisible();
     await expect(
       page.getByText(
-        'Adding a profile or source does not qualify a provider or prove an external connection.',
+        'Adding a model or a knowledge source does not make it ready to use, or prove that it connects.',
         { exact: false },
       ),
     ).toBeVisible();

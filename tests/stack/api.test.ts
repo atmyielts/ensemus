@@ -1275,7 +1275,7 @@ describe('public API', () => {
       it('says why on the page, and refuses the form there the same way', async () => {
         const shown = await read(page(company), founder.jar);
         expect(shown.status).toBe(200);
-        expect(shown.html).toContain('Connectors are not turned on for this deployment');
+        expect(shown.html).toContain('Email sending is switched off for this Ensemus installation');
         const body = start();
         const response = await submit(page(company), founder.jar, /Start onboarding/, {
           dealRef: body.deal_ref,

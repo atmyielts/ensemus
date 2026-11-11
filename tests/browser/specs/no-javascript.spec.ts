@@ -45,14 +45,14 @@ test('new work is created, and a refused one comes back with what was typed', as
   const page = await open(world.alice, off);
   await page.goto(`/o/${world.organization}/work/new`);
   await page.getByLabel('What should be true when this is done?').fill('   ');
-  await page.getByLabel('Objective').fill('Kept without any scripts.');
+  await page.getByLabel('Details').fill('Kept without any scripts.');
   await page.getByLabel('A reviewer approves').check();
   await page.getByRole('button', { name: 'Create work' }).click();
 
   await expect(page.getByRole('main').getByRole('alert')).toHaveText(
     'Please check the details and try again.',
   );
-  await expect(page.getByLabel('Objective')).toHaveValue('Kept without any scripts.');
+  await expect(page.getByLabel('Details')).toHaveValue('Kept without any scripts.');
   await expect(page.getByLabel('A reviewer approves')).toBeChecked();
 
   const title = `No script work ${randomUUID()}`;

@@ -862,7 +862,9 @@ describe.skipIf(!connectorsEnabled())('Slice 2 and the M3 exit', () => {
     it('starts one from the page too, with no word of connectors being off', async () => {
       const shown = await read(onboardingPage(company.organization), company.owner.jar);
       expect(shown.status).toBe(200);
-      expect(shown.html).not.toContain('Connectors are not turned on for this deployment');
+      expect(shown.html).not.toContain(
+        'Email sending is switched off for this Ensemus installation',
+      );
       const body = start();
       const response = await submit(
         onboardingPage(company.organization),

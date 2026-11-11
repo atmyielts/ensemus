@@ -32,13 +32,17 @@ test.describe('custom record native forms', () => {
       await second
         .getByRole('combobox', { name: 'Field type', exact: true })
         .selectOption('number');
-      await page.getByRole('button', { name: 'Create type', exact: true }).click();
+      await page.getByRole('button', { name: 'Create record type', exact: true }).click();
       await expect(page.getByRole('heading', { name: typeName, exact: true })).toBeVisible();
       await page.getByRole('link', { name: 'Create record', exact: true }).click();
       await page.getByLabel('Record name', { exact: true }).fill(recordName);
       await page.getByLabel('Serial (required)', { exact: true }).fill('generated-001');
       await page.getByLabel('Count', { exact: true }).fill('0');
-      await expect(page.getByLabel('Sensitivity', { exact: true })).toHaveValue('restricted');
+      await expect(
+        page
+          .getByRole('group', { name: 'Who can see this', exact: true })
+          .getByRole('radio', { name: /^Restricted\b/ }),
+      ).toBeChecked();
       await page.getByRole('button', { name: 'Create record', exact: true }).click();
       await expect(page.getByRole('heading', { name: recordName, exact: true })).toBeVisible();
       await expect(page.getByRole('definition').filter({ hasText: /^0$/ })).toBeVisible();
@@ -157,7 +161,10 @@ test.describe('custom record native forms', () => {
         .filter({ has: page.getByRole('button', { name: 'Save record', exact: true }) }),
       originalVersion = await form.locator('input[name="version"]').inputValue();
     await page.getByLabel('Record name', { exact: true }).fill('My retained record name');
-    await page.getByLabel('Sensitivity', { exact: true }).selectOption('internal');
+    await page
+      .getByRole('group', { name: 'Who can see this', exact: true })
+      .getByRole('radio', { name: /^Internal\b/ })
+      .check();
     await page.getByRole('button', { name: 'Save record', exact: true }).click();
     await expect(page.getByRole('alert')).toHaveText(
       'Confirm it is you with your authenticator app, then try again.',
@@ -165,7 +172,11 @@ test.describe('custom record native forms', () => {
     await expect(page.getByLabel('Record name', { exact: true })).toHaveValue(
       'My retained record name',
     );
-    await expect(page.getByLabel('Sensitivity', { exact: true })).toHaveValue('internal');
+    await expect(
+      page
+        .getByRole('group', { name: 'Who can see this', exact: true })
+        .getByRole('radio', { name: /^Internal\b/ }),
+    ).toBeChecked();
     await expect(form.locator('input[name="version"]')).toHaveValue(originalVersion);
     const unchanged = await page.request.get(`${base}/object-records/${record.id}`);
     expect(await unchanged.json()).toMatchObject({
@@ -259,9 +270,14 @@ test.describe('custom record native forms', () => {
     await other.getByText('Edit record', { exact: true }).click();
     await expect(
       other
-        .getByLabel('Sensitivity', { exact: true })
-        .getByRole('option', { name: 'Internal', exact: true }),
+        .getByRole('group', { name: 'Who can see this', exact: true })
+        .getByRole('radio', { name: /^Internal\b/ }),
     ).toHaveCount(0);
+    await expect(
+      other
+        .getByRole('group', { name: 'Who can see this', exact: true })
+        .getByRole('radio', { name: /^Restricted\b/ }),
+    ).toBeChecked();
     expect((await page.request.get(`${base}/object-records/${memberRecord.id}`)).status()).toBe(
       404,
     );

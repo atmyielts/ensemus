@@ -66,7 +66,7 @@ test('a file someone else attaches shows on the page, with no reload, and frees 
 
   const page = await open(alice);
   await page.goto(workPath(organization, id));
-  const verification = page.getByRole('region', { name: 'Verification', exact: true });
+  const verification = page.getByRole('region', { name: 'Checks and reviews', exact: true });
   await expect(verification).toContainText('Still needed');
   await expect(page.getByRole('button', { name: 'Mark done' })).toHaveCount(0);
   await markDocument(page);
@@ -90,10 +90,10 @@ test('a live update does not disturb what someone is typing', async ({ open, wor
   const page = await open(alice);
   await page.goto(workPath(organization, id));
   await page.getByText('Edit the details').click();
-  await page.getByLabel('Objective').fill('Half a thought that must survive');
+  await page.getByLabel('Details').fill('Half a thought that must survive');
   await move(alice, organization, id, 'running');
   await expect(statusBadge(page)).toHaveText('In progress');
-  await expect(page.getByLabel('Objective')).toHaveValue('Half a thought that must survive');
+  await expect(page.getByLabel('Details')).toHaveValue('Half a thought that must survive');
 });
 
 test('another viewer does not get a stream for work they cannot see', async ({ open, world }) => {
