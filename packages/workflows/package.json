@@ -16,6 +16,7 @@
     "./external-action-activities": "./src/external-action-activities.ts",
     "./webhook-activities": "./src/webhook-activities.ts",
     "./connector-sync-activities": "./src/connector-sync-activities.ts",
+    "./oauth-exchange-activities": "./src/oauth-exchange-activities.ts",
     "./agent-schemas": "./src/agent-schemas.ts",
     "./agent-activities": "./src/agent-activities.ts",
     "./model-probe-activities": "./src/model-probe-activities.ts",

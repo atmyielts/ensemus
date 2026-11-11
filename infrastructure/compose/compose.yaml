@@ -262,6 +262,10 @@ services:
       - postgres:${ENSEMUS_NETWORK_PREFIX:-172.30}.5.10
       - temporal:${ENSEMUS_NETWORK_PREFIX:-172.30}.5.11
       - egress-gateway:${ENSEMUS_NETWORK_PREFIX:-172.30}.5.12
+      - egress-google-api:${ENSEMUS_NETWORK_PREFIX:-172.30}.5.13
+      - egress-google-oauth:${ENSEMUS_NETWORK_PREFIX:-172.30}.5.14
+      - egress-ms-graph:${ENSEMUS_NETWORK_PREFIX:-172.30}.5.15
+      - egress-ms-login:${ENSEMUS_NETWORK_PREFIX:-172.30}.5.16
     environment:
       TEMPORAL_ADDRESS: temporal:7233
       TEMPORAL_NAMESPACE: default
@@ -273,6 +277,20 @@ services:
       # `none` is for a relay on a trusted site network, and only if an operator says so.
       ENSEMUS_SMTP_TLS: ${ENSEMUS_SMTP_TLS:-required}
       ENSEMUS_SMTP_MESSAGE_ID_DOMAIN: ${ENSEMUS_SMTP_MESSAGE_ID_DOMAIN:-ensemus.invalid}
+      # One gateway per provider route (ADR-038, ADR-029 D11). TLS names are fixed in code, so a gateway
+      # can only ever carry a request to the host its route names.
+      ENSEMUS_EGRESS_GOOGLE_API: egress-google-api:2525
+      ENSEMUS_EGRESS_GOOGLE_OAUTH: egress-google-oauth:2525
+      ENSEMUS_EGRESS_MS_GRAPH: egress-ms-graph:2525
+      ENSEMUS_EGRESS_MS_LOGIN: egress-ms-login:2525
+      # Connecting by consent (ADR-038 D1). The exchange names the same redirect URI the web tier did.
+      ENSEMUS_PUBLIC_URL: ${ENSEMUS_PUBLIC_URL:-https://localhost:8443}
+      # The operator's own apps (ADR-038 D2). Unset means none: an admin connects with their own app.
+      # The secret is a file an operator mounts with an overlay, and only this service ever reads it.
+      ENSEMUS_OAUTH_GOOGLE_CLIENT_ID: ${ENSEMUS_OAUTH_GOOGLE_CLIENT_ID:-}
+      ENSEMUS_OAUTH_GOOGLE_CLIENT_SECRET_FILE: ${ENSEMUS_OAUTH_GOOGLE_CLIENT_SECRET_FILE:-}
+      ENSEMUS_OAUTH_MICROSOFT_CLIENT_ID: ${ENSEMUS_OAUTH_MICROSOFT_CLIENT_ID:-}
+      ENSEMUS_OAUTH_MICROSOFT_CLIENT_SECRET_FILE: ${ENSEMUS_OAUTH_MICROSOFT_CLIENT_SECRET_FILE:-}
     secrets:
       - db_app_url
       - db_secrets_url
@@ -302,6 +320,89 @@ services:
       outbound: {}
     environment:
       ENSEMUS_EGRESS_TARGET: ${ENSEMUS_EGRESS_TARGET:-}
+    deploy:
+      resources: { limits: { memory: 128M } }
+
+  # Google Workspace and Microsoft 365 (ADR-038). One gateway per route, each with no target until an
+  # operator sets one, so an install that uses neither has no way out through them. The connector worker
+  # does not wait for them: a route whose gateway is not running fails that request with a code.
+  # The www.googleapis.com route. Same image, same rules: no secret, no database, one target, ciphertext only.
+  egress-google-api:
+    <<: *restart
+    profiles: ['connectors']
+    build:
+      context: ../..
+      dockerfile: infrastructure/containers/Dockerfile.worker
+    image: ${ENSEMUS_WORKER_IMAGE:-ensemus/worker:local}
+    command: ['node', 'dist/egress-gateway.js']
+    read_only: true
+    tmpfs: ['/tmp']
+    networks:
+      connectors: { ipv4_address: '${ENSEMUS_NETWORK_PREFIX:-172.30}.5.13' }
+      outbound: {}
+    environment:
+      # Empty refuses to start. www.googleapis.com:443, or a site's relay to it.
+      ENSEMUS_EGRESS_TARGET: ${ENSEMUS_EGRESS_GOOGLE_API_TARGET:-}
+    deploy:
+      resources: { limits: { memory: 128M } }
+
+  # The oauth2.googleapis.com route. Same image, same rules: no secret, no database, one target, ciphertext only.
+  egress-google-oauth:
+    <<: *restart
+    profiles: ['connectors']
+    build:
+      context: ../..
+      dockerfile: infrastructure/containers/Dockerfile.worker
+    image: ${ENSEMUS_WORKER_IMAGE:-ensemus/worker:local}
+    command: ['node', 'dist/egress-gateway.js']
+    read_only: true
+    tmpfs: ['/tmp']
+    networks:
+      connectors: { ipv4_address: '${ENSEMUS_NETWORK_PREFIX:-172.30}.5.14' }
+      outbound: {}
+    environment:
+      # Empty refuses to start. oauth2.googleapis.com:443, or a site's relay to it.
+      ENSEMUS_EGRESS_TARGET: ${ENSEMUS_EGRESS_GOOGLE_OAUTH_TARGET:-}
+    deploy:
+      resources: { limits: { memory: 128M } }
+
+  # The graph.microsoft.com route. Same image, same rules: no secret, no database, one target, ciphertext only.
+  egress-ms-graph:
+    <<: *restart
+    profiles: ['connectors']
+    build:
+      context: ../..
+      dockerfile: infrastructure/containers/Dockerfile.worker
+    image: ${ENSEMUS_WORKER_IMAGE:-ensemus/worker:local}
+    command: ['node', 'dist/egress-gateway.js']
+    read_only: true
+    tmpfs: ['/tmp']
+    networks:
+      connectors: { ipv4_address: '${ENSEMUS_NETWORK_PREFIX:-172.30}.5.15' }
+      outbound: {}
+    environment:
+      # Empty refuses to start. graph.microsoft.com:443, or a site's relay to it.
+      ENSEMUS_EGRESS_TARGET: ${ENSEMUS_EGRESS_MS_GRAPH_TARGET:-}
+    deploy:
+      resources: { limits: { memory: 128M } }
+
+  # The login.microsoftonline.com route. Same image, same rules: no secret, no database, one target, ciphertext only.
+  egress-ms-login:
+    <<: *restart
+    profiles: ['connectors']
+    build:
+      context: ../..
+      dockerfile: infrastructure/containers/Dockerfile.worker
+    image: ${ENSEMUS_WORKER_IMAGE:-ensemus/worker:local}
+    command: ['node', 'dist/egress-gateway.js']
+    read_only: true
+    tmpfs: ['/tmp']
+    networks:
+      connectors: { ipv4_address: '${ENSEMUS_NETWORK_PREFIX:-172.30}.5.16' }
+      outbound: {}
+    environment:
+      # Empty refuses to start. login.microsoftonline.com:443, or a site's relay to it.
+      ENSEMUS_EGRESS_TARGET: ${ENSEMUS_EGRESS_MS_LOGIN_TARGET:-}
     deploy:
       resources: { limits: { memory: 128M } }
 

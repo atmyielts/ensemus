@@ -1,15 +1,31 @@
 import { randomUUID } from 'node:crypto';
-import { listConnections, listWebhookActivity } from '@ensemus/application';
+import {
+  AppError,
+  getAuthorization,
+  listAuthorizations,
+  listConnections,
+  listWebhookActivity,
+  type OAuthAuthorizationView,
+} from '@ensemus/application';
 import { can } from '@ensemus/domain/policy';
+import {
+  CAPABILITY_SCOPES,
+  CONNECTABLE_CAPABILITIES,
+  SUITE_PROVIDER,
+  type SuiteConnectorType,
+} from '@ensemus/domain/workspace-suites';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { ConfirmForm } from '@/components/confirm-form';
+import { ResourceRefresh } from '@/components/resource-refresh';
 import { Empty, ErrorNotice, formatDateTime, PageHead } from '@/components/ui';
 import { CONNECTOR_CATALOG, manifestOf } from '@/server/api';
 import { revokeConnectionAction } from '@/server/external-action-actions';
+import { oauthRedirectUri, platformClientId } from '@/server/oauth';
 import { getRuntime } from '@/server/runtime';
 import { requireTenant } from '@/server/tenant';
 import { NewConnectionForm } from './new-connection-form';
+import { SuiteConnectForm, type SuiteCapabilityChoice } from './suite-connect-form';
 import { WebhookForm } from './webhook-form';
 
 export const metadata = { title: 'Connections | Ensemus' };
@@ -39,22 +55,136 @@ const REJECT_WORDS: Record<string, string> = {
   NOT_PROCESSED_IN_TIME: 'Nothing checked it in time, so it was dropped.',
 };
 
+const SUITE_NAMES: Record<SuiteConnectorType, string> = {
+  google_workspace: 'Google Workspace',
+  microsoft_365: 'Microsoft 365',
+};
+
+const isSuiteType = (type: string): type is SuiteConnectorType => Object.hasOwn(SUITE_NAMES, type);
+
+const CAPABILITY_WORDS: Record<string, { label: string; description: string }> = {
+  files: {
+    label: 'Read files',
+    description: 'Search and cite documents, each only for the people who can open it there.',
+  },
+  directory: {
+    label: 'Read groups',
+    description: 'Mirror each group as a team, so a file shared with a group reaches its members.',
+  },
+};
+
+/** Where a consent attempt got to, in plain words. Never the provider's own text. */
+const ATTEMPT_WORDS: Record<string, { label: string; tone: string; detail: string }> = {
+  pending: {
+    label: 'Waiting for you',
+    tone: 'attention',
+    detail: 'Finish on the provider’s page within ten minutes, or start again.',
+  },
+  code_received: {
+    label: 'Finishing',
+    tone: 'active',
+    detail: 'You agreed. Ensemus is finishing the connection, which takes a few seconds.',
+  },
+  exchanging: {
+    label: 'Finishing',
+    tone: 'active',
+    detail: 'You agreed. Ensemus is finishing the connection, which takes a few seconds.',
+  },
+  connected: { label: 'Connected', tone: 'done', detail: 'It is connected and listed above.' },
+  denied: { label: 'Not connected', tone: 'bad', detail: '' },
+  failed: { label: 'Not connected', tone: 'bad', detail: '' },
+  expired: {
+    label: 'Expired',
+    tone: '',
+    detail: 'This took longer than ten minutes, so nothing was connected. Start again.',
+  },
+};
+
+const ATTEMPT_ERROR_WORDS: Record<string, string> = {
+  OAUTH_DENIED: 'Access was not granted on the provider’s page, so nothing was connected.',
+  OAUTH_CONSENT_REQUIRED:
+    'The provider needs an administrator of that account to agree. Ask one to connect it.',
+  OAUTH_SCOPE_REFUSED: 'The provider refused the access asked for, so nothing was connected.',
+  OAUTH_CLIENT_REJECTED:
+    'The provider did not accept the app. If you used your own, check its client ID, secret and redirect address.',
+  OAUTH_PROVIDER_ERROR: 'The provider reported a problem, so nothing was connected. Start again.',
+  OAUTH_EXCHANGE_FAILED:
+    'The provider did not finish connecting, so nothing was connected. Start again.',
+  OAUTH_SCOPES_INSUFFICIENT:
+    'Some of the access you chose was not granted, so nothing was connected. Start again and allow all of it.',
+  OAUTH_IDENTITY_INVALID:
+    'The provider did not say which account was connected, so nothing was connected.',
+  OAUTH_CLIENT_NOT_CONFIGURED:
+    'The app to connect through is not set up on this deployment, so nothing was connected.',
+};
+
+const IN_PROGRESS = new Set(['pending', 'code_received', 'exchanging']);
+
+function capabilityChoices(connectorType: SuiteConnectorType): SuiteCapabilityChoice[] {
+  return CONNECTABLE_CAPABILITIES.map((id) => ({
+    id,
+    label: CAPABILITY_WORDS[id]?.label ?? id,
+    description: CAPABILITY_WORDS[id]?.description ?? '',
+    scopes: CAPABILITY_SCOPES[connectorType][id],
+  }));
+}
+
+/** The attempt the callback sent this person back to, or nothing if it is not theirs to see. */
+async function focusedAttempt(
+  database: Parameters<typeof getAuthorization>[0],
+  context: Parameters<typeof getAuthorization>[1],
+  authorizationId: string | undefined,
+): Promise<OAuthAuthorizationView | null> {
+  if (!authorizationId) return null;
+  try {
+    return await getAuthorization(database, context, { authorizationId });
+  } catch (error) {
+    if (error instanceof AppError && error.code === 'NOT_FOUND') return null;
+    throw error;
+  }
+}
+
+function AttemptSummary({ attempt }: { attempt: OAuthAuthorizationView }) {
+  const words = ATTEMPT_WORDS[attempt.status] ?? { label: attempt.status, tone: '', detail: '' };
+  const detail =
+    (attempt.errorCode && ATTEMPT_ERROR_WORDS[attempt.errorCode]) ||
+    words.detail ||
+    'Nothing was connected. Start again.';
+  return (
+    <>
+      <span className="row">
+        <strong>{attempt.displayName}</strong>
+        <span className={`badge ${words.tone}`}>{words.label}</span>
+      </span>
+      <p className="muted">
+        {SUITE_NAMES[attempt.connectorType]}, through{' '}
+        {attempt.clientKind === 'platform' ? 'Ensemus’s app' : 'your own app'}, started{' '}
+        {formatDateTime(attempt.createdAt)}. {detail}
+      </p>
+    </>
+  );
+}
+
 export default async function ConnectionsPage({
   params,
   searchParams,
 }: {
   params: Promise<{ organizationId: string }>;
-  searchParams: Promise<{ error?: string }>;
+  searchParams: Promise<{ error?: string; authorization?: string }>;
 }) {
   const { organizationId } = await params;
-  const { error } = await searchParams;
+  const { error, authorization } = await searchParams;
   const { context, database } = await requireTenant(organizationId);
   // The usual not found: this page is not there for someone who may not manage connections.
   if (!can(context.role, 'connection.manage')) notFound();
-  const [rows, activity] = await Promise.all([
+  const [rows, activity, attempts, focused] = await Promise.all([
     listConnections(database, context),
     listWebhookActivity(database, context),
+    listAuthorizations(database, context),
+    focusedAttempt(database, context, authorization),
   ]);
+  // The latest few, apart from the one this page was opened for, which has its own place.
+  const recent = attempts.filter((attempt) => attempt.id !== focused?.id).slice(0, 5);
   const enabled = getRuntime().config.connectorsEnabled;
   const base = `/o/${organizationId}`;
   const nameOf = new Map(rows.map((row) => [row.id, row.displayName]));
@@ -70,6 +200,15 @@ export default async function ConnectionsPage({
       />
       <ErrorNotice code={error} />
       <div className="stack">
+        {focused && (
+          <section className="card" aria-labelledby="attempt-heading">
+            <h2 id="attempt-heading">Connecting</h2>
+            <div role="status">
+              <AttemptSummary attempt={focused} />
+            </div>
+            <ResourceRefresh active={IN_PROGRESS.has(focused.status)} />
+          </section>
+        )}
         {!enabled && (
           <p className="notice warn flush">
             Connectors are not turned on for this deployment, so nothing here can send or receive
@@ -92,8 +231,12 @@ export default async function ConnectionsPage({
                       <span className={`badge ${state.tone}`}>{state.label}</span>
                     </span>
                     <p className="muted">
-                      {manifest?.displayName ?? 'A connector this deployment does not know'}.{' '}
-                      {manifest?.credential.required
+                      {manifest?.displayName ??
+                        (isSuiteType(row.connectorType)
+                          ? SUITE_NAMES[row.connectorType]
+                          : 'A connector this deployment does not know')}
+                      .{' '}
+                      {(manifest?.credential.required ?? isSuiteType(row.connectorType))
                         ? row.hasCredential
                           ? 'A credential is on file.'
                           : 'No credential is on file.'
@@ -161,6 +304,40 @@ export default async function ConnectionsPage({
                 </li>
               ))}
             </ul>
+          </section>
+        )}
+        {recent.length > 0 && (
+          <section className="card" aria-labelledby="attempts-heading">
+            <h2 id="attempts-heading">Recent attempts to connect</h2>
+            <ul className="list">
+              {recent.map((attempt) => (
+                <li key={attempt.id} className="block">
+                  <AttemptSummary attempt={attempt} />
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+        {enabled && (
+          <section className="card" aria-labelledby="suite-heading">
+            <h2 id="suite-heading">Connect Google Workspace or Microsoft 365</h2>
+            <p className="muted">
+              You agree on Google’s or Microsoft’s own page, and Ensemus never sees your password.
+              What you choose here is all it asks for.
+            </p>
+            {(Object.keys(SUITE_NAMES) as SuiteConnectorType[]).map((connectorType) => (
+              <details key={connectorType} className="gap-above">
+                <summary>Connect {SUITE_NAMES[connectorType]}</summary>
+                <SuiteConnectForm
+                  organizationId={organizationId}
+                  connectorType={connectorType}
+                  providerName={SUITE_NAMES[connectorType]}
+                  capabilities={capabilityChoices(connectorType)}
+                  platformAvailable={platformClientId(SUITE_PROVIDER[connectorType]) !== null}
+                  redirectUri={oauthRedirectUri()}
+                />
+              </details>
+            ))}
           </section>
         )}
         {enabled && (

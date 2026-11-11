@@ -54,6 +54,10 @@ import {
   ORGANIZATION_EXPORT_REQUESTED,
 } from '@ensemus/domain/sovereign-events';
 import { TOMBSTONE_RECORDED } from '@ensemus/domain/tombstone-ledger';
+import {
+  AGGREGATE_OAUTH_AUTHORIZATION,
+  OAUTH_AUTHORIZATION_CODE_RECEIVED,
+} from '@ensemus/domain/workspace-suites';
 import { MODEL_JOB_REQUESTED, AGGREGATE_MODEL_JOB } from '@ensemus/domain/knowledge-models';
 import {
   knowledgeModelJobInputSchema,
@@ -114,6 +118,8 @@ import {
   connectorSyncWorkflowIdFor,
   externalActionInputSchema,
   externalActionWorkflowIdFor,
+  oauthExchangeInputSchema,
+  oauthExchangeWorkflowIdFor,
   organizationExportInputSchema,
   organizationExportWorkflowIdFor,
   reminderScheduleIdFor,
@@ -414,6 +420,19 @@ async function main() {
             deliveryId: event.aggregateId,
           }),
           workflowIdFor: webhookWorkflowIdFor,
+        });
+        return;
+
+      // ADR-038 D1. A code is single use, so its exchange runs once, ever: a repeated event finds the
+      // first run, started or finished, and never sends the code again.
+      case OAUTH_AUTHORIZATION_CODE_RECEIVED:
+        if (event.aggregateType !== AGGREGATE_OAUTH_AUTHORIZATION) return;
+        await startOnce('oauthExchangeWorkflow', {
+          input: oauthExchangeInputSchema.parse({
+            organizationId: event.organizationId,
+            authorizationId: event.aggregateId,
+          }),
+          workflowIdFor: oauthExchangeWorkflowIdFor,
         });
         return;
 

@@ -29,6 +29,10 @@ import {
   type OAuthRotationPort,
 } from '../runtime/provider-oauth';
 import { createHash } from 'node:crypto';
+import type { DirectoryCapableConnector } from '../suites';
+import { createGoogleDirectory, directoryKey } from './directory';
+
+export { DIRECTORY_SCOPES } from './directory';
 
 export type GoogleWorkspaceConfig = {
   /** Shared drives to read, by ID. Empty means what the granted account can see. Never a host. */
@@ -61,7 +65,7 @@ type Cursor = {
 export function createGoogleWorkspaceConnector(deps: {
   http: ProviderHttpClient;
   rotation?: OAuthRotationPort;
-}): KnowledgeConnector<GoogleWorkspaceConfig> {
+}): KnowledgeConnector<GoogleWorkspaceConfig> & DirectoryCapableConnector<GoogleWorkspaceConfig> {
   const auth = createProviderAuth({
     http: deps.http,
     provider: 'google',
@@ -130,10 +134,14 @@ export function createGoogleWorkspaceConnector(deps: {
                 : requiredText(permission.id),
             access,
           });
+        // Keyed as the directory keys its groups, by email in lower case, so the grant finds the
+        // group's team (ADR-038 D4). The permission ID is the fallback when Drive gives no email, and
+        // then it matches nothing, which is the safe way round.
         else if (type === 'group')
           grants.push({
             principalKind: 'group',
-            principalExternalId: requiredText(permission.id),
+            principalExternalId:
+              directoryKey(permission.emailAddress) ?? requiredText(permission.id),
             access,
           });
         else if (type === 'domain')
@@ -178,6 +186,11 @@ export function createGoogleWorkspaceConnector(deps: {
       return { driveIds: [...new Set(parsed.data.drive_ids)] };
     },
     disposeAuthSession: auth.dispose,
+    directory: createGoogleDirectory({
+      http: deps.http,
+      withToken: auth.withToken,
+      dispose: (context) => auth.dispose(context.credentials),
+    }),
     sync: {
       async readPage(context, request) {
         scopes(context, 'drive_files');

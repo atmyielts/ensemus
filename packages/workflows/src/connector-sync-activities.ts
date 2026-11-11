@@ -7,6 +7,7 @@ import {
   leaseSyncStream,
   loadConnectionForWorker,
   recordConnectionFailure,
+  removeConnectionDirectory,
   resolveSourcePrincipal,
   AppError,
   type SyncStreamLease,
@@ -18,11 +19,13 @@ import {
   type PrincipalDirectory,
 } from '@ensemus/connectors';
 import { mapSourceGrants, runSyncPass, type SyncStore } from '@ensemus/connectors/runtime';
+import { hasDirectory } from '@ensemus/connectors/suites';
 import type { TenantContext } from '@ensemus/database';
 import { createServiceContext } from '@ensemus/database/service';
 import type { SyncPage } from '@ensemus/domain/connector';
 import { createLogger, errorCode } from '@ensemus/telemetry';
 import type { ConnectorActivityDeps } from './connector-deps';
+import { directoryWanted, runDirectoryPass, type DirectoryPassResult } from './directory-sync';
 import {
   connectorSyncInputSchema,
   type ConnectorSyncInput,
@@ -95,7 +98,8 @@ function storeFor(
 ): SyncStore {
   const { database } = deps;
   const directory: PrincipalDirectory = {
-    resolve: (principal) => resolveSourcePrincipal(database, context, principal),
+    // A group is looked up in this connection's own directory, which is what named it.
+    resolve: (principal) => resolveSourcePrincipal(database, context, principal, { connectionId }),
   };
   return {
     lease: (stream, leaseMs) =>
@@ -146,13 +150,36 @@ export function createConnectorSyncActivities(deps: ConnectorActivityDeps) {
     log.info('connector_sync.secrets_revoked', { organizationId, count: secretIds.length });
   }
 
+  /**
+   * A revoked connection's cleanup: its sealed values stop, then the teams its directory made go, in the
+   * sync's own service context, which is the only one 0561 lets remove them (ADR-038 D4). Both are safe to
+   * repeat, so a retried Activity does no harm.
+   */
+  async function cleanUpRevoked(
+    context: TenantContext,
+    connection: {
+      id: string;
+      credentialSecretId: string | null;
+      signingSecretIds: readonly string[];
+    },
+  ) {
+    await revokeSecrets(context.organizationId, connection);
+    const { teamsRemoved } = await removeConnectionDirectory(database, context, {
+      connectionId: connection.id,
+    });
+    log.info('connector_sync.directory_removed', {
+      organizationId: context.organizationId,
+      count: teamsRemoved,
+    });
+  }
+
   async function pass(input: ConnectorSyncInput): Promise<ConnectorSyncOutcome> {
     const { organizationId, connectionId } = input;
     const context = createServiceContext(organizationId);
     const connection = await loadConnectionForWorker(database, context, connectionId);
     if (!connection) return nothing('nothing_to_do');
     if (connection.state === 'revoked') {
-      await revokeSecrets(organizationId, connection);
+      await cleanUpRevoked(context, connection);
       return nothing('revoked');
     }
     if (connection.state !== 'active') return nothing('nothing_to_do');
@@ -168,11 +195,24 @@ export function createConnectorSyncActivities(deps: ConnectorActivityDeps) {
       return nothing('failed');
     }
 
+    const connectorContext = contextFor(deps, connector, { ...connection, config }, organizationId);
+    let directory: DirectoryPassResult = { ran: false, pages: 0, more: false, failed: false };
     let result: Awaited<ReturnType<typeof runSyncPass>>;
     try {
+      // The directory first, so that a group a file names already has its team when the file commits.
+      if (hasDirectory(connector) && directoryWanted(connector, connection)) {
+        directory = await runDirectoryPass({
+          database,
+          context,
+          connectionId,
+          connector,
+          connectorContext,
+          leaseMs: SYNC_LEASE_MS,
+        });
+      }
       result = await runSyncPass({
         connector,
-        context: contextFor(deps, connector, { ...connection, config }, organizationId),
+        context: connectorContext,
         store: storeFor(deps, context, connectionId),
         maxPages: SYNC_PAGES_PER_PASS,
         leaseMs: SYNC_LEASE_MS,
@@ -188,15 +228,18 @@ export function createConnectorSyncActivities(deps: ConnectorActivityDeps) {
     // value stops now, rather than whenever that run gets its turn.
     const after = await loadConnectionForWorker(database, context, connectionId);
     if (after?.state === 'revoked') {
-      await revokeSecrets(organizationId, after);
+      await cleanUpRevoked(context, after);
       return { outcome: 'revoked', pages: result.pages, resources: result.resources };
     }
     // Every stream held by another pass, or by a try of this one that died: this pass read nothing, and
     // saying `synced` would claim otherwise.
-    if (result.streams === 0) return nothing('nothing_to_do');
+    if (result.streams === 0 && !directory.ran) return nothing('nothing_to_do');
+    // The workflow runs another pass when this one read a full pass's worth of pages, so a directory
+    // that stopped at its own, smaller limit counts as that.
+    const pages = result.pages + directory.pages;
     return {
-      outcome: result.failed > 0 ? 'failed' : 'synced',
-      pages: result.pages,
+      outcome: result.failed > 0 || directory.failed ? 'failed' : 'synced',
+      pages: directory.more ? Math.max(pages, SYNC_PAGES_PER_PASS) : pages,
       resources: result.resources,
     };
   }

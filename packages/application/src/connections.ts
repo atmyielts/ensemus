@@ -5,6 +5,7 @@ import { randomUUID } from 'node:crypto';
 import {
   appendAudit,
   connections,
+  directoryGroups,
   externalResourceAcl,
   externalResources,
   memberships,
@@ -835,13 +836,34 @@ export async function recordConnectionFailure(
  * The default directory: an email address finds an active membership in this tenant, and everything else
  * finds nobody. The email has to be the whole address, in any case. RLS keeps this to one tenant, so the
  * same address in another tenant is another person.
+ *
+ * A group finds the team its connection's directory made for it (ADR-038 D4): Google's by the group's
+ * email, which is what a Drive permission carries, and Microsoft's by object ID. Only the connection whose
+ * file named the group is asked, since the same ID in another connection's directory is another group.
+ * Without a connection, or before the directory has seen the group, it finds nobody.
  */
 export async function resolveSourcePrincipal(
   database: AppDatabase,
   context: TenantContext,
   principal: { kind: 'user' | 'group' | 'domain' | 'anyone'; externalId: string },
+  source: { connectionId: string } | null = null,
 ): Promise<{ membershipId: string } | { teamId: string } | null> {
   requireWorker(context);
+  if (principal.kind === 'group') {
+    if (!source || !isIdentifier(source.connectionId) || !principal.externalId) return null;
+    const [group] = await withTenantTx(database, context, (tx) =>
+      tx
+        .select({ teamId: directoryGroups.teamId })
+        .from(directoryGroups)
+        .where(
+          and(
+            eq(directoryGroups.connectionId, source.connectionId),
+            eq(directoryGroups.externalId, principal.externalId),
+          ),
+        ),
+    );
+    return group ? { teamId: group.teamId } : null;
+  }
   if (principal.kind !== 'user' || !principal.externalId.includes('@')) return null;
   const email = principal.externalId.trim().toLowerCase();
   const [row] = await withTenantTx(database, context, (tx) =>
