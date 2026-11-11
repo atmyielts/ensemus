@@ -907,8 +907,8 @@
     },
     {
       "path": "06-delivery/suites-live-run.md",
-      "size_bytes": 9546,
-      "sha256": "61580dccd0eaa96433aeddc2cbe345a5605fbf222a633f7377cab2e831bb6442"
+      "size_bytes": 9432,
+      "sha256": "792832f264c56c50abb59d8495e67dd73bc909447b061fa672b74df79762e284"
     },
     {
       "path": "06-delivery/suites-slices.md",
