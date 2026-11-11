@@ -32,8 +32,9 @@ import { createServiceContext } from '@ensemus/database/service';
 import { eq, sql } from 'drizzle-orm';
 import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { storeSecret } from '@ensemus/secrets/seal';
 import { inFixtureTenant } from '../helpers/fixture-tenant';
-import { urls } from '../helpers/stack';
+import { secret, urls } from '../helpers/stack';
 
 const google = (scope: string) => `https://www.googleapis.com/auth/${scope}`;
 const message = { to: ['someone@example.invalid'], subject: 'Hello', text_body: 'Synthetic.' };
@@ -54,6 +55,24 @@ describe('suite tools (ADR-038 D6)', () => {
     text: string,
     values: unknown[],
   ) => inFixtureTenant(superuser, organizationId, () => superuser.query<R>(text, values));
+
+  const publicKeyPem = secret('sealing_public_key.pem');
+  /**
+   * The web tier's port for this member, sealing for real in their tenant: the attempt's sealed IDs are
+   * foreign keys, so an ID that names no sealed value is refused as a foreign reference.
+   */
+  const webFor = (context: TenantContext): OAuthWebSide => ({
+    seal: async (purpose, plaintext) =>
+      (
+        await storeSecret(db(), context, {
+          publicKeyPem,
+          purpose,
+          plaintext: plaintext.toString('utf8'),
+        })
+      ).secretRef,
+    redirectUri: 'https://ensemus.example.invalid/api/v1/oauth/callback',
+    platformClientId: () => 'generated-client.apps.example.invalid',
+  });
 
   beforeAll(async () => {
     app = openAppDatabase(urls.app());
@@ -227,9 +246,17 @@ describe('suite tools (ADR-038 D6)', () => {
   describe('0563: the suite read table', () => {
     it('shows a person nothing and lets neither a person nor the worker write a request', async () => {
       const t = await tenant();
+      // The application role reads every column but the output, and RLS shows a person no row of them.
       await expect(
-        withTenantTx(db(), t.owner, (tx) => tx.select().from(suiteReads)),
+        withTenantTx(db(), t.owner, (tx) =>
+          tx.select({ proposalId: suiteReads.proposalId }).from(suiteReads),
+        ),
       ).resolves.toEqual([]);
+      // The output is the agent role's alone: the application role cannot even name the column.
+      const output = await withTenantTx(db(), t.owner, (tx) =>
+        tx.select({ output: suiteReads.output }).from(suiteReads),
+      ).catch((error: unknown) => error);
+      expect(pgCode(output)).toBe('42501');
       for (const context of [t.owner, createServiceContext(t.organizationId)]) {
         const refused = await withTenantTx(db(), context, (tx) =>
           tx.insert(suiteReads).values({
@@ -264,11 +291,6 @@ describe('suite tools (ADR-038 D6)', () => {
   });
 
   describe('a member’s own consent (ADR-038 D5)', () => {
-    const web: OAuthWebSide = {
-      seal: async () => randomUUID(),
-      redirectUri: 'https://ensemus.example.invalid/api/v1/oauth/callback',
-      platformClientId: () => 'generated-client.apps.example.invalid',
-    };
     const start = (context: TenantContext, capabilities: ('mail' | 'documents' | 'files')[]) =>
       startAuthorization(
         db(),
@@ -281,7 +303,7 @@ describe('suite tools (ADR-038 D6)', () => {
           owner: 'member',
           client: { kind: 'platform' },
         },
-        web,
+        webFor(context),
       );
 
     it('starts one for an allowed capability, owned by that member alone', async () => {
@@ -317,7 +339,7 @@ describe('suite tools (ADR-038 D6)', () => {
             capabilities: ['files'],
             client: { kind: 'platform' },
           },
-          web,
+          webFor(t.alex),
         ),
       ).rejects.toMatchObject({ code: 'FORBIDDEN' });
     });
@@ -350,8 +372,8 @@ describe('suite tools (ADR-038 D6)', () => {
       organizationId,
       `insert into integrations.external_resource_acl
          (organization_id, resource_id, principal_kind, principal_external_id, access, membership_id)
-       values ($1, $2, 'user', $3, $4, $3)`,
-      [organizationId, resourceId, membershipId, access],
+       values ($1, $2, 'user', $3, $4, $5)`,
+      [organizationId, resourceId, membershipId, access, membershipId],
     );
   /** One of the organization's Google connections, granted these scopes. */
   const organizationConnection = async (organizationId: string, scopes: string[]) => {
@@ -588,11 +610,6 @@ describe('suite tools (ADR-038 D6)', () => {
     type Tenant = Awaited<ReturnType<typeof tenant>>;
     /** Alex's own consent, started as the application starts one, as a source for its sealed IDs. */
     const startOwn = async (t: Tenant) => {
-      const web: OAuthWebSide = {
-        seal: async () => randomUUID(),
-        redirectUri: 'https://ensemus.example.invalid/api/v1/oauth/callback',
-        platformClientId: () => 'generated-client.apps.example.invalid',
-      };
       const started = await startAuthorization(
         db(),
         t.alex,
@@ -604,7 +621,7 @@ describe('suite tools (ADR-038 D6)', () => {
           owner: 'member',
           client: { kind: 'platform' },
         },
-        web,
+        webFor(t.alex),
       );
       const [row] = await withTenantTx(db(), t.alex, (tx) =>
         tx
