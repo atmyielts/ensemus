@@ -20,6 +20,7 @@ import {
 } from '@ensemus/database';
 import { emailSendPayloadSchema } from '@ensemus/contracts/external-actions';
 import { parseSuiteActionPayload } from '@ensemus/contracts/ai-tools';
+import { suitePayloadFits } from '@ensemus/contracts/suite-tools';
 import type { AiClassification } from '@ensemus/domain/ai';
 import { isActionTool, toolManifest } from '@ensemus/domain/ai-tools';
 import {
@@ -297,12 +298,15 @@ async function endAsSent(
  */
 function freezePayload(
   toolName: string,
-  connection: { id: string; config: unknown },
+  connection: { id: string; connectorType: string; config: unknown },
   payload: unknown,
 ) {
   if (toolName === EMAIL_SEND_TOOL) return freezeEmailPayload(payload, connection.config);
   const frozen = parseSuiteActionPayload(toolName, connection.id, payload);
-  if (!frozen) throw new AppError('INVALID_INPUT');
+  // A payload this provider cannot do exactly is refused before anyone is asked to approve it.
+  if (!frozen || !suitePayloadFits(toolName, connection.connectorType, frozen)) {
+    throw new AppError('INVALID_INPUT');
+  }
   return frozen;
 }
 

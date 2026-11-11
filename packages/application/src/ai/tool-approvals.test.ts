@@ -1227,6 +1227,7 @@ describe('what the approval screen is given', () => {
       requestHash: state.approval?.actionHash,
       action: state.approval?.action,
       email: email(),
+      suite: null,
       consistent: true,
     });
   });

@@ -297,6 +297,9 @@ services:
       ENSEMUS_EGRESS_GOOGLE_SHEETS: egress-google-sheets:2525
       # Connecting by consent (ADR-038 D1). The exchange names the same redirect URI the web tier did.
       ENSEMUS_PUBLIC_URL: ${ENSEMUS_PUBLIC_URL:-https://localhost:8443}
+      # The domain in the Message-ID of mail agents send through Gmail or Outlook (ADR-038 D6). Empty
+      # means the host of ENSEMUS_PUBLIC_URL. A value that is not a host name stops the worker.
+      ENSEMUS_MAIL_ID_DOMAIN: ${ENSEMUS_MAIL_ID_DOMAIN:-}
       # The operator's own apps (ADR-038 D2). Unset means none: an admin connects with their own app.
       # The client ID comes from the same setting web reads, because the code exchange must name the app
       # the consent URL named. The secret is a file an operator mounts with an overlay, and only this

@@ -233,6 +233,27 @@ describe('the organization’s content, through the source’s own ACL', () => {
     expect(resourceIdOf(SUITE_CONNECTION_RULES['drive.search'], { query: 'q' })).toBeNull();
     expect(resourceIdOf(SUITE_CONNECTION_RULES['docs.read'], { document_id: 3 })).toBeNull();
   });
+
+  it('names a Microsoft drive item as the drive sync keys it, and nothing without both parts', () => {
+    for (const tool of ['word.read', 'excel.read_range', 'excel.write_range'] as const) {
+      expect(
+        resourceIdOf(SUITE_CONNECTION_RULES[tool], { drive_id: 'b!drv', item_id: '01ITEM' }),
+        tool,
+      ).toBe(JSON.stringify(['b!drv', '01ITEM']));
+      expect(resourceIdOf(SUITE_CONNECTION_RULES[tool], { item_id: '01ITEM' }), tool).toBeNull();
+      expect(resourceIdOf(SUITE_CONNECTION_RULES[tool], { drive_id: 'b!drv' }), tool).toBeNull();
+    }
+    for (const [tool, arg] of [
+      ['docs.read', 'document_id'],
+      ['docs.edit', 'document_id'],
+      ['sheets.read_range', 'spreadsheet_id'],
+      ['sheets.write_range', 'spreadsheet_id'],
+    ] as const) {
+      expect(resourceIdOf(SUITE_CONNECTION_RULES[tool], { [arg]: '1AbC_d-E' }), tool).toBe(
+        '1AbC_d-E',
+      );
+    }
+  });
 });
 
 describe('who is asked', () => {

@@ -1645,6 +1645,300 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/organizations/{organization_id}/my-connections": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+            };
+            cookie?: never;
+        };
+        /**
+         * The signed-in member's own Google and Microsoft connections, newest first
+         * @description Only the caller's own. Another member's never appears, and neither do scopes or credentials, only what each connection can do.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The caller's own connections */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            items: components["schemas"]["MyConnection"][];
+                        };
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        put?: never;
+        /**
+         * Start connecting the member's own account by consent, for what the organization allows
+         * @description Any member, for capabilities the organization allows members (ADR-038 D5; mail and calendar unless an admin changed it). Always through Ensemus's own app, so there is no client to choose and nothing secret in the body. A capability no member can own answers OAUTH_CAPABILITY_UNAVAILABLE, and one the organization does not allow members answers MEMBER_CAPABILITY_NOT_ALLOWED. The connection made is the caller's alone. As for an admin's consent, the response sets the __Host-ensemus_oauth cookie, and the browser that opens authorize_url must be the one that received it. There is no Idempotency-Key, because each call is a new attempt that expires ten minutes after it starts.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        /** @enum {string} */
+                        connector_type: "google_workspace" | "microsoft_365";
+                        display_name: string;
+                        capabilities: ("mail" | "calendar" | "documents" | "chat")[];
+                    };
+                };
+            };
+            responses: {
+                /** @description The attempt, and the provider's page. Nothing is connected until the member agrees there. */
+                201: {
+                    headers: {
+                        /** @description The provider's address carries this attempt's state, so nothing may keep it. */
+                        "Cache-Control": "no-store";
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["StartedOAuthAuthorization"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                409: components["responses"]["Conflict"];
+                413: components["responses"]["PayloadTooLarge"];
+                415: components["responses"]["UnsupportedMediaType"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/organizations/{organization_id}/my-connections/{connection_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+                connection_id: components["parameters"]["ConnectionID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Revoke a member's own connection, by that member or by an admin
+         * @description The member who owns it may revoke it. So may someone with connection.manage, with a recent second factor where the organization asks for one, and that revokes it without reading anything through it. Anyone else, and any connection that is the organization's, hears that it does not exist. Nothing not yet attempted goes out through it after this, and its sealed credential is revoked.
+         */
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                    connection_id: components["parameters"]["ConnectionID"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Revoked */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                409: components["responses"]["Conflict"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/organizations/{organization_id}/member-connections": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Every member's own connection, by owner and state, for those who manage connections
+         * @description Whose each is and whether it is active, so an admin can revoke one. Never its name, what it can do, its scopes or anything read through it.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Members' own connections */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            items: components["schemas"]["MemberConnection"][];
+                        };
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/organizations/{organization_id}/member-connection-capabilities": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                organization_id: components["parameters"]["OrganizationID"];
+            };
+            cookie?: never;
+        };
+        /**
+         * What members may connect with their own account
+         * @description Anyone in the organization may read it. Mail and calendar until an admin changes it.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The capabilities members may connect */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["MemberConnectionCapabilities"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        /**
+         * Choose what members may connect with their own account
+         * @description Needs connection.manage and a recent second factor where the organization asks for one. Replaces the whole list; an empty list lets members connect nothing. Narrowing it stops new consents for what was removed, and connections already made stay until revoked.
+         */
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description Requires authenticated organization membership; UUID alone is never authorization. */
+                    organization_id: components["parameters"]["OrganizationID"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["MemberConnectionCapabilities"];
+                };
+            };
+            responses: {
+                /** @description The capabilities members may now connect */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["MemberConnectionCapabilities"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                409: components["responses"]["Conflict"];
+                413: components["responses"]["PayloadTooLarge"];
+                415: components["responses"]["UnsupportedMediaType"];
+                500: components["responses"]["InternalError"];
+                503: components["responses"]["RestorePending"];
+            };
+        };
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/oauth/callback": {
         parameters: {
             query?: never;
@@ -9264,6 +9558,35 @@ export interface components {
              * @description The provider's own consent page. Send the admin's browser there.
              */
             authorize_url: string;
+        };
+        /** @description One of the caller's own connections. What it can do, never its scopes or credential. */
+        MyConnection: {
+            /** Format: uuid */
+            id: string;
+            /** @enum {string} */
+            connector_type: "google_workspace" | "microsoft_365";
+            display_name: string;
+            /** @enum {string} */
+            state: "active" | "disabled" | "revoked";
+            capabilities: ("mail" | "calendar" | "documents" | "chat")[];
+            /** Format: date-time */
+            created_at: string;
+        };
+        /** @description A member's own connection as an admin sees it. Whose it is and its state, nothing about what it reaches. */
+        MemberConnection: {
+            /** Format: uuid */
+            id: string;
+            connector_type: string;
+            /** Format: uuid */
+            owner_membership_id: string;
+            owner_name: string;
+            /** @enum {string} */
+            state: "active" | "disabled" | "revoked";
+            /** Format: date-time */
+            created_at: string;
+        };
+        MemberConnectionCapabilities: {
+            capabilities: ("mail" | "calendar" | "documents" | "chat")[];
         };
         /** @enum {string} */
         Classification: "public" | "internal" | "confidential" | "restricted";

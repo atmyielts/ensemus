@@ -841,6 +841,13 @@
       "when": 1794201807521,
       "tag": "0563_suite_tools",
       "breakpoints": true
+    },
+    {
+      "idx": 120,
+      "version": "7",
+      "when": 1794201807522,
+      "tag": "0564_suite_upkeep_and_own_revoke",
+      "breakpoints": true
     }
   ]
 }

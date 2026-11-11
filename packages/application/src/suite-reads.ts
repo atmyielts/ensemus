@@ -18,10 +18,15 @@ import {
   type TenantContext,
   type Tx,
 } from '@ensemus/database';
-import { strongestClassification, type AiClassification } from '@ensemus/domain/ai';
+import {
+  AGENT_RUN_STATUSES,
+  isTerminalAgentRun,
+  strongestClassification,
+  type AiClassification,
+} from '@ensemus/domain/ai';
 import { toolManifest, type ConnectionRule } from '@ensemus/domain/ai-tools';
 import { decideConnectionUse } from '@ensemus/policy';
-import { and, eq, inArray, isNull } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNull, lt, or } from 'drizzle-orm';
 import { createHaltCheck } from './ai/halt';
 import { AppError } from './errors';
 import { canonicalId } from './ids';
@@ -369,4 +374,68 @@ export function permittedSuiteResources(
 ): Promise<ReadonlySet<string>> {
   assertService(context);
   return withTenantTx(database, context, (tx) => permittedResources(tx, input));
+}
+
+// --- Reads nobody will collect (ADR-038 D6). A read is collected while its run is live, in seconds. One
+// whose run has ended, or that is older than an hour, never will be, and its output is provider content
+// with nowhere to go, so the suite upkeep deletes it. Migration 0564 lets only the worker's service
+// context delete, and only rows this same rule allows.
+
+/** How long an uncollected suite read is kept, whatever its run is doing. */
+export const SUITE_READ_KEEP_MS = 3_600_000;
+
+/** The run statuses that end a run. 0564's policy names the same list, and a unit test holds them equal. */
+export const ENDED_RUN_STATUSES: readonly string[] = AGENT_RUN_STATUSES.filter(isTerminalAgentRun);
+
+/** The most rows one sweep deletes. The next sweep takes the rest. */
+const SWEEP_BATCH = 1000;
+
+/**
+ * Whether a suite read will never be collected: older than SUITE_READ_KEEP_MS, or its run has ended or
+ * cannot be found. A run in any status not known to have ended counts as live.
+ */
+export function suiteReadIsSpent(
+  read: { createdAt: Date; runStatus: string | null },
+  now: Date,
+): boolean {
+  if (now.getTime() - read.createdAt.getTime() > SUITE_READ_KEEP_MS) return true;
+  return read.runStatus === null || ENDED_RUN_STATUSES.includes(read.runStatus);
+}
+
+/** Deletes this tenant's spent suite reads, at most SWEEP_BATCH, and answers how many. */
+export function sweepSuiteReads(
+  database: AppDatabase,
+  context: TenantContext,
+  now: Date = new Date(),
+): Promise<number> {
+  assertService(context);
+  return withTenantTx(database, context, async (tx) => {
+    const candidates = await tx
+      .select({
+        proposalId: suiteReads.proposalId,
+        createdAt: suiteReads.createdAt,
+        runStatus: agentRuns.status,
+      })
+      .from(suiteReads)
+      .leftJoin(agentRuns, eq(agentRuns.id, suiteReads.runId))
+      .where(
+        or(
+          lt(suiteReads.createdAt, new Date(now.getTime() - SUITE_READ_KEEP_MS)),
+          isNull(agentRuns.id),
+          inArray(agentRuns.status, [...ENDED_RUN_STATUSES]),
+        ),
+      )
+      .orderBy(asc(suiteReads.createdAt))
+      .limit(SWEEP_BATCH);
+    const spent = candidates
+      .filter((read) => suiteReadIsSpent(read, now))
+      .map((read) => read.proposalId);
+    if (spent.length === 0) return 0;
+    // 0564's policy checks each row again by the database's own clock, so nothing live is deleted.
+    const deleted = await tx
+      .delete(suiteReads)
+      .where(inArray(suiteReads.proposalId, spent))
+      .returning({ proposalId: suiteReads.proposalId });
+    return deleted.length;
+  });
 }

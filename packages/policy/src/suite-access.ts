@@ -130,9 +130,16 @@ export function changeNeedsApproval(manifest: Pick<ToolManifest, 'class' | 'requ
   return manifest.class === 'external_write' || manifest.requiresApproval;
 }
 
-/** The value an argument names, for the one resource a rule checks. Null when there is none. */
+/**
+ * The external ID of the one resource a rule checks, in exactly the form the connector's sync stores it:
+ * one argument's value as given, or the JSON array of several (a Microsoft drive item's
+ * `["drive", "item"]`). Null when there is none, or when any part is missing, which the rule then refuses.
+ */
 export function resourceIdOf(rule: ConnectionRule, args: unknown): string | null {
   if (rule.resourceArg === null || typeof args !== 'object' || args === null) return null;
-  const value = (args as Record<string, unknown>)[rule.resourceArg];
-  return typeof value === 'string' && value.length > 0 ? value : null;
+  const names = typeof rule.resourceArg === 'string' ? [rule.resourceArg] : rule.resourceArg;
+  const values = names.map((name) => (args as Record<string, unknown>)[name]);
+  if (values.length === 0 || !values.every((v) => typeof v === 'string' && v.length > 0))
+    return null;
+  return values.length === 1 ? (values[0] as string) : JSON.stringify(values);
 }

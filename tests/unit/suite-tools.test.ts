@@ -22,9 +22,14 @@ import {
 } from '@ensemus/connectors/microsoft/tools';
 import {
   createSuiteToolDispatch,
+  notImplemented,
   NotImplementedSend,
+  parseMailIdDomain,
+  resolveMailIdDomain,
   SuiteReadRefused,
 } from '@ensemus/connectors/suites';
+import { driveResourceId } from '@ensemus/connectors/microsoft/tools';
+import { suitePayloadFits } from '@ensemus/contracts/suite-tools';
 import {
   actionToolsFor,
   FORBIDDEN_TOOL_PREFIXES,
@@ -42,7 +47,7 @@ import {
   CAPABILITY_SCOPES,
   MEMBER_CONNECTABLE_CAPABILITIES,
 } from '@ensemus/domain/workspace-suites';
-import { changeNeedsApproval } from '@ensemus/policy';
+import { changeNeedsApproval, resourceIdOf } from '@ensemus/policy';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
@@ -133,7 +138,29 @@ describe('every tool that works through a connection', () => {
       expect(rule.resourceAccess, tool.id).not.toBeNull();
       const schema = SUITE_TOOL_ARGS_SCHEMAS[tool.id as keyof typeof SUITE_TOOL_ARGS_SCHEMAS];
       const shape = (schema as unknown as { shape?: Record<string, unknown> }).shape;
-      expect(shape && rule.resourceArg in shape, tool.id).toBe(true);
+      const names = typeof rule.resourceArg === 'string' ? [rule.resourceArg] : rule.resourceArg;
+      for (const name of names) expect(shape && name in shape, `${tool.id} ${name}`).toBe(true);
+    }
+  });
+
+  it('names each resource exactly as its connector’s sync stores it', () => {
+    // Google's Drive sync keys a file by its Drive ID, and a document or sheet is a Drive file.
+    for (const tool of ['docs.read', 'docs.edit', 'sheets.read_range', 'sheets.write_range']) {
+      const rule = toolManifest(tool)!.connection!;
+      const arg = rule.resourceArg as string;
+      expect(resourceIdOf(rule, { [arg]: '1GeneratedFileId_x-Y' }), tool).toBe(
+        '1GeneratedFileId_x-Y',
+      );
+    }
+    // Microsoft's drive sync keys an item by its drive and ID together.
+    for (const tool of ['word.read', 'excel.read_range', 'excel.write_range']) {
+      expect(
+        resourceIdOf(toolManifest(tool)!.connection!, {
+          drive_id: 'b!generatedDrive',
+          item_id: '01GENERATEDITEM',
+        }),
+        tool,
+      ).toBe(driveResourceId('b!generatedDrive', '01GENERATEDITEM'));
     }
   });
 
@@ -160,6 +187,44 @@ describe('every tool that works through a connection', () => {
       expect(tool.id).toMatch(/\.create_draft$/);
       expect(tool.requiresApproval).toBe(false);
     }
+  });
+
+  it('never claims a Teams post can be looked up: a timeout is for a person', () => {
+    expect(toolManifest('teams.post_message')!.connection!.bindings.microsoft_365).toEqual({
+      scopes: ['ChannelMessage.Send'],
+      reconcile: 'none',
+      nativeIdempotency: false,
+    });
+  });
+
+  it('refuses at proposal what Microsoft cannot do: an event change that tells nobody', () => {
+    const event = { attendees: ['ana@example.invalid'] };
+    for (const value of ['none', 'external_only']) {
+      expect(
+        suitePayloadFits('calendar.create_event', 'microsoft_365', {
+          ...event,
+          send_updates: value,
+        }),
+      ).toBe(false);
+      expect(
+        suitePayloadFits('calendar.update_event', 'microsoft_365', { send_updates: value }),
+      ).toBe(false);
+      expect(
+        suitePayloadFits('calendar.create_event', 'google_workspace', {
+          ...event,
+          send_updates: value,
+        }),
+      ).toBe(true);
+    }
+    expect(
+      suitePayloadFits('calendar.create_event', 'microsoft_365', { ...event, send_updates: 'all' }),
+    ).toBe(true);
+    expect(
+      suitePayloadFits('calendar.create_event', 'microsoft_365', {
+        attendees: [],
+        send_updates: 'none',
+      }),
+    ).toBe(true);
   });
 
   it('declares ADR-038 D6’s reconcile and idempotency for calendar creates', () => {
@@ -238,6 +303,7 @@ describe('the connector side', () => {
   const context = {
     organizationId: '6f1c2c6e-4444-4444-8444-444444444444',
     connectionId: CONNECTION,
+    ownerKind: 'member' as const,
     config: {},
     credentials: {
       withCredential: () => Promise.reject(new Error('no credential in a unit test')),
@@ -263,6 +329,7 @@ describe('the connector side', () => {
     }));
     const tools = createSuiteToolDispatch({
       deps: {},
+      connectorType: 'google_workspace',
       reads: {},
       actions: { 'gmail.send': { send, reconcile: vi.fn() } },
     });
@@ -285,22 +352,43 @@ describe('the connector side', () => {
   });
 
   it('refuses a read of a tool it has no handler for, or with arguments its schema refuses', async () => {
-    const tools = createSuiteToolDispatch({ deps: {}, reads: {}, actions: {} });
+    const tools = createSuiteToolDispatch({
+      deps: {},
+      connectorType: 'google_workspace',
+      reads: {},
+      actions: {},
+    });
     await expect(
       tools.suiteReads.read(context, { id: 'gmail.search', version: '1' }, {}, null),
     ).rejects.toBeInstanceOf(SuiteReadRefused);
   });
 
   it('has an unwritten change end as not sent, so nobody is asked about an effect that never was', async () => {
+    // Stubs, as a provider's handler map holds them until each is written. The dispatch passes a valid
+    // payload through to the stub, and what comes back is a certain NotSent, never an unknown.
+    const reconcile = vi.fn(notImplemented);
     const tools = createSuiteToolDispatch({
       deps: {},
-      reads: GOOGLE_READ_HANDLERS as never,
-      actions: GOOGLE_ACTION_HANDLERS as never,
+      connectorType: 'google_workspace',
+      reads: { 'gmail.search': notImplemented },
+      actions: {
+        'gmail.send': {
+          send: async () => {
+            throw new NotImplementedSend();
+          },
+          reconcile,
+        },
+      },
     });
     const message = { to: ['someone@example.invalid'], subject: 'Hi', text_body: 'x' };
-    await expect(
-      tools.actions.send(context, request('gmail.send', { message })),
-    ).rejects.toBeInstanceOf(NotImplementedSend);
+    const refused = await tools.actions.send(context, request('gmail.send', { message })).then(
+      () => null,
+      (error: unknown) => error,
+    );
+    expect(refused).toBeInstanceOf(NotImplementedSend);
+    expect(refused).toBeInstanceOf(NotSent);
+    expect(refused).toMatchObject({ code: 'CONNECTOR_UNAVAILABLE', retryable: false });
+    expect(reconcile).not.toHaveBeenCalled();
     await expect(
       tools.suiteReads.read(
         context,
@@ -309,6 +397,49 @@ describe('the connector side', () => {
         null,
       ),
     ).rejects.toThrow('NOT_IMPLEMENTED');
+  });
+
+  it('refuses a change its provider cannot do exactly before any handler runs', async () => {
+    const send = vi.fn();
+    const tools = createSuiteToolDispatch({
+      deps: {},
+      connectorType: 'microsoft_365',
+      reads: {},
+      actions: { 'calendar.create_event': { send, reconcile: vi.fn() } },
+    });
+    const event = {
+      calendar_id: 'primary',
+      summary: 'Review',
+      start: '2026-11-12T10:00:00Z',
+      end: '2026-11-12T11:00:00Z',
+      time_zone: 'Europe/London',
+      attendees: ['ana@example.invalid'],
+      send_updates: 'none',
+    };
+    await expect(
+      tools.actions.send(context, request('calendar.create_event', event)),
+    ).rejects.toMatchObject({ code: 'PAYLOAD_CHANGED' });
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it('refuses a read whose connection owner was not said', async () => {
+    const read = vi.fn();
+    const tools = createSuiteToolDispatch({
+      deps: {},
+      connectorType: 'google_workspace',
+      reads: { 'gmail.search': read },
+      actions: {},
+    });
+    const { ownerKind: _owner, ...unsaid } = context;
+    await expect(
+      tools.suiteReads.read(
+        unsaid as never,
+        { id: 'gmail.search', version: '1' },
+        { connection_id: CONNECTION, query: 'x', max_results: 1 },
+        null,
+      ),
+    ).rejects.toBeInstanceOf(SuiteReadRefused);
+    expect(read).not.toHaveBeenCalled();
   });
 
   it('never hands a connector an action its manifest does not declare, and reconciles per tool', async () => {
@@ -353,6 +484,42 @@ describe('the connector side', () => {
     expect(gateway.lookupOf('google_workspace', 'calendar.create_event')).toBe('authoritative');
     expect(gateway.lookupOf('google_workspace', 'gmail.send')).toBe('best_effort');
     expect(gateway.lookupOf('google_workspace', 'email.send')).toBe('best_effort');
+  });
+});
+
+describe('the Message-ID domain a deployment sets', () => {
+  it('takes a host name, lower-cased, and nothing that could carry a second header', () => {
+    expect(parseMailIdDomain('Mail.Example.COM')).toBe('mail.example.com');
+    expect(parseMailIdDomain('localhost')).toBe('localhost');
+    for (const bad of [
+      '',
+      'example.com\r\nBcc: x',
+      '-bad.example.com',
+      'bad-.example.com',
+      'a..b',
+      '10.0.0.5',
+      'under_score.example.com',
+      `${'a'.repeat(64)}.example.com`,
+      'example.com:443',
+    ]) {
+      expect(parseMailIdDomain(bad), bad).toBeNull();
+    }
+  });
+
+  it('is the operator’s setting, else the public host, and an invalid setting stops the worker', () => {
+    expect(
+      resolveMailIdDomain({ explicit: 'mail.example.com', publicUrl: 'https://e.example.org' }),
+    ).toBe('mail.example.com');
+    expect(resolveMailIdDomain({ publicUrl: 'https://Ensemus.Example.org:8443/x' })).toBe(
+      'ensemus.example.org',
+    );
+    expect(resolveMailIdDomain({ explicit: '  ', publicUrl: 'https://e.example.org' })).toBe(
+      'e.example.org',
+    );
+    expect(resolveMailIdDomain({ publicUrl: 'https://10.0.0.5' })).toBeNull();
+    expect(resolveMailIdDomain({ publicUrl: 'not a url' })).toBeNull();
+    expect(resolveMailIdDomain({})).toBeNull();
+    expect(() => resolveMailIdDomain({ explicit: 'bad domain' })).toThrow('MAIL_ID_DOMAIN_INVALID');
   });
 });
 

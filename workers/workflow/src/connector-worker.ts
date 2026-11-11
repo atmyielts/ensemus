@@ -13,10 +13,11 @@ import type { ProviderRoute } from '@ensemus/connectors/knowledge';
 import { createMicrosoft365Connector } from '@ensemus/connectors/microsoft';
 import { createProviderHttpClient } from '@ensemus/connectors/provider-http';
 import { createConnectorRegistry, createGatewayNetwork } from '@ensemus/connectors/runtime';
-import type {
-  PlatformOAuthClient,
-  PlatformOAuthClients,
-  PlatformOAuthProvider,
+import {
+  resolveMailIdDomain,
+  type PlatformOAuthClient,
+  type PlatformOAuthClients,
+  type PlatformOAuthProvider,
 } from '@ensemus/connectors/suites';
 import { openAppDatabase } from '@ensemus/database';
 import { openSecretsDatabase } from '@ensemus/database/secrets';
@@ -110,6 +111,14 @@ async function main() {
     .toString();
   const http = createProviderHttpClient({ routes: providerRoutes() });
   const platformClients = platformOAuthClients();
+  // The right-hand side of every suite mail's Message-ID (ADR-038 D6): the operator's
+  // ENSEMUS_MAIL_ID_DOMAIN, else this deployment's public host. A bad explicit value stops the worker
+  // here. With neither, suite mail is refused unsent, and nothing else is affected.
+  const messageIdDomain = resolveMailIdDomain({
+    explicit: process.env.ENSEMUS_MAIL_ID_DOMAIN,
+    publicUrl: process.env.ENSEMUS_PUBLIC_URL,
+  });
+  if (!messageIdDomain) log.warn('connector_worker.mail_id_domain_missing', {});
   // Microsoft rotates the refresh token on every refresh. The new one is resealed in place under the
   // connection's existing secret ID (0562), because 0561 refuses a new credential_secret_id from here.
   const suiteDeps = {
@@ -117,6 +126,7 @@ async function main() {
     platformClients,
     scopes: createGrantedScopesRecorder(app.db),
     rotation: createCredentialRotation(app.db, secrets),
+    messageIdDomain,
   };
   const deps = {
     database: app.db,

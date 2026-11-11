@@ -15,6 +15,7 @@ import {
   agentVersions,
   approvalDecisions,
   approvals,
+  connections,
   externalActions,
   memberships,
   modelProfiles,
@@ -33,7 +34,12 @@ import {
   type AiClassification,
   type ProviderKind,
 } from '@ensemus/domain/ai';
-import { isActionTool, toolManifest, type ToolManifest } from '@ensemus/domain/ai-tools';
+import {
+  isActionTool,
+  isSuiteRule,
+  toolManifest,
+  type ToolManifest,
+} from '@ensemus/domain/ai-tools';
 import {
   actionHash,
   checkExecution,
@@ -43,7 +49,7 @@ import {
 import { connectionRef } from '@ensemus/domain/external-action';
 import { canChangeWork, canReadWork, type Classification } from '@ensemus/domain/policy';
 import { decideAction } from '@ensemus/policy';
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 import { AppError } from '../errors';
 import { onApprovalClosedInTx } from '../external-actions';
 import { canonicalId, idSchema } from '../ids';
@@ -905,6 +911,26 @@ export type AgentActionView = {
   email: EmailSendPayload | null;
   /** False if the stored rows disagree with each other. Nobody should approve that. */
   consistent: boolean;
+  /** For a change through a workspace suite (ADR-038 D6): what the page says beside the payload. */
+  suite: SuiteActionFacts | null;
+};
+
+/** Whose connection a suite change goes through, as the approval page names it. */
+export type SuiteActionConnection = {
+  connectorType: string;
+  /** What an administrator called it. Their words, shown as data. */
+  displayName: string;
+  ownerKind: 'organization' | 'member';
+  /** The member whose own account it is. Null for the organization's, or a name no longer here. */
+  ownerName: string | null;
+};
+
+/** What a reviewer needs beside a suite payload that only this organization's rows can say. */
+export type SuiteActionFacts = {
+  /** Null when the reviewer cannot see the connection, which the page then says. */
+  connection: SuiteActionConnection | null;
+  /** Of the payload's addresses, lower-cased, the ones that belong to an active member here. */
+  memberAddresses: readonly string[];
 };
 
 /** Parsed to check its shape only. The schema trims text, and a reviewer has to see it as it would go. */
@@ -947,11 +973,78 @@ export async function readAgentAction(
     requestHash: approval.actionHash,
     action,
     email: emailOf(action),
+    suite: null,
     consistent:
       actionHash(action) === approval.actionHash &&
       action.toolName === row.toolId &&
       action.toolVersion === row.toolVersion &&
       row.runWorkUnitId === approval.workUnitId,
+  };
+}
+
+/** Every address a suite payload names: recipients and attendees, lower-cased. */
+export function payloadAddresses(payload: unknown): string[] {
+  const found = new Set<string>();
+  const add = (list: unknown) => {
+    if (!Array.isArray(list)) return;
+    for (const each of list.slice(0, 200)) {
+      if (typeof each === 'string' && each.length <= 254) found.add(each.toLowerCase());
+    }
+  };
+  if (payload && typeof payload === 'object') {
+    const { message, attendees, changes } = payload as Record<string, unknown>;
+    if (message && typeof message === 'object') {
+      const mail = message as Record<string, unknown>;
+      add(mail.to);
+      add(mail.cc);
+      add(mail.bcc);
+    }
+    add(attendees);
+    if (changes && typeof changes === 'object') add((changes as Record<string, unknown>).attendees);
+  }
+  return [...found];
+}
+
+/**
+ * The connection a suite change names and which of its addresses are members here, read with the
+ * reviewer's own access. Nothing the provider said is read: only this organization's rows.
+ */
+async function readSuiteFacts(tx: Tx, view: AgentActionView): Promise<SuiteActionFacts> {
+  const ref = view.action.targetRef ?? '';
+  const connectionId = ref.startsWith('connection:') ? ref.slice('connection:'.length) : '';
+  const [row] = idSchema.safeParse(connectionId).success
+    ? await tx
+        .select({
+          connectorType: connections.connectorType,
+          displayName: connections.displayName,
+          ownerMembershipId: connections.ownerMembershipId,
+          ownerName: users.name,
+        })
+        .from(connections)
+        .leftJoin(memberships, eq(memberships.id, connections.ownerMembershipId))
+        .leftJoin(users, eq(users.id, memberships.userId))
+        .where(eq(connections.id, connectionId))
+    : [];
+  const addresses = payloadAddresses(view.action.payload);
+  const members = addresses.length
+    ? await tx
+        .select({ email: sql<string>`lower(${users.email})` })
+        .from(memberships)
+        .innerJoin(users, eq(users.id, memberships.userId))
+        .where(
+          and(eq(memberships.status, 'active'), inArray(sql`lower(${users.email})`, addresses)),
+        )
+    : [];
+  return {
+    connection: row
+      ? {
+          connectorType: row.connectorType,
+          displayName: row.displayName,
+          ownerKind: row.ownerMembershipId === null ? 'organization' : 'member',
+          ownerName: row.ownerMembershipId === null ? null : (row.ownerName ?? null),
+        }
+      : null,
+    memberAddresses: members.map((member) => member.email),
   };
 }
 
@@ -961,9 +1054,12 @@ export function getAgentActionForApproval(
   context: TenantContext,
   approvalId: string,
 ): Promise<AgentActionView | null> {
-  return withTenantTx(database, context, (tx) =>
-    readAgentAction(postgresStore, tx, context, approvalId),
-  );
+  return withTenantTx(database, context, async (tx) => {
+    const view = await readAgentAction(postgresStore, tx, context, approvalId);
+    const rule = view ? toolManifest(view.toolId)?.connection : undefined;
+    if (!view || !rule || !isSuiteRule(rule)) return view;
+    return { ...view, suite: await readSuiteFacts(tx, view) };
+  });
 }
 
 // Control characters other than tab and line breaks, soft hyphens, zero-width characters, and the marks that

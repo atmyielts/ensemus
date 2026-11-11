@@ -117,6 +117,7 @@ export type ErrorCode =
   | 'OAUTH_SCOPES_INSUFFICIENT'
   | 'OAUTH_CLIENT_NOT_CONFIGURED'
   | 'OAUTH_CAPABILITY_UNAVAILABLE'
+  | 'MEMBER_CAPABILITY_NOT_ALLOWED'
   | 'DIRECTORY_TEAM_READ_ONLY';
 
 const MESSAGES: Record<ErrorCode, string> = {
@@ -256,6 +257,8 @@ const MESSAGES: Record<ErrorCode, string> = {
   OAUTH_CLIENT_NOT_CONFIGURED:
     'The app chosen to connect through is not set up on this deployment, so nothing was connected. Start again with your own app’s details, or ask whoever runs Ensemus to set up its app.',
   OAUTH_CAPABILITY_UNAVAILABLE: 'That kind of access cannot be connected yet.',
+  MEMBER_CAPABILITY_NOT_ALLOWED:
+    'Your organization does not let members connect that kind of access, so nothing was connected. Ask an administrator to allow it.',
   DIRECTORY_TEAM_READ_ONLY:
     'This team comes from your directory, so it changes only there. Change the group at the provider.',
 };
@@ -394,6 +397,7 @@ export const HTTP_STATUS: Record<ErrorCode, number> = {
   OAUTH_SCOPES_INSUFFICIENT: 409,
   OAUTH_CLIENT_NOT_CONFIGURED: 409,
   OAUTH_CAPABILITY_UNAVAILABLE: 400,
+  MEMBER_CAPABILITY_NOT_ALLOWED: 403,
   DIRECTORY_TEAM_READ_ONLY: 409,
 };
 

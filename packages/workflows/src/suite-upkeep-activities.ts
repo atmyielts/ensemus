@@ -1,6 +1,7 @@
-// The suite upkeep (ADR-038 D1, D4), in the connector worker, because it revokes sealed values and only the
-// broker can. Two sweeps of one tenant, each taking only its ID and answering counts: consent attempts that
-// ended early leave nothing sealed behind, and a directory that stopped syncing stops granting.
+// The suite upkeep (ADR-038 D1, D4, D6), in the connector worker, because it revokes sealed values and only
+// the broker can. Three sweeps of one tenant, each taking only its ID and answering counts: consent attempts
+// that ended early leave nothing sealed behind, a directory that stopped syncing stops granting, and a
+// suite read nobody will collect leaves no provider content behind.
 import {
   attemptSecretStatuses,
   directoryEntitlementEnded,
@@ -10,6 +11,7 @@ import {
   loadConnectionForWorker,
   removeConnectionDirectory,
 } from '@ensemus/application';
+import { sweepSuiteReads } from '@ensemus/application/suite-reads';
 import type { AppDatabase } from '@ensemus/database';
 import { createServiceContext } from '@ensemus/database/service';
 import {
@@ -103,6 +105,21 @@ export function createSuiteUpkeepActivities(deps: SuiteUpkeepDeps) {
         }
         if (removed) log.warn('suite_upkeep.directory_held', { organizationId, count: removed });
         return { connections: connectionIds.length, removed };
+      });
+    },
+
+    /**
+     * Deletes suite reads nobody will collect: their run has ended, or they are older than an hour
+     * (`suiteReadIsSpent`). Their output is provider content with nowhere to go. 0564 allows this
+     * context alone to delete, and only such rows.
+     */
+    async sweepSuiteReads(raw: TenantInput): Promise<{ deleted: number }> {
+      const { organizationId } = tenantInputSchema.parse(raw);
+      const context = createServiceContext(organizationId);
+      return guarded(organizationId, 'suite_reads', async () => {
+        const deleted = await sweepSuiteReads(database, context);
+        if (deleted) log.info('suite_upkeep.suite_reads_swept', { organizationId, count: deleted });
+        return { deleted };
       });
     },
   };

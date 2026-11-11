@@ -51,9 +51,12 @@ export type ConnectionRule = {
   resourceAccess: 'read' | 'write' | null;
   /**
    * The argument naming the one resource the tool reads or changes, checked before anything runs. Null with
-   * `resourceAccess` set means the tool returns many (a search), and each result is checked instead.
+   * `resourceAccess` set means the tool returns many (a search), and each result is checked instead. Its
+   * value must be exactly the external ID the connector's sync stores: one argument is that ID as given
+   * (a Google Drive file ID); several are the JSON array of their values in this order (a Microsoft drive
+   * item, which the sync keys as `["drive", "item"]`).
    */
-  resourceArg: string | null;
+  resourceArg: string | readonly string[] | null;
   /** The most the tool's output may put in front of the next turn. Larger is refused, never cut. */
   maxOutputBytes: number;
 };
@@ -100,7 +103,7 @@ const mine = (capability: ToolCapability, maxOutputBytes: number) => ({
 const shared = (
   capability: ToolCapability,
   access: 'read' | 'write' | null,
-  resourceArg: string | null,
+  resourceArg: string | readonly string[] | null,
   maxOutputBytes: number,
   owner: ToolOwnerRule = 'either',
 ) => ({ capability, owner, resourceAccess: access, resourceArg, maxOutputBytes });
@@ -115,6 +118,9 @@ export const EMAIL_SEND_CONNECTION: ConnectionRule = {
   resourceArg: null,
   maxOutputBytes: STATUS_BYTES,
 };
+
+/** A Microsoft drive item, as M5's drive sync keys it: `["drive", "item"]`. */
+const DRIVE_ITEM = ['drive_id', 'item_id'] as const;
 
 const calendarBindings = (write: boolean, create: boolean) => ({
   connectorTypes: ['google_workspace', 'microsoft_365'] as const,
@@ -185,18 +191,23 @@ export const SUITE_CONNECTION_RULES = {
     bind(['Files.ReadWrite']),
   ),
   'word.read': onMicrosoft(
-    shared('documents', 'read', 'item_id', READ_BYTES),
+    shared('documents', 'read', DRIVE_ITEM, READ_BYTES),
     bind(['Files.ReadWrite'], 'none'),
   ),
   'excel.read_range': onMicrosoft(
-    shared('documents', 'read', 'item_id', READ_BYTES),
+    shared('documents', 'read', DRIVE_ITEM, READ_BYTES),
     bind(['Files.ReadWrite'], 'none'),
   ),
   'excel.write_range': onMicrosoft(
-    shared('documents', 'write', 'item_id', STATUS_BYTES),
+    shared('documents', 'write', DRIVE_ITEM, STATUS_BYTES),
     bind(['Files.ReadWrite']),
   ),
-  'teams.post_message': onMicrosoft(mine('chat', STATUS_BYTES), bind(['ChannelMessage.Send'])),
+  // A channel message takes no key of ours, and reading the channel back needs a scope this tool does
+  // not ask for, so nothing can ever be looked up: a timeout is `unknown`, for a person to check.
+  'teams.post_message': onMicrosoft(
+    mine('chat', STATUS_BYTES),
+    bind(['ChannelMessage.Send'], 'none'),
+  ),
 } as const satisfies Readonly<Record<string, ConnectionRule>>;
 
 export type SuiteToolId = keyof typeof SUITE_CONNECTION_RULES;

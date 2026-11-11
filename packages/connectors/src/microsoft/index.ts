@@ -32,6 +32,7 @@ import {
 import { createHash } from 'node:crypto';
 import {
   createSuiteToolDispatch,
+  parseMailIdDomain,
   type DirectoryCapableConnector,
   type PlatformOAuthClients,
   type SuiteCapableConnector,
@@ -63,6 +64,11 @@ export function createMicrosoft365Connector(deps: {
   platformClients?: PlatformOAuthClients;
   /** Hears the scopes each refresh reports, so a narrowing at the provider narrows the row (D3). */
   scopes?: OAuthScopesPort;
+  /**
+   * The deployment's Message-ID domain for suite mail (`ENSEMUS_MAIL_ID_DOMAIN`). Checked as a host name
+   * here, so a bad one stops the worker. Absent means suite mail is refused, with nothing contacted.
+   */
+  messageIdDomain?: string | null;
 }): KnowledgeConnector<Microsoft365Config> &
   DirectoryCapableConnector<Microsoft365Config> &
   SuiteCapableConnector<Microsoft365Config> {
@@ -170,8 +176,11 @@ export function createMicrosoft365Connector(deps: {
   };
   // Suite tools for agents (ADR-038 D6): reads through `suiteReads`, changes as M3 intents through
   // `actions`. The handlers are microsoft-tools' to write, in ./tools.ts.
+  const messageIdDomain = deps.messageIdDomain ? parseMailIdDomain(deps.messageIdDomain) : null;
+  if (deps.messageIdDomain && !messageIdDomain) throw new Error('MAIL_ID_DOMAIN_INVALID');
   const tools = createSuiteToolDispatch({
-    deps: { http: deps.http, withToken: auth.withToken },
+    deps: { http: deps.http, withToken: auth.withToken, messageIdDomain },
+    connectorType: MICROSOFT_365_MANIFEST.type,
     reads: MICROSOFT_READ_HANDLERS,
     actions: MICROSOFT_ACTION_HANDLERS,
   });

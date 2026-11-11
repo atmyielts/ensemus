@@ -1,6 +1,7 @@
 // Workspace suites' additions to the connector SDK (ADR-038 D2, D4, D6). Kept apart from the SDK's contract
 // and from M5's knowledge additions, so neither file changes for them.
 import { parseSuiteActionPayload, SUITE_TOOL_ARGS_SCHEMAS } from '@ensemus/contracts/ai-tools';
+import { suitePayloadFits } from '@ensemus/contracts/suite-tools';
 import type { AiClassification } from '@ensemus/domain/ai';
 import { toolManifest } from '@ensemus/domain/ai-tools';
 import type { DirectoryPage } from '@ensemus/domain/workspace-suites';
@@ -62,6 +63,26 @@ export const hasDirectory = (connector: Connector): connector is DirectoryCapabl
 /** Which tool a read is for, as its manifest names it. A version the connector does not know is refused. */
 export type SuiteReadTool = { id: string; version: string };
 
+/** Whose connection a read goes through (ADR-038 D5): the organization's, or the initiator's own. */
+export type SuiteConnectionOwner = 'organization' | 'member';
+
+/**
+ * A read's context: the connector's own, and whose connection it is, which the worker took from the rule
+ * it just checked. A handler cannot tell the two apart any other way: neither has a source ACL to ask.
+ */
+export type SuiteReadContext<TConfig = unknown> = ConnectorContext<TConfig> & {
+  readonly ownerKind: SuiteConnectionOwner;
+};
+
+/**
+ * The class a read's content starts at before the worker raises it to each resource's own. A member's own
+ * account is their correspondence and their own documents, so confidential. The organization's content
+ * takes the house default for synced source content, internal, and the worker raises each resource to its
+ * synced class.
+ */
+export const ownContentClass = (context: SuiteReadContext): AiClassification =>
+  context.ownerKind === 'member' ? 'confidential' : 'internal';
+
 export type SuiteReadResult = {
   /** UTF-8 text, JSON or plain. Anything else is refused when the answer is collected. */
   bytes: Buffer;
@@ -113,7 +134,7 @@ export interface SuiteReadConnector<TConfig = unknown> {
    * SyncUnavailable with a code, and nothing with provider text.
    */
   read(
-    context: ConnectorContext<TConfig>,
+    context: SuiteReadContext<TConfig>,
     tool: SuiteReadTool,
     args: unknown,
     access: SuiteResourceAccess | null,
@@ -130,7 +151,7 @@ export const hasSuiteReads = (connector: Connector): connector is SuiteCapableCo
 /** A read handler, given the provider's own helpers and arguments already parsed by the tool's schema. */
 export type SuiteReadHandler<TDeps> = (
   deps: TDeps,
-  context: ConnectorContext,
+  context: SuiteReadContext,
   args: Record<string, unknown>,
   access: SuiteResourceAccess | null,
 ) => Promise<SuiteReadResult>;
@@ -168,14 +189,17 @@ export const notImplemented = (): never => {
 
 /**
  * The connector's `suiteReads` and `actions` over a provider's handler maps. Each re-parses what it is
- * given against the tool's own schema, so a handler only ever sees a shape it was written for.
+ * given against the tool's own schema, so a handler only ever sees a shape it was written for, and a
+ * change must also be one this provider can do exactly (`suitePayloadFits`).
  */
 export function createSuiteToolDispatch<TDeps>(input: {
   deps: TDeps;
+  /** The connector type these handlers serve, for what only one provider cannot do. */
+  connectorType: string;
   reads: Readonly<Record<string, SuiteReadHandler<TDeps>>>;
   actions: Readonly<Record<string, SuiteActionHandler<TDeps>>>;
 }): { suiteReads: SuiteReadConnector; actions: ActionConnector } {
-  const { deps, reads, actions } = input;
+  const { deps, connectorType, reads, actions } = input;
   const known = (id: string, version: string) =>
     Object.hasOwn(SUITE_TOOL_ARGS_SCHEMAS, id) && toolManifest(id)?.version === version;
 
@@ -193,7 +217,9 @@ export function createSuiteToolDispatch<TDeps>(input: {
       context.connectionId,
       request.payload,
     );
-    if (!payload) throw new NotSent('PAYLOAD_CHANGED', false);
+    if (!payload || !suitePayloadFits(request.toolName, connectorType, payload)) {
+      throw new NotSent('PAYLOAD_CHANGED', false);
+    }
     return { handler, request: { ...request, payload } };
   };
 
@@ -201,6 +227,10 @@ export function createSuiteToolDispatch<TDeps>(input: {
     suiteReads: {
       async read(context, tool, args, access) {
         const handler = Object.hasOwn(reads, tool.id) ? reads[tool.id] : undefined;
+        // Whose connection this is decides the class of what comes back, so it is never assumed.
+        if (context.ownerKind !== 'organization' && context.ownerKind !== 'member') {
+          throw new SuiteReadRefused('TOOL_UNKNOWN');
+        }
         if (!handler || !known(tool.id, tool.version)) throw new SuiteReadRefused('TOOL_UNKNOWN');
         const schema = (SUITE_TOOL_ARGS_SCHEMAS as Record<string, ZodType>)[tool.id];
         const parsed = schema?.safeParse(args);
@@ -219,4 +249,47 @@ export function createSuiteToolDispatch<TDeps>(input: {
       },
     },
   };
+}
+
+// --- The Message-ID a suite mail carries (ADR-038 D6). Its right-hand side is a deployment setting, so a
+// recipient's mail system sees this deployment's own name, never a reserved one.
+
+const HOST_LABEL = /^(?!-)[a-z0-9-]{1,63}(?<!-)$/;
+
+/**
+ * A host name fit for the right-hand side of a Message-ID, lower-cased, or null. Letters, digits and
+ * hyphens in dot-separated labels, at most 253 characters, and not an address: the last label is never all
+ * digits. Nothing that could end a header line or name a second header gets through.
+ */
+export function parseMailIdDomain(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const name = value.trim().toLowerCase().replace(/\.$/, '');
+  if (name.length < 1 || name.length > 253) return null;
+  const labels = name.split('.');
+  if (!labels.every((label) => HOST_LABEL.test(label))) return null;
+  return /^\d+$/.test(labels.at(-1)!) ? null : name;
+}
+
+/**
+ * The deployment's Message-ID domain: the operator's `ENSEMUS_MAIL_ID_DOMAIN` when set, which must be a
+ * host name (an invalid one stops the worker, as a misconfiguration should); otherwise the host of
+ * `ENSEMUS_PUBLIC_URL`. Null when neither gives one, and then suite mail is refused, never sent under a
+ * made-up name.
+ */
+export function resolveMailIdDomain(input: {
+  explicit?: string | undefined;
+  publicUrl?: string | undefined;
+}): string | null {
+  const explicit = input.explicit?.trim();
+  if (explicit) {
+    const parsed = parseMailIdDomain(explicit);
+    if (!parsed) throw new Error('MAIL_ID_DOMAIN_INVALID');
+    return parsed;
+  }
+  if (!input.publicUrl) return null;
+  try {
+    return parseMailIdDomain(new URL(input.publicUrl).hostname);
+  } catch {
+    return null;
+  }
 }

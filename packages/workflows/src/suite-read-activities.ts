@@ -96,6 +96,8 @@ export function createSuiteReadActivities(deps: ConnectorActivityDeps) {
       const connectorContext = {
         ...contextFor(organizationId, read, connector.manifest.credential.purpose),
         config,
+        // From the rule just checked, so a handler classes a member's own content as theirs.
+        ownerKind: read.ownerKind,
       };
 
       let output;

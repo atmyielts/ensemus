@@ -206,6 +206,10 @@ const MESSAGE_FOR = new Map<string, string>([
   ],
   ['OAUTH_CAPABILITY_UNAVAILABLE', 'That kind of access cannot be connected yet.'],
   [
+    'MEMBER_CAPABILITY_NOT_ALLOWED',
+    'Your organization does not let members connect that kind of access, so nothing was connected. Ask an administrator to allow it.',
+  ],
+  [
     'DIRECTORY_TEAM_READ_ONLY',
     'This team comes from your directory, so it changes only there. Change the group at the provider.',
   ],

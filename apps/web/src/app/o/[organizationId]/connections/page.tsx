@@ -7,6 +7,11 @@ import {
   listWebhookActivity,
   type OAuthAuthorizationView,
 } from '@ensemus/application';
+import {
+  getMemberCapabilities,
+  listMemberConnections,
+  MEMBER_OWNABLE_CAPABILITIES,
+} from '@ensemus/application/suite-settings';
 import { can } from '@ensemus/domain/policy';
 import {
   CAPABILITY_SCOPES,
@@ -16,9 +21,10 @@ import {
   type SuiteConnectorType,
 } from '@ensemus/domain/workspace-suites';
 import Link from 'next/link';
-import { notFound } from 'next/navigation';
+import { notFound, redirect } from 'next/navigation';
 import { ConfirmForm } from '@/components/confirm-form';
 import { ResourceRefresh } from '@/components/resource-refresh';
+import { SubmitButton } from '@/components/submit-button';
 import { Empty, ErrorNotice, formatDateTime, PageHead } from '@/components/ui';
 import { messageFor } from '@/lib/messages';
 import { CONNECTOR_CATALOG, manifestOf } from '@/server/api';
@@ -26,6 +32,15 @@ import { revokeConnectionAction } from '@/server/external-action-actions';
 import { oauthRedirectUri, platformClientId } from '@/server/oauth';
 import { getRuntime } from '@/server/runtime';
 import { requireTenant } from '@/server/tenant';
+import {
+  revokeMyConnectionAction,
+  setMemberCapabilitiesAction,
+} from '../settings/connections/actions';
+import {
+  CONNECTION_STATE_WORDS,
+  MEMBER_CAPABILITY_WORDS,
+  suiteName,
+} from '../settings/connections/capability-words';
 import { NewConnectionForm } from './new-connection-form';
 import { SuiteConnectForm, type SuiteCapabilityChoice } from './suite-connect-form';
 import { WebhookForm } from './webhook-form';
@@ -160,16 +175,36 @@ export default async function ConnectionsPage({
   const { organizationId } = await params;
   const { error, authorization } = await searchParams;
   const { context, database } = await requireTenant(organizationId);
-  // The usual not found: this page is not there for someone who may not manage connections.
-  if (!can(context.role, 'connection.manage')) notFound();
-  const [rows, activity, attempts, focused] = await Promise.all([
+  // The consent callback sends everyone back here. A member's own attempt, and anyone's who may not
+  // manage connections, belongs on their own page, which shows only what is theirs.
+  const own = `/o/${organizationId}/settings/connections`;
+  if (!can(context.role, 'connection.manage')) {
+    if (authorization) redirect(`${own}?authorization=${encodeURIComponent(authorization)}`);
+    if (error) redirect(`${own}?error=${encodeURIComponent(error)}`);
+    // The usual not found: this page is not there for someone who may not manage connections.
+    notFound();
+  }
+  const [allRows, activity, attempts, opened, members, memberCapabilities] = await Promise.all([
     listConnections(database, context),
     listWebhookActivity(database, context),
     listAuthorizations(database, context),
     focusedAttempt(database, context, authorization),
+    listMemberConnections(database, context),
+    getMemberCapabilities(database, context),
   ]);
-  // The latest few, apart from the one this page was opened for, which has its own place.
-  const recent = attempts.filter((attempt) => attempt.id !== focused?.id).slice(0, 5);
+  if (opened && opened.ownerMembershipId === context.membershipId) {
+    redirect(`${own}?authorization=${encodeURIComponent(opened.id)}`);
+  }
+  // Another member's own attempt is not followed here.
+  const focused = opened && opened.ownerMembershipId === null ? opened : null;
+  // A member's own connection is listed apart, by whose it is and its state, and never by its name.
+  const memberIds = new Set(members.map((member) => member.id));
+  const rows = allRows.filter((row) => !memberIds.has(row.id));
+  // The latest few of the organization's, apart from the one this page was opened for, which has its own
+  // place. A member's own attempt is theirs to follow.
+  const recent = attempts
+    .filter((attempt) => attempt.ownerMembershipId === null && attempt.id !== focused?.id)
+    .slice(0, 5);
   const enabled = getRuntime().config.connectorsEnabled;
   const base = `/o/${organizationId}`;
   const nameOf = new Map(rows.map((row) => [row.id, row.displayName]));
@@ -257,6 +292,88 @@ export default async function ConnectionsPage({
                           consequence={`Revoke ${row.displayName} for good. Anything not yet attempted will not go out through it, and any work asking for its receipt will need another connection.`}
                           confirmLabel="Revoke for good"
                           confirmFullLabel={`Revoke for good: ${row.displayName}`}
+                        />
+                      </div>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </section>
+        <section className="card" aria-labelledby="members-heading">
+          <h2 id="members-heading">Members’ own accounts</h2>
+          <p className="muted">
+            Members can connect their own Google or Microsoft account from their own connections
+            page, for what you allow here. Only that member, and assistants they start, can use it.
+            You see whose each is and whether it is active, never what it reaches, and you can
+            revoke one.
+          </p>
+          <form className="fields" action={setMemberCapabilitiesAction}>
+            <input type="hidden" name="organizationId" value={organizationId} />
+            <fieldset className="group">
+              <legend>What members may connect</legend>
+              {MEMBER_OWNABLE_CAPABILITIES.map((capability) => {
+                const words = (
+                  MEMBER_CAPABILITY_WORDS as Record<string, { label: string; description: string }>
+                )[capability];
+                return (
+                  <label key={capability} className="check">
+                    <input
+                      type="checkbox"
+                      name="capability"
+                      value={capability}
+                      defaultChecked={memberCapabilities.includes(capability)}
+                    />
+                    <span>
+                      {words?.label ?? capability}. {words?.description}
+                    </span>
+                  </label>
+                );
+              })}
+            </fieldset>
+            <p className="muted">
+              Taking one away stops new connections for it. Accounts already connected keep it until
+              revoked below. Leave all of them clear to let members connect nothing.
+            </p>
+            <div>
+              <SubmitButton working="Saving">Save what members may connect</SubmitButton>
+            </div>
+          </form>
+          <h3 className="gap-above">Connected by members</h3>
+          {members.length === 0 ? (
+            <Empty>No member has connected their own account.</Empty>
+          ) : (
+            <ul className="list">
+              {members.map((member) => {
+                const state = CONNECTION_STATE_WORDS[member.state] ?? {
+                  label: member.state,
+                  tone: '',
+                };
+                const whose = `${member.ownerName}’s ${suiteName(member.connectorType)}`;
+                return (
+                  <li key={member.id} className="block">
+                    <span className="row">
+                      <strong>{whose}</strong>
+                      <span className={`badge ${state.tone}`}>{state.label}</span>
+                    </span>
+                    <p className="muted">Connected {formatDateTime(member.createdAt)}.</p>
+                    {member.state !== 'revoked' && (
+                      <div className="gap-above">
+                        <ConfirmForm
+                          action={revokeMyConnectionAction}
+                          fields={
+                            <>
+                              <input type="hidden" name="organizationId" value={organizationId} />
+                              <input type="hidden" name="connectionId" value={member.id} />
+                              <input type="hidden" name="from" value="admin" />
+                            </>
+                          }
+                          summary="Revoke"
+                          summaryLabel={`Revoke ${whose}`}
+                          consequence={`Revoke ${whose} for good. Assistants stop using it at once, and anything not yet sent through it will not go out. Only ${member.ownerName} can connect it again.`}
+                          confirmLabel="Revoke for good"
+                          confirmFullLabel={`Revoke for good: ${whose}`}
                         />
                       </div>
                     )}

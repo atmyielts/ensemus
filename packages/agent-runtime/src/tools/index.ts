@@ -34,6 +34,7 @@ import {
   type AiReasonCode,
   type ToolOutcome,
 } from '@ensemus/domain/ai';
+import { suitePayloadFits } from '@ensemus/contracts/suite-tools';
 import { toolManifest, type ConnectionRule, type ToolManifest } from '@ensemus/domain/ai-tools';
 import {
   changeNeedsApproval,
@@ -439,6 +440,11 @@ async function checkConnection(
     resource,
   });
   if (!decision.ok) throw new Refusal(decision.code, decision.auditAs);
+  // What the shared schema allows but this provider cannot do exactly (a Microsoft event that tells
+  // nobody) is refused now, so nobody approves a change that could only be refused when it is sent.
+  if (!suitePayloadFits(manifest.id, connection!.connectorType, args)) {
+    throw new Refusal('TOOL_ARGS_INVALID', 'PROVIDER_CANNOT_HONOUR_PAYLOAD');
+  }
   return { connectionId, resourceExternalId, decision };
 }
 

@@ -1,6 +1,6 @@
 # ADR-038: Workspace suites: connect by consent, directory, and agents inside Google and Microsoft
 
-**Status:** Proposed. D1, D2, D4 and D6 need outside security review before any real Google or Microsoft account, client or token is used, alongside ADR-024 D4/D5, ADR-027 D2/D4/D5 and ADR-029 D11. FLAGGED FOR HUMAN SECURITY REVIEW: the migrations this ADR adds (`0560_*`, `0561_*`, `0562_*`, `0563_*`). No real credential has been used: every test uses generated values and local fakes.
+**Status:** Proposed. D1, D2, D4 and D6 need outside security review before any real Google or Microsoft account, client or token is used, alongside ADR-024 D4/D5, ADR-027 D2/D4/D5 and ADR-029 D11. FLAGGED FOR HUMAN SECURITY REVIEW: the migrations this ADR adds (`0560_*`, `0561_*`, `0562_*`, `0563_*`, `0564_*`). No real credential has been used: every test uses generated values and local fakes.
 **Date:** 2026-11-11
 **Deciders:** Project owner; security owner for D1, D2, D4 and D6.
 **Backlog:** `CONNECT-04`, `CONNECT-05` (widened), new `CONNECT-07` (connect by consent), `CONNECT-08` (directory sync), `CONNECT-09` (suite tools for agents). Builds on ADR-027 (external actions) and ADR-029 D11 (Drive and SharePoint read).
@@ -148,12 +148,13 @@ Each operation is one tool in the existing tool gateway, declared in a manifest 
 | Document edit, Google Docs | `requiredRevisionId` refuses an edit to a changed document | `best_effort`: read the revision |
 | Sheet values, Sheets or Excel | None | `best_effort` |
 | Create file | Client-chosen name and app property carrying the intent ID | `best_effort` |
+| Channel message, Teams | None, and reading a channel back needs a scope the tool does not ask for | `none`: nothing can be looked up, so a timeout is `unknown`, for a person |
 
 A draft is not a change: creating a Gmail or Outlook draft is a reversible write in the person's own mailbox and needs no approval, but it is still an intent with a receipt.
 
 ### D6 in detail
 
-FLAGGED FOR HUMAN SECURITY REVIEW: migration `0563_suite_tools.sql`. Stage 2's foundation builds this, and the google-tools, microsoft-tools and personal-connections builders fill it in.
+FLAGGED FOR HUMAN SECURITY REVIEW: migrations `0563_suite_tools.sql` and `0564_suite_upkeep_and_own_revoke.sql`. Stage 2's foundation builds this, and the google-tools, microsoft-tools and personal-connections builders fill it in.
 
 **A tool is data.** `ToolManifest` in `packages/domain/src/ai-tools.ts` keeps `id`, `version`, `class` and `requiresApproval`, and a tool that works through a connection adds a `connection` rule (`packages/domain/src/suite-tools.ts`): `connectorTypes`; `bindings`, one per type, each with its `scopes`, its `reconcile` kind and `nativeIdempotency`; the D3 `capability` the scopes come from; the `owner` rule (`organization`, `member` or `either`); `resourceAccess` (`read`, `write` or none) and `resourceArg`, the argument naming the one resource it touches, for the organization's content; and `maxOutputBytes`. Reconcile and idempotency are per type because a calendar create is the same tool on both providers but `authoritative` with a client-chosen ID on Google and `best_effort` with `transactionId` on Microsoft. `email.send` is the first entry: `email_smtp`, no scopes, the organization's, reconcile `none`. The registry stays code, and `FORBIDDEN_TOOL_PREFIXES` stays. Argument schemas are strict zod in `packages/contracts/src/suite-tools.ts`, each with `connection_id`; for a change, everything else is the payload an approval binds.
 
@@ -175,7 +176,15 @@ Migration 0563 lets only the agent role write a request, only the worker's servi
 
 **Routes.** Gmail on `google_gmail` (`gmail.googleapis.com`), Docs on `google_docs` (`docs.googleapis.com`), Sheets on `google_sheets` (`sheets.googleapis.com`), Calendar and Drive on `google_api` (`www.googleapis.com`), and all of Microsoft 365 on `ms_graph`. Each new route has its own gateway in Compose with no target by default. The HTTP client gains `PATCH` and `PUT`. Checked against Google's and Microsoft's references on 2026-11-11; unqualified until the owner runs them.
 
-**Not yet.** The approval page shows a suite payload through its generic fallback until a builder gives each tool its own view. The MCP call path does not yet go through this rule. An uncollected read's output is left for the tenant eraser; the run-end purge does not clear it yet. An organization's `documents` connection is not yet offered to an admin.
+**The resource a tool names is the one the sync keyed.** `resourceArg` names the argument, or the arguments, whose value is exactly the external ID the connector's sync stores: a Google Drive file ID as given (a document or a sheet is a Drive file), and for Microsoft the JSON array `["drive", "item"]`, so Word and Excel tools take `drive_id` with `item_id`, and the connector reaches `/drives/{drive}/items/{item}` and nothing else. A read's handler is told whose connection it is (`ownerKind`), and a member's own documents start `confidential`, as their mail and calendar do; the organization's start `internal` and rise to each file's synced class.
+
+**What a reviewer sees.** A calendar create or change carries `send_updates` (`all`, `external_only`, `none`), which Google takes as `sendUpdates`. Microsoft Graph tells the attendees of any event it creates or changes and offers no switch, so on Microsoft only `all` is accepted (or any value for a create with nobody invited), refused when proposed rather than sent with a different effect. The approval page gives every suite change and draft its own view: the connection and whose it is; recipients and attendees, each marked when no active member here has that address; subject and text; times in the event's zone and who is told; a file's name and size; a document edit's exact text and revision; a range and its values as a bounded table; a Teams team, channel and message. Only the payload and this organization's rows are shown, never anything a provider said. A mail's Message-ID carries the deployment's own domain (`ENSEMUS_MAIL_ID_DOMAIN`, else the host of `ENSEMUS_PUBLIC_URL`); with neither, suite mail is refused unsent.
+
+**Uncollected reads.** The suite upkeep deletes a suite read whose run has ended, or that is older than an hour. 0564 lets the worker's service context alone delete, and only such rows.
+
+**Owner's revoke.** 0564 lets the member who owns a connection revoke it: state to `revoked`, the version moved on by one, `revoked_at` and `updated_at` stamped by the database, and nothing else about the row.
+
+**Not yet.** The MCP call path does not yet go through this rule. An organization's `documents` connection is not yet offered to an admin.
 
 ### D7. Push
 
@@ -186,5 +195,5 @@ Google Drive `changes.watch` and Microsoft Graph subscriptions arrive through AD
 - Connecting becomes a button, and the Drive and SharePoint sync M5 built starts working, because scopes get recorded.
 - Group shares grant the right people, without touching the read-path SQL.
 - Cloud depends on our own apps passing Google's and Microsoft's review. The customer-app path lets pilots start before then.
-- New migrations, `0560_workspace_suites.sql`, `0561_workspace_suites_security.sql`, `0562_credential_rotation.sql` and `0563_suite_tools.sql`, need the same outside review as ADR-027's. 0563 is the one place provider content and a model's arguments cross from the agent role to the connector worker and back. 0562 lets the secret broker reseal a live connector credential in place, under the same ID, tenant and purpose, so a refresh token the provider rotates is kept. The broker writes only if the value sealed now is the one the refresh read.
+- New migrations, `0560_workspace_suites.sql`, `0561_workspace_suites_security.sql`, `0562_credential_rotation.sql`, `0563_suite_tools.sql` and `0564_suite_upkeep_and_own_revoke.sql`, need the same outside review as ADR-027's. 0563 is the one place provider content and a model's arguments cross from the agent role to the connector worker and back. 0562 lets the secret broker reseal a live connector credential in place, under the same ID, tenant and purpose, so a refresh token the provider rotates is kept. The broker writes only if the value sealed now is the one the refresh read.
 - Live behaviour is unqualified until the owner runs it against test tenants holding no real data. That run needs the owner's decision, because it means real credentials before the outside review.

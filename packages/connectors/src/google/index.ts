@@ -32,6 +32,7 @@ import {
 import { createHash } from 'node:crypto';
 import {
   createSuiteToolDispatch,
+  parseMailIdDomain,
   type DirectoryCapableConnector,
   type PlatformOAuthClients,
   type SuiteCapableConnector,
@@ -76,6 +77,11 @@ export function createGoogleWorkspaceConnector(deps: {
   platformClients?: PlatformOAuthClients;
   /** Hears the scopes each refresh reports, so a narrowing at the provider narrows the row (D3). */
   scopes?: OAuthScopesPort;
+  /**
+   * The deployment's Message-ID domain for suite mail (`ENSEMUS_MAIL_ID_DOMAIN`). Checked as a host name
+   * here, so a bad one stops the worker. Absent means suite mail is refused, with nothing contacted.
+   */
+  messageIdDomain?: string | null;
 }): KnowledgeConnector<GoogleWorkspaceConfig> &
   DirectoryCapableConnector<GoogleWorkspaceConfig> &
   SuiteCapableConnector<GoogleWorkspaceConfig> {
@@ -195,8 +201,11 @@ export function createGoogleWorkspaceConnector(deps: {
   };
   // Suite tools for agents (ADR-038 D6): reads through `suiteReads`, changes as M3 intents through
   // `actions`. The handlers are google-tools' to write, in ./tools.ts.
+  const messageIdDomain = deps.messageIdDomain ? parseMailIdDomain(deps.messageIdDomain) : null;
+  if (deps.messageIdDomain && !messageIdDomain) throw new Error('MAIL_ID_DOMAIN_INVALID');
   const tools = createSuiteToolDispatch({
-    deps: { http: deps.http, withToken: auth.withToken },
+    deps: { http: deps.http, withToken: auth.withToken, messageIdDomain },
+    connectorType: GOOGLE_WORKSPACE_MANIFEST.type,
     reads: GOOGLE_READ_HANDLERS,
     actions: GOOGLE_ACTION_HANDLERS,
   });

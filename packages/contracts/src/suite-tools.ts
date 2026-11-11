@@ -85,6 +85,15 @@ export const outlookSendArgsSchema = z.strictObject({ connection_id: connectionI
 // --- Calendar, the same for both providers.
 
 const calendarId = providerIdSchema;
+/**
+ * Who the provider tells about a create or a change, so a reviewer sees it before approving. `all` tells
+ * every attendee. `external_only` is Google's `externalOnly`: only guests who do not use Google Calendar.
+ * `none` tells nobody. Microsoft Graph tells attendees of any create or change it makes and has no switch
+ * for it, so on Microsoft only `all` is offered (`suitePayloadFits`), except a create with no attendees.
+ */
+export const SEND_UPDATES = ['all', 'external_only', 'none'] as const;
+export type SendUpdates = (typeof SEND_UPDATES)[number];
+const sendUpdates = z.enum(SEND_UPDATES);
 const eventFields = {
   summary: z.string().min(1).max(500).refine(noLineBreaks),
   description: z.string().max(20_000).optional(),
@@ -108,13 +117,19 @@ export const calendarListEventsArgsSchema = z
   });
 
 export const calendarCreateEventArgsSchema = z
-  .strictObject({ connection_id: connectionId, calendar_id: calendarId, ...eventFields })
+  .strictObject({
+    connection_id: connectionId,
+    calendar_id: calendarId,
+    ...eventFields,
+    send_updates: sendUpdates,
+  })
   .refine((args) => Date.parse(args.start) < Date.parse(args.end), { path: ['end'] });
 
 export const calendarUpdateEventArgsSchema = z.strictObject({
   connection_id: connectionId,
   calendar_id: calendarId,
   event_id: providerIdSchema,
+  send_updates: sendUpdates,
   /** Only what changes. What is absent stays as it is at the provider. */
   changes: z
     .strictObject({
@@ -209,20 +224,26 @@ export const sheetsWriteRangeArgsSchema = z.strictObject({
   value_input: z.enum(['raw', 'user_entered']),
 });
 
+/**
+ * A drive item is named by its drive and its ID together, as the drive sync keys it, so the gateway can
+ * check the initiator's source ACL for exactly the item the connector then reaches.
+ */
+const driveItem = { drive_id: providerIdSchema, item_id: providerIdSchema };
+
 export const wordReadArgsSchema = z.strictObject({
   connection_id: connectionId,
-  item_id: providerIdSchema,
+  ...driveItem,
 });
 const worksheet = z.string().min(1).max(31).refine(noLineBreaks);
 export const excelReadRangeArgsSchema = z.strictObject({
   connection_id: connectionId,
-  item_id: providerIdSchema,
+  ...driveItem,
   worksheet,
   range: a1Range,
 });
 export const excelWriteRangeArgsSchema = z.strictObject({
   connection_id: connectionId,
-  item_id: providerIdSchema,
+  ...driveItem,
   worksheet,
   range: a1Range,
   values,
@@ -267,3 +288,21 @@ export const SUITE_TOOL_ARGS_SCHEMAS = {
 export type SuiteToolArgs<Id extends keyof typeof SUITE_TOOL_ARGS_SCHEMAS> = z.infer<
   (typeof SUITE_TOOL_ARGS_SCHEMAS)[Id]
 >;
+
+/**
+ * Whether one provider can do exactly what a payload (or a tool's arguments) says, where the shared schema
+ * allows more than that provider can. Asked when a change is proposed, so nobody approves what could only
+ * be refused, and again by the connector before it sends. Microsoft Graph tells every attendee of an event
+ * it creates or changes, so a payload saying otherwise is refused rather than sent with a different effect.
+ */
+export function suitePayloadFits(toolId: string, connectorType: string, payload: unknown): boolean {
+  if (connectorType !== 'microsoft_365' || typeof payload !== 'object' || payload === null)
+    return true;
+  const fields = payload as { send_updates?: unknown; attendees?: unknown };
+  if (toolId === 'calendar.create_event') {
+    const nobody = Array.isArray(fields.attendees) && fields.attendees.length === 0;
+    return fields.send_updates === 'all' || nobody;
+  }
+  if (toolId === 'calendar.update_event') return fields.send_updates === 'all';
+  return true;
+}

@@ -20,7 +20,7 @@ describe('working workspace navigation', () => {
       'Organization',
       'Account',
     ]);
-    expect(groups.flatMap((group) => group.items)).toHaveLength(12);
+    expect(groups.flatMap((group) => group.items)).toHaveLength(13);
     const items = groups.flatMap((group) =>
       group.items.flatMap((item) => [item, ...(item.children ?? [])]),
     );
@@ -58,6 +58,14 @@ describe('working workspace navigation', () => {
     },
   );
 
+  it.each(['owner', 'admin', 'member'])('%s sees where to connect their own account', (role) => {
+    const account = navigation(role).find((group) => group.label === 'Account');
+    expect(account?.items.map((item) => item.href)).toContain(`${base}/settings/connections`);
+    expect(currentNavigation(navigation(role), `${base}/settings/connections`)?.label).toBe(
+      'My connections',
+    );
+  });
+
   it('does not advertise privileged pages to members or unknown roles', () => {
     for (const role of ['member', 'not-a-role']) {
       expect(navigation(role).map((group) => group.label)).toEqual(
@@ -90,6 +98,7 @@ describe('working workspace navigation', () => {
     ['/security/sso', 'Administration'],
     ['/settings/models/a', 'Administration'],
     ['/connections', 'Administration'],
+    ['/settings/connections', 'My connections'],
     ['/knowledge/sources/a', 'Knowledge'],
     ['/knowledge/facts/a', 'Knowledge'],
     ['/search', 'Knowledge'],
