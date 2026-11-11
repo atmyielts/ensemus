@@ -1,6 +1,6 @@
 # ADR-038: Workspace suites: connect by consent, directory, and agents inside Google and Microsoft
 
-**Status:** Proposed. D1, D2, D4 and D6 need outside security review before any real Google or Microsoft account, client or token is used, alongside ADR-024 D4/D5, ADR-027 D2/D4/D5 and ADR-029 D11. FLAGGED FOR HUMAN SECURITY REVIEW: the migrations this ADR adds (`0560_*`, `0561_*`). No real credential has been used: every test uses generated values and local fakes.
+**Status:** Proposed. D1, D2, D4 and D6 need outside security review before any real Google or Microsoft account, client or token is used, alongside ADR-024 D4/D5, ADR-027 D2/D4/D5 and ADR-029 D11. FLAGGED FOR HUMAN SECURITY REVIEW: the migrations this ADR adds (`0560_*`, `0561_*`, `0562_*`). No real credential has been used: every test uses generated values and local fakes.
 **Date:** 2026-11-11
 **Deciders:** Project owner; security owner for D1, D2, D4 and D6.
 **Backlog:** `CONNECT-04`, `CONNECT-05` (widened), new `CONNECT-07` (connect by consent), `CONNECT-08` (directory sync), `CONNECT-09` (suite tools for agents). Builds on ADR-027 (external actions) and ADR-029 D11 (Drive and SharePoint read).
@@ -151,5 +151,5 @@ Google Drive `changes.watch` and Microsoft Graph subscriptions arrive through AD
 - Connecting becomes a button, and the Drive and SharePoint sync M5 built starts working, because scopes get recorded.
 - Group shares grant the right people, without touching the read-path SQL.
 - Cloud depends on our own apps passing Google's and Microsoft's review. The customer-app path lets pilots start before then.
-- New migrations, `0560_workspace_suites.sql` and `0561_workspace_suites_security.sql`, need the same outside review as ADR-027's.
+- New migrations, `0560_workspace_suites.sql`, `0561_workspace_suites_security.sql` and `0562_credential_rotation.sql`, need the same outside review as ADR-027's. 0562 lets the secret broker reseal a live connector credential in place, under the same ID, tenant and purpose, so a refresh token the provider rotates is kept. The broker writes only if the value sealed now is the one the refresh read.
 - Live behaviour is unqualified until the owner runs it against test tenants holding no real data. That run needs the owner's decision, because it means real credentials before the outside review.

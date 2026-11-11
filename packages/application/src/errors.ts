@@ -254,7 +254,7 @@ const MESSAGES: Record<ErrorCode, string> = {
   OAUTH_SCOPES_INSUFFICIENT:
     'Some of the access you chose was not granted, so nothing was connected. Start again and allow all of it.',
   OAUTH_CLIENT_NOT_CONFIGURED:
-    'Connecting through Ensemus’s own app is not set up on this deployment. Use your own app instead.',
+    'The app chosen to connect through is not set up on this deployment, so nothing was connected. Start again with your own app’s details, or ask whoever runs Ensemus to set up its app.',
   OAUTH_CAPABILITY_UNAVAILABLE: 'That kind of access cannot be connected yet.',
   DIRECTORY_TEAM_READ_ONLY:
     'This team comes from your directory, so it changes only there. Change the group at the provider.',

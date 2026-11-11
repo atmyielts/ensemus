@@ -27,9 +27,10 @@ import {
   sourceDate,
   sourceUrl,
   type OAuthRotationPort,
+  type OAuthScopesPort,
 } from '../runtime/provider-oauth';
 import { createHash } from 'node:crypto';
-import type { DirectoryCapableConnector } from '../suites';
+import type { DirectoryCapableConnector, PlatformOAuthClients } from '../suites';
 import { createMicrosoftDirectory } from './directory';
 import { graphLink } from './graph-link';
 
@@ -52,11 +53,17 @@ type Cursor = { v: 1; config: string; drive: number; drives: string[]; paths: st
 export function createMicrosoft365Connector(deps: {
   http: ProviderHttpClient;
   rotation?: OAuthRotationPort;
+  /** The operator's apps, for a credential that names `client: 'platform'` (ADR-038 D2). */
+  platformClients?: PlatformOAuthClients;
+  /** Hears the scopes each refresh reports, so a narrowing at the provider narrows the row (D3). */
+  scopes?: OAuthScopesPort;
 }): KnowledgeConnector<Microsoft365Config> & DirectoryCapableConnector<Microsoft365Config> {
   const auth = createProviderAuth({
     http: deps.http,
     provider: 'microsoft',
     ...(deps.rotation ? { rotation: deps.rotation } : {}),
+    ...(deps.platformClients ? { platformClients: deps.platformClients } : {}),
+    ...(deps.scopes ? { scopes: deps.scopes } : {}),
   });
   const json = (context: ConnectorContext, token: string, path: string, expired = false) =>
     requestJson(

@@ -52,7 +52,8 @@ describe('the state check', () => {
   it('refuses another state, a changed one and a stored value that is not a hash', () => {
     const other = formatOAuthState(ORG, ID, randomBytes(32));
     expect(stateMatchesHash(other, oauthStateSha256(state))).toBe(false);
-    expect(stateMatchesHash(`${state.slice(0, -1)}A`, oauthStateSha256(state))).toBe(false);
+    const changed = `${state.slice(0, -1)}${state.endsWith('A') ? 'B' : 'A'}`;
+    expect(stateMatchesHash(changed, oauthStateSha256(state))).toBe(false);
     expect(stateMatchesHash(state, oauthStateSha256(state).toUpperCase())).toBe(false);
     expect(stateMatchesHash(state, '')).toBe(false);
     expect(stateMatchesHash(state, oauthStateSha256(state).slice(2))).toBe(false);

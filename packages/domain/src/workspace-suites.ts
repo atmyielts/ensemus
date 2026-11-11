@@ -320,12 +320,14 @@ export const DIRECTORY_SYNC_SETTING = 'ensemus.directory_sync';
 /**
  * What 0561 raises, by SQLSTATE. EN121: a consent attempt, or a member's own connection, that could not
  * have started this way. EN122: a consent attempt moving in a way ADR-038 D1 does not allow. EN123: a
- * directory team, its members or its group changed by anything but its own directory pass.
+ * directory team, its members or its group changed by anything but its own directory pass. 0562 adds
+ * EN124: a sealed value replaced other than by the broker resealing a live connector credential in place.
  */
 export const SUITE_SQLSTATES = {
   oauthStartRefused: 'EN121',
   oauthTransitionRefused: 'EN122',
   directoryTeamSyncOnly: 'EN123',
+  credentialResealRefused: 'EN124',
 } as const;
 
 // --- Events. Payloads are IDs only, and the dispatcher works from the type and aggregate ID alone.

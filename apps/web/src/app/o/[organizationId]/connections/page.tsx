@@ -11,6 +11,7 @@ import { can } from '@ensemus/domain/policy';
 import {
   CAPABILITY_SCOPES,
   CONNECTABLE_CAPABILITIES,
+  isOAuthErrorCode,
   SUITE_PROVIDER,
   type SuiteConnectorType,
 } from '@ensemus/domain/workspace-suites';
@@ -19,6 +20,7 @@ import { notFound } from 'next/navigation';
 import { ConfirmForm } from '@/components/confirm-form';
 import { ResourceRefresh } from '@/components/resource-refresh';
 import { Empty, ErrorNotice, formatDateTime, PageHead } from '@/components/ui';
+import { messageFor } from '@/lib/messages';
 import { CONNECTOR_CATALOG, manifestOf } from '@/server/api';
 import { revokeConnectionAction } from '@/server/external-action-actions';
 import { oauthRedirectUri, platformClientId } from '@/server/oauth';
@@ -100,24 +102,6 @@ const ATTEMPT_WORDS: Record<string, { label: string; tone: string; detail: strin
   },
 };
 
-const ATTEMPT_ERROR_WORDS: Record<string, string> = {
-  OAUTH_DENIED: 'Access was not granted on the provider’s page, so nothing was connected.',
-  OAUTH_CONSENT_REQUIRED:
-    'The provider needs an administrator of that account to agree. Ask one to connect it.',
-  OAUTH_SCOPE_REFUSED: 'The provider refused the access asked for, so nothing was connected.',
-  OAUTH_CLIENT_REJECTED:
-    'The provider did not accept the app. If you used your own, check its client ID, secret and redirect address.',
-  OAUTH_PROVIDER_ERROR: 'The provider reported a problem, so nothing was connected. Start again.',
-  OAUTH_EXCHANGE_FAILED:
-    'The provider did not finish connecting, so nothing was connected. Start again.',
-  OAUTH_SCOPES_INSUFFICIENT:
-    'Some of the access you chose was not granted, so nothing was connected. Start again and allow all of it.',
-  OAUTH_IDENTITY_INVALID:
-    'The provider did not say which account was connected, so nothing was connected.',
-  OAUTH_CLIENT_NOT_CONFIGURED:
-    'The app to connect through is not set up on this deployment, so nothing was connected.',
-};
-
 const IN_PROGRESS = new Set(['pending', 'code_received', 'exchanging']);
 
 function capabilityChoices(connectorType: SuiteConnectorType): SuiteCapabilityChoice[] {
@@ -146,8 +130,9 @@ async function focusedAttempt(
 
 function AttemptSummary({ attempt }: { attempt: OAuthAuthorizationView }) {
   const words = ATTEMPT_WORDS[attempt.status] ?? { label: attempt.status, tone: '', detail: '' };
+  // The same wording the callback's redirect shows, so an attempt reads alike wherever it is seen.
   const detail =
-    (attempt.errorCode && ATTEMPT_ERROR_WORDS[attempt.errorCode]) ||
+    (isOAuthErrorCode(attempt.errorCode) && messageFor(attempt.errorCode)) ||
     words.detail ||
     'Nothing was connected. Start again.';
   return (

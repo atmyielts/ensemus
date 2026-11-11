@@ -20,6 +20,7 @@ import {
   exchangeAuthorizationCode,
   matchReportedScopes,
   type CodeExchangeResult,
+  type OAuthRotationPort,
   type OAuthScopesPort,
 } from '@ensemus/connectors/provider-oauth';
 import type { PlatformOAuthClient, PlatformOAuthClients } from '@ensemus/connectors/suites';
@@ -329,6 +330,60 @@ export function createGrantedScopesRecorder(database: AppDatabase): OAuthScopesP
           decision: 'allow',
         });
       });
+    },
+  };
+}
+
+/** What the rotation port needs of the broker: SecretBroker.reseal. */
+export interface CredentialResealer {
+  reseal(
+    binding: { organizationId: string; secretId: string; purpose: string },
+    expectedSha256: string,
+    replacement: Buffer,
+  ): Promise<'stored' | 'stale'>;
+}
+
+/**
+ * Keeps the refresh token a provider rotated (Microsoft does on every refresh), by resealing the
+ * connection's credential in place under the same secret ID (0562). The connection is read in the service
+ * context to find that ID. A connection that is no longer an active suite connection, or has no
+ * credential, answers stale, and so does a credential some other refresh already replaced: the broker
+ * compares what this refresh read before it writes, under a row lock.
+ */
+export function createCredentialRotation(
+  database: AppDatabase,
+  secrets: CredentialResealer,
+): OAuthRotationPort {
+  return {
+    async persist({ organizationId, connectionId, expectedCredentialSha256, replacement }) {
+      const context = createServiceContext(organizationId);
+      const connection = await withTenantTx(database, context, async (tx) => {
+        const [row] = await tx
+          .select({
+            connectorType: connections.connectorType,
+            credentialSecretId: connections.credentialSecretId,
+            state: connections.state,
+          })
+          .from(connections)
+          .where(eq(connections.id, connectionId));
+        return row;
+      });
+      if (
+        !connection ||
+        connection.state !== 'active' ||
+        !connection.credentialSecretId ||
+        !isSuiteConnectorType(connection.connectorType)
+      )
+        return 'stale';
+      return secrets.reseal(
+        {
+          organizationId,
+          secretId: connection.credentialSecretId,
+          purpose: CREDENTIAL_PURPOSE[connection.connectorType],
+        },
+        expectedCredentialSha256,
+        replacement,
+      );
     },
   };
 }

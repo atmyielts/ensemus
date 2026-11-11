@@ -30,6 +30,7 @@ import { CONNECTOR_TASK_QUEUE } from '@ensemus/workflows/constants';
 import { createExternalActionConnectorActivities } from '@ensemus/workflows/external-action-activities';
 import { createKnowledgeConnectorActivities } from '@ensemus/workflows/knowledge-connector-activities';
 import {
+  createCredentialRotation,
   createGrantedScopesRecorder,
   createOAuthExchangeActivities,
 } from '@ensemus/workflows/oauth-exchange-activities';
@@ -104,13 +105,13 @@ async function main() {
     .toString();
   const http = createProviderHttpClient({ routes: providerRoutes() });
   const platformClients = platformOAuthClients();
-  // Refresh-token rotation is not wired: 0561 refuses a new credential_secret_id from the service
-  // context, and no role may rewrite a sealed value in place, so a provider that rotates the refresh
-  // token fails that refresh with CREDENTIAL_ROTATION_REQUIRED until a reviewed migration allows one.
+  // Microsoft rotates the refresh token on every refresh. The new one is resealed in place under the
+  // connection's existing secret ID (0562), because 0561 refuses a new credential_secret_id from here.
   const suiteDeps = {
     http,
     platformClients,
     scopes: createGrantedScopesRecorder(app.db),
+    rotation: createCredentialRotation(app.db, secrets),
   };
   const deps = {
     database: app.db,

@@ -27,9 +27,10 @@ import {
   sourceDate,
   sourceUrl,
   type OAuthRotationPort,
+  type OAuthScopesPort,
 } from '../runtime/provider-oauth';
 import { createHash } from 'node:crypto';
-import type { DirectoryCapableConnector } from '../suites';
+import type { DirectoryCapableConnector, PlatformOAuthClients } from '../suites';
 import { createGoogleDirectory, directoryKey } from './directory';
 
 export { DIRECTORY_SCOPES } from './directory';
@@ -65,11 +66,17 @@ type Cursor = {
 export function createGoogleWorkspaceConnector(deps: {
   http: ProviderHttpClient;
   rotation?: OAuthRotationPort;
+  /** The operator's apps, for a credential that names `client: 'platform'` (ADR-038 D2). */
+  platformClients?: PlatformOAuthClients;
+  /** Hears the scopes each refresh reports, so a narrowing at the provider narrows the row (D3). */
+  scopes?: OAuthScopesPort;
 }): KnowledgeConnector<GoogleWorkspaceConfig> & DirectoryCapableConnector<GoogleWorkspaceConfig> {
   const auth = createProviderAuth({
     http: deps.http,
     provider: 'google',
     ...(deps.rotation ? { rotation: deps.rotation } : {}),
+    ...(deps.platformClients ? { platformClients: deps.platformClients } : {}),
+    ...(deps.scopes ? { scopes: deps.scopes } : {}),
   });
   const json = (context: ConnectorContext, token: string, path: string, expired = false) =>
     requestJson(

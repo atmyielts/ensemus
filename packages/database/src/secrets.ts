@@ -54,6 +54,45 @@ export function replaceWrappedKey(
   );
 }
 
+/** A whole new seal for one secret: a fresh data key, wrapped, and the value under it. */
+export type ResealedFields = {
+  keyId: string;
+  wrappedKey: Buffer;
+  iv: Buffer;
+  ciphertext: Buffer;
+  authTag: Buffer;
+};
+
+/**
+ * Replaces a live secret's sealed value in place, under the same ID, tenant and purpose (0562). The row
+ * is locked first, so two refreshes that both rotated cannot both write: the second sees the first's
+ * value, and `reseal` answers null for it. `reseal` runs inside the lock and decides from the row it is
+ * handed. 'missing' covers gone, revoked and another purpose alike.
+ */
+export function resealSecret(
+  db: EnsemusDrizzle,
+  binding: { organizationId: string; secretId: string; purpose: string },
+  reseal: (row: SealedSecretRow) => ResealedFields | null,
+): Promise<'stored' | 'stale' | 'missing'> {
+  return bound(db, binding.organizationId, async (tx) => {
+    const live = and(
+      eq(sealedSecrets.id, binding.secretId),
+      eq(sealedSecrets.purpose, binding.purpose),
+      isNull(sealedSecrets.revokedAt),
+    );
+    const [row] = await tx.select().from(sealedSecrets).where(live).for('update');
+    if (!row) return 'missing';
+    const next = reseal(row);
+    if (!next) return 'stale';
+    const written = await tx
+      .update(sealedSecrets)
+      .set(next)
+      .where(live)
+      .returning({ id: sealedSecrets.id });
+    return written.length === 1 ? 'stored' : 'missing';
+  });
+}
+
 export function revokeSecret(db: EnsemusDrizzle, organizationId: string, secretId: string) {
   return bound(db, organizationId, (tx) =>
     tx.update(sealedSecrets).set({ revokedAt: new Date() }).where(eq(sealedSecrets.id, secretId)),
