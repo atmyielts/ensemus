@@ -32,6 +32,7 @@ import { decideConnectionUse } from '@ensemus/policy';
 import { and, eq, sql } from 'drizzle-orm';
 import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { inFixtureTenant } from '../helpers/fixture-tenant';
 import { urls } from '../helpers/stack';
 
 const google = (scope: string) => `https://www.googleapis.com/auth/${scope}`;
@@ -53,6 +54,16 @@ describe('personal connections (ADR-038 D5)', () => {
   /** Writes a member's own connection, which only a consent may make under the application roles. */
   let superuser: pg.Client;
   const db = () => app.db;
+
+  /**
+   * A superuser fixture write, bound to the row's tenant the way every tenant trigger requires, as the
+   * other suites do (tests/helpers/fixture-tenant.ts). Reads stay plain superuser queries.
+   */
+  const fixture = <R extends pg.QueryResultRow = pg.QueryResultRow>(
+    organizationId: string,
+    text: string,
+    values: unknown[],
+  ) => inFixtureTenant(superuser, organizationId, () => superuser.query<R>(text, values));
 
   beforeAll(async () => {
     app = openAppDatabase(urls.app());
@@ -100,7 +111,8 @@ describe('personal connections (ADR-038 D5)', () => {
     const sam = await member('sam');
     const connection = async (ownerId: string | null, name: string, scopes: string[]) => {
       const id = randomUUID();
-      await superuser.query(
+      await fixture(
+        organizationId,
         `insert into integrations.connections
            (organization_id, id, connector_type, display_name, state, granted_scopes, owner_membership_id)
          values ($1, $2, 'google_workspace', $3, 'active', $4, $5)`,

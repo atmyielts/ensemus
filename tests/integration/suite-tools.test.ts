@@ -32,6 +32,7 @@ import { createServiceContext } from '@ensemus/database/service';
 import { eq, sql } from 'drizzle-orm';
 import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { inFixtureTenant } from '../helpers/fixture-tenant';
 import { urls } from '../helpers/stack';
 
 const google = (scope: string) => `https://www.googleapis.com/auth/${scope}`;
@@ -43,6 +44,16 @@ describe('suite tools (ADR-038 D6)', () => {
   /** Writes a member's own connection, which only a consent may make under the application roles. */
   let superuser: pg.Client;
   const db = () => app.db;
+
+  /**
+   * A superuser fixture write, bound to the row's tenant the way every tenant trigger requires, as the
+   * other suites do (tests/helpers/fixture-tenant.ts). Reads stay plain superuser queries.
+   */
+  const fixture = <R extends pg.QueryResultRow = pg.QueryResultRow>(
+    organizationId: string,
+    text: string,
+    values: unknown[],
+  ) => inFixtureTenant(superuser, organizationId, () => superuser.query<R>(text, values));
 
   beforeAll(async () => {
     app = openAppDatabase(urls.app());
@@ -91,7 +102,8 @@ describe('suite tools (ADR-038 D6)', () => {
     const sam = await member('sam');
     const connection = async (owner: string | null, scopes: string[]) => {
       const id = randomUUID();
-      await superuser.query(
+      await fixture(
+        organizationId,
         `insert into integrations.connections
            (organization_id, id, connector_type, display_name, state, granted_scopes, owner_membership_id)
          values ($1, $2, 'google_workspace', 'Generated account', 'active', $3, $4)`,
@@ -318,7 +330,8 @@ describe('suite tools (ADR-038 D6)', () => {
     externalId: string,
     classification = 'internal',
   ) => {
-    const { rows } = await superuser.query<{ id: string }>(
+    const { rows } = await fixture<{ id: string }>(
+      organizationId,
       `insert into integrations.external_resources
          (organization_id, connection_id, stream, resource_type, external_id, display_name,
           classification, acl_state)
@@ -333,7 +346,8 @@ describe('suite tools (ADR-038 D6)', () => {
     membershipId: string,
     access: string,
   ) =>
-    superuser.query(
+    fixture(
+      organizationId,
       `insert into integrations.external_resource_acl
          (organization_id, resource_id, principal_kind, principal_external_id, access, membership_id)
        values ($1, $2, 'user', $3, $4, $3)`,
@@ -342,7 +356,8 @@ describe('suite tools (ADR-038 D6)', () => {
   /** One of the organization's Google connections, granted these scopes. */
   const organizationConnection = async (organizationId: string, scopes: string[]) => {
     const id = randomUUID();
-    await superuser.query(
+    await fixture(
+      organizationId,
       `insert into integrations.connections
          (organization_id, id, connector_type, display_name, state, granted_scopes)
        values ($1, $2, 'google_workspace', 'Company files', 'active', $3)`,
@@ -369,7 +384,8 @@ describe('suite tools (ADR-038 D6)', () => {
         'restricted',
       ]);
       // A copy the sync has since lost sight of still counts.
-      await superuser.query(
+      await fixture(
+        t.organizationId,
         `update integrations.external_resources set deleted_at = now()
           where organization_id = $1 and external_id = 'board-minutes'`,
         [t.organizationId],
@@ -449,24 +465,28 @@ describe('suite tools (ADR-038 D6)', () => {
       [
         'the initiator was deactivated after the approval',
         (t: Tenant) =>
-          superuser.query(`update org.memberships set status = 'disabled' where id = $1`, [
-            t.alex.membershipId,
-          ]),
+          fixture(
+            t.organizationId,
+            `update org.memberships set status = 'disabled' where id = $1`,
+            [t.alex.membershipId],
+          ),
         'ACCESS_REVOKED',
       ],
       [
         'the provider narrowed the scopes after the approval',
         (t: Tenant) =>
-          superuser.query('update integrations.connections set granted_scopes = $2 where id = $1', [
-            t.alexMail,
-            [google('gmail.readonly')],
-          ]),
+          fixture(
+            t.organizationId,
+            'update integrations.connections set granted_scopes = $2 where id = $1',
+            [t.alexMail, [google('gmail.readonly')]],
+          ),
         'SCOPE_NOT_GRANTED',
       ],
       [
         'the connection was revoked after the approval',
         (t: Tenant) =>
-          superuser.query(
+          fixture(
+            t.organizationId,
             `update integrations.connections set state = 'revoked', revoked_at = now() where id = $1`,
             [t.alexMail],
           ),
@@ -499,7 +519,8 @@ describe('suite tools (ADR-038 D6)', () => {
       expect(await begin(t, kept)).toMatchObject({ kind: 'send' });
 
       const revoked = await approved(t, edit);
-      await superuser.query(
+      await fixture(
+        t.organizationId,
         'delete from integrations.external_resource_acl where organization_id = $1 and resource_id = $2',
         [t.organizationId, resourceId],
       );
@@ -536,7 +557,8 @@ describe('suite tools (ADR-038 D6)', () => {
       const t = await tenant();
       const workUnitId = await t.work(t.alex);
       const sheets = randomUUID();
-      await superuser.query(
+      await fixture(
+        t.organizationId,
         `insert into integrations.connections
            (organization_id, id, connector_type, display_name, state, granted_scopes, owner_membership_id)
          values ($1, $2, 'google_workspace', 'Alex sheets', 'active', $3, $4)`,
@@ -622,7 +644,8 @@ describe('suite tools (ADR-038 D6)', () => {
       // An attempt 0563 now refuses, written past the application roles and moved on to the exchange,
       // so only 0565's added condition stands between it and a connection.
       const forged = randomUUID();
-      await superuser.query(
+      await fixture(
+        t.organizationId,
         `insert into integrations.oauth_authorizations
            (organization_id, id, connector_type, display_name, config, client_kind, client_id,
             requested_capabilities, requested_scopes, owner_membership_id, started_by_membership_id,
@@ -634,12 +657,14 @@ describe('suite tools (ADR-038 D6)', () => {
         [own.id, forged, t.sam.membershipId, 'b'.repeat(64)],
       );
       for (const id of [forged, own.id]) {
-        await superuser.query(
+        await fixture(
+          t.organizationId,
           `update integrations.oauth_authorizations
               set status = 'code_received', code_secret_id = verifier_secret_id where id = $1`,
           [id],
         );
-        await superuser.query(
+        await fixture(
+          t.organizationId,
           `update integrations.oauth_authorizations set status = 'exchanging' where id = $1`,
           [id],
         );
