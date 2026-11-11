@@ -111,6 +111,17 @@ describe('resealing a rotated connector credential', () => {
     ).toThrow(SecretUnavailable);
   });
 
+  it('refuses any purpose but a connector credential, even when the row matches the binding', () => {
+    const other = { ...credential, purpose: 'model.api_key' };
+    const row = {
+      ...sealSecret({ publicKeyPem: keys.publicKey, plaintext: BEFORE, ...other }),
+      purpose: other.purpose,
+    };
+    expect(() => resealIfCurrent(provider, row, other, sha256(BEFORE), Buffer.from(AFTER))).toThrow(
+      SecretUnavailable,
+    );
+  });
+
   it('refuses a tampered row', () => {
     const row = stored();
     row.authTag[0]! ^= 0xff;
