@@ -9,20 +9,20 @@ import { setPulseSignalStateAction } from '@/server/pulse-actions';
 export const pulseWords: Record<PulseSignalKind, string> = {
   work_overdue: 'The due date has passed',
   work_due_soon: 'Due within two days',
-  work_blocked_by_prerequisite: 'A visible prerequisite is not complete',
-  work_owner_disabled: 'The accountable owner is no longer active',
-  approval_waiting_past_expiry_window: 'An approval is nearing its expiry',
-  external_action_unknown: 'Delivery is not confirmed',
-  external_action_failed: 'An external action failed',
-  process_run_failed: 'A process run failed',
-  agent_run_stopped: 'An assistant run stopped',
+  work_blocked_by_prerequisite: 'Waiting for other work that is not finished',
+  work_owner_disabled: 'The person accountable for it is no longer active',
+  approval_waiting_past_expiry_window: 'An approval runs out soon',
+  external_action_unknown: 'Nobody knows yet whether an email was sent',
+  external_action_failed: 'An email could not be sent',
+  process_run_failed: 'An automation stopped before it finished',
+  agent_run_stopped: 'An assistant stopped before it finished',
 };
 const parts: Record<PulsePartial, string> = {
   work: 'work',
   approvals: 'approvals',
-  external_actions: 'external actions',
+  external_actions: 'emails sent outside',
   agent_runs: 'assistant activity',
-  process_runs: 'process activity',
+  process_runs: 'automations',
 };
 
 export function PulsePartialNotice({
@@ -34,10 +34,10 @@ export function PulsePartialNotice({
 }) {
   if (!partial.length) return null;
   return (
-    <p className="notice" role="status">
-      This is a partial view of {partial.map((part) => parts[part]).join(', ')}. A source could not
-      be read or reached this page’s review limit. Missing signals do not mean those areas are
-      clear. <Link href={`/o/${organizationId}/work`}>Open Work to review individual records</Link>.
+    <p className="notice warn" role="status">
+      Pulse could not check all of the {partial.map((part) => parts[part]).join(', ')} this time, so
+      some signals may be missing. A missing signal does not mean all is well there.{' '}
+      <Link href={`/o/${organizationId}/work`}>Open Work to check individual records</Link>.
     </p>
   );
 }
@@ -48,12 +48,20 @@ function evidenceHref(base: string, signal: PulseSignalView, item: PulseEvidence
   if (item.kind === 'process_run') return `${base}/pulse/signals/${encodeURIComponent(signal.key)}`;
   return `${base}/work/${signal.work.id}`;
 }
+/** What the one link on a row opens: the record the signal is first about. */
+const openLabel: Record<PulseEvidence['kind'], string> = {
+  work_unit: 'Open the work',
+  approval: 'Open the approval',
+  external_action: 'Open the email and its receipts',
+  process_run: 'Open what was recorded',
+  agent_run: 'Open the work',
+};
 const evidenceLabel: Record<PulseEvidence['kind'], string> = {
-  work_unit: 'Work record',
-  approval: 'Approval record',
-  external_action: 'Action and receipt',
-  process_run: 'Process outcome record',
-  agent_run: 'Assistant run on Work',
+  work_unit: 'the work',
+  approval: 'the approval',
+  external_action: 'the email and its receipts',
+  process_run: 'what was recorded',
+  agent_run: 'the assistant run',
 };
 
 function hidden(organizationId: string, signal: PulseSignalView) {
@@ -80,42 +88,56 @@ export function PulseSignalRow({
 }) {
   const base = `/o/${organizationId}`,
     labelId = `pulse-${signal.kind}-${signal.work.id}-${signal.key.split(':')[1]}`;
+  const [first] = signal.evidence;
+  // A process outcome opens this signal's own page, so on that page the row opens the work instead.
+  const opens = !showControls && first.kind === 'process_run' ? 'work_unit' : first.kind;
+  const href =
+    opens === first.kind ? evidenceHref(base, signal, first) : `${base}/work/${signal.work.id}`;
   return (
-    <article aria-labelledby={labelId} className="stack">
-      <div className="row">
-        <h3 id={labelId}>
-          <Link href={`${base}/work/${signal.work.id}`}>{signal.work.title}</Link>
-        </h3>
-        <span className={`badge ${signal.severity === 'attention' ? 'attention' : ''}`}>
-          {signal.severity === 'attention' ? 'Needs attention' : 'Watch'}
-        </span>
-      </div>
-      <p>{pulseWords[signal.kind]}</p>
-      <p className="muted">
-        Source records are linked below.{' '}
-        {signal.personalState === 'snoozed' &&
-          `Snoozed until ${formatDateTime(signal.snoozedUntil!)}.`}
-        {signal.personalState === 'dismissed' && 'Dismissed only for you.'}
-      </p>
-      <ul>
-        {signal.evidence.map((item) => (
-          <li key={`${item.kind}:${item.id}`}>
-            <Link href={evidenceHref(base, signal, item)}>{evidenceLabel[item.kind]}</Link>
-          </li>
-        ))}
-      </ul>
-      {showControls && (
+    <article aria-labelledby={labelId} className="pulse-signal">
+      <div className="pulse-signal-text">
         <div className="row">
-          {signal.personalState === 'open' ? (
-            <>
-              <form action={setPulseSignalStateAction}>
-                {hidden(organizationId, signal)}
-                <input type="hidden" name="state" value="dismissed" />
-                <SubmitButton className="secondary" label={controlName('Dismiss for me', signal)}>
-                  Dismiss for me
-                </SubmitButton>
-              </form>
-              <form action={setPulseSignalStateAction} className="row">
+          <h3 id={labelId}>
+            <Link href={`${base}/work/${signal.work.id}`}>{signal.work.title}</Link>
+          </h3>
+          <span className={`badge ${signal.severity === 'attention' ? 'attention' : ''}`}>
+            {signal.severity === 'attention' ? 'Needs attention' : 'Coming up'}
+          </span>
+        </div>
+        <p className="muted">
+          {pulseWords[signal.kind]}.
+          {signal.personalState === 'snoozed' && (
+            <> Snoozed until {formatDateTime(signal.snoozedUntil!)}.</>
+          )}
+          {signal.personalState === 'dismissed' && ' Dismissed only for you.'}
+        </p>
+        {/* Every other record this fact comes from stays one click away. */}
+        {signal.evidence.length > 1 && (
+          <p className="pulse-also">
+            Also from:{' '}
+            {signal.evidence.slice(1).map((item, index) => (
+              <span key={`${item.kind}:${item.id}`}>
+                {index > 0 && ', '}
+                <Link href={evidenceHref(base, signal, item)}>{evidenceLabel[item.kind]}</Link>
+              </span>
+            ))}
+          </p>
+        )}
+      </div>
+      <Link
+        className="pulse-open"
+        href={href}
+        aria-label={labelInName(openLabel[opens], signal.work.title)}
+      >
+        {openLabel[opens]}
+        <span aria-hidden="true">&nbsp;→</span>
+      </Link>
+      {showControls &&
+        (signal.personalState === 'open' ? (
+          <details className="pulse-controls">
+            <summary>Snooze or dismiss</summary>
+            <div className="pulse-control-forms">
+              <form action={setPulseSignalStateAction} className="inline-form">
                 {hidden(organizationId, signal)}
                 <input type="hidden" name="state" value="snoozed" />
                 <label htmlFor={`${labelId}-days`}>Snooze for</label>
@@ -128,18 +150,25 @@ export function PulseSignalRow({
                   Snooze for me
                 </SubmitButton>
               </form>
-            </>
-          ) : (
-            <form action={setPulseSignalStateAction}>
-              {hidden(organizationId, signal)}
-              <input type="hidden" name="state" value="open" />
-              <SubmitButton className="secondary" label={controlName('Restore for me', signal)}>
-                Restore for me
-              </SubmitButton>
-            </form>
-          )}
-        </div>
-      )}
+              <form action={setPulseSignalStateAction}>
+                {hidden(organizationId, signal)}
+                <input type="hidden" name="state" value="dismissed" />
+                <SubmitButton className="ghost" label={controlName('Dismiss for me', signal)}>
+                  Dismiss for me
+                </SubmitButton>
+              </form>
+              <small>Only you stop seeing it here. Everyone else still does.</small>
+            </div>
+          </details>
+        ) : (
+          <form action={setPulseSignalStateAction} className="pulse-restore">
+            {hidden(organizationId, signal)}
+            <input type="hidden" name="state" value="open" />
+            <SubmitButton className="ghost" label={controlName('Restore for me', signal)}>
+              Restore for me
+            </SubmitButton>
+          </form>
+        ))}
     </article>
   );
 }
@@ -157,9 +186,9 @@ export function PulseSignalGroup({
 }) {
   if (!signals.length) return null;
   return (
-    <section className="stack" aria-labelledby={id}>
+    <section aria-labelledby={id}>
       <h2 id={id}>{title}</h2>
-      <ul className="list">
+      <ul className="list card pulse-list">
         {signals.map((signal) => (
           <li key={signal.key}>
             <PulseSignalRow organizationId={organizationId} signal={signal} />

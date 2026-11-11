@@ -12,7 +12,7 @@ import { ReceiptStatusBadge } from '@/components/receipt-status';
 import { messageIdHint, statusExplanation } from '@/components/receipt-words';
 import { ResolveForm } from '@/components/resolve-form';
 import { SubmitButton } from '@/components/submit-button';
-import { ErrorNotice, formatDateTime, PageHead, personLabel } from '@/components/ui';
+import { BackLink, ErrorNotice, formatDateTime, PageHead, personLabel } from '@/components/ui';
 import { retryExternalActionAction } from '@/server/external-action-actions';
 import { getRuntime } from '@/server/runtime';
 import { orNotFound, requireTenant } from '@/server/tenant';
@@ -72,9 +72,7 @@ export default async function ExternalActionPage({
 
   return (
     <DraftScope account={actor.userId}>
-      <p className="back">
-        <Link href={`${base}/external-actions`}>Back to external actions</Link>
-      </p>
+      <BackLink href={`${base}/external-actions`}>Back to external actions</BackLink>
       <PageHead title={action.subject ?? 'External action'} />
       <ErrorNotice code={error} />
       <div className="stack">
@@ -185,7 +183,7 @@ export default async function ExternalActionPage({
                     ))}
                   </select>
                 </label>
-                <SubmitButton className="quiet">Ask for approval</SubmitButton>
+                <SubmitButton className="secondary">Ask for approval</SubmitButton>
                 <small>
                   This makes a new action with the same words, and it needs its own approval.
                   Nothing goes until someone gives it.

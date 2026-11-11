@@ -470,6 +470,8 @@ export function listMyPendingApprovals(database: AppDatabase, context: TenantCon
         expiresAt: approvals.expiresAt,
         workUnitId: approvals.workUnitId,
         workTitle: workUnits.title,
+        // Who asked, which the approver already sees on the approval itself; null when the plan asked.
+        requestedByMembershipId: approvals.requestedByMembershipId,
       })
       .from(approvals)
       .innerJoin(workUnits, eq(workUnits.id, approvals.workUnitId))
