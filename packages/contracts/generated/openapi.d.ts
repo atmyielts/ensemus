@@ -1527,7 +1527,7 @@ export interface paths {
         put?: never;
         /**
          * Start connecting by consent. Answers the provider's own page to send the browser to
-         * @description Needs connection.manage and a recent second factor where the organization asks for one. The admin chooses capabilities and the server maps them to scopes (ADR-038 D3). A customer's own client secret is sealed on arrival and never returned. Each call is a new attempt with a new state, which expires ten minutes after it starts, so there is no Idempotency-Key.
+         * @description Needs connection.manage and a recent second factor where the organization asks for one. The admin chooses capabilities and the server maps them to scopes (ADR-038 D3). A customer's own client secret is sealed on arrival and never returned. Each call is a new attempt with a new state, which expires ten minutes after it starts, so there is no Idempotency-Key. The response sets the __Host-ensemus_oauth cookie, which binds the callback to this browser. The browser that opens authorize_url must be the one that received this response, or the callback answers OAUTH_STATE_INVALID.
          */
         post: {
             parameters: {
@@ -1654,7 +1654,7 @@ export interface paths {
         };
         /**
          * Where Google and Microsoft send the admin back after consent
-         * @description One fixed address, because providers require an exact registered redirect URI. The tenant comes from the state, and the person from the session, who must be the one who started the attempt (ADR-038 D1). It reads only these five parameters. A bad, used, expired, foreign or tampered state is always OAUTH_STATE_INVALID. A provider's error ends the attempt denied with a code from a fixed list, and its text is never kept or shown. Neither the code nor the state is ever echoed in a redirect or a log.
+         * @description One fixed address, because providers require an exact registered redirect URI. The tenant comes from the state, and the person from the session, who must be the one who started the attempt (ADR-038 D1), in the browser that holds the __Host-ensemus_oauth cookie the start set. It reads only these five parameters, and clears that cookie. A bad, used, expired, foreign or tampered state, or a missing or mismatched cookie, is always OAUTH_STATE_INVALID. A provider's error ends the attempt denied with a code from a fixed list, and its text is never kept or shown. Neither the code nor the state is ever echoed in a redirect or a log.
          */
         get: {
             parameters: {

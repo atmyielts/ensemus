@@ -105,6 +105,12 @@ export type OAuthExchangeInput = z.infer<typeof oauthExchangeInputSchema>;
 /** One workflow per attempt, so a repeated event finds the first one and never sends a code twice. */
 export const oauthExchangeWorkflowIdFor = (input: OAuthExchangeInput) =>
   `oauth-exchange-${input.organizationId}-${input.authorizationId}`;
+/** The suite upkeep's schedule, one per tenant (ADR-038 D1, D4). */
+export const suiteUpkeepScheduleIdFor = (organizationId: string) =>
+  `suite-upkeep-${organizationId}`;
+/** A run the web tier asked for by ending an attempt. One per attempt, so a repeated event finds it. */
+export const suiteUpkeepWorkflowIdFor = (organizationId: string, authorizationId: string) =>
+  `suite-upkeep-${organizationId}-${authorizationId}`;
 /** Where the attempt ended. `already_settled` means another run, or the expiry, got there first. */
 export type OAuthExchangeOutcome = {
   outcome: 'connected' | 'failed' | 'expired' | 'already_settled';

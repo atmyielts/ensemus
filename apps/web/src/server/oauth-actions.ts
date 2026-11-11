@@ -13,11 +13,13 @@ import {
 import { startOAuthAuthorizationSchema } from '@ensemus/contracts/workspace-suites';
 import type { AppDatabase, TenantContext } from '@ensemus/database';
 import { errorCode } from '@ensemus/telemetry';
+import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { stepUpPath } from '@/lib/step-up';
 import { assertManagesConnections } from './api';
 import { redirectForSsoRefusal } from './interactive-refusal';
-import { beginAuthorization } from './oauth';
+import { OAUTH_BROWSER_COOKIE } from '@ensemus/domain/workspace-suites';
+import { beginAuthorization, OAUTH_BROWSER_COOKIE_OPTIONS } from './oauth';
 import { getRuntime } from './runtime';
 import { requireTenant } from './tenant';
 
@@ -98,7 +100,10 @@ export async function startSuiteConnectionAction(
           : { kind: 'platform' },
     });
     if (!body.success) return { code: 'INVALID_INPUT', values };
-    target = (await beginAuthorization(database, context, body.data)).authorize_url;
+    const { started, browserBinding } = await beginAuthorization(database, context, body.data);
+    // The callback answers only in the browser holding this (ADR-038 D1).
+    (await cookies()).set(OAUTH_BROWSER_COOKIE, browserBinding, OAUTH_BROWSER_COOKIE_OPTIONS);
+    target = started.authorize_url;
   } catch (error) {
     return { code: await codeOf({ context, database }, error), values };
   }

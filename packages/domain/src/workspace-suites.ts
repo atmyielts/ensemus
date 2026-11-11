@@ -58,9 +58,11 @@ const google = (scope: string) => `https://www.googleapis.com/auth/${scope}`;
  * means the provider has nothing for it yet. Checked against Google's Admin SDK and Microsoft Graph's
  * permission references on 2026-11-11; unqualified until the owner runs them against test tenants.
  *
- * Microsoft's directory capability carries User.ReadBasic.All as well as GroupMember.Read.All, because
- * with GroupMember.Read.All alone Graph returns a user member's ID and type and nothing else, and members
- * are matched to people here by email (ADR-038 D4).
+ * Microsoft's directory capability carries User.Read.All as well as GroupMember.Read.All, because with
+ * GroupMember.Read.All alone Graph returns a user member's ID and type and nothing else, and members are
+ * matched to people here by email (ADR-038 D4). User.ReadBasic.All would give the email but not
+ * `accountEnabled`, `userType` or `externalUserState`, and without those a disabled account or a guest
+ * who never accepted would be matched as if they were a member in good standing.
  */
 export const CAPABILITY_SCOPES: Readonly<
   Record<SuiteConnectorType, Readonly<Record<SuiteCapability, readonly string[]>>>
@@ -75,7 +77,7 @@ export const CAPABILITY_SCOPES: Readonly<
   },
   microsoft_365: {
     files: ['Files.Read.All', 'Sites.Read.All'],
-    directory: ['GroupMember.Read.All', 'User.ReadBasic.All'],
+    directory: ['GroupMember.Read.All', 'User.Read.All'],
     mail: ['Mail.ReadWrite', 'Mail.Send'],
     calendar: ['Calendars.ReadWrite'],
     documents: ['Files.ReadWrite'],
@@ -309,6 +311,59 @@ export function pkceChallenge(verifier: string): string {
 export const SECRET_PURPOSE_OAUTH_AUTHORIZATION_CODE = 'oauth_authorization_code';
 export const SECRET_PURPOSE_OAUTH_PKCE_VERIFIER = 'oauth_pkce_verifier';
 export const SECRET_PURPOSE_OAUTH_CUSTOMER_CLIENT = 'oauth_customer_client';
+/** The sealed values a consent attempt makes, and so the ones the sweep looks after. */
+export const OAUTH_ATTEMPT_SECRET_PURPOSES = [
+  SECRET_PURPOSE_OAUTH_PKCE_VERIFIER,
+  SECRET_PURPOSE_OAUTH_AUTHORIZATION_CODE,
+  SECRET_PURPOSE_OAUTH_CUSTOMER_CLIENT,
+] as const;
+
+/**
+ * How old a sealed attempt value may be with no attempt naming it before the sweep revokes it. A start
+ * seals its verifier and client before it inserts the row, so a start refused after sealing leaves them
+ * named by nothing. Longer than the ten-minute window, so a start still under way is never caught.
+ */
+export const OAUTH_ORPHAN_SECRET_AFTER_MS = 15 * 60_000;
+
+/** One sealed attempt value that is not yet revoked: what the broker can say without opening it. */
+export type LiveAttemptSecret = { id: string; purpose: string; createdAt: Date };
+
+/**
+ * Which live attempt values to revoke (ADR-038 D1). One an attempt in a final status names is spent,
+ * whichever way the attempt ended. One no attempt names, past OAUTH_ORPHAN_SECRET_AFTER_MS, came from a
+ * start that never wrote its row. One an attempt still under way names is left alone.
+ */
+export function attemptSecretsToRevoke(input: {
+  live: readonly LiveAttemptSecret[];
+  /** The status of the attempt naming each secret, for every live secret some attempt names. */
+  namedBy: ReadonlyMap<string, OAuthStatus>;
+  now: Date;
+}): string[] {
+  const purposes: readonly string[] = OAUTH_ATTEMPT_SECRET_PURPOSES;
+  return input.live
+    .filter((secret) => {
+      if (!purposes.includes(secret.purpose)) return false;
+      const status = input.namedBy.get(secret.id);
+      if (status !== undefined) return isSettledOAuth(status);
+      return input.now.getTime() - secret.createdAt.getTime() >= OAUTH_ORPHAN_SECRET_AFTER_MS;
+    })
+    .map((secret) => secret.id);
+}
+
+/**
+ * The cookie that binds a callback to the browser that started the consent, beside the signed-in member
+ * (ADR-038 D1). `__Host-` makes the browser refuse it unless it is Secure, host-only and on `/`. It lives
+ * as long as the attempt does.
+ */
+export const OAUTH_BROWSER_COOKIE = '__Host-ensemus_oauth';
+export const OAUTH_BROWSER_COOKIE_MAX_AGE_SECONDS = OAUTH_STATE_TTL_SECONDS;
+
+/**
+ * What the cookie holds: a SHA-256 of the state, under its own label so it is never the value the row
+ * keeps. Holding the state's hash proves the browser saw the start's answer, and says nothing of the state.
+ */
+export const oauthBrowserBinding = (state: string) =>
+  createHash('sha256').update('ensemus.oauth.browser:', 'utf8').update(state, 'utf8').digest('hex');
 
 /**
  * Transaction settings the 0561 triggers read. Each names the one row the transaction may act for, and is
@@ -338,6 +393,11 @@ export const OAUTH_AUTHORIZATION_CODE_RECEIVED = 'oauth_authorization.code_recei
 /** Facts for the connections page. Nothing outside PostgreSQL consumes these yet. */
 export const OAUTH_AUTHORIZATION_CONNECTED = 'oauth_authorization.connected';
 export const OAUTH_AUTHORIZATION_FAILED = 'oauth_authorization.failed';
+/**
+ * The web tier ended an attempt `denied` or `expired`. The dispatcher starts the suite upkeep for the
+ * tenant, so the attempt's sealed verifier and client are revoked now rather than at the next sweep.
+ */
+export const OAUTH_AUTHORIZATION_ENDED = 'oauth_authorization.ended';
 export const oauthAuthorizationRef = (id: string) => `oauth_authorization:${id}`;
 
 // --- Directory (ADR-038 D4).
@@ -351,6 +411,43 @@ export const DIRECTORY_MAX_GROUPS_PER_PAGE = 200;
 export const DIRECTORY_MAX_MEMBERS_PER_GROUP = 5000;
 export const DIRECTORY_MAX_ID_LENGTH = 1024;
 export const DIRECTORY_MAX_NAME_LENGTH = 500;
+
+/**
+ * How long a directory is believed without a completed full pass (ADR-038 D4). Past it, or once its last
+ * pass failed, its teams lose the members it gave them, so a group grant reaches nobody until a full pass
+ * says who is in each group again. A Microsoft directory starts a full pass well inside this.
+ */
+export const DIRECTORY_STALE_AFTER_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Whether a connection's directory may still be believed, from its directory stream's cursor row: when
+ * the last full pass completed, the stream's state, and when that state was written.
+ *
+ * Not fresh means every directory team whose members were last written at or before `emptyThrough` loses
+ * them: those written before the failure when the last pass failed, and those older than the bound
+ * otherwise. Members written since came from a pass that read the provider after that, so they stay.
+ * `restart` asks for a new full pass, because an incremental one would only restore the groups it happened
+ * to change.
+ */
+export function directoryFreshness(input: {
+  lastFullPassAt: Date | null;
+  state: string;
+  stateAt: Date;
+  now: Date;
+}): { fresh: true } | { fresh: false; emptyThrough: Date; restart: boolean } {
+  const bound = new Date(input.now.getTime() - DIRECTORY_STALE_AFTER_MS);
+  if (input.state === 'failed') {
+    return {
+      fresh: false,
+      emptyThrough: input.stateAt.getTime() > bound.getTime() ? input.stateAt : bound,
+      restart: true,
+    };
+  }
+  if (input.lastFullPassAt === null || input.lastFullPassAt.getTime() < bound.getTime()) {
+    return { fresh: false, emptyThrough: bound, restart: false };
+  }
+  return { fresh: true };
+}
 
 export type DirectoryMember = { kind: 'user' | 'group'; externalId: string };
 

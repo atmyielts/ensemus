@@ -27,9 +27,11 @@ import {
   MICROSOFT_TENANT_PATTERN,
   microsoftAuthorizeUrl,
   OAUTH_AUTHORIZATION_CODE_RECEIVED,
+  OAUTH_AUTHORIZATION_ENDED,
   OAUTH_CALLBACK_PATH,
   OAUTH_STATE_TTL_SECONDS,
   oauthAuthorizationRef,
+  oauthBrowserBinding,
   oauthStateSha256,
   parseOAuthState,
   pkceChallenge,
@@ -97,7 +99,15 @@ export type OAuthWebSide = {
   platformClientId(provider: SuiteProvider): string | null;
 };
 
-export type StartedAuthorization = { authorizationId: string; authorizeUrl: string };
+export type StartedAuthorization = {
+  authorizationId: string;
+  authorizeUrl: string;
+  /**
+   * What the starting browser keeps in OAUTH_BROWSER_COOKIE, so the callback is bound to that browser as
+   * well as to the member (ADR-038 D1). A hash of the state, never the state.
+   */
+  browserBinding: string;
+};
 
 export type CallbackInput = {
   state: string;
@@ -163,6 +173,19 @@ export function stateMatchesHash(state: string, storedSha256: string): boolean {
   return timingSafeEqual(
     Buffer.from(oauthStateSha256(state), 'hex'),
     Buffer.from(storedSha256, 'hex'),
+  );
+}
+
+/**
+ * Whether a callback came back to the browser that started the consent: the cookie it was given holds
+ * oauthBrowserBinding of this state. Compared in constant time. A missing cookie, or one of any other
+ * shape, is a mismatch, which the callback answers OAUTH_STATE_INVALID like every other failure.
+ */
+export function browserBindingMatches(cookie: string | null | undefined, state: string): boolean {
+  if (typeof cookie !== 'string' || !/^[0-9a-f]{64}$/.test(cookie)) return false;
+  return timingSafeEqual(
+    Buffer.from(oauthBrowserBinding(state), 'hex'),
+    Buffer.from(cookie, 'hex'),
   );
 }
 
@@ -406,7 +429,7 @@ export async function startAuthorization(
     if (pgCode(error) === START_REFUSED) throw new AppError('FORBIDDEN');
     throw error;
   }
-  return { authorizationId: id, authorizeUrl };
+  return { authorizationId: id, authorizeUrl, browserBinding: oauthBrowserBinding(state) };
 }
 
 type CallbackOutcome = { kind: 'invalid' } | { kind: 'done'; status: OAuthStatus };
@@ -482,6 +505,7 @@ async function settleCallback(
   if (!found.live) {
     // Recorded, so the page says so, and then refused like any other bad state.
     await tx.update(oauthAuthorizations).set({ status: 'expired' }).where(where);
+    await emitEnded(tx, context, authorizationId);
     return { kind: 'invalid' };
   }
 
@@ -494,6 +518,7 @@ async function settleCallback(
           ? 'OAUTH_CONSENT_REQUIRED'
           : 'OAUTH_PROVIDER_ERROR';
     await tx.update(oauthAuthorizations).set({ status: 'denied', errorCode }).where(where);
+    await emitEnded(tx, context, authorizationId);
     await audit('oauth_authorization.denied', 'deny', errorCode);
     return { kind: 'done', status: 'denied' };
   }
@@ -514,6 +539,22 @@ async function settleCallback(
   });
   await audit('oauth_authorization.code_received', 'allow');
   return { kind: 'done', status: 'code_received' };
+}
+
+/**
+ * Says the web tier ended an attempt `denied` or `expired`, in the transaction that did, so the
+ * dispatcher starts the suite upkeep and the attempt's sealed verifier and client are revoked now rather
+ * than at the next sweep. Both leave `pending`, the attempt's first step, so this is its second fact.
+ */
+async function emitEnded(tx: Tx, context: TenantContext, authorizationId: string) {
+  await emit(tx, context, {
+    eventType: OAUTH_AUTHORIZATION_ENDED,
+    aggregateType: AGGREGATE_OAUTH_AUTHORIZATION,
+    aggregateId: authorizationId,
+    aggregateVersion: 2,
+    classification: 'internal',
+    payload: { authorizationId },
+  });
 }
 
 /** Those who manage connections see every attempt. The person who started one always sees their own. */
@@ -553,4 +594,10 @@ export async function listAuthorizations(
   return rows.map((row) => viewOf(row, now));
 }
 
-export { claimForExchange, completeExchange, failExchange } from './oauth-exchange';
+export {
+  attemptSecretStatuses,
+  claimForExchange,
+  completeExchange,
+  expireAbandonedAttempts,
+  failExchange,
+} from './oauth-exchange';

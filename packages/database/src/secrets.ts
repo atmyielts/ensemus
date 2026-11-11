@@ -1,6 +1,6 @@
 // For the secret broker in workers only (enforced by lint). This role can read sealed secrets for
 // the bound tenant and nothing else.
-import { and, eq, isNull, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { openDatabase, type EnsemusDrizzle } from './connection';
 import { sealedSecrets } from './schema';
 
@@ -91,6 +91,33 @@ export function resealSecret(
       .returning({ id: sealedSecrets.id });
     return written.length === 1 ? 'stored' : 'missing';
   });
+}
+
+/** One sweep's worth. A tenant with more is caught up by the sweeps after it. */
+const LIVE_SECRET_LIST_LIMIT = 1000;
+
+/**
+ * The tenant's sealed values of these purposes that are not yet revoked: IDs, purposes and when each was
+ * sealed, never a value. The consent sweep reads what is still live here, because the application role
+ * sees no more of this table than its tenant column.
+ */
+export function listLiveSecretsByPurpose(
+  db: EnsemusDrizzle,
+  organizationId: string,
+  purposes: readonly string[],
+): Promise<{ id: string; purpose: string; createdAt: Date }[]> {
+  if (purposes.length === 0) return Promise.resolve([]);
+  return bound(db, organizationId, (tx) =>
+    tx
+      .select({
+        id: sealedSecrets.id,
+        purpose: sealedSecrets.purpose,
+        createdAt: sealedSecrets.createdAt,
+      })
+      .from(sealedSecrets)
+      .where(and(inArray(sealedSecrets.purpose, [...purposes]), isNull(sealedSecrets.revokedAt)))
+      .limit(LIVE_SECRET_LIST_LIMIT),
+  );
 }
 
 export function revokeSecret(db: EnsemusDrizzle, organizationId: string, secretId: string) {

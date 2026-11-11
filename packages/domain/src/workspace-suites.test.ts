@@ -3,10 +3,13 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
+  attemptSecretsToRevoke,
   CAPABILITY_SCOPES,
   canTransitionOAuth,
   capabilityGranted,
   deniedCodeFor,
+  DIRECTORY_STALE_AFTER_MS,
+  directoryFreshness,
   formatOAuthState,
   grantedScopesOf,
   IDENTITY_SCOPES,
@@ -14,6 +17,7 @@ import {
   isSettledOAuth,
   isValidDirectoryPage,
   OAUTH_ERROR_CODES,
+  OAUTH_ORPHAN_SECRET_AFTER_MS,
   OAUTH_STATUSES,
   OAUTH_TRANSITIONS,
   oauthStateSha256,
@@ -248,5 +252,103 @@ describe('directory pages', () => {
         page({ groups: [{ ...group!, members: [{ kind: 'device' as 'user', externalId: 'x' }] }] }),
       ),
     ).toBe(false);
+  });
+});
+
+describe('how long a directory is believed (ADR-038 D4)', () => {
+  const now = new Date('2026-11-11T12:00:00.000Z');
+  const ago = (ms: number) => new Date(now.getTime() - ms);
+  const hour = 60 * 60 * 1000;
+
+  it('believes a directory whose last full pass completed inside the bound', () => {
+    for (const state of ['idle', 'running', 'resync_required']) {
+      expect(
+        directoryFreshness({ lastFullPassAt: ago(hour), state, stateAt: ago(1), now }),
+      ).toEqual({ fresh: true });
+    }
+    expect(
+      directoryFreshness({
+        lastFullPassAt: ago(DIRECTORY_STALE_AFTER_MS),
+        state: 'idle',
+        stateAt: ago(1),
+        now,
+      }),
+    ).toEqual({ fresh: true });
+  });
+
+  it('stops believing one past the bound, or that never completed a full pass', () => {
+    for (const lastFullPassAt of [ago(DIRECTORY_STALE_AFTER_MS + 1), ago(7 * 24 * hour), null]) {
+      expect(directoryFreshness({ lastFullPassAt, state: 'idle', stateAt: ago(1), now })).toEqual({
+        fresh: false,
+        // Members a pass read inside the bound came from the provider since, so they stay.
+        emptyThrough: ago(DIRECTORY_STALE_AFTER_MS),
+        restart: false,
+      });
+    }
+  });
+
+  it('stops believing one whose last pass failed, however recent its last full pass', () => {
+    const failedAt = ago(5 * 60_000);
+    expect(
+      directoryFreshness({ lastFullPassAt: ago(hour), state: 'failed', stateAt: failedAt, now }),
+    ).toEqual({ fresh: false, emptyThrough: failedAt, restart: true });
+  });
+
+  it('empties everything past the bound too when the failure itself is older', () => {
+    expect(
+      directoryFreshness({
+        lastFullPassAt: null,
+        state: 'failed',
+        stateAt: ago(3 * 24 * hour),
+        now,
+      }),
+    ).toEqual({ fresh: false, emptyThrough: ago(DIRECTORY_STALE_AFTER_MS), restart: true });
+  });
+});
+
+describe('which sealed attempt values the sweep revokes (ADR-038 D1)', () => {
+  const now = new Date('2026-11-11T12:00:00.000Z');
+  const secret = (id: string, purpose: string, ageMs: number) => ({
+    id,
+    purpose,
+    createdAt: new Date(now.getTime() - ageMs),
+  });
+
+  it('revokes what a settled attempt names, whichever way it ended, and however young', () => {
+    const settled: OAuthStatus[] = ['connected', 'denied', 'failed', 'expired'];
+    const live = settled.map((_, index) => secret(`s${index}`, 'oauth_pkce_verifier', 1));
+    const namedBy = new Map(settled.map((status, index) => [`s${index}`, status]));
+    expect(attemptSecretsToRevoke({ live, namedBy, now })).toEqual(['s0', 's1', 's2', 's3']);
+  });
+
+  it('leaves what an attempt under way names, however old', () => {
+    const live = (['pending', 'code_received', 'exchanging'] as const).map((_, index) =>
+      secret(`s${index}`, 'oauth_authorization_code', 3 * OAUTH_ORPHAN_SECRET_AFTER_MS),
+    );
+    const namedBy = new Map<string, OAuthStatus>([
+      ['s0', 'pending'],
+      ['s1', 'code_received'],
+      ['s2', 'exchanging'],
+    ]);
+    expect(attemptSecretsToRevoke({ live, namedBy, now })).toEqual([]);
+  });
+
+  it('revokes an orphan from a refused start once it is past the bound, and not before', () => {
+    const live = [
+      secret('old-verifier', 'oauth_pkce_verifier', OAUTH_ORPHAN_SECRET_AFTER_MS),
+      secret('old-client', 'oauth_customer_client', OAUTH_ORPHAN_SECRET_AFTER_MS + 1),
+      secret('young-verifier', 'oauth_pkce_verifier', OAUTH_ORPHAN_SECRET_AFTER_MS - 1),
+    ];
+    expect(attemptSecretsToRevoke({ live, namedBy: new Map(), now })).toEqual([
+      'old-verifier',
+      'old-client',
+    ]);
+  });
+
+  it('never touches a value of any other purpose, such as a connection credential', () => {
+    const live = [secret('credential', 'connector_credential', 10 * OAUTH_ORPHAN_SECRET_AFTER_MS)];
+    expect(
+      attemptSecretsToRevoke({ live, namedBy: new Map([['credential', 'connected']]), now }),
+    ).toEqual([]);
   });
 });

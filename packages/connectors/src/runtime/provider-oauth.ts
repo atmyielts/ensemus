@@ -472,11 +472,72 @@ export async function exchangeAuthorizationCode(
   }
   const { refresh } = checkTokenResponse(answer, failed);
   if (refresh === undefined) throw failed();
-  const reportedScopes = parseReportedScopes(request.provider, answer.scope, failed);
-  // D3: what was granted is what the provider says. An answer that does not say is not believed.
-  if (reportedScopes === null) throw failed();
-  const { account, tenant } = identityOf(request, idTokenClaims(answer.id_token));
-  return { refreshToken: refresh, reportedScopes, account, tenant };
+  try {
+    const reportedScopes = parseReportedScopes(request.provider, answer.scope, failed);
+    // D3: what was granted is what the provider says. An answer that does not say is not believed.
+    if (reportedScopes === null) throw failed();
+    const { account, tenant } = identityOf(request, idTokenClaims(answer.id_token));
+    return { refreshToken: refresh, reportedScopes, account, tenant };
+  } catch (error) {
+    // A grant the provider made and nothing here will keep. Google's is taken back now; Microsoft's stays
+    // until an admin removes the app's consent in Entra (ADR-038 D1).
+    await revokeProviderGrant(http, request.provider, refresh);
+    throw error;
+  }
+}
+
+/** How long a best-effort revoke may hold up the failure it follows. */
+export const PROVIDER_GRANT_REVOKE_TIMEOUT_MS = 10_000;
+
+/**
+ * Takes back a refresh token an exchange obtained and will not keep (ADR-038 D1), once, never retried,
+ * with its outcome ignored: the attempt has already failed, and this only narrows what the failure
+ * leaves behind. Google revokes the token and the grant behind it through `oauth2.googleapis.com/revoke`
+ * on the `google_oauth` route (checked against Google's OAuth 2.0 for web server apps on 2026-11-11).
+ * Microsoft has no per-token revoke for a delegated grant, so for Microsoft this does nothing and the
+ * failure tells the admin to remove the app's consent in Entra. Resolves within `timeoutMs` whatever the
+ * gateway does, and never throws.
+ */
+export async function revokeProviderGrant(
+  http: ProviderHttpClient,
+  provider: Provider,
+  refreshToken: string,
+  timeoutMs = PROVIDER_GRANT_REVOKE_TIMEOUT_MS,
+): Promise<void> {
+  if (provider !== 'google' || !refreshToken) return;
+  const body = Buffer.from(new URLSearchParams({ token: refreshToken }).toString());
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<void>((resolve) => {
+    timer = setTimeout(() => {
+      controller.abort();
+      resolve();
+    }, timeoutMs);
+  });
+  // Through a resolved promise, so a client that throws at once is ignored like one that rejects.
+  const sending = Promise.resolve()
+    .then(() =>
+      http.request({
+        route: 'google_oauth',
+        method: 'POST',
+        path: '/revoke',
+        headers: { 'content-type': 'application/x-www-form-urlencoded' },
+        body,
+        timeoutMs,
+        maxResponseBytes: 4096,
+        signal: controller.signal,
+      }),
+    )
+    .then(
+      () => undefined,
+      () => undefined,
+    );
+  try {
+    await Promise.race([sending, deadline]);
+  } finally {
+    clearTimeout(timer);
+    body.fill(0);
+  }
 }
 
 export async function requestJson(

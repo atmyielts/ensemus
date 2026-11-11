@@ -35,6 +35,7 @@ import {
   createOAuthExchangeActivities,
 } from '@ensemus/workflows/oauth-exchange-activities';
 import { createPaymentConnectorActivities } from '@ensemus/workflows/payment-activities';
+import { createSuiteUpkeepActivities } from '@ensemus/workflows/suite-upkeep-activities';
 import { createTemporalLogger } from '@ensemus/workflows/safe-logger';
 import { createTaxActivities } from '@ensemus/workflows/tax-activities';
 import { createWebhookActivities } from '@ensemus/workflows/webhook-activities';
@@ -169,6 +170,7 @@ async function main() {
           ? `${process.env.ENSEMUS_PUBLIC_URL}${OAUTH_CALLBACK_PATH}`
           : '',
       }),
+      ...createSuiteUpkeepActivities({ database: app.db, secrets }),
       // No native processor is selected. The composition supplies real standing/broker ports while
       // dispatch stays unavailable; it never fills origin/merchant identity from manifest or empty config.
       ...createPaymentConnectorActivities(

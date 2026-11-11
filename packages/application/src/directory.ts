@@ -17,9 +17,12 @@ import {
 } from '@ensemus/database';
 import { MAX_SYNC_CURSOR_LENGTH } from '@ensemus/domain/connector';
 import {
+  capabilityGranted,
   DIRECTORY_MAX_NAME_LENGTH,
   DIRECTORY_STREAM,
   DIRECTORY_SYNC_SETTING,
+  directoryFreshness,
+  isSuiteConnectorType,
   isValidDirectoryPage,
   type DirectoryPage,
 } from '@ensemus/domain/workspace-suites';
@@ -179,10 +182,12 @@ export async function commitDirectoryPage(
             seenGeneration: lease.fullSyncGeneration,
           })
           .returning();
-      } else if (row.displayName !== name || row.seenGeneration !== lease.fullSyncGeneration) {
+      } else {
         if (row.displayName !== name) {
           await tx.update(teams).set({ name }).where(eq(teams.id, row.teamId));
         }
+        // Written every time, because `updated_at` is when this group's members were last read from the
+        // provider, and enforceDirectoryFreshness keeps only members read since the directory went stale.
         await tx
           .update(directoryGroups)
           .set({
@@ -254,7 +259,9 @@ export async function commitDirectoryPage(
         .set({
           cursor: page.nextCursor,
           generation,
-          ...(finishesFullSync ? { fullSyncInProgress: false } : {}),
+          // On the directory stream the watermark is when the last full pass completed, which is what
+          // directoryFreshness measures the directory's age from.
+          ...(finishesFullSync ? { fullSyncInProgress: false, watermark: sql`now()` } : {}),
           updatedAt: sql`now()`,
         })
         .where(
@@ -271,12 +278,28 @@ export async function commitDirectoryPage(
   });
 }
 
+/** Revoked, or no longer granted every scope the directory capability needs. */
+export function directoryEntitlementEnded(connection: {
+  state: string;
+  connectorType: string;
+  grantedScopes: readonly string[];
+}): boolean {
+  if (connection.state === 'revoked') return true;
+  return (
+    !isSuiteConnectorType(connection.connectorType) ||
+    !capabilityGranted(connection.connectorType, 'directory', connection.grantedScopes)
+  );
+}
+
 /**
- * Removes every team a revoked connection's directory made, with their members and group rows. The
- * worker's revoke cleanup calls it after the revoke has committed: the revoke already stopped the
- * connection's resources being served, and this takes away the teams, in the sync's own service context
- * because 0561 refuses everyone else (ADR-038 D4). A connection that is not revoked keeps its teams, so a
- * stray call cannot empty a live directory. Repeating it finds nothing to do.
+ * Removes every team a connection's directory made, with their members and group rows, once the
+ * connection may no longer have them: it was revoked, or it no longer holds every scope the directory
+ * capability needs (an admin narrowed the grant at the provider, and a refresh narrowed `granted_scopes`).
+ * The worker calls it in the sync's own service context, because 0561 refuses everyone else (ADR-038 D4),
+ * and 0561's guards ask only for that context and the connection's own setting, not for a revoked row. A
+ * connection still entitled to its directory keeps its teams, so a stray call cannot empty a live
+ * directory: both conditions are read here, under the row's share lock, never taken from the caller.
+ * Repeating it finds nothing to do.
  */
 export async function removeConnectionDirectory(
   database: AppDatabase,
@@ -288,11 +311,15 @@ export async function removeConnectionDirectory(
   return withTenantTx(database, context, async (tx) => {
     await asDirectoryPass(tx, input.connectionId);
     const [connection] = await tx
-      .select({ state: connections.state })
+      .select({
+        state: connections.state,
+        connectorType: connections.connectorType,
+        grantedScopes: connections.grantedScopes,
+      })
       .from(connections)
       .where(eq(connections.id, input.connectionId))
       .for('share');
-    if (connection?.state !== 'revoked') return { teamsRemoved: 0 };
+    if (!connection || !directoryEntitlementEnded(connection)) return { teamsRemoved: 0 };
     const rows = await tx
       .select()
       .from(directoryGroups)
@@ -300,4 +327,113 @@ export async function removeConnectionDirectory(
     await removeGroups(tx, rows);
     return { teamsRemoved: rows.length };
   });
+}
+
+const directoryCursorIs = (connectionId: string) =>
+  and(eq(syncCursors.connectionId, connectionId), eq(syncCursors.stream, DIRECTORY_STREAM));
+
+/**
+ * The worker's service context only. Holds a directory to DIRECTORY_STALE_AFTER_MS and to its last pass
+ * (ADR-038 D4). When the directory stream has not completed a full pass inside the bound, or its last pass
+ * failed, the teams it made lose the members it gave them and keep their rows, so every grant naming them
+ * reaches nobody at read time, with no file synced again: every read path reads team membership live.
+ * Members a pass wrote after the directory went stale came from the provider since, so they stay. After a
+ * failure the stream is sent back to a full pass, so the next one to complete restores every group.
+ *
+ * Runs after each directory pass and on the suite upkeep schedule, because a directory nobody asks to sync
+ * would otherwise keep its last members for ever. Returns how many memberships it took away.
+ */
+export async function enforceDirectoryFreshness(
+  database: AppDatabase,
+  context: TenantContext,
+  input: { connectionId: string },
+): Promise<{ membershipsRemoved: number; restarted: boolean }> {
+  requireWorker(context);
+  if (!idSchema.safeParse(input.connectionId).success) throw new AppError('INVALID_INPUT');
+  return withTenantTx(database, context, async (tx) => {
+    await asDirectoryPass(tx, input.connectionId);
+    const [connection] = await tx
+      .select({ state: connections.state })
+      .from(connections)
+      .where(eq(connections.id, input.connectionId))
+      .for('share');
+    // A revoked connection's teams go whole, through removeConnectionDirectory.
+    if (!connection || connection.state === 'revoked') {
+      return { membershipsRemoved: 0, restarted: false };
+    }
+    const [clock] = await tx
+      .execute<{ ms: number | string }>(sql`select extract(epoch from now())::float8 * 1000 as ms`)
+      .then((result) => result.rows);
+    // The database's clock, which is the one every `updated_at` compared here was written by.
+    const now = new Date(Number(clock?.ms));
+    const [cursor] = await tx
+      .select({
+        cursor: syncCursors.cursor,
+        generation: syncCursors.generation,
+        state: syncCursors.state,
+        watermark: syncCursors.watermark,
+        updatedAt: syncCursors.updatedAt,
+      })
+      .from(syncCursors)
+      .where(directoryCursorIs(input.connectionId))
+      .for('update');
+    const decision = cursor
+      ? directoryFreshness({
+          lastFullPassAt: cursor.watermark,
+          state: cursor.state,
+          stateAt: cursor.updatedAt,
+          now,
+        })
+      : // Teams with no directory stream behind them were read by nothing this can vouch for.
+        { fresh: false as const, emptyThrough: now, restart: false };
+    if (decision.fresh) return { membershipsRemoved: 0, restarted: false };
+
+    // Times reach here cut to the millisecond, so one is added back: a group written in the same
+    // millisecond as the failure, and before it, still loses its members.
+    const through = new Date(decision.emptyThrough.getTime() + 1);
+    const staleTeams = tx
+      .select({ teamId: directoryGroups.teamId })
+      .from(directoryGroups)
+      .where(
+        and(
+          eq(directoryGroups.connectionId, input.connectionId),
+          lt(directoryGroups.updatedAt, through),
+        ),
+      );
+    const removed = await tx
+      .delete(teamMemberships)
+      .where(inArray(teamMemberships.teamId, staleTeams))
+      .returning({ teamId: teamMemberships.teamId });
+
+    // Once per failure: a cursor already sent back to the start has a full pass owed. A failed stream
+    // holds no lease, so moving its generation fences only a pass whose lease had already run out. The
+    // error code stays, so the connection still says why until a pass succeeds.
+    const restarted = Boolean(cursor && decision.restart && cursor.cursor !== null);
+    if (restarted && cursor) {
+      await tx
+        .update(syncCursors)
+        .set({
+          state: 'resync_required',
+          cursor: null,
+          fullSyncInProgress: false,
+          generation: cursor.generation + 1,
+          leaseUntil: null,
+          updatedAt: sql`now()`,
+        })
+        .where(directoryCursorIs(input.connectionId));
+    }
+    return { membershipsRemoved: removed.length, restarted };
+  });
+}
+
+/** The worker's service context only. Every connection in this tenant that has directory teams. */
+export async function listDirectoryConnections(
+  database: AppDatabase,
+  context: TenantContext,
+): Promise<string[]> {
+  requireWorker(context);
+  const rows = await withTenantTx(database, context, (tx) =>
+    tx.selectDistinct({ connectionId: directoryGroups.connectionId }).from(directoryGroups),
+  );
+  return rows.map((row) => row.connectionId);
 }

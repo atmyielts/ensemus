@@ -10,6 +10,7 @@ import {
   timingSafeEqual,
 } from 'node:crypto';
 import {
+  listLiveSecretsByPurpose,
   listTenantSecrets,
   readSealedSecret,
   replaceWrappedKey,
@@ -180,6 +181,11 @@ export class SecretBroker {
 
   revoke(organizationId: string, secretId: string) {
     return revokeSecret(this.#db, organizationId, secretId);
+  }
+
+  /** The tenant's live sealed values of these purposes, by ID, purpose and age. Never a value. */
+  listLive(organizationId: string, purposes: readonly string[]) {
+    return listLiveSecretsByPurpose(this.#db, organizationId, purposes);
   }
 
   /** Rewraps a tenant's data keys under the active key. Ciphertext is untouched. */

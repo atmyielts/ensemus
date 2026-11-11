@@ -19,6 +19,7 @@ import {
 import {
   exchangeAuthorizationCode,
   matchReportedScopes,
+  revokeProviderGrant,
   type CodeExchangeResult,
   type OAuthRotationPort,
   type OAuthScopesPort,
@@ -148,8 +149,35 @@ export function createOAuthExchangeActivities(deps: OAuthExchangeDeps) {
     }
   }
 
-  /** Unseal, redeem the code once, seal the credential, and complete in one transaction. */
+  /**
+   * Unseal, redeem the code once, seal the credential, and complete in one transaction. Once the provider
+   * has answered with a refresh token, any failure after it takes the grant back, once and best effort
+   * (revokeProviderGrant), before it goes up: an attempt that ends `failed` leaves no live Google grant.
+   */
   async function exchange(context: TenantContext, claim: OAuthExchangeClaim): Promise<string> {
+    const provider = SUITE_PROVIDER[claim.connectorType];
+    // Held only from the token response until the connection commits, or until it is revoked.
+    const unkept: { refreshToken: string | null } = { refreshToken: null };
+    try {
+      return await redeem(context, claim, (refreshToken) => {
+        unkept.refreshToken = refreshToken;
+      });
+    } catch (error) {
+      if (unkept.refreshToken !== null) {
+        await revokeProviderGrant(deps.http, provider, unkept.refreshToken);
+      }
+      throw error;
+    } finally {
+      // A string cannot be wiped in place. Dropping the one reference here is what is left to do.
+      unkept.refreshToken = null;
+    }
+  }
+
+  async function redeem(
+    context: TenantContext,
+    claim: OAuthExchangeClaim,
+    received: (refreshToken: string) => void,
+  ): Promise<string> {
     const provider = SUITE_PROVIDER[claim.connectorType];
     const credentialSecretId = randomUUID();
     const purpose = CREDENTIAL_PURPOSE[claim.connectorType];
@@ -170,6 +198,7 @@ export function createOAuthExchangeActivities(deps: OAuthExchangeDeps) {
               scopes: claim.requestedScopes,
               signal: AbortSignal.timeout(60_000),
             });
+            received(exchanged.refreshToken);
             const credential = credentialFor(
               claim.connectorType,
               customer

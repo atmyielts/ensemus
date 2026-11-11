@@ -33,9 +33,10 @@ import {
   SUITE_CAPABILITIES,
   type OAuthClientKind,
   type OAuthErrorCode,
+  type OAuthStatus,
   type SuiteCapability,
 } from '@ensemus/domain/workspace-suites';
-import { eq, sql } from 'drizzle-orm';
+import { and, eq, inArray, lte, or, sql } from 'drizzle-orm';
 import { AppError } from './errors';
 import { emit } from './events';
 import type { SecretLease } from './integration-ports';
@@ -328,4 +329,95 @@ export async function failExchange(
     if (row.status !== 'pending')
       await revokeAll(context.organizationId, spentSecretIds(row), secrets);
   });
+}
+
+// --- The sweep (ADR-038 D1). An attempt that ends early, or a start refused after it sealed, would
+// otherwise leave its sealed verifier, client or code live for ever.
+
+/** One sweep's worth of abandoned attempts. The next sweep takes the rest. */
+const EXPIRE_BATCH = 200;
+
+/**
+ * The worker's service context only. Moves every attempt still `pending` or `code_received` past its
+ * ten minutes to `expired`, as 0561 allows the service context, and audits each. Its sealed values are
+ * revoked by the same sweep, once attemptSecretStatuses reports it settled. Returns how many it moved.
+ */
+export async function expireAbandonedAttempts(
+  database: AppDatabase,
+  context: TenantContext,
+): Promise<number> {
+  requireService(context);
+  return withTenantTx(database, context, async (tx) => {
+    const due = await tx
+      .select({ id: oauthAuthorizations.id })
+      .from(oauthAuthorizations)
+      .where(
+        and(
+          inArray(oauthAuthorizations.status, ['pending', 'code_received']),
+          lte(oauthAuthorizations.expiresAt, sql`now()`),
+        ),
+      )
+      .limit(EXPIRE_BATCH)
+      .for('update', { skipLocked: true });
+    if (!due.length) return 0;
+    await tx
+      .update(oauthAuthorizations)
+      .set({ status: 'expired', updatedAt: sql`now()` })
+      .where(
+        inArray(
+          oauthAuthorizations.id,
+          due.map((row) => row.id),
+        ),
+      );
+    for (const row of due) {
+      await appendAudit(tx, {
+        organizationId: context.organizationId,
+        actorType: 'system',
+        action: 'oauth_authorization.expired',
+        targetRef: oauthAuthorizationRef(row.id),
+        decision: 'deny',
+        safeReason: 'OAUTH_EXPIRED',
+      });
+    }
+    return due.length;
+  });
+}
+
+/**
+ * The worker's service context only. For each of these sealed values that an attempt in this tenant
+ * names, as its verifier, its customer client or its code, that attempt's status. A value no attempt
+ * names is absent from the answer.
+ */
+export async function attemptSecretStatuses(
+  database: AppDatabase,
+  context: TenantContext,
+  secretIds: readonly string[],
+): Promise<Map<string, OAuthStatus>> {
+  requireService(context);
+  const ids = secretIds.filter((id) => uuid.safeParse(id).success);
+  const statuses = new Map<string, OAuthStatus>();
+  if (!ids.length) return statuses;
+  const rows = await withTenantTx(database, context, (tx) =>
+    tx
+      .select({
+        status: oauthAuthorizations.status,
+        verifierSecretId: oauthAuthorizations.verifierSecretId,
+        customerClientSecretId: oauthAuthorizations.customerClientSecretId,
+        codeSecretId: oauthAuthorizations.codeSecretId,
+      })
+      .from(oauthAuthorizations)
+      .where(
+        or(
+          inArray(oauthAuthorizations.verifierSecretId, ids),
+          inArray(oauthAuthorizations.customerClientSecretId, ids),
+          inArray(oauthAuthorizations.codeSecretId, ids),
+        ),
+      ),
+  );
+  for (const row of rows) {
+    for (const id of [row.verifierSecretId, row.customerClientSecretId, row.codeSecretId]) {
+      if (id !== null && ids.includes(id)) statuses.set(id, row.status as OAuthStatus);
+    }
+  }
+  return statuses;
 }

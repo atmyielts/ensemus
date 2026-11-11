@@ -189,16 +189,16 @@ const MESSAGE_FOR = new Map<string, string>([
   ],
   [
     'OAUTH_IDENTITY_INVALID',
-    'The provider did not say which account was connected, so nothing was connected. Start again, signed in with a work account.',
+    'The provider did not say which account was connected, so nothing was connected. Start again, signed in with a work account. If it was Microsoft 365, an administrator of that directory can remove the app’s consent under Enterprise applications in Microsoft Entra.',
   ],
   ['OAUTH_EXPIRED', 'This took longer than ten minutes, so nothing was connected. Start again.'],
   [
     'OAUTH_EXCHANGE_FAILED',
-    'The provider did not finish connecting, so nothing was connected. Start again.',
+    'The provider did not finish connecting, so nothing was connected. Start again. If it was Microsoft 365, an administrator of that directory can remove the app’s consent under Enterprise applications in Microsoft Entra.',
   ],
   [
     'OAUTH_SCOPES_INSUFFICIENT',
-    'Some of the access you chose was not granted, so nothing was connected. Start again and allow all of it.',
+    'Some of the access you chose was not granted, so nothing was connected. Start again and allow all of it. If it was Microsoft 365, an administrator of that directory can remove the app’s consent under Enterprise applications in Microsoft Entra.',
   ],
   [
     'OAUTH_CLIENT_NOT_CONFIGURED',

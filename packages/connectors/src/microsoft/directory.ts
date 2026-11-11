@@ -3,8 +3,9 @@
 //
 // Delta says which groups changed, not who is in them now: its members@delta lists only additions and
 // removals, and a large group's list arrives split over pages. So delta is the trigger, and each changed
-// group's direct members are read whole from /members, which also gives each user's email (that needs
-// User.ReadBasic.All). Two things delta never reports, and how this covers them:
+// group's direct members are read whole from /members, which also gives each user's email and whether the
+// account is enabled and, for a guest, accepted (that needs User.Read.All). Two things delta never
+// reports, and how this covers them:
 // - A group's parents. A change inside a nested group changes who its parents hold, so the parents are
 //   found through memberOf and read again in the same page.
 // - Members removed by deleting the member object, including a nested group. A deleted group in an
@@ -18,6 +19,7 @@ import {
   DIRECTORY_MAX_GROUPS_PER_PAGE,
   DIRECTORY_MAX_MEMBERS_PER_GROUP,
   DIRECTORY_MAX_NESTING,
+  DIRECTORY_STALE_AFTER_MS,
 } from '@ensemus/domain/workspace-suites';
 import { CursorExpired, SyncUnavailable, type ConnectorContext } from '../index';
 import type { ProviderHttpClient, ProviderResponse } from '../knowledge';
@@ -32,9 +34,43 @@ export const DIRECTORY_SCOPES = CAPABILITY_SCOPES.microsoft_365.directory;
 const DELTA_PATH = '/v1.0/groups/delta';
 // Members are selected so that a membership change puts the group in the next round at all.
 const DELTA_START = `${DELTA_PATH}?$select=displayName,members`;
-/** How old the last full pass may be before an incremental round is not trusted to have seen removals. */
-export const DIRECTORY_FULL_PASS_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+/**
+ * How old the last full pass may be before an incremental round is not trusted to have seen removals.
+ * Half of DIRECTORY_STALE_AFTER_MS, so a full pass starts, and has time to finish, before the directory
+ * goes stale and its teams lose their members.
+ */
+export const DIRECTORY_FULL_PASS_MAX_AGE_MS = DIRECTORY_STALE_AFTER_MS / 2;
 const MAX_LINK_ROUNDS = 100;
+
+/**
+ * What a member list is read with. Without `$select` Graph leaves out `accountEnabled`, `userType` and
+ * `externalUserState`, and with only User.ReadBasic.All it never sends them, which is why the directory
+ * capability asks for User.Read.All (ADR-038 D3). Checked against Microsoft Learn's user resource and
+ * group-list-members on 2026-11-11.
+ */
+const MEMBER_SELECT = '$select=id,mail,userPrincipalName,accountEnabled,userType,externalUserState';
+
+/** The mark Entra puts in a guest's sign-in name. It names the guest's home address, not one here. */
+const EXTERNAL_UPN_MARK = '#ext#';
+
+/**
+ * Who a user member is here, or null when they must match nobody. An account that is not enabled, or
+ * whose state Graph did not say, is nobody. A member is matched by mail, or by their sign-in name when
+ * they have none. A guest only once they have accepted, and only by mail: a guest's sign-in name carries
+ * #EXT# and is made from their home address, so matching on it could reach someone else's account here.
+ */
+export function memberUserKey(item: Record<string, unknown>): string | null {
+  if (item.accountEnabled !== true) return null;
+  const mail = directoryKey(item.mail);
+  if (item.userType === 'Member') {
+    const key = mail ?? directoryKey(item.userPrincipalName);
+    return key && !key.includes(EXTERNAL_UPN_MARK) ? key : null;
+  }
+  if (item.userType === 'Guest' && item.externalUserState === 'Accepted') {
+    return mail && !mail.includes(EXTERNAL_UPN_MARK) ? mail : null;
+  }
+  return null;
+}
 
 /** `full` says which round the link belongs to. `since` is when the last full pass finished. */
 type Cursor = { v: 1; full: boolean; link: string; since: number | null };
@@ -95,9 +131,9 @@ export function createMicrosoftDirectory<TConfig>(deps: {
   };
 
   /**
-   * A group's direct members: users by email, mail first and the sign-in name when there is none, and
-   * groups by object ID. Devices, contacts and apps are nobody here. A group past the member limit is
-   * cut there, which can only cost access.
+   * A group's direct members: users by email (memberUserKey says which), and groups by object ID.
+   * Devices, contacts and apps are nobody here. A group past the member limit is cut there, which can
+   * only cost access.
    */
   const membersOf = async (
     context: ConnectorContext,
@@ -107,7 +143,7 @@ export function createMicrosoftDirectory<TConfig>(deps: {
     const items = await collect(
       context,
       token,
-      `/v1.0/groups/${encodeURIComponent(groupId)}/members`,
+      `/v1.0/groups/${encodeURIComponent(groupId)}/members?${MEMBER_SELECT}`,
       DIRECTORY_MAX_MEMBERS_PER_GROUP,
       [404],
     );
@@ -118,7 +154,7 @@ export function createMicrosoftDirectory<TConfig>(deps: {
       const type = item['@odata.type'];
       let member: DirectoryMember | null = null;
       if (type === '#microsoft.graph.user') {
-        const email = directoryKey(item.mail) ?? directoryKey(item.userPrincipalName);
+        const email = memberUserKey(item);
         if (email) member = { kind: 'user', externalId: email };
       } else if (type === '#microsoft.graph.group') {
         member = { kind: 'group', externalId: providerId(item.id) };

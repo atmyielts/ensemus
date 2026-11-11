@@ -4,6 +4,7 @@ import { randomBytes } from 'node:crypto';
 import type { AppDatabase, TenantContext } from '@ensemus/database';
 import {
   formatOAuthState,
+  oauthBrowserBinding,
   oauthStateSha256,
   pkceChallenge,
   PKCE_VERIFIER_PATTERN,
@@ -11,6 +12,7 @@ import {
 import { describe, expect, it, vi } from 'vitest';
 import {
   authorizeUrlFor,
+  browserBindingMatches,
   newPkceVerifier,
   receiveCallback,
   startAuthorization,
@@ -57,6 +59,35 @@ describe('the state check', () => {
     expect(stateMatchesHash(state, oauthStateSha256(state).toUpperCase())).toBe(false);
     expect(stateMatchesHash(state, '')).toBe(false);
     expect(stateMatchesHash(state, oauthStateSha256(state).slice(2))).toBe(false);
+  });
+});
+
+describe('the browser binding', () => {
+  const state = formatOAuthState(ORG, ID, randomBytes(32));
+
+  it('accepts the cookie the starting browser was given for this state', () => {
+    expect(browserBindingMatches(oauthBrowserBinding(state), state)).toBe(true);
+  });
+
+  it('is never the value the row keeps, so knowing one does not give the other', () => {
+    expect(oauthBrowserBinding(state)).not.toBe(oauthStateSha256(state));
+    expect(browserBindingMatches(oauthStateSha256(state), state)).toBe(false);
+  });
+
+  it('refuses a missing cookie, one for another state, and one of any other shape', () => {
+    const other = formatOAuthState(ORG, ID, randomBytes(32));
+    for (const cookie of [
+      undefined,
+      null,
+      '',
+      oauthBrowserBinding(other),
+      oauthBrowserBinding(state).toUpperCase(),
+      oauthBrowserBinding(state).slice(2),
+      `${oauthBrowserBinding(state)}00`,
+      state,
+    ]) {
+      expect(browserBindingMatches(cookie, state)).toBe(false);
+    }
   });
 });
 

@@ -3,6 +3,7 @@
 // connector said, and what a query failed on, stay here: only codes and counters get out.
 import {
   commitSyncPage,
+  enforceDirectoryFreshness,
   finishSyncStream,
   leaseSyncStream,
   loadConnectionForWorker,
@@ -23,6 +24,7 @@ import { hasDirectory } from '@ensemus/connectors/suites';
 import type { TenantContext } from '@ensemus/database';
 import { createServiceContext } from '@ensemus/database/service';
 import type { SyncPage } from '@ensemus/domain/connector';
+import { isSuiteConnectorType } from '@ensemus/domain/workspace-suites';
 import { createLogger, errorCode } from '@ensemus/telemetry';
 import type { ConnectorActivityDeps } from './connector-deps';
 import { directoryWanted, runDirectoryPass, type DirectoryPassResult } from './directory-sync';
@@ -164,13 +166,24 @@ export function createConnectorSyncActivities(deps: ConnectorActivityDeps) {
     },
   ) {
     await revokeSecrets(context.organizationId, connection);
+    await dropDirectory(context, connection);
+  }
+
+  /**
+   * Removes the teams a connection's directory made, once it is revoked or has lost the directory scopes.
+   * removeConnectionDirectory reads both again under the row's lock, so a connection still entitled to
+   * its directory keeps it whatever this was told.
+   */
+  async function dropDirectory(context: TenantContext, connection: { id: string }) {
     const { teamsRemoved } = await removeConnectionDirectory(database, context, {
       connectionId: connection.id,
     });
-    log.info('connector_sync.directory_removed', {
-      organizationId: context.organizationId,
-      count: teamsRemoved,
-    });
+    if (teamsRemoved > 0) {
+      log.info('connector_sync.directory_removed', {
+        organizationId: context.organizationId,
+        count: teamsRemoved,
+      });
+    }
   }
 
   async function pass(input: ConnectorSyncInput): Promise<ConnectorSyncOutcome> {
@@ -209,6 +222,18 @@ export function createConnectorSyncActivities(deps: ConnectorActivityDeps) {
           connectorContext,
           leaseMs: SYNC_LEASE_MS,
         });
+        // A pass that failed, or a directory past its bound, grants nobody until a full pass completes.
+        const held = await enforceDirectoryFreshness(database, context, { connectionId });
+        if (held.membershipsRemoved > 0 || held.restarted) {
+          log.warn('connector_sync.directory_stale', {
+            organizationId,
+            count: held.membershipsRemoved,
+          });
+        }
+      } else if (isSuiteConnectorType(connection.connectorType)) {
+        // The directory scopes are gone, so what the directory last said can no longer be checked. Its
+        // teams go, as a revoked connection's do. Nothing to do for a connection that never had them.
+        await dropDirectory(context, connection);
       }
       result = await runSyncPass({
         connector,

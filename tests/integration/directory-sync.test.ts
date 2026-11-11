@@ -8,6 +8,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
   commitDirectoryPage,
   commitSyncPage,
+  enforceDirectoryFreshness,
   finishSyncStream,
   leaseSyncStream,
   pgCode,
@@ -24,6 +25,7 @@ import {
   externalResources,
   openAppDatabase,
   resolveTenantContext,
+  syncCursors,
   teamMemberships,
   teams,
   withTenantTx,
@@ -51,6 +53,8 @@ const LEASE_MS = 60_000;
 type FakeMember = { email: string; type: 'USER' | 'GROUP' };
 type FakeWorkspace = {
   groups: Map<string, { name: string; members: FakeMember[] }>;
+  /** When set, the Directory API answers every read with this status, as a withdrawn grant would. */
+  directoryStatus?: number;
   /** The one Drive file's permissions. */
   permissions: unknown[];
   driveReads: number;
@@ -69,6 +73,8 @@ function fakeHttp(workspace: FakeWorkspace): ProviderHttpClient {
       if (request.route === 'google_oauth')
         return json({ access_token: 'generated-access', token_type: 'Bearer', expires_in: 3600 });
       const url = new URL(`https://fake.invalid${request.path}`);
+      if (workspace.directoryStatus && url.pathname.startsWith('/admin/directory/'))
+        return json({}, workspace.directoryStatus);
       if (url.pathname === '/admin/directory/v1/groups') {
         const all = [...workspace.groups.keys()].sort();
         const start = Number(url.searchParams.get('pageToken') ?? 0);
@@ -221,6 +227,43 @@ describe('directory sync', () => {
       });
     }
 
+    /**
+     * A directory pass whose first read the provider refuses, recorded on the stream as the worker's
+     * runDirectoryPass records it. Answers the code it recorded.
+     */
+    async function failedDirectoryPass() {
+      let lease = await leaseSyncStream(db(), service, {
+        connectionId,
+        stream: DIRECTORY_STREAM,
+        leaseMs: LEASE_MS,
+      });
+      if (!lease) throw new Error('MISSING_TEST_LEASE');
+      if (lease.cursor === null && !lease.fullSync) {
+        await finishSyncStream(db(), service, {
+          connectionId,
+          stream: DIRECTORY_STREAM,
+          outcome: { resyncRequired: true },
+        });
+        lease = await leaseSyncStream(db(), service, {
+          connectionId,
+          stream: DIRECTORY_STREAM,
+          leaseMs: LEASE_MS,
+        });
+        if (!lease) throw new Error('MISSING_TEST_LEASE');
+      }
+      const refused = await connector.directory.readGroups(context, lease.cursor).then(
+        () => null,
+        (error: { code?: string }) => error.code ?? 'UNKNOWN',
+      );
+      if (!refused) throw new Error('EXPECTED_TEST_REFUSAL');
+      await finishSyncStream(db(), service, {
+        connectionId,
+        stream: DIRECTORY_STREAM,
+        outcome: { ok: false, code: refused },
+      });
+      return refused;
+    }
+
     /** The worker's Drive pass, mapping grants through this connection's directory. */
     async function drivePass() {
       const lease = await leaseSyncStream(db(), service, {
@@ -311,6 +354,7 @@ describe('directory sync', () => {
       connectionId,
       workspace,
       directoryPass,
+      failedDirectoryPass,
       drivePass,
       teamOf,
       membersOf,
@@ -607,5 +651,124 @@ describe('directory sync', () => {
     expect(await t.membersOf(first.teamId)).toEqual(
       [t.alex.membershipId, t.sam.membershipId].sort(),
     );
+  });
+
+  /** A tenant whose Finance group grants Alex the one file, through its team. */
+  async function financeShared(label: string) {
+    const t = await tenant(label);
+    t.workspace.groups.set('finance@example.invalid', {
+      name: 'Finance',
+      members: [{ email: t.alex.email, type: 'USER' }],
+    });
+    t.workspace.permissions = [
+      {
+        id: 'generated_permission',
+        type: 'group',
+        emailAddress: 'finance@example.invalid',
+        role: 'reader',
+      },
+    ];
+    await t.directoryPass();
+    await t.drivePass();
+    const { teamId } = (await t.teamOf('finance@example.invalid'))!;
+    expect(await t.readers()).toEqual([t.alex.membershipId]);
+    return { t, teamId };
+  }
+
+  it('removes the teams of a live connection that lost the directory scopes', async () => {
+    const { t, teamId } = await financeShared('Directory scopes lost');
+    // A refresh reported fewer scopes, so the worker narrowed the grant, as 0561 lets it.
+    await withTenantTx(db(), t.service, (tx) =>
+      tx
+        .update(connections)
+        .set({ grantedScopes: [SCOPES[0]!], version: sql`${connections.version} + 1` })
+        .where(eq(connections.id, t.connectionId)),
+    );
+    expect(
+      await removeConnectionDirectory(db(), t.service, { connectionId: t.connectionId }),
+    ).toEqual({ teamsRemoved: 1 });
+    expect(await t.teamOf('finance@example.invalid')).toBeNull();
+    expect(
+      await withTenantTx(db(), t.service, (tx) =>
+        tx.select().from(teams).where(eq(teams.id, teamId)),
+      ),
+    ).toEqual([]);
+    // The file's group grant now reaches nobody, and the connection itself stays active.
+    expect(await t.readers()).toEqual([]);
+    const [row] = await withTenantTx(db(), t.service, (tx) =>
+      tx
+        .select({ state: connections.state })
+        .from(connections)
+        .where(eq(connections.id, t.connectionId)),
+    );
+    expect(row?.state).toBe('active');
+  });
+
+  it('grants nobody through a directory whose last pass the provider refused, until a full pass completes', async () => {
+    const { t, teamId } = await financeShared('Directory refused');
+    expect(
+      await enforceDirectoryFreshness(db(), t.service, { connectionId: t.connectionId }),
+    ).toEqual({ membershipsRemoved: 0, restarted: false });
+
+    t.workspace.directoryStatus = 403;
+    expect(await t.failedDirectoryPass()).toBe('CREDENTIAL_REJECTED');
+    const held = await enforceDirectoryFreshness(db(), t.service, {
+      connectionId: t.connectionId,
+    });
+    expect(held.membershipsRemoved).toBe(1);
+    // The team stays, empty, so the file's grant still names it and needs no re-sync to come back.
+    expect(await t.teamOf('finance@example.invalid')).toMatchObject({ teamId });
+    expect(await t.membersOf(teamId)).toEqual([]);
+    expect(await t.readers()).toEqual([]);
+    // Again finds nothing more to take.
+    expect(
+      (await enforceDirectoryFreshness(db(), t.service, { connectionId: t.connectionId }))
+        .membershipsRemoved,
+    ).toBe(0);
+
+    delete t.workspace.directoryStatus;
+    await t.directoryPass();
+    expect(
+      await enforceDirectoryFreshness(db(), t.service, { connectionId: t.connectionId }),
+    ).toEqual({ membershipsRemoved: 0, restarted: false });
+    expect(await t.readers()).toEqual([t.alex.membershipId]);
+  });
+
+  it('grants nobody through a directory with no completed full pass for more than a day', async () => {
+    const { t, teamId } = await financeShared('Directory stale');
+    // A day and an hour without a pass: the worker was away, or nothing asked for a sync.
+    await withTenantTx(db(), t.service, async (tx) => {
+      await tx.execute(sql`select set_config(${DIRECTORY_SYNC_SETTING}, ${t.connectionId}, true)`);
+      await tx
+        .update(syncCursors)
+        .set({ watermark: sql`now() - interval '25 hours'` })
+        .where(
+          and(
+            eq(syncCursors.connectionId, t.connectionId),
+            eq(syncCursors.stream, DIRECTORY_STREAM),
+          ),
+        );
+      await tx
+        .update(directoryGroups)
+        .set({ updatedAt: sql`now() - interval '25 hours'` })
+        .where(eq(directoryGroups.connectionId, t.connectionId));
+    });
+    expect(
+      await enforceDirectoryFreshness(db(), t.service, { connectionId: t.connectionId }),
+    ).toEqual({ membershipsRemoved: 1, restarted: false });
+    expect(await t.membersOf(teamId)).toEqual([]);
+    expect(await t.readers()).toEqual([]);
+
+    // Only the worker's service context may do this, never a person's session.
+    const alex = await t.alex.context();
+    await expect(
+      enforceDirectoryFreshness(db(), alex, { connectionId: t.connectionId }),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' });
+
+    await t.directoryPass();
+    expect(
+      await enforceDirectoryFreshness(db(), t.service, { connectionId: t.connectionId }),
+    ).toEqual({ membershipsRemoved: 0, restarted: false });
+    expect(await t.readers()).toEqual([t.alex.membershipId]);
   });
 });

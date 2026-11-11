@@ -51,9 +51,15 @@ function claim(overrides: Partial<OAuthExchangeClaim> = {}): OAuthExchangeClaim 
 }
 
 function harness(
-  options: { status?: number; body?: unknown; platform?: typeof platform | null } = {},
+  options: {
+    status?: number;
+    body?: unknown;
+    platform?: typeof platform | null;
+    revoke?: () => Promise<never>;
+  } = {},
 ) {
   const requests: string[] = [];
+  const paths: string[] = [];
   const sealed: string[] = [];
   const opened: string[] = [];
   const activities = createOAuthExchangeActivities({
@@ -91,6 +97,8 @@ function harness(
     http: {
       request: async (request) => {
         requests.push(request.route);
+        paths.push(request.path);
+        if (request.path === '/revoke' && options.revoke) return options.revoke();
         return {
           status: options.status ?? 200,
           headers: {},
@@ -116,7 +124,7 @@ function harness(
       },
     },
   });
-  return { activities, requests, sealed, opened };
+  return { activities, requests, paths, sealed, opened };
 }
 
 let output: string[] = [];
@@ -230,11 +238,37 @@ describe('exchangeOAuthAuthorization', () => {
     application.completeExchange.mockRejectedValue(
       Object.assign(new Error('OAUTH_SCOPES_INSUFFICIENT'), { code: 'OAUTH_SCOPES_INSUFFICIENT' }),
     );
-    const { activities } = harness();
+    const { activities, paths } = harness();
     expect(
       await activities.exchangeOAuthAuthorization({ organizationId, authorizationId }),
     ).toEqual({ outcome: 'failed', connectionId: null });
     expect(application.failExchange.mock.calls[0]![2].errorCode).toBe('OAUTH_SCOPES_INSUFFICIENT');
+    // The grant the provider made is taken back once, since nothing here will keep it.
+    expect(paths).toEqual(['/token', '/revoke']);
+  });
+
+  it('takes the grant back once when completing fails, and still fails if the revoke does', async () => {
+    application.claimForExchange.mockResolvedValue(claim());
+    application.completeExchange.mockRejectedValue(new Error(`insert ... ${canary}`));
+    const { activities, paths } = harness({
+      revoke: async () => {
+        throw new Error('GATEWAY_DOWN');
+      },
+    });
+    expect(
+      await activities.exchangeOAuthAuthorization({ organizationId, authorizationId }),
+    ).toEqual({ outcome: 'failed', connectionId: null });
+    expect(paths).toEqual(['/token', '/revoke']);
+    expect(application.failExchange).toHaveBeenCalledTimes(1);
+    expect(leaving()).not.toContain(canary);
+  });
+
+  it('revokes nothing once the connection has committed', async () => {
+    application.claimForExchange.mockResolvedValue(claim());
+    application.completeExchange.mockResolvedValue({ connectionId: randomUUID() });
+    const { activities, paths } = harness();
+    await activities.exchangeOAuthAuthorization({ organizationId, authorizationId });
+    expect(paths).toEqual(['/token']);
   });
 
   it('does nothing for an attempt another run or the clock settled', async () => {

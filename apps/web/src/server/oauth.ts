@@ -15,7 +15,12 @@ import type {
   StartOAuthAuthorizationBody,
 } from '@ensemus/contracts/workspace-suites';
 import type { AppDatabase, TenantContext } from '@ensemus/database';
-import { OAUTH_CALLBACK_PATH, type SuiteProvider } from '@ensemus/domain/workspace-suites';
+import {
+  OAUTH_BROWSER_COOKIE,
+  OAUTH_BROWSER_COOKIE_MAX_AGE_SECONDS,
+  OAUTH_CALLBACK_PATH,
+  type SuiteProvider,
+} from '@ensemus/domain/workspace-suites';
 import { storeSecret } from '@ensemus/secrets/seal';
 import { assertConnectorsEnabled, assertManagesConnections } from './api';
 import { getRuntime } from './runtime';
@@ -84,7 +89,40 @@ export function oauthAuthorizationDto(row: OAuthAuthorizationView): OAuthAuthori
 }
 
 /**
- * Starts a consent and answers where to send the admin's browser. Not idempotent by key on purpose: the
+ * The cookie that binds the callback to the browser that started the consent (ADR-038 D1), as a
+ * Set-Cookie value. `__Host-` makes a browser refuse it unless it is Secure, host-only and on `/`. Lax,
+ * because the provider sends the browser back by a top-level navigation, which Lax still carries.
+ */
+export const OAUTH_BROWSER_COOKIE_OPTIONS = {
+  httpOnly: true,
+  secure: true,
+  sameSite: 'lax',
+  path: '/',
+  maxAge: OAUTH_BROWSER_COOKIE_MAX_AGE_SECONDS,
+} as const;
+
+export function oauthBrowserCookie(binding: string): string {
+  return `${OAUTH_BROWSER_COOKIE}=${binding}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=${OAUTH_BROWSER_COOKIE_MAX_AGE_SECONDS}`;
+}
+
+/** Clears it. The callback sends this whatever happened, so a binding is used once. */
+export const clearedOAuthBrowserCookie = () =>
+  `${OAUTH_BROWSER_COOKIE}=; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0`;
+
+/** The binding cookie from a request's Cookie header, or null. The first one wins, as a browser sends it. */
+export function oauthBrowserCookieOf(header: string | null): string | null {
+  if (!header) return null;
+  for (const part of header.split(';')) {
+    const at = part.indexOf('=');
+    if (at < 0) continue;
+    if (part.slice(0, at).trim() === OAUTH_BROWSER_COOKIE) return part.slice(at + 1).trim();
+  }
+  return null;
+}
+
+/**
+ * Starts a consent and answers where to send the admin's browser, with the binding the caller sets as
+ * oauthBrowserCookie on the response that sends the browser there. Not idempotent by key on purpose: the
  * state is kept only as a hash, so a repeat could not answer the same address, and an attempt nobody
  * finishes simply expires in ten minutes.
  */
@@ -92,7 +130,7 @@ export async function beginAuthorization(
   database: AppDatabase,
   context: TenantContext,
   body: StartOAuthAuthorizationBody,
-): Promise<StartedOAuthAuthorizationDto> {
+): Promise<{ started: StartedOAuthAuthorizationDto; browserBinding: string }> {
   assertManagesConnections(context);
   // So no attempt can wait for a worker that is not coming.
   assertConnectorsEnabled();
@@ -121,7 +159,10 @@ export async function beginAuthorization(
     authorizationId: started.authorizationId,
   });
   return {
-    authorization: oauthAuthorizationDto(authorization),
-    authorize_url: started.authorizeUrl,
+    started: {
+      authorization: oauthAuthorizationDto(authorization),
+      authorize_url: started.authorizeUrl,
+    },
+    browserBinding: started.browserBinding,
   };
 }

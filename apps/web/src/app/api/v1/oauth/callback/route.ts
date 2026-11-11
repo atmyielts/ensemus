@@ -1,11 +1,13 @@
 // Where Google and Microsoft send the admin back after consent (ADR-038 D1). One fixed address, because
 // providers require an exact registered match, so the tenant comes from the state and the person from the
-// session cookie. It reads five parameters and no others, never logs or echoes the code or the state, and
-// always ends in a redirect to the connections page, which shows how it went in plain words.
+// session cookie, and only in the browser holding the binding cookie the start set. It reads five
+// parameters and no others, never logs or echoes the code or the state, and always ends in a redirect to
+// the connections page, which shows how it went in plain words.
 import { randomUUID } from 'node:crypto';
 import {
   AppError,
   auditRefusal,
+  browserBindingMatches,
   isAuditedRefusal,
   receiveCallback,
   refusalCode,
@@ -22,7 +24,7 @@ import {
 import { parseOAuthState } from '@ensemus/domain/workspace-suites';
 import { errorCode } from '@ensemus/telemetry';
 import { apiLog, toErrorResponse } from '@/server/api';
-import { oauthWebSide } from '@/server/oauth';
+import { clearedOAuthBrowserCookie, oauthBrowserCookieOf, oauthWebSide } from '@/server/oauth';
 import { getRestoreGate, getRuntime } from '@/server/runtime';
 
 export const dynamic = 'force-dynamic';
@@ -59,6 +61,12 @@ export async function GET(request: Request) {
     const state = query.success ? parseOAuthState(query.data.state) : null;
     // A mangled address, or a state we could not have made: the same answer as every other failure.
     if (!query.success || !state) throw stateInvalid();
+    // The browser that started this holds the state's binding. A callback arriving in any other browser,
+    // such as a victim's sent there by someone who began a consent with their own account, stops here.
+    if (
+      !browserBindingMatches(oauthBrowserCookieOf(request.headers.get('cookie')), query.data.state)
+    )
+      throw stateInvalid();
     const session = await readInteractiveSession(request.headers);
     // Nothing is kept for a later sign-in: the attempt expires on its own, and the admin starts again.
     if (!session) return finish(redirectTo('/sign-in'), requestId);
@@ -101,6 +109,8 @@ function finish(response: Response, requestId: string): Response {
   response.headers.set('Cache-Control', 'no-store');
   // The address that brought the browser here held the code. Nothing after it should name it.
   response.headers.set('Referrer-Policy', 'no-referrer');
+  // Used once, whichever way it went.
+  response.headers.append('Set-Cookie', clearedOAuthBrowserCookie());
   return response;
 }
 

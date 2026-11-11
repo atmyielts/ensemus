@@ -9,6 +9,7 @@ import {
   exchangeAuthorizationCode,
   matchReportedScopes,
   parseReportedScopes,
+  revokeProviderGrant,
   type CodeExchangeRequest,
 } from './provider-oauth';
 
@@ -220,6 +221,107 @@ describe('authorization code exchange', () => {
       ).rejects.toMatchObject({ code: 'OAUTH_EXCHANGE_FAILED' });
     }
     expect(seen).toHaveLength(0);
+  });
+});
+
+describe('taking back a grant the exchange will not keep', () => {
+  /** A token endpoint that answers `token`, and a revoke endpoint that answers `revoke`. */
+  function google(token: unknown, revoke: ProviderHttpClient['request']) {
+    const seen: ProviderRequest[] = [];
+    const revokes: string[] = [];
+    const http: ProviderHttpClient = {
+      request: async (sent) => {
+        seen.push(sent);
+        if (sent.path === '/revoke') {
+          revokes.push(new URLSearchParams(Buffer.from(sent.body!).toString()).get('token') ?? '');
+          return revoke(sent);
+        }
+        return { status: 200, headers: {}, body: Buffer.from(JSON.stringify(token)) };
+      },
+    };
+    return { http, seen, revokes };
+  }
+  const ok: ProviderHttpClient['request'] = async () => ({
+    status: 200,
+    headers: {},
+    body: Buffer.alloc(0),
+  });
+
+  it('revokes the refresh token once when the identity is refused, and still refuses', async () => {
+    const { http, seen, revokes } = google(
+      tokens({ scope: 'openid', id_token: jwt({ ...googleClaims, email_verified: false }) }),
+      ok,
+    );
+    await expect(exchangeAuthorizationCode(http, request('google'))).rejects.toMatchObject({
+      code: 'OAUTH_IDENTITY_INVALID',
+    });
+    expect(revokes).toEqual([`${canary}-refresh`]);
+    const revoke = seen.find((sent) => sent.path === '/revoke')!;
+    expect(revoke).toMatchObject({ route: 'google_oauth', method: 'POST' });
+    expect(revoke.headers).toMatchObject({ 'content-type': 'application/x-www-form-urlencoded' });
+    // The body held the refresh token, so it is wiped once sent.
+    expect(revoke.body!.every((byte) => byte === 0)).toBe(true);
+  });
+
+  it('revokes when the answer does not say what was granted', async () => {
+    const { http, revokes } = google(tokens({ id_token: jwt(googleClaims) }), ok);
+    await expect(exchangeAuthorizationCode(http, request('google'))).rejects.toMatchObject({
+      code: 'OAUTH_EXCHANGE_FAILED',
+    });
+    expect(revokes).toHaveLength(1);
+  });
+
+  it.each([
+    ['refuses', async () => ({ status: 400, headers: {}, body: Buffer.from('{}') })],
+    [
+      'throws',
+      async () => {
+        throw new Error('GATEWAY_DOWN');
+      },
+    ],
+  ] as const)(
+    'keeps the refusal when the revoke endpoint %s, and never tries twice',
+    async (_name, revoke) => {
+      const { http, revokes } = google(
+        tokens({
+          scope: 'openid',
+          id_token: jwt({ ...googleClaims, iss: 'https://evil.invalid' }),
+        }),
+        revoke,
+      );
+      await expect(exchangeAuthorizationCode(http, request('google'))).rejects.toMatchObject({
+        code: 'OAUTH_IDENTITY_INVALID',
+      });
+      expect(revokes).toHaveLength(1);
+    },
+  );
+
+  it('does not wait on a revoke that never answers past its bound', async () => {
+    const hanging: ProviderHttpClient = {
+      request: () => new Promise(() => undefined),
+    };
+    const started = Date.now();
+    await revokeProviderGrant(hanging, 'google', `${canary}-refresh`, 20);
+    expect(Date.now() - started).toBeLessThan(2_000);
+  });
+
+  it('has nothing to send for Microsoft, whose admin removes the grant in Entra', async () => {
+    const { http, seen } = endpoint(
+      200,
+      tokens({ scope: 'openid', id_token: jwt({ ...microsoftClaims, tid: undefined }) }),
+    );
+    await expect(exchangeAuthorizationCode(http, request('microsoft'))).rejects.toMatchObject({
+      code: 'OAUTH_IDENTITY_INVALID',
+    });
+    expect(seen).toHaveLength(1);
+  });
+
+  it('sends nothing when the provider never answered with a token', async () => {
+    const { http, seen } = endpoint(400, { error: 'invalid_grant' });
+    await expect(exchangeAuthorizationCode(http, request('google'))).rejects.toMatchObject({
+      code: 'OAUTH_EXCHANGE_FAILED',
+    });
+    expect(seen).toHaveLength(1);
   });
 });
 

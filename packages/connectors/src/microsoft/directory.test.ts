@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { isValidDirectoryPage } from '@ensemus/domain/workspace-suites';
 import { createMicrosoft365Connector, DIRECTORY_SCOPES, type Microsoft365Config } from './index';
+import { memberUserKey } from './directory';
 import type { ConnectorContext } from '../index';
 import type { ProviderHttpClient, ProviderResponse } from '../knowledge';
 
@@ -38,11 +39,20 @@ const context = (
 });
 
 const GRAPH = 'https://graph.microsoft.com';
-const user = (id: string, mail: string | null, upn: string) => ({
+const user = (
+  id: string,
+  mail: string | null,
+  upn: string,
+  extra: Record<string, unknown> = {},
+) => ({
   '@odata.type': '#microsoft.graph.user',
   id,
   mail,
   userPrincipalName: upn,
+  accountEnabled: true,
+  userType: 'Member',
+  externalUserState: null,
+  ...extra,
 });
 const group = (id: string, displayName = id) => ({
   '@odata.type': '#microsoft.graph.group',
@@ -207,5 +217,86 @@ describe('Microsoft directory groups', () => {
     await expect(connector.directory.readGroups(context(), null)).rejects.toMatchObject({
       code: 'PROVIDER_RESPONSE_INVALID',
     });
+  });
+});
+
+describe('which Microsoft users a group member list may match', () => {
+  const base = (extra: Record<string, unknown>) =>
+    memberUserKey({
+      '@odata.type': '#microsoft.graph.user',
+      id: 'u',
+      mail: 'Pat@Example.invalid',
+      userPrincipalName: 'pat@tenant.invalid',
+      accountEnabled: true,
+      userType: 'Member',
+      externalUserState: null,
+      ...extra,
+    });
+
+  it('matches an enabled member by mail, and by sign-in name when there is no mail', () => {
+    expect(base({})).toBe('pat@example.invalid');
+    expect(base({ mail: null })).toBe('pat@tenant.invalid');
+  });
+
+  it('matches nobody for a disabled account, or one whose state Graph did not say', () => {
+    expect(base({ accountEnabled: false })).toBeNull();
+    expect(base({ accountEnabled: undefined })).toBeNull();
+    expect(base({ accountEnabled: 'true' })).toBeNull();
+    expect(base({ userType: undefined })).toBeNull();
+  });
+
+  it('matches a guest only once accepted, and only by mail', () => {
+    const guest = {
+      userType: 'Guest',
+      userPrincipalName: 'pat_example.invalid#EXT#@tenant.invalid',
+    };
+    expect(base({ ...guest, externalUserState: 'PendingAcceptance' })).toBeNull();
+    expect(base({ ...guest, externalUserState: null })).toBeNull();
+    expect(base({ ...guest, externalUserState: 'Accepted' })).toBe('pat@example.invalid');
+    // No mail: the #EXT# sign-in name is never used in its place.
+    expect(base({ ...guest, externalUserState: 'Accepted', mail: null })).toBeNull();
+    expect(
+      base({
+        ...guest,
+        externalUserState: 'Accepted',
+        mail: 'pat_example.invalid#EXT#@tenant.invalid',
+      }),
+    ).toBeNull();
+  });
+
+  it('never matches a member on a sign-in name carrying #EXT#', () => {
+    expect(
+      base({ mail: null, userPrincipalName: 'pat_example.invalid#EXT#@tenant.invalid' }),
+    ).toBeNull();
+  });
+
+  it('asks Graph for the fields it decides on, and leaves out the members it refuses', async () => {
+    const answers = tenant();
+    answers.members.payroll = [
+      user('u3', 'pat@example.invalid', 'pat@tenant.invalid'),
+      user('u4', 'off@example.invalid', 'off@tenant.invalid', { accountEnabled: false }),
+      user('u5', 'invited@example.invalid', 'invited_example.invalid#EXT#@tenant.invalid', {
+        userType: 'Guest',
+        externalUserState: 'PendingAcceptance',
+      }),
+      user('u6', 'guest@example.invalid', 'guest_example.invalid#EXT#@tenant.invalid', {
+        userType: 'Guest',
+        externalUserState: 'Accepted',
+      }),
+    ];
+    const { http, paths } = fakeGraph(answers);
+    const connector = createMicrosoft365Connector({ http });
+    const first = await connector.directory.readGroups(context(), null);
+    expect(first.groups.find((group) => group.externalId === 'payroll')?.members).toEqual([
+      { kind: 'user', externalId: 'pat@example.invalid' },
+      { kind: 'user', externalId: 'guest@example.invalid' },
+    ]);
+    const members = paths.filter((path) => path.includes('/members'));
+    expect(members.length).toBeGreaterThan(0);
+    for (const path of members) {
+      expect(path).toContain(
+        '$select=id,mail,userPrincipalName,accountEnabled,userType,externalUserState',
+      );
+    }
   });
 });
