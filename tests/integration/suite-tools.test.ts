@@ -699,7 +699,8 @@ describe('suite tools (ADR-038 D6)', () => {
             displayName: 'My account',
             state: 'active',
             credentialSecretId: own.verifierSecretId,
-            config: {},
+            // The attempt's config as the start normalized it ({ drive_ids: [] }), as the exchange copies it.
+            config: own.config,
             grantedScopes: [google('gmail.readonly')],
             createdByMembershipId: t.alex.membershipId,
             ownerMembershipId,
