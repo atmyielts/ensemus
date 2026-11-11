@@ -4,10 +4,9 @@ import { listTopUpOffers } from '@ensemus/application/saas/catalog';
 import { listTopUps } from '@ensemus/application/saas/top-ups';
 import { loadSaasConfig } from '@ensemus/config';
 import { quoteHash } from '@ensemus/saas/credits';
-import Link from 'next/link';
 import { ConfirmForm } from '@/components/confirm-form';
 import { BillingMoney } from '@/components/billing-money';
-import { Empty, ErrorNotice, formatDateTime, PageHead } from '@/components/ui';
+import { BackLink, Empty, ErrorNotice, formatDateTime, PageHead } from '@/components/ui';
 import { requestTopUpAction } from '@/server/credit-actions';
 import { orNotFound, requireAccountTenant } from '@/server/tenant';
 
@@ -30,32 +29,32 @@ export default async function CreditsPage({
   const enabled = loadSaasConfig().billingEnabled;
   return (
     <div className="stack">
+      <BackLink href={`/o/${organizationId}/account/billing`}>Billing</BackLink>
       <PageHead
         title="Credits"
-        description="Model capacity and the orders you explicitly request."
-        actions={<Link href={`/o/${organizationId}/account/billing`}>Billing</Link>}
+        description="How much AI model use your plan has left, and top-ups you can order when you need more."
       />
       <ErrorNotice code={error} />
       {summary.balanceMicrocredits === null ? (
         <p className="notice">
-          This account has no Ensemus model credit balance. Your own provider bills model usage in
-          BYOM.
+          Your company has no Ensemus credit balance. You bring your own AI model, so its company
+          bills you for model use directly.
         </p>
       ) : (
         <>
           <dl className="facts">
-            <dt>Remaining microcredits</dt>
+            <dt>Remaining microcredits (millionths of a credit)</dt>
             <dd>{summary.balanceMicrocredits.toString()}</dd>
             <dt>Included each period</dt>
             <dd>{summary.includedMicrocredits?.toString() ?? 'No allowance published'}</dd>
           </dl>
           {summary.balanceMicrocredits <= 0n && (
             <p className="notice" role="status">
-              Model activity is paused because capacity is exhausted. No top-up is bought
+              AI model use is paused because your credits have run out. No top-up is ever bought
               automatically.{' '}
               {summary.overagePolicy === 'explicit_top_up'
                 ? 'Review an available top-up below.'
-                : 'Contact the operator about an approved plan change.'}
+                : 'Ask Support about changing your plan.'}
             </p>
           )}
         </>
@@ -63,9 +62,11 @@ export default async function CreditsPage({
       <section className="stack" aria-labelledby="top-ups-title">
         <h2 id="top-ups-title">Available top-ups</h2>
         {!enabled ? (
-          <p>Purchases are unavailable while hosted billing is disabled.</p>
+          <p className="muted">Buying top-ups online isn’t available for your company.</p>
         ) : offers.length === 0 ? (
-          <Empty>No top-up is available for this account’s current plan and standing.</Empty>
+          <Empty title="No top-ups available">
+            No top-up is available for your current plan and account standing.
+          </Empty>
         ) : (
           <ul className="list">
             {offers.map((offer) => (
@@ -99,7 +100,9 @@ export default async function CreditsPage({
       <section className="stack" aria-labelledby="orders-title">
         <h2 id="orders-title">Top-up orders</h2>
         {topUps.length === 0 ? (
-          <Empty>No top-ups have been requested.</Empty>
+          <Empty title="No orders yet">
+            No top-ups have been requested. Orders you place show here with their status.
+          </Empty>
         ) : (
           <ul className="list">
             {topUps.map((order) => (
@@ -117,7 +120,9 @@ export default async function CreditsPage({
       <section className="stack" aria-labelledby="credit-history-title">
         <h2 id="credit-history-title">Recent credit activity</h2>
         {summary.recent.length === 0 ? (
-          <Empty>No credit activity yet.</Empty>
+          <Empty title="No activity yet">
+            No credit activity yet. Credits used and added show here, newest first.
+          </Empty>
         ) : (
           <div className="table-wrap">
             <table>

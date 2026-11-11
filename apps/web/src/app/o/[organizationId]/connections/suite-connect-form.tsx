@@ -60,24 +60,32 @@ export function SuiteConnectForm({
         </label>
         <fieldset className="group">
           <legend>What Ensemus may do</legend>
-          {capabilities.map((capability) => (
-            <label key={capability.id} className="check">
-              <input
-                type="checkbox"
-                name="capability"
-                value={capability.id}
-                defaultChecked={chosen.has(capability.id)}
-              />
-              <span>
-                {capability.label}. {capability.description}
-                <br />
-                <small className="muted">
-                  {providerName} will ask you to allow: {capability.scopes.join(', ')}
-                </small>
-              </span>
-            </label>
-          ))}
+          <div className="choice-list">
+            {capabilities.map((capability) => (
+              <label key={capability.id} className="choice">
+                <input
+                  type="checkbox"
+                  name="capability"
+                  value={capability.id}
+                  defaultChecked={chosen.has(capability.id)}
+                />
+                <strong>{capability.label}</strong>
+                <small>{capability.description}</small>
+              </label>
+            ))}
+          </div>
         </fieldset>
+        <details>
+          <summary>Exactly what {providerName} will ask you to allow</summary>
+          <ul className="list gap-above-small">
+            {capabilities.map((capability) => (
+              <li key={capability.id} className="block">
+                <strong>{capability.label}</strong>
+                <p className="muted technical-reference">{capability.scopes.join(', ')}</p>
+              </li>
+            ))}
+          </ul>
+        </details>
         <label>
           Drives to read
           <small>
@@ -93,13 +101,16 @@ export function SuiteConnectForm({
         </label>
         <label>
           Whose app to connect through
+          <small>
+            Ensemus’s own app is the simple choice. Your own app needs the details below.
+          </small>
           <select
             key={values?.clientKind ?? ''}
             name="clientKind"
             defaultValue={values?.clientKind ?? (platformAvailable ? 'platform' : 'customer')}
           >
             <option value="platform" disabled={!platformAvailable}>
-              {platformAvailable ? 'Ensemus' : 'Ensemus (not set up on this deployment)'}
+              {platformAvailable ? 'Ensemus' : 'Ensemus (not set up for your company yet)'}
             </option>
             <option value="customer">Your own app</option>
           </select>

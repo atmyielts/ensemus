@@ -35,18 +35,20 @@ export default async function AccountEnrollmentPage({
         title="Set up authenticator app"
         description="Protect your account and continue your request while service is paused."
       />
-      <section className="sheet fields">
+      <section className="sheet stack form-width">
         <p>
-          Keep your original request open in its tab. Setup does not submit that request or change
-          your organization's service standing.
+          Keep your original request open in its tab. Setting up your app does not send that request
+          or change your organization’s service standing.
         </p>
         <FactorError code={query.error} />
         {enrolled ? (
           <>
             <p>Your authenticator app is already set up.</p>
-            <ActionLink href={accountStepUpPath(organizationId, next)}>
-              Confirm your identity
-            </ActionLink>
+            <div>
+              <ActionLink href={accountStepUpPath(organizationId, next)}>
+                Confirm your identity
+              </ActionLink>
+            </div>
           </>
         ) : (
           <>
@@ -60,7 +62,7 @@ export default async function AccountEnrollmentPage({
               <summary>Already saved a setup key?</summary>
               <p>
                 Enter its current code to finish. An existing setup is never replaced. If the key is
-                lost, ask your installation operator to check your identity and reset it.
+                lost, ask whoever set up Ensemus for your company to check it’s you and reset it.
               </p>
               <form
                 className="fields"
@@ -74,7 +76,7 @@ export default async function AccountEnrollmentPage({
             </details>
           </>
         )}
-        <p>
+        <p className="divided">
           <ActionLink variant="secondary" href={next}>
             Back to your account request
           </ActionLink>

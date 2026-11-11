@@ -4,11 +4,13 @@ import { CAPABILITY_LABEL, CLASS_LABEL, PURPOSE_LABEL, RETENTION_LABEL } from '.
 
 function Choices({
   legend,
+  help,
   name,
   labels,
   chosen,
 }: {
   legend: string;
+  help?: string;
   name: string;
   labels: Record<string, string>;
   chosen: readonly string[];
@@ -16,17 +18,20 @@ function Choices({
   return (
     <fieldset className="group">
       <legend>{legend}</legend>
-      {Object.entries(labels).map(([value, label]) => (
-        <label className="check" key={value}>
-          <input
-            type="checkbox"
-            name={name}
-            value={value}
-            defaultChecked={chosen.includes(value)}
-          />
-          {label}
-        </label>
-      ))}
+      {help && <small className="muted">{help}</small>}
+      <div className="option-grid">
+        {Object.entries(labels).map(([value, label]) => (
+          <label className="check" key={value}>
+            <input
+              type="checkbox"
+              name={name}
+              value={value}
+              defaultChecked={chosen.includes(value)}
+            />
+            {label}
+          </label>
+        ))}
+      </div>
     </fieldset>
   );
 }
@@ -90,74 +95,93 @@ export function ProfileFields({
         Region (optional)
         {text({ name: 'region', defaultValue: profile?.region ?? '', maxLength: 64 })}
       </label>
-      <label>
-        Longest input, in tokens
-        {text({
-          name: 'maxInputTokens',
-          defaultValue: profile ? String(profile.limits.max_input_tokens) : '',
-          required: true,
-          maxLength: 10,
-          inputMode: 'numeric',
-        })}
-      </label>
-      <label>
-        Longest answer, in tokens
-        {text({
-          name: 'maxOutputTokens',
-          defaultValue: profile ? String(profile.limits.max_output_tokens) : '',
-          required: true,
-          maxLength: 10,
-          inputMode: 'numeric',
-        })}
-      </label>
-      <Choices
-        legend="What it can do"
-        name="capabilities"
-        labels={CAPABILITY_LABEL}
-        chosen={profile?.capabilities ?? ['text']}
-      />
-      <Choices
-        legend="Sensitivity of what it may be sent"
-        name="allowedClasses"
-        labels={CLASS_LABEL}
-        chosen={profile?.allowed_classes ?? ['public']}
-      />
-      <Choices
-        legend="What it may be used for"
-        name="allowedPurposes"
-        labels={PURPOSE_LABEL}
-        chosen={profile?.allowed_purposes ?? []}
-      />
-      <label>
-        What is known about how they keep data
-        <select name="retentionBasis" defaultValue={profile?.retention_basis ?? 'unreviewed'}>
-          {Object.entries(RETENTION_LABEL).map(([value, label]) => (
-            <option key={value} value={value}>
-              {label}
-            </option>
-          ))}
-        </select>
-      </label>
-      <label>
-        Where their terms are recorded (optional)
-        {text({ name: 'contractRef', defaultValue: profile?.contract_ref ?? '', maxLength: 200 })}
-        <small>Without this, confidential work is never sent to this model.</small>
-      </label>
+      <section className="form-section" aria-labelledby="model-limits">
+        <h3 id="model-limits">Limits</h3>
+        <p className="muted">
+          Measured in tokens, the pieces of text a model reads and writes. A token is roughly
+          three-quarters of a word. The model’s own documentation gives these numbers.
+        </p>
+        <label>
+          Longest input, in tokens
+          {text({
+            name: 'maxInputTokens',
+            defaultValue: profile ? String(profile.limits.max_input_tokens) : '',
+            required: true,
+            maxLength: 10,
+            inputMode: 'numeric',
+          })}
+        </label>
+        <label>
+          Longest answer, in tokens
+          {text({
+            name: 'maxOutputTokens',
+            defaultValue: profile ? String(profile.limits.max_output_tokens) : '',
+            required: true,
+            maxLength: 10,
+            inputMode: 'numeric',
+          })}
+        </label>
+      </section>
+      <section className="form-section" aria-labelledby="model-uses">
+        <h3 id="model-uses">Uses and access</h3>
+        <Choices
+          legend="What it can do"
+          name="capabilities"
+          labels={CAPABILITY_LABEL}
+          chosen={profile?.capabilities ?? ['text']}
+        />
+        <Choices
+          legend="What it may be sent, by who can see it"
+          help="Work marked with a level you leave clear is never sent to this model."
+          name="allowedClasses"
+          labels={CLASS_LABEL}
+          chosen={profile?.allowed_classes ?? ['public']}
+        />
+        <Choices
+          legend="What it may be used for"
+          name="allowedPurposes"
+          labels={PURPOSE_LABEL}
+          chosen={profile?.allowed_purposes ?? []}
+        />
+      </section>
+      <section className="form-section" aria-labelledby="model-terms">
+        <h3 id="model-terms">How they keep your data</h3>
+        <label>
+          What is known about how they keep data
+          <select name="retentionBasis" defaultValue={profile?.retention_basis ?? 'unreviewed'}>
+            {Object.entries(RETENTION_LABEL).map(([value, label]) => (
+              <option key={value} value={value}>
+                {label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Where their terms are recorded (optional)
+          {text({ name: 'contractRef', defaultValue: profile?.contract_ref ?? '', maxLength: 200 })}
+          <small>Without this, confidential work is never sent to this model.</small>
+        </label>
+      </section>
       {others.length > 0 && (
-        <fieldset className="group">
-          <legend>If this model is unavailable, try these (off unless you choose one)</legend>
-          {others.map((other) => (
-            <label className="check" key={other.id}>
-              <input
-                type="checkbox"
-                name="fallback"
-                value={other.id}
-                defaultChecked={profile?.fallback_profile_ids.includes(other.id) ?? false}
-              />
-              {other.alias}
-            </label>
-          ))}
-        </fieldset>
+        <section className="form-section" aria-labelledby="model-fallback">
+          <h3 id="model-fallback">When it is unavailable</h3>
+          <fieldset className="group">
+            <legend>If this model is unavailable, try these (off unless you choose one)</legend>
+            <div className="option-grid">
+              {others.map((other) => (
+                <label className="check" key={other.id}>
+                  <input
+                    type="checkbox"
+                    name="fallback"
+                    value={other.id}
+                    defaultChecked={profile?.fallback_profile_ids.includes(other.id) ?? false}
+                  />
+                  {other.alias}
+                </label>
+              ))}
+            </div>
+          </fieldset>
+        </section>
       )}
     </>
   );

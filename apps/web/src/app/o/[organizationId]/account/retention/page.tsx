@@ -1,6 +1,5 @@
 import { listRetentionRules, listRetentionRuns } from '@ensemus/application/saas/retention';
-import Link from 'next/link';
-import { Empty, PageHead, formatDateTime } from '@/components/ui';
+import { BackLink, Empty, formatDateTime, PageHead } from '@/components/ui';
 import { orNotFound, requireAccountTenant } from '@/server/tenant';
 import { RetentionRuleForm } from './rule-form';
 export const metadata = { title: 'Retention | Ensemus' };
@@ -26,10 +25,10 @@ export default async function RetentionPage({
   };
   return (
     <div className="stack">
+      <BackLink href={`/o/${organizationId}/account`}>Account</BackLink>
       <PageHead
         title="Data retention"
         description="Retention periods come from your approved policies. With no matching rule, records are kept."
-        actions={<Link href={`/o/${organizationId}/account`}>Account</Link>}
       />
       <section className="stack" aria-labelledby="current-retention">
         <h2 id="current-retention">Current rules</h2>
@@ -65,7 +64,7 @@ export default async function RetentionPage({
           </div>
         )}
       </section>
-      <section className="stack" aria-labelledby="set-retention">
+      <section className="card stack" aria-labelledby="set-retention">
         <h2 id="set-retention">Set a rule</h2>
         <RetentionRuleForm organizationId={organizationId} />
       </section>

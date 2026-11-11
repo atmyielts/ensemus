@@ -24,7 +24,7 @@ export default async function ImportedDefinitionsPage({
         title="Imported definitions"
         description="Review the settings and reference records brought from another organization."
       />
-      <section className="panel" aria-labelledby="definition-review">
+      <section className="card" aria-labelledby="definition-review">
         <h2 id="definition-review">These records need review</h2>
         <p>
           Nothing listed here is active. Agent publications, provider permissions and verified facts

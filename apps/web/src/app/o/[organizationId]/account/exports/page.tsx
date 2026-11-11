@@ -22,7 +22,7 @@ export default async function AccountExportsPage({
         title="Export your data"
         description="Prepare an encrypted copy of this organization, including while service is paused."
       />
-      <section className="panel fields" aria-labelledby="account-export-request">
+      <section className="card stack" aria-labelledby="account-export-request">
         <h2 id="account-export-request">Prepare an export</h2>
         <p>
           Only an organization owner can request or download an export. It is encrypted to a public
@@ -34,7 +34,7 @@ export default async function AccountExportsPage({
         </p>
         <ExportRequestForm organizationId={organizationId} account />
       </section>
-      <section className="fields" aria-labelledby="account-export-list">
+      <section className="stack gap-above-large" aria-labelledby="account-export-list">
         <h2 id="account-export-list">Your exports</h2>
         <p>
           Refresh this page to see progress. A download appears after the background export finishes

@@ -19,14 +19,12 @@ export default async function AdministrationPage({
     <>
       <PageHead
         title="Administration"
-        description="Manage your organization’s access, connected tools and AI controls."
+        description="Your company’s sign-in and security, connected tools, and how AI is used and paid for."
       />
       <section className="settings-section" aria-labelledby="organization-controls">
         <div className="section-intro">
           <h2 id="organization-controls">Organization controls</h2>
-          <p>
-            Changes here apply to the organization. Each page explains what its controls affect.
-          </p>
+          <p>Changes here apply to everyone in your company. Each page explains what it affects.</p>
         </div>
         <DestinationList
           label="Organization controls"

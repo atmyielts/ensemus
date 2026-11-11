@@ -20,12 +20,11 @@ import {
   SUITE_PROVIDER,
   type SuiteConnectorType,
 } from '@ensemus/domain/workspace-suites';
-import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
 import { ConfirmForm } from '@/components/confirm-form';
 import { ResourceRefresh } from '@/components/resource-refresh';
 import { SubmitButton } from '@/components/submit-button';
-import { Empty, ErrorNotice, formatDateTime, PageHead } from '@/components/ui';
+import { BackLink, Empty, ErrorNotice, formatDateTime, PageHead } from '@/components/ui';
 import { messageFor } from '@/lib/messages';
 import { CONNECTOR_CATALOG, manifestOf } from '@/server/api';
 import { revokeConnectionAction } from '@/server/external-action-actions';
@@ -77,6 +76,12 @@ const SUITE_NAMES: Record<SuiteConnectorType, string> = {
   microsoft_365: 'Microsoft 365',
 };
 
+/** What each account brings, in a line, before anyone chooses. */
+const SUITE_BLURB: Record<SuiteConnectorType, string> = {
+  google_workspace: 'Files and groups from your company’s Google account.',
+  microsoft_365: 'Files and groups from your company’s Microsoft account.',
+};
+
 const isSuiteType = (type: string): type is SuiteConnectorType => Object.hasOwn(SUITE_NAMES, type);
 
 const CAPABILITY_WORDS: Record<string, { label: string; description: string }> = {
@@ -95,7 +100,7 @@ const ATTEMPT_WORDS: Record<string, { label: string; tone: string; detail: strin
   pending: {
     label: 'Waiting for you',
     tone: 'attention',
-    detail: 'Finish on the provider’s page within ten minutes, or start again.',
+    detail: 'Finish on Google’s or Microsoft’s page within ten minutes, or start again.',
   },
   code_received: {
     label: 'Finishing',
@@ -211,12 +216,10 @@ export default async function ConnectionsPage({
 
   return (
     <>
-      <p className="back">
-        <Link href={`${base}/external-actions`}>Back to external actions</Link>
-      </p>
+      <BackLink href={`${base}/external-actions`}>Back to external actions</BackLink>
       <PageHead
         title="Connections"
-        description="How Ensemus reaches systems outside itself. Credentials are sealed, and nobody can read them back."
+        description="The accounts and services Ensemus works with for your company. Passwords and keys you add here are sealed, and nobody can read them back."
       />
       <ErrorNotice code={error} />
       <div className="stack">
@@ -231,14 +234,19 @@ export default async function ConnectionsPage({
         )}
         {!enabled && (
           <p className="notice warn flush">
-            Connectors are not turned on for this deployment, so nothing here can send or receive
-            anything. An operator turns them on. Nothing is being simulated in the meantime.
+            Connecting outside services isn’t turned on for your company yet, so nothing here can
+            send or receive anything. Ask whoever set up Ensemus for your company to turn it on.
+            Nothing is sent or pretended in the meantime.
           </p>
         )}
         <section className="card" aria-labelledby="connections-heading">
-          <h2 id="connections-heading">In this organization</h2>
+          <h2 id="connections-heading">Your company’s connections</h2>
           {rows.length === 0 ? (
-            <Empty>No connections yet.</Empty>
+            <Empty title="No connections yet">
+              {enabled
+                ? 'Connect Google Workspace or Microsoft 365, or add an email connection, below.'
+                : 'Once connecting is turned on, the services you connect are listed here.'}
+            </Empty>
           ) : (
             <ul className="list">
               {rows.map((row) => {
@@ -254,7 +262,7 @@ export default async function ConnectionsPage({
                       {manifest?.displayName ??
                         (isSuiteType(row.connectorType)
                           ? SUITE_NAMES[row.connectorType]
-                          : 'A connector this deployment does not know')}
+                          : 'A kind of connection Ensemus does not recognise')}
                       .{' '}
                       {(manifest?.credential.required ?? isSuiteType(row.connectorType))
                         ? row.hasCredential
@@ -263,8 +271,11 @@ export default async function ConnectionsPage({
                         : 'It needs no credential.'}
                     </p>
                     {row.lastErrorCode && (
-                      <p className="notice warn flush">
-                        The last problem, with code <code>{row.lastErrorCode}</code>.
+                      <p className="notice warn flush gap-above-small">
+                        Something went wrong the last time it was used.{' '}
+                        <small>
+                          Code <code>{row.lastErrorCode}</code>
+                        </small>
                       </p>
                     )}
                     {enabled && row.state === 'active' && manifest?.capabilities.webhooks && (
@@ -301,96 +312,183 @@ export default async function ConnectionsPage({
             </ul>
           )}
         </section>
-        <section className="card" aria-labelledby="members-heading">
-          <h2 id="members-heading">Members’ own accounts</h2>
-          <p className="muted">
-            Members can connect their own Google or Microsoft account from their own connections
-            page, for what you allow here. Only that member, and assistants they start, can use it.
-            You see whose each is and whether it is active, never what it reaches, and you can
-            revoke one.
-          </p>
-          <form className="fields" action={setMemberCapabilitiesAction}>
-            <input type="hidden" name="organizationId" value={organizationId} />
-            <fieldset className="group">
-              <legend>What members may connect</legend>
-              {MEMBER_OWNABLE_CAPABILITIES.map((capability) => {
-                const words = (
-                  MEMBER_CAPABILITY_WORDS as Record<string, { label: string; description: string }>
-                )[capability];
+        {enabled && (
+          <section aria-labelledby="suite-heading">
+            <div className="section-intro">
+              <h2 id="suite-heading">Connect Google Workspace or Microsoft 365</h2>
+              <p>
+                You agree on Google’s or Microsoft’s own page, and Ensemus never sees your password.
+                What you choose here is all it asks for.
+              </p>
+            </div>
+            <div className="stack">
+              {(Object.keys(SUITE_NAMES) as SuiteConnectorType[]).map((connectorType) => {
+                const choices = capabilityChoices(connectorType);
                 return (
-                  <label key={capability} className="check">
-                    <input
-                      type="checkbox"
-                      name="capability"
-                      value={capability}
-                      defaultChecked={memberCapabilities.includes(capability)}
-                    />
-                    <span>
-                      {words?.label ?? capability}. {words?.description}
-                    </span>
-                  </label>
+                  <section
+                    key={connectorType}
+                    className="card"
+                    aria-labelledby={`suite-${connectorType}-heading`}
+                  >
+                    <h3 id={`suite-${connectorType}-heading`}>{SUITE_NAMES[connectorType]}</h3>
+                    <p className="muted">{SUITE_BLURB[connectorType]}</p>
+                    <dl className="details gap-above">
+                      <div>
+                        <dt>What it allows</dt>
+                        <dd>{choices.map((choice) => choice.label).join(', ')}</dd>
+                      </div>
+                      <div>
+                        <dt>Who sees what it reaches</dt>
+                        <dd>Each person, only for files they can open there</dd>
+                      </div>
+                      <div>
+                        <dt>To stop</dt>
+                        <dd>Revoke it on this page, at any time</dd>
+                      </div>
+                    </dl>
+                    <div className="divided">
+                      <SuiteConnectForm
+                        organizationId={organizationId}
+                        connectorType={connectorType}
+                        providerName={SUITE_NAMES[connectorType]}
+                        capabilities={choices}
+                        platformAvailable={platformClientId(SUITE_PROVIDER[connectorType]) !== null}
+                        redirectUri={oauthRedirectUri()}
+                      />
+                    </div>
+                  </section>
                 );
               })}
+            </div>
+          </section>
+        )}
+        {enabled && (
+          <section className="card" aria-labelledby="new-connection-heading">
+            <h2 id="new-connection-heading">Add a connection</h2>
+            <p className="muted">
+              For a service such as your own mail server, which Ensemus sends through.
+            </p>
+            <div className="gap-above">
+              <NewConnectionForm
+                organizationId={organizationId}
+                requestKey={randomUUID()}
+                connectors={CONNECTOR_CATALOG.map(({ manifest }) => ({
+                  type: manifest.type,
+                  label: manifest.displayName,
+                }))}
+              />
+            </div>
+          </section>
+        )}
+        <section className="card" aria-labelledby="members-heading">
+          <h2 id="members-heading">People’s own accounts</h2>
+          <p className="muted">
+            People can connect their own Google or Microsoft account on their My connections page,
+            for what you allow here. Only that person, and assistants they start, can use it. You
+            see whose each is and whether it is active, never what it reaches, and you can revoke
+            one.
+          </p>
+          <form className="fields gap-above" action={setMemberCapabilitiesAction}>
+            <input type="hidden" name="organizationId" value={organizationId} />
+            <fieldset className="group">
+              <legend>What people may connect</legend>
+              <div className="choice-list">
+                {MEMBER_OWNABLE_CAPABILITIES.map((capability) => {
+                  const words = (
+                    MEMBER_CAPABILITY_WORDS as Record<
+                      string,
+                      { label: string; description: string }
+                    >
+                  )[capability];
+                  return (
+                    <label key={capability} className="choice">
+                      <input
+                        type="checkbox"
+                        name="capability"
+                        value={capability}
+                        defaultChecked={memberCapabilities.includes(capability)}
+                      />
+                      <strong>{words?.label ?? capability}</strong>
+                      <small>{words?.description}</small>
+                    </label>
+                  );
+                })}
+              </div>
             </fieldset>
             <p className="muted">
               Taking one away stops new connections for it. Accounts already connected keep it until
-              revoked below. Leave all of them clear to let members connect nothing.
+              revoked below. Leave all of them clear to let people connect nothing.
             </p>
             <div>
-              <SubmitButton working="Saving">Save what members may connect</SubmitButton>
+              <SubmitButton working="Saving">Save what people may connect</SubmitButton>
             </div>
           </form>
-          <h3 className="gap-above">Connected by members</h3>
-          {members.length === 0 ? (
-            <Empty>No member has connected their own account.</Empty>
-          ) : (
-            <ul className="list">
-              {members.map((member) => {
-                const state = CONNECTION_STATE_WORDS[member.state] ?? {
-                  label: member.state,
-                  tone: '',
-                };
-                const whose = `${member.ownerName}’s ${suiteName(member.connectorType)}`;
-                return (
-                  <li key={member.id} className="block">
-                    <span className="row">
-                      <strong>{whose}</strong>
-                      <span className={`badge ${state.tone}`}>{state.label}</span>
-                    </span>
-                    <p className="muted">Connected {formatDateTime(member.createdAt)}.</p>
-                    {member.state !== 'revoked' && (
-                      <div className="gap-above">
-                        <ConfirmForm
-                          action={revokeMyConnectionAction}
-                          fields={
-                            <>
-                              <input type="hidden" name="organizationId" value={organizationId} />
-                              <input type="hidden" name="connectionId" value={member.id} />
-                              <input type="hidden" name="from" value="admin" />
-                            </>
-                          }
-                          summary="Revoke"
-                          summaryLabel={`Revoke ${whose}`}
-                          consequence={`Revoke ${whose} for good. Assistants stop using it at once, and anything not yet sent through it will not go out. Only ${member.ownerName} can connect it again.`}
-                          confirmLabel="Revoke for good"
-                          confirmFullLabel={`Revoke for good: ${whose}`}
-                        />
-                      </div>
-                    )}
-                  </li>
-                );
-              })}
-            </ul>
-          )}
+          <div className="divided">
+            <h3>Connected by people</h3>
+            {members.length === 0 ? (
+              <p className="muted gap-above-small">Nobody has connected their own account yet.</p>
+            ) : (
+              <ul className="list gap-above-small">
+                {members.map((member) => {
+                  const state = CONNECTION_STATE_WORDS[member.state] ?? {
+                    label: member.state,
+                    tone: '',
+                  };
+                  const whose = `${member.ownerName}’s ${suiteName(member.connectorType)}`;
+                  return (
+                    <li key={member.id} className="block">
+                      <span className="row">
+                        <strong>{whose}</strong>
+                        <span className={`badge ${state.tone}`}>{state.label}</span>
+                      </span>
+                      <p className="muted">Connected {formatDateTime(member.createdAt)}.</p>
+                      {member.state !== 'revoked' && (
+                        <div className="gap-above">
+                          <ConfirmForm
+                            action={revokeMyConnectionAction}
+                            fields={
+                              <>
+                                <input type="hidden" name="organizationId" value={organizationId} />
+                                <input type="hidden" name="connectionId" value={member.id} />
+                                <input type="hidden" name="from" value="admin" />
+                              </>
+                            }
+                            summary="Revoke"
+                            summaryLabel={`Revoke ${whose}`}
+                            consequence={`Revoke ${whose} for good. Assistants stop using it at once, and anything not yet sent through it will not go out. Only ${member.ownerName} can connect it again.`}
+                            confirmLabel="Revoke for good"
+                            confirmFullLabel={`Revoke for good: ${whose}`}
+                          />
+                        </div>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
         </section>
+        {recent.length > 0 && (
+          <section className="card" aria-labelledby="attempts-heading">
+            <h2 id="attempts-heading">Recent attempts to connect</h2>
+            <ul className="list">
+              {recent.map((attempt) => (
+                <li key={attempt.id} className="block">
+                  <AttemptSummary attempt={attempt} />
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
         {activity.length > 0 && (
           <section className="card" aria-labelledby="callbacks-heading">
             <h2 id="callbacks-heading">Recent callbacks</h2>
             <p className="muted">
-              A sender always hears the same answer, so this is the only place that shows whether a
-              signature passed. It shows no content.
+              Messages other systems sent to a callback address. A sender always hears the same
+              answer, so this is the only place that shows whether a signature passed. It shows no
+              content.
             </p>
-            <ul className="list">
+            <ul className="list gap-above">
               {activity.map((delivery) => (
                 <li key={delivery.id} className="block">
                   <strong>{DELIVERY_WORDS[delivery.state] ?? 'Not recognized'}</strong>{' '}
@@ -406,53 +504,6 @@ export default async function ConnectionsPage({
                 </li>
               ))}
             </ul>
-          </section>
-        )}
-        {recent.length > 0 && (
-          <section className="card" aria-labelledby="attempts-heading">
-            <h2 id="attempts-heading">Recent attempts to connect</h2>
-            <ul className="list">
-              {recent.map((attempt) => (
-                <li key={attempt.id} className="block">
-                  <AttemptSummary attempt={attempt} />
-                </li>
-              ))}
-            </ul>
-          </section>
-        )}
-        {enabled && (
-          <section className="card" aria-labelledby="suite-heading">
-            <h2 id="suite-heading">Connect Google Workspace or Microsoft 365</h2>
-            <p className="muted">
-              You agree on Google’s or Microsoft’s own page, and Ensemus never sees your password.
-              What you choose here is all it asks for.
-            </p>
-            {(Object.keys(SUITE_NAMES) as SuiteConnectorType[]).map((connectorType) => (
-              <details key={connectorType} className="gap-above">
-                <summary>Connect {SUITE_NAMES[connectorType]}</summary>
-                <SuiteConnectForm
-                  organizationId={organizationId}
-                  connectorType={connectorType}
-                  providerName={SUITE_NAMES[connectorType]}
-                  capabilities={capabilityChoices(connectorType)}
-                  platformAvailable={platformClientId(SUITE_PROVIDER[connectorType]) !== null}
-                  redirectUri={oauthRedirectUri()}
-                />
-              </details>
-            ))}
-          </section>
-        )}
-        {enabled && (
-          <section className="card" aria-labelledby="new-connection-heading">
-            <h2 id="new-connection-heading">Add a connection</h2>
-            <NewConnectionForm
-              organizationId={organizationId}
-              requestKey={randomUUID()}
-              connectors={CONNECTOR_CATALOG.map(({ manifest }) => ({
-                type: manifest.type,
-                label: manifest.displayName,
-              }))}
-            />
           </section>
         )}
       </div>

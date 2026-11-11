@@ -71,9 +71,13 @@ export function BillingAccountForm({
           defaultValue={v.billingEmail}
         />
       </label>
-      <label>
-        Country code
+      <div className="field-group">
+        <label htmlFor="billing-country">Country</label>
+        <small id="billing-country-help" className="muted">
+          Its two-letter code in capitals, such as GB, US or DE.
+        </small>
         <input
+          id="billing-country"
           name="countryCode"
           autoComplete="country"
           required
@@ -82,10 +86,9 @@ export function BillingAccountForm({
           defaultValue={v.countryCode}
           aria-describedby="billing-country-help"
         />
-      </label>
-      <small id="billing-country-help">Use the two-letter uppercase country code.</small>
+      </div>
       <label>
-        Region code <small>Optional</small>
+        Region code <small>Optional. A state or province, as a short code such as CA.</small>
         <input name="regionCode" maxLength={16} pattern="[A-Z0-9-]*" defaultValue={v.regionCode} />
       </label>
       <label>
@@ -98,7 +101,7 @@ export function BillingAccountForm({
         />
       </label>
       <label>
-        Tax identification <small>Optional</small>
+        Tax identification <small>Optional. For example, your VAT number.</small>
         <input name="taxId" autoComplete="off" maxLength={64} defaultValue={v.taxId ?? ''} />
       </label>
       <div>

@@ -6,7 +6,7 @@ import {
 import { withinCoverage } from '@ensemus/saas/support';
 import { can } from '@ensemus/domain/policy';
 import Link from 'next/link';
-import { Empty, PageHead, formatDateTime } from '@/components/ui';
+import { BackLink, Empty, formatDateTime, PageHead } from '@/components/ui';
 import { orNotFound, requireAccountTenant } from '@/server/tenant';
 import { SupportMessageForm } from './message-form';
 export const metadata = { title: 'Support | Ensemus' };
@@ -31,17 +31,17 @@ export default async function SupportPage({
     ]);
   return (
     <div className="stack">
+      <BackLink href={`/o/${organizationId}/account`}>Account</BackLink>
       <PageHead
         title="Support"
-        description="Ask for help with your account, billing, incidents or security."
-        actions={<Link href={`/o/${organizationId}/account`}>Account</Link>}
+        description="Ask for help with your account, billing, an incident or security."
       />
       <p className="notice">
         Support sees what you write in your tickets. It has no default access to your organization's
         work or other records.
       </p>
       <section className="stack" aria-labelledby="support-coverage">
-        <h2 id="support-coverage">Coverage</h2>
+        <h2 id="support-coverage">When support is available</h2>
         {coverage ? (
           <>
             <p>
@@ -70,7 +70,9 @@ export default async function SupportPage({
       <section className="stack" aria-labelledby="support-tickets">
         <h2 id="support-tickets">Your tickets</h2>
         {tickets.length === 0 ? (
-          <Empty>No support tickets are visible to you yet.</Empty>
+          <Empty title="No tickets yet">
+            No support tickets are visible to you yet. Open one below and replies show here.
+          </Empty>
         ) : (
           <ul className="list">
             {tickets.map((ticket) => (
@@ -91,6 +93,7 @@ export default async function SupportPage({
       {writable ? (
         <section className="stack" aria-labelledby="support-new">
           <h2 id="support-new">Open a ticket</h2>
+          <p className="muted">Say what happened and what you need. Support replies here.</p>
           <SupportMessageForm organizationId={organizationId} />
         </section>
       ) : (

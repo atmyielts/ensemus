@@ -7,7 +7,7 @@ export const metadata = { title: 'Account | Ensemus' };
 const standingText: Record<string, { title: string; detail: string }> = {
   active: {
     title: 'Your organization is active',
-    detail: 'Your account is available. The approved plan and existing permissions govern access.',
+    detail: 'Everything is available. Your plan and each person’s access decide what they can do.',
   },
   read_only: {
     title: 'Your organization is read-only',
@@ -39,13 +39,18 @@ export default async function AccountPage({
     <div className="stack">
       <PageHead
         title="Account"
-        description="Manage your organization’s account and access your data."
+        description="Your organization’s plan and standing, help from support, and your data."
       />
-      <section className="panel" aria-labelledby="account-standing">
-        <h2 id="account-standing">{words.title}</h2>
-        <p>{words.detail}</p>
+      <section className="card" aria-labelledby="account-standing">
+        <div className="spread">
+          <h2 id="account-standing">{words.title}</h2>
+          <span className={`badge ${status.lifecycle === 'active' ? 'done' : 'attention'}`}>
+            {status.lifecycle === 'active' ? 'Active' : 'Needs attention'}
+          </span>
+        </div>
+        <p className="gap-above-small">{words.detail}</p>
         {status.reasonCode && (
-          <p>
+          <p className="muted">
             Reason: {status.reasonCode.toLowerCase().replaceAll('_', ' ')}.
             {status.changedAt && <> Changed {formatDateTime(status.changedAt)}.</>}
           </p>

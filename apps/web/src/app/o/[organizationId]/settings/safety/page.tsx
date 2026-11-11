@@ -39,7 +39,7 @@ export default async function SafetyPage({
   const head = (
     <PageHead
       title="Safety"
-      description="Stop agents at once. People's work carries on, and only agents stop."
+      description="An emergency stop for your AI agents (the assistants built in Automation Studio). People’s own work carries on, and only agents stop."
     />
   );
 
@@ -48,7 +48,9 @@ export default async function SafetyPage({
       <>
         {head}
         <ErrorNotice code={error} />
-        <Empty>Only owners and admins can see and change this.</Empty>
+        <Empty title="For owners and administrators">
+          Only owners and administrators can see and change emergency stops.
+        </Empty>
       </>
     );
   }
@@ -71,7 +73,9 @@ export default async function SafetyPage({
         <section className="card" aria-labelledby="stops-heading">
           <h2 id="stops-heading">Stops in force</h2>
           {switches.length === 0 ? (
-            <Empty>Nothing is stopped. Agents can run.</Empty>
+            <Empty title="Nothing is stopped">
+              Agents can run. If something goes wrong, use a stop below.
+            </Empty>
           ) : (
             <ul className="list">
               {switches.map((row) => {
@@ -81,32 +85,33 @@ export default async function SafetyPage({
                 );
                 return (
                   <li key={row.id} className="block">
-                    <span>
+                    <div className="spread">
                       <strong>{covers}</strong>
-                      <br />
-                      <small>
-                        {reasonLabel(row.reasonCode)}. Since {formatDateTime(row.engagedAt)}.
-                      </small>
-                    </span>
+                      <span className="badge bad">Stopped</span>
+                    </div>
+                    <p className="muted">
+                      {reasonLabel(row.reasonCode)}. Since {formatDateTime(row.engagedAt)}.
+                    </p>
                     {row.operator ? (
-                      <small>
-                        Set by the operator of this deployment. Only they can lift it, and nobody
-                        here can.
-                      </small>
+                      <p className="muted gap-above-small">
+                        Set by whoever runs Ensemus for your company. Only they can lift it.
+                      </p>
                     ) : (
-                      <ConfirmForm
-                        action={releaseKillSwitchAction}
-                        fields={
-                          <>
-                            {org}
-                            <input type="hidden" name="switch" value={row.id} />
-                          </>
-                        }
-                        summary="Lift this stop"
-                        summaryLabel={`Lift the stop on: ${covers}`}
-                        consequence="Let agents covered by this stop run again. Runs it already ended stay ended. Lifting it goes in the audit log."
-                        confirmLabel="Lift this stop"
-                      />
+                      <div className="gap-above-small">
+                        <ConfirmForm
+                          action={releaseKillSwitchAction}
+                          fields={
+                            <>
+                              {org}
+                              <input type="hidden" name="switch" value={row.id} />
+                            </>
+                          }
+                          summary="Lift this stop"
+                          summaryLabel={`Lift the stop on: ${covers}`}
+                          consequence="Let agents covered by this stop run again. Runs it already ended stay ended. Lifting it goes in the audit log."
+                          confirmLabel="Lift this stop"
+                        />
+                      </div>
                     )}
                   </li>
                 );
@@ -116,32 +121,43 @@ export default async function SafetyPage({
         </section>
 
         <section className="card" aria-labelledby="stop-all-heading">
-          <h2 id="stop-all-heading">Stop every agent in this organization</h2>
+          <h2 id="stop-all-heading">Stop every agent in your company</h2>
           <p className="muted">
             A model call in flight is cut off, and no queued run, model call or tool action can
             start until this is lifted. Anything an agent already sent stays sent.
           </p>
-          {orgWideStop && <p className="muted">A stop like this is already in force.</p>}
-          <ConfirmForm
-            action={engageKillSwitchAction}
-            fields={
-              <>
-                {org}
-                <input type="hidden" name="scope" value="organization" />
-              </>
-            }
-            summary="Stop every agent"
-            consequence="Stop every agent in this organization now. This goes in the audit log, and it stays until an owner or admin lifts it."
-            confirmLabel="Stop every agent"
-          >
-            <ReasonField />
-          </ConfirmForm>
+          {orgWideStop && (
+            <p className="notice warn flush gap-above-small">
+              A stop like this is already in force.
+            </p>
+          )}
+          <div className="gap-above">
+            <ConfirmForm
+              action={engageKillSwitchAction}
+              fields={
+                <>
+                  {org}
+                  <input type="hidden" name="scope" value="organization" />
+                </>
+              }
+              summary="Stop every agent"
+              consequence="Stop every agent in this organization now. This goes in the audit log, and it stays until an owner or admin lifts it."
+              confirmLabel="Stop every agent"
+            >
+              <ReasonField />
+            </ConfirmForm>
+          </div>
         </section>
 
         <section className="card" aria-labelledby="stop-one-heading">
           <h2 id="stop-one-heading">Stop one agent version</h2>
+          <p className="muted">
+            Stop a single published version, and every other agent carries on.
+          </p>
           {versions.length === 0 ? (
-            <Empty>No agents have been published here yet.</Empty>
+            <Empty title="No agents yet">
+              Once an agent is published in Automation Studio, you can stop it here.
+            </Empty>
           ) : (
             <ConfirmForm
               action={engageKillSwitchAction}

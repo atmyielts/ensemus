@@ -2,19 +2,33 @@
   display: grid;
   gap: var(--space-8, 2rem);
 }
+.flow h2 {
+  margin-bottom: var(--space-2, 0.5rem);
+}
 .codes {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(9rem, 1fr));
   gap: var(--space-2, 0.5rem);
-  padding-inline-start: 1.5rem;
+  margin: var(--space-4, 1rem) 0 0;
+  padding: 0;
+  list-style: none;
+}
+.codes li {
+  padding: var(--space-2, 0.5rem) var(--space-3, 0.75rem);
+  border-radius: var(--radius-small);
+  background: var(--surface-2);
+  text-align: center;
 }
 .secret {
   max-width: 100%;
+  margin-block: var(--space-3, 0.75rem);
   overflow-wrap: anywhere;
   padding: var(--space-4, 1rem);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: var(--surface);
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--radius-small);
+  background: var(--surface-2);
+  font-size: 1.0625rem;
+  letter-spacing: 0.04em;
 }
 .section {
   padding-block: var(--space-6, 1.5rem);

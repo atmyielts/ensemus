@@ -21,7 +21,7 @@ function affected(advisory: AdvisoryView) {
 /** Security advisories that verified. They arrive as signed files, since this page checks nothing online. */
 export function LicenseAdvisories({ advisories }: { advisories: readonly AdvisoryView[] }) {
   return (
-    <section className="panel" aria-labelledby="license-advisories">
+    <section className="card" aria-labelledby="license-advisories">
       <h2 id="license-advisories">Security advisories</h2>
       {advisories.length === 0 ? (
         <Empty>

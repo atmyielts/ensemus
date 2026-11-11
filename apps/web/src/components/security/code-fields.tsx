@@ -36,15 +36,15 @@ export function FactorError({ code }: { code?: string | undefined }) {
     code === 'rate'
       ? 'Too many attempts. Wait before trying a new code.'
       : code === 'setup'
-        ? 'An authenticator setup is already waiting. Finish with the key you saved. If you lost that key, ask the installation operator to reset it before starting again.'
+        ? 'An authenticator setup is already waiting. Finish with the key you saved. If you lost that key, ask whoever set up Ensemus for your company to reset it before starting again.'
         : code === 'already'
           ? 'Your authenticator app is already set up. Reload this page to manage it.'
           : code === 'enroll'
             ? 'Set up an authenticator app first.'
             : code === 'primary'
-              ? 'Sign in again, then restart setup. For company sign-in, reauthenticate with your provider first. If it cannot confirm a recent sign-in, ask your installation operator.'
+              ? 'Sign in again, then restart setup. If you sign in through your company, sign in there again first. If that still does not work, ask whoever set up Ensemus for your company.'
               : code === 'unavailable'
-                ? 'We could not confirm this right now. Try again with a new code.'
+                ? 'We could not check that just now. Try again with a new code.'
                 : 'Those details could not be used. Check them, or wait for the next app code.';
   return (
     <p className="notice error" role="alert">

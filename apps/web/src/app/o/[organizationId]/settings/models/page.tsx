@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { KeptInput } from '@/components/kept-field';
 import { SubmitButton } from '@/components/submit-button';
-import { Empty, ErrorNotice, PageHead } from '@/components/ui';
+import { ActionLink, Empty, ErrorNotice, PageHead } from '@/components/ui';
 import { requireTenant } from '@/server/tenant';
 import { createProfileAction } from './actions';
 import { PROVIDER_LABEL, STATUS_LOOK } from './model-form';
@@ -31,12 +31,12 @@ export default async function ModelsPage({
     <>
       <PageHead
         title="Models"
-        description="The AI models this organization has approved. An agent can only use one that is active here."
+        description="The AI models your company has approved. An assistant can only use a model that is active here."
         actions={
           can(context.role, 'model.activate') && can(context.role, 'budget.manage') ? (
-            <Link href={`/o/${organizationId}/settings/models/workloads`}>
+            <ActionLink variant="secondary" href={`/o/${organizationId}/settings/models/workloads`}>
               Knowledge workload approvals
-            </Link>
+            </ActionLink>
           ) : undefined
         }
       />
@@ -45,7 +45,11 @@ export default async function ModelsPage({
         <section className="card" aria-labelledby="models-heading">
           <h2 id="models-heading">Approved models</h2>
           {profiles.length === 0 ? (
-            <Empty>{canManage ? 'None yet. Add the first below.' : 'None yet.'}</Empty>
+            <Empty title="No models yet">
+              {canManage
+                ? 'Add the first one below. Assistants can use it once it has passed a test and been turned on.'
+                : 'An administrator adds models here. Assistants can use one once it is turned on.'}
+            </Empty>
           ) : (
             <ul className="list">
               {profiles.map((profile) => {
@@ -76,7 +80,7 @@ export default async function ModelsPage({
               A new model cannot be used until it has passed a test. You add its key on the next
               page.
             </p>
-            <form className="fields" action={createProfileAction}>
+            <form className="fields gap-above" action={createProfileAction}>
               <input type="hidden" name="organizationId" value={organizationId} />
               <label>
                 Who provides it

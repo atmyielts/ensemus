@@ -66,7 +66,7 @@ export function LicenseSummary({ status }: { status: LicenseStatusView }) {
   const { license, maintenance, runningRelease } = status;
   return (
     <>
-      <section className="panel" aria-labelledby="license-standing">
+      <section className="card" aria-labelledby="license-standing">
         <h2 id="license-standing">License</h2>
         <p>{STANDING_WORDS[status.standing]}</p>
         {license ? (
@@ -76,7 +76,7 @@ export function LicenseSummary({ status }: { status: LicenseStatusView }) {
         )}
       </section>
 
-      <section className="panel" aria-labelledby="license-support">
+      <section className="card" aria-labelledby="license-support">
         <h2 id="license-support">Support and maintenance</h2>
         <p>{SUPPORT_WORDS[maintenance.status]}</p>
         <dl>
@@ -85,7 +85,7 @@ export function LicenseSummary({ status }: { status: LicenseStatusView }) {
         </dl>
       </section>
 
-      <section className="panel" aria-labelledby="license-release">
+      <section className="card" aria-labelledby="license-release">
         <h2 id="license-release">This deployment</h2>
         {runningRelease ? (
           <dl>
@@ -109,7 +109,7 @@ export function LicenseSummary({ status }: { status: LicenseStatusView }) {
       </section>
 
       {license && (
-        <section className="panel" aria-labelledby="license-footprint">
+        <section className="card" aria-labelledby="license-footprint">
           <h2 id="license-footprint">What the license states</h2>
           <p className="muted">
             These come from the signed license. They are shown for your records, and nothing here is
