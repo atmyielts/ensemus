@@ -163,11 +163,11 @@ describe('what forms and pages do', () => {
       new RegExp(`<tr[^>]*>(?:(?!</tr>)[\\s\\S])*/work/${id}"(?:(?!</tr>)[\\s\\S])*</tr>`)
         .exec(html)?.[0]
         .replaceAll('<!-- -->', '');
-    expect(html).toContain('>Owner</th>');
-    expect(html).toContain('>Evidence</th>');
-    expect(row(none)).toContain('Olive Owner');
-    expect(row(none)).toContain('None asked for');
-    expect(row(asked)).toContain('Mia Member');
+    // The owner is named under each title, labelled for screen readers; Done when has its own column.
+    expect(html).toMatch(/>\s*Done when\s*<\/th>/);
+    expect(row(none)).toContain('Owner: </span>Olive Owner');
+    expect(row(none)).toContain('Owner confirms');
+    expect(row(asked)).toContain('Owner: </span>Mia Member');
     expect(row(asked)).toContain('1 of 1 still needed');
 
     await submit(workPage(org, asked), member.jar, /name="file"/, {
