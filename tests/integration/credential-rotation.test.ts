@@ -26,6 +26,7 @@ const PLATFORM = {
   client_secret: 'generated-platform-secret',
 };
 const DRIVE = 'https://www.googleapis.com/auth/drive.readonly';
+const DRIVE_METADATA = 'https://www.googleapis.com/auth/drive.metadata.readonly';
 const PURPOSE = 'connector_credential';
 const EN124 = SUITE_SQLSTATES.credentialResealRefused;
 
@@ -69,7 +70,8 @@ describe('refresh-token rotation', () => {
           token_type: 'Bearer',
           expires_in: 3599,
           refresh_token: `${CANARY}-refresh-1`,
-          scope: `openid https://www.googleapis.com/auth/userinfo.email ${DRIVE}`,
+          // Every scope the files capability asks for, so the exchange connects.
+          scope: `openid https://www.googleapis.com/auth/userinfo.email ${DRIVE} ${DRIVE_METADATA}`,
           id_token: jwt({
             iss: 'https://accounts.google.com',
             aud: PLATFORM.client_id,
