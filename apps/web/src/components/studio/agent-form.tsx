@@ -7,13 +7,8 @@ import type { StudioFormState } from '@/lib/studio-input';
 import { saveAgentDraftAction } from '@/server/studio-actions';
 import { ErrorNotice } from '../ui';
 import { SubmitButton } from '../submit-button';
-const TOOL_NAMES: Record<string, string> = {
-  'work.read': 'Read the work details',
-  'artifact.read_text': 'Read an attached file',
-  'artifact.draft.create': 'Prepare a draft file',
-  'email.send': 'Propose an email for approval',
-  'agent.delegate': 'Ask another assistant',
-};
+import { toolGroups, toolWords } from './tool-words';
+
 export function AgentForm({
   organizationId,
   draft,
@@ -52,6 +47,8 @@ export function AgentForm({
     : a?.dataClasses.includes('internal')
       ? 'internal'
       : 'public';
+  const ceilingValue = value('dataCeiling', a ? ceiling : 'internal'),
+    autonomyValue = value('autonomy', a?.autonomy ?? 'suggest_only');
   function number(
     name: string,
     label: string,
@@ -64,6 +61,7 @@ export function AgentForm({
     return (
       <label htmlFor={id}>
         <span id={`${id}-label`}>{label}</span>
+        {help && <small id={`${id}-help`}>{help}</small>}
         <input
           id={id}
           name={name}
@@ -76,12 +74,11 @@ export function AgentForm({
           aria-labelledby={`${id}-label`}
           aria-describedby={help ? `${id}-help` : undefined}
         />
-        {help && <small id={`${id}-help`}>{help}</small>}
       </label>
     );
   }
   return (
-    <form action={action} className="card fields">
+    <form action={action} className="card fields form-width">
       <input type="hidden" name="organizationId" value={organizationId} />
       <input type="hidden" name="requestKey" value={requestKey} />
       {draft && (
@@ -93,14 +90,17 @@ export function AgentForm({
       <div ref={error} tabIndex={-1}>
         <ErrorNotice code={state.code} />
       </div>
-      <h2>Purpose and responsibility</h2>
+      <h2>What it is for</h2>
       <label htmlFor={`${prefix}-name`}>
-        Assistant name
+        <span id={`${prefix}-name-label`}>Assistant name</span>
+        <small id={`${prefix}-name-help`}>A short name your team will recognise.</small>
         <input
           id={`${prefix}-name`}
           name="name"
           required
           maxLength={120}
+          aria-labelledby={`${prefix}-name-label`}
+          aria-describedby={`${prefix}-name-help`}
           defaultValue={value('name', draft?.name)}
         />
       </label>
@@ -128,10 +128,15 @@ export function AgentForm({
         />
       </label>
       <label htmlFor={`${prefix}-owner`}>
-        Responsible person
+        <span id={`${prefix}-owner-label`}>Responsible person</span>
+        <small id={`${prefix}-owner-help`}>
+          The person who answers for what this assistant does.
+        </small>
         <select
           id={`${prefix}-owner`}
           name="ownerMembershipId"
+          aria-labelledby={`${prefix}-owner-label`}
+          aria-describedby={`${prefix}-owner-help`}
           defaultValue={value('ownerMembershipId', a?.ownerMembershipId ?? ownerMembershipId)}
           disabled={Boolean(draft?.agentDefinitionId)}
         >
@@ -146,191 +151,311 @@ export function AgentForm({
         <>
           <input type="hidden" name="ownerMembershipId" value={a?.ownerMembershipId} />
           <p className="muted">
-            A published assistant keeps its responsible person. Create a separate assistant to
-            choose someone else.
+            A published assistant keeps its responsible person. To choose someone else, create a
+            separate assistant.
           </p>
         </>
       )}
       <label htmlFor={`${prefix}-boundaries`}>
-        What must it avoid?
+        <span id={`${prefix}-boundaries-label`}>What must it avoid?</span>
+        <small id={`${prefix}-boundaries-help`}>
+          One rule per line, such as “Never promise a delivery date”. Optional.
+        </small>
         <textarea
           id={`${prefix}-boundaries`}
           name="boundaries"
           rows={3}
           maxLength={10020}
+          aria-labelledby={`${prefix}-boundaries-label`}
+          aria-describedby={`${prefix}-boundaries-help`}
           defaultValue={value('boundaries', a?.boundaries.join('\n'))}
         />
-        <small>
-          One boundary per line. Keep confidential reference material in Knowledge sources.
-        </small>
       </label>
-      <h2>Company information</h2>
-      <label htmlFor={`${prefix}-ceiling`}>
-        <span id={`${prefix}-ceiling-label`}>Company-data ceiling</span>
-        <select
-          id={`${prefix}-ceiling`}
-          name="dataCeiling"
-          aria-labelledby={`${prefix}-ceiling-label`}
-          aria-describedby={`${prefix}-ceiling-help`}
-          defaultValue={value('dataCeiling', a ? ceiling : 'internal')}
-        >
-          <option value="public">Public only</option>
-          <option value="internal">Up to internal</option>
-          <option value="confidential">Up to confidential — requires another reviewer</option>
-        </select>
-        <small id={`${prefix}-ceiling-help`}>
-          This limits company material it can read. Current sharing rules still apply. Its
-          instructions receive at least internal protection.
-        </small>
-      </label>
-      <details>
-        <summary>Choose Knowledge sources (optional)</summary>
+
+      <div className="form-section">
+        <h2>What it may see</h2>
         <fieldset className="group">
-          <legend>Only selected sources may be searched</legend>
-          {missingSources.map((id, index) => (
-            <label className="check" key={id}>
-              <input type="checkbox" name="knowledgeSourceIds" value={id} defaultChecked />
-              <span>Unavailable saved source {index + 1}. Uncheck to remove it before saving.</span>
+          <legend>Company information it may read</legend>
+          <div className="choice-list">
+            <label className="choice">
+              <input
+                type="radio"
+                name="dataCeiling"
+                value="public"
+                defaultChecked={ceilingValue === 'public'}
+              />
+              <strong>Public only</strong>
+              <small>Material anyone outside the company could see.</small>
             </label>
-          ))}
-          {sources.length === 0 ? (
-            <p className="muted">No searchable sources you can read are available.</p>
-          ) : (
-            sources.map((source) => (
-              <label className="check" key={source.id}>
-                <input
-                  type="checkbox"
-                  name="knowledgeSourceIds"
-                  value={source.id}
-                  defaultChecked={chosen(
-                    'knowledgeSourceIds',
-                    source.id,
-                    a?.knowledgeSourceIds ?? [],
-                  )}
-                />
+            <label className="choice">
+              <input
+                type="radio"
+                name="dataCeiling"
+                value="internal"
+                defaultChecked={ceilingValue === 'internal'}
+              />
+              <strong>Up to internal</strong>
+              <small>Everyday company material your team shares among itself.</small>
+            </label>
+            <label className="choice">
+              <input
+                type="radio"
+                name="dataCeiling"
+                value="confidential"
+                defaultChecked={ceilingValue === 'confidential'}
+              />
+              <strong>Up to confidential</strong>
+              <small>
+                Sensitive material. Someone other than you has to review this assistant.
+              </small>
+            </label>
+          </div>
+          <small>
+            Each person’s own access still applies when it runs. Restricted material is not offered
+            here.
+          </small>
+        </fieldset>
+        <details open={missingSources.length > 0}>
+          <summary>Limit it to chosen Knowledge sources (optional)</summary>
+          <fieldset className="group gap-above-small">
+            <legend>Only the sources you tick may be searched</legend>
+            {missingSources.map((id, index) => (
+              <label className="check" key={id}>
+                <input type="checkbox" name="knowledgeSourceIds" value={id} defaultChecked />
                 <span>
-                  {source.title} <small>· {source.classification}</small>
+                  A saved source you can no longer see ({index + 1}). Untick it to remove it.
                 </span>
               </label>
-            ))
+            ))}
+            {sources.length === 0 ? (
+              <p className="muted">There are no searchable sources you can read yet.</p>
+            ) : (
+              sources.map((source) => (
+                <label className="check" key={source.id}>
+                  <input
+                    type="checkbox"
+                    name="knowledgeSourceIds"
+                    value={source.id}
+                    defaultChecked={chosen(
+                      'knowledgeSourceIds',
+                      source.id,
+                      a?.knowledgeSourceIds ?? [],
+                    )}
+                  />
+                  <span>
+                    {source.title} <small>· {source.classification}</small>
+                  </span>
+                </label>
+              ))
+            )}
+            <small>Up to 200 sources you can read are listed.</small>
+          </fieldset>
+        </details>
+      </div>
+
+      <div className="form-section">
+        <h2>What it may do</h2>
+        <fieldset className="group">
+          <legend>Extra abilities</legend>
+          <small>Leave these unticked for an assistant that only reads and answers.</small>
+          {missingTools.length > 0 && (
+            <div className="choice-list">
+              {missingTools.map((id) => (
+                <label className="choice" key={id}>
+                  <input type="checkbox" name="toolIds" value={id} defaultChecked />
+                  <strong>An ability that is no longer offered</strong>
+                  <small>Untick it to remove it before saving.</small>
+                </label>
+              ))}
+            </div>
           )}
-          <p className="muted">
-            Up to 200 current readable sources are shown. Sharing and sensitivity are checked again
-            when it runs.
-          </p>
+          {toolGroups(tools).map((group) => {
+            const choices = (
+              <div className="choice-list">
+                {group.tools.map((tool) => {
+                  const [name, help] = toolWords(tool);
+                  return (
+                    <label className="choice" key={tool.id}>
+                      <input
+                        type="checkbox"
+                        name="toolIds"
+                        value={tool.id}
+                        defaultChecked={chosen('toolIds', tool.id, a?.toolIds ?? [])}
+                      />
+                      <strong>{name}</strong>
+                      <small>
+                        {help}
+                        {tool.requiresApproval ? ' A person approves each use.' : ''}
+                      </small>
+                    </label>
+                  );
+                })}
+              </div>
+            );
+            // Account abilities fold away until wanted; one already chosen keeps its group open.
+            return group.title ? (
+              <details
+                key={group.key}
+                open={group.tools.some((tool) => chosen('toolIds', tool.id, a?.toolIds ?? []))}
+              >
+                <summary>
+                  {group.title} ({group.tools.length})
+                </summary>
+                <div className="gap-above-small">{choices}</div>
+              </details>
+            ) : (
+              <div key={group.key}>{choices}</div>
+            );
+          })}
+          {(tools.length > 0 || missingTools.length > 0) && (
+            <details>
+              <summary>Technical details</summary>
+              <ul>
+                {missingTools.map((id) => (
+                  <li key={id}>
+                    No longer offered: <code>{id}</code>
+                  </li>
+                ))}
+                {tools.map((tool) => (
+                  <li key={tool.id}>
+                    {toolWords(tool)[0]}: <code>{tool.id}</code>
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )}
         </fieldset>
-      </details>
-      <h2>Actions and review</h2>
-      <fieldset className="group">
-        <legend>Additional tools</legend>
-        {missingTools.map((id) => (
-          <label className="check" key={id}>
-            <input type="checkbox" name="toolIds" value={id} defaultChecked />
-            <span>Unavailable saved tool: {id}. Uncheck to remove it before saving.</span>
+        <fieldset className="group">
+          <legend>How should it work?</legend>
+          <div className="choice-list">
+            <label className="choice">
+              <input
+                type="radio"
+                name="autonomy"
+                value="suggest_only"
+                defaultChecked={autonomyValue === 'suggest_only'}
+              />
+              <strong>Make suggestions</strong>
+              <small>It answers and suggests; a person does the rest.</small>
+            </label>
+            <label className="choice">
+              <input
+                type="radio"
+                name="autonomy"
+                value="draft_for_review"
+                defaultChecked={autonomyValue === 'draft_for_review'}
+              />
+              <strong>Prepare drafts for review</strong>
+              <small>It writes a first version for a person to check.</small>
+            </label>
+            <label className="choice">
+              <input
+                type="radio"
+                name="autonomy"
+                value="act_with_approval"
+                defaultChecked={autonomyValue === 'act_with_approval'}
+              />
+              <strong>Propose actions for approval</strong>
+              <small>It lines up an action; nothing happens until a person approves it.</small>
+            </label>
+          </div>
+        </fieldset>
+        <div className="studio-field-grid">
+          <label htmlFor={`${prefix}-output`}>
+            Result format
+            <select
+              id={`${prefix}-output`}
+              name="outputFormat"
+              defaultValue={value('outputFormat', a?.outputFormat ?? 'markdown_brief')}
+            >
+              <option value="markdown_brief">A brief with sources</option>
+              <option value="structured_report">A structured report with sources</option>
+            </select>
           </label>
-        ))}
-        {tools.map((tool) => (
-          <label className="check" key={tool.id}>
+          <label htmlFor={`${prefix}-memory`}>
+            Company memory
+            <select
+              id={`${prefix}-memory`}
+              name="memoryWrite"
+              defaultValue={value('memoryWrite', a?.memoryWrite ?? 'none')}
+            >
+              <option value="none">Do not suggest new facts</option>
+              <option value="propose_only">Suggest facts for a person to check</option>
+            </select>
+          </label>
+        </div>
+      </div>
+
+      <div className="form-section">
+        <h2>Limits for each run</h2>
+        <p className="muted">
+          Each run stops when it reaches any of these. Saving or rehearsing a draft costs nothing.
+        </p>
+        <div className="studio-field-grid">
+          <label htmlFor={`${prefix}-cost`}>
+            Most it may spend per run (USD)
             <input
-              type="checkbox"
-              name="toolIds"
-              value={tool.id}
-              defaultChecked={chosen('toolIds', tool.id, a?.toolIds ?? [])}
+              id={`${prefix}-cost`}
+              name="maxCostUsd"
+              inputMode="decimal"
+              required
+              pattern="[0-9]+([.][0-9]{1,6})?"
+              defaultValue={value(
+                'maxCostUsd',
+                a?.maxCostMicros ? usdTextFromMicros(a.maxCostMicros) : '',
+              )}
             />
-            <span>
-              {TOOL_NAMES[tool.id] ?? tool.id}
-              {tool.requiresApproval ? ' · approval required' : ''}
-            </span>
           </label>
-        ))}
-      </fieldset>
-      <label htmlFor={`${prefix}-autonomy`}>
-        How should it work?
-        <select
-          id={`${prefix}-autonomy`}
-          name="autonomy"
-          defaultValue={value('autonomy', a?.autonomy ?? 'suggest_only')}
-        >
-          <option value="suggest_only">Make suggestions</option>
-          <option value="draft_for_review">Prepare drafts for review</option>
-          <option value="act_with_approval">Propose actions for approval</option>
-        </select>
-      </label>
-      <label htmlFor={`${prefix}-output`}>
-        Result format
-        <select
-          id={`${prefix}-output`}
-          name="outputFormat"
-          defaultValue={value('outputFormat', a?.outputFormat ?? 'markdown_brief')}
-        >
-          <option value="markdown_brief">A brief with citations</option>
-          <option value="structured_report">A structured report with citations</option>
-        </select>
-      </label>
-      <label htmlFor={`${prefix}-memory`}>
-        Company memory
-        <select
-          id={`${prefix}-memory`}
-          name="memoryWrite"
-          defaultValue={value('memoryWrite', a?.memoryWrite ?? 'none')}
-        >
-          <option value="none">Do not propose new memory</option>
-          <option value="propose_only">Propose facts for a person to verify</option>
-        </select>
-      </label>
-      <h2>Limits for each run</h2>
-      <p className="muted">
-        Choose these explicitly. Saving or rehearsing a draft does not make a paid model call.
-      </p>
-      <label htmlFor={`${prefix}-cost`}>
-        Maximum cost per run (USD)
-        <input
-          id={`${prefix}-cost`}
-          name="maxCostUsd"
-          inputMode="decimal"
-          required
-          pattern="[0-9]+([.][0-9]{1,6})?"
-          defaultValue={value(
-            'maxCostUsd',
-            a?.maxCostMicros ? usdTextFromMicros(a.maxCostMicros) : '',
+          <label htmlFor={`${prefix}-quality`}>
+            Model quality
+            <select
+              id={`${prefix}-quality`}
+              name="qualityTier"
+              defaultValue={value('qualityTier', a?.qualityTier ?? 'balanced')}
+            >
+              <option value="economy">Economy</option>
+              <option value="balanced">Balanced</option>
+              <option value="high">High</option>
+            </select>
+          </label>
+          {number(
+            'maxTurns',
+            'Most model replies',
+            a?.maxTurns,
+            1,
+            100,
+            'One reply from the AI model.',
           )}
-        />
-      </label>
-      {number(
-        'maxTurns',
-        'Maximum model turns',
-        a?.maxTurns,
-        1,
-        100,
-        'A turn is one response from the model.',
-      )}
-      {number('maxToolCalls', 'Maximum tool calls', a?.maxToolCalls, 0, 500)}
-      {number(
-        'maxTotalTokens',
-        'Maximum total tokens',
-        a?.maxTotalTokens,
-        1,
-        100000000,
-        'Tokens measure the text a model reads and writes.',
-      )}
-      {number('timeoutSeconds', 'Maximum running time (seconds)', a?.timeoutSeconds, 1, 86400)}
-      <label htmlFor={`${prefix}-quality`}>
-        Model quality
-        <select
-          id={`${prefix}-quality`}
-          name="qualityTier"
-          defaultValue={value('qualityTier', a?.qualityTier ?? 'balanced')}
-        >
-          <option value="economy">Economy</option>
-          <option value="balanced">Balanced</option>
-          <option value="high">High</option>
-        </select>
-      </label>
-      <SubmitButton working="Saving draft">{draft ? 'Save draft' : 'Create draft'}</SubmitButton>
-      <p className="muted">
-        Next: rehearse with synthetic scenarios, review the exact revision, then publish. Publishing
-        does not start a run.
-      </p>
+          {number(
+            'maxToolCalls',
+            'Most ability uses',
+            a?.maxToolCalls,
+            0,
+            500,
+            'Each time it uses an ability above.',
+          )}
+          {number(
+            'maxTotalTokens',
+            'Most text read and written (tokens)',
+            a?.maxTotalTokens,
+            1,
+            100000000,
+            'Tokens measure the text a model reads and writes.',
+          )}
+          {number('timeoutSeconds', 'Longest running time (seconds)', a?.timeoutSeconds, 1, 86400)}
+        </div>
+      </div>
+      <div className="form-section">
+        <div className="row">
+          <SubmitButton working="Saving draft">
+            {draft ? 'Save changes' : 'Create draft'}
+          </SubmitButton>
+        </div>
+        <small>
+          Next you rehearse it with made-up examples, then ask a colleague to review it. Publishing
+          it later does not start it.
+        </small>
+      </div>
     </form>
   );
 }

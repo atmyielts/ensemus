@@ -15,7 +15,7 @@ export default async function NewWorkflowPage({
       <BackLink href={`/o/${organizationId}/studio/workflows`}>Workflow drafts</BackLink>
       <PageHead
         title="Create a workflow"
-        description="Name the definition and choose who may read it. Then add the actual work, approvals and connections."
+        description="Start with a name and who can see it. Next you add the steps: work for people, approvals and checks."
       />
       <WorkflowDetailsForm organizationId={organizationId} requestKey={randomUUID()} />
     </>

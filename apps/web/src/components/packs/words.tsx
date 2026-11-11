@@ -21,17 +21,17 @@ export function DecisionBadge({ decision }: { decision: string }) {
 
 export const KIND_WORDS: Record<string, string> = {
   object_type: 'A new type of record',
-  agent_tool: 'A tool an agent would use',
+  agent_tool: 'A tool an assistant would use',
   data_class: 'A level of data',
   knowledge_source: 'A knowledge source',
   external_effect: 'An action outside your organization',
 };
 
 const CLASS_WORDS: Record<string, string> = {
-  read_only: 'This deployment lists this tool as reading only.',
-  draft_only: 'This deployment lists this tool as writing drafts only.',
-  external_write: 'This deployment lists this tool as reaching outside your organization.',
-  delegation: 'This deployment lists this tool as handing work to another agent.',
+  read_only: 'Here, this tool only reads.',
+  draft_only: 'Here, this tool only writes drafts.',
+  external_write: 'Here, this tool reaches outside your organization.',
+  delegation: 'Here, this tool hands work to another assistant.',
 };
 
 export function toolSentence(tool: {
@@ -40,22 +40,22 @@ export function toolSentence(tool: {
   requiresApproval: boolean | null;
 }): string {
   if (tool.availability === 'unknown') {
-    return 'The list of tools cannot be read on this deployment yet, so anything that needs this tool will be left out.';
+    return 'The list of tools cannot be read here yet, so anything that needs this tool is left out for now.';
   }
   if (tool.availability === 'unavailable') {
-    return 'This deployment does not have this tool, so anything that needs it will be left out.';
+    return 'This tool is not available here, so anything that needs it is left out.';
   }
-  const kind = (tool.class && CLASS_WORDS[tool.class]) || 'This deployment has this tool.';
+  const kind = (tool.class && CLASS_WORDS[tool.class]) || 'This tool is available here.';
   return tool.requiresApproval ? `${kind} A person approves each use.` : kind;
 }
 
 export const LEFT_OUT_WORDS: Record<string, string> = {
   declined: 'You declined something it needs.',
   undecided: 'Something it needs is not decided yet.',
-  tool_unavailable: 'This deployment does not have a tool it needs',
-  catalog_unavailable: 'The list of tools cannot be read on this deployment yet.',
+  tool_unavailable: 'A tool it needs is not available here',
+  catalog_unavailable: 'The list of tools cannot be read here yet.',
   tool_needs_approval_mode: 'It would need to ask a person first, and it is not set up to.',
-  tool_without_approval: 'A tool it needs does not ask a person first on this deployment',
+  tool_without_approval: 'A tool it needs does not ask a person first here',
   capability_understated: 'A tool it needs does more here than the pack said',
   name_in_use:
     'Your organization already has a record type with this name, and a pack never takes one over.',
@@ -63,7 +63,7 @@ export const LEFT_OUT_WORDS: Record<string, string> = {
 
 export const ITEM_KIND_WORDS: Record<string, string> = {
   object_type: 'Record type',
-  agent_draft: 'Agent draft',
+  agent_draft: 'Assistant draft',
   process_draft: 'Workflow draft',
   process_spec: 'Published workflow',
 };

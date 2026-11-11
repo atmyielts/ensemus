@@ -17,6 +17,7 @@ export function WorkflowIssues({
 }) {
   return issues.length ? (
     <>
+      <p>Fix these before you rehearse it:</p>
       <ul aria-label="Workflow compilation issues">
         {issues.map((issue, index) => (
           <li key={index}>
@@ -26,7 +27,7 @@ export function WorkflowIssues({
         ))}
       </ul>
       <details>
-        <summary>Diagnostic rule codes</summary>
+        <summary>Technical details</summary>
         <ul>
           {issues.map((issue, index) => (
             <li key={index}>
@@ -39,12 +40,11 @@ export function WorkflowIssues({
       </details>
     </>
   ) : (
-    <p>
-      The saved steps and connections pass the available checks. Rehearse the workflow and review
-      its results before requesting publication.
-    </p>
+    <p>The steps and their links pass every check. Rehearse it next, then ask for a review.</p>
   );
 }
+
+/** The saved points in editing order, each with what it waits for and what it needs. */
 export function WorkflowOverview({
   graph,
   choices,
@@ -52,80 +52,54 @@ export function WorkflowOverview({
   graph: ProcessGraph;
   choices: WorkflowChoices;
 }) {
+  const names = (ids: readonly string[]) =>
+    ids.map((id) => workflowPointLabel(graph, id)).join('; ');
   return (
-    <>
-      <p className="muted">
-        Connections determine execution order. The list below is an editing order; every earlier
-        connection must finish before the point can continue. Multiple later connections are
-        parallel paths, not conditional choices.
-      </p>
-      <ol className="list" aria-label="Saved workflow points">
-        {graph.nodes.map((node, index) => (
-          <li key={`${node.id}-${index}`}>
-            <div className="fields">
-              <h3>{workflowPointLabel(graph, node.id)}</h3>
-              <p>{WORKFLOW_KIND_NAMES[node.kind]}</p>
-              <dl className="details">
-                <div>
-                  <dt>Earlier points</dt>
-                  <dd>
-                    {graph.edges
-                      .filter((e) => e.to === node.id)
-                      .map((e) => workflowPointLabel(graph, e.from))
-                      .join('; ') || 'None'}
-                  </dd>
-                </div>
-                <div>
-                  <dt>Later points</dt>
-                  <dd>
-                    {graph.edges
-                      .filter((e) => e.from === node.id)
-                      .map((e) => workflowPointLabel(graph, e.to))
-                      .join('; ') || 'None'}
-                  </dd>
-                </div>
-                {node.kind === 'agent_task' && (
-                  <div>
-                    <dt>Assistant</dt>
-                    <dd>
-                      {choices.agents?.find((a) => a.id === node.agentDefinitionId)?.name ??
-                        'The saved assistant is not currently offered. Select an active published assistant before moving forward.'}
-                    </dd>
-                  </div>
-                )}
-                {node.kind === 'external_action' && (
-                  <div>
-                    <dt>Outside action</dt>
-                    <dd>
-                      {choices.tools?.find((t) => t.id === node.toolId)?.name ??
-                        'The saved outside action is not currently available.'}{' '}
-                      It will need its own actual connection and action approval later.
-                    </dd>
-                  </div>
-                )}
-                {node.kind === 'human_approval' && (
-                  <div>
-                    <dt>Who may decide</dt>
-                    <dd>
-                      {node.approverRole
-                        ? WORKFLOW_APPROVER_NAMES[node.approverRole]
-                        : 'Not selected yet'}
-                    </dd>
-                  </div>
-                )}
-                {node.kind === 'evidence_check' && (
-                  <div>
-                    <dt>Required evidence</dt>
-                    <dd>
-                      {node.evidence ? WORKFLOW_EVIDENCE_NAMES[node.evidence] : 'Not selected yet'}
-                    </dd>
-                  </div>
-                )}
-              </dl>
-            </div>
+    <ol className="list" aria-label="Saved workflow points">
+      {graph.nodes.map((node, index) => {
+        const before = graph.edges.filter((e) => e.to === node.id).map((e) => e.from),
+          after = graph.edges.filter((e) => e.from === node.id).map((e) => e.to);
+        return (
+          <li key={`${node.id}-${index}`} className="block">
+            <strong>{workflowPointLabel(graph, node.id)}</strong>
+            <br />
+            <small>
+              {WORKFLOW_KIND_NAMES[node.kind]}
+              {before.length ? ` · Waits for ${names(before)}` : ''}
+              {after.length > 1 ? ` · Then ${names(after)}, at the same time` : ''}
+            </small>
+            {node.kind === 'agent_task' && (
+              <p className="gap-above-small">
+                Assistant:{' '}
+                {choices.agents?.find((a) => a.id === node.agentDefinitionId)?.name ??
+                  'the chosen assistant is no longer offered. Choose a published one before moving on.'}
+              </p>
+            )}
+            {node.kind === 'external_action' && (
+              <p className="gap-above-small">
+                Action:{' '}
+                {choices.tools?.find((t) => t.id === node.toolId)?.name ??
+                  'the chosen action is no longer available.'}{' '}
+                <span className="muted">
+                  When it runs, it needs a working connection and a person’s approval.
+                </span>
+              </p>
+            )}
+            {node.kind === 'human_approval' && (
+              <p className="gap-above-small">
+                Who decides:{' '}
+                {node.approverRole ? WORKFLOW_APPROVER_NAMES[node.approverRole] : 'not chosen yet'}
+              </p>
+            )}
+            {node.kind === 'evidence_check' && (
+              <p className="gap-above-small">
+                Done when:{' '}
+                {node.evidence ? WORKFLOW_EVIDENCE_NAMES[node.evidence] : 'not chosen yet'}
+              </p>
+            )}
           </li>
-        ))}
-      </ol>
-    </>
+        );
+      })}
+    </ol>
   );
 }

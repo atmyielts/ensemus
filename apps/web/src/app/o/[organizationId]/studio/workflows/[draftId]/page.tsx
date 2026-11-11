@@ -10,7 +10,6 @@ import {
   ActionLink,
   BackLink,
   ClassificationBadge,
-  Empty,
   ErrorNotice,
   PageHead,
   StatusBadge,
@@ -96,231 +95,253 @@ export default async function WorkflowPage({
       <BackLink href={`${base}/workflows`}>Workflow drafts</BackLink>
       <PageHead
         title={draft.name}
-        description="The saved work, connections, approvals and evidence requirements. Nothing starts from this page without a separate authorized request."
-        actions={
-          draft.status !== 'archived' ? (
-            <ActionLink href={`${path}/edit`} variant="secondary">
-              Edit workflow
-            </ActionLink>
-          ) : undefined
-        }
+        description="Check the steps, rehearse the workflow with made-up examples, then ask a colleague to review it. Nothing here starts real work."
       />
       <ErrorNotice code={(await searchParams).error} />
-      <section className="card fields" aria-labelledby="workflow-snapshot">
-        <div className="row">
-          <h2 id="workflow-snapshot">Saved definition</h2>
-          <StatusBadge status={draft.status} />
+      <div className="detail-layout">
+        <div className="stack">
+          <section className="card" aria-labelledby="workflow-snapshot">
+            <h2 id="workflow-snapshot">Steps</h2>
+            <WorkflowIssues graph={draft.graph} issues={draft.issues} />
+            {!draft.specSha256 && !draft.issues.length && (
+              <p className="notice gap-above">
+                Something it relies on has changed since it was saved. Save it again before you
+                rehearse it.
+              </p>
+            )}
+            {unavailableReference && (
+              <p className="notice gap-above">
+                An assistant or outside action in this workflow is no longer offered. It stays
+                selected so you can see it; choose one that is available before moving on.
+              </p>
+            )}
+            {missingManager && (
+              <p className="notice gap-above">
+                One approval asks for the manager of the person who starts the work. Ensemus does
+                not know who manages whom, so choose a different way to find the approver.
+              </p>
+            )}
+            {catalog.agents === null && (
+              <p className="muted gap-above">
+                The list of assistants cannot be read right now. Workflows with only people in them
+                can still be prepared.
+              </p>
+            )}
+            {catalog.tools === null && (
+              <p className="muted gap-above">
+                The list of outside actions cannot be read right now, so none counts as ready.
+              </p>
+            )}
+            <div className="gap-above-large">
+              <WorkflowOverview graph={draft.graph} choices={choices} />
+            </div>
+            <div className="divided">
+              <WorkflowMap
+                draft={draft}
+                layout={layoutWorkflowGraph(draft.graph)}
+                id="saved-workflow-map"
+                editHref={`${path}/edit`}
+                readOnly={draft.status === 'archived'}
+                organizationId={organizationId}
+              />
+            </div>
+          </section>
+
+          <section className="card" aria-labelledby="workflow-rehearsal">
+            <h2 id="workflow-rehearsal">Rehearse it</h2>
+            <p className="muted">
+              A rehearsal walks through the saved steps with made-up facts. No AI model is called,
+              nothing is sent and nothing outside Ensemus changes. It does not check that real
+              connections are set up.
+            </p>
+            {ready ? (
+              <form action={rehearseWorkflowAction} className="gap-above">
+                <input type="hidden" name="organizationId" value={organizationId} />
+                <input type="hidden" name="draftId" value={draft.id} />
+                <input type="hidden" name="requestKey" value={randomUUID()} />
+                <SubmitButton working="Requesting the fixed rehearsal">
+                  Run the workflow rehearsal
+                </SubmitButton>
+              </form>
+            ) : (
+              <p className="muted gap-above">
+                Once the steps pass every check and the responsible person is active, you can
+                rehearse it here.
+              </p>
+            )}
+            {runs.length ? (
+              <ul className="list gap-above" aria-label="Recent workflow rehearsals">
+                {runs.slice(0, 10).map((run) => (
+                  <li key={run.id}>
+                    <span>
+                      <Link href={`${base}/simulations/${run.id}`}>
+                        Rehearsal · {formatDateTime(run.createdAt)}
+                      </Link>
+                      <br />
+                      <small>
+                        {run.subjectSha256 === draft.specSha256
+                          ? 'This version'
+                          : 'An earlier version'}
+                      </small>
+                    </span>
+                    <StatusBadge status={run.status} />
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="muted gap-above">No rehearsals yet.</p>
+            )}
+            <p className="link-line gap-above">
+              <Link href={path}>Refresh rehearsal status</Link>
+            </p>
+          </section>
+
+          <section className="card" aria-labelledby="workflow-review">
+            <h2 id="workflow-review">Ask for a review</h2>
+            <p className="muted">
+              The reviewer sees exactly this version. Approving and publishing are separate steps,
+              and neither starts the workflow.
+            </p>
+            {elevated && (
+              <p className="notice gap-above">
+                Because of who can see it, or because it uses assistants or outside actions, someone
+                other than you has to review it. They need to be able to read this draft.
+              </p>
+            )}
+            {openReview ? (
+              <p className="gap-above">
+                A review is already open.{' '}
+                <Link href={`${base}/reviews/${openReview.id}`}>Open that review</Link> to read or
+                close it before asking again.
+              </p>
+            ) : passed.length && reviewers.length ? (
+              <form action={reviewWorkflowAction} className="fields gap-above">
+                <input type="hidden" name="organizationId" value={organizationId} />
+                <input type="hidden" name="draftId" value={draft.id} />
+                <input type="hidden" name="requestKey" value={randomUUID()} />
+                <label htmlFor="workflow-passed-run">Passed rehearsal to show the reviewer</label>
+                <select id="workflow-passed-run" name="simulationId" required>
+                  {passed.map((run) => (
+                    <option value={run.id} key={run.id}>
+                      {formatDateTime(run.createdAt)} · Passed
+                    </option>
+                  ))}
+                </select>
+                <label htmlFor="workflow-named-reviewer">
+                  <span id="workflow-named-reviewer-label">Named reviewer</span>
+                  <small id="workflow-named-reviewer-help">
+                    To change the reviewer later, cancel the review and ask again.
+                  </small>
+                  <select
+                    id="workflow-named-reviewer"
+                    name="reviewerMembershipId"
+                    required
+                    aria-labelledby="workflow-named-reviewer-label"
+                    aria-describedby="workflow-named-reviewer-help"
+                  >
+                    {reviewers.map((person) => (
+                      <option key={person.membershipId} value={person.membershipId}>
+                        {person.name}
+                        {person.membershipId === context.membershipId
+                          ? ' (you, standard reviews only)'
+                          : ''}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <div>
+                  <SubmitButton working="Requesting human review">
+                    Request review of this workflow
+                  </SubmitButton>
+                </div>
+              </form>
+            ) : (
+              <p className="muted gap-above">
+                {!passed.length
+                  ? 'Run a rehearsal of this version first. Once it passes, you can ask for a review.'
+                  : 'Nobody else who can review it is able to read this draft yet. Keep it private until someone can.'}
+              </p>
+            )}
+            {reviews.length > 0 && (
+              <ul className="list gap-above" aria-label="Recent workflow reviews">
+                {reviews.slice(0, 5).map((review) => (
+                  <li key={review.id}>
+                    <Link href={`${base}/reviews/${review.id}`}>
+                      Review requested {formatDateTime(review.createdAt)}
+                    </Link>
+                    <StatusBadge status={review.status} />
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
         </div>
-        <dl className="details">
-          <div>
-            <dt>Responsible person</dt>
-            <dd>
-              {owner?.name ?? 'The recorded responsible person is no longer listed'}
-              {owner && owner.status !== 'active' ? ' (currently inactive)' : ''}
-            </dd>
+
+        <aside className="card" aria-labelledby="workflow-summary">
+          <div className="spread">
+            <h2 id="workflow-summary">Summary</h2>
+            <StatusBadge status={draft.status} />
           </div>
-          <div>
-            <dt>Sensitivity</dt>
-            <dd>
-              <ClassificationBadge value={draft.classification} />
-            </dd>
-          </div>
-          <div>
-            <dt>Source revision</dt>
-            <dd>{draft.version}</dd>
-          </div>
-          <div>
-            <dt>Updated</dt>
-            <dd>{formatDateTime(draft.updatedAt)}</dd>
-          </div>
-        </dl>
-        <WorkflowIssues graph={draft.graph} issues={draft.issues} />
-        {!draft.specSha256 && !draft.issues.length && (
-          <p className="notice">
-            The current catalog no longer matches the stored hash. Save the definition under the
-            current catalog before requesting another rehearsal.
-          </p>
-        )}
-        {unavailableReference && (
-          <p className="notice">
-            A saved assistant or outside action is not currently offered. Its selection is
-            preserved. Correct the reference or restore an actual active publication before moving
-            forward.
-          </p>
-        )}
-        {missingManager && (
-          <p className="notice">
-            This definition asks for an initiating person’s manager. No manager relationship is
-            recorded in this product, so that approval cannot be resolved here. Choose a supported
-            approval route.
-          </p>
-        )}
-        {catalog.agents === null && (
-          <p className="muted">
-            The assistant catalog is unavailable. Human-only workflows can still be prepared.
-          </p>
-        )}
-        {catalog.tools === null && (
-          <p className="muted">
-            The outside-action catalog is unavailable. No outside-action readiness is assumed.
-          </p>
-        )}
-        <WorkflowMap
-          draft={draft}
-          layout={layoutWorkflowGraph(draft.graph)}
-          id="saved-workflow-map"
-          editHref={`${path}/edit`}
-          readOnly={draft.status === 'archived'}
-          organizationId={organizationId}
-        />
-        <details>
-          <summary>Point requirements and saved choices</summary>
-          <WorkflowOverview graph={draft.graph} choices={choices} />
-        </details>
-        <details>
-          <summary>Snapshot identity</summary>
-          <dl className="details">
+          <dl className="details gap-above-small">
             <div>
-              <dt>Definition hash</dt>
+              <dt>Responsible person</dt>
               <dd>
-                <code>{draft.specSha256 ?? 'No current compiled snapshot'}</code>
+                {owner?.name ?? 'No longer listed'}
+                {owner && owner.status !== 'active' ? ' (no longer active)' : ''}
               </dd>
             </div>
             <div>
-              <dt>Responsible membership</dt>
+              <dt>Who can see this</dt>
               <dd>
-                <code>{draft.ownerMembershipId}</code>
+                <ClassificationBadge value={draft.classification} />
               </dd>
             </div>
             <div>
-              <dt>Draft identity</dt>
-              <dd>
-                <code>{draft.id}</code>
-              </dd>
+              <dt>Version</dt>
+              <dd>{draft.version}</dd>
+            </div>
+            <div>
+              <dt>Updated</dt>
+              <dd>{formatDateTime(draft.updatedAt)}</dd>
             </div>
           </dl>
-        </details>
-      </section>
-      <section className="card fields" aria-labelledby="workflow-rehearsal">
-        <h2 id="workflow-rehearsal">Rehearse the saved definition</h2>
-        <p>
-          The standard workflow scenario walks the actual compiled steps using fixed synthetic
-          facts. It calls no model, sends nothing and performs no outside action. It does not
-          qualify a real provider or prove that live connections are configured.
-        </p>
-        {ready ? (
-          <form action={rehearseWorkflowAction}>
-            <input type="hidden" name="organizationId" value={organizationId} />
-            <input type="hidden" name="draftId" value={draft.id} />
-            <input type="hidden" name="requestKey" value={randomUUID()} />
-            <SubmitButton working="Requesting the fixed rehearsal">
-              Run the workflow rehearsal
-            </SubmitButton>
-          </form>
-        ) : (
-          <p className="muted">
-            Resolve the current compilation, reference and responsible-person issues before using
-            the publication rehearsal flow.
-          </p>
-        )}
-        {runs.length ? (
-          <ul className="list" aria-label="Recent workflow rehearsals">
-            {runs.slice(0, 10).map((run) => (
-              <li key={run.id}>
-                <div>
-                  <Link href={`${base}/simulations/${run.id}`}>
-                    Workflow rehearsal · {formatDateTime(run.createdAt)}
-                  </Link>
-                  <p className="muted">
-                    {run.subjectSha256 === draft.specSha256
-                      ? 'Matches the saved definition hash'
-                      : 'Earlier definition snapshot'}
-                  </p>
-                </div>
-                <StatusBadge status={run.status} />
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <Empty>No rehearsal has been requested for this workflow.</Empty>
-        )}
-        <Link href={path}>Refresh rehearsal status</Link>
-      </section>
-      <section className="card fields" aria-labelledby="workflow-review">
-        <h2 id="workflow-review">Request human review</h2>
-        <p>
-          A review freezes this name, responsible person, revision and definition hash. Approval and
-          publication remain separate decisions; neither starts a workflow run.
-        </p>
-        {elevated && (
-          <p className="notice">
-            This definition needs an independent reviewer because of its sensitivity, assistant use
-            or outside actions. That person must already be permitted to read the draft.
-          </p>
-        )}
-        {openReview ? (
-          <p>
-            A review is already open.{' '}
-            <Link href={`${base}/reviews/${openReview.id}`}>Read or close that review</Link> before
-            requesting another.
-          </p>
-        ) : passed.length && reviewers.length ? (
-          <form action={reviewWorkflowAction} className="fields">
-            <input type="hidden" name="organizationId" value={organizationId} />
-            <input type="hidden" name="draftId" value={draft.id} />
-            <input type="hidden" name="requestKey" value={randomUUID()} />
-            <label htmlFor="workflow-passed-run">
-              Passed standard rehearsal for the saved hash
-            </label>
-            <select id="workflow-passed-run" name="simulationId" required>
-              {passed.map((run) => (
-                <option value={run.id} key={run.id}>
-                  {formatDateTime(run.createdAt)} · Fixed standard scenario passed
-                </option>
-              ))}
-            </select>
-            <label htmlFor="workflow-named-reviewer">Named reviewer</label>
-            <select id="workflow-named-reviewer" name="reviewerMembershipId" required>
-              {reviewers.map((person) => (
-                <option key={person.membershipId} value={person.membershipId}>
-                  {person.name}
-                  {person.membershipId === context.membershipId
-                    ? ' (you; standard-risk review only)'
-                    : ''}
-                </option>
-              ))}
-            </select>
-            <p className="muted">
-              The exact source, rehearsal and current reviewer authority are checked again on
-              submit. A named reviewer is fixed for that review; cancel it to request a different
-              reviewer.
-            </p>
-            <div>
-              <SubmitButton working="Requesting human review">
-                Request review of this workflow
-              </SubmitButton>
+          {draft.status !== 'archived' && (
+            <div className="divided">
+              <ActionLink href={`${path}/edit`} variant="secondary">
+                Edit workflow
+              </ActionLink>
+              <p className="muted gap-above-small">
+                <small>
+                  Saving changes closes open reviews. Published versions stay as they are.
+                </small>
+              </p>
             </div>
-          </form>
-        ) : (
-          <p className="muted">
-            {!passed.length
-              ? 'A passed standard rehearsal of the current saved definition is needed first.'
-              : 'There is no eligible independent reader under this draft’s current access rules. Keep it private until an approved review-access path is available.'}
-          </p>
-        )}
-        {reviews.length > 0 && (
-          <ul className="list" aria-label="Recent workflow reviews">
-            {reviews.slice(0, 5).map((review) => (
-              <li key={review.id}>
-                <Link href={`${base}/reviews/${review.id}`}>
-                  Review requested {formatDateTime(review.createdAt)}
-                </Link>
-                <StatusBadge status={review.status} />
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
+          )}
+          <details className="divided">
+            <summary>Technical details</summary>
+            <dl className="details gap-above-small">
+              <div>
+                <dt>Definition fingerprint</dt>
+                <dd>
+                  <code>{draft.specSha256 ?? 'Not compiled'}</code>
+                </dd>
+              </div>
+              <div>
+                <dt>Responsible membership</dt>
+                <dd>
+                  <code>{draft.ownerMembershipId}</code>
+                </dd>
+              </div>
+              <div>
+                <dt>Draft identifier</dt>
+                <dd>
+                  <code>{draft.id}</code>
+                </dd>
+              </div>
+            </dl>
+          </details>
+        </aside>
+      </div>
     </OneActionAtATime>
   );
 }

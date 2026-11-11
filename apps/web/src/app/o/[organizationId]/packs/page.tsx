@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { PackStatusBadge } from '@/components/packs/words';
 import { SubmitButton } from '@/components/submit-button';
-import { Empty, ErrorNotice, formatDateTime, PageHead } from '@/components/ui';
+import { BackLink, Empty, ErrorNotice, formatDateTime, PageHead } from '@/components/ui';
 import { requestPackInstallAction } from '@/server/pack-actions';
 import { webProductPorts } from '@/server/product-ports';
 import { orNotFound, requireTenant } from '@/server/tenant';
@@ -40,7 +40,7 @@ function VersionAction({
       <input type="hidden" name="organizationId" value={organizationId} />
       <input type="hidden" name="packKey" value={entry.key} />
       <input type="hidden" name="version" value={entry.version} />
-      <SubmitButton className="quiet" label={`Review ${entry.name} ${entry.version}`}>
+      <SubmitButton className="secondary" label={`Review ${entry.name} ${entry.version}`}>
         Review what it asks for
       </SubmitButton>
     </form>
@@ -64,60 +64,70 @@ export default async function PacksPage({
     orNotFound(service.listPackCatalog(database, context)),
     orNotFound(service.listPackInstallations(database, context)),
   ]);
+  const packName = (key: string) => catalog.find((entry) => entry.key === key)?.name ?? key;
 
   return (
     <>
+      <BackLink href={`${base}/studio`}>Automation Studio</BackLink>
       <PageHead
         title="Packs"
-        description="Ready-made record types and drafts for a department. A pack comes with this release, and nothing is downloaded."
+        description="A pack is a ready-made starting point for a department: record types, assistant drafts and workflows. Packs come with this release; nothing is downloaded."
       />
       <ErrorNotice code={error} />
       <p className="notice">
-        Installing a pack grants no permission and changes nobody&apos;s role. You decide each thing
-        it asks for, and what it makes starts as a draft that can do nothing until a person has
-        simulated, reviewed and published it.
+        Installing a pack gives nobody new permissions. You decide on each thing it asks for, and
+        everything it makes starts as a draft that does nothing until it has been rehearsed,
+        reviewed and published.
       </p>
       <div className="stack">
         <section className="card" aria-labelledby="catalog-heading">
           <h2 id="catalog-heading">Available in this release</h2>
           {catalog.length === 0 ? (
-            <Empty>This release has no packs to offer.</Empty>
+            <Empty title="No packs in this release">
+              You can still build assistants and workflows of your own in Automation Studio.
+            </Empty>
           ) : (
             <ul className="list">
               {catalog.map((entry) => (
                 <li key={`${entry.key}-${entry.version}`} className="block">
-                  <div className="row">
-                    <strong>{entry.name}</strong>
-                    <small className="muted">Version {entry.version}</small>
+                  <div className="spread">
+                    <span>
+                      <strong>{entry.name}</strong> <small>Version {entry.version}</small>
+                    </span>
                     {entry.upgrade?.needsReview && !entry.upgrade.refused && (
                       <span className="badge active">Asks for something new</span>
                     )}
                   </div>
-                  <p>{entry.description}</p>
-                  <VersionAction organizationId={organizationId} entry={entry} base={base} />
+                  <p className="muted">{entry.description}</p>
+                  <div className="link-line gap-above-small">
+                    <VersionAction organizationId={organizationId} entry={entry} base={base} />
+                  </div>
                 </li>
               ))}
             </ul>
           )}
         </section>
         <section className="card" aria-labelledby="history-heading">
-          <h2 id="history-heading">In this organization</h2>
+          <h2 id="history-heading">In your organization</h2>
           {history.length === 0 ? (
-            <Empty>No pack has been reviewed or installed here yet.</Empty>
+            <Empty title="No packs yet">
+              Choose “Review what it asks for” on a pack above. You see everything it needs before
+              anything is made.
+            </Empty>
           ) : (
             <ul className="list">
               {history.map((row) => (
                 <li key={row.id}>
                   <span>
                     <Link href={`${base}/packs/installations/${row.id}`}>
-                      {row.packKey} {row.packVersion}
+                      {packName(row.packKey)} {row.packVersion}
                     </Link>
                     <br />
                     <small>
                       {row.activatedAt ? (
-                        <>Activated {formatDateTime(row.activatedAt)}</>
+                        <>Installed {formatDateTime(row.activatedAt)}</>
                       ) : (
-                        <>Asked for {formatDateTime(row.createdAt)}</>
+                        <>Review started {formatDateTime(row.createdAt)}</>
                       )}
                     </small>
                   </span>

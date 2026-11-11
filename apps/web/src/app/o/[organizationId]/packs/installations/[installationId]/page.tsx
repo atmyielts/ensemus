@@ -10,7 +10,7 @@ import {
   LEFT_OUT_WORDS,
   PackStatusBadge,
 } from '@/components/packs/words';
-import { Empty, ErrorNotice, PageHead } from '@/components/ui';
+import { BackLink, Empty, ErrorNotice, PageHead } from '@/components/ui';
 import { activatePackAction, rollbackPackAction } from '@/server/pack-actions';
 import { webProductPorts } from '@/server/product-ports';
 import { orNotFound, requireTenant } from '@/server/tenant';
@@ -44,31 +44,31 @@ export default async function PackInstallationPage({
 
   return (
     <>
+      <BackLink href={`${base}/packs`}>Packs</BackLink>
       <PageHead
         title={`${review.name} ${installation.packVersion}`}
         description={review.description}
         actions={<PackStatusBadge status={installation.status} />}
       />
       <ErrorNotice code={error} />
-      <p>
-        <Link href={`${base}/packs`}>Back to packs</Link>
-      </p>
       <p className="notice">
-        Accepting something here records your decision and grants no permission. It changes
-        nobody&apos;s role. No agent or workflow can run because of it: each one starts as a draft,
-        and has to pass a simulation and a review like any other.
+        Accepting something records your decision; it gives nobody new permissions or a new role.
+        Nothing runs because of it: each assistant and workflow starts as a draft and has to be
+        rehearsed and reviewed like any other.
       </p>
       {review.toolCatalog === 'unavailable' && (
         <p className="notice warn">
-          The list of tools cannot be read on this deployment yet. You can still decide, and
-          anything that names a tool will be left out for now.
+          The list of tools cannot be read here yet. You can still decide, and anything that needs a
+          tool is left out for now.
         </p>
       )}
       <div className="stack">
         <section className="card" aria-labelledby="requests-heading">
           <h2 id="requests-heading">What this pack asks for</h2>
           {review.requests.length === 0 ? (
-            <Empty>This version asks for nothing.</Empty>
+            <Empty title="Nothing to decide">
+              This version asks for nothing, so you can go straight to installing it.
+            </Empty>
           ) : (
             <ul className="list">
               {review.requests.map((request) => (
@@ -87,9 +87,9 @@ export default async function PackInstallationPage({
         <section className="card" aria-labelledby="makes-heading">
           <h2 id="makes-heading">{reviewing ? 'What it would make' : 'What it made'}</h2>
           {review.willMake.length === 0 ? (
-            <Empty>
+            <Empty title={reviewing ? 'Nothing yet' : 'Nothing was made'}>
               {reviewing
-                ? 'Nothing yet, with the decisions made so far.'
+                ? 'With the decisions so far, it would make nothing. Accept what it asks for to see what it would make.'
                 : 'This version made nothing.'}
             </Empty>
           ) : (
@@ -128,21 +128,21 @@ export default async function PackInstallationPage({
 
         {reviewing && (
           <section className="card" aria-labelledby="activate-heading">
-            <h2 id="activate-heading">Activate</h2>
+            <h2 id="activate-heading">Install it</h2>
             {review.canActivate ? (
               <ConfirmForm
                 action={activatePackAction}
                 fields={hidden}
-                summary="Activate this version"
-                consequence="Make the record types and drafts listed above. I understand they can do nothing until each is simulated, reviewed and published."
-                confirmLabel="Activate"
-                confirmFullLabel={`Activate ${review.name} ${installation.packVersion}`}
+                summary="Install this version"
+                consequence="Make the record types and drafts listed above. I understand they do nothing until each is rehearsed, reviewed and published."
+                confirmLabel="Install"
+                confirmFullLabel={`Install ${review.name} ${installation.packVersion}`}
               />
             ) : (
               <p className="muted">
                 {undecided === 1
-                  ? 'One thing is still to be decided before this can be activated.'
-                  : `${undecided} things are still to be decided before this can be activated.`}
+                  ? 'Decide the one thing still open above, then you can install it.'
+                  : `Decide the ${undecided} things still open above, then you can install it.`}
               </p>
             )}
           </section>

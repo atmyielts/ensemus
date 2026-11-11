@@ -1,7 +1,6 @@
 import { randomUUID } from 'node:crypto';
-import Link from 'next/link';
 import { getAgentDraft, getAgentDraftChoices } from '@ensemus/application/agent-drafts';
-import { Empty, PageHead } from '@/components/ui';
+import { ActionLink, BackLink, Empty, PageHead } from '@/components/ui';
 import { AgentForm } from '@/components/studio/agent-form';
 import { requireStudio, studioRead } from '@/server/studio-pages';
 import { webProductPorts } from '@/server/product-ports';
@@ -27,18 +26,34 @@ export default async function EditAgentPage({
     ]);
   return (
     <>
-      <Link href={`/o/${organizationId}/studio/agents/${draft.id}`}>Back to {draft.name}</Link>
+      <BackLink href={`/o/${organizationId}/studio/agents/${draft.id}`}>{draft.name}</BackLink>
       <PageHead
         title="Edit assistant draft"
-        description="Changing its purpose or limits cancels open reviews. Published and running versions stay fixed."
+        description="Saving changes closes any open review, so it will need a new rehearsal. Published versions and work already under way stay as they are."
       />
       {draft.status === 'archived' ? (
-        <Empty>This draft is archived.</Empty>
+        <Empty
+          title="This draft is archived"
+          action={
+            <ActionLink href={`/o/${organizationId}/studio/agents/new`} variant="secondary">
+              Create a new assistant
+            </ActionLink>
+          }
+        >
+          An archived draft can be read but not changed.
+        </Empty>
       ) : draft.agentDefinitionId &&
         !choices.people.some((p) => p.id === draft.ownerMembershipId) ? (
-        <Empty>
-          The responsible person is no longer active. Create a separate assistant to choose someone
-          else.
+        <Empty
+          title="The responsible person is no longer active"
+          action={
+            <ActionLink href={`/o/${organizationId}/studio/agents/new`} variant="secondary">
+              Create a separate assistant
+            </ActionLink>
+          }
+        >
+          A published assistant keeps its responsible person. To hand it to someone else, create a
+          separate assistant.
         </Empty>
       ) : (
         <AgentForm

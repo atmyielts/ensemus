@@ -1,17 +1,24 @@
 import { randomUUID } from 'node:crypto';
 import { listBundledCatalog } from '@ensemus/application/process-runs';
 import Link from 'next/link';
-import { ActionLink, BackLink, ClassificationBadge, ErrorNotice, PageHead } from '@/components/ui';
+import {
+  ActionLink,
+  BackLink,
+  ClassificationBadge,
+  Empty,
+  ErrorNotice,
+  PageHead,
+} from '@/components/ui';
 import { SubmitButton } from '@/components/submit-button';
 import { OneActionAtATime } from '@/components/one-action-at-a-time';
 import { requireStudio } from '@/server/studio-pages';
 import { installWorkflowCatalogAction } from '@/server/process-run-actions';
 const needName = {
-  email_connector: 'Supported email connection',
-  accounting_connector: 'Supported accounting connection',
-  meeting_notes: 'Meeting notes input',
+  email_connector: 'An email connection',
+  accounting_connector: 'An accounting connection',
+  meeting_notes: 'Meeting notes',
 } as const;
-export const metadata = { title: 'Bundled workflows | Ensemus' };
+export const metadata = { title: 'Ready-made workflows | Ensemus' };
 export default async function ProcessCatalogPage({
   params,
   searchParams,
@@ -27,79 +34,100 @@ export default async function ProcessCatalogPage({
     <OneActionAtATime>
       <BackLink href={base}>Workflow runs</BackLink>
       <PageHead
-        title="Bundled workflow definitions"
-        description="Inspect the saved steps and requirements before starting real work. Installation publishes a definition; it does not qualify a model, provider or delivery path."
+        title="Ready-made workflows"
+        description="Workflows that come with Ensemus. Read the steps and what each one needs, then install it to start real work with it."
       />
       <ErrorNotice code={(await searchParams).error} />
       <p className="notice">
-        Installing requires your existing publication permission and recent native MFA. Starting an
-        already approved version has no additional MFA requirement. Missing requirements are shown
-        explicitly and may stop a later step.
+        Installing publishes the workflow for your organization, so it asks you to confirm with your
+        second sign-in step if you have not done so recently. Starting one that is already installed
+        does not.
       </p>
-      <ul className="fields" aria-label="Bundled workflow definitions">
-        {catalog.items.map((item) => (
-          <li className="card fields" key={item.key}>
-            <div className="row">
-              <h2>{item.name}</h2>
-              <ClassificationBadge value={item.classification} />
-            </div>
-            <p>{item.description}</p>
-            {item.needs.length ? (
-              <ul>
-                {item.needs.map((entry) => (
-                  <li key={entry.need}>
-                    {needName[entry.need]}:{' '}
-                    {entry.met
-                      ? 'An active connection is recorded here; actual use is checked again.'
-                      : 'Not available on this workspace.'}
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p>No connector requirement is recorded for this definition.</p>
-            )}
-            {item.installed ? (
-              <>
-                <p>
-                  Installed version {item.installed.versionNumber}. No run has been started by this
-                  page.
+      {catalog.items.length === 0 ? (
+        <Empty
+          title="No ready-made workflows in this release"
+          action={
+            <ActionLink href={`/o/${organizationId}/studio/workflows/new`} variant="secondary">
+              Build your own workflow
+            </ActionLink>
+          }
+        >
+          You can still build a workflow of your own from scratch.
+        </Empty>
+      ) : (
+        <ul className="stack studio-cards" aria-label="Bundled workflow definitions">
+          {catalog.items.map((item) => (
+            <li className="card" key={item.key}>
+              <div className="spread">
+                <h2>{item.name}</h2>
+                <span className="row">
+                  {item.installed && <span className="badge done">Installed</span>}
+                  <ClassificationBadge value={item.classification} />
+                </span>
+              </div>
+              <p>{item.description}</p>
+              <h3 className="gap-above">What it needs</h3>
+              {item.needs.length ? (
+                <ul className="list">
+                  {item.needs.map((entry) => (
+                    <li key={entry.need}>
+                      <span>{needName[entry.need]}</span>
+                      {entry.met ? (
+                        <span className="badge done">Available</span>
+                      ) : (
+                        <span className="badge attention">Not available here</span>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="muted">Nothing beyond the people who do its steps.</p>
+              )}
+              {item.needs.some((entry) => entry.met) && (
+                <p className="muted">
+                  <small>Each one is checked again when a step uses it.</small>
                 </p>
-                <ActionLink
-                  href={`${base}/new?spec=${encodeURIComponent(item.installed.specId)}`}
-                  variant="secondary"
-                >
-                  Review {item.name} before starting
-                </ActionLink>
-              </>
-            ) : (
-              <form action={installWorkflowCatalogAction} className="fields">
-                <input type="hidden" name="organizationId" value={organizationId} />
-                <input type="hidden" name="requestKey" value={randomUUID()} />
-                <input type="hidden" name="processKey" value={item.key} />
-                <div>
-                  <SubmitButton working="Installing the definition">
-                    Install {item.name}
-                  </SubmitButton>
-                </div>
-              </form>
-            )}
-            <details>
-              <summary>Definition details</summary>
-              <p>
-                Catalog definition: <code>{item.key}</code>
-              </p>
-              <p>
-                Fixed synthetic scenario: <code>{item.scenarioKey}</code>. It is a rules rehearsal,
-                not provider qualification.
-              </p>
-            </details>
-          </li>
-        ))}
-      </ul>
-      <p>
-        <Link href={`/o/${organizationId}/studio/workflows`}>
-          Prepare your own workflow definition
-        </Link>
+              )}
+              <div className="divided">
+                {item.installed ? (
+                  <div className="spread">
+                    <span className="muted">
+                      Version {item.installed.versionNumber} is installed.
+                    </span>
+                    <ActionLink
+                      href={`${base}/new?spec=${encodeURIComponent(item.installed.specId)}`}
+                      variant="secondary"
+                    >
+                      Review {item.name} before starting
+                    </ActionLink>
+                  </div>
+                ) : (
+                  <form action={installWorkflowCatalogAction}>
+                    <input type="hidden" name="organizationId" value={organizationId} />
+                    <input type="hidden" name="requestKey" value={randomUUID()} />
+                    <input type="hidden" name="processKey" value={item.key} />
+                    <SubmitButton className="secondary" working="Installing the definition">
+                      Install {item.name}
+                    </SubmitButton>
+                  </form>
+                )}
+              </div>
+              <details className="gap-above">
+                <summary>Technical details</summary>
+                <p className="gap-above-small">
+                  Catalog name: <code>{item.key}</code>
+                </p>
+                <p>
+                  Rehearsal example: <code>{item.scenarioKey}</code>
+                </p>
+              </details>
+            </li>
+          ))}
+        </ul>
+      )}
+      <p className="muted gap-above-large">
+        Need something different?{' '}
+        <Link href={`/o/${organizationId}/studio/workflows`}>Build your own workflow</Link>
       </p>
     </OneActionAtATime>
   );

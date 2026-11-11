@@ -27,7 +27,7 @@ export function ProcessStartForm({
   return (
     <form
       action={action}
-      className="fields"
+      className="card fields"
       aria-label="Start an approved workflow"
       key={state.revision ?? 0}
     >
@@ -36,7 +36,7 @@ export function ProcessStartForm({
       </div>
       <input type="hidden" name="organizationId" value={organizationId} />
       <input type="hidden" name="requestKey" value={values?.requestKey ?? requestKey} />
-      <label htmlFor={`${prefix}-spec`}>Approved workflow and version</label>
+      <label htmlFor={`${prefix}-spec`}>Workflow</label>
       <select
         id={`${prefix}-spec`}
         name="specId"
@@ -61,11 +61,10 @@ export function ProcessStartForm({
           </option>
         ))}
       </select>
-      <p className="muted" id={`${prefix}-definition-help`}>
-        The selected immutable version is pinned to this run. Current permissions, connections,
-        publication and budget are checked again by the worker. The selector is bounded; it does not
-        promise a complete history.
-      </p>
+      <small id={`${prefix}-definition-help`}>
+        The work keeps this version even if the workflow changes later. Access, connections and
+        budget are checked again at each step.
+      </small>
       <label htmlFor={`${prefix}-title`}>Name this work</label>
       <input
         id={`${prefix}-title`}
@@ -75,11 +74,11 @@ export function ProcessStartForm({
         defaultValue={values?.title ?? ''}
         autoComplete="off"
       />
-      <label htmlFor={`${prefix}-due`}>Due date (optional, UTC)</label>
+      <label htmlFor={`${prefix}-due`}>Due date (optional)</label>
       <input id={`${prefix}-due`} name="dueAt" type="date" defaultValue={values?.dueAt ?? ''} />
       <p className="notice">
-        Starting creates real workflow work and queues the background worker. People still confirm
-        their work; any email needs its exact proposal, separate approval and delivery receipt.
+        Starting creates real work for the people in this workflow. They still confirm their own
+        steps, and any email waits for someone to approve the exact message before it is sent.
       </p>
       <div>
         <SubmitButton working="Requesting the workflow">Start this workflow</SubmitButton>

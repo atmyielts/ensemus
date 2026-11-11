@@ -4,7 +4,14 @@ import { getAgentDraft } from '@ensemus/application/agent-drafts';
 import { getProcessDraft } from '@ensemus/application/process-specs';
 import { findBundledWorkflow } from '@ensemus/packs/bundled';
 import Link from 'next/link';
-import { BackLink, Empty, PageHead, StatusBadge, formatDateTime } from '@/components/ui';
+import {
+  ActionLink,
+  BackLink,
+  Empty,
+  PageHead,
+  StatusBadge,
+  formatDateTime,
+} from '@/components/ui';
 import { requireStudio, studioRead } from '@/server/studio-pages';
 import { webProductPorts } from '@/server/product-ports';
 import { studioScenarioName, studioToolName } from '@/lib/studio-present';
@@ -71,182 +78,211 @@ export default async function SimulationPage({
     currentHash !== run.subjectSha256;
   const waiting = run.status === 'queued' || run.status === 'running';
   const decisionLabel = {
-    allowed: 'Would be permitted',
-    needs_approval: 'Would wait for a person',
-    denied: 'Would be blocked by a rule',
-    would_write_outside: 'Would propose an outside change',
+    allowed: 'Allowed',
+    needs_approval: 'Would wait for a person to approve',
+    denied: 'Stopped by a rule',
+    would_write_outside: 'Would propose a change outside Ensemus',
   };
   return (
     <>
       <BackLink href={parent}>{parentLabel}</BackLink>
       <PageHead title="Rehearsal report" description={studioScenarioName(run.scenarioKey)} />
       <p className="notice">
-        Synthetic rule check only. No real model was called, no email was sent and no outside action
-        was performed. Passing this rehearsal is not model or provider qualification.
+        This was a practice run with made-up examples. No AI model was called, nothing was sent and
+        nothing outside Ensemus changed.
       </p>
-      <div className="row">
-        <StatusBadge status={status} />
-        <p className="muted">
-          Requested {formatDateTime(run.createdAt)}
-          {run.finishedAt ? <> · Finished {formatDateTime(run.finishedAt)}</> : ''}
-        </p>
-      </div>
       {stale && (
-        <p className="notice">
-          The draft has changed since this snapshot. This historical report cannot establish
-          readiness for its current definition. Return to the draft and rehearse its saved snapshot.
+        <p className="notice warn">
+          The draft has changed since this rehearsal, so it says nothing about the current version.
+          Go back to the draft and rehearse it again.
         </p>
       )}
       {currentUnavailable && (
-        <p className="notice">
-          The current workflow definition could not be assessed here. This report is historical
-          only; it does not establish current publication readiness.
+        <p className="notice warn">
+          The current workflow could not be checked here. This report is history only and does not
+          make the workflow ready to publish.
         </p>
       )}
-      {waiting ? (
-        <section className="card fields">
-          <h2>
-            {run.status === 'queued'
-              ? 'Waiting for the rehearsal worker'
-              : 'The rehearsal is in progress'}
-          </h2>
-          <p>No result is available yet. A request is not a passing report.</p>
-          <Link href={`${base}/simulations/${run.id}`}>Refresh this report</Link>
-        </section>
-      ) : usable && report ? (
-        <>
-          <section className="card fields" aria-labelledby="rehearsal-outcome">
-            <h2 id="rehearsal-outcome">
-              {report.outcome === 'passed'
-                ? 'The fixed scenario passed'
-                : 'The fixed scenario needs attention'}
-            </h2>
-            <p>
-              {report.outcome === 'passed'
-                ? 'The scripted steps met the expected policy behavior. A blocked hostile instruction can be the expected result.'
-                : 'One or more scripted checks did not meet the expected policy behavior. Review the saved definition before requesting another rehearsal.'}
-            </p>
-            <dl className="details">
-              <div>
-                <dt>Approvals that would be needed</dt>
-                <dd>{report.approvalsNeeded}</dd>
-              </div>
-              <div>
-                <dt>Scripted turns</dt>
-                <dd>
-                  {report.limits.turnsUsed} of {report.limits.turnsAllowed}
-                </dd>
-              </div>
-              <div>
-                <dt>Scripted tool calls</dt>
-                <dd>
-                  {report.limits.toolCallsUsed} of {report.limits.toolCallsAllowed}
-                </dd>
-              </div>
-            </dl>
-            <h3>What the scenario checked</h3>
-            <ol className="list" aria-label="Synthetic rehearsal steps">
-              {report.steps.map((step) => (
-                <li key={step.index}>
-                  <div>
-                    <strong>
-                      {step.subject === 'model'
-                        ? 'Model call'
-                        : step.subject === 'finish'
-                          ? 'Finish with evidence'
-                          : (stepLabels[step.subject] ??
-                            (studioToolName(step.subject) !== step.subject
-                              ? studioToolName(step.subject)
-                              : `Configured step ${step.index + 1}`))}
-                    </strong>
-                    <p>
-                      {step.subject === 'model'
-                        ? 'The real model was not called'
-                        : decisionLabel[step.decision]}
-                    </p>
-                  </div>
-                </li>
-              ))}
-            </ol>
-            <h3>Outside actions considered</h3>
-            {report.wouldWriteOutside.length ? (
-              <>
-                <p>These actions were described by the script only; none was performed.</p>
-                <ul>
-                  {report.wouldWriteOutside.map((tool, index) => (
-                    <li key={`${index}-${tool}`}>{studioToolName(tool)}</li>
-                  ))}
-                </ul>
-              </>
-            ) : (
-              <p>The script recorded no outside writes.</p>
-            )}
-          </section>
-        </>
-      ) : (
-        <Empty title="No usable finished report">
-          The stored result is absent, incomplete or inconsistent with this snapshot. Return to the
-          draft to request a fresh rehearsal. An incomplete result never counts as passed.
-        </Empty>
-      )}
-      <details>
-        <summary>Snapshot and diagnostic details</summary>
-        <dl className="details">
-          <div>
-            <dt>Snapshot hash</dt>
-            <dd>
-              <code>{run.subjectSha256}</code>
-            </dd>
-          </div>
-          <div>
-            <dt>Scenario</dt>
-            <dd>
-              <code>{run.scenarioKey}</code>
-            </dd>
-          </div>
-          <div>
-            <dt>Stored status</dt>
-            <dd>
-              <code>{run.status}</code>
-            </dd>
-          </div>
-          {run.outcomeCode && (
-            <div>
-              <dt>Outcome code</dt>
-              <dd>
-                <code>{run.outcomeCode}</code>
-              </dd>
-            </div>
-          )}
-        </dl>
-        {report && (
-          <>
-            <h3>Recorded rule codes</h3>
-            <ul>
-              {report.steps.map((step) => (
-                <li key={step.index}>
-                  <code>
-                    {step.subject}: {step.reasonCode}
-                  </code>
-                </li>
-              ))}
-            </ul>
-            {report.failureCodes.length > 0 && (
-              <ul>
-                {report.failureCodes.map((code, index) => (
-                  <li key={`${index}-${code}`}>
-                    <code>{code}</code>
+      <div className="detail-layout">
+        <div className="stack">
+          {waiting ? (
+            <section className="card" aria-labelledby="rehearsal-waiting">
+              <h2 id="rehearsal-waiting">
+                {run.status === 'queued' ? 'Waiting to start' : 'The rehearsal is running'}
+              </h2>
+              <p className="muted">
+                There is no result yet. Refresh in a moment; a rehearsal that has not finished never
+                counts as passed.
+              </p>
+              <p className="link-line gap-above">
+                <Link href={`${base}/simulations/${run.id}`}>Refresh this report</Link>
+              </p>
+            </section>
+          ) : usable && report ? (
+            <section className="card" aria-labelledby="rehearsal-outcome">
+              <h2 id="rehearsal-outcome">
+                {report.outcome === 'passed'
+                  ? 'The rehearsal passed'
+                  : 'The rehearsal found problems'}
+              </h2>
+              <p className="muted">
+                {report.outcome === 'passed'
+                  ? 'Every step behaved as your rules say it should. Some steps are meant to be stopped, such as a hostile instruction hidden in a document.'
+                  : 'At least one step did not behave as your rules say it should. Look at the draft again before you rehearse it once more.'}
+              </p>
+              <dl className="facts gap-above">
+                <div>
+                  <dt>Approvals it would need</dt>
+                  <dd>{report.approvalsNeeded}</dd>
+                </div>
+                <div>
+                  <dt>Model replies</dt>
+                  <dd>
+                    {report.limits.turnsUsed} of {report.limits.turnsAllowed}
+                  </dd>
+                </div>
+                <div>
+                  <dt>Ability uses</dt>
+                  <dd>
+                    {report.limits.toolCallsUsed} of {report.limits.toolCallsAllowed}
+                  </dd>
+                </div>
+              </dl>
+              <h3 className="gap-above-large">Step by step</h3>
+              <ol className="list" aria-label="Synthetic rehearsal steps">
+                {report.steps.map((step) => (
+                  <li key={step.index}>
+                    <span>
+                      <strong>
+                        {step.subject === 'model'
+                          ? 'The AI model answers'
+                          : step.subject === 'finish'
+                            ? 'Finish, with what shows it is done'
+                            : (stepLabels[step.subject] ??
+                              (studioToolName(step.subject) !== step.subject
+                                ? studioToolName(step.subject)
+                                : `Step ${step.index + 1}`))}
+                      </strong>
+                      <br />
+                      <small>
+                        {step.subject === 'model'
+                          ? 'Played by a script; no real model was called'
+                          : decisionLabel[step.decision]}
+                      </small>
+                    </span>
                   </li>
                 ))}
-              </ul>
+              </ol>
+              <h3 className="gap-above-large">Changes outside Ensemus</h3>
+              {report.wouldWriteOutside.length ? (
+                <>
+                  <p className="muted">These were only described; none was carried out.</p>
+                  <ul>
+                    {report.wouldWriteOutside.map((tool, index) => (
+                      <li key={`${index}-${tool}`}>{studioToolName(tool)}</li>
+                    ))}
+                  </ul>
+                </>
+              ) : (
+                <p className="muted">None.</p>
+              )}
+            </section>
+          ) : (
+            <Empty
+              title="No usable result"
+              action={
+                <ActionLink href={parent} variant="secondary">
+                  Back to the draft
+                </ActionLink>
+              }
+            >
+              The result is missing, incomplete or does not match this version, so it does not count
+              as passed. Rehearse the draft again.
+            </Empty>
+          )}
+        </div>
+
+        <aside className="card" aria-labelledby="rehearsal-summary">
+          <div className="spread">
+            <h2 id="rehearsal-summary">Summary</h2>
+            <StatusBadge status={status} />
+          </div>
+          <dl className="details gap-above-small">
+            <div>
+              <dt>Requested</dt>
+              <dd>{formatDateTime(run.createdAt)}</dd>
+            </div>
+            {run.finishedAt && (
+              <div>
+                <dt>Finished</dt>
+                <dd>{formatDateTime(run.finishedAt)}</dd>
+              </div>
             )}
-          </>
-        )}
-      </details>
-      <p>
-        <Link href={`${base}/simulations/${run.id}`}>Refresh the report</Link> ·{' '}
-        <Link href={parent}>Return to {parentLabel.toLowerCase()}</Link>
-      </p>
+          </dl>
+          <ul className="studio-links divided">
+            <li className="link-line">
+              <Link href={`${base}/simulations/${run.id}`}>Refresh the report</Link>
+            </li>
+            <li className="link-line">
+              <Link href={parent}>Return to {parentLabel.toLowerCase()}</Link>
+            </li>
+          </ul>
+          <details className="divided">
+            <summary>Technical details</summary>
+            <dl className="details gap-above-small">
+              <div>
+                <dt>Version fingerprint</dt>
+                <dd>
+                  <code>{run.subjectSha256}</code>
+                </dd>
+              </div>
+              <div>
+                <dt>Example</dt>
+                <dd>
+                  <code>{run.scenarioKey}</code>
+                </dd>
+              </div>
+              <div>
+                <dt>Stored status</dt>
+                <dd>
+                  <code>{run.status}</code>
+                </dd>
+              </div>
+              {run.outcomeCode && (
+                <div>
+                  <dt>Outcome code</dt>
+                  <dd>
+                    <code>{run.outcomeCode}</code>
+                  </dd>
+                </div>
+              )}
+            </dl>
+            {report && (
+              <>
+                <h3 className="gap-above">Rule codes</h3>
+                <ul>
+                  {report.steps.map((step) => (
+                    <li key={step.index}>
+                      <code>
+                        {step.subject}: {step.reasonCode}
+                      </code>
+                    </li>
+                  ))}
+                </ul>
+                {report.failureCodes.length > 0 && (
+                  <ul>
+                    {report.failureCodes.map((code, index) => (
+                      <li key={`${index}-${code}`}>
+                        <code>{code}</code>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </>
+            )}
+          </details>
+        </aside>
+      </div>
     </>
   );
 }
