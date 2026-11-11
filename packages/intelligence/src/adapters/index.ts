@@ -17,6 +17,10 @@ import {
 } from '@ai-sdk/provider';
 import { isHostedProviderKind } from '@ensemus/domain/ai';
 import { EndpointRefused, EndpointUnreachable, ResponseTooLarge } from '../net/errors';
+import { azureModel } from './azure';
+import { bedrockModel } from './bedrock';
+import { geminiModel } from './gemini';
+import { ProviderCallRefused } from './refusal';
 import type {
   AdapterCall,
   AdapterFailure,
@@ -44,6 +48,19 @@ export type WireState = { requested: boolean; status: number | null };
  * becomes a string here because a header can only be one: see the lifetime note in ../credentials.ts.
  */
 function modelFor(call: AdapterCall, fetchOnce: typeof fetch): LanguageModelV4 {
+  // Each of these reads its own key, and Bedrock's is JSON that only its own file parses.
+  switch (call.providerKind) {
+    case 'gemini_hosted':
+      return geminiModel(call, fetchOnce);
+    case 'azure_openai':
+      return azureModel(call, fetchOnce);
+    case 'bedrock_hosted':
+      return bedrockModel(call, fetchOnce);
+    case 'cohere_hosted':
+    case 'voyage_hosted':
+      // These speak only a native rerank, which the knowledge gateway sends through its own adapter.
+      throw new ProviderCallRefused();
+  }
   const apiKey = call.apiKey?.toString('utf8');
   const baseURL = call.endpointUrl;
   switch (call.providerKind) {

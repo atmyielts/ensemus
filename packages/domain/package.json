@@ -14,6 +14,7 @@
     "./connector": "./src/connector.ts",
     "./ai": "./src/ai.ts",
     "./ai-binding": "./src/ai-binding.ts",
+    "./ai-providers": "./src/ai-providers.ts",
     "./ai-events": "./src/ai-events.ts",
     "./ai-tools": "./src/ai-tools.ts",
     "./suite-tools": "./src/suite-tools.ts",

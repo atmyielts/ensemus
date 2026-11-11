@@ -9661,7 +9661,7 @@ export interface components {
         };
         CreateModelProfileRequest: {
             /** @enum {string} */
-            provider_kind: "openai_hosted" | "anthropic_hosted" | "openai_compatible" | "local_openai_compatible";
+            provider_kind: "openai_hosted" | "anthropic_hosted" | "openai_compatible" | "local_openai_compatible" | "gemini_hosted" | "azure_openai" | "bedrock_hosted" | "cohere_hosted" | "voyage_hosted";
             model_id: string;
             alias: string;
             /** Format: uri */
@@ -9720,7 +9720,7 @@ export interface components {
             id: string;
             version: number;
             /** @enum {string} */
-            provider_kind: "openai_hosted" | "anthropic_hosted" | "openai_compatible" | "local_openai_compatible";
+            provider_kind: "openai_hosted" | "anthropic_hosted" | "openai_compatible" | "local_openai_compatible" | "gemini_hosted" | "azure_openai" | "bedrock_hosted" | "cohere_hosted" | "voyage_hosted";
             has_credential: boolean;
             /** @enum {string} */
             status: "draft" | "probing" | "probe_failed" | "active" | "disabled";

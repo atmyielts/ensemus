@@ -50,22 +50,27 @@ const bindingOf = (profile: ProfileKeyRef) => ({
 });
 
 describe('the review interlock (FD-21)', () => {
-  it.each<ProviderKind>(['openai_hosted', 'anthropic_hosted'])(
-    'refuses %s with no interlock, and never asks the broker',
-    async (providerKind) => {
-      const profile = ref({ providerKind, endpointUrl: 'https://api.openai.com/v1' });
-      const lease = leaseFor(bindingOf(profile));
-      const lender = createCredentialLender({ secrets: lease, reviewInterlock: null });
-      let used = false;
-      await expect(
-        lender.withKey(profile, async () => {
-          used = true;
-        }),
-      ).rejects.toBeInstanceOf(CredentialsNotReviewed);
-      expect(used).toBe(false);
-      expect(lease.asked).toHaveLength(0);
-    },
-  );
+  it.each<ProviderKind>([
+    'openai_hosted',
+    'anthropic_hosted',
+    'gemini_hosted',
+    'azure_openai',
+    'bedrock_hosted',
+    'cohere_hosted',
+    'voyage_hosted',
+  ])('refuses %s with no interlock, and never asks the broker', async (providerKind) => {
+    const profile = ref({ providerKind, endpointUrl: 'https://api.openai.com/v1' });
+    const lease = leaseFor(bindingOf(profile));
+    const lender = createCredentialLender({ secrets: lease, reviewInterlock: null });
+    let used = false;
+    await expect(
+      lender.withKey(profile, async () => {
+        used = true;
+      }),
+    ).rejects.toBeInstanceOf(CredentialsNotReviewed);
+    expect(used).toBe(false);
+    expect(lease.asked).toHaveLength(0);
+  });
 
   it.each(['', '   ', '\t'])('treats a blank interlock, %j, as not set', async (value) => {
     const profile = ref({ providerKind: 'openai_hosted' });

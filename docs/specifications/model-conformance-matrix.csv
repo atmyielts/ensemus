@@ -2,3 +2,8 @@ provider_profile_id,mode,provider_model_version,tool_calling,structured_output,v
 TBD,cloud,TBD,TBD,TBD,TBD,TBD,TBD,TBD,TBD,NO,TBD,NO,Template only; do not assume model features or compliance
 TBD,byom,TBD,TBD,TBD,TBD,TBD,TBD,TBD,TBD,NO,TBD,NO,Template only; do not assume model features or compliance
 TBD,sovereign,TBD,TBD,TBD,TBD,TBD,TBD,TBD,TBD,NO,TBD,NO,Template only; do not assume model features or compliance
+gemini_hosted,byom,TBD,FAKE_VERIFIED,FAKE_VERIFIED,TBD,TBD,TBD,TBD,TBD,NO,tests/conformance/adapter-conformance.suite.ts,NO,Gemini generateContent through @ai-sdk/google 4.0.104; passes the conformance suite against the local fake wire format only; live provider run pending
+azure_openai,byom,TBD,FAKE_VERIFIED,FAKE_VERIFIED,TBD,TBD,TBD,TBD,TBD,NO,tests/conformance/adapter-conformance.suite.ts,NO,Azure OpenAI deployment Chat Completions api-version 2024-10-21 through @ai-sdk/azure 4.0.109; fake wire format only; live provider run pending
+bedrock_hosted,byom,TBD,FAKE_VERIFIED,FAKE_VERIFIED,TBD,TBD,TBD,TBD,TBD,NO,tests/conformance/adapter-conformance.suite.ts,NO,Bedrock Converse with SigV4 or a Bedrock API key through @ai-sdk/amazon-bedrock 5.0.123; fake checks signatures against AWS published vectors; live provider run pending
+cohere_hosted,byom,TBD,NO,NO,NO,TBD,TBD,TBD,TBD,NO,packages/intelligence/src/rerank-adapter.test.ts,NO,Native rerank only (v2 /rerank); verified against a stubbed fetch of the documented shape; live provider run pending
+voyage_hosted,byom,TBD,NO,NO,NO,TBD,TBD,TBD,TBD,NO,packages/intelligence/src/rerank-adapter.test.ts,NO,Native rerank only (v1 /rerank with truncation off); verified against a stubbed fetch of the documented shape; live provider run pending

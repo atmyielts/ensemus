@@ -12,6 +12,7 @@
 //
 // Passing here proves the wire format the provider documents and the fake repeats. It proves nothing about
 // a live provider, so these rows stay qualified=NO in model-conformance-matrix.csv until a live run.
+import { randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -21,22 +22,88 @@ import {
   type AdapterCall,
   type AdapterResult,
 } from '@ensemus/intelligence';
-import type { ProviderKind } from '@ensemus/domain/ai';
+import { isHostedProviderKind, type ProviderKind } from '@ensemus/domain/ai';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { holdsCanary, tenantCanary, throwawayModelKey } from '../helpers/ai/canaries';
 import { startFakeModel, type FakeModel, type FakeScenario } from './fake-model';
 
 const here = dirname(fileURLToPath(import.meta.url));
 
-export const WIRE_FORMATS: readonly {
+type Body = Record<string, unknown>;
+type Message = { role: string; content: unknown };
+/** The system text and the user turns of a request body, in each wire format's own fields. */
+type Prompt = { system: string; user: unknown[] };
+
+const chatPrompt = (body: Body): Prompt => {
+  const messages = (body.messages ?? []) as Message[];
+  return {
+    system: [
+      JSON.stringify(body.system ?? ''),
+      ...messages
+        .filter((message) => ['system', 'developer'].includes(message.role))
+        .map((message) => JSON.stringify(message.content)),
+    ].join('\n'),
+    user: messages.filter((message) => message.role === 'user').map((message) => message.content),
+  };
+};
+
+const geminiPrompt = (body: Body): Prompt => ({
+  system: JSON.stringify(body.systemInstruction ?? ''),
+  user: ((body.contents ?? []) as { role: string; parts: unknown }[])
+    .filter((content) => content.role === 'user')
+    .map((content) => content.parts),
+});
+
+/** A Bedrock key pair in the sealed JSON shape, which the fake will accept signatures from. */
+function bedrockKeyFor(fake: FakeModel): string {
+  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+  const accessKeyId = `AKIA${[...randomBytes(16)].map((byte) => alphabet[byte % 32]).join('')}`;
+  const secretAccessKey = randomBytes(30).toString('base64');
+  fake.trustAwsKey(accessKeyId, secretAccessKey);
+  return JSON.stringify({ accessKeyId, secretAccessKey });
+}
+
+/**
+ * Hosts a profile of each new kind would hold. The guard below answers every name with the fake's
+ * loopback address, so the adapter builds its URL from a real provider's host and still reaches only the
+ * fake, over plain HTTP the operator list allows.
+ */
+const GEMINI_HOST = 'generativelanguage.googleapis.com';
+const AZURE_HOST = 'contoso.openai.azure.com';
+const BEDROCK_HOST = 'bedrock-runtime.us-east-1.amazonaws.com';
+
+export type WireFormat = {
   kind: ProviderKind;
   label: string;
   path: string;
   authHeader: string;
   /** How this format's package treats a response with no usage. */
   usageMissing: 'null_usage' | 'refused';
-}[] = [
+  /** The host the endpoint names, which the test guard pins to the fake. */
+  host: (fake: FakeModel) => string;
+  /** The endpoint a profile of this kind would hold, on the fake's port. */
+  endpoint: (fake: FakeModel) => string;
+  /** A fresh key in the shape this kind seals. */
+  key: (fake: FakeModel) => string;
+  /** What of that key its header carries. */
+  keyInHeader: (key: string) => string;
+  prompt: (body: Body) => Prompt;
+  /** Every format's long-context refusal, read from the provider's own wording. */
+  contextTooLong: 'context_too_long' | 'bad_request';
+};
+
+const onFake = {
+  host: (fake: FakeModel) => fake.host,
+  endpoint: (fake: FakeModel) => fake.baseUrl,
+  key: () => throwawayModelKey(),
+  keyInHeader: (key: string) => key,
+  prompt: chatPrompt,
+  contextTooLong: 'context_too_long' as const,
+};
+
+export const WIRE_FORMATS: readonly WireFormat[] = [
   {
+    ...onFake,
     kind: 'openai_hosted',
     label: 'OpenAI Chat Completions',
     path: '/v1/chat/completions',
@@ -44,6 +111,7 @@ export const WIRE_FORMATS: readonly {
     usageMissing: 'null_usage',
   },
   {
+    ...onFake,
     kind: 'anthropic_hosted',
     label: 'Anthropic Messages',
     path: '/v1/messages',
@@ -51,6 +119,7 @@ export const WIRE_FORMATS: readonly {
     usageMissing: 'refused',
   },
   {
+    ...onFake,
     kind: 'openai_compatible',
     label: 'OpenAI-compatible, public kind',
     path: '/v1/chat/completions',
@@ -58,13 +127,91 @@ export const WIRE_FORMATS: readonly {
     usageMissing: 'null_usage',
   },
   {
+    ...onFake,
     kind: 'local_openai_compatible',
     label: 'OpenAI-compatible, local kind',
     path: '/v1/chat/completions',
     authHeader: 'authorization',
     usageMissing: 'null_usage',
   },
+  {
+    ...onFake,
+    kind: 'gemini_hosted',
+    label: 'Gemini generateContent',
+    path: '/v1beta/models/conformance-model:generateContent',
+    authHeader: 'x-goog-api-key',
+    usageMissing: 'null_usage',
+    host: () => GEMINI_HOST,
+    endpoint: (fake) => `http://${GEMINI_HOST}:${fake.port}/v1beta`,
+    prompt: geminiPrompt,
+    // failureForStatus does not yet read Gemini's wording, so this is a plain bad request for now.
+    contextTooLong: 'bad_request',
+  },
+  {
+    ...onFake,
+    kind: 'azure_openai',
+    label: 'Azure OpenAI deployment',
+    path: '/openai/deployments/conformance-model/chat/completions?api-version=2024-10-21',
+    authHeader: 'api-key',
+    usageMissing: 'null_usage',
+    host: () => AZURE_HOST,
+    endpoint: (fake) => `http://${AZURE_HOST}:${fake.port}/openai`,
+  },
+  {
+    ...onFake,
+    kind: 'bedrock_hosted',
+    label: 'Bedrock Converse, SigV4',
+    path: '/model/conformance-model/converse',
+    authHeader: 'authorization',
+    usageMissing: 'refused',
+    host: () => BEDROCK_HOST,
+    endpoint: (fake) => `http://${BEDROCK_HOST}:${fake.port}`,
+    key: bedrockKeyFor,
+    keyInHeader: (key) => `Credential=${(JSON.parse(key) as { accessKeyId: string }).accessKeyId}/`,
+  },
 ];
+
+/** Every environment variable a provider package reads for a key, a region or an address. */
+const PROVIDER_ENV = [
+  'OPENAI_API_KEY',
+  'ANTHROPIC_API_KEY',
+  'GOOGLE_GENERATIVE_AI_API_KEY',
+  'AZURE_API_KEY',
+  'AWS_ACCESS_KEY_ID',
+  'AWS_SECRET_ACCESS_KEY',
+  'AWS_SESSION_TOKEN',
+  'AWS_BEARER_TOKEN_BEDROCK',
+];
+const PROVIDER_ADDRESS_ENV = [
+  'OPENAI_BASE_URL',
+  'ANTHROPIC_BASE_URL',
+  'AWS_ENDPOINT_URL',
+  'AWS_ENDPOINT_URL_BEDROCK_RUNTIME',
+];
+
+/** A guard that answers every name with loopback, so a provider's host name reaches only the fake. */
+const loopbackGuard = createEndpointGuard({
+  resolve: async () => [{ address: '127.0.0.1', family: 4 }],
+});
+
+/** Where and how a call of this kind reaches the fake: its endpoint, a guarded fetch and a fresh key. */
+export function fakeCallFor(
+  kind: ProviderKind,
+  fake: FakeModel,
+): Pick<AdapterCall, 'endpointUrl' | 'fetch' | 'apiKey'> {
+  const format = WIRE_FORMATS.find((entry) => entry.kind === kind);
+  if (!format) throw new Error(`No wire format for ${kind}`);
+  return {
+    endpointUrl: format.endpoint(fake),
+    fetch: loopbackGuard.fetchFor({
+      host: format.host(fake),
+      port: fake.port,
+      protocol: 'http:',
+      viaPrivateAllowlist: true,
+    }),
+    apiKey: Buffer.from(format.key(fake)),
+  };
+}
 
 const READ_TOOL = {
   id: 'work.read',
@@ -128,14 +275,6 @@ export function describeAdapterConformance() {
     await bait.close();
   });
 
-  const guardedFetch = () =>
-    guard.fetchFor({
-      host: fake.host,
-      port: fake.port,
-      protocol: 'http:',
-      viaPrivateAllowlist: true,
-    });
-
   for (const format of WIRE_FORMATS) {
     describe(`${format.label} (${format.kind})`, () => {
       beforeEach(() => {
@@ -146,7 +285,7 @@ export function describeAdapterConformance() {
       const baseCall = (overrides: Partial<AdapterCall> = {}): AdapterCall => ({
         providerKind: format.kind,
         modelId: 'conformance-model',
-        endpointUrl: fake.baseUrl,
+        ...fakeCallFor(format.kind, fake),
         messages: [
           { role: 'policy', partId: 'p1', text: 'Follow policy.', classification: 'internal' },
           { role: 'task', partId: 't1', text: 'Say something short.', classification: 'internal' },
@@ -155,8 +294,6 @@ export function describeAdapterConformance() {
         responseSchema: null,
         maxOutputTokens: 64,
         timeoutMs: 5_000,
-        fetch: guardedFetch(),
-        apiKey: Buffer.from(throwawayModelKey()),
         ...overrides,
       });
 
@@ -182,10 +319,10 @@ export function describeAdapterConformance() {
       });
 
       it('carries the lent key, in the header this format documents', async () => {
-        const key = throwawayModelKey();
+        const key = format.key(fake);
         await run('text', { apiKey: Buffer.from(key) });
         const sent = fake.requests[0]?.headers[format.authHeader];
-        expect(String(sent)).toContain(key);
+        expect(String(sent)).toContain(format.keyInHeader(key));
       });
 
       it('returns structured JSON as text, having asked for the schema', async () => {
@@ -217,7 +354,7 @@ export function describeAdapterConformance() {
         const raw = fake.requests[0]?.raw ?? '';
         expect(raw).toContain('work_read');
         expect(raw).not.toContain('work.read');
-        if (format.kind === 'openai_hosted') {
+        if (format.kind === 'openai_hosted' || format.kind === 'azure_openai') {
           expect(fake.requests[0]?.body?.parallel_tool_calls).toBe(false);
         }
         if (format.kind === 'anthropic_hosted') {
@@ -290,7 +427,7 @@ export function describeAdapterConformance() {
         });
         expect(result).toEqual({
           kind: 'failure',
-          failure: 'context_too_long',
+          failure: format.contextTooLong,
           mayHaveBilled: true,
           usage: null,
         });
@@ -401,7 +538,7 @@ export function describeAdapterConformance() {
       });
 
       it('refuses a redirect, and the place it pointed to sees nothing', async () => {
-        const key = throwawayModelKey();
+        const key = format.key(fake);
         const result = await run('redirect', { apiKey: Buffer.from(key) });
         expect(result).toEqual({
           kind: 'failure',
@@ -423,21 +560,13 @@ export function describeAdapterConformance() {
             { role: 'tool_output', partId: 'o1', text: injected, classification: 'internal' },
           ],
         });
-        const body = fake.requests[0]?.body ?? {};
-        const messages = (body.messages ?? []) as { role: string; content: unknown }[];
-        const system = [
-          JSON.stringify(body.system ?? ''),
-          ...messages
-            .filter((message) => ['system', 'developer'].includes(message.role))
-            .map((message) => JSON.stringify(message.content)),
-        ].join('\n');
+        const { system, user } = format.prompt(fake.requests[0]?.body ?? {});
         expect(system).toContain('POLICY-TEXT');
         expect(system).not.toContain('Ignore your policy');
         expect(system).not.toContain('TASK-TEXT');
 
-        const user = messages.filter((message) => message.role === 'user');
         expect(user).toHaveLength(1);
-        const userText = JSON.stringify(user[0]?.content);
+        const userText = JSON.stringify(user[0]);
         expect(userText).toContain('TASK-TEXT');
         expect(userText).toContain('Ignore your policy');
         expect(userText).not.toContain('POLICY-TEXT');
@@ -466,11 +595,10 @@ export function describeAdapterConformance() {
 
       it('fails closed on a key from nowhere: no lent key means no hosted call', async () => {
         const envKey = tenantCanary();
-        vi.stubEnv('OPENAI_API_KEY', envKey);
-        vi.stubEnv('ANTHROPIC_API_KEY', envKey);
+        for (const name of PROVIDER_ENV) vi.stubEnv(name, envKey);
         try {
           const result = await run('text', { apiKey: null });
-          if (format.kind === 'openai_hosted' || format.kind === 'anthropic_hosted') {
+          if (isHostedProviderKind(format.kind)) {
             expect(result).toMatchObject({ failure: 'auth_failed', mayHaveBilled: false });
             expect(fake.hits).toBe(0);
           } else {
@@ -488,8 +616,9 @@ export function describeAdapterConformance() {
       });
 
       it('never goes to an address from the environment', async () => {
-        vi.stubEnv('OPENAI_BASE_URL', bait.baseUrl);
-        vi.stubEnv('ANTHROPIC_BASE_URL', bait.baseUrl);
+        for (const name of PROVIDER_ADDRESS_ENV) vi.stubEnv(name, bait.baseUrl);
+        vi.stubEnv('AZURE_RESOURCE_NAME', 'bait');
+        vi.stubEnv('AWS_REGION', 'eu-west-1');
         try {
           await run('text');
           expect(fake.hits).toBe(1);
@@ -529,7 +658,7 @@ export function describeAdapterConformance() {
         ];
 
         it.each(noisy)('%s: key and prompt absent from result and logs', async (scenario) => {
-          const key = throwawayModelKey();
+          const key = format.key(fake);
           const prompt = tenantCanary();
           const result = await run(scenario, {
             apiKey: Buffer.from(key),
@@ -550,7 +679,7 @@ export function describeAdapterConformance() {
         });
 
         it('a 401 echoing the key is auth_failed, with the key nowhere in the result', async () => {
-          const key = throwawayModelKey();
+          const key = format.key(fake);
           const result = await run('auth_echo', { apiKey: Buffer.from(key) });
           expect(result).toEqual({
             kind: 'failure',
@@ -572,6 +701,169 @@ export function describeAdapterConformance() {
       });
     });
   }
+
+  describe('Bedrock signing (bedrock_hosted)', () => {
+    beforeEach(() => fake.reset());
+    const call = (apiKey: Buffer | null, overrides: Partial<AdapterCall> = {}): AdapterCall => ({
+      providerKind: 'bedrock_hosted',
+      modelId: 'conformance-model',
+      ...fakeCallFor('bedrock_hosted', fake),
+      apiKey,
+      messages: [{ role: 'task', partId: 't', text: 'Say something.', classification: 'internal' }],
+      tools: [],
+      responseSchema: null,
+      maxOutputTokens: 16,
+      timeoutMs: 5_000,
+      ...overrides,
+    });
+
+    it('signs with the lent key pair for the host region, and never with the environment', async () => {
+      const envValue = tenantCanary();
+      for (const name of PROVIDER_ENV) vi.stubEnv(name, envValue);
+      vi.stubEnv('AWS_REGION', 'eu-west-1');
+      try {
+        fake.setScenario('text');
+        const key = bedrockKeyFor(fake);
+        const result = await createModelAdapter().generate(
+          call(Buffer.from(key)),
+          new AbortController().signal,
+        );
+        expect(result.kind).toBe('final');
+        expect(fake.requests[0]?.sigv4).toBe('valid');
+        const headers = JSON.stringify(fake.requests[0]?.headers);
+        expect(headers).toContain('/us-east-1/bedrock/aws4_request');
+        expect(headers).not.toContain(envValue);
+        expect(headers).not.toContain('Bearer');
+      } finally {
+        vi.unstubAllEnvs();
+      }
+    });
+
+    it('signs a temporary key pair with its session token', async () => {
+      fake.setScenario('text');
+      const pair = JSON.parse(bedrockKeyFor(fake)) as {
+        accessKeyId: string;
+        secretAccessKey: string;
+      };
+      const temporary = `ASIA${pair.accessKeyId.slice(4)}`;
+      fake.trustAwsKey(temporary, pair.secretAccessKey);
+      const sessionToken = randomBytes(48).toString('base64');
+      await createModelAdapter().generate(
+        call(Buffer.from(JSON.stringify({ ...pair, accessKeyId: temporary, sessionToken }))),
+        new AbortController().signal,
+      );
+      expect(fake.requests[0]?.sigv4).toBe('valid');
+      expect(fake.requests[0]?.headers['x-amz-security-token']).toBe(sessionToken);
+    });
+
+    it('sends a Bedrock API key as a bearer token, and signs nothing', async () => {
+      fake.setScenario('text');
+      const apiKey = `ABSK${randomBytes(30).toString('base64')}`;
+      const result = await createModelAdapter().generate(
+        call(Buffer.from(JSON.stringify({ apiKey }))),
+        new AbortController().signal,
+      );
+      expect(result.kind).toBe('final');
+      expect(fake.requests[0]?.headers.authorization).toBe(`Bearer ${apiKey}`);
+      expect(fake.requests[0]?.headers['x-amz-date']).toBeUndefined();
+    });
+
+    it('a key pair the provider does not know is auth_failed', async () => {
+      fake.setScenario('text');
+      const key = bedrockKeyFor(fake);
+      fake.reset();
+      const result = await createModelAdapter().generate(
+        call(Buffer.from(key)),
+        new AbortController().signal,
+      );
+      expect(result).toEqual({
+        kind: 'failure',
+        failure: 'auth_failed',
+        mayHaveBilled: true,
+        usage: null,
+      });
+      expect(fake.requests[0]?.sigv4).toBe('unknown_key');
+    });
+
+    it.each([
+      ['a plain API key string', throwawayModelKey()],
+      ['JSON with an extra field', JSON.stringify({ apiKey: 'a'.repeat(20), region: 'x' })],
+      [
+        'a key pair with a short secret',
+        JSON.stringify({ accessKeyId: 'AKIA' + 'A'.repeat(16), secretAccessKey: 'x' }),
+      ],
+    ])('refuses %s before any request, as nothing billed', async (_label, key) => {
+      const result = await createModelAdapter().generate(
+        call(Buffer.from(key)),
+        new AbortController().signal,
+      );
+      expect(result).toMatchObject({ failure: 'bad_request', mayHaveBilled: false });
+      expect(fake.hits).toBe(0);
+    });
+
+    it('refuses an ARN or a path for a model ID, and a host that names no region', async () => {
+      for (const overrides of [
+        { modelId: 'arn:aws:bedrock:us-east-1:000000000000:inference-profile/x' },
+        { modelId: '../../converse' },
+        { endpointUrl: `http://${fake.host}:${fake.port}` },
+      ]) {
+        const result = await createModelAdapter().generate(
+          call(Buffer.from(bedrockKeyFor(fake)), overrides),
+          new AbortController().signal,
+        );
+        expect(result).toMatchObject({ failure: 'bad_request', mayHaveBilled: false });
+      }
+      expect(fake.hits).toBe(0);
+    });
+  });
+
+  describe('model IDs that become a path (gemini_hosted, azure_openai)', () => {
+    beforeEach(() => fake.reset());
+    it.each([
+      ['gemini_hosted', 'tunedModels/other'],
+      ['gemini_hosted', '../files'],
+      ['azure_openai', '../../other'],
+      ['azure_openai', 'dep?api-version=2020-01-01'],
+      ['azure_openai', 'dep%2F..'],
+    ] as const)('%s refuses %s before any request', async (kind, modelId) => {
+      const result = await createModelAdapter().generate(
+        {
+          providerKind: kind,
+          modelId,
+          ...fakeCallFor(kind, fake),
+          messages: [{ role: 'task', partId: 't', text: 'x', classification: 'internal' }],
+          tools: [],
+          responseSchema: null,
+          maxOutputTokens: 8,
+          timeoutMs: 2_000,
+        },
+        new AbortController().signal,
+      );
+      expect(result).toMatchObject({ failure: 'bad_request', mayHaveBilled: false });
+      expect(fake.hits).toBe(0);
+    });
+  });
+
+  describe('rerank-only kinds take no chat call (cohere_hosted, voyage_hosted)', () => {
+    it.each(['cohere_hosted', 'voyage_hosted'] as const)('%s', async (kind) => {
+      fake.reset();
+      const result = await createModelAdapter().generate(
+        {
+          providerKind: kind,
+          modelId: 'rerank-2',
+          ...fakeCallFor('openai_hosted', fake),
+          messages: [{ role: 'task', partId: 't', text: 'x', classification: 'internal' }],
+          tools: [],
+          responseSchema: null,
+          maxOutputTokens: 8,
+          timeoutMs: 2_000,
+        },
+        new AbortController().signal,
+      );
+      expect(result).toMatchObject({ failure: 'bad_request', mayHaveBilled: false });
+      expect(fake.hits).toBe(0);
+    });
+  });
 
   describe('whatever the provider', () => {
     it('never throws for a connection refused, and reports nothing billed', async () => {
@@ -719,12 +1011,14 @@ export function describeAdapterConformance() {
       expect(JSON.stringify(result)).not.toContain(secretText);
     });
 
-    it('the adapter source names no logger, so an SDK error has nowhere to go', () => {
-      const source = readFileSync(
-        join(here, '..', '..', 'packages', 'intelligence', 'src', 'adapters', 'index.ts'),
-        'utf8',
-      );
-      expect(source).not.toMatch(/console\.|createLogger|@ensemus\/telemetry/);
+    it('the adapter sources name no logger, so an SDK error has nowhere to go', () => {
+      for (const file of ['index.ts', 'gemini.ts', 'azure.ts', 'bedrock.ts', 'refusal.ts']) {
+        const source = readFileSync(
+          join(here, '..', '..', 'packages', 'intelligence', 'src', 'adapters', file),
+          'utf8',
+        );
+        expect(source).not.toMatch(/console\.|createLogger|@ensemus\/telemetry/);
+      }
     });
 
     it('pins every provider package exactly, so an upgrade is a decision this suite re-runs', () => {
@@ -732,7 +1026,10 @@ export function describeAdapterConformance() {
         readFileSync(join(here, '..', '..', 'packages', 'intelligence', 'package.json'), 'utf8'),
       ) as { dependencies: Record<string, string> };
       for (const name of [
+        '@ai-sdk/amazon-bedrock',
         '@ai-sdk/anthropic',
+        '@ai-sdk/azure',
+        '@ai-sdk/google',
         '@ai-sdk/openai',
         '@ai-sdk/openai-compatible',
         '@ai-sdk/provider',

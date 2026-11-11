@@ -32,6 +32,7 @@ import type {
   RetentionBasis,
 } from '@ensemus/domain/ai';
 import { modelKeyPurpose } from '@ensemus/domain/ai-binding';
+import { isRerankOnlyKind, modelKeyShapeHolds, validModelId } from '@ensemus/domain/ai-providers';
 import {
   AGGREGATE_MODEL_PROFILE,
   MODEL_PROFILE_DISABLED,
@@ -179,6 +180,23 @@ export function retentionHolds(profile: {
   }
   if (profile.retentionBasis === 'contract_recorded') return profile.contractRef !== null;
   return true;
+}
+
+/**
+ * Some providers put the model ID into the request path, so its shape is fixed for those kinds (see
+ * @ensemus/domain/ai-providers). A kind that speaks only a native rerank may be offered for nothing else,
+ * so a router choosing for any other purpose can never pick it.
+ */
+export function profileShapeHolds(profile: {
+  providerKind: ProviderKind;
+  modelId: string;
+  allowedPurposes: readonly ModelPurpose[];
+}): boolean {
+  return (
+    validModelId(profile.providerKind, profile.modelId) &&
+    (!isRerankOnlyKind(profile.providerKind) ||
+      profile.allowedPurposes.every((purpose) => purpose === 'rerank'))
+  );
 }
 
 /**
@@ -349,6 +367,11 @@ export async function createModelProfile(
       providerKind: parsed.provider_kind,
       retentionBasis: parsed.retention_basis,
       contractRef: parsed.contract_ref,
+    }) ||
+    !profileShapeHolds({
+      providerKind: parsed.provider_kind,
+      modelId: parsed.model_id,
+      allowedPurposes: parsed.allowed_purposes,
     })
   ) {
     throw new AppError('INVALID_INPUT');
@@ -440,6 +463,11 @@ export async function updateModelProfile(
           providerKind: kind,
           retentionBasis: patch.retention_basis ?? (row.retentionBasis as RetentionBasis),
           contractRef: patch.contract_ref !== undefined ? patch.contract_ref : row.contractRef,
+        }) ||
+        !profileShapeHolds({
+          providerKind: kind,
+          modelId: patch.model_id ?? row.modelId,
+          allowedPurposes: patch.allowed_purposes ?? (row.allowedPurposes as ModelPurpose[]),
         })
       ) {
         throw new AppError('INVALID_INPUT');
@@ -477,7 +505,16 @@ export async function updateModelProfile(
 export async function prepareModelKeyCapture(
   database: AppDatabase,
   context: TenantContext,
-  input: { profileId: string; expectedVersion: number; reviewInterlock: string | null },
+  input: {
+    profileId: string;
+    expectedVersion: number;
+    reviewInterlock: string | null;
+    /**
+     * The key as typed, so its shape is checked for this kind before anything is sealed: a Bedrock key is
+     * compact JSON in one of two shapes. Only checked, never kept, returned or put in an error.
+     */
+    key?: string;
+  },
 ): Promise<{ purpose: string }> {
   requireManage(context);
   const id = profileIdOf(input.profileId);
@@ -487,6 +524,9 @@ export async function prepareModelKeyCapture(
   if (!row) throw new AppError('NOT_FOUND');
   if (row.version !== input.expectedVersion) throw new AppError('VERSION_CONFLICT');
   assertKeyMayBeStored(row.providerKind as ProviderKind, input.reviewInterlock);
+  if (input.key !== undefined && !modelKeyShapeHolds(row.providerKind as ProviderKind, input.key)) {
+    throw new AppError('INVALID_INPUT');
+  }
   return { purpose: modelKeyPurpose(row.id, row.endpointUrl) };
 }
 

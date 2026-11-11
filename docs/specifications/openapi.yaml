@@ -8473,6 +8473,11 @@ components:
             - anthropic_hosted
             - openai_compatible
             - local_openai_compatible
+            - gemini_hosted
+            - azure_openai
+            - bedrock_hosted
+            - cohere_hosted
+            - voyage_hosted
         model_id:
           type: string
           minLength: 1
@@ -8725,6 +8730,11 @@ components:
             - anthropic_hosted
             - openai_compatible
             - local_openai_compatible
+            - gemini_hosted
+            - azure_openai
+            - bedrock_hosted
+            - cohere_hosted
+            - voyage_hosted
         has_credential:
           type: boolean
         status:

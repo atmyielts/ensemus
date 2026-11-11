@@ -36,6 +36,8 @@ import {
   type ModelJobBounds,
   type QualifiedModelOperation,
 } from '@ensemus/domain/knowledge-models';
+import type { ProviderKind } from '@ensemus/domain/ai';
+import { kindServesPurpose } from '@ensemus/domain/ai-providers';
 import { can, type Classification } from '@ensemus/domain/policy';
 import { strongestClass } from '@ensemus/domain/knowledge';
 import { and, asc, eq, gt, isNull, sql } from 'drizzle-orm';
@@ -124,7 +126,8 @@ export async function requestModelQualification(
       .for('update');
     if (!profile || !profile.allowedPurposes.includes(input.purpose))
       throw new AppError('NOT_FOUND');
-    if (profile.providerKind === 'anthropic_hosted' && input.purpose === 'embed')
+    // A kind with no wire protocol for this purpose here could never pass, so it is not asked to.
+    if (!kindServesPurpose(profile.providerKind as ProviderKind, input.purpose))
       throw new AppError('INVALID_INPUT');
     const qualificationId = randomUUID(),
       jobId = randomUUID();

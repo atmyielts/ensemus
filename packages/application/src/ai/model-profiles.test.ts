@@ -696,3 +696,92 @@ describe('rate cards', () => {
     });
   });
 });
+
+describe('kinds with fixed model ID and purpose rules', () => {
+  // The endpoint double above accepts any address for these kinds, so only the shape rules refuse here.
+  const gemini: CreateModelProfile = {
+    ...validCreate,
+    provider_kind: 'gemini_hosted',
+    model_id: 'gemini-2.5-flash',
+    endpoint_url: 'https://generativelanguage.googleapis.com/v1beta',
+  };
+  const cohere: CreateModelProfile = {
+    ...validCreate,
+    provider_kind: 'cohere_hosted',
+    model_id: 'rerank-v3.5',
+    endpoint_url: 'https://api.cohere.com/v2',
+    allowed_purposes: ['rerank'],
+  };
+
+  it('takes a model ID of the documented shape, and a rerank-only kind for rerank', async () => {
+    expect((await createModelProfile(recordingDatabase().database, owner, gemini)).status).toBe(
+      'draft',
+    );
+    expect((await createModelProfile(recordingDatabase().database, owner, cohere)).status).toBe(
+      'draft',
+    );
+  });
+
+  it.each([
+    ['a Gemini path in the model ID', { ...gemini, model_id: 'tunedModels/other' }],
+    [
+      'an Azure deployment that climbs',
+      { ...gemini, provider_kind: 'azure_openai', model_id: '..' },
+    ],
+    [
+      'a Bedrock ARN',
+      { ...gemini, provider_kind: 'bedrock_hosted', model_id: 'arn:aws:bedrock:x' },
+    ],
+    [
+      'a rerank-only kind offered for reasoning',
+      { ...cohere, allowed_purposes: ['rerank', 'reason'] },
+    ],
+  ] as const)('refuses %s, and writes nothing', async (_label, input) => {
+    const { database, writes } = recordingDatabase();
+    await expect(createModelProfile(database, owner, input as CreateModelProfile)).rejects.toEqual(
+      refused('INVALID_INPUT'),
+    );
+    expect(writes).toEqual([]);
+  });
+
+  it('refuses a patch that would break the same rules', async () => {
+    const stored = row({
+      providerKind: 'voyage_hosted',
+      modelId: 'rerank-2',
+      endpointUrl: 'https://api.voyageai.com/v1',
+      allowedPurposes: ['rerank'],
+      retentionBasis: 'unreviewed',
+    });
+    for (const patch of [
+      { expected_version: 3, allowed_purposes: ['answer' as const] },
+      { expected_version: 3, model_id: 'rerank 2' },
+    ]) {
+      const { database, writes } = recordingDatabase([stored]);
+      await expect(
+        updateModelProfile(database, owner, { profileId: PROFILE, patch }),
+      ).rejects.toEqual(refused('INVALID_INPUT'));
+      expect(writes).toEqual([]);
+    }
+  });
+
+  it('checks a Bedrock key is one of its two JSON shapes before anything is sealed', async () => {
+    const bedrock = row({
+      providerKind: 'bedrock_hosted',
+      modelId: 'amazon.nova-pro-v1:0',
+      endpointUrl: 'https://bedrock-runtime.us-east-1.amazonaws.com',
+      retentionBasis: 'unreviewed',
+    });
+    const capture = (key: string) =>
+      prepareModelKeyCapture(recordingDatabase([bedrock]).database, owner, {
+        profileId: PROFILE,
+        expectedVersion: 3,
+        reviewInterlock: 'reviewed-by-operator',
+        key,
+      });
+    await expect(capture('a-plain-api-key-value')).rejects.toEqual(refused('INVALID_INPUT'));
+    const good = JSON.stringify({ apiKey: `ABSK${'QmVkcm9jaw=='.repeat(3)}` });
+    await expect(capture(good)).resolves.toEqual({
+      purpose: modelKeyPurpose(PROFILE, bedrock.endpointUrl),
+    });
+  });
+});

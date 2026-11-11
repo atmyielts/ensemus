@@ -179,11 +179,24 @@ export const PROVIDER_KINDS = [
   'anthropic_hosted',
   'openai_compatible',
   'local_openai_compatible',
+  'gemini_hosted',
+  'azure_openai',
+  'bedrock_hosted',
+  'cohere_hosted',
+  'voyage_hosted',
 ] as const;
 export type ProviderKind = (typeof PROVIDER_KINDS)[number];
 
 /** Kinds that send to a provider's own hosts. A real key for one needs the review interlock. */
-export const HOSTED_PROVIDER_KINDS: readonly ProviderKind[] = ['openai_hosted', 'anthropic_hosted'];
+export const HOSTED_PROVIDER_KINDS: readonly ProviderKind[] = [
+  'openai_hosted',
+  'anthropic_hosted',
+  'gemini_hosted',
+  'azure_openai',
+  'bedrock_hosted',
+  'cohere_hosted',
+  'voyage_hosted',
+];
 
 export function isHostedProviderKind(kind: ProviderKind): boolean {
   return HOSTED_PROVIDER_KINDS.includes(kind);

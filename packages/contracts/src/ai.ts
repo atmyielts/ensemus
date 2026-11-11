@@ -14,6 +14,11 @@ export const providerKindSchema = z.enum([
   'anthropic_hosted',
   'openai_compatible',
   'local_openai_compatible',
+  'gemini_hosted',
+  'azure_openai',
+  'bedrock_hosted',
+  'cohere_hosted',
+  'voyage_hosted',
 ]);
 export const modelProfileStatusSchema = z.enum([
   'draft',

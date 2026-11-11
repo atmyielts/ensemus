@@ -159,7 +159,7 @@ export const modelProfiles = aiSchema.table(
     index('model_profiles_status_idx').on(t.organizationId, t.status),
     check(
       'model_profiles_kind_check',
-      sql`${t.providerKind} in ('openai_hosted','anthropic_hosted','openai_compatible','local_openai_compatible')`,
+      sql`${t.providerKind} in ('openai_hosted','anthropic_hosted','openai_compatible','local_openai_compatible','gemini_hosted','azure_openai','bedrock_hosted','cohere_hosted','voyage_hosted')`,
     ),
     check(
       'model_profiles_status_check',

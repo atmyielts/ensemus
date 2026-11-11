@@ -29,6 +29,7 @@ export async function captureModelKey(
     profileId: input.profileId,
     expectedVersion: input.expectedVersion,
     reviewInterlock,
+    key: key.data,
   });
   const { secretRef } = await storeSecret(database, context, {
     publicKeyPem: readSecret('SECRET_SEALING_PUBLIC_KEY'),
