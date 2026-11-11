@@ -76,6 +76,11 @@
       "sha256": "ab9a93a0c37f4c04d2f7e0f70761a4849f2681c36807d8dff42550fe751062af"
     },
     {
+      "path": "00-foundation/adr/ADR-038-workspace-suites.md",
+      "size_bytes": 35012,
+      "sha256": "bb5de9fe2d8d02fa72d1d16d3e98a87a7928c6850f83b69b5d42d77576d96ea6"
+    },
+    {
       "path": "01-product/01-product-requirements.md",
       "size_bytes": 7752,
       "sha256": "209c3c7ed09b4d2d3c818309b8c573816ed904a5ccc18b20bad11950bf3c49d7"
@@ -272,8 +277,8 @@
     },
     {
       "path": "05-operations/05-container-deployment-runbook.md",
-      "size_bytes": 31371,
-      "sha256": "352252cb8c75887deed30920030c0ac4e8c2a6fe4360ea81ac12f77a6fcb9d6d"
+      "size_bytes": 34794,
+      "sha256": "13ecc0886ed8bcdfe12781fee0fc23f3a0779d943741ef5c85b1eb0fbe4247d6"
     },
     {
       "path": "05-operations/06-performance-and-load-plan.md",
@@ -901,6 +906,16 @@
       "sha256": "6da202d76902e26f0ce74be38401448a55cb6c4d031ad82bd2d1874d3907dc58"
     },
     {
+      "path": "06-delivery/suites-live-run.md",
+      "size_bytes": 9546,
+      "sha256": "61580dccd0eaa96433aeddc2cbe345a5605fbf222a633f7377cab2e831bb6442"
+    },
+    {
+      "path": "06-delivery/suites-slices.md",
+      "size_bytes": 10558,
+      "sha256": "556d10b6479e5cab8b0b352a15a744d5710c44940623f3e9722ee691a3178d49"
+    },
+    {
       "path": "07-commercial/01-license-and-maintenance.md",
       "size_bytes": 4417,
       "sha256": "0238360e8d6d71ec4e406357f3962afe388169c7da2e77cfd8a164ede63bbc95"
@@ -1057,8 +1072,8 @@
     },
     {
       "path": "specifications/implementation-backlog.csv",
-      "size_bytes": 25503,
-      "sha256": "cce02f638ae21cbf2450d4665689e3bcd355cf32e14d3432cc398445204412b5"
+      "size_bytes": 26762,
+      "sha256": "7b2521a6b9dd2cbd77c4d244748eaf599a494b07ef2562c088e70c5b75ea5c82"
     },
     {
       "path": "specifications/model-conformance-matrix.csv",
@@ -1067,8 +1082,8 @@
     },
     {
       "path": "specifications/openapi.yaml",
-      "size_bytes": 375528,
-      "sha256": "27f3af0d93856f3bf108b2f6b38bcb62bd9b3107ced9d9f995e4294fb83124ac"
+      "size_bytes": 399211,
+      "sha256": "e46f39f08bfb3516bd7fa1bde33ddc8afc9b11001bc8a680e8d7566b9b2e49c9"
     },
     {
       "path": "specifications/qa-scenarios.csv",
@@ -1117,8 +1132,8 @@
     },
     {
       "path": "specifications/traceability.csv",
-      "size_bytes": 3813,
-      "sha256": "0ee4f68c4dba4849bc3c0a4b9162f0a286129f6479c0c105afd79edbabe4c247"
+      "size_bytes": 3846,
+      "sha256": "e1356f81a987315dcc57dae9752ce634a7087526a346b134786cf040649ea6a5"
     },
     {
       "path": "specifications/typescript/agent-manifest.reference.ts",
