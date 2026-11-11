@@ -117,6 +117,20 @@ services:
     extra_hosts: ['smtp-sink:${ENSEMUS_NETWORK_PREFIX:-172.30}.6.20']
     environment:
       ENSEMUS_EGRESS_TARGET: smtp-sink:2525
+  # The Google and Microsoft route gateways (ADR-038) refuse to start without a target, and `up --wait`
+  # needs every service healthy. Here each forwards to the same sink inside the stack, never to a provider:
+  # the worker's TLS check against the route's fixed name fails there, so a request on any of these routes
+  # still ends with a code, and the air-gap gate's `--connectors` round still sees no packet leave.
+  egress-google-api: &route-gateway-test-target
+    extra_hosts: ['smtp-sink:${ENSEMUS_NETWORK_PREFIX:-172.30}.6.20']
+    environment:
+      ENSEMUS_EGRESS_TARGET: smtp-sink:2525
+  egress-google-oauth: *route-gateway-test-target
+  egress-ms-graph: *route-gateway-test-target
+  egress-ms-login: *route-gateway-test-target
+  egress-google-gmail: *route-gateway-test-target
+  egress-google-docs: *route-gateway-test-target
+  egress-google-sheets: *route-gateway-test-target
   smtp-sink:
     profiles: ['connectors']
     image: node:24-slim@sha256:01d566e8d94d8c619591d78652babfccd3c6992a3dffa9ed5ab39e11cf6c70e9
