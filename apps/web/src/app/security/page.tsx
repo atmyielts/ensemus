@@ -9,37 +9,40 @@ export default function Security() {
       <div className="sheet stack">
         <PageHead
           title="Security and reporting"
-          description="Report a concern without including credentials or unnecessary customer data."
+          description="How to tell us about a security concern, and what happens after you do."
           actions={<Link href="/status">Service status</Link>}
         />
         <section className="stack">
           <h2>Report a concern</h2>
           <p>
-            If you have an Ensemus account, open your organization’s Account → Support page and
-            choose Security. Include a short description, affected feature, and a safe way to
-            reproduce the issue. Redact tokens and customer content.
+            If you have an Ensemus account, open your organization’s Account, then Support, and
+            choose Security. Say briefly what you found, which part of Ensemus it affects, and how
+            it can be seen safely. Leave out passwords, keys and customer content.
           </p>
           <p>
-            The deployment owner has not yet published an external security contact. If you cannot
-            sign in, use your existing contact with the deployment owner and ask for a secure
-            reporting channel. Do not publish exploit details or confidential data here.
+            Whoever runs Ensemus for your company has not yet published an external security
+            contact. If you cannot sign in, contact them the way you usually would and ask for a
+            secure way to report it. Please do not publish the details or any confidential data.
           </p>
-          <Link href="/">Open your organizations</Link>
+          <p>
+            <Link href="/">Go to your organizations</Link>
+          </p>
         </section>
         <section className="stack">
           <h2>What happens next</h2>
           <p>
-            A responsible operator records a private reference to the report, acknowledges it
-            through the agreed channel, assesses severity, and coordinates a fix and any disclosure.
-            The public status page carries only approved service updates.
+            The person responsible records your report privately, confirms they have it through the
+            channel you agreed, judges how serious it is, and coordinates a fix and anything that
+            needs to be announced. The public status page shows only approved service updates.
           </p>
           <p>No response deadline or certification is claimed on this page.</p>
         </section>
         <section className="stack">
           <h2>Testing boundaries</h2>
           <p>
-            Do not access another organization’s data, disrupt service, extract secrets, or attempt
-            consequential actions. Ask the deployment owner to agree a bounded test first.
+            Do not access another organization’s data, disrupt the service, take secrets, or try
+            anything with real consequences. Agree the limits of any test with whoever runs Ensemus
+            for your company first.
           </p>
           <p>
             Safe harbor terms require legal review and have not been approved. This page does not

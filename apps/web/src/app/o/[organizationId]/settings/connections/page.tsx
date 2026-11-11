@@ -31,7 +31,7 @@ const ATTEMPT_WORDS: Record<string, { label: string; tone: string; detail: strin
   pending: {
     label: 'Waiting for you',
     tone: 'attention',
-    detail: 'Finish on the provider’s page within ten minutes, or start again.',
+    detail: 'Finish on Google’s or Microsoft’s page within ten minutes, or start again.',
   },
   code_received: {
     label: 'Finishing',
@@ -54,6 +54,12 @@ const ATTEMPT_WORDS: Record<string, { label: string; tone: string; detail: strin
 };
 
 const IN_PROGRESS = new Set(['pending', 'code_received', 'exchanging']);
+
+/** What each account brings, in a line, before anyone chooses. */
+const PROVIDER_BLURB: Record<SuiteConnectorType, string> = {
+  google_workspace: 'Your Google mail, calendar and documents.',
+  microsoft_365: 'Your Microsoft mail, calendar and documents, and Teams chat.',
+};
 
 /** The member's own attempt the callback sent them back to, or nothing if it is not theirs. */
 async function ownAttempt(
@@ -113,7 +119,7 @@ export default async function MyConnectionsPage({
     <>
       <PageHead
         title="Your connections"
-        description="Connect your own Google or Microsoft account, so assistants you start can work with your mail and calendar. Only you, and assistants you start, can use it."
+        description="Connect your own Google or Microsoft account, so assistants you start can help with your mail, calendar and documents. Only you, and assistants you start, can use it."
       />
       <ErrorNotice code={error} />
       <div className="stack">
@@ -137,101 +143,134 @@ export default async function MyConnectionsPage({
         )}
         <section className="card" aria-labelledby="mine-heading">
           <h2 id="mine-heading">Connected accounts</h2>
-          <p className="muted">
-            Nobody else in your organization can use these or see what they reach. An administrator
-            can see that you have one and can disconnect it.
-          </p>
           {mine.length === 0 ? (
-            <Empty>You have not connected an account.</Empty>
-          ) : (
-            <ul className="list">
-              {mine.map((connection) => {
-                const state = CONNECTION_STATE_WORDS[connection.state] ?? {
-                  label: connection.state,
-                  tone: '',
-                };
-                return (
-                  <li key={connection.id} className="block">
-                    <span className="row">
-                      <strong>{connection.displayName}</strong>
-                      <span className={`badge ${state.tone}`}>{state.label}</span>
-                    </span>
-                    <p className="muted">
-                      {SUITE_NAMES[connection.connectorType]}, connected{' '}
-                      {formatDateTime(connection.createdAt)}. Assistants you start may use it for{' '}
-                      {listed(connection.capabilities)}.
-                    </p>
-                    {connection.state !== 'revoked' && (
-                      <div className="gap-above">
-                        <ConfirmForm
-                          action={revokeMyConnectionAction}
-                          fields={
-                            <>
-                              <input type="hidden" name="organizationId" value={organizationId} />
-                              <input type="hidden" name="connectionId" value={connection.id} />
-                            </>
-                          }
-                          summary="Disconnect"
-                          summaryLabel={`Disconnect ${connection.displayName}`}
-                          consequence={`Disconnect ${connection.displayName} for good. Assistants stop using it at once, and anything not yet sent through it will not go out. To use it again, connect it again.`}
-                          confirmLabel="Disconnect for good"
-                          confirmFullLabel={`Disconnect for good: ${connection.displayName}`}
-                        />
-                      </div>
-                    )}
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </section>
-        <section className="card" aria-labelledby="connect-heading">
-          <h2 id="connect-heading">Connect an account</h2>
-          {!enabled ? (
-            <p className="notice warn flush">
-              Connectors are not turned on for this deployment, so nothing can be connected. An
-              operator turns them on.
-            </p>
-          ) : allowed.length === 0 ? (
-            <Empty>
-              Your organization does not let members connect their own accounts. Ask an
-              administrator if you need to.
+            <Empty title="No accounts connected yet">
+              Connect Google Workspace or Microsoft 365 below, and assistants you start can work
+              with it.
             </Empty>
           ) : (
             <>
               <p className="muted">
-                You agree on Google’s or Microsoft’s own page, and Ensemus never sees your password.
-                What you choose here is all it asks for. Anything an assistant sends or changes
-                through it waits for approval as your organization’s rules say.
+                Nobody else at your company can use these or see what they reach. An administrator
+                can see that you have one, and can disconnect it.
               </p>
+              <ul className="list gap-above">
+                {mine.map((connection) => {
+                  const state = CONNECTION_STATE_WORDS[connection.state] ?? {
+                    label: connection.state,
+                    tone: '',
+                  };
+                  return (
+                    <li key={connection.id} className="block">
+                      <span className="row">
+                        <strong>{connection.displayName}</strong>
+                        <span className={`badge ${state.tone}`}>{state.label}</span>
+                      </span>
+                      <p className="muted">
+                        {SUITE_NAMES[connection.connectorType]}, connected{' '}
+                        {formatDateTime(connection.createdAt)}. Assistants you start may use it for{' '}
+                        {listed(connection.capabilities)}.
+                      </p>
+                      {connection.state !== 'revoked' && (
+                        <div className="gap-above">
+                          <ConfirmForm
+                            action={revokeMyConnectionAction}
+                            fields={
+                              <>
+                                <input type="hidden" name="organizationId" value={organizationId} />
+                                <input type="hidden" name="connectionId" value={connection.id} />
+                              </>
+                            }
+                            summary="Disconnect"
+                            summaryLabel={`Disconnect ${connection.displayName}`}
+                            consequence={`Disconnect ${connection.displayName} for good. Assistants stop using it at once, and anything not yet sent through it will not go out. To use it again, connect it again.`}
+                            confirmLabel="Disconnect for good"
+                            confirmFullLabel={`Disconnect for good: ${connection.displayName}`}
+                          />
+                        </div>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+            </>
+          )}
+        </section>
+        <section aria-labelledby="connect-heading">
+          <div className="section-intro">
+            <h2 id="connect-heading">Connect an account</h2>
+            <p>
+              You agree on Google’s or Microsoft’s own page, and Ensemus never sees your password.
+              Anything an assistant sends or changes through it waits for approval, as your
+              company’s rules say.
+            </p>
+          </div>
+          {!enabled ? (
+            <p className="notice warn flush">
+              Connecting accounts isn’t turned on for your company yet. Ask whoever set up Ensemus
+              for your company to turn it on.
+            </p>
+          ) : allowed.length === 0 ? (
+            <Empty title="Not available at your company">
+              Your company doesn’t let people connect their own accounts. Ask an administrator if
+              you need to.
+            </Empty>
+          ) : (
+            <div className="stack">
               {SUITE_CONNECTOR_TYPES.map((connectorType) => {
                 const providerName = SUITE_NAMES[connectorType];
                 const choices = choicesFor(connectorType, allowed);
+                const ready = platformClientId(SUITE_PROVIDER[connectorType]) !== null;
                 return (
-                  <details key={connectorType} className="gap-above">
-                    <summary>Connect {providerName}</summary>
-                    {platformClientId(SUITE_PROVIDER[connectorType]) === null ? (
-                      <p className="muted">
-                        Ensemus’s app for {providerName} is not set up on this deployment, so you
-                        cannot connect it yet. Whoever runs Ensemus can set it up.
-                      </p>
-                    ) : choices.length === 0 ? (
-                      <p className="muted">
-                        Nothing your organization lets members connect is available for{' '}
-                        {providerName} yet.
-                      </p>
-                    ) : (
-                      <MyConnectForm
-                        organizationId={organizationId}
-                        connectorType={connectorType}
-                        providerName={providerName}
-                        capabilities={choices}
-                      />
-                    )}
-                  </details>
+                  <section
+                    key={connectorType}
+                    className="card"
+                    aria-labelledby={`provider-${connectorType}`}
+                  >
+                    <h3 id={`provider-${connectorType}`}>{providerName}</h3>
+                    <p className="muted">{PROVIDER_BLURB[connectorType]}</p>
+                    <dl className="details gap-above">
+                      <div>
+                        <dt>What it allows</dt>
+                        <dd>
+                          {choices.length === 0
+                            ? 'Nothing yet'
+                            : choices.map((choice) => choice.label).join(', ')}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>Who can use it</dt>
+                        <dd>Only you, and assistants you start</dd>
+                      </div>
+                      <div>
+                        <dt>To stop</dt>
+                        <dd>Disconnect it on this page, at any time</dd>
+                      </div>
+                    </dl>
+                    <div className="divided">
+                      {!ready ? (
+                        <p className="muted">
+                          Connecting {providerName} isn’t set up for your company yet. Ask whoever
+                          set up Ensemus for your company to set it up.
+                        </p>
+                      ) : choices.length === 0 ? (
+                        <p className="muted">
+                          Nothing your company lets people connect is available for {providerName}{' '}
+                          yet.
+                        </p>
+                      ) : (
+                        <MyConnectForm
+                          organizationId={organizationId}
+                          connectorType={connectorType}
+                          providerName={providerName}
+                          capabilities={choices}
+                        />
+                      )}
+                    </div>
+                  </section>
                 );
               })}
-            </>
+            </div>
           )}
         </section>
       </div>

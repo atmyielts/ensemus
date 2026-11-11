@@ -71,9 +71,8 @@ export function ProcessEmailForm({
         defaultValue={values?.textBody ?? ''}
       />
       <p className="notice">
-        This saves an exact email proposal for a different eligible person to approve. It does not
-        send now. Once proposed, use the outside-action record to follow approval or resolve
-        uncertain delivery.
+        This saves the exact email for someone else to approve. Nothing is sent yet. Afterwards,
+        follow its approval and delivery from the step’s outside action.
       </p>
       <div>
         <SubmitButton working="Saving the proposal">Propose email for approval</SubmitButton>

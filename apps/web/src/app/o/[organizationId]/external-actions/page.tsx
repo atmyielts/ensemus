@@ -8,7 +8,7 @@ import { can } from '@ensemus/domain/policy';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { ReceiptStatusBadge } from '@/components/receipt-status';
-import { Empty, ErrorNotice, formatDateTime, PageHead } from '@/components/ui';
+import { ActionLink, Empty, ErrorNotice, formatDateTime, PageHead } from '@/components/ui';
 import { requireTenant } from '@/server/tenant';
 
 export const metadata = { title: 'External actions | Ensemus' };
@@ -55,12 +55,12 @@ export default async function ExternalActionsPage({
     <>
       <PageHead
         title="External actions"
-        description="What Ensemus was asked to do outside itself, on work you can see, and what is known about how each one went."
+        description="Emails and other things Ensemus was asked to send outside your organization, on work you can see, and what is known about how each one went."
         actions={
           manages ? (
-            <Link className="button quiet" href={`${base}/connections`}>
+            <ActionLink href={`${base}/connections`} variant="secondary">
               Connections
-            </Link>
+            </ActionLink>
           ) : undefined
         }
       />
@@ -71,7 +71,7 @@ export default async function ExternalActionsPage({
             <h2 id="decision-heading">Needs a decision</h2>
             <p className="notice unknown">
               Nobody can say whether these were sent, and Ensemus will not try them again by itself.
-              Open each one to see what to look for, then say what you found.
+              Open each one to see what to look for, then record what you found.
             </p>
             <ul className="list">
               {needingReview.map((action) => (
@@ -83,10 +83,16 @@ export default async function ExternalActionsPage({
         <section className="card" aria-labelledby="everything-heading">
           <h2 id="everything-heading">Everything you can see</h2>
           {page.items.length === 0 ? (
-            <Empty action={<Link href={`${base}/work`}>Go to your work</Link>}>
+            <Empty
+              action={
+                <ActionLink href={`${base}/work`} variant="secondary">
+                  Go to your work
+                </ActionLink>
+              }
+            >
               {after
                 ? 'Nothing further.'
-                : 'Nothing yet. An email proposed on a piece of work appears here, once someone proposes one.'}
+                : 'Nothing yet. When someone proposes an email on a piece of work, it appears here with how it went.'}
             </Empty>
           ) : (
             <ul className="list">
@@ -96,7 +102,7 @@ export default async function ExternalActionsPage({
             </ul>
           )}
           {page.next && (
-            <p className="gap-above">
+            <p className="gap-above link-line">
               <Link href={`${base}/external-actions?after=${encodeURIComponent(page.next)}`}>
                 Show older ones
               </Link>

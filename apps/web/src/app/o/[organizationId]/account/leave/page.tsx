@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { ConfirmForm } from '@/components/confirm-form';
 import { AccountReasonSelect } from '@/components/account-reason-select';
-import { ErrorNotice, PageHead, formatDateTime } from '@/components/ui';
+import { ActionLink, BackLink, ErrorNotice, formatDateTime, PageHead } from '@/components/ui';
 import { cancelOffboardingAction } from '@/server/offboarding-actions';
 import { getOffboardingAgents } from '@/server/offboarding-bindings';
 import { orNotFound, requireAccountTenant } from '@/server/tenant';
@@ -15,7 +15,7 @@ const labels: Record<string, string> = {
   export_offered: 'Export offered',
   in_transition: 'Contractual transition',
   winding_down: 'Ending work and connections',
-  ready_for_erasure: 'Awaiting operator erasure',
+  ready_for_erasure: 'Waiting for the data to be erased',
   erasing: 'Erasure in progress',
   verified: 'Deletion verified',
   reported: 'Report recorded',
@@ -36,24 +36,28 @@ export default async function LeavePage({
   const configured = Boolean(getOffboardingAgents());
   return (
     <div className="stack">
+      <BackLink href={`/o/${organizationId}/account`}>Account</BackLink>
       <PageHead
         title="Leave Ensemus"
         description="Export your data, complete the agreed transition, and receive a report of verified erasure and retained records."
-        actions={<Link href={`/o/${organizationId}/account`}>Account</Link>}
       />
       <ErrorNotice code={(await searchParams).error} />
       <p className="notice">
-        Offboarding stops new work. Billing, support, export and this page remain available during
-        the transition. An operator performs erasure after its prerequisites are met; this page
-        cannot start erasure.
+        Leaving stops new work. Billing, support, exports and this page stay available during the
+        transition. Erasure happens only once every check below is met, and this page cannot start
+        it.
       </p>
       <div className="row">
-        <Link href={`/o/${organizationId}/account/exports`}>Prepare your data export</Link>
-        <Link href={`/o/${organizationId}/account/support`}>Contact support</Link>
+        <ActionLink variant="secondary" href={`/o/${organizationId}/account/exports`}>
+          Prepare your data export
+        </ActionLink>
+        <ActionLink variant="secondary" href={`/o/${organizationId}/account/support`}>
+          Contact support
+        </ActionLink>
       </div>
       {!configured && (
         <p className="notice">
-          Offboarding controls are not configured on this deployment. Contact support to arrange the
+          Leaving can’t be requested from this page for your company. Contact support to arrange the
           next steps.
         </p>
       )}
@@ -109,7 +113,7 @@ export default async function LeavePage({
               )}
               <p className="muted">
                 Billing records, audit, deletion evidence, account identities and backups retained
-                under their published rules are listed as exceptions in the operator's report.
+                under their published rules are listed as exceptions in the erasure report.
               </p>
             </details>
           )}

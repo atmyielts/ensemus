@@ -37,23 +37,29 @@ export default async function StartProcessPage({
       <BackLink href={base}>Workflow runs</BackLink>
       <PageHead
         title="Start an approved workflow"
-        description="Choose the immutable version and name its real work. Starting queues a background worker; it does not certify model quality or outside delivery."
+        description="Choose a published workflow, read its steps and give the work a name. Starting it creates real work for the people involved."
       />
       {query.installed === '1' && selected && (
-        <p role="status" className="notice">
-          The definition is installed. Review this version and name the work before starting it.
+        <p role="status" className="notice good">
+          The workflow is installed. Read its steps below and name the work to start it.
         </p>
       )}
       {query.spec && !selected && (
         <p className="notice">
-          The requested definition is not currently available to you. Its private details are
-          hidden; explicitly choose an available version.
+          That workflow is not available to you, so its details are hidden. Choose one of the
+          workflows you can start.
         </p>
       )}
       {selected && selected.spec.steps.length === 0 ? (
-        <Empty title="This saved version has no executable steps">
-          Add work to a draft, rehearse it and publish a new version before starting. No run is
-          created from an empty definition.
+        <Empty
+          title="This version has no steps to run"
+          action={
+            <ActionLink href={`/o/${organizationId}/studio/workflows`} variant="secondary">
+              Go to workflow drafts
+            </ActionLink>
+          }
+        >
+          Add steps to its draft, rehearse it and publish a new version first.
         </Empty>
       ) : selected ? (
         <ProcessStartForm
@@ -70,59 +76,71 @@ export default async function StartProcessPage({
           selectedSpecId={selected.id}
         />
       ) : specs.length ? (
-        <form method="get" className="fields" aria-label="Choose a definition to review">
-          <label htmlFor="choose-start-definition">Saved workflow version</label>
-          <select id="choose-start-definition" name="spec" required defaultValue="">
-            <option value="">Choose a workflow to review</option>
-            {specs.map((spec) => (
-              <option key={spec.id} value={spec.id}>
-                {spec.name} - Version {spec.versionNumber}
-              </option>
-            ))}
-          </select>
+        <form method="get" className="card fields" aria-label="Choose a definition to review">
+          <label htmlFor="choose-start-definition">
+            <span id="choose-start-definition-label">Workflow</span>
+            <small id="choose-start-definition-help">
+              You will see its steps before anything starts.
+            </small>
+            <select
+              id="choose-start-definition"
+              name="spec"
+              required
+              defaultValue=""
+              aria-labelledby="choose-start-definition-label"
+              aria-describedby="choose-start-definition-help"
+            >
+              <option value="">Choose a workflow</option>
+              {specs.map((spec) => (
+                <option key={spec.id} value={spec.id}>
+                  {spec.name} · Version {spec.versionNumber}
+                </option>
+              ))}
+            </select>
+          </label>
           <div>
-            <button type="submit">Review selected workflow</button>
+            <button type="submit">Show its steps</button>
           </div>
-          <p className="muted">
-            This opens its exact saved steps before you name and start real work.
-          </p>
         </form>
       ) : (
         <Empty
-          title="No startable saved definitions"
-          action={<ActionLink href={`${base}/catalog`}>Browse bundled definitions</ActionLink>}
+          title="No published workflows yet"
+          action={<ActionLink href={`${base}/catalog`}>See ready-made workflows</ActionLink>}
         >
-          Prepare, rehearse and publish a workflow, or install a bundled definition. Unavailable
-          references and permissions can still prevent a later step.
+          Install a ready-made workflow, or build, rehearse and publish one of your own.
         </Empty>
       )}
 
       {selected && (
-        <section className="card fields" aria-labelledby="selected-workflow">
-          <div className="row">
-            <h2 id="selected-workflow">Selected saved version: {selected.name}</h2>
+        <section className="card gap-above-large" aria-labelledby="selected-workflow">
+          <div className="spread">
+            <h2 id="selected-workflow">Its steps: {selected.name}</h2>
             <ClassificationBadge value={selected.classification} />
           </div>
-          <p>
-            Version {selected.versionNumber}. These are the saved steps, not completed work.
-            Dependencies determine their order; separate paths may progress in parallel.
+          <p className="muted">
+            Version {selected.versionNumber}. Each step waits for the ones listed with it; steps
+            that do not wait for each other can happen at the same time.
           </p>
-          <ol>
+          <ol className="list gap-above">
             {selected.spec.steps.map((step) => (
               <li key={step.key}>
-                {step.label} <span className="muted">({stepKindNames[step.kind]})</span>
-                <p className="muted">
-                  {step.after.length
-                    ? `Waits for all: ${step.after.map((key) => selected.spec.steps.find((before) => before.key === key)?.label ?? 'Unavailable saved step').join('; ')}.`
-                    : 'No earlier step is required.'}
-                </p>
+                <span>
+                  <strong>{step.label}</strong>
+                  <br />
+                  <small>
+                    {stepKindNames[step.kind]} ·{' '}
+                    {step.after.length
+                      ? `Waits for ${step.after.map((key) => selected.spec.steps.find((before) => before.key === key)?.label ?? 'a step that is no longer listed').join('; ')}`
+                      : 'First step'}
+                  </small>
+                </span>
               </li>
             ))}
           </ol>
-          <details>
-            <summary>Definition snapshot details</summary>
-            <p>
-              Definition hash: <code>{selected.specSha256}</code>
+          <details className="gap-above">
+            <summary>Technical details</summary>
+            <p className="gap-above-small">
+              Definition fingerprint: <code>{selected.specSha256}</code>
             </p>
             <p>
               Definition identifier: <code>{selected.id}</code>
@@ -130,13 +148,13 @@ export default async function StartProcessPage({
           </details>
         </section>
       )}
-      <p>
+      <p className="muted gap-above-large">
         {selected && (
           <>
             <Link href={`${base}/new`}>Choose another workflow</Link> ·{' '}
           </>
         )}
-        <Link href={`${base}/catalog`}>Bundled definitions and requirements</Link> ·{' '}
+        <Link href={`${base}/catalog`}>Ready-made workflows</Link> ·{' '}
         <Link href={`/o/${organizationId}/studio/workflows`}>Workflow drafts</Link>
       </p>
     </OneActionAtATime>

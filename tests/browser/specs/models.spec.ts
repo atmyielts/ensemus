@@ -200,7 +200,7 @@ test.describe('the model settings', () => {
     });
     await page.goto(`/o/${world.organization}/settings/models/${profile.id}`);
     await expect(page.locator('input[name="key"]')).toHaveCount(0);
-    await expect(page.getByText('not enabled on this deployment yet')).toBeVisible();
+    await expect(page.getByText('not turned on for your company yet')).toBeVisible();
   });
 
   test('a hosted key is refused without the review setting, with nothing sealed', async ({

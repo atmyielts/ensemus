@@ -58,7 +58,9 @@ export function PublishForm({ organizationId }: { organizationId: string }) {
         <input type="hidden" name="organizationId" value={organizationId} />
         <label>
           Agent manifest
-          <small>The agent&apos;s definition, as JSON. A version cannot be changed later.</small>
+          <small>
+            The assistant&apos;s definition, as JSON. A published version cannot be changed.
+          </small>
           <textarea
             name="manifest"
             required
@@ -85,7 +87,9 @@ export function PublishForm({ organizationId }: { organizationId: string }) {
             defaultValue={state.values?.report ?? ''}
           />
         </label>
-        <SubmitButton working="Checking and publishing">Publish this version</SubmitButton>
+        <div>
+          <SubmitButton working="Checking and publishing">Publish this version</SubmitButton>
+        </div>
       </form>
     </>
   );

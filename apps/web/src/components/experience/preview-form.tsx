@@ -91,7 +91,7 @@ export function PreviewForm({
           </option>
         ))}
       </select>
-      <label htmlFor={`${prefix}-class`}>Sensitivity</label>
+      <label htmlFor={`${prefix}-class`}>Who can see this</label>
       <select
         id={`${prefix}-class`}
         name="classification"
@@ -121,7 +121,7 @@ export function PreviewForm({
         A suggestion for later. Confirming this preview creates ordinary Work and does not start
         this workflow.
       </p>
-      <fieldset>
+      <fieldset className="group">
         <legend>Success requirements</legend>
         <p className="muted">
           File attached; a person checks the requested name and content. Approval is required only
@@ -148,7 +148,7 @@ export function PreviewForm({
             >
               <option value="none">A person checks it</option>
               <option value="artifact_named">A file is attached; a person checks it</option>
-              <option value="reviewer_approved">Current Work review is approved</option>
+              <option value="reviewer_approved">A reviewer approves the work</option>
             </select>
             {i < p.successCriteria.length && (
               <label className="check">
@@ -164,7 +164,7 @@ export function PreviewForm({
           </div>
         ))}
       </fieldset>
-      <fieldset>
+      <fieldset className="group">
         <legend>Work that must finish first</legend>
         <p className="muted">
           Browse 50 readable items at a time. Saved selections remain shown on every page. Save

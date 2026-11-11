@@ -1,8 +1,7 @@
 import { getObjectType, listObjectTypes } from '@ensemus/application/custom-objects';
 import { canProduct } from '@ensemus/domain/product-policy';
-import Link from 'next/link';
 import { ObjectTypeForm } from '@/components/objects/type-form';
-import { PageHead, Empty } from '@/components/ui';
+import { PageHead, Empty, BackLink } from '@/components/ui';
 import { requireTenant, orNotFound } from '@/server/tenant';
 export const metadata = { title: 'Edit custom type | Ensemus' };
 export default async function EditObjectType({
@@ -15,10 +14,12 @@ export default async function EditObjectType({
     type = await orNotFound(getObjectType(database, context, typeId));
   return (
     <>
-      <Link href={`/o/${organizationId}/objects/types/${type.id}`}>Back to {type.displayName}</Link>
+      <BackLink href={`/o/${organizationId}/objects/types/${type.id}`}>
+        Back to {type.displayName}
+      </BackLink>
       <PageHead
         title={`Edit ${type.displayName}`}
-        description="Save a new immutable version. Existing records keep their content while safe changes are applied in the background."
+        description="Saving creates a new version of the fields. Existing records keep what they hold while they are updated in the background."
       />
       {canProduct(context.role, 'object_type.manage') ? (
         <ObjectTypeForm
@@ -27,7 +28,9 @@ export default async function EditObjectType({
           types={await listObjectTypes(database, context)}
         />
       ) : (
-        <Empty>Your role cannot change type definitions.</Empty>
+        <Empty title="Changing record types is not part of your role">
+          Ask an administrator in your organization to change these fields.
+        </Empty>
       )}
     </>
   );

@@ -49,12 +49,24 @@ export default async function ProcessRunPage({
       </>
     );
   }
+  const tone =
+    run.status === 'failed'
+      ? 'bad'
+      : run.status === 'completed'
+        ? 'done'
+        : run.status === 'cancelled'
+          ? ''
+          : 'active';
   return (
     <OneActionAtATime>
       <BackLink href={`${base}/studio/runs`}>Workflow runs</BackLink>
       <PageHead
         title={run.title}
-        description={`${run.processName} · Started ${formatDateTime(run.createdAt)}`}
+        description={
+          <>
+            {run.processName} · Started {formatDateTime(run.createdAt)}
+          </>
+        }
         actions={
           <ActionLink href={`${base}/work/${run.rootWorkUnitId}`} variant="secondary">
             Open workflow work
@@ -63,75 +75,88 @@ export default async function ProcessRunPage({
       />
       <ErrorNotice code={query.error} />
       {query.proposal === 'saved' && (
-        <p className="notice" role="status">
-          The exact email proposal was saved for approval. Open its outside-action record for the
-          latest approval and delivery state.
+        <p className="notice good" role="status">
+          The email was saved and is waiting for approval. Open the step’s outside action to follow
+          its approval and delivery.
         </p>
       )}
       {query.stop === 'requested' && (
         <p className="notice" role="status">
-          Your stop request is recorded. Refresh to follow the worker’s result; an outside action
-          already in progress may still need reconciliation.
+          Your stop request is recorded. Refresh to see when the workflow has stopped; an action
+          already under way outside Ensemus may still need checking.
         </p>
       )}
-      <section className="card fields" aria-labelledby="workflow-progress">
-        <div className="row">
-          <h2 id="workflow-progress">Current progress</h2>
-          <span
-            className={`badge ${run.status === 'failed' ? 'bad' : run.status === 'completed' ? 'done' : 'active'}`}
-          >
-            {runStatusNames[run.status]}
-          </span>
-        </div>
-        {run.stopCode && <p className="notice">{runCodeText(run.stopCode)}</p>}
-        <p>{runCostText(run.cost)}</p>
-        {run.finishedAt && <p>Finished {formatDateTime(run.finishedAt)}.</p>}
-        <p>
-          <Link href={`${base}/studio/runs/${run.id}`}>Refresh workflow status</Link>
-        </p>
-      </section>
-      <ProcessStepList organizationId={organizationId} run={run} />
+      <div className="detail-layout">
+        <ProcessStepList organizationId={organizationId} run={run} />
 
-      {run.canManage && liveRun(run.status) && run.stopCode !== 'STOP_REQUESTED' && (
-        <section className="card fields" aria-labelledby="stop-workflow">
-          <h2 id="stop-workflow">Stop further steps</h2>
-          <p>
-            A committed stop prevents the worker from starting another step. It does not recall an
-            outside effect already in progress, and it never turns uncertain delivery into a known
-            failure.
-          </p>
-          <form action={stopWorkflowRunAction} className="fields">
-            <input type="hidden" name="organizationId" value={organizationId} />
-            <input type="hidden" name="runId" value={run.id} />
-            <input type="hidden" name="version" value={run.version} />
-            <input type="hidden" name="requestKey" value={randomUUID()} />
-            <label className="check">
-              <input type="checkbox" name="confirmed" value="yes" required />I want to stop further
-              steps and review any action already in progress.
-            </label>
+        <aside className="card" aria-labelledby="workflow-progress">
+          <div className="spread">
+            <h2 id="workflow-progress">Progress</h2>
+            <span className={`badge ${tone}`}>{runStatusNames[run.status]}</span>
+          </div>
+          {run.stopCode && <p className="notice gap-above">{runCodeText(run.stopCode)}</p>}
+          <dl className="details gap-above-small">
             <div>
-              <SubmitButton className="danger" working="Recording the stop request">
-                Request stop
-              </SubmitButton>
+              <dt>Started</dt>
+              <dd>{formatDateTime(run.createdAt)}</dd>
             </div>
-          </form>
-        </section>
-      )}
-      <details>
-        <summary>Workflow record details</summary>
-        <p>
-          Run identifier: <code>{run.id}</code>
-        </p>
-        <p>
-          Saved definition identifier: <code>{run.specId}</code>
-        </p>
-        <p>Current record version: {run.version}</p>
-        {run.stopCode && /^[A-Z][A-Z0-9_]{1,63}$/.test(run.stopCode) && (
-          <p>
-            Recorded code: <code>{run.stopCode}</code>
+            {run.finishedAt && (
+              <div>
+                <dt>Finished</dt>
+                <dd>{formatDateTime(run.finishedAt)}</dd>
+              </div>
+            )}
+            <div>
+              <dt>Cost</dt>
+              <dd>{runCostText(run.cost)}</dd>
+            </div>
+          </dl>
+          <p className="link-line divided">
+            <Link href={`${base}/studio/runs/${run.id}`}>Refresh workflow status</Link>
           </p>
-        )}
-      </details>
+          {run.canManage && liveRun(run.status) && run.stopCode !== 'STOP_REQUESTED' && (
+            <section className="divided" aria-labelledby="stop-workflow">
+              <h3 id="stop-workflow">Stop further steps</h3>
+              <p className="muted">
+                <small>
+                  No new step will start. Something already under way outside Ensemus is not called
+                  back, and an unclear delivery is never marked as failed.
+                </small>
+              </p>
+              <form action={stopWorkflowRunAction} className="fields gap-above-small">
+                <input type="hidden" name="organizationId" value={organizationId} />
+                <input type="hidden" name="runId" value={run.id} />
+                <input type="hidden" name="version" value={run.version} />
+                <input type="hidden" name="requestKey" value={randomUUID()} />
+                <label className="check">
+                  <input type="checkbox" name="confirmed" value="yes" required />I want to stop
+                  further steps and review any action already in progress.
+                </label>
+                <div>
+                  <SubmitButton className="danger" working="Recording the stop request">
+                    Request stop
+                  </SubmitButton>
+                </div>
+              </form>
+            </section>
+          )}
+          <details className="divided">
+            <summary>Technical details</summary>
+            <p className="gap-above-small">
+              Run identifier: <code>{run.id}</code>
+            </p>
+            <p>
+              Workflow version identifier: <code>{run.specId}</code>
+            </p>
+            <p>Record version: {run.version}</p>
+            {run.stopCode && /^[A-Z][A-Z0-9_]{1,63}$/.test(run.stopCode) && (
+              <p>
+                Recorded code: <code>{run.stopCode}</code>
+              </p>
+            )}
+          </details>
+        </aside>
+      </div>
     </OneActionAtATime>
   );
 }

@@ -18,7 +18,10 @@ export default async function TwoFactorSignInPage({
       <Wordmark />
       <div className="sheet">
         <h1>Confirm your sign-in</h1>
-        <p>Enter a code from your authenticator app, or use one of your saved recovery codes.</p>
+        <p className="lede">
+          One more step. Enter the code your authenticator app shows now, or one of the recovery
+          codes you saved.
+        </p>
         <FactorError code={query.error} />
         <form className="fields" action={completeTwoFactorSignInAction}>
           {next && <input type="hidden" name="next" value={next} />}
@@ -28,15 +31,17 @@ export default async function TwoFactorSignInPage({
           </div>
         </form>
       </div>
-      <p className="below-sheet">
-        <Link href={withReturnPath('/sign-in', next)}>
-          Start again with your email and password
-        </Link>
-      </p>
-      <p className="below-sheet">
-        Lost the app and your recovery codes? Ask the person who manages this installation to reset
-        your second factor.
-      </p>
+      <ul className="sheet-links" aria-label="Other ways in">
+        <li>
+          <Link href={withReturnPath('/sign-in', next)}>
+            Start again with your email and password
+          </Link>
+        </li>
+        <li>
+          Lost your phone and your recovery codes? Ask whoever runs Ensemus for your company to
+          reset your two-step sign-in.
+        </li>
+      </ul>
     </main>
   );
 }

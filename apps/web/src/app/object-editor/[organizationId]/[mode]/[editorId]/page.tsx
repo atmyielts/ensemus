@@ -29,8 +29,8 @@ async function editor(scope: ObjectEditorScope, { database, context }: Tenant): 
       type = await getObjectType(database, context, record.typeId);
     if (!record.canChange || type.state !== 'active')
       return (
-        <Empty>
-          You can no longer edit this record. Open the original page to review your current access.
+        <Empty title="You can no longer edit this record">
+          Open the original page to see what you can do with it now.
         </Empty>
       );
     return (
@@ -49,7 +49,8 @@ async function editor(scope: ObjectEditorScope, { database, context }: Tenant): 
   }
   if (scope.mode === 'new-record') {
     const type = await orNotFound(getObjectType(database, context, scope.typeId));
-    if (type.state !== 'active') return <Empty>This type can no longer accept new records.</Empty>;
+    if (type.state !== 'active')
+      return <Empty title="This type is archived">It no longer takes new records.</Empty>;
     return (
       <>
         <PageHead title={`New ${type.displayName} record`} />
@@ -64,7 +65,11 @@ async function editor(scope: ObjectEditorScope, { database, context }: Tenant): 
     );
   }
   if (!canProduct(context.role, 'object_type.manage'))
-    return <Empty>Your role cannot change record types.</Empty>;
+    return (
+      <Empty title="Changing record types is not part of your role">
+        Ask an administrator in your organization to make this change.
+      </Empty>
+    );
   const types = await listObjectTypes(database, context);
   if (scope.mode === 'type') {
     const type = await orNotFound(getObjectType(database, context, scope.id));
@@ -124,7 +129,7 @@ export default async function ObjectEditorRecovery({
     );
   }
   return (
-    <main id="main" className="centered">
+    <main id="main" className="centered object-editor">
       <div className="sheet fields">
         <Wordmark />
         <BackLink href={objectEditorDestination(scope)}>Original editor</BackLink>

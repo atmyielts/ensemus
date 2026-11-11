@@ -2,6 +2,7 @@ import { AppError, listProjects, listWorkOverview } from '@ensemus/application';
 import { WORK_STATES, type CompletionCriterion, type WorkState } from '@ensemus/domain/work-unit';
 import Link from 'next/link';
 import {
+  ActionLink,
   ClassificationBadge,
   Empty,
   ErrorNotice,
@@ -66,12 +67,8 @@ export default async function WorkPage({
     <>
       <PageHead
         title="Work"
-        description="Everything you have access to."
-        actions={
-          <Link className="button" href={`${base}/work/new`}>
-            New work
-          </Link>
-        }
+        description="Everything you can see, newest first. Open a piece of work to move it along."
+        actions={<ActionLink href={`${base}/work/new`}>New work</ActionLink>}
       />
       <ErrorNotice code={notice} />
       {projectId && (
@@ -80,37 +77,50 @@ export default async function WorkPage({
           <Link href={`${base}/work`}>Show all work</Link>
         </p>
       )}
-      <form className="inline-form filter" method="get">
-        {projectId && <input type="hidden" name="project" value={projectId} />}
-        <label>
-          Status
-          <select name="status" defaultValue={filter ?? ''}>
-            <option value="">All</option>
-            {WORK_STATES.map((state) => (
-              <option key={state} value={state}>
-                {LABELS[state]}
-              </option>
-            ))}
-          </select>
-        </label>
-        <button className="quiet" type="submit">
-          Filter
-        </button>
-      </form>
+      {/* With nothing here at all, a filter only gets in the way of the first step. */}
+      {(items.length > 0 || filter || projectId) && (
+        <form className="inline-form filter" method="get">
+          {projectId && <input type="hidden" name="project" value={projectId} />}
+          <label>
+            Status
+            <select name="status" defaultValue={filter ?? ''}>
+              <option value="">All</option>
+              {WORK_STATES.map((state) => (
+                <option key={state} value={state}>
+                  {LABELS[state]}
+                </option>
+              ))}
+            </select>
+          </label>
+          <button className="secondary" type="submit">
+            Filter
+          </button>
+        </form>
+      )}
       {items.length === 0 ? (
-        <Empty
-          action={
-            filter || projectId ? (
-              <Link href={`${base}/work`}>Show all work</Link>
-            ) : (
-              <Link href={`${base}/work/new`}>Describe an outcome</Link>
-            )
-          }
-        >
-          {filter || projectId
-            ? 'No work matches this filter.'
-            : 'No work yet. Start with the outcome you want.'}
-        </Empty>
+        filter || projectId ? (
+          <Empty
+            title="Nothing matches"
+            action={
+              <ActionLink href={`${base}/work`} variant="secondary">
+                Show all work
+              </ActionLink>
+            }
+          >
+            No work matches this filter. Try another status, or show everything.
+          </Empty>
+        ) : (
+          <Empty
+            title="Work starts with an outcome"
+            action={
+              <ActionLink href={`${base}/compose`} variant="secondary">
+                Describe an outcome
+              </ActionLink>
+            }
+          >
+            No work yet. Describe the outcome you want, and you can hand it out and follow it here.
+          </Empty>
+        )
       ) : (
         <div className="card table-wrap">
           {/* The roles keep this a table for a screen reader when a small screen stacks its rows. */}
@@ -124,16 +134,10 @@ export default async function WorkPage({
                   Status
                 </th>
                 <th role="columnheader" scope="col">
-                  Owner
-                </th>
-                <th role="columnheader" scope="col">
-                  Evidence
+                  Done when
                 </th>
                 <th role="columnheader" scope="col">
                   Due
-                </th>
-                <th role="columnheader" scope="col">
-                  Sensitivity
                 </th>
               </tr>
             </thead>
@@ -148,16 +152,25 @@ export default async function WorkPage({
                   <tr key={work.id} role="row">
                     <td role="cell">
                       <Link href={`${base}/work/${work.id}`}>{work.title}</Link>
+                      <small className="work-meta">
+                        <span>
+                          <span className="due-word">Owner: </span>
+                          {work.ownerName ?? 'Owner unknown'}
+                        </span>
+                        {/* Most work is for everyone inside, so only a narrower audience is named. */}
+                        {work.classification !== 'internal' && (
+                          <span>
+                            <span className="visually-hidden">Who can see this: </span>
+                            <ClassificationBadge value={work.classification} />
+                          </span>
+                        )}
+                      </small>
                     </td>
                     <td role="cell">
                       <StatusBadge status={work.status} />
                     </td>
                     <td role="cell">
-                      <span className="due-word">Owner: </span>
-                      {work.ownerName ?? 'Unknown'}
-                    </td>
-                    <td role="cell">
-                      <span className="due-word">Evidence: </span>
+                      <span className="due-word">Done when: </span>
                       {evidence.tone ? (
                         <span className={`badge ${evidence.tone}`}>{evidence.text}</span>
                       ) : (
@@ -174,9 +187,6 @@ export default async function WorkPage({
                         <small>None</small>
                       </td>
                     )}
-                    <td role="cell">
-                      <ClassificationBadge value={work.classification} />
-                    </td>
                   </tr>
                 );
               })}
@@ -186,7 +196,8 @@ export default async function WorkPage({
       )}
       {nextCursor && (
         <p className="gap-above-large">
-          <Link
+          <ActionLink
+            variant="secondary"
             href={`${base}/work?${new URLSearchParams({
               ...(filter ? { status: filter } : {}),
               ...(projectId ? { project: projectId } : {}),
@@ -194,7 +205,7 @@ export default async function WorkPage({
             })}`}
           >
             Next page
-          </Link>
+          </ActionLink>
         </p>
       )}
     </>

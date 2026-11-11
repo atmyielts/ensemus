@@ -2,7 +2,7 @@ import { listInvoices } from '@ensemus/application/saas/invoices';
 import { AppError } from '@ensemus/application';
 import Link from 'next/link';
 import { BillingMoney } from '@/components/billing-money';
-import { Empty, ErrorNotice, PageHead, formatDateTime } from '@/components/ui';
+import { BackLink, Empty, ErrorNotice, formatDateTime, PageHead } from '@/components/ui';
 import { orNotFound, requireAccountTenant } from '@/server/tenant';
 export const metadata = { title: 'Invoices | Ensemus' };
 const statusWords: Record<string, string> = {
@@ -37,15 +37,17 @@ export default async function InvoicesPage({
   }
   return (
     <div className="stack">
+      <BackLink href={`/o/${organizationId}/account/billing`}>Billing</BackLink>
       <PageHead
         title="Invoices"
-        description="Subscription fees and explicitly requested top-ups."
-        actions={<Link href={`/o/${organizationId}/account/billing`}>Billing</Link>}
+        description="Bills for your plan and for any top-ups you ordered."
       />
       {page.items.length === 0 ? (
-        <Empty>No invoices have been created.</Empty>
+        <Empty title="No invoices yet">
+          No invoices have been created. Bills for your plan and top-ups appear here.
+        </Empty>
       ) : (
-        <div className="table-wrap">
+        <div className="table-wrap row-titled">
           <table>
             <caption>Invoices, most recent first</caption>
             <thead>

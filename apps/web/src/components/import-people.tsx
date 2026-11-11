@@ -65,7 +65,11 @@ export function ImportPeople({
                     ))}
                   </select>
                 </label>
-                <SubmitButton label={`Link ${person.displayName}`} working="Linking">
+                <SubmitButton
+                  className="secondary"
+                  label={`Link ${person.displayName}`}
+                  working="Linking"
+                >
                   Link
                 </SubmitButton>
               </form>

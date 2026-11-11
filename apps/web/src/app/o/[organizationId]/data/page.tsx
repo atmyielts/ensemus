@@ -48,7 +48,7 @@ export default async function DataPage({
     return (
       <>
         <PageHead title="Export and import" />
-        <section className="panel" data-denied="data">
+        <section className="card" data-denied="data">
           <h2>Only an owner can do this</h2>
           <p>
             An archive holds nearly everything in an organization, so only an owner can export one,
@@ -91,19 +91,19 @@ export default async function DataPage({
       />
       <ErrorNotice code={typeof error === 'string' ? error : undefined} />
       <div className="stack">
-        <section className="panel" aria-labelledby="data-export">
+        <section className="card" aria-labelledby="data-export">
           <h2 id="data-export">Export this organization</h2>
           <p>
-            An archive is sealed to a key you hold, so nobody running this deployment can read it.
-            Restricted work is left out, because it is limited to the people on it, and each export
-            says how much was left out.
+            An archive is sealed to a key you hold, so not even whoever runs Ensemus for your
+            company can read it. Restricted work is left out, because it is limited to the people on
+            it, and each export says how much was left out.
           </p>
           <ExportRequestForm organizationId={organizationId} />
           <h3 className="gap-above-large">Your exports</h3>
           <ExportList organizationId={organizationId} exports={exports} />
         </section>
 
-        <section className="panel" aria-labelledby="data-import">
+        <section className="card" aria-labelledby="data-import">
           <h2 id="data-import">Import an archive</h2>
           {importView ? (
             <ImportSummary organizationId={organizationId} view={importView} />
@@ -129,7 +129,7 @@ export default async function DataPage({
           )}
         </section>
 
-        <section className="panel" aria-labelledby="data-people">
+        <section className="card" aria-labelledby="data-people">
           <h2 id="data-people">People from the archive</h2>
           <ImportPeople
             organizationId={organizationId}
@@ -140,7 +140,7 @@ export default async function DataPage({
         </section>
 
         {importId && (
-          <section className="panel" id="data-files" aria-labelledby="data-file-heading">
+          <section className="card" id="data-files" aria-labelledby="data-file-heading">
             <h2 id="data-file-heading">Files awaiting review</h2>
             <ImportedArchiveFiles
               organizationId={organizationId}
@@ -152,7 +152,7 @@ export default async function DataPage({
         )}
 
         {importView && FINISHED.has(importView.status) && (
-          <section className="panel" aria-labelledby="data-history">
+          <section className="card" aria-labelledby="data-history">
             <h2 id="data-history">History</h2>
             <p>
               <Link href={`/o/${organizationId}/data/definitions`}>

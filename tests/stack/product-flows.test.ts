@@ -176,7 +176,7 @@ describe('the product through its forms', () => {
       expect(html).toContain(first);
       expect(html).toContain(second);
       expect(html).toContain(`href="${locationOf(created)}"`);
-      expect(html).toContain('>Owner<');
+      expect(html).toContain('You are an owner');
     });
 
     it('makes one organization from one form, however many times it is sent', async () => {
@@ -478,7 +478,7 @@ describe('the product through its forms', () => {
       // With nothing asked for, the record says plainly whose word it rests on.
       const done = mainOf((await read(page, owner.jar)).html).replaceAll('<!-- -->', '');
       expect(done).toContain(
-        `Confirmed by ${owner.name} as accountable owner. No evidence was requested.`,
+        `Confirmed by ${owner.name} as owner. No file or review was asked for.`,
       );
       expect(done).not.toContain('Its results are under Files');
     });
@@ -499,7 +499,7 @@ describe('the product through its forms', () => {
       const theirs = await read(page, member.jar);
       expect(theirs.html).not.toContain('Confirm this is done');
       expect(mainOf(theirs.html).replaceAll('<!-- -->', '')).toContain(
-        `Only ${owner.name}, as accountable owner, can confirm this is done.`,
+        `Only ${owner.name}, as owner, can confirm this is done.`,
       );
       const back = await formOn(page, member.jar, toStatus('running'));
       const forged = await post(page, member.jar, back, { to: 'completed' });
@@ -531,7 +531,9 @@ describe('the product through its forms', () => {
       for (const to of ['ready', 'running', 'verifying', 'completed']) await move(owner, id, to);
       const api = await visit(`/api/v1/organizations/${org}/work-units/${id}`, owner.jar);
       expect(await api.json()).toMatchObject({ completion: { basis: 'evidence' } });
-      expect((await read(workPage(id), owner.jar)).html).not.toContain('No evidence was requested');
+      expect((await read(workPage(id), owner.jar)).html).not.toContain(
+        'No file or review was asked for',
+      );
     });
 
     it('needs a reason to try failed work again, even from a forged form', async () => {
@@ -1051,8 +1053,8 @@ describe('the product through its forms', () => {
       expect(statusOn(shown.html)).toBe('Waiting');
       // In plain words: the work by name, and what is at stake. Internal names only on request.
       const visible = mainOf(shown.html).replace(/<details[\s\S]*?<\/details>/g, '');
-      expect(visible).toMatch(/<dt>Destination<\/dt><dd>[\s\S]*?<a[^>]*>[^<]*Approve /);
-      expect(visible).toContain('<dt>Risk</dt>');
+      expect(visible).toMatch(/<dt>Applies to<\/dt><dd>[\s\S]*?<a[^>]*>[^<]*Approve /);
+      expect(visible).toContain('<dt>What could happen</dt>');
       expect(visible).toContain('<dt>What this affects</dt>');
       expect(visible).not.toContain(`work_unit:${id}`);
       expect(visible).not.toContain('work.review');
@@ -1161,7 +1163,9 @@ describe('the product through its forms', () => {
         const { html } = await read(page, owner.jar);
         expect(statusOn(html)).toBe('Waiting for approval');
         expect(html).toContain('so it stops at the next periodic check');
-        expect(html).toContain('To keep it going, ask someone else below before then.');
+        expect(html).toContain(
+          'To keep it going, ask someone else under Checks and reviews before then.',
+        );
         expect(html).not.toContain('It stays paused until someone decides');
         expect((await read(approval, owner.jar)).html).toContain(
           'unless someone asks for a new review first',
@@ -1181,7 +1185,7 @@ describe('the product through its forms', () => {
         const { page } = await overdueHold();
         const { html } = await read(page, reviewer.jar);
         expect(html).toContain('so it stops at the next periodic check');
-        expect(html).not.toContain('ask someone else below');
+        expect(html).not.toContain('ask someone else under Checks and reviews');
       });
     });
 

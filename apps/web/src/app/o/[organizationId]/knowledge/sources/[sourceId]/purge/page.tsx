@@ -1,8 +1,7 @@
-import { Fragment } from 'react';
 import { ResourceRefresh } from '@/components/resource-refresh';
 import { getPurgeStatus } from '@ensemus/application/knowledge/purge';
 import Link from 'next/link';
-import { PageHead, StatusBadge, formatDateTime } from '@/components/ui';
+import { PageHead, StatusBadge, BackLink, formatDateTime } from '@/components/ui';
 import { requireTenant } from '@/server/tenant';
 import { knowledgeOrNotFound as orNotFound } from '@/server/knowledge-page';
 export const metadata = { title: 'Source removal | Ensemus' };
@@ -16,16 +15,18 @@ export default async function PurgePage({
     job = await orNotFound(getPurgeStatus(database, context, sourceId));
   return (
     <>
-      <Link href={`/o/${organizationId}/knowledge`}>Back to sources</Link>
-      <PageHead
-        title="Source removal"
-        description="The source is closed. These counts record removals that the workers have confirmed."
-      />
       <div>
-        <StatusBadge status={job.state} />
+        <BackLink href={`/o/${organizationId}/knowledge`}>Back to sources</BackLink>
+        <PageHead
+          title="Source removal"
+          description="Nobody can read this document any more. Below is what has been confirmed removed so far."
+        />
       </div>
+      <p className="row">
+        <StatusBadge status={job.state} />
+      </p>
       <ResourceRefresh active={['pending', 'running'].includes(job.state)} />
-      <p className="notice">
+      <p className={job.state === 'completed' ? 'notice good' : 'notice'}>
         {job.state === 'completed'
           ? 'The worker confirmed removal of the source projections, related transcripts, generated files and copied work for this source. Retained audit records contain IDs and hashes.'
           : job.priorCompletedAt !== null
@@ -38,66 +39,75 @@ export default async function PurgePage({
                   ? 'Automatic repair has reached its limit. An administrator needs to investigate; the source remains closed.'
                   : 'Removal is still being checked. Unknown writes, storage failures or unavailable workers prevent a completed result.'}
       </p>
-      <dl className="facts">
-        {Object.entries(job.counts).map(([name, count]) => (
-          <Fragment key={name}>
-            <dt>
-              {(
-                {
-                  documents: 'Documents',
-                  chunks: 'Source passages',
-                  embeddings: 'Search vectors',
-                  facts: 'Facts removed or invalidated',
-                  answers: 'Answers',
-                  blobs: 'Source files',
-                  blobsAbsent: 'Source files already gone before removal',
-                  transcripts: 'Run transcripts',
-                  artifacts: 'Generated files',
-                  workUnits: 'Copied work redacted',
-                  workUnitsRemaining: 'Copied work awaiting removal',
-                  workControlProofsRemaining: 'Run closures awaiting confirmation',
-                  unprovenWorkUnits: 'Older delegated work awaiting verification',
-                } as Record<string, string>
-              )[name] ?? name}
-            </dt>
-            <dd>{count === null ? 'Not yet confirmed' : count}</dd>
-          </Fragment>
-        ))}
-        <dt>Files on hold</dt>
-        <dd>{job.heldArtifacts}</dd>
-        <dt>Requested</dt>
-        <dd>{formatDateTime(job.requestedAt)}</dd>
-        {job.priorCompletedAt && (
-          <>
-            <dt>Earlier source verification</dt>
-            <dd>{formatDateTime(job.priorCompletedAt)}</dd>
-          </>
-        )}
-        {job.completedAt && (
-          <>
-            <dt>Confirmed</dt>
-            <dd>{formatDateTime(job.completedAt)}</dd>
-          </>
-        )}
-        {job.nextRetryAt && (
-          <>
-            <dt>Next scheduled check</dt>
-            <dd>{formatDateTime(job.nextRetryAt)}</dd>
-          </>
-        )}
-      </dl>
+      <section className="card" aria-labelledby="removal-heading">
+        <h2 id="removal-heading">What has been removed</h2>
+        <dl className="details">
+          {Object.entries(job.counts).map(([name, count]) => (
+            <div key={name}>
+              <dt>
+                {(
+                  {
+                    documents: 'Documents',
+                    chunks: 'Source passages',
+                    embeddings: 'Search vectors',
+                    facts: 'Facts removed or invalidated',
+                    answers: 'Answers',
+                    blobs: 'Source files',
+                    blobsAbsent: 'Source files already gone before removal',
+                    transcripts: 'Run transcripts',
+                    artifacts: 'Generated files',
+                    workUnits: 'Copied work redacted',
+                    workUnitsRemaining: 'Copied work awaiting removal',
+                    workControlProofsRemaining: 'Run closures awaiting confirmation',
+                    unprovenWorkUnits: 'Older delegated work awaiting verification',
+                  } as Record<string, string>
+                )[name] ?? name}
+              </dt>
+              <dd>{count === null ? 'Not yet confirmed' : count}</dd>
+            </div>
+          ))}
+          <div>
+            <dt>Files on hold</dt>
+            <dd>{job.heldArtifacts}</dd>
+          </div>
+          <div>
+            <dt>Requested</dt>
+            <dd>{formatDateTime(job.requestedAt)}</dd>
+          </div>
+          {job.priorCompletedAt && (
+            <div>
+              <dt>Earlier source verification</dt>
+              <dd>{formatDateTime(job.priorCompletedAt)}</dd>
+            </div>
+          )}
+          {job.completedAt && (
+            <div>
+              <dt>Confirmed</dt>
+              <dd>{formatDateTime(job.completedAt)}</dd>
+            </div>
+          )}
+          {job.nextRetryAt && (
+            <div>
+              <dt>Next scheduled check</dt>
+              <dd>{formatDateTime(job.nextRetryAt)}</dd>
+            </div>
+          )}
+        </dl>
+      </section>
       {job.lastErrorCode && (
         <details>
-          <summary>Removal details</summary>
-          <p>{job.lastErrorCode}</p>
+          <summary>Technical details</summary>
+          <p className="technical-reference">{job.lastErrorCode}</p>
         </details>
       )}
-      <Link
-        className="button secondary"
-        href={`/o/${organizationId}/knowledge/sources/${sourceId}/purge`}
-      >
-        Check progress
-      </Link>
+      <p>
+        <Link
+          className="button secondary"
+          href={`/o/${organizationId}/knowledge/sources/${sourceId}/purge`}
+        >
+          Check progress
+        </Link>
+      </p>
     </>
   );
 }

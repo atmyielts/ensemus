@@ -1,8 +1,7 @@
 import { listLegalHolds, listLegalHoldTargets } from '@ensemus/application/saas/legal-holds';
-import Link from 'next/link';
 import { ConfirmForm } from '@/components/confirm-form';
 import { AccountReasonSelect } from '@/components/account-reason-select';
-import { Empty, ErrorNotice, PageHead, formatDateTime } from '@/components/ui';
+import { BackLink, Empty, ErrorNotice, formatDateTime, PageHead } from '@/components/ui';
 import { releaseLegalHoldAction } from '@/server/lifecycle-actions';
 import { orNotFound, requireAccountTenant } from '@/server/tenant';
 import { LegalHoldForm } from './hold-form';
@@ -22,22 +21,29 @@ export default async function LegalHoldsPage({
   ]);
   return (
     <div className="stack">
+      <BackLink href={`/o/${organizationId}/account`}>Account</BackLink>
       <PageHead
         title="Legal holds"
         description="Preserve records while a matter remains open. Only an organization owner can manage holds."
-        actions={<Link href={`/o/${organizationId}/account`}>Account</Link>}
       />
       <ErrorNotice code={(await searchParams).error} />
       {holds.length === 0 ? (
-        <Empty>No legal holds have been recorded.</Empty>
+        <Empty title="No legal holds">
+          No legal holds have been recorded. Place one below to keep records from being removed
+          while a legal matter is open.
+        </Empty>
       ) : (
         <ul className="list">
           {holds.map((hold) => (
-            <li key={hold.id}>
+            <li key={hold.id} className="block">
               <div className="stack">
                 <div>
-                  <strong>{hold.matterRef}</strong>
-                  <p>{hold.status === 'active' ? 'Active · records preserved' : 'Released'}</p>
+                  <div className="spread">
+                    <strong>{hold.matterRef}</strong>
+                    <span className={`badge ${hold.status === 'active' ? 'active' : ''}`}>
+                      {hold.status === 'active' ? 'Active · records preserved' : 'Released'}
+                    </span>
+                  </div>
                   <p className="muted">
                     Placed {formatDateTime(hold.placedAt)}
                     {hold.releasedAt && <> · Released {formatDateTime(hold.releasedAt)}</>}
@@ -73,7 +79,7 @@ export default async function LegalHoldsPage({
           ))}
         </ul>
       )}
-      <section className="stack" aria-labelledby="new-hold">
+      <section className="card stack" aria-labelledby="new-hold">
         <h2 id="new-hold">Place a hold</h2>
         <LegalHoldForm organizationId={organizationId} targets={targets} />
       </section>

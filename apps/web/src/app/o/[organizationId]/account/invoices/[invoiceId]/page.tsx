@@ -1,7 +1,7 @@
 import { getInvoice } from '@ensemus/application/saas/invoices';
 import Link from 'next/link';
 import { BillingMoney } from '@/components/billing-money';
-import { PageHead, formatDateTime } from '@/components/ui';
+import { BackLink, PageHead, formatDateTime } from '@/components/ui';
 import { orNotFound, requireAccountTenant } from '@/server/tenant';
 export const metadata = { title: 'Invoice | Ensemus' };
 const kinds: Record<string, string> = {
@@ -22,16 +22,16 @@ export default async function InvoicePage({
   const base = `/o/${organizationId}/account/invoices`;
   return (
     <div className="stack">
+      <BackLink href={base}>All invoices</BackLink>
       <PageHead
         title={
           invoice.invoiceNumber === null ? 'Draft invoice' : `Invoice ${invoice.invoiceNumber}`
         }
         description={
           invoice.kind === 'top_up'
-            ? 'Explicitly requested model capacity.'
-            : 'Your recorded subscription terms and usage statement.'
+            ? 'A top-up of AI model use that you ordered.'
+            : 'Your plan’s terms and what was used in this period.'
         }
-        actions={<Link href={base}>All invoices</Link>}
       />
       {invoice.status === 'draft' ? (
         <p className="notice">

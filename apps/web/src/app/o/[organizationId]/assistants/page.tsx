@@ -2,7 +2,7 @@ import Link from 'next/link';
 import { cursorFrom } from '@/components/assistants/present';
 import { readAssistantsPage } from '@/components/assistants/read';
 import { AssistantsUnavailable, RunList } from '@/components/assistants/run-views';
-import { Empty, ErrorNotice, PageHead } from '@/components/ui';
+import { ActionLink, Empty, ErrorNotice, PageHead } from '@/components/ui';
 import { webProductPorts } from '@/server/product-ports';
 import { requireTenant } from '@/server/tenant';
 
@@ -30,7 +30,7 @@ export default async function AssistantsPage({
     <>
       <PageHead
         title="Assistants"
-        description="Work you handed to an assistant: where it has got to, how it ended, and a way to stop it."
+        description="An assistant can read your work and write drafts for you. Anything that would send, share or change something outside Ensemus waits for a person to approve it, and you can ask an assistant to stop while it works."
       />
       <ErrorNotice code={error} />
       {state.kind === 'unavailable' ? (
@@ -40,13 +40,23 @@ export default async function AssistantsPage({
           <ErrorNotice code={state.brokenLink ? 'INVALID_INPUT' : undefined} />
           {state.running.length === 0 && state.finished.length === 0 ? (
             after && !state.brokenLink ? (
-              <Empty action={<Link href={`${base}/assistants`}>Back to the start</Link>}>
+              <Empty
+                title="That is everything"
+                action={
+                  <ActionLink href={`${base}/assistants`} variant="secondary">
+                    Back to the start
+                  </ActionLink>
+                }
+              >
                 There is nothing more to show.
               </Empty>
             ) : (
-              <Empty action={<Link href={`${base}/work`}>Go to your work</Link>}>
-                You have not handed anything to an assistant yet. When you do, you can follow it and
-                stop it here.
+              <Empty
+                title="No assistant work yet"
+                action={<ActionLink href={`${base}/work`}>Go to your work</ActionLink>}
+              >
+                You have not handed anything to an assistant yet. Open a piece of work and start one
+                from there. You can then follow it step by step here, and stop it if you need to.
               </Empty>
             )
           ) : (
@@ -65,7 +75,7 @@ export default async function AssistantsPage({
             </div>
           )}
           {(state.next || (after && !state.brokenLink)) && (
-            <p className="row gap-above">
+            <p className="row link-line gap-above">
               {after && !state.brokenLink && (
                 <Link href={`${base}/assistants`}>Back to the start</Link>
               )}

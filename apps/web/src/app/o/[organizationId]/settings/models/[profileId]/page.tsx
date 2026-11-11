@@ -8,11 +8,10 @@ import { loadModelEgressSettings } from '@ensemus/config';
 import { listModelQualifications } from '@ensemus/application/knowledge/model-jobs';
 import type { ProviderKind } from '@ensemus/domain/ai';
 import { can } from '@ensemus/domain/policy';
-import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { ConfirmForm } from '@/components/confirm-form';
 import { SubmitButton } from '@/components/submit-button';
-import { ErrorNotice, formatDate, PageHead } from '@/components/ui';
+import { BackLink, ErrorNotice, formatDate, PageHead } from '@/components/ui';
 import { orNotFound, requireTenant } from '@/server/tenant';
 import {
   addRateCardAction,
@@ -31,10 +30,10 @@ export const metadata = { title: 'Model | Ensemus' };
 const NEXT_STEP: Record<string, string> = {
   draft: 'Test this model to start using it.',
   probing:
-    'A test is waiting for a confirmed worker result. Refresh to check its progress. An unknown paid outcome is never retried automatically.',
+    'A test is waiting for its result. Refresh to check its progress. A test that may have been paid for is never repeated automatically.',
   probe_failed:
     'The last test failed, so nothing is being sent to this model. Check the address and the key, then test it again.',
-  active: 'This model passed its test, and agents can use it.',
+  active: 'This model passed its test, and assistants can use it.',
   disabled: 'This model is turned off. Test it again to bring it back.',
 };
 
@@ -77,10 +76,10 @@ export default async function ModelProfilePage({
 
   return (
     <>
+      <BackLink href={`/o/${organizationId}/settings/models`}>All models</BackLink>
       <PageHead
         title={profile.alias}
         description={PROVIDER_LABEL[profile.provider_kind] ?? profile.provider_kind}
-        actions={<Link href={`/o/${organizationId}/settings/models`}>All models</Link>}
       />
       <ErrorNotice code={error} />
       <div className="stack">
@@ -164,13 +163,13 @@ export default async function ModelProfilePage({
                   </small>
                 </label>
                 <div>
-                  <SubmitButton className="quiet">Save key</SubmitButton>
+                  <SubmitButton>Save key</SubmitButton>
                 </div>
               </form>
             ) : (
               <p className="notice warn gap-above" role="status">
-                Keys for this kind of provider are not enabled on this deployment yet. Whoever runs
-                it has to enable them after its security review.
+                Keys for this kind of model are not turned on for your company yet. Whoever set up
+                Ensemus for your company turns them on after their security review.
               </p>
             ))}
         </section>
@@ -180,7 +179,7 @@ export default async function ModelProfilePage({
           <p className="muted">
             {rateCard
               ? `Your estimate, version ${rateCard.version}: $${microsToUsd(rateCard.inputMicrosPerMtok)} for each million input tokens and $${microsToUsd(rateCard.outputMicrosPerMtok)} for each million output tokens.`
-              : 'No estimate yet. Agents cannot use this model until it has one, because what they spend could not be measured.'}
+              : 'No estimate yet. Assistants cannot use this model until it has one, because what they spend could not be measured.'}
           </p>
           {canManage && (
             <form className="inline-form gap-above" action={addRateCardAction}>
@@ -203,7 +202,7 @@ export default async function ModelProfilePage({
         {canManage && (
           <section className="card" aria-labelledby="edit-heading">
             <h2 id="edit-heading">Details</h2>
-            <form className="fields" action={updateProfileAction} key={profile.version}>
+            <form className="fields gap-above" action={updateProfileAction} key={profile.version}>
               {identity}
               <ProfileFields
                 profile={profile}
@@ -213,9 +212,7 @@ export default async function ModelProfilePage({
                 text={(field) => <input autoComplete="off" {...field} />}
               />
               <div>
-                <SubmitButton className="quiet" label={`Save details of ${profile.alias}`}>
-                  Save details
-                </SubmitButton>
+                <SubmitButton label={`Save details of ${profile.alias}`}>Save details</SubmitButton>
               </div>
             </form>
           </section>
@@ -224,15 +221,21 @@ export default async function ModelProfilePage({
         {canManage && profile.status !== 'disabled' && (
           <section className="card" aria-labelledby="off-heading">
             <h2 id="off-heading">Turn it off</h2>
-            <ConfirmForm
-              action={disableProfileAction}
-              fields={identity}
-              summary="Turn off"
-              summaryLabel={`Turn off ${profile.alias}`}
-              consequence={`Turn off ${profile.alias} now. Agents using it stop at their next step, and nothing else is sent to it.`}
-              confirmLabel="Turn off"
-              confirmFullLabel={`Turn off ${profile.alias}`}
-            />
+            <p className="muted gap-above-small">
+              Assistants stop using it at their next step. You can test it and turn it on again
+              later.
+            </p>
+            <div className="gap-above">
+              <ConfirmForm
+                action={disableProfileAction}
+                fields={identity}
+                summary="Turn off"
+                summaryLabel={`Turn off ${profile.alias}`}
+                consequence={`Turn off ${profile.alias} now. Assistants using it stop at their next step, and nothing else is sent to it.`}
+                confirmLabel="Turn off"
+                confirmFullLabel={`Turn off ${profile.alias}`}
+              />
+            </div>
           </section>
         )}
       </div>

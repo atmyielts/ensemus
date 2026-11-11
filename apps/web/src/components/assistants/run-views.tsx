@@ -2,13 +2,19 @@
 // carries can reach the page except through the words in present.ts.
 import Link from 'next/link';
 import { ConfirmForm } from '@/components/confirm-form';
-import { formatDateTime } from '@/components/ui';
+import { ActionLink, formatDateTime } from '@/components/ui';
 import { stopDelegatedRunAction } from '@/server/assistant-actions';
 import type { PresentedRun, StopNotice } from './present';
 
 export function RunBadge({ run }: { run: PresentedRun }) {
   return <span className={`badge ${run.badge.tone}`}>{run.badge.label}</span>;
 }
+
+const plural = (count: number, one: string, many: string) => `${count} ${count === 1 ? one : many}`;
+
+/** How much work it did, in words: rounds of thinking and the actions it took. */
+const usageWords = (run: PresentedRun) =>
+  `${plural(run.rounds, 'round of work', 'rounds of work')} and ${plural(run.actions, 'action', 'actions')}`;
 
 /**
  * Said when the part that runs assistants cannot be reached from here. It is not an empty list, because nobody
@@ -23,7 +29,7 @@ export function AssistantsUnavailable({
 }) {
   return (
     <section className="card" aria-labelledby="unavailable-heading">
-      <h2 id="unavailable-heading">Assistants are not available on this deployment yet</h2>
+      <h2 id="unavailable-heading">Assistants are not available here yet</h2>
       <p>
         {subject === 'list'
           ? 'Ensemus cannot read what assistants are doing here, so this page cannot say whether anything has been handed to one. That is different from nothing running.'
@@ -51,33 +57,34 @@ export function RunList({
   return (
     <section className="card" aria-labelledby={id}>
       <h2 id={id}>{label}</h2>
-      <ul className="list">
+      <ul className="list run-list">
         {runs.map((run) => (
           <li key={run.id}>
-            <span>
+            <span className="run-summary">
               <Link href={`${base}/assistants/${run.id}`}>{run.workTitle}</Link>
-              <br />
-              <small>
+              <span className="run-sentence">
                 {run.agentName}. {run.sentence}
-              </small>
-              <br />
-              <small className="muted">
-                {run.finishedAt
-                  ? `Ended ${formatDateTime(run.finishedAt)}`
-                  : `Started ${formatDateTime(run.startedAt)}`}
+              </span>
+              <small>
+                {run.finishedAt ? (
+                  <>Ended {formatDateTime(run.finishedAt)}</>
+                ) : (
+                  <>Started {formatDateTime(run.startedAt)}</>
+                )}
                 {run.cost && `. Cost ${run.cost}`}
               </small>
             </span>
-            <span className="row">
+            <span className="row run-side">
+              <RunBadge run={run} />
               {run.canStop && (
                 <Link
+                  className="button ghost compact-action"
                   href={`${base}/assistants/${run.id}#stop-heading`}
                   aria-label={`Review and stop the assistant on ${run.workTitle}`}
                 >
                   Review and stop
                 </Link>
               )}
-              <RunBadge run={run} />
             </span>
           </li>
         ))}
@@ -99,14 +106,16 @@ export function StopNoticeLine({ notice }: { notice: StopNotice | null }) {
   );
 }
 
+/** The summary beside the timeline: where it is, when, what it cost, and the work it belongs to. */
 export function RunFacts({ run, workHref }: { run: PresentedRun; workHref: string }) {
   return (
     <section className="card" aria-labelledby="state-heading">
       <h2 id="state-heading">Where it has got to</h2>
       <p>
-        <RunBadge run={run} /> {run.sentence}
+        <RunBadge run={run} />
       </p>
-      <dl className="facts">
+      <p className="run-state">{run.sentence}</p>
+      <dl className="details gap-above">
         <div>
           <dt>Started</dt>
           <dd>{formatDateTime(run.startedAt)}</dd>
@@ -117,23 +126,21 @@ export function RunFacts({ run, workHref }: { run: PresentedRun; workHref: strin
             <dd>{formatDateTime(run.finishedAt)}</dd>
           </div>
         )}
-        <div>
-          <dt>Rounds of work</dt>
-          <dd>{run.rounds}</dd>
-        </div>
-        <div>
-          <dt>Actions taken</dt>
-          <dd>{run.actions}</dd>
-        </div>
         {run.cost && (
           <div>
             <dt>Cost</dt>
             <dd>{run.cost}</dd>
           </div>
         )}
+        <div>
+          <dt>Work it has done</dt>
+          <dd>{usageWords(run)}</dd>
+        </div>
       </dl>
       <p className="gap-above">
-        <Link href={workHref}>Open the work</Link> to see what came of it.
+        <ActionLink href={workHref} variant="secondary">
+          Open the work
+        </ActionLink>
       </p>
     </section>
   );
@@ -146,20 +153,26 @@ export function StopRun({ run, organizationId }: { run: PresentedRun; organizati
     <section className="card" aria-labelledby="stop-heading">
       <h2 id="stop-heading">Stop it</h2>
       {run.canStop ? (
-        <ConfirmForm
-          action={stopDelegatedRunAction}
-          fields={
-            <>
-              <input type="hidden" name="organizationId" value={organizationId} />
-              <input type="hidden" name="runId" value={run.id} />
-            </>
-          }
-          summary="Stop this assistant"
-          summaryLabel={`Stop the assistant on ${run.workTitle}`}
-          consequence="Yes, ask it to stop. Whatever it has already done stays done."
-          confirmLabel="Ask it to stop"
-          confirmFullLabel={`Ask the assistant on ${run.workTitle} to stop`}
-        />
+        <>
+          <p className="muted">
+            It finishes the step it is on, then does nothing more. Whatever it has already done
+            stays done.
+          </p>
+          <ConfirmForm
+            action={stopDelegatedRunAction}
+            fields={
+              <>
+                <input type="hidden" name="organizationId" value={organizationId} />
+                <input type="hidden" name="runId" value={run.id} />
+              </>
+            }
+            summary="Stop this assistant"
+            summaryLabel={`Stop the assistant on ${run.workTitle}`}
+            consequence="Yes, ask it to stop. Whatever it has already done stays done."
+            confirmLabel="Ask it to stop"
+            confirmFullLabel={`Ask the assistant on ${run.workTitle} to stop`}
+          />
+        </>
       ) : (
         <p>This one cannot be stopped by you from here.</p>
       )}
@@ -167,25 +180,25 @@ export function StopRun({ run, organizationId }: { run: PresentedRun; organizati
   );
 }
 
+/** What it did, step by step, as a timeline. The kind of thing it did, never what it wrote. */
 export function RunSteps({ run }: { run: PresentedRun }) {
   return (
     <section className="card" aria-labelledby="steps-heading">
       <h2 id="steps-heading">What it has done</h2>
       <p className="muted">
-        This shows the kind of thing it did at each step, and never what it wrote.
+        Each step says the kind of thing it did, and never what it wrote. The newest is last.
       </p>
       {run.steps.length === 0 ? (
-        <p>No steps are recorded yet.</p>
+        <p className="gap-above">No steps are recorded yet.</p>
       ) : (
-        <ol className="list">
+        <ol className="step-timeline gap-above">
           {run.steps.map((step, index) => (
-            <li key={index}>
-              <span>
+            <li key={index} className={step.tone ? `is-${step.tone}` : undefined}>
+              <span className="step-what">
                 {step.what}
-                <br />
-                <small className="muted">{formatDateTime(step.at)}</small>
+                <small>{formatDateTime(step.at)}</small>
               </span>
-              <span className="badge">{step.how}</span>
+              <span className={`badge ${step.tone}`}>{step.how}</span>
             </li>
           ))}
         </ol>
@@ -194,12 +207,39 @@ export function RunSteps({ run }: { run: PresentedRun }) {
   );
 }
 
+/** Ids for someone looking into a run with support, kept out of the way of the story. */
+export function RunTechnical({ run }: { run: PresentedRun }) {
+  return (
+    <details>
+      <summary>Technical details</summary>
+      <dl className="details gap-above">
+        <div>
+          <dt>Rounds of work</dt>
+          <dd>{run.rounds}</dd>
+        </div>
+        <div>
+          <dt>Actions taken</dt>
+          <dd>{run.actions}</dd>
+        </div>
+        <div>
+          <dt>Run reference</dt>
+          <dd className="technical-reference">{run.id}</dd>
+        </div>
+        <div>
+          <dt>Work reference</dt>
+          <dd className="technical-reference">{run.workUnitId}</dd>
+        </div>
+      </dl>
+    </details>
+  );
+}
+
 /** Reads the run again. An ordinary form, so it works with no JavaScript and always asks the server. */
 export function CheckAgain({ action, keepRequested }: { action: string; keepRequested: boolean }) {
   return (
     <form method="get" action={action}>
       {keepRequested && <input type="hidden" name="stop" value="requested" />}
-      <button className="quiet" type="submit">
+      <button className="secondary" type="submit">
         Check again
       </button>
     </form>

@@ -13,6 +13,8 @@ export type NavigationIcon =
   | 'clients'
   | 'inbox'
   | 'studio'
+  | 'assistants'
+  | 'search'
   | 'settings'
   | 'connections'
   | 'models'
@@ -210,7 +212,7 @@ export function workspaceNavigation(input: {
         matches: [`${base}/search`],
       },
       { href: `${base}/objects`, label: 'Custom records', icon: 'records' },
-      { href: `${base}/assistants`, label: 'Assistants', icon: 'studio' },
+      { href: `${base}/assistants`, label: 'Assistants', icon: 'assistants' },
     );
   if (can(role, 'agent.publish') || can(role, 'agent.run'))
     groups.push({

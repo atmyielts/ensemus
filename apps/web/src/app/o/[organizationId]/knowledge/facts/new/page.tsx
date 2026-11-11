@@ -3,7 +3,7 @@ import { listDirectory, listTeams, listWorkUnits } from '@ensemus/application';
 import { getSourcePassage } from '@ensemus/application/knowledge/sources';
 import Link from 'next/link';
 import { KnowledgeForm } from '@/components/knowledge-form';
-import { PageHead, Empty, ClassificationBadge } from '@/components/ui';
+import { PageHead, Empty, ClassificationBadge, ActionLink, BackLink } from '@/components/ui';
 import { proposeKnowledgeFactAction } from '@/server/knowledge-actions';
 import { requireTenant } from '@/server/tenant';
 import { knowledgeOrNotFound as orNotFound } from '@/server/knowledge-page';
@@ -23,11 +23,13 @@ export default async function NewFactPage({
       <>
         <PageHead title="Propose a fact" />
         <Empty
+          title="Start from a passage"
           action={
-            <Link href={`/o/${organizationId}/knowledge/search`}>Find a supporting passage</Link>
+            <ActionLink href={`/o/${organizationId}/knowledge/search`}>Find a passage</ActionLink>
           }
         >
-          Choose a readable source passage first.
+          A fact has to be backed by a passage from one of your documents. Find the passage first,
+          then propose the fact from it.
         </Empty>
       </>
     );
@@ -39,16 +41,26 @@ export default async function NewFactPage({
     ]);
   return (
     <>
-      <Link href={`/o/${organizationId}/knowledge/facts`}>Back to facts</Link>
-      <PageHead
-        title="Propose a fact"
-        description="A proposal does not become trusted until a different, authorized person reviews it."
-      />
-      <article className="card">
-        <h2>{passage.title}</h2>
-        <ClassificationBadge value={passage.classification} />
+      <div>
+        <BackLink href={`/o/${organizationId}/knowledge/facts`}>Back to facts</BackLink>
+        <PageHead
+          title="Propose a fact"
+          description="Write down one thing this passage says. It becomes a trusted fact once someone else has checked it against the passage."
+        />
+      </div>
+      <section className="card citation" aria-labelledby="passage-heading">
+        <h2 id="passage-heading">The passage</h2>
         <blockquote className="pre-wrap">{passage.text}</blockquote>
-      </article>
+        <footer className="row">
+          <span className="muted">
+            From{' '}
+            <Link href={`/o/${organizationId}/knowledge/sources/${passage.sourceId}`}>
+              {passage.title}
+            </Link>
+          </span>
+          <ClassificationBadge value={passage.classification} />
+        </footer>
+      </section>
       <KnowledgeForm
         action={proposeKnowledgeFactAction}
         hidden={{
@@ -60,9 +72,18 @@ export default async function NewFactPage({
         submit="Propose fact"
         fields={[
           {
+            name: 'claim',
+            kind: 'textarea',
+            label: 'The fact, in your own words',
+            required: true,
+            maxLength: 8000,
+            rows: 4,
+            help: 'Keep it to one specific statement. Who can see it follows the document and what it is about, so it can only be as open as they are.',
+          },
+          {
             name: 'subjectRef',
             kind: 'select',
-            label: 'This fact is about',
+            label: 'What it is about',
             required: true,
             value: `knowledge_source:${passage.sourceId}`,
             options: [
@@ -80,7 +101,7 @@ export default async function NewFactPage({
           {
             name: 'predicate',
             kind: 'select',
-            label: 'Fact category',
+            label: 'Kind of fact',
             required: true,
             value: 'summary',
             options: [
@@ -90,14 +111,6 @@ export default async function NewFactPage({
               { value: 'requirement', label: 'Requirement' },
               { value: 'status', label: 'Status' },
             ],
-          },
-          {
-            name: 'claim',
-            kind: 'textarea',
-            label: 'Claim supported by this passage',
-            required: true,
-            maxLength: 8000,
-            help: 'Keep the claim specific. Its sensitivity is derived from the source and subject; you cannot lower it here.',
           },
         ]}
       />

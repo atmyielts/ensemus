@@ -48,7 +48,7 @@ export default async function LicensePage({
       <div className="stack">
         <LicenseSummary status={status} />
         <LicenseAdvisories advisories={advisories} />
-        <section className="panel" aria-labelledby="license-install">
+        <section className="card" aria-labelledby="license-install">
           <h2 id="license-install">Install a signed document</h2>
           {can(context.role, 'license.manage') ? (
             <>

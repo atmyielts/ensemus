@@ -2,8 +2,17 @@
 import Link from 'next/link';
 import { useActionState, useEffect, useId, useRef } from 'react';
 import type { KnowledgeField, KnowledgeFormState } from '@/lib/knowledge-form-state';
+import { DescribedChoices, type DescribedChoice } from './knowledge-view';
 import { SubmitButton } from './submit-button';
 import { ClassificationBadge, Empty, ErrorNotice } from './ui';
+
+/** A field, or a set of described choices that submits like a select under the same name. */
+type FormField =
+  | (KnowledgeField & { rows?: number; placeholder?: string })
+  | (Omit<KnowledgeField, 'kind' | 'options'> & {
+      kind: 'choices';
+      options: readonly DescribedChoice[];
+    });
 
 /** Shared native form pattern for this surface: visible labels, preserved text after refusals,
  * focused errors and ordinary server submission when JavaScript is disabled. No separate styling. */
@@ -13,12 +22,18 @@ export function KnowledgeForm({
   hidden,
   submit,
   description,
+  className = 'card fields',
+  submitClassName,
 }: {
   action: (state: KnowledgeFormState, form: FormData) => Promise<KnowledgeFormState>;
-  fields: readonly KnowledgeField[];
+  fields: readonly FormField[];
   hidden: Record<string, string>;
   submit: string;
   description?: string;
+  /** The form's own classes. A form inside another surface drops the card. */
+  className?: string;
+  /** Secondary, ghost or danger, when this form is not the one primary action in its area. */
+  submitClassName?: string;
 }) {
   const [state, dispatch] = useActionState(action, {}),
     notice = useRef<HTMLDivElement>(null),
@@ -28,12 +43,13 @@ export function KnowledgeForm({
     if (state.code) notice.current?.focus();
     else if (state.searched || state.simulation) resultHeading.current?.focus();
   }, [state]);
+  const found = state.passages?.length ?? 0;
   return (
     <>
-      <div ref={notice} tabIndex={-1}>
+      <div className="form-notice" ref={notice} tabIndex={-1}>
         <ErrorNotice code={state.code} />
       </div>
-      <form className="card fields" action={dispatch}>
+      <form className={className} action={dispatch}>
         {description && <p className="muted">{description}</p>}
         {Object.entries(hidden).map(([name, value]) => (
           <input key={name} type="hidden" name={name} value={state.values?.[name] ?? value} />
@@ -42,12 +58,26 @@ export function KnowledgeForm({
           const value = state.values?.[field.name] ?? field.value ?? '',
             help = field.help ? `${prefix}-${field.name}-help` : undefined,
             id = `${prefix}-${field.name}`;
+          if (field.kind === 'choices')
+            return (
+              <DescribedChoices
+                key={field.name}
+                id={id}
+                name={field.name}
+                legend={field.label}
+                help={field.help}
+                options={field.options}
+                defaultValue={value}
+                required={field.required ?? false}
+              />
+            );
           return (
             <label key={field.name} htmlFor={id}>
               <span id={id + '-label'}>
                 {field.label}
                 {field.required ? '' : ' (optional)'}
               </span>
+              {field.help && <small id={help}>{field.help}</small>}
               {field.kind === 'select' ? (
                 <select
                   id={id}
@@ -71,7 +101,8 @@ export function KnowledgeForm({
                   required={field.required}
                   maxLength={field.maxLength}
                   defaultValue={value}
-                  rows={5}
+                  rows={field.rows ?? 5}
+                  placeholder={field.placeholder}
                   aria-describedby={help}
                 />
               ) : field.kind === 'checkbox' ? (
@@ -95,39 +126,58 @@ export function KnowledgeForm({
                   maxLength={field.maxLength}
                   defaultValue={field.kind === 'file' ? undefined : value}
                   accept={field.kind === 'file' ? '.txt,.md,.csv,.html,.htm,.json' : undefined}
+                  placeholder={field.placeholder}
                   aria-describedby={help}
                 />
               )}
-              {field.help && <small id={help}>{field.help}</small>}
             </label>
           );
         })}
         <div className="row">
-          <SubmitButton>{submit}</SubmitButton>
+          <SubmitButton className={submitClassName}>{submit}</SubmitButton>
         </div>
       </form>
       {state.searched && (
         <section aria-label="Source passages" className="stack">
-          <h2 tabIndex={-1} ref={resultHeading}>
-            Source passages
-          </h2>
-          {!state.passages?.length ? (
-            <Empty>No matching passages in sources you can read. Try different words.</Empty>
+          <div className="section-heading">
+            <h2 tabIndex={-1} ref={resultHeading}>
+              Source passages
+            </h2>
+            {found > 0 && (
+              <p>
+                {found} {found === 1 ? 'passage' : 'passages'} found in documents you can read
+              </p>
+            )}
+          </div>
+          {!found ? (
+            <Empty title="No matching passages">
+              Nothing in the documents you can read uses those words. Try fewer or different words.
+            </Empty>
           ) : (
-            state.passages.map((p) => (
-              <article className="card" key={p.chunkId}>
-                <h3>
-                  <Link href={`/o/${hidden.organizationId}/knowledge/sources/${p.sourceId}`}>
-                    {p.title}
-                  </Link>
-                </h3>
-                <ClassificationBadge value={p.classification} />
-                <p className="pre-wrap">{p.text}</p>
-                <Link href={`/o/${hidden.organizationId}/knowledge/facts/new?chunk=${p.chunkId}`}>
-                  Propose a fact from this passage
-                </Link>
-              </article>
-            ))
+            <div className="card">
+              <ol className="list result-list">
+                {state.passages!.map((p) => (
+                  <li key={p.chunkId}>
+                    <p className="pre-wrap result-snippet">{p.text}</p>
+                    <div className="row result-meta">
+                      <span>
+                        From{' '}
+                        <Link href={`/o/${hidden.organizationId}/knowledge/sources/${p.sourceId}`}>
+                          {p.title}
+                        </Link>
+                      </span>
+                      <ClassificationBadge value={p.classification} />
+                      <Link
+                        className="result-action"
+                        href={`/o/${hidden.organizationId}/knowledge/facts/new?chunk=${p.chunkId}`}
+                      >
+                        Propose a fact from this passage
+                      </Link>
+                    </div>
+                  </li>
+                ))}
+              </ol>
+            </div>
           )}
         </section>
       )}

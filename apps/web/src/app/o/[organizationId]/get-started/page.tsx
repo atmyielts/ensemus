@@ -2,7 +2,7 @@ import { getOnboarding } from '@ensemus/application/onboarding';
 import { canProduct } from '@ensemus/domain/product-policy';
 import { BUNDLED_WORKFLOWS } from '@ensemus/packs/bundled';
 import Link from 'next/link';
-import { PageHead, Empty } from '@/components/ui';
+import { ActionLink, Empty, PageHead } from '@/components/ui';
 import { OneActionAtATime } from '@/components/one-action-at-a-time';
 import { ExperienceActionForm } from '@/components/experience/action-form';
 import { SETUP_COPY, setupStateLabel } from '@/lib/onboarding-copy';
@@ -23,11 +23,17 @@ export default async function CompanySetupPage({
     return (
       <>
         <PageHead title="Company setup" />
-        <Empty>
+        <Empty
+          title="Setup is for owners and administrators"
+          action={
+            <ActionLink variant="secondary" href={`${base}/compose`}>
+              Describe an outcome
+            </ActionLink>
+          }
+        >
           An organization owner or administrator manages company setup. You can still create and do
           your own Work.
         </Empty>
-        <Link href={`${base}/compose`}>Describe an outcome</Link>
       </>
     );
   const view = await getOnboarding(database, context, webProductPorts()),
@@ -37,24 +43,29 @@ export default async function CompanySetupPage({
     <OneActionAtATime>
       <PageHead
         title="Set up your company"
-        description="Follow the current records. Knowledge sources and model profiles are optional; the core stays usable without them."
+        description="A few steps to get your company ready. Adding AI models and knowledge sources is optional: everything else works without them."
       />
-      <section className="notice fields" aria-labelledby="setup-responsibilities">
+      <section className="card stack" aria-labelledby="setup-responsibilities">
         <h2 id="setup-responsibilities">Data and model responsibilities</h2>
         <p>
-          This deployment uses{' '}
-          {mode === 'sovereign' ? 'Sovereign' : mode === 'byom' ? 'Bring your own model' : 'Cloud'}{' '}
-          mode. Your company chooses who can access its data, its sensitivity and approved model
-          destinations. Review the source grants, retention and provider policies before adding
-          sensitive information.
+          Your company uses Ensemus{' '}
+          {mode === 'sovereign'
+            ? 'on its own servers'
+            : mode === 'byom'
+              ? 'with its own AI model'
+              : 'Cloud'}
+          . Your company decides who can see its information, how sensitive each piece is, and which
+          AI models it may be sent to. Before adding sensitive information, review who each source
+          is shared with, how long records are kept, and what each AI model’s company does with
+          data.
         </p>
         <p>
-          Adding a profile or source does not qualify a provider or prove an external connection.
-          Check its current status on its own page. Work needs no model, and external actions need
-          their own authorization.
+          Adding a model or a knowledge source does not make it ready to use, or prove that it
+          connects. Check its status on its own page. Work needs no AI model, and actions outside
+          Ensemus need their own approval.
         </p>
       </section>
-      <p role="status" className="notice">
+      <p role="status" className="notice gap-above-large">
         {view.finished
           ? view.completionRecorded
             ? 'Core setup was confirmed. The required records are currently present.'
@@ -63,17 +74,23 @@ export default async function CompanySetupPage({
             ? 'Core setup was confirmed earlier. Some required records need attention now.'
             : 'Complete the required steps below. Optional AI setup does not block your company.'}
       </p>
-      <div className="list">
+      <div className="stack">
         {view.steps.map((step) => {
           const copy = SETUP_COPY[step.key];
           return (
-            <section className="card fields" key={step.key} aria-labelledby={`setup-${step.key}`}>
-              <div className="row">
+            <section className="card stack" key={step.key} aria-labelledby={`setup-${step.key}`}>
+              <div className="spread">
                 <h2 id={`setup-${step.key}`}>{copy.title}</h2>
-                <span className="badge">{setupStateLabel(step.state)}</span>
+                <span
+                  className={`badge ${step.state === 'done' ? 'done' : step.state === 'to_do' ? 'attention' : ''}`}
+                >
+                  {setupStateLabel(step.state)}
+                </span>
               </div>
               <p className="muted">{copy.description}</p>
-              <Link href={base + copy.path}>{copy.link}</Link>
+              <p className="link-line">
+                <Link href={base + copy.path}>{copy.link}</Link>
+              </p>
               {step.key === 'responsibility_statement' && step.state !== 'done' && (
                 <ExperienceActionForm
                   action={decideSetupAction}
@@ -121,7 +138,9 @@ export default async function CompanySetupPage({
                     external provider was used.
                   </p>
                   {view.latestSimulation && !view.latestSimulation.usable && (
-                    <Link href={`${base}/get-started`}>Refresh the current status</Link>
+                    <p className="link-line">
+                      <Link href={`${base}/get-started`}>Refresh the current status</Link>
+                    </p>
                   )}
                 </>
               )}
@@ -130,8 +149,8 @@ export default async function CompanySetupPage({
         })}
       </div>
       {view.finished && !view.completionRecorded && (
-        <section className="card fields">
-          <h2>Confirm core setup</h2>
+        <section className="card stack gap-above-large" aria-labelledby="confirm-setup">
+          <h2 id="confirm-setup">Confirm core setup</h2>
           <p>
             This records one historical confirmation. It does not activate a model, start execution
             or certify an external provider.
@@ -148,9 +167,9 @@ export default async function CompanySetupPage({
           </ExperienceActionForm>
         </section>
       )}
-      <Link className="button" href={`${base}/work`}>
-        Go to your work
-      </Link>
+      <p className="gap-above-large">
+        <ActionLink href={`${base}/work`}>Go to your work</ActionLink>
+      </p>
     </OneActionAtATime>
   );
 }

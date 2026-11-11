@@ -9,7 +9,7 @@ import {
   type SharingTeam,
 } from '@/lib/knowledge-source-view';
 import { uploadKnowledgeAction } from '@/server/knowledge-actions';
-import { KNOWLEDGE_CLASSES } from './knowledge-view';
+import { DescribedChoices, KNOWLEDGE_CLASSES, sourceLevelChoices } from './knowledge-view';
 import { SubmitButton } from './submit-button';
 import { ErrorNotice } from './ui';
 
@@ -43,81 +43,17 @@ export function KnowledgeUploadForm({
   }, [state]);
   return (
     <>
-      <div className="form-width" tabIndex={-1} ref={notice}>
+      <div className="form-width form-notice" tabIndex={-1} ref={notice}>
         <ErrorNotice code={state.code} />
       </div>
       <form className="card fields" action={action}>
         <input type="hidden" name="organizationId" value={organizationId} />
         <input type="hidden" name="requestKey" value={state.values?.requestKey ?? requestKey} />
-        <label htmlFor={prefix + '-title'}>
-          <span id={prefix + '-title-label'}>Source name</span>
-          <input
-            id={prefix + '-title'}
-            name="title"
-            aria-labelledby={prefix + '-title-label'}
-            required
-            maxLength={512}
-            value={title}
-            onChange={(event) => setTitle(event.currentTarget.value)}
-          />
-        </label>
-        <label htmlFor={prefix + '-class'}>
-          <span id={prefix + '-class-label'}>Sensitivity</span>
-          <select
-            id={prefix + '-class'}
-            name="classification"
-            aria-labelledby={prefix + '-class-label'}
-            aria-describedby={prefix + '-class-help'}
-            required
-            value={classification}
-            onChange={(event) => {
-              const next = event.currentTarget.value as Classification;
-              setClassification(next);
-              if (!sourceSharingChoiceAllowed(next, sharing)) setSharing('');
-            }}
-          >
-            {KNOWLEDGE_CLASSES.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-          <small id={prefix + '-class-help'}>
-            Choose the strongest sensitivity in the document. Restricted sources can be shared only
-            with named people.
-          </small>
-        </label>
-        <label htmlFor={prefix + '-sharing'}>
-          <span id={prefix + '-sharing-label'}>Share with</span>
-          <select
-            id={prefix + '-sharing'}
-            name="sharing"
-            aria-labelledby={prefix + '-sharing-label'}
-            aria-describedby={prefix + '-sharing-help'}
-            required
-            value={selected}
-            onChange={(event) => setSharing(event.currentTarget.value)}
-          >
-            <option value="">Choose who can read this source</option>
-            {choices.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-          <small id={prefix + '-sharing-help'}>
-            {!selected ? 'Choose a sharing option allowed at this sensitivity. ' : ''}You remain a
-            named reader. You can manage additional access after adding the source.
-          </small>
-        </label>
-        <noscript>
-          <p className="notice">
-            To share with a team without JavaScript, add the file first, then use Source access on
-            its page. Restricted sources always require named people.
-          </p>
-        </noscript>
         <label htmlFor={prefix + '-file'}>
           <span id={prefix + '-file-label'}>Document</span>
+          <small id={prefix + '-file-help'}>
+            Text, Markdown, CSV, HTML or JSON, up to 25 MB. If saving fails, choose the file again.
+          </small>
           <input
             id={prefix + '-file'}
             name="file"
@@ -127,11 +63,66 @@ export function KnowledgeUploadForm({
             accept=".txt,.md,.csv,.html,.htm,.json"
             required
           />
-          <small id={prefix + '-file-help'}>
-            Text, Markdown, CSV, HTML or JSON. Up to 25 MB. Choose the file again if a save is
-            refused.
-          </small>
         </label>
+        <label htmlFor={prefix + '-title'}>
+          <span id={prefix + '-title-label'}>Source name</span>
+          <small id={prefix + '-title-help'}>
+            The name people will see in search results and answers.
+          </small>
+          <input
+            id={prefix + '-title'}
+            name="title"
+            aria-labelledby={prefix + '-title-label'}
+            aria-describedby={prefix + '-title-help'}
+            required
+            maxLength={512}
+            value={title}
+            onChange={(event) => setTitle(event.currentTarget.value)}
+          />
+        </label>
+        <div className="form-section">
+          <DescribedChoices
+            id={prefix + '-class'}
+            name="classification"
+            legend="Who can see this"
+            help="Choose the level of the most private thing in the document."
+            options={sourceLevelChoices()}
+            value={classification}
+            onChange={(next) => {
+              setClassification(next as Classification);
+              if (!sourceSharingChoiceAllowed(next as Classification, sharing)) setSharing('');
+            }}
+          />
+          <label htmlFor={prefix + '-sharing'}>
+            <span id={prefix + '-sharing-label'}>Share with</span>
+            <small id={prefix + '-sharing-help'}>
+              {!selected ? 'Choose someone this level allows. ' : ''}You can always read it
+              yourself, and you can add more people after it is saved.
+            </small>
+            <select
+              id={prefix + '-sharing'}
+              name="sharing"
+              aria-labelledby={prefix + '-sharing-label'}
+              aria-describedby={prefix + '-sharing-help'}
+              required
+              value={selected}
+              onChange={(event) => setSharing(event.currentTarget.value)}
+            >
+              <option value="">Choose who can read this source</option>
+              {choices.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <noscript>
+            <p className="notice">
+              To share with a team without JavaScript, add the document first, then use Source
+              access on its page. Restricted documents can only be shared with people you name.
+            </p>
+          </noscript>
+        </div>
         <div className="row">
           <SubmitButton>Add source</SubmitButton>
         </div>

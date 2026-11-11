@@ -74,7 +74,7 @@ describe('what the pages say', () => {
         'You are not on any open work. Start by describing the outcome you want.',
       );
       expect(main).toContain(`href="/o/${own}/work/new"`);
-      expect(main).not.toContain('Needs attention');
+      expect(main).not.toContain('Needs you');
       expect(main).not.toContain('Waiting for your approval');
     });
 
@@ -94,7 +94,7 @@ describe('what the pages say', () => {
       await move(person, org, done, 'ready', 'running', 'verifying', 'completed');
 
       const { html } = await home(person);
-      const attention = sectionOf(html, 'attention-heading');
+      const attention = sectionOf(html, 'needs-heading');
       for (const title of ['Blocked', 'Failed', 'Late']) {
         expect(attention).toContain(`${title} ${suffix}`);
       }
@@ -124,19 +124,19 @@ describe('what the pages say', () => {
       expect((await home(owner)).html).toContain(title);
       const seen = await home(member);
       expect(seen.html).not.toContain(title);
-      expect(sectionOf(seen.html, 'attention-heading')).not.toContain(internal.slice(-20));
+      expect(sectionOf(seen.html, 'needs-heading')).not.toContain(internal.slice(-20));
     });
 
     it('lists an approval waiting on this person, and not on anyone else', async () => {
       const title = `Decide me ${randomUUID()}`;
       const id = await createWork(owner, org, { title });
       const { path } = await askForReview(id);
-      const waiting = sectionOf((await home(reviewer)).html, 'approvals-heading');
+      const waiting = sectionOf((await home(reviewer)).html, 'needs-heading');
       expect(waiting).toContain(title);
       expect(waiting).toContain(`href="${path}"`);
-      expect(waiting).toContain('Expires ');
-      expect(sectionOf((await home(member)).html, 'approvals-heading')).not.toContain(title);
-      expect(sectionOf((await home(owner)).html, 'approvals-heading')).not.toContain(title);
+      expect(waiting).toContain('Decide by ');
+      expect(sectionOf((await home(member)).html, 'needs-heading')).not.toContain(title);
+      expect(sectionOf((await home(owner)).html, 'needs-heading')).not.toContain(title);
     });
   });
 
@@ -194,7 +194,7 @@ describe('what the pages say', () => {
       const refused = await post(page(b), owner.jar, form, { prerequisiteId: a });
       expect(locationOf(refused)).toBe(`${page(b)}?error=DEPENDENCY_CYCLE`);
       expect((await read(locationOf(refused), owner.jar)).html).toContain(
-        'That dependency would create a loop.',
+        'That would make these pieces of work wait for each other forever, so it was not added.',
       );
     });
 
@@ -204,7 +204,7 @@ describe('what the pages say', () => {
       expect(status).toBe(200);
       const main = sectionOf(html, 'dependencies-heading');
       // The section is there and only its controls are not, rather than the page being something else.
-      expect(main).toContain('Has to finish first');
+      expect(main).toContain('Waits for');
       expect(main).not.toContain('Add dependency');
     });
   });
@@ -290,7 +290,9 @@ describe('what the pages say', () => {
         [approvalId],
       );
       const open = await read(path, reviewer.jar);
-      expect(summary(open.html)).toContain('<dt>Valid until</dt><dd>4 Mar 2031, 05:06 UTC</dd>');
+      expect(summary(open.html)).toMatch(
+        /<dt>Decide by<\/dt><dd><time[^>]*>4 Mar 2031, 05:06 UTC<\/time><\/dd>/,
+      );
       expect(statusOn(open.html)).toBe('Waiting');
 
       await su.query(
@@ -298,7 +300,9 @@ describe('what the pages say', () => {
         [approvalId],
       );
       const late = await read(path, reviewer.jar);
-      expect(summary(late.html)).toContain('<dt>Expired</dt><dd>4 Mar 2021, 05:06 UTC</dd>');
+      expect(summary(late.html)).toMatch(
+        /<dt>Expired<\/dt><dd><time[^>]*>4 Mar 2021, 05:06 UTC<\/time><\/dd>/,
+      );
       expect(statusOn(late.html)).toBe('Expired');
       expect(mainOf(late.html)).toContain('this can no longer be approved');
       expect(formsWithDecision(late.html)).toBe(false);

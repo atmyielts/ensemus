@@ -161,7 +161,10 @@ for (const javaScriptEnabled of [true, false])
       await expect(
         sharing.getByRole('option', { name: `Team: ${team.name}`, exact: true }),
       ).toHaveCount(0);
-      await page.getByLabel('Sensitivity', { exact: true }).selectOption('confidential');
+      await page
+        .getByRole('group', { name: 'Who can see this', exact: true })
+        .getByRole('radio', { name: /^Confidential\b/ })
+        .check();
       if (javaScriptEnabled) await sharing.selectOption(`team:${team.id}`);
       await page.getByLabel('Document', { exact: true }).setInputFiles({
         name: 'team-source.txt',
@@ -184,12 +187,15 @@ for (const javaScriptEnabled of [true, false])
       await expect(reader.getByRole('heading', { name: title, exact: true })).toBeVisible();
       const raise = page
         .locator('details')
-        .filter({ has: page.locator('summary', { hasText: /^Raise sensitivity$/ }) });
+        .filter({ has: page.locator('summary', { hasText: /^Make this source more private$/ }) });
       await raise.locator('summary').click();
-      await raise.getByLabel('New sensitivity', { exact: true }).selectOption('restricted');
+      await raise
+        .getByRole('group', { name: 'New level', exact: true })
+        .getByRole('radio', { name: /^Restricted\b/ })
+        .check();
       await raise
         .locator('form')
-        .getByRole('button', { name: 'Raise sensitivity', exact: true })
+        .getByRole('button', { name: 'Make more private', exact: true })
         .click();
       await expect(
         page
@@ -198,7 +204,7 @@ for (const javaScriptEnabled of [true, false])
           .getByRole('option', { name: `Team: ${team.name}`, exact: true }),
       ).toHaveCount(0);
       await expect(
-        page.getByText('Not effective at this sensitivity', { exact: false }),
+        page.getByText('Not in effect at this privacy level', { exact: false }),
       ).toBeVisible();
       await reader.goto(path);
       await expect(reader.getByRole('heading', { name: title, exact: true })).toHaveCount(0);

@@ -1,9 +1,8 @@
-import Link from 'next/link';
 import { AppError } from '@ensemus/application';
 import { getPulseSignal } from '@ensemus/application/pulse';
 import { createPulseMetadataReaders } from '@ensemus/application/pulse-metadata';
 import { notFound } from 'next/navigation';
-import { Empty, PageHead, formatDateTime } from '@/components/ui';
+import { BackLink, Empty, PageHead, formatDateTime } from '@/components/ui';
 import { PulseSignalRow } from '@/components/pulse/view';
 import { requireTenant } from '@/server/tenant';
 export const metadata = { title: 'Pulse source evidence | Ensemus' };
@@ -23,11 +22,11 @@ export default async function PulseEvidencePage({
     if (error instanceof AppError && error.code === 'CAPABILITY_UNAVAILABLE')
       return (
         <>
-          <Link href={base}>Back to Company Pulse</Link>
-          <PageHead title="Source temporarily unavailable" />
+          <BackLink href={base}>Back to Company Pulse</BackLink>
+          <PageHead title="This record cannot be read right now" />
           <Empty>
-            The source record could not be read. Return to Pulse or open the related work after this
-            source is available.
+            The record behind this signal could not be read just now. Go back to Pulse, or open the
+            related work once it is available again.
           </Empty>
         </>
       );
@@ -35,26 +34,33 @@ export default async function PulseEvidencePage({
   }
   return (
     <>
-      <Link href={base}>Back to Company Pulse</Link>
+      <BackLink href={base}>Back to Company Pulse</BackLink>
       <PageHead
-        title="Pulse source evidence"
-        description="The current signal was recomputed from this record under your current access."
+        title="Where this signal comes from"
+        description="Pulse worked this out again just now, from the record below and only what you can see."
       />
-      <h2>Current recorded fact</h2>
-      <PulseSignalRow organizationId={organizationId} signal={signal} showControls={false} />
-      <details>
-        <summary>Record details</summary>
-        <dl className="facts">
-          {signal.evidence.map((item) => (
-            <div key={`${item.kind}:${item.id}`}>
-              <dt>{item.kind.replaceAll('_', ' ')}</dt>
-              <dd>
-                {item.id} · {item.reasonCode} · {formatDateTime(item.observedAt)}
-              </dd>
-            </div>
-          ))}
-        </dl>
-      </details>
+      <div className="stack">
+        <section aria-labelledby="fact-heading">
+          <h2 id="fact-heading">What is recorded</h2>
+          <div className="card">
+            <PulseSignalRow organizationId={organizationId} signal={signal} showControls={false} />
+          </div>
+        </section>
+        <details className="card">
+          <summary>Technical details</summary>
+          <dl className="facts gap-above">
+            {signal.evidence.map((item) => (
+              <div key={`${item.kind}:${item.id}`}>
+                <dt>{item.kind.replaceAll('_', ' ')}</dt>
+                <dd>
+                  <span className="technical-reference">{item.id}</span> · {item.reasonCode} ·{' '}
+                  {formatDateTime(item.observedAt)}
+                </dd>
+              </div>
+            ))}
+          </dl>
+        </details>
+      </div>
     </>
   );
 }

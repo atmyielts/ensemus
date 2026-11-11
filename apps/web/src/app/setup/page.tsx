@@ -8,7 +8,7 @@ import { completeSetupAction } from '@/server/actions';
 export const metadata = { title: 'Set up your account | Ensemus' };
 
 const ERRORS: Record<string, string> = {
-  code: 'That setup code does not work. It may have been used already, or run out. Ask whoever runs this deployment for a new one.',
+  code: 'That setup code does not work. It may have been used already, or run out. Ask the person who gave it to you for a new one.',
   details:
     'We could not create that account, and your setup code still works. Check your details, and use a password of at least 12 characters.',
 };
@@ -31,9 +31,9 @@ export default async function SetupPage({
       <Wordmark />
       <div className="sheet">
         <h1>Set up your account</h1>
-        <p className="muted">
-          Whoever runs this deployment gives you a setup code. It works once, for one account, and
-          you can create your organization as soon as you are in.
+        <p className="lede">
+          Enter the setup code you were given, then your details. The code works once, for one
+          account, and you can set up your organization as soon as you are in.
         </p>
         {problem && (
           <p className="notice error" role="alert">
@@ -45,6 +45,7 @@ export default async function SetupPage({
           <label>
             Setup code
             <input name="code" required autoComplete="off" spellCheck={false} />
+            <small>From the person who runs Ensemus for your company.</small>
           </label>
           <label>
             Name
@@ -63,16 +64,18 @@ export default async function SetupPage({
               minLength={12}
               required
             />
-            <small>At least 12 characters.</small>
+            <small>At least 12 characters. A short sentence is easy to remember.</small>
           </label>
           <div>
             <SubmitButton working="Creating your account">Create account</SubmitButton>
           </div>
         </form>
       </div>
-      <p className="below-sheet">
-        Already have an account? <Link href={withReturnPath('/sign-in', next)}>Sign in</Link>
-      </p>
+      <ul className="sheet-links" aria-label="Other ways in">
+        <li>
+          Already have an account? <Link href={withReturnPath('/sign-in', next)}>Sign in</Link>
+        </li>
+      </ul>
     </main>
   );
 }

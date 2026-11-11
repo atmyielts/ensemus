@@ -16,7 +16,7 @@ const replyForm = (page: Page) =>
 async function saveBilling(page: Page, name: string, email: string) {
   await page.getByLabel('Billing name', { exact: true }).fill(name);
   await page.getByLabel('Billing email', { exact: true }).fill(email);
-  await page.getByLabel('Country code', { exact: true }).fill('XX');
+  await page.getByLabel('Country', { exact: true }).fill('XX');
   await page.getByRole('button', { name: 'Save billing details', exact: true }).click();
   await expect(
     page.getByRole('status').filter({ hasText: 'Billing details saved.' }),

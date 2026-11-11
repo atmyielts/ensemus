@@ -1,7 +1,14 @@
 import { AppError } from '@ensemus/application';
 import { listMyAnswers } from '@ensemus/application/knowledge/answers';
 import Link from 'next/link';
-import { PageHead, Empty, ErrorNotice, StatusBadge, formatDateTime } from '@/components/ui';
+import {
+  PageHead,
+  Empty,
+  ErrorNotice,
+  StatusBadge,
+  ActionLink,
+  formatDateTime,
+} from '@/components/ui';
 import { requireTenant } from '@/server/tenant';
 export const metadata = { title: 'My knowledge answers | Ensemus' };
 export default async function AnswersPage({
@@ -22,36 +29,47 @@ export default async function AnswersPage({
     error = 'INVALID_INPUT';
     return listMyAnswers(database, context, {});
   });
+  const ask = `/o/${organizationId}/knowledge/ask`,
+    empty = !page.items.length;
   return (
     <>
       <PageHead
         title="My answers"
-        description="Only your questions and answers that you can still access."
-        actions={
-          <Link className="button" href={`/o/${organizationId}/knowledge/ask`}>
-            Ask a question
-          </Link>
-        }
+        description="The questions you have asked and their answers. Only you can see them."
+        actions={empty ? undefined : <ActionLink href={ask}>Ask a question</ActionLink>}
       />
       <ErrorNotice code={error} />
-      {!page.items.length ? (
-        <Empty>No answers are available. Ask a question to start.</Empty>
+      {empty ? (
+        <Empty title="No questions yet" action={<ActionLink href={ask}>Ask a question</ActionLink>}>
+          Ask about your company&rsquo;s documents, and each answer is kept here with the passages
+          it came from.
+        </Empty>
       ) : (
-        <div className="stack">
-          {page.items.map((answer) => (
-            <article className="card" key={answer.id}>
-              <h2>
-                <Link href={`/o/${organizationId}/knowledge/answers/${answer.id}`}>
-                  {answer.question}
-                </Link>
-              </h2>
-              <StatusBadge status={answer.state} />
-              <p className="muted">{formatDateTime(answer.createdAt)}</p>
-            </article>
-          ))}
-        </div>
+        <section className="card" aria-labelledby="answers-heading">
+          <h2 id="answers-heading" className="visually-hidden">
+            Your questions
+          </h2>
+          <ul className="list">
+            {page.items.map((answer) => (
+              <li key={answer.id}>
+                <div>
+                  <Link href={`/o/${organizationId}/knowledge/answers/${answer.id}`}>
+                    {answer.question}
+                  </Link>
+                  <br />
+                  <small>Asked {formatDateTime(answer.createdAt)}</small>
+                </div>
+                <StatusBadge status={answer.state} />
+              </li>
+            ))}
+          </ul>
+        </section>
       )}
-      {page.next && <Link href={`?cursor=${encodeURIComponent(page.next)}`}>More answers</Link>}
+      {page.next && (
+        <p className="link-line">
+          <Link href={`?cursor=${encodeURIComponent(page.next)}`}>More answers</Link>
+        </p>
+      )}
     </>
   );
 }

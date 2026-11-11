@@ -126,16 +126,14 @@ export function WorkflowMap({
         </a>
       </div>
       <p id={description} className="muted">
-        Saved revision {saved.version}. Arrows show the direction of the saved connections. Parallel
-        paths all continue; a join waits for every earlier point.{' '}
-        {readOnly
-          ? 'This archived definition is read-only.'
-          : 'Choose a point to go to its edit form.'}
+        Version {saved.version}. Arrows show the order. Where a path splits, every branch carries
+        on; where paths meet, the next point waits for all of them.{' '}
+        {readOnly ? 'This archived workflow can only be read.' : 'Choose a point to edit it.'}
       </p>
       {needsReview && (
         <p className="notice">
-          Some saved points or connections need review. They remain visible here while you correct
-          the definition.
+          Some points or links need your attention. They stay visible here, marked with a dashed
+          outline, until you correct them.
         </p>
       )}
       {picture.visual ? (
@@ -284,8 +282,8 @@ export function WorkflowMap({
       ) : (
         <p className="notice">
           {picture.oversized
-            ? 'This definition is too large for the map view. Every saved point and connection is listed below.'
-            : 'No saved points are available to draw yet. Add the points using the editor below.'}
+            ? 'This workflow is too large to draw. Every point and link is listed below.'
+            : 'There is nothing to draw yet. Add points and they appear here.'}
         </p>
       )}
       <details open={picture.oversized || !picture.nodes.length}>
@@ -315,7 +313,7 @@ export function WorkflowMap({
                   <p className="muted">{kindName(node)}</p>
                   <dl className="details">
                     <div>
-                      <dt>Earlier points — all required</dt>
+                      <dt>Before it (all must finish)</dt>
                       <dd>
                         {picture.edges
                           .filter((edge) => edge.to === node.id)
@@ -324,7 +322,7 @@ export function WorkflowMap({
                       </dd>
                     </div>
                     <div>
-                      <dt>Later points — every path continues</dt>
+                      <dt>After it (each carries on)</dt>
                       <dd>
                         {picture.edges
                           .filter((edge) => edge.from === node.id)
@@ -346,7 +344,7 @@ export function WorkflowMap({
                     </ul>
                   )}
                   <details>
-                    <summary>Saved point details</summary>
+                    <summary>Technical details</summary>
                     <p>
                       Identity: <code>{node.id ?? 'Not recorded'}</code>
                     </p>
@@ -368,16 +366,14 @@ export function WorkflowMap({
               {edge.issue && (
                 <p className="notice">
                   {edge.issue === 'ambiguous'
-                    ? 'A duplicated identity makes this connection ambiguous. Review that point group before choosing the intended path.'
-                    : 'An endpoint is missing. This connection has not been redirected to another point.'}
+                    ? 'Two points share an identity, so it is unclear which one this link means. Sort out that group first.'
+                    : 'One end of this link is missing. It has not been moved to another point.'}
                 </p>
               )}
               {edge.cyclic && (
-                <p className="notice">
-                  This saved connection loops back. Correct the loop before rehearsing.
-                </p>
+                <p className="notice">This link loops back. Remove the loop before rehearsing.</p>
               )}
-              {edge.repeated && <p className="muted">This is a repeated saved connection.</p>}
+              {edge.repeated && <p className="muted">This link is saved twice.</p>}
               {editing &&
                 edge.issue === 'missing' &&
                 !picture.nodes.some((node) => node.id === edge.from || node.id === edge.to) &&
@@ -393,7 +389,7 @@ export function WorkflowMap({
                   />
                 )}
               <details>
-                <summary>Connection details</summary>
+                <summary>Technical details</summary>
                 <p>
                   From: <code>{edge.from ?? 'Not recorded'}</code>
                 </p>
@@ -413,12 +409,10 @@ export function WorkflowMapChecks() {
   if (!editor) return null;
   return (
     <section className="card fields" aria-labelledby="edit-workflow-checks">
-      <h2 id="edit-workflow-checks">Current definition checks</h2>
+      <h2 id="edit-workflow-checks">Checks</h2>
       <WorkflowIssues graph={editor.draft.graph} issues={editor.draft.issues} />
       {!editor.draft.specSha256 && !editor.draft.issues.length && (
-        <p className="notice">
-          Save the definition with its current choices before requesting a rehearsal.
-        </p>
+        <p className="notice">Save the workflow again before you rehearse it.</p>
       )}
     </section>
   );

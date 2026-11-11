@@ -8,6 +8,7 @@ import {
   ErrorNotice,
   ClassificationBadge,
   StatusBadge,
+  ActionLink,
   formatDateTime,
 } from '@/components/ui';
 import { requireTenant } from '@/server/tenant';
@@ -30,79 +31,73 @@ export default async function KnowledgePage({
     error = 'INVALID_INPUT';
     return listSources(database, context, {});
   });
-  const base = `/o/${organizationId}/knowledge`;
+  const base = `/o/${organizationId}/knowledge`,
+    canAdd = can(context.role, 'knowledge.add'),
+    empty = !page.items.length;
   return (
     <>
       <PageHead
         title="Company knowledge"
-        description="Sources you can use, with their current access and processing state."
+        description="The documents your team relies on. Find a passage in them, or ask a question and see exactly where the answer came from."
         actions={
-          can(context.role, 'knowledge.add') ? (
-            <Link className="button" href={`${base}/new`}>
-              Add a source
-            </Link>
-          ) : undefined
+          canAdd && !empty ? <ActionLink href={`${base}/new`}>Add a source</ActionLink> : undefined
         }
       />
       <ErrorNotice code={error} />
-      {!page.items.length ? (
+      {empty ? (
         <Empty
-          action={
-            can(context.role, 'knowledge.add') ? (
-              <Link href={`${base}/new`}>Add the first source</Link>
-            ) : undefined
-          }
+          title="Your company library is empty"
+          action={canAdd ? <ActionLink href={`${base}/new`}>Add a source</ActionLink> : undefined}
         >
-          No sources are available to you yet.
+          {canAdd
+            ? 'Add documents your team relies on, and you can search them and ask questions about them here.'
+            : 'When someone shares documents with you, you can search them and ask questions about them here.'}
         </Empty>
       ) : (
-        <div className="table-wrap">
-          <table>
-            <caption className="sr-only">Knowledge sources</caption>
-            <thead>
-              <tr>
-                <th scope="col">Source</th>
-                <th scope="col">Sensitivity</th>
-                <th scope="col">Availability</th>
-                <th scope="col">Search</th>
-              </tr>
-            </thead>
-            <tbody>
-              {page.items.map((source) => (
-                <tr key={source.id}>
-                  <td>
-                    <Link href={`${base}/sources/${source.id}`}>
-                      {source.title ?? 'Source with limited access'}
-                    </Link>
-                    <div className="muted">
-                      {source.kind === 'connector' ? 'Connected source' : 'Uploaded file'}
-                    </div>
-                  </td>
-                  <td>
-                    <ClassificationBadge value={source.classification} />
-                  </td>
-                  <td>
-                    <StatusBadge status={source.state} />
-                    {!source.canRead && (
-                      <p className="muted">Its contents are not shared with you.</p>
-                    )}
-                  </td>
-                  <td>
-                    <StatusBadge status={source.documentState ?? 'unavailable'} />
+        <section className="card" aria-labelledby="sources-heading">
+          <h2 id="sources-heading" className="visually-hidden">
+            Knowledge sources
+          </h2>
+          <ul className="list">
+            {page.items.map((source) => (
+              <li key={source.id}>
+                <div>
+                  <Link href={`${base}/sources/${source.id}`}>
+                    {source.title ?? 'Source with limited access'}
+                  </Link>
+                  <br />
+                  <small>
+                    {source.kind === 'connector' ? 'Connected source' : 'Uploaded file'}
                     {source.searchableAt && (
-                      <div className="muted">Since {formatDateTime(source.searchableAt)}</div>
+                      <> · searchable since {formatDateTime(source.searchableAt)}</>
                     )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+                    {!source.canRead && <> · Its contents are not shared with you.</>}
+                  </small>
+                </div>
+                <div className="row">
+                  <ClassificationBadge value={source.classification} />
+                  <StatusBadge
+                    status={
+                      source.state === 'active'
+                        ? (source.documentState ?? 'unavailable')
+                        : source.state
+                    }
+                  />
+                </div>
+              </li>
+            ))}
+          </ul>
+        </section>
       )}
       {page.next && (
-        <Link className="button secondary" href={`${base}?cursor=${encodeURIComponent(page.next)}`}>
-          More sources
-        </Link>
+        <p>
+          <Link
+            className="button secondary"
+            href={`${base}?cursor=${encodeURIComponent(page.next)}`}
+          >
+            More sources
+          </Link>
+        </p>
       )}
     </>
   );

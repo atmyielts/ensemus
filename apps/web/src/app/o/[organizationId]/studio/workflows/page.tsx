@@ -25,39 +25,44 @@ export default async function WorkflowsPage({
       <BackLink href={`/o/${organizationId}/studio`}>Automation Studio</BackLink>
       <PageHead
         title="Workflow drafts"
-        description="Connect work, assistants, approvals and evidence checks. Save a definition, rehearse its rules, then request human review."
+        description="A workflow is the steps a process goes through: work for people, help from assistants, approvals and the checks that say it is done."
         actions={<ActionLink href={`${base}/new`}>Create workflow</ActionLink>}
       />
       {drafts.length ? (
-        <>
+        <div className="card">
           <ul className="list" aria-label="Readable workflow drafts">
             {drafts.map((draft) => (
               <li key={draft.id}>
-                <div>
-                  <Link href={`${base}/${draft.id}`}>
-                    <strong>{draft.name}</strong>
-                  </Link>
-                  <p className="muted">
-                    Revision {draft.version} · Updated {formatDateTime(draft.updatedAt)}
-                  </p>
-                </div>
-                <ClassificationBadge value={draft.classification} />
-                <StatusBadge status={draft.status} />
+                <span>
+                  <Link href={`${base}/${draft.id}`}>{draft.name}</Link>
+                  <br />
+                  <small>
+                    Version {draft.version} · Updated {formatDateTime(draft.updatedAt)}
+                  </small>
+                </span>
+                <span className="row">
+                  <ClassificationBadge value={draft.classification} />
+                  <StatusBadge status={draft.status} />
+                </span>
               </li>
             ))}
           </ul>
-          <p className="muted">
-            Up to 200 recent readable drafts are shown. Open a draft to check it against the current
-            catalog; a stored hash alone does not prove current readiness.
+          <p className="studio-next-step">
+            The 200 most recent drafts you can read are shown. Open one to see whether it is ready
+            to rehearse.
           </p>
-        </>
+        </div>
       ) : (
         <Empty
           title="No workflow drafts yet"
-          action={<ActionLink href={`${base}/new`}>Create workflow</ActionLink>}
+          action={
+            <ActionLink href={`${base}/new`} variant="secondary">
+              Create your first workflow
+            </ActionLink>
+          }
         >
-          Start with work for a person. No model or outside action runs while you prepare the
-          definition.
+          Name the process and choose who can see it. Then add its steps one at a time. Nothing runs
+          while you prepare it.
         </Empty>
       )}
     </>

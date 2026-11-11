@@ -9,6 +9,14 @@ import { createClientAction, createProjectAction } from '@/server/work-actions';
 
 export const metadata = { title: 'Clients and projects | Ensemus' };
 
+/** Who can see a client, in words that hold whoever is reading, not only its owner. */
+const SEEN_BY: Record<string, string> = {
+  public: 'Anyone can see it',
+  internal: 'Everyone in this workspace can see it',
+  confidential: 'Its owner, the people they name, and owners and admins can see it',
+  restricted: 'Only its owner and the people they name can see it',
+};
+
 export default async function ClientsPage({
   params,
   searchParams,
@@ -31,26 +39,42 @@ export default async function ClientsPage({
     <>
       <PageHead
         title="Clients and projects"
-        description="Who the work is for, and how it is grouped."
+        description="The companies you do work for, and the projects that group that work, so everyone can see what belongs together and who may see it."
       />
       <ErrorNotice code={error} />
       <div className="stack">
         <section className="card" aria-labelledby="clients-heading">
-          <h2 id="clients-heading">Clients</h2>
+          <header className="section-heading">
+            <div>
+              <h2 id="clients-heading">Clients</h2>
+              <p>
+                A client keeps its projects and work together. Each client has an owner, who decides
+                who else can see it.
+              </p>
+            </div>
+          </header>
           {clients.length === 0 ? (
-            <Empty>
-              {canAddClient ? 'No clients yet. Add your first one.' : 'No clients yet.'}
+            <Empty title="No clients yet">
+              {canAddClient
+                ? 'Add the first company you do work for below. You can then group its work into projects and choose who can see it.'
+                : 'An owner or admin adds clients. Once they do, the ones you can see appear here.'}
             </Empty>
           ) : (
-            <ul className="list">
+            <ul className="list client-list">
               {clients.map((client) => (
                 <li key={client.id}>
-                  <div>
-                    <span>{client.displayName}</span>{' '}
-                    <ClassificationBadge value={client.classification} />
+                  <div className="client-who">
+                    <span className="client-name">
+                      <span>{client.displayName}</span>{' '}
+                      <ClassificationBadge value={client.classification} />
+                    </span>
+                    <small>{SEEN_BY[client.classification] ?? 'Who can see it is not known'}</small>
                   </div>
                   {client.ownerMembershipId === context.membershipId && (
-                    <Link href={`/o/${organizationId}/clients/${client.id}/access`}>
+                    <Link
+                      className="button secondary compact-action"
+                      href={`/o/${organizationId}/clients/${client.id}/access`}
+                    >
                       Manage access
                     </Link>
                   )}
@@ -74,16 +98,26 @@ export default async function ClientsPage({
                   <option value="restricted">Only you and named people</option>
                 </select>
               </label>
-              <SubmitButton className="quiet">Add client</SubmitButton>
+              <SubmitButton className="secondary">Add client</SubmitButton>
             </form>
           )}
         </section>
 
         <section className="card" aria-labelledby="projects-heading">
-          <h2 id="projects-heading">Projects</h2>
+          <header className="section-heading">
+            <div>
+              <h2 id="projects-heading">Projects</h2>
+              <p>
+                A project groups the work for one job, such as a website refresh. Open one to see
+                its work.
+              </p>
+            </div>
+          </header>
           {projects.length === 0 ? (
-            <Empty>
-              {canAddProject ? 'No projects yet. Add your first one.' : 'No projects yet.'}
+            <Empty title="No projects yet">
+              {canAddProject
+                ? 'Add one below, with its client if it has one, and its work will appear together.'
+                : 'An owner or admin adds projects. Once they do, they appear here.'}
             </Empty>
           ) : (
             <ul className="list">
@@ -92,7 +126,7 @@ export default async function ClientsPage({
                   <Link href={`/o/${organizationId}/work?project=${project.id}`}>
                     {project.name}
                   </Link>
-                  <small>{project.clientName ?? 'No client'}</small>
+                  <small>{project.clientName ? `For ${project.clientName}` : 'No client'}</small>
                 </li>
               ))}
             </ul>
@@ -118,7 +152,7 @@ export default async function ClientsPage({
                   </select>
                 </label>
               )}
-              <SubmitButton className="quiet">Add project</SubmitButton>
+              <SubmitButton className="secondary">Add project</SubmitButton>
             </form>
           )}
         </section>

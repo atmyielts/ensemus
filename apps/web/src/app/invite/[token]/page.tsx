@@ -35,31 +35,33 @@ export default async function InvitationPage({
         <Wordmark />
         <div className="sheet">
           <h1>You have been invited</h1>
-          <p>
+          <p className="lede">
             Sign in with the email address this invitation was sent to, and you can accept it from
             here.
-          </p>
-          <p className="muted">
-            You will see the organization once you accept. Until then this page shows no details,
-            because anyone holding the link could read them.
           </p>
           <div className="row">
             <Link className="button" href={withReturnPath('/sign-in', here)}>
               Sign in
             </Link>
             {config.allowSignup && (
-              <Link className="button quiet" href={withReturnPath('/sign-up', here)}>
+              <Link className="button secondary" href={withReturnPath('/sign-up', here)}>
                 Create an account
               </Link>
             )}
           </div>
-          {!config.allowSignup && (
-            <p className="muted gap-above-large">
+          <p className="muted gap-above-large">
+            You will see which organization invited you once you accept. Until then this page keeps
+            those details private, because anyone holding the link could read them.
+          </p>
+        </div>
+        {!config.allowSignup && (
+          <ul className="sheet-links" aria-label="Other ways in">
+            <li>
               No account yet? Ask the person who invited you how to get one. If they give you a
               setup code, <Link href={withReturnPath('/setup', here)}>use it here</Link>.
-            </p>
-          )}
-        </div>
+            </li>
+          </ul>
+        )}
       </main>
     );
   }
@@ -71,9 +73,9 @@ export default async function InvitationPage({
         <Wordmark />
         <div className="sheet">
           <h1>Waiting for confirmation</h1>
-          <p role="status">
-            The address on your account has not been proven yet, so someone in the organization has
-            to confirm it is you before you can join. They have been told. Come back once they have,
+          <p className="lede" role="status">
+            Your email address has not been confirmed yet, so someone in the organization needs to
+            confirm it is you before you can join. We have let them know. Come back once they have,
             or ask them directly.
           </p>
           <form action={signOutAction}>
@@ -91,22 +93,27 @@ export default async function InvitationPage({
       <Wordmark />
       <div className="sheet">
         <h1>You have been invited</h1>
+        <p className="lede">
+          Accept to join the organization that invited you. You will see which one it is once you
+          have joined.
+        </p>
         <ErrorNotice code={error} />
         <p>
           You are signed in as <strong>{session.user.email}</strong>. An invitation only works for
           the email address it was sent to.
         </p>
-        <p className="muted">You will see the organization once you accept.</p>
-        <form action={acceptInvitationAction} className="gap-above">
-          <input type="hidden" name="token" value={token} />
-          <SubmitButton working="Accepting">Accept invitation</SubmitButton>
-        </form>
-        <form action={signOutAction} className="gap-above">
-          <input type="hidden" name="next" value={here} />
-          <button className="link" type="submit">
-            Use a different account
-          </button>
-        </form>
+        <div className="row gap-above-large">
+          <form action={acceptInvitationAction}>
+            <input type="hidden" name="token" value={token} />
+            <SubmitButton working="Accepting">Accept invitation</SubmitButton>
+          </form>
+          <form action={signOutAction}>
+            <input type="hidden" name="next" value={here} />
+            <button className="link" type="submit">
+              Use a different account
+            </button>
+          </form>
+        </div>
       </div>
     </main>
   );

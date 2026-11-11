@@ -1,8 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { listObjectTypes } from '@ensemus/application/custom-objects';
 import { canProduct } from '@ensemus/domain/product-policy';
-import Link from 'next/link';
-import { PageHead, Empty } from '@/components/ui';
+import { PageHead, Empty, BackLink } from '@/components/ui';
 import { ObjectTypeForm } from '@/components/objects/type-form';
 import { requireTenant } from '@/server/tenant';
 export const metadata = { title: 'Create custom type | Ensemus' };
@@ -15,10 +14,10 @@ export default async function NewObjectType({
     { database, context } = await requireTenant(organizationId);
   return (
     <>
-      <Link href={`/o/${organizationId}/objects`}>Back to custom records</Link>
+      <BackLink href={`/o/${organizationId}/objects`}>Back to custom records</BackLink>
       <PageHead
-        title="Create type"
-        description="Choose a name and the fields your team needs, such as suppliers, equipment or opportunities. You can add more fields later."
+        title="Create record type"
+        description="Name the kind of record, such as Suppliers or Equipment, and choose the fields your team fills in. You can add more fields later."
       />
       {canProduct(context.role, 'object_type.manage') ? (
         <ObjectTypeForm
@@ -27,7 +26,9 @@ export default async function NewObjectType({
           requestKey={randomUUID()}
         />
       ) : (
-        <Empty>Your role cannot define custom types. Ask an organization administrator.</Empty>
+        <Empty title="Creating record types is not part of your role">
+          Ask an administrator in your organization to set up the record type.
+        </Empty>
       )}
     </>
   );

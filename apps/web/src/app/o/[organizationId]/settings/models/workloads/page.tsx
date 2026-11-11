@@ -8,7 +8,15 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { ConfirmForm } from '@/components/confirm-form';
 import { SubmitButton } from '@/components/submit-button';
-import { ClassificationBadge, Empty, ErrorNotice, formatDate, PageHead } from '@/components/ui';
+import {
+  ActionLink,
+  BackLink,
+  ClassificationBadge,
+  Empty,
+  ErrorNotice,
+  formatDate,
+  PageHead,
+} from '@/components/ui';
 import { requireTenant } from '@/server/tenant';
 import { approveWorkloadAction, revokeWorkloadAction } from '../actions';
 import { ModelBoundsFields } from '../model-bounds-fields';
@@ -38,29 +46,33 @@ export default async function ModelWorkloadsPage({
   const usable = qualifications.items.filter((q) => q.usable);
   return (
     <>
+      <BackLink href={`/o/${organizationId}/settings/models`}>All models</BackLink>
       <PageHead
         title="Knowledge workload approvals"
-        description="Give a specific Knowledge workload bounded, expiring permission to use qualified models."
-        actions={<Link href={`/o/${organizationId}/settings/models`}>All models</Link>}
+        description="Let one kind of Knowledge work (a workload, such as search indexing or answering questions) use models that passed their tests, within limits you set and until a date you choose."
       />
       <ErrorNotice code={query.error} />
       <p className="notice" role="status">
-        Without a usable approval, search remains lexical and paid generation is refused. An
-        approval is a ceiling, not a promise to spend: live access, model policy, organization
-        budget and provider availability are checked for every call.
+        Without a usable approval, search matches words only and paid AI generation is refused. An
+        approval is a ceiling, not a promise to spend: access, model rules, the company budget and
+        the model’s availability are still checked on every call.
       </p>
       <div className="stack">
         <section className="card" aria-labelledby="workload-history-heading">
           <h2 id="workload-history-heading">Recorded approvals</h2>
           {!approvals.items.length ? (
-            <Empty>No workload approvals on this page.</Empty>
+            <Empty title="No approvals yet">
+              Approvals you record below are listed here, with their limits and expiry.
+            </Empty>
           ) : (
             <ul className="list">
               {approvals.items.map((approval) => (
-                <li key={approval.id}>
+                <li key={approval.id} className="block">
                   <div className="stack">
-                    <strong>{WORKLOAD_LABEL[approval.kind] ?? approval.kind}</strong>
-                    <span className="badge">{workloadState(approval)}</span>
+                    <div className="spread">
+                      <strong>{WORKLOAD_LABEL[approval.kind] ?? approval.kind}</strong>
+                      <span className="badge">{workloadState(approval)}</span>
+                    </div>
                     <dl className="facts">
                       <div>
                         <dt>Approval reference</dt>
@@ -144,26 +156,33 @@ export default async function ModelWorkloadsPage({
             </ul>
           )}
           {approvals.nextCursor && (
-            <Link href={`?after=${approvals.nextCursor}#workload-history-heading`}>
-              More approvals
-            </Link>
+            <p className="link-line">
+              <Link href={`?after=${approvals.nextCursor}#workload-history-heading`}>
+                More approvals
+              </Link>
+            </p>
           )}
         </section>
         <section className="card" aria-labelledby="approve-workload-heading">
           <h2 id="approve-workload-heading">Approve a bounded workload</h2>
           <p className="muted">
-            Only current, passed capability evidence can be selected. Approval requires native
-            sign-in, the organization’s SSO policy and fresh second-factor verification. Revocation
-            remains available without a new second-factor check.
+            Only current, passed capability evidence (a model’s test result for one use) can be
+            chosen. Approving needs a recent sign-in that meets your company sign-in rules, and a
+            fresh code from your authenticator app. Revoking does not need a new code.
           </p>
           {!usable.length ? (
             <Empty
-              action={<Link href={`/o/${organizationId}/settings/models`}>Qualify a model</Link>}
+              title="No tested models to choose from"
+              action={
+                <ActionLink variant="secondary" href={`/o/${organizationId}/settings/models`}>
+                  Qualify a model
+                </ActionLink>
+              }
             >
-              No usable capability evidence on this page.
+              Test a model for a use first, and its result can be chosen here.
             </Empty>
           ) : (
-            <form className="fields" action={approveWorkloadAction}>
+            <form className="fields gap-above" action={approveWorkloadAction}>
               <input type="hidden" name="organizationId" value={organizationId} />
               <input type="hidden" name="requestKey" value={randomUUID()} />
               <label>
@@ -202,28 +221,30 @@ export default async function ModelWorkloadsPage({
                 <input name="connectionId" maxLength={36} />
                 <small>Required only for connection scope. Leave the source reference blank.</small>
               </label>
-              <fieldset>
+              <fieldset className="group">
                 <legend>Permitted purposes</legend>
-                <div className="choices">
+                <div className="option-grid">
                   {Object.entries(PURPOSE_LABEL).map(([value, label]) => (
-                    <label key={value}>
+                    <label key={value} className="check">
                       <input type="checkbox" name="purposes" value={value} />
                       {label}
                     </label>
                   ))}
                 </div>
               </fieldset>
-              <fieldset>
+              <fieldset className="group">
                 <legend>Exact capability evidence</legend>
-                <div className="choices">
+                <div className="choice-list">
                   {usable.map((q) => (
-                    <label key={q.id}>
+                    <label key={q.id} className="choice">
                       <input type="checkbox" name="qualificationIds" value={q.id} />
-                      {q.profileAlias} · version {q.profileVersion} · {q.purpose} · {q.protocol}
-                      {q.dimension === null
-                        ? ''
-                        : ` · ${q.dimension} dimensions / ${q.vectorSpaceVersion}`}
-                      <small>{q.id}</small>
+                      <strong>
+                        {q.profileAlias} · version {q.profileVersion} · {q.purpose} · {q.protocol}
+                        {q.dimension === null
+                          ? ''
+                          : ` · ${q.dimension} dimensions / ${q.vectorSpaceVersion}`}
+                      </strong>
+                      <small className="technical-reference">{q.id}</small>
                     </label>
                   ))}
                 </div>
@@ -240,7 +261,7 @@ export default async function ModelWorkloadsPage({
                   </option>
                   {['public', 'internal', 'confidential', 'restricted'].map((v) => (
                     <option key={v} value={v}>
-                      {v}
+                      {v.charAt(0).toUpperCase() + v.slice(1)}
                     </option>
                   ))}
                 </select>
@@ -255,21 +276,23 @@ export default async function ModelWorkloadsPage({
                   placeholder="YYYY-MM-DDTHH:mm:ssZ"
                 />
                 <small>
-                  Enter an explicit ISO date and time with Z for UTC or a timezone offset. No expiry
-                  is chosen for you.
+                  A date and time with its time zone, such as 2027-01-31T17:00:00+01:00, or with Z
+                  on the end for UTC. No expiry is chosen for you.
                 </small>
               </label>
               <div>
-                <SubmitButton className="quiet">Approve workload</SubmitButton>
+                <SubmitButton>Approve workload</SubmitButton>
               </div>
             </form>
           )}
           {qualifications.nextCursor && (
-            <Link
-              href={`?qualification_after=${qualifications.nextCursor}#approve-workload-heading`}
-            >
-              More capability choices
-            </Link>
+            <p className="link-line">
+              <Link
+                href={`?qualification_after=${qualifications.nextCursor}#approve-workload-heading`}
+              >
+                More capability choices
+              </Link>
+            </p>
           )}
         </section>
       </div>

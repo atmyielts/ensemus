@@ -3,12 +3,18 @@ import { listAvailablePlans } from '@ensemus/application/saas/catalog';
 import { getBillingOverview } from '@ensemus/application/saas/subscriptions';
 import { loadSaasConfig } from '@ensemus/config';
 import { can } from '@ensemus/domain/policy';
-import Link from 'next/link';
 import { BillingAccountForm } from '@/components/billing-account-form';
 import { BillingMoney } from '@/components/billing-money';
 import { ConfirmForm } from '@/components/confirm-form';
 import { SubmitButton } from '@/components/submit-button';
-import { Empty, ErrorNotice, formatDateTime, PageHead } from '@/components/ui';
+import {
+  ActionLink,
+  BackLink,
+  Empty,
+  ErrorNotice,
+  formatDateTime,
+  PageHead,
+} from '@/components/ui';
 import {
   changePlanAction,
   requestCancellationAction,
@@ -43,10 +49,10 @@ export default async function BillingPage({
   );
   return (
     <div className="stack">
+      <BackLink href={`/o/${organizationId}/account`}>Account</BackLink>
       <PageHead
         title="Billing"
-        description="Your billing details and approved subscription terms."
-        actions={<Link href={`/o/${organizationId}/account`}>Account</Link>}
+        description="Your plan, what it includes, and the details your bills are addressed to."
       />
       <ErrorNotice code={error} />
       {changed === 'period_end' && (
@@ -62,13 +68,17 @@ export default async function BillingPage({
       )}
       {!overview.billingEnabled && (
         <p className="notice">
-          Hosted billing is not enabled on this deployment. No subscription purchase is available
-          here.
+          Buying a plan online isn’t available for your company, so there is nothing to buy on this
+          page. Your current plan and billing details are still here.
         </p>
       )}
       <nav className="row" aria-label="Billing">
-        <Link href={`/o/${organizationId}/account/invoices`}>Invoices</Link>
-        <Link href={`/o/${organizationId}/account/credits`}>Credits and top-ups</Link>
+        <ActionLink variant="secondary" href={`/o/${organizationId}/account/invoices`}>
+          Invoices
+        </ActionLink>
+        <ActionLink variant="secondary" href={`/o/${organizationId}/account/credits`}>
+          Credits and top-ups
+        </ActionLink>
       </nav>
       <section aria-labelledby="subscription-title" className="stack">
         <h2 id="subscription-title">Subscription</h2>
@@ -121,15 +131,18 @@ export default async function BillingPage({
               ))}
           </>
         ) : (
-          <Empty>No subscription has been started.</Empty>
+          <Empty title="No plan yet">
+            No subscription has been started. Once your company is on a plan, its status and current
+            billing period show here.
+          </Empty>
         )}
       </section>
       <section aria-labelledby="plan-title" className="stack">
         <h2 id="plan-title">Available plans</h2>
         {plans.length === 0 ? (
-          <Empty>
-            No approved plans are available for this organization. Contact the operator to review
-            terms.
+          <Empty title="No plans to choose from yet">
+            No plans are available to your company yet. Ask Support about the plans and terms that
+            fit you.
           </Empty>
         ) : (
           <ul className="list">
@@ -179,12 +192,15 @@ export default async function BillingPage({
           </ul>
         )}
         <p className="muted">
-          A downgrade takes effect at the period boundary. Excess access becomes read-only; existing
-          data stays.
+          Moving to a smaller plan happens at the end of your current billing period. Anything over
+          the new plan’s limits becomes read-only, and your data stays.
         </p>
       </section>
-      <section aria-labelledby="details-title" className="stack">
-        <h2 id="details-title">Billing details</h2>
+      <section aria-labelledby="details-title" className="card stack">
+        <div>
+          <h2 id="details-title">Billing details</h2>
+          <p className="muted">The name and address your billing is under.</p>
+        </div>
         {canManage ? (
           <BillingAccountForm organizationId={organizationId} account={overview.account} />
         ) : (

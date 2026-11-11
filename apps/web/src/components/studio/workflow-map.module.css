@@ -16,10 +16,16 @@
   max-block-size: min(70vh, 42rem);
   overflow: auto;
   overscroll-behavior: contain;
-  border: 1px solid var(--line-strong);
+  border: 1px solid var(--line);
   border-radius: var(--radius-md);
-  background: var(--surface-2);
+  /* A quiet dotted canvas, so the points read as cards laid on paper. */
+  background-color: var(--surface-2);
+  background-image: radial-gradient(circle, var(--line) 1px, transparent 1.5px);
+  background-size: 20px 20px;
   scroll-padding: var(--space-4);
+}
+.viewport:focus-visible {
+  outline-offset: 2px;
 }
 .diagram {
   display: block;
@@ -44,8 +50,14 @@
 .node {
   fill: var(--surface);
   stroke: var(--line-strong);
-  stroke-width: 1.5;
+  stroke-width: 1;
   rx: var(--radius-md);
+  filter: drop-shadow(0 1px 2px rgb(34 38 31 / 8%)) drop-shadow(0 4px 10px rgb(34 38 31 / 6%));
+}
+@media (prefers-color-scheme: dark) {
+  .node {
+    filter: drop-shadow(0 6px 12px rgb(0 0 0 / 45%));
+  }
 }
 .needsReview {
   stroke: var(--warn);
@@ -56,8 +68,8 @@
   cursor: pointer;
 }
 .pointLink:hover .node {
-  fill: var(--surface-2);
   stroke: var(--accent);
+  stroke-width: 1.5;
 }
 .pointLink:focus-visible {
   outline: none;
@@ -65,13 +77,13 @@
 .pointLink:focus-visible .node,
 .selected .node {
   stroke: var(--accent);
-  stroke-width: 3;
+  stroke-width: 2.5;
 }
 .label {
   fill: var(--fg);
   font-family: var(--font-sans);
   font-size: var(--text-body);
-  font-weight: 620;
+  font-weight: 600;
 }
 .small {
   fill: var(--muted);
@@ -106,9 +118,15 @@
   overflow-wrap: anywhere;
 }
 .connectionList {
+  margin: var(--space-4) 0 0;
   padding-inline-start: var(--space-6);
   display: grid;
   gap: var(--space-3);
+}
+@media (forced-colors: active) {
+  .node {
+    filter: none;
+  }
 }
 @media (max-width: 40rem) {
   .viewport {

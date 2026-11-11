@@ -233,7 +233,7 @@ test.describe('an agent run, as a person sees it', () => {
     });
     const page = await open(world.bob);
     await page.goto(runPath(world.organization, workUnitId));
-    await expect(page.getByText('No agent has run on this work yet.')).toBeVisible();
+    await expect(page.getByText('No assistant has run on this work yet.')).toBeVisible();
     await expect(page.getByRole('button', { name: /Start/ })).toHaveCount(0);
     expect(await axeFindings(page)).toEqual([]);
   });
@@ -248,10 +248,10 @@ test.describe('an agent run, as a person sees it', () => {
     });
     const page = await open(world.alice);
     await page.goto(runPath(world.organization, workUnitId));
-    await expect(page.getByText('No agent has run on this work yet.')).toBeVisible();
+    await expect(page.getByText('No assistant has run on this work yet.')).toBeVisible();
     expect(await axeFindings(page)).toEqual([]);
 
-    await page.getByLabel('Agent').focus();
+    await page.getByLabel('Assistant').focus();
     await page.keyboard.press('Tab');
     await expect(page.getByRole('button', { name: 'Start a run' })).toBeFocused();
     await page.keyboard.press('Enter');
