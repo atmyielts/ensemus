@@ -20,7 +20,8 @@
     "./microsoft/tools": "./src/microsoft/tools.ts",
     "./microsoft": "./src/microsoft/index.ts",
     "./mcp": "./src/mcp/index.ts",
-    "./payment": "./src/payment/index.ts"
+    "./payment": "./src/payment/index.ts",
+    "./checkout": "./src/payment/providers/index.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"

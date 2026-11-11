@@ -1,6 +1,7 @@
 // Webhook rules (ADR-027 D4). Pure, and shared by the web tier, which stores what arrived and believes
 // none of it, and the worker, which verifies it later.
 import { createHash } from 'node:crypto';
+import type { CheckoutCallback } from './checkout';
 
 /** Hard ceiling for any endpoint, whatever its row says, and the size the web tier reads up to. */
 export const WEBHOOK_MAX_BODY_BYTES = 1_048_576;
@@ -47,14 +48,38 @@ export type WebhookRejectCode = (typeof WEBHOOK_REJECT_CODES)[number];
 export const SIGNATURE_SCHEMES = ['ensemus_hmac_sha256_v1'] as const;
 export type SignatureScheme = (typeof SIGNATURE_SCHEMES)[number];
 
+/**
+ * Hosted checkout providers' own schemes (ADR-032 D4a). Only the deployment's own organization holds an
+ * endpoint with one, created by an operator command, so they are not offered to tenants or the public API.
+ * `paddle_signature_v1`: HMAC-SHA-256 over `{ts}:{raw body}` in `Paddle-Signature`. `payme_basic_v1`: HTTP
+ * Basic with the merchant key, stored only as a hash. `click_md5_v1`: Click's `sign_string` in the body.
+ */
+export const CHECKOUT_SIGNATURE_SCHEMES = [
+  'paddle_signature_v1',
+  'payme_basic_v1',
+  'click_md5_v1',
+] as const;
+export type CheckoutSignatureScheme = (typeof CHECKOUT_SIGNATURE_SCHEMES)[number];
+/** Any scheme a stored delivery may have been received under. */
+export type StoredSignatureScheme = SignatureScheme | CheckoutSignatureScheme;
+export const isCheckoutSignatureScheme = (value: unknown): value is CheckoutSignatureScheme =>
+  typeof value === 'string' && (CHECKOUT_SIGNATURE_SCHEMES as readonly string[]).includes(value);
+
+/** The header Payme's credential is kept under, as a SHA-256 of the whole `Authorization` value. */
+export const PAYME_AUTHORIZATION_DIGEST_HEADER = 'x-ensemus-authorization-sha256';
+
 /** The only request headers ever stored, and each is cut off at WEBHOOK_MAX_HEADER_BYTES. */
-export const WEBHOOK_STORED_HEADERS: Readonly<Record<SignatureScheme, readonly string[]>> = {
+export const WEBHOOK_STORED_HEADERS: Readonly<Record<StoredSignatureScheme, readonly string[]>> = {
   ensemus_hmac_sha256_v1: [
     'content-type',
     'x-ensemus-signature',
     'x-ensemus-timestamp',
     'x-ensemus-event-id',
   ],
+  paddle_signature_v1: ['content-type', 'paddle-signature'],
+  // Never the Authorization header itself: it is the merchant key, and a row is not a secret store.
+  payme_basic_v1: ['content-type', PAYME_AUTHORIZATION_DIGEST_HEADER],
+  click_md5_v1: ['content-type'],
 };
 
 /** The set of stored headers as JSON. Below the column's 8 KiB, which also counts jsonb's spacing. */
@@ -85,8 +110,19 @@ export function storedWebhookHeaders(
 ): Record<string, string> {
   const allowed = (WEBHOOK_STORED_HEADERS as Readonly<Record<string, readonly string[]>>)[scheme];
   const kept: Record<string, string> = {};
+  // Derived before anything is kept, so the credential itself never reaches a row. A caller cannot supply
+  // the digest header directly: anything it sent under that name is replaced or dropped.
+  const source: Record<string, string> = { ...headers };
+  if (scheme === 'payme_basic_v1') {
+    delete source[PAYME_AUTHORIZATION_DIGEST_HEADER];
+    const authorization = headers.authorization;
+    if (authorization !== undefined && Buffer.byteLength(authorization) <= WEBHOOK_MAX_HEADER_BYTES)
+      source[PAYME_AUTHORIZATION_DIGEST_HEADER] = createHash('sha256')
+        .update(authorization)
+        .digest('hex');
+  }
   for (const name of allowed ?? []) {
-    const value = headers[name];
+    const value = source[name];
     if (value === undefined) continue;
     const clean = cutToBytes(value.replace(CONTROL_CHARACTERS, ''), WEBHOOK_MAX_HEADER_BYTES);
     const next = { ...kept, [name]: clean };
@@ -175,6 +211,11 @@ export type WebhookEffect =
       /** Native parser observation from the already signature-verified body. Never routing authority by itself. */
       executionIdentitySha256?: string;
       accountNamespaceSha256?: string;
+    }
+  | {
+      /** ADR-032 D4a. A hosted checkout provider's verified call, applied only to our own matching row. */
+      kind: 'checkout_callback';
+      callback: CheckoutCallback;
     };
 
 /** The digest of one exact request. A repeat of the same bytes is stored once. */

@@ -4,7 +4,11 @@
 import { paymentExecutionIdentity, type PaymentProcessor } from '@ensemus/saas/payment';
 import type { Connector } from '../index';
 import { MalformedWebhook } from '../index';
-import { PAYMENT_EVENT_KINDS, SIGNATURE_SCHEMES } from '@ensemus/domain/webhook';
+import {
+  CHECKOUT_SIGNATURE_SCHEMES,
+  PAYMENT_EVENT_KINDS,
+  SIGNATURE_SCHEMES,
+} from '@ensemus/domain/webhook';
 export {
   runCharge,
   runPaymentLookup,
@@ -30,7 +34,9 @@ export const SECRET_PURPOSE_PAYMENT_PROCESSOR = 'connector.payment_processor';
 /** Declares `network: 'egress_gateway'`, and `credential.required`. `interpret` answers `payment_event`. */
 export function createPaymentConnector(processor: PaymentProcessor): Connector<unknown> {
   const info = processor.manifest;
-  const scheme = SIGNATURE_SCHEMES.find((value) => value === info.webhookScheme);
+  const scheme = [...SIGNATURE_SCHEMES, ...CHECKOUT_SIGNATURE_SCHEMES].find(
+    (value) => value === info.webhookScheme,
+  );
   if (
     !scheme ||
     !info.nativeIdempotency ||
