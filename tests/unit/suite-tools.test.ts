@@ -474,6 +474,8 @@ describe('the connector side', () => {
           connectorType: 'google_workspace',
           config: {},
           credentialSecretId: '6f1c2c6e-7777-4777-8777-777777777777',
+          grantedScopes: ['https://www.googleapis.com/auth/gmail.send'],
+          ownerKind: 'member',
         },
       }) as PreparedAttempt;
     await expect(gateway.send('org', attempt('email.send'))).resolves.toMatchObject({
@@ -481,6 +483,14 @@ describe('the connector side', () => {
       code: 'CONNECTOR_UNAVAILABLE',
     });
     expect(send).not.toHaveBeenCalled();
+    // The connection's provider-confirmed scopes reach the handler, which refuses unsent without them.
+    send.mockResolvedValueOnce({ outcome: 'accepted', code: 'ACCEPTED_BY_PROVIDER' });
+    await expect(gateway.send('org', attempt('gmail.send'))).resolves.toMatchObject({
+      outcome: 'accepted',
+    });
+    expect(send.mock.calls[0]?.[0]).toMatchObject({
+      grantedScopes: ['https://www.googleapis.com/auth/gmail.send'],
+    });
     expect(gateway.lookupOf('google_workspace', 'calendar.create_event')).toBe('authoritative');
     expect(gateway.lookupOf('google_workspace', 'gmail.send')).toBe('best_effort');
     expect(gateway.lookupOf('google_workspace', 'email.send')).toBe('best_effort');

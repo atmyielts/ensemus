@@ -1,10 +1,13 @@
-// ADR-038 D5 and D6 against the real database and migration 0563: the connection rule on M3's intent path,
-// drafts that ask nobody, the suite read table nobody but the agent role and the connector worker can
-// see, the members' capability setting, and a member's own consent. Generated values only. Written, not
-// yet run: owed to the first stack run.
+// ADR-038 D5 and D6 against the real database and migrations 0563 and 0565: the connection rule on M3's
+// intent path and again at the send, drafts that ask nobody, a file's class across every connection that
+// syncs it, the suite read table nobody but the agent role and the connector worker can see, the members'
+// capability setting, and a member's own consent and the connection its exchange makes. Generated values
+// only. Written, not yet run: owed to the first stack run.
 import { randomUUID } from 'node:crypto';
 import {
+  beginAttempt,
   createWorkUnit,
+  decideApproval,
   pgCode,
   proposeDraftActionInTx,
   proposeExternalActionInTx,
@@ -12,7 +15,9 @@ import {
   type OAuthWebSide,
 } from '@ensemus/application';
 import { listUsableConnections } from '@ensemus/application/suite-connections';
+import { sourceClassesInTenant } from '@ensemus/application/suite-reads';
 import {
+  connections,
   createOrganization,
   externalActions,
   oauthAuthorizations,
@@ -303,6 +308,362 @@ describe('suite tools (ADR-038 D6)', () => {
           web,
         ),
       ).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    });
+  });
+
+  /** A resource as a completed sync records it, with its ACL mapped, and the row's ID. */
+  const synced = async (
+    organizationId: string,
+    connectionId: string,
+    externalId: string,
+    classification = 'internal',
+  ) => {
+    const { rows } = await superuser.query<{ id: string }>(
+      `insert into integrations.external_resources
+         (organization_id, connection_id, stream, resource_type, external_id, display_name,
+          classification, acl_state)
+       values ($1, $2, 'drive', 'file', $3, 'Generated file', $4, 'mapped') returning id`,
+      [organizationId, connectionId, externalId, classification],
+    );
+    return rows[0]!.id;
+  };
+  const grantAccess = (
+    organizationId: string,
+    resourceId: string,
+    membershipId: string,
+    access: string,
+  ) =>
+    superuser.query(
+      `insert into integrations.external_resource_acl
+         (organization_id, resource_id, principal_kind, principal_external_id, access, membership_id)
+       values ($1, $2, 'user', $3, $4, $3)`,
+      [organizationId, resourceId, membershipId, access],
+    );
+  /** One of the organization's Google connections, granted these scopes. */
+  const organizationConnection = async (organizationId: string, scopes: string[]) => {
+    const id = randomUUID();
+    await superuser.query(
+      `insert into integrations.connections
+         (organization_id, id, connector_type, display_name, state, granted_scopes)
+       values ($1, $2, 'google_workspace', 'Company files', 'active', $3)`,
+      [organizationId, id, scopes],
+    );
+    return id;
+  };
+
+  describe('a file’s class follows the file, not the account that read it (review finding 1)', () => {
+    it('finds the organization’s class for a file a member reads through their own account', async () => {
+      const t = await tenant();
+      const orgDocs = await organizationConnection(t.organizationId, [google('documents')]);
+      await synced(t.organizationId, orgDocs, 'board-minutes', 'restricted');
+      await synced(t.organizationId, orgDocs, 'lunch-menu', 'internal');
+      const service = createServiceContext(t.organizationId);
+      const classes = (ids: string[], connectorType = 'google_workspace') =>
+        withTenantTx(db(), service, (tx) =>
+          sourceClassesInTenant(tx, { connectorType, externalIds: ids }),
+        );
+      // Alex's own connection synced nothing: the organization's sync is what decides.
+      expect(await classes(['board-minutes'])).toEqual(['restricted']);
+      expect((await classes(['board-minutes', 'lunch-menu'])).sort()).toEqual([
+        'internal',
+        'restricted',
+      ]);
+      // A copy the sync has since lost sight of still counts.
+      await superuser.query(
+        `update integrations.external_resources set deleted_at = now()
+          where organization_id = $1 and external_id = 'board-minutes'`,
+        [t.organizationId],
+      );
+      expect(await classes(['board-minutes'])).toEqual(['restricted']);
+      // Another provider's IDs are another namespace.
+      expect(await classes(['board-minutes'], 'microsoft_365')).toEqual([]);
+    });
+  });
+
+  describe('an approved suite change, checked again at the send (review finding 2)', () => {
+    type Tenant = Awaited<ReturnType<typeof tenant>>;
+    const stateOf = async (id: string) =>
+      (
+        await superuser.query<{ status: string; status_reason: string | null }>(
+          'select status, status_reason from integrations.external_actions where id = $1',
+          [id],
+        )
+      ).rows[0];
+    const attempts = async (id: string) =>
+      (
+        await superuser.query(
+          'select id from integrations.external_action_attempts where external_action_id = $1',
+          [id],
+        )
+      ).rows.length;
+
+    /** Alex proposes, the owner approves, and the intent is ready. */
+    async function approved(
+      t: Tenant,
+      input: { connectionId: string; toolName: string; payload: unknown },
+    ) {
+      const workUnitId = await t.work(t.alex);
+      const proposed = await withTenantTx(db(), t.alex, (tx) =>
+        proposeExternalActionInTx(tx, t.alex, {
+          workUnitId,
+          toolVersion: '1',
+          approverMembershipId: t.owner.membershipId,
+          ...input,
+        }),
+      );
+      await decideApproval(db(), t.owner, {
+        approvalId: proposed.approvalId,
+        decision: 'approve',
+        shownHash: proposed.requestHash,
+      });
+      expect((await stateOf(proposed.externalActionId))?.status).toBe('ready');
+      return proposed.externalActionId;
+    }
+    const begin = (t: Tenant, id: string) =>
+      beginAttempt(db(), createServiceContext(t.organizationId), {
+        externalActionId: id,
+        runId: randomUUID(),
+      });
+    const mailOf = (t: Tenant) => ({
+      connectionId: t.alexMail,
+      toolName: 'gmail.send',
+      payload: { message },
+    });
+
+    it('sends what nothing has changed, with the connection’s scopes for the connector', async () => {
+      const t = await tenant();
+      const id = await approved(t, mailOf(t));
+      expect(await begin(t, id)).toMatchObject({
+        kind: 'send',
+        attempt: {
+          connection: {
+            id: t.alexMail,
+            ownerKind: 'member',
+            grantedScopes: expect.arrayContaining([google('gmail.send')]),
+          },
+        },
+      });
+    });
+
+    it.each([
+      [
+        'the initiator was deactivated after the approval',
+        (t: Tenant) =>
+          superuser.query(`update org.memberships set status = 'disabled' where id = $1`, [
+            t.alex.membershipId,
+          ]),
+        'ACCESS_REVOKED',
+      ],
+      [
+        'the provider narrowed the scopes after the approval',
+        (t: Tenant) =>
+          superuser.query('update integrations.connections set granted_scopes = $2 where id = $1', [
+            t.alexMail,
+            [google('gmail.readonly')],
+          ]),
+        'SCOPE_NOT_GRANTED',
+      ],
+      [
+        'the connection was revoked after the approval',
+        (t: Tenant) =>
+          superuser.query(
+            `update integrations.connections set state = 'revoked', revoked_at = now() where id = $1`,
+            [t.alexMail],
+          ),
+        'CONNECTION_NOT_ACTIVE',
+      ],
+    ] as const)('cancels it, unsent and with no attempt, when %s', async (_name, change, code) => {
+      const t = await tenant();
+      const id = await approved(t, mailOf(t));
+      await change(t);
+      await expect(begin(t, id)).resolves.toEqual({ kind: 'stop', status: 'cancelled' });
+      expect(await stateOf(id)).toEqual({ status: 'cancelled', status_reason: code });
+      expect(await attempts(id)).toBe(0);
+    });
+
+    it('cancels an edit of the organization’s document once the source stops granting it', async () => {
+      const t = await tenant();
+      const orgDocs = await organizationConnection(t.organizationId, [google('documents')]);
+      const resourceId = await synced(t.organizationId, orgDocs, 'doc-1');
+      await grantAccess(t.organizationId, resourceId, t.alex.membershipId, 'write');
+      const edit = {
+        connectionId: orgDocs,
+        toolName: 'docs.edit',
+        payload: {
+          document_id: 'doc-1',
+          required_revision_id: 'rev1',
+          edits: [{ kind: 'insert_text', index: 1, text: 'Synthetic.' }],
+        },
+      };
+      const kept = await approved(t, edit);
+      expect(await begin(t, kept)).toMatchObject({ kind: 'send' });
+
+      const revoked = await approved(t, edit);
+      await superuser.query(
+        'delete from integrations.external_resource_acl where organization_id = $1 and resource_id = $2',
+        [t.organizationId, resourceId],
+      );
+      await expect(begin(t, revoked)).resolves.toEqual({ kind: 'stop', status: 'cancelled' });
+      expect(await stateOf(revoked)).toEqual({
+        status: 'cancelled',
+        status_reason: 'ACCESS_REVOKED',
+      });
+      expect(await attempts(revoked)).toBe(0);
+    });
+
+    it('cancels a new file through the organization’s connection into a folder never synced', async () => {
+      const t = await tenant();
+      const orgDrive = await organizationConnection(t.organizationId, [google('drive.file')]);
+      const file = {
+        name: 'notes.txt',
+        media_type: 'text/plain',
+        text: 'x',
+        parent_id: 'folder-1',
+      };
+      // Proposing by hand names no ACL (the gateway checks it where the run is known), so the send does.
+      const id = await approved(t, {
+        connectionId: orgDrive,
+        toolName: 'drive.create_file',
+        payload: file,
+      });
+      await expect(begin(t, id)).resolves.toEqual({ kind: 'stop', status: 'cancelled' });
+      expect((await stateOf(id))?.status_reason).toBe('ACCESS_REVOKED');
+    });
+  });
+
+  describe('a formula that would fetch, link or import (review finding 4)', () => {
+    it('is refused when proposed, before anyone is asked', async () => {
+      const t = await tenant();
+      const workUnitId = await t.work(t.alex);
+      const sheets = randomUUID();
+      await superuser.query(
+        `insert into integrations.connections
+           (organization_id, id, connector_type, display_name, state, granted_scopes, owner_membership_id)
+         values ($1, $2, 'google_workspace', 'Alex sheets', 'active', $3, $4)`,
+        [t.organizationId, sheets, [google('spreadsheets')], t.alex.membershipId],
+      );
+      await expect(
+        withTenantTx(db(), t.alex, (tx) =>
+          proposeExternalActionInTx(tx, t.alex, {
+            workUnitId,
+            connectionId: sheets,
+            toolName: 'sheets.write_range',
+            toolVersion: '1',
+            payload: {
+              spreadsheet_id: 'sheet-1',
+              range: 'A1',
+              values: [['=IMPORTXML("https://example.invalid", "//a")']],
+              value_input: 'raw',
+            },
+            approverMembershipId: t.owner.membershipId,
+          }),
+        ),
+      ).rejects.toMatchObject({ code: 'INVALID_INPUT' });
+    });
+  });
+
+  describe('0565: a member’s own consent belongs to the member who started it (review finding 3)', () => {
+    type Tenant = Awaited<ReturnType<typeof tenant>>;
+    /** Alex's own consent, started as the application starts one, as a source for its sealed IDs. */
+    const startOwn = async (t: Tenant) => {
+      const web: OAuthWebSide = {
+        seal: async () => randomUUID(),
+        redirectUri: 'https://ensemus.example.invalid/api/v1/oauth/callback',
+        platformClientId: () => 'generated-client.apps.example.invalid',
+      };
+      const started = await startAuthorization(
+        db(),
+        t.alex,
+        {
+          connectorType: 'google_workspace',
+          displayName: 'My account',
+          config: {},
+          capabilities: ['mail'],
+          owner: 'member',
+          client: { kind: 'platform' },
+        },
+        web,
+      );
+      const [row] = await withTenantTx(db(), t.alex, (tx) =>
+        tx
+          .select()
+          .from(oauthAuthorizations)
+          .where(eq(oauthAuthorizations.id, started.authorizationId)),
+      );
+      return row!;
+    };
+
+    it('refuses a member starting a consent owned by another member', async () => {
+      const t = await tenant();
+      const own = await startOwn(t);
+      const refused = await withTenantTx(db(), t.alex, (tx) =>
+        tx.insert(oauthAuthorizations).values({
+          organizationId: t.organizationId,
+          connectorType: 'google_workspace',
+          displayName: 'Someone else’s account',
+          config: {},
+          clientKind: own.clientKind,
+          clientId: own.clientId,
+          requestedCapabilities: ['mail'],
+          requestedScopes: own.requestedScopes,
+          ownerMembershipId: t.sam.membershipId,
+          startedByMembershipId: t.alex.membershipId,
+          stateSha256: 'a'.repeat(64),
+          verifierSecretId: own.verifierSecretId,
+          expiresAt: new Date(),
+        }),
+      ).catch((error: unknown) => error);
+      expect(pgCode(refused)).toBe('EN121');
+    });
+
+    it('refuses the exchange making a member’s connection owned by anyone but its creator', async () => {
+      const t = await tenant();
+      const own = await startOwn(t);
+      // An attempt 0563 now refuses, written past the application roles and moved on to the exchange,
+      // so only 0565's added condition stands between it and a connection.
+      const forged = randomUUID();
+      await superuser.query(
+        `insert into integrations.oauth_authorizations
+           (organization_id, id, connector_type, display_name, config, client_kind, client_id,
+            requested_capabilities, requested_scopes, owner_membership_id, started_by_membership_id,
+            state_sha256, verifier_secret_id, expires_at)
+         select organization_id, $2, connector_type, display_name, config, client_kind, client_id,
+                requested_capabilities, requested_scopes, $3, started_by_membership_id,
+                $4, verifier_secret_id, expires_at
+           from integrations.oauth_authorizations where id = $1`,
+        [own.id, forged, t.sam.membershipId, 'b'.repeat(64)],
+      );
+      for (const id of [forged, own.id]) {
+        await superuser.query(
+          `update integrations.oauth_authorizations
+              set status = 'code_received', code_secret_id = verifier_secret_id where id = $1`,
+          [id],
+        );
+        await superuser.query(
+          `update integrations.oauth_authorizations set status = 'exchanging' where id = $1`,
+          [id],
+        );
+      }
+      const exchange = (authorizationId: string, ownerMembershipId: string) =>
+        withTenantTx(db(), createServiceContext(t.organizationId), async (tx) => {
+          await tx.execute(
+            sql`select set_config('ensemus.oauth_exchange', ${authorizationId}, true)`,
+          );
+          await tx.insert(connections).values({
+            organizationId: t.organizationId,
+            connectorType: 'google_workspace',
+            displayName: 'My account',
+            state: 'active',
+            credentialSecretId: own.verifierSecretId,
+            config: {},
+            grantedScopes: [google('gmail.readonly')],
+            createdByMembershipId: t.alex.membershipId,
+            ownerMembershipId,
+          });
+        }).catch((error: unknown) => error);
+      expect(pgCode(await exchange(forged, t.sam.membershipId))).toBe('EN121');
+      // The same exchange for the member who started it still connects.
+      expect(await exchange(own.id, t.alex.membershipId)).toBeUndefined();
     });
   });
 

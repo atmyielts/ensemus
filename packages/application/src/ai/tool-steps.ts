@@ -474,6 +474,12 @@ export type ToolRunFacts = {
   /** Metadata-only admission and fresh all-input access. False never permits loading arguments. */
   inputsOpen: boolean;
   classification: AiClassification;
+  /**
+   * The strongest class the agent's manifest lets it read (`data.<class>.read`, intersected down the
+   * delegation chain). Null when it declares none, or when the run was not admitted, so a caller that
+   * must refuse above a ceiling treats a non-admitted run as refused by its other facts first.
+   */
+  readCeiling: AiClassification | null;
   maxDelegationDepth: number;
   allow: readonly string[] | null;
   deny: readonly string[] | null;
@@ -679,6 +685,7 @@ export function createToolStepStore(deps: {
         .where(and(eq(runControls.runId, runId), eq(runControls.kind, 'stop')))
         .limit(1);
       let admitted = false;
+      let readCeiling: AiClassification | null = null;
       if (
         initial.status === 'running' &&
         !initialStop &&
@@ -688,12 +695,13 @@ export function createToolStepStore(deps: {
         try {
           // Actual source/catalog closure first, then checkpoint and run locks. The helper uses
           // NOWAIT for the inverse run lock; taking it above the closure could deadlock revocation.
-          await loadAgentReadScopeInTx(
+          const scope = await loadAgentReadScopeInTx(
             tx,
             context,
             { workUnitId: initial.workUnitId, agentVersionId: initial.agentVersionId },
             { lockRun: options.lock },
           );
+          readCeiling = scope.ceiling;
           admitted = true;
         } catch (error) {
           // Only a pure application refusal leaves this transaction usable for metadata settlement.
@@ -759,6 +767,7 @@ export function createToolStepStore(deps: {
         workStopped: !work || STOPPED_WORK.includes(work.status),
         inputsOpen,
         classification: run.effectiveClassification as AiClassification,
+        readCeiling: admitted ? readCeiling : null,
         maxDelegationDepth: run.maxDelegationDepth,
         allow: spec.success ? spec.data.tools.allow : null,
         deny: spec.success ? (spec.data.tools.deny ?? []) : null,

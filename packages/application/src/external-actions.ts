@@ -7,11 +7,14 @@
 // two steps that record a provider's answer take only the intent, and never wait for the work.
 import { randomUUID } from 'node:crypto';
 import {
+  agentRuns,
   approvals,
   connections,
   externalActionAttempts,
   externalActionReceipts,
   externalActions,
+  memberships,
+  toolProposals,
   withTenantTx,
   workUnits,
   type AppDatabase,
@@ -20,9 +23,9 @@ import {
 } from '@ensemus/database';
 import { emailSendPayloadSchema } from '@ensemus/contracts/external-actions';
 import { parseSuiteActionPayload } from '@ensemus/contracts/ai-tools';
-import { suitePayloadFits } from '@ensemus/contracts/suite-tools';
+import { suiteFormulaRefusal, suitePayloadFits } from '@ensemus/contracts/suite-tools';
 import type { AiClassification } from '@ensemus/domain/ai';
-import { isActionTool, toolManifest } from '@ensemus/domain/ai-tools';
+import { isActionTool, isSuiteRule, toolManifest } from '@ensemus/domain/ai-tools';
 import {
   ACTION_CONNECTOR_TYPES,
   checkBeforeSend,
@@ -54,13 +57,19 @@ import {
   NOTIFY_EXTERNAL_ACTION_SENT,
   NOTIFY_EXTERNAL_ACTION_UNKNOWN,
 } from '@ensemus/domain/integration-events';
-import { changeNeedsApproval, decideConnectionUse } from '@ensemus/policy';
+import {
+  changeNeedsApproval,
+  decideConnectionUse,
+  recheckSuiteSend,
+  resourceIdOf,
+} from '@ensemus/policy';
 import { and, asc, eq, inArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { createApprovalInTx, REVIEW_HOURS } from './approvals';
 import { AppError } from './errors';
 import { emit } from './events';
 import type { PreparedAttempt } from './integration-ports';
+import { resourceFacts } from './suite-connections';
 import {
   auditAction,
   clearApprovalNotifications,
@@ -303,8 +312,13 @@ function freezePayload(
 ) {
   if (toolName === EMAIL_SEND_TOOL) return freezeEmailPayload(payload, connection.config);
   const frozen = parseSuiteActionPayload(toolName, connection.id, payload);
-  // A payload this provider cannot do exactly is refused before anyone is asked to approve it.
-  if (!frozen || !suitePayloadFits(toolName, connection.connectorType, frozen)) {
+  // A payload this provider cannot do exactly is refused before anyone is asked to approve it, and so is
+  // a cell formula that would fetch, link or import once the sheet is opened.
+  if (
+    !frozen ||
+    !suitePayloadFits(toolName, connection.connectorType, frozen) ||
+    suiteFormulaRefusal(toolName, frozen) !== null
+  ) {
     throw new AppError('INVALID_INPUT');
   }
   return frozen;
@@ -643,6 +657,81 @@ export async function onApprovalClosedInTx(
   }
 }
 
+type ConnectionRow = typeof connections.$inferSelect;
+
+/**
+ * Whose change a suite intent is: the initiator of the agent run that proposed it, found through the
+ * proposal 0101's trigger also follows, else the person who proposed it. Undefined for an intent no run
+ * and no person made, which is left to the checks every intent meets, as before. Null when the run that
+ * proposed it cannot be found, which nothing may send for.
+ */
+async function suiteInitiatorOf(tx: Tx, action: ActionRow): Promise<string | null | undefined> {
+  const [proposal] = await tx
+    .select({ runId: toolProposals.runId })
+    .from(toolProposals)
+    .where(eq(toolProposals.externalActionId, action.id))
+    .limit(1);
+  if (proposal) {
+    const [run] = await tx
+      .select({ initiatorMembershipId: agentRuns.initiatorMembershipId })
+      .from(agentRuns)
+      .where(eq(agentRuns.id, proposal.runId));
+    return run?.initiatorMembershipId ?? null;
+  }
+  return action.createdByMembershipId ?? undefined;
+}
+
+/**
+ * ADR-038 D5 and D6's rule, read again under this transaction's locks before a suite change is attempted.
+ * An approval says a person agreed to these bytes then; it does not keep the initiator a member, the
+ * connection theirs and its scopes granted, or the source granting them the file. A refusal is the code
+ * the intent is cancelled with, before any attempt row exists. `email.send` and any intent with no one
+ * behind it are left to `checkBeforeSend`, as they always were.
+ */
+async function recheckSuiteChange(
+  tx: Tx,
+  action: ActionRow,
+  connection: ConnectionRow | null,
+): Promise<ExternalActionCode | null> {
+  const manifest = toolManifest(action.toolName);
+  const rule = manifest?.connection;
+  if (!manifest || !rule || !isSuiteRule(rule)) return null;
+  const initiatorId = await suiteInitiatorOf(tx, action);
+  if (initiatorId === undefined) return null;
+  const [member] =
+    initiatorId === null
+      ? []
+      : await tx
+          .select({ status: memberships.status })
+          .from(memberships)
+          .where(eq(memberships.id, initiatorId));
+  const organizationContent =
+    connection?.ownerMembershipId === null &&
+    rule.resourceAccess !== null &&
+    rule.resourceArg !== null;
+  const resource =
+    organizationContent && connection && initiatorId !== null
+      ? await resourceFacts(tx, {
+          connectionId: connection.id,
+          membershipId: initiatorId,
+          externalId: resourceIdOf(rule, action.payload),
+        })
+      : null;
+  const checked = recheckSuiteSend({
+    rule,
+    toolClass: manifest.class,
+    initiator:
+      initiatorId === null
+        ? null
+        : { membershipId: initiatorId, active: member?.status === 'active' },
+    // The class it was frozen at. Proposing refused restricted, and the payload cannot have changed since.
+    dataClass: action.classification as AiClassification,
+    connection,
+    resource,
+  });
+  return checked.ok ? null : checked.code;
+}
+
 export type BeginAttemptResult =
   | { kind: 'send'; attempt: PreparedAttempt }
   /** It is past this point, or the recheck stopped it. The status says where it ended up. */
@@ -733,6 +822,12 @@ export function beginAttempt(
       }
       return { kind: 'stop', status: 'cancelled' };
     }
+    const changed = await recheckSuiteChange(tx, action, connection ?? null);
+    if (changed) {
+      const moved = await cancelAction(tx, context, action, changed);
+      await tellPeople(tx, context, moved, NOTIFY_EXTERNAL_ACTION_FAILED);
+      return { kind: 'stop', status: 'cancelled' };
+    }
 
     const attemptId = randomUUID();
     const attemptNo = attempts.length + 1;
@@ -764,6 +859,8 @@ export function beginAttempt(
           connectorType: connection?.connectorType ?? '',
           config: connection?.config ?? {},
           credentialSecretId: connection?.credentialSecretId ?? null,
+          grantedScopes: connection?.grantedScopes ?? [],
+          ownerKind: connection?.ownerMembershipId ? 'member' : 'organization',
         },
       },
     };
@@ -977,6 +1074,8 @@ export function beginReconcile(
           connectorType: connection?.connectorType ?? '',
           config: connection?.config ?? {},
           credentialSecretId: connection?.credentialSecretId ?? null,
+          grantedScopes: connection?.grantedScopes ?? [],
+          ownerKind: connection?.ownerMembershipId ? 'member' : 'organization',
         },
       },
     };

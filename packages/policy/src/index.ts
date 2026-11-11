@@ -9,10 +9,13 @@ export { scanForSecrets } from './secret-scan';
 export {
   changeNeedsApproval,
   decideConnectionUse,
+  recheckSuiteSend,
   resourceIdOf,
   type ConnectionFacts,
   type ConnectionUseDecision,
   type ConnectionUseInput,
   type ResourceFacts,
   type SourceAccess,
+  type SuiteSendRecheckInput,
+  type SuiteSendRefusal,
 } from './suite-access';

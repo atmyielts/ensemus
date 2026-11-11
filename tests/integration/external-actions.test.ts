@@ -1766,6 +1766,8 @@ describe('verified external actions', () => {
         connectorType: 'test_connector',
         config: {},
         credentialSecretId: randomUUID(),
+        grantedScopes: [],
+        ownerKind: 'organization',
         ...overrides,
       },
     });

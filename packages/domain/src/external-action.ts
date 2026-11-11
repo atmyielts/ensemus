@@ -76,6 +76,11 @@ export const EXTERNAL_ACTION_CODES = [
   'CREDENTIAL_UNAVAILABLE',
   'PAYLOAD_CHANGED',
   'ATTEMPTS_EXHAUSTED',
+  // A suite change's connection rule, read again at the send (ADR-038 D6): the connection is no longer
+  // one the initiator may use, it no longer holds the scopes, or the initiator or their access is gone.
+  'CONNECTION_CHANGED',
+  'SCOPE_NOT_GRANTED',
+  'ACCESS_REVOKED',
   // Ended before the commit point.
   'CONNECT_FAILED',
   'TLS_REQUIRED',

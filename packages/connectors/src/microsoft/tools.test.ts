@@ -830,6 +830,29 @@ describe('onedrive.create_file', () => {
     );
   });
 
+  it('puts it under a parent in a named drive, as the drive sync keys it, and only a drive it reaches', async () => {
+    const inDrive = { ...newFile, drive_id: 'generated_drive', parent_id: 'generated!1' };
+    const graph = fakeGraph(() => json({ id: 'generated_file' }, 201));
+    await send(depsFor(graph.http), 'onedrive.create_file', inDrive, {
+      config: { driveIds: ['generated_drive'] },
+    });
+    expect(graph.calls[0]?.path).toMatch(
+      /^\/v1\.0\/drives\/generated_drive\/items\/generated%211:\/Generated%20note\.txt:\/content\?/,
+    );
+    const elsewhere = fakeGraph(() => json({ id: 'generated_file' }, 201));
+    expect(
+      await send(depsFor(elsewhere.http), 'onedrive.create_file', inDrive, {
+        config: { driveIds: ['generated_other'] },
+      }),
+    ).toEqual({ outcome: 'not_sent', code: 'REFUSED_BY_PROVIDER', retryable: false });
+    expect(elsewhere.calls).toHaveLength(0);
+    expect(
+      await reconcile(depsFor(elsewhere.http), 'onedrive.create_file', inDrive, {
+        config: { driveIds: ['generated_other'] },
+      }),
+    ).toEqual({ answer: 'cannot_answer' });
+  });
+
   it('is rejected when a file of that name exists, never replacing it', async () => {
     const graph = fakeGraph(() => failure(409));
     expect(await send(depsFor(graph.http), 'onedrive.create_file', newFile)).toMatchObject({

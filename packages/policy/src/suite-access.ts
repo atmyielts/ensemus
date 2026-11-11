@@ -143,3 +143,45 @@ export function resourceIdOf(rule: ConnectionRule, args: unknown): string | null
     return null;
   return values.length === 1 ? (values[0] as string) : JSON.stringify(values);
 }
+
+/** Why a suite change approved earlier may not go now. Each is an external action code of M3's. */
+export type SuiteSendRefusal =
+  'CONNECTION_NOT_ACTIVE' | 'CONNECTION_CHANGED' | 'SCOPE_NOT_GRANTED' | 'ACCESS_REVOKED';
+
+export type SuiteSendRecheckInput = Omit<ConnectionUseInput, 'initiatorMembershipId'> & {
+  /** The run's initiator, as the membership stands now. Null when it is missing. */
+  initiator: { membershipId: string; active: boolean } | null;
+};
+
+/**
+ * ADR-038 D5 and D6's rule again, when an approved suite change is about to be sent (ADR-027 D2's recheck).
+ * A person approved it some time ago, and since then the initiator may have left, the connection been
+ * narrowed, or the source stopped granting them the file. Any of those stops it before any attempt
+ * exists, with a fixed code. Pure, like `decideConnectionUse`, which it asks.
+ */
+export function recheckSuiteSend(
+  input: SuiteSendRecheckInput,
+): { ok: true } | { ok: false; code: SuiteSendRefusal } {
+  if (!input.initiator?.active) return { ok: false, code: 'ACCESS_REVOKED' };
+  const decision = decideConnectionUse({
+    ...input,
+    initiatorMembershipId: input.initiator.membershipId,
+  });
+  if (decision.ok) return { ok: true };
+  switch (decision.auditAs) {
+    case 'CONNECTION_NOT_FOUND':
+    case 'CONNECTION_NOT_ACTIVE':
+      return { ok: false, code: 'CONNECTION_NOT_ACTIVE' };
+    case 'SCOPE_NOT_GRANTED':
+      return { ok: false, code: 'SCOPE_NOT_GRANTED' };
+    case 'CONNECTION_NOT_YOURS':
+    case 'CONNECTION_TYPE_MISMATCH':
+    case 'CONNECTION_OWNER_ORGANIZATION':
+    case 'CONNECTION_OWNER_MEMBER':
+      return { ok: false, code: 'CONNECTION_CHANGED' };
+    // The source no longer grants the initiator the resource, or never did as far as the sync knows, and
+    // anything else the rule refuses now: what was approved no longer holds.
+    default:
+      return { ok: false, code: 'ACCESS_REVOKED' };
+  }
+}

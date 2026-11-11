@@ -1427,30 +1427,49 @@ export const calendarUpdateEvent = actionTool('calendar.update_event', {
 
 type NewFile = Omit<SuiteToolArgs<'onedrive.create_file'>, 'connection_id'>;
 
-/** The file's path by name under its parent: the approved name exactly, never one we change. */
-const newFilePath = (payload: NewFile) =>
-  payload.parent_id
-    ? `/v1.0/me/drive/items/${segment(payload.parent_id)}:/${segment(payload.name)}:`
-    : `/v1.0/me/drive/root:/${segment(payload.name)}:`;
+/** The drive a new file lands in: the parent's named drive, else the connected account's own. */
+const newFileDrive = (config: unknown, payload: NewFile): string | null => {
+  if (payload.drive_id === undefined) return '/v1.0/me/drive';
+  const drives = configuredDrives(config);
+  if (drives.length && !drives.includes(payload.drive_id)) return null;
+  return `/v1.0/drives/${segment(payload.drive_id)}`;
+};
+
+/**
+ * The file's path by name under its parent: the approved name exactly, never one we change. A parent in a
+ * named drive is reached as the drive sync keyed it, so the folder the gateway checked is the one written
+ * in. Null for a drive this connection does not reach.
+ */
+const newFilePath = (config: unknown, payload: NewFile): string | null => {
+  const drive = newFileDrive(config, payload);
+  if (drive === null) return null;
+  return payload.parent_id
+    ? `${drive}/items/${segment(payload.parent_id)}:/${segment(payload.name)}:`
+    : `${drive}/root:/${segment(payload.name)}:`;
+};
 
 export const onedriveCreateFile = actionTool('onedrive.create_file', {
   async send(writer, payload) {
+    const path = newFilePath(writer.context.config, payload);
+    // A drive this connection does not reach: certain nothing was written.
+    if (path === null) throw new NotSent('REFUSED_BY_PROVIDER', false);
     const bytes = Buffer.from(payload.text, 'utf8');
     // `fail` makes Graph refuse rather than replace a file of that name, so a repeat cannot overwrite.
     const response = await writer.commit(
       'PUT',
-      `${newFilePath(payload)}/content${queryOf([['@microsoft.graph.conflictBehavior', 'fail']])}`,
+      `${path}/content${queryOf([['@microsoft.graph.conflictBehavior', 'fail']])}`,
       bytes,
       `${payload.media_type}; charset=utf-8`,
     );
     return answerOf(response, createdId(response));
   },
   async reconcile(reader, payload) {
+    const path = newFilePath(reader.context.config, payload);
+    const drive = newFileDrive(reader.context.config, payload);
+    if (path === null || drive === null) return { answer: 'cannot_answer' };
     // By path: the approved name under its parent. A file there counts as ours only when its bytes
     // are exactly the payload's, by the hash Graph gives or by reading it back.
-    const response = await reader.raw(
-      `${newFilePath(payload)}${queryOf([['$select', 'id,name,size,file']])}`,
-    );
+    const response = await reader.raw(`${path}${queryOf([['$select', 'id,name,size,file']])}`);
     if (response.status === 404) return { answer: 'not_found' };
     const item = jsonOf(response);
     const id = idOf(item.id);
@@ -1468,7 +1487,7 @@ export const onedriveCreateFile = actionTool('onedrive.create_file', {
     else if (hashes && typeof hashes.sha1Hash === 'string')
       same = hashes.sha1Hash.toUpperCase() === digest('sha1');
     else {
-      const content = await reader.raw(`/v1.0/me/drive/items/${segment(id)}/content`, {
+      const content = await reader.raw(`${drive}/items/${segment(id)}/content`, {
         maxBytes: Math.max(1, bytes.length + 1),
       });
       // A redirect to a download host is not followed here: without the bytes, it cannot answer.

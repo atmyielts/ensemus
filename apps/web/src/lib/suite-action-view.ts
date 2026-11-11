@@ -3,7 +3,7 @@
 // binds and this organization's own rows: never from anything a provider said. Pure, so every tool's view
 // is tested without a page. The page writes each text out with `showInvisible`, and React keeps it text.
 import { parseSuiteActionPayload } from '@ensemus/contracts/ai-tools';
-import type { SuiteToolArgs } from '@ensemus/contracts/suite-tools';
+import { looksLikeFormula, type SuiteToolArgs } from '@ensemus/contracts/suite-tools';
 import { toolManifest } from '@ensemus/domain/ai-tools';
 import type { SuiteToolId } from '@ensemus/domain/suite-tools';
 
@@ -22,7 +22,9 @@ export type ViewField =
       rows: readonly (readonly string[])[];
       hiddenRows: number;
       hiddenColumns: number;
-    };
+    }
+  /** Something a reviewer must not miss, shown prominently, with each item written out in full. */
+  | { kind: 'warning'; label: string; text: string; items: readonly string[] };
 
 export type SuiteActionView = {
   /** The heading over the payload. */
@@ -42,6 +44,11 @@ export type SuiteViewFacts = {
   } | null;
   /** Lower-cased addresses of active members here. Anyone else is outside the organization. */
   memberAddresses: ReadonlySet<string>;
+  /**
+   * For a new file, its parent folder's name as this organization's sync recorded it on that connection.
+   * Null or absent when the sync never saw it.
+   */
+  parentFolderName?: string | null;
 };
 
 /** Every suite tool that changes something or drafts, each with the view a reviewer relies on. */
@@ -168,6 +175,88 @@ function table(label: string, values: readonly (readonly unknown[])[], emptyMean
   };
 }
 
+/** How many formula cells a warning writes out in full. The count covers every one. */
+export const FORMULA_EXAMPLES = 5;
+
+/** Column letters for a zero-based index: 0 is A, 25 is Z, 26 is AA. */
+export function columnName(index: number): string {
+  let name = '';
+  for (let n = index + 1; n > 0; n = Math.floor((n - 1) / 26)) {
+    name = String.fromCharCode(65 + ((n - 1) % 26)) + name;
+  }
+  return name;
+}
+
+/**
+ * Where a range's values start: its sheet, if it names one, and its first cell. A range of whole columns
+ * starts at row 1, and one of whole rows at column A, as the provider writes them.
+ */
+export function rangeStart(range: string): { sheet: string | null; column: number; row: number } {
+  const bang = range.lastIndexOf('!');
+  const sheet = bang >= 0 ? range.slice(0, bang) : null;
+  const first = (bang >= 0 ? range.slice(bang + 1) : range).split(':')[0] ?? '';
+  const match = /^([A-Za-z]{0,3})(\d{0,7})$/.exec(first);
+  const letters = (match?.[1] ?? '').toUpperCase();
+  const column = [...letters].reduce((sum, char) => sum * 26 + (char.charCodeAt(0) - 64), 0);
+  const row = Number(match?.[2] || '1');
+  return { sheet, column: Math.max(0, column - 1), row: Math.max(1, row) };
+}
+
+/**
+ * Every cell of the whole payload a spreadsheet may read as a formula, not only the part the table shows:
+ * how many, and the first few by address with their text in full.
+ */
+export function formulaCells(range: string, values: readonly (readonly unknown[])[]) {
+  const start = rangeStart(range);
+  const prefix = start.sheet === null ? '' : `${start.sheet}!`;
+  let count = 0;
+  const first: { address: string; value: string }[] = [];
+  values.forEach((row, r) =>
+    row.forEach((cell, c) => {
+      if (!looksLikeFormula(cell)) return;
+      count += 1;
+      if (first.length < FORMULA_EXAMPLES) {
+        first.push({
+          address: `${prefix}${columnName(start.column + c)}${start.row + r}`,
+          value: cell,
+        });
+      }
+    }),
+  );
+  return { count, first };
+}
+
+function formulaWarnings(
+  range: string,
+  values: readonly (readonly unknown[])[],
+  readAsTyped: boolean,
+  provider: 'sheet' | 'workbook',
+): ViewField[] {
+  const found = formulaCells(range, values);
+  const fields: ViewField[] = [];
+  if (found.count > 0) {
+    const one = found.count === 1;
+    const cells = one ? 'One cell starts' : `${found.count} cells start`;
+    fields.push({
+      kind: 'warning',
+      label: 'Formulas',
+      text: readAsTyped
+        ? `${cells} with =, +, - or @, so the ${provider} will read ${one ? 'it' : 'them'} as a formula and work ${one ? 'it' : 'them'} out. A formula can calculate, look things up, or show something other than what is written here. Check each one.`
+        : `${cells} with =, +, - or @. ${one ? 'It is' : 'They are'} stored as text, exactly as written, but anyone who edits such a cell later may turn it into a formula.`,
+      items: found.first.map((cell) => `${cell.address}: ${cell.value}`),
+    });
+  }
+  if (readAsTyped && provider === 'sheet') {
+    fields.push({
+      kind: 'warning',
+      label: 'Read as typed',
+      text: 'Every value is read as if a person typed it, so anything that looks like a formula, a number or a date is worked out by the sheet rather than stored as written.',
+      items: [],
+    });
+  }
+  return fields;
+}
+
 function mailView(kind: 'send' | 'draft'): Build<'gmail.send'> {
   return (payload, facts) => {
     const { message } = payload;
@@ -244,7 +333,16 @@ const updateEvent: Build<'calendar.update_event'> = (payload, facts) => {
   };
 };
 
-function fileView(): Build<'drive.create_file'> {
+/** The folder a new file goes in: its synced name if this organization's sync saw it, else its ID. */
+function folderWords(parentId: string | undefined, facts: SuiteViewFacts) {
+  if (!parentId) return 'The top folder';
+  const name = facts.parentFolderName;
+  return name
+    ? `“${name}”, the folder with ID ${parentId}`
+    : `The folder with ID ${parentId}, a folder not known here`;
+}
+
+function fileView(): Build<'onedrive.create_file'> {
   return (payload, facts) => {
     const bytes = new TextEncoder().encode(payload.text).length;
     return {
@@ -255,10 +353,8 @@ function fileView(): Build<'drive.create_file'> {
         text('File name', payload.name),
         text('Kind', payload.media_type),
         text('Size', bytes === 1 ? '1 byte' : `${bytes.toLocaleString('en-GB')} bytes`),
-        text(
-          'Folder',
-          payload.parent_id ? `The folder with ID ${payload.parent_id}` : 'The top folder',
-        ),
+        ...(payload.drive_id !== undefined ? [text('Drive', payload.drive_id)] : []),
+        text('Folder', folderWords(payload.parent_id, facts)),
         body('Contents', payload.text),
       ],
     };
@@ -299,6 +395,12 @@ const sheetsWrite: Build<'sheets.write_range'> = (payload, facts) => ({
         ? 'Exactly as written, nothing worked out'
         : 'As if a person typed it, so formulas and dates are worked out',
     ),
+    ...formulaWarnings(
+      payload.range,
+      payload.values,
+      payload.value_input === 'user_entered',
+      'sheet',
+    ),
     table('Values', payload.values, '(left as it is)'),
   ],
 });
@@ -312,6 +414,10 @@ const excelWrite: Build<'excel.write_range'> = (payload, facts) => ({
     text('Workbook', payload.item_id),
     text('Worksheet', payload.worksheet),
     text('Range', payload.range),
+    // Graph's range `values` are taken as a person typing them would be, so a cell starting with = may
+    // become a formula. Context7's copy of the reference calls them raw values without settling it, so a
+    // reviewer is told the stronger reading.
+    ...formulaWarnings(payload.range, payload.values, true, 'workbook'),
     table('Values', payload.values, '(left as it is)'),
   ],
 });

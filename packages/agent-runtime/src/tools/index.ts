@@ -34,7 +34,7 @@ import {
   type AiReasonCode,
   type ToolOutcome,
 } from '@ensemus/domain/ai';
-import { suitePayloadFits } from '@ensemus/contracts/suite-tools';
+import { suiteFormulaRefusal, suitePayloadFits } from '@ensemus/contracts/suite-tools';
 import { toolManifest, type ConnectionRule, type ToolManifest } from '@ensemus/domain/ai-tools';
 import {
   changeNeedsApproval,
@@ -445,6 +445,9 @@ async function checkConnection(
   if (!suitePayloadFits(manifest.id, connection!.connectorType, args)) {
     throw new Refusal('TOOL_ARGS_INVALID', 'PROVIDER_CANNOT_HONOUR_PAYLOAD');
   }
+  // A cell formula that fetches, links or imports would carry the sheet out once it is opened.
+  const formula = suiteFormulaRefusal(manifest.id, args);
+  if (formula) throw new Refusal('TOOL_ARGS_INVALID', formula);
   return { connectionId, resourceExternalId, decision };
 }
 
@@ -632,7 +635,7 @@ async function collectSuiteRead(
   const { deps, context, proposal } = turn;
   const collected = await inGate(
     turn,
-    async (tx) => {
+    async (tx, facts) => {
       const answer = await deps.store.readSuiteRead(tx, context, proposal.id);
       if (!answer || answer.status === 'collected') {
         return {
@@ -664,6 +667,14 @@ async function collectSuiteRead(
       await deps.store.closeSuiteRead(tx, context, { proposalId: proposal.id });
       if (Buffer.byteLength(content, 'utf8') > limit) {
         return { refused: readRefusal('TOOL_OUTPUT_TOO_LARGE') };
+      }
+      // The agent's own read ceiling, as for a work or a file: content above it is refused, and the
+      // output was cleared above, so it is kept nowhere.
+      const ceiling = facts.readCeiling;
+      if (ceiling !== null && strongest(ceiling, answer.classification) !== ceiling) {
+        return {
+          refused: { code: 'CLASS_DENIED' as AiReasonCode, auditAs: 'ABOVE_READ_CEILING' },
+        };
       }
       const raised = await deps.store.raiseRunClass(tx, {
         runId: turn.step.runId,

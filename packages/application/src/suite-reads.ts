@@ -20,6 +20,7 @@ import {
 } from '@ensemus/database';
 import {
   AGENT_RUN_STATUSES,
+  CLASSIFICATIONS,
   isTerminalAgentRun,
   strongestClassification,
   type AiClassification,
@@ -261,24 +262,57 @@ export function claimSuiteRead(
   });
 }
 
-/** The answer's resources' own classes, so the output is never below any of them. */
-async function classOfResources(
+/**
+ * Every class this tenant's syncs have given these resources, through any connection of this connector
+ * type. A file has one ID at its provider whichever account reaches it: a Google Drive file ID is global,
+ * and a Microsoft drive item is keyed by its drive and ID together. So a member's own connection, which
+ * syncs nothing, still finds the class the organization's sync gave the same file, and reading it through
+ * one's own account cannot launder it to that account's default. A copy the sync has since lost sight of
+ * still counts, because losing sight of a file does not make it any less sensitive.
+ */
+export async function sourceClassesInTenant(
   tx: Tx,
-  connectionId: string,
-  externalIds: readonly string[],
+  input: { connectorType: string; externalIds: readonly string[] },
 ): Promise<AiClassification[]> {
-  if (externalIds.length === 0) return [];
+  const ids = [...new Set(input.externalIds)].slice(0, 1000);
+  if (ids.length === 0) return [];
   const rows = await tx
     .select({ classification: externalResources.classification })
     .from(externalResources)
+    .innerJoin(
+      connections,
+      and(
+        eq(connections.organizationId, externalResources.organizationId),
+        eq(connections.id, externalResources.connectionId),
+      ),
+    )
     .where(
       and(
-        eq(externalResources.connectionId, connectionId),
-        inArray(externalResources.externalId, [...new Set(externalIds)].slice(0, 1000)),
-        isNull(externalResources.deletedAt),
+        eq(connections.connectorType, input.connectorType),
+        inArray(externalResources.externalId, ids),
       ),
     );
-  return rows.map((row) => row.classification as AiClassification);
+  // A class the table does not know is read as the strongest, never skipped.
+  return rows.map((row) =>
+    (CLASSIFICATIONS as readonly string[]).includes(row.classification)
+      ? (row.classification as AiClassification)
+      : 'restricted',
+  );
+}
+
+/**
+ * The class a suite read's output is kept at: the strongest of what the handler started it at, the run's,
+ * and every class any copy of its resources carries here. Never weaker than any of them.
+ */
+export function suiteOutputClass(input: {
+  handlerClass: AiClassification;
+  runClass: AiClassification;
+  sourceClasses: readonly AiClassification[];
+}): AiClassification {
+  return input.sourceClasses.reduce<AiClassification>(
+    (strongest, each) => strongestClassification(strongest, each),
+    strongestClassification(input.handlerClass, input.runClass),
+  );
 }
 
 /**
@@ -326,13 +360,18 @@ export function finishSuiteRead(
         }
       }
     }
+    // A restricted copy anywhere here makes the output restricted, and so the run: the agent's own read
+    // ceiling then refuses it when it is collected, and nothing restricted leaves by a draft, a send or
+    // a model outside this deployment's own.
     const named = row.resourceExternalId ? [row.resourceExternalId] : [];
-    const classification = (
-      await classOfResources(tx, read.connection.id, [...output.resourceExternalIds, ...named])
-    ).reduce<AiClassification>(
-      (strongest, each) => strongestClassification(strongest, each),
-      strongestClassification(output.classification, checked.dataClass),
-    );
+    const classification = suiteOutputClass({
+      handlerClass: output.classification,
+      runClass: checked.dataClass,
+      sourceClasses: await sourceClassesInTenant(tx, {
+        connectorType: read.connection.connectorType,
+        externalIds: [...output.resourceExternalIds, ...named],
+      }),
+    });
     await tx
       .update(suiteReads)
       .set({

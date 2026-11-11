@@ -17,6 +17,7 @@ import {
   approvals,
   connections,
   externalActions,
+  externalResources,
   memberships,
   modelProfiles,
   toolProposals,
@@ -48,8 +49,8 @@ import {
 } from '@ensemus/domain/approval';
 import { connectionRef } from '@ensemus/domain/external-action';
 import { canChangeWork, canReadWork, type Classification } from '@ensemus/domain/policy';
-import { decideAction } from '@ensemus/policy';
-import { and, eq, inArray, sql } from 'drizzle-orm';
+import { decideAction, resourceIdOf } from '@ensemus/policy';
+import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { AppError } from '../errors';
 import { onApprovalClosedInTx } from '../external-actions';
 import { canonicalId, idSchema } from '../ids';
@@ -931,7 +932,15 @@ export type SuiteActionFacts = {
   connection: SuiteActionConnection | null;
   /** Of the payload's addresses, lower-cased, the ones that belong to an active member here. */
   memberAddresses: readonly string[];
+  /**
+   * For a new file, the parent folder's name as the connection's own sync recorded it, as data. Null when
+   * the sync never saw that folder, or the change names none.
+   */
+  parentFolderName: string | null;
 };
+
+/** The tools that put a new file in a folder the payload names. */
+const NEW_FILE_TOOLS: readonly string[] = ['drive.create_file', 'onedrive.create_file'];
 
 /** Parsed to check its shape only. The schema trims text, and a reviewer has to see it as it would go. */
 function emailOf(action: ProposedAction): EmailSendPayload | null {
@@ -1045,7 +1054,28 @@ async function readSuiteFacts(tx: Tx, view: AgentActionView): Promise<SuiteActio
         }
       : null,
     memberAddresses: members.map((member) => member.email),
+    parentFolderName: row ? await parentFolderName(tx, view, connectionId) : null,
   };
+}
+
+/** The synced name of the folder a new file goes in, keyed exactly as the rule checks it. */
+async function parentFolderName(tx: Tx, view: AgentActionView, connectionId: string) {
+  const rule = toolManifest(view.toolId)?.connection;
+  if (!rule || !NEW_FILE_TOOLS.includes(view.toolId)) return null;
+  const externalId = resourceIdOf(rule, view.action.payload);
+  if (externalId === null) return null;
+  const [folder] = await tx
+    .select({ displayName: externalResources.displayName })
+    .from(externalResources)
+    .where(
+      and(
+        eq(externalResources.connectionId, connectionId),
+        eq(externalResources.externalId, externalId),
+        isNull(externalResources.deletedAt),
+      ),
+    )
+    .limit(1);
+  return folder?.displayName ?? null;
 }
 
 /** Null when this approval is not an agent's. Needs the same access as reading the approval itself. */

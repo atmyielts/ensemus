@@ -175,7 +175,17 @@ const newFile = {
 export const driveSearchArgsSchema = fileSearch;
 export const driveCreateFileArgsSchema = z.strictObject(newFile);
 export const onedriveSearchArgsSchema = fileSearch;
-export const onedriveCreateFileArgsSchema = z.strictObject(newFile);
+/**
+ * `drive_id` names the parent folder's drive, so the folder is named as the drive sync keys it
+ * (`["drive", "item"]`) and the gateway checks exactly the folder the connector then writes in. Without
+ * it, `parent_id` is a folder in the connected account's own OneDrive, which only a member's own
+ * connection may use.
+ */
+export const onedriveCreateFileArgsSchema = z
+  .strictObject({ ...newFile, drive_id: providerIdSchema.optional() })
+  .refine((args) => args.drive_id === undefined || args.parent_id !== undefined, {
+    path: ['drive_id'],
+  });
 
 // --- Documents and sheets.
 
@@ -288,6 +298,51 @@ export const SUITE_TOOL_ARGS_SCHEMAS = {
 export type SuiteToolArgs<Id extends keyof typeof SUITE_TOOL_ARGS_SCHEMAS> = z.infer<
   (typeof SUITE_TOOL_ARGS_SCHEMAS)[Id]
 >;
+
+/**
+ * Spreadsheet functions that reach outside the sheet when it is opened or recalculated: they fetch a URL,
+ * load an image, open a link, or read another spreadsheet. A model writing one into a cell could send
+ * the sheet's contents to anyone, after a person approved what looked like data, so a change holding one
+ * is refused when it is proposed, whatever `value_input` says. `WEBSERVICE` is Excel's.
+ */
+export const REFUSED_SHEET_FUNCTIONS = [
+  'IMPORTXML',
+  'IMPORTDATA',
+  'IMPORTHTML',
+  'IMPORTFEED',
+  'IMPORTRANGE',
+  'IMAGE',
+  'HYPERLINK',
+  'WEBSERVICE',
+] as const;
+
+/** The characters a spreadsheet may read as the start of a formula, when a cell is read as typed. */
+export const FORMULA_LEADS = ['=', '+', '-', '@'] as const;
+
+/** A text cell a spreadsheet may read as a formula: its first non-space character is a formula lead. */
+export const looksLikeFormula = (cell: unknown): cell is string =>
+  typeof cell === 'string' &&
+  (FORMULA_LEADS as readonly string[]).includes(cell.trimStart()[0] ?? '');
+
+const REFUSED_CALL = new RegExp(`(?:${REFUSED_SHEET_FUNCTIONS.join('|')})\\s*\\(`, 'i');
+
+/**
+ * The fixed code for a sheet or workbook write holding a formula that calls a refused function, or null.
+ * Asked when a change is proposed, by the agent gateway and by M3's intent path, and by nothing later:
+ * the payload is frozen, so what passed then is what goes.
+ */
+export function suiteFormulaRefusal(toolId: string, payload: unknown): 'FORMULA_REFUSED' | null {
+  if (toolId !== 'sheets.write_range' && toolId !== 'excel.write_range') return null;
+  const rows = (payload as { values?: unknown } | null)?.values;
+  if (!Array.isArray(rows)) return null;
+  for (const row of rows) {
+    if (!Array.isArray(row)) continue;
+    for (const cell of row) {
+      if (looksLikeFormula(cell) && REFUSED_CALL.test(cell)) return 'FORMULA_REFUSED';
+    }
+  }
+  return null;
+}
 
 /**
  * Whether one provider can do exactly what a payload (or a tool's arguments) says, where the shared schema

@@ -74,7 +74,9 @@ function suiteTexts(suite: SuiteActionView): string[] {
       ? field.addresses.map((each) => each.address)
       : field.kind === 'table'
         ? field.rows.flat()
-        : [field.text],
+        : field.kind === 'warning'
+          ? [field.text, ...field.items]
+          : [field.text],
   );
 }
 
@@ -94,6 +96,26 @@ function SuiteField({ field }: { field: ViewField }) {
           <pre tabIndex={0} aria-label={field.label} className="pre-wrap">
             {showInvisible(field.text)}
           </pre>
+        </dd>
+      </>
+    );
+  if (field.kind === 'warning')
+    return (
+      <>
+        <dt>{field.label}</dt>
+        <dd>
+          <div className="notice warn" role="alert">
+            <p>{showInvisible(field.text)}</p>
+            {field.items.length > 0 && (
+              <ul className="list">
+                {field.items.map((item, index) => (
+                  <li key={index}>
+                    <code className="pre-wrap">{showInvisible(item)}</code>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
         </dd>
       </>
     );
@@ -184,6 +206,7 @@ export async function AgentAction({
         {
           connection: view.suite.connection,
           memberAddresses: new Set(view.suite.memberAddresses),
+          parentFolderName: view.suite.parentFolderName,
         },
       )
     : null;

@@ -242,6 +242,8 @@ export function createConnectorGateway(
         organizationId,
         connectionId: attempt.connection.id,
         config,
+        // A suite tool's handler refuses unsent without the scopes it needs, so they go with every call.
+        grantedScopes: attempt.connection.grantedScopes,
         credentials: leaseFor(
           deps.secrets,
           organizationId,

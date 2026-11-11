@@ -30,6 +30,10 @@ export type PreparedAttempt = {
     connectorType: string;
     config: unknown;
     credentialSecretId: string | null;
+    /** Provider-confirmed consent from the connection row, handed to the connector as its context's. */
+    grantedScopes: readonly string[];
+    /** The organization's connection, or one member's own (ADR-038 D5). */
+    ownerKind: 'organization' | 'member';
   };
 };
 

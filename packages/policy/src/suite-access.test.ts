@@ -9,8 +9,10 @@ import { describe, expect, it } from 'vitest';
 import {
   changeNeedsApproval,
   decideConnectionUse,
+  recheckSuiteSend,
   resourceIdOf,
   type ConnectionUseInput,
+  type SuiteSendRecheckInput,
 } from './suite-access';
 
 const ME = '6f1c2c6e-1111-4111-8111-111111111111';
@@ -261,5 +263,123 @@ describe('who is asked', () => {
     expect(changeNeedsApproval({ class: 'external_write', requiresApproval: false })).toBe(true);
     expect(changeNeedsApproval(toolManifest('gmail.send')!)).toBe(true);
     expect(changeNeedsApproval(toolManifest('gmail.create_draft')!)).toBe(false);
+  });
+});
+
+describe('a suite change approved earlier, read again at the send', () => {
+  const recheck = (over: Partial<SuiteSendRecheckInput> & { rule: ConnectionRule }) =>
+    recheckSuiteSend({
+      toolClass: 'external_write',
+      initiator: { membershipId: ME, active: true },
+      dataClass: 'internal',
+      connection: null,
+      resource: null,
+      ...over,
+    });
+  const send = SUITE_CONNECTION_RULES['gmail.send'];
+  const edit = SUITE_CONNECTION_RULES['docs.edit'];
+  const create = SUITE_CONNECTION_RULES['drive.create_file'];
+  const docs = [google('documents')];
+
+  it('goes when nothing changed since it was approved', () => {
+    expect(recheck({ rule: send, connection: mine([google('gmail.send')]) })).toEqual({ ok: true });
+    expect(
+      recheck({
+        rule: edit,
+        connection: organizations(docs),
+        resource: { synced: true, access: ['write'] },
+      }),
+    ).toEqual({ ok: true });
+  });
+
+  it('stops when the initiator left, or cannot be found', () => {
+    const connection = mine([google('gmail.send')]);
+    expect(
+      recheck({ rule: send, connection, initiator: { membershipId: ME, active: false } }),
+    ).toEqual({ ok: false, code: 'ACCESS_REVOKED' });
+    expect(recheck({ rule: send, connection, initiator: null })).toEqual({
+      ok: false,
+      code: 'ACCESS_REVOKED',
+    });
+  });
+
+  it('stops when the connection was revoked or is gone', () => {
+    expect(
+      recheck({ rule: send, connection: { ...mine([google('gmail.send')]), state: 'revoked' } }),
+    ).toEqual({ ok: false, code: 'CONNECTION_NOT_ACTIVE' });
+    expect(recheck({ rule: send, connection: null })).toEqual({
+      ok: false,
+      code: 'CONNECTION_NOT_ACTIVE',
+    });
+  });
+
+  it('stops when the provider narrowed the scopes', () => {
+    expect(recheck({ rule: send, connection: mine([google('gmail.readonly')]) })).toEqual({
+      ok: false,
+      code: 'SCOPE_NOT_GRANTED',
+    });
+  });
+
+  it('stops when the connection is no longer the initiator’s to use', () => {
+    expect(
+      recheck({
+        rule: send,
+        connection: { ...mine([google('gmail.send')]), ownerMembershipId: SOMEONE_ELSE },
+      }),
+    ).toEqual({ ok: false, code: 'CONNECTION_CHANGED' });
+    expect(recheck({ rule: send, connection: organizations([google('gmail.send')]) })).toEqual({
+      ok: false,
+      code: 'CONNECTION_CHANGED',
+    });
+  });
+
+  it('stops when the source no longer grants the initiator the file, or the folder', () => {
+    for (const resource of [
+      { synced: true, access: ['read' as const] },
+      { synced: false, access: ['write' as const] },
+      null,
+    ]) {
+      expect(recheck({ rule: edit, connection: organizations(docs), resource })).toEqual({
+        ok: false,
+        code: 'ACCESS_REVOKED',
+      });
+    }
+    expect(
+      recheck({ rule: create, connection: organizations([google('drive.file')]), resource: null }),
+    ).toEqual({ ok: false, code: 'ACCESS_REVOKED' });
+  });
+});
+
+describe('a new file through the organization’s connection', () => {
+  it('needs write on a synced parent folder, and none on a member’s own', () => {
+    const drive = SUITE_CONNECTION_RULES['drive.create_file'];
+    const onedrive = SUITE_CONNECTION_RULES['onedrive.create_file'];
+    const scopes = [google('drive.file')];
+    expect(
+      decide({ rule: drive, toolClass: 'external_write', connection: organizations(scopes) }),
+    ).toMatchObject({ ok: false, auditAs: 'RESOURCE_NOT_SYNCED' });
+    expect(
+      decide({
+        rule: drive,
+        toolClass: 'external_write',
+        connection: organizations(scopes),
+        resource: { synced: true, access: ['read'] },
+      }),
+    ).toMatchObject({ ok: false, auditAs: 'SOURCE_ACL_DENIED' });
+    expect(
+      decide({
+        rule: drive,
+        toolClass: 'external_write',
+        connection: organizations(scopes),
+        resource: { synced: true, access: ['write'] },
+      }),
+    ).toMatchObject({ ok: true });
+    expect(
+      decide({ rule: drive, toolClass: 'external_write', connection: mine(scopes) }),
+    ).toMatchObject({ ok: true, ownerKind: 'member' });
+    expect(resourceIdOf(drive, { parent_id: 'folder-1', name: 'a.txt' })).toBe('folder-1');
+    expect(resourceIdOf(drive, { name: 'a.txt' })).toBeNull();
+    expect(resourceIdOf(onedrive, { drive_id: 'b!d', parent_id: '01F' })).toBe('["b!d","01F"]');
+    expect(resourceIdOf(onedrive, { parent_id: '01F' })).toBeNull();
   });
 });

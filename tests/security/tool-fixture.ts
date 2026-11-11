@@ -97,6 +97,7 @@ export function toolFixture(input: {
       workStopped: false,
       inputsOpen: true,
       classification: 'internal',
+      readCeiling: null,
       maxDelegationDepth: 1,
       allow: [
         'work.read',

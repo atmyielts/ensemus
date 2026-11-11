@@ -151,8 +151,11 @@ export const SUITE_CONNECTION_RULES = {
     shared('files', 'read', null, SEARCH_BYTES, 'organization'),
     bind([google('drive.metadata.readonly')], 'none'),
   ),
+  // Through the organization's connection a new file lands in a folder everyone's content shares, so the
+  // initiator must hold write on that folder by the source's synced ACL. No folder, or one never synced,
+  // is refused there. A member's own connection is their own Drive.
   'drive.create_file': onGoogle(
-    shared('documents', null, null, STATUS_BYTES),
+    shared('documents', 'write', 'parent_id', STATUS_BYTES),
     bind([google('drive.file')]),
   ),
   'docs.read': onGoogle(
@@ -186,8 +189,10 @@ export const SUITE_CONNECTION_RULES = {
     shared('files', 'read', null, SEARCH_BYTES, 'organization'),
     bind(['Files.Read.All'], 'none'),
   ),
+  // As Drive's: through the organization's connection, write on the parent folder, named by its drive and
+  // ID as the drive sync keys it.
   'onedrive.create_file': onMicrosoft(
-    shared('documents', null, null, STATUS_BYTES),
+    shared('documents', 'write', ['drive_id', 'parent_id'], STATUS_BYTES),
     bind(['Files.ReadWrite']),
   ),
   'word.read': onMicrosoft(
