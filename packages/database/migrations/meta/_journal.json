@@ -813,6 +813,48 @@
       "when": 1794201807517,
       "tag": "0555_record_purge_completion_attest_r13purge",
       "breakpoints": true
+    },
+    {
+      "idx": 116,
+      "version": "7",
+      "when": 1794201807518,
+      "tag": "0560_workspace_suites",
+      "breakpoints": true
+    },
+    {
+      "idx": 117,
+      "version": "7",
+      "when": 1794201807519,
+      "tag": "0561_workspace_suites_security",
+      "breakpoints": true
+    },
+    {
+      "idx": 118,
+      "version": "7",
+      "when": 1794201807520,
+      "tag": "0562_credential_rotation",
+      "breakpoints": true
+    },
+    {
+      "idx": 119,
+      "version": "7",
+      "when": 1794201807521,
+      "tag": "0563_suite_tools",
+      "breakpoints": true
+    },
+    {
+      "idx": 120,
+      "version": "7",
+      "when": 1794201807522,
+      "tag": "0564_suite_upkeep_and_own_revoke",
+      "breakpoints": true
+    },
+    {
+      "idx": 121,
+      "version": "7",
+      "when": 1794201807523,
+      "tag": "0565_suite_review_fixes",
+      "breakpoints": true
     }
   ]
 }

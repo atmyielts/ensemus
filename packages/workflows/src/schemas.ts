@@ -94,6 +94,29 @@ export type ConnectorSyncOutcome = {
   resources: number;
 };
 
+// --- Workspace suites (ADR-038 D1). The exchange carries the consent attempt's IDs and nothing else: no
+// code, verifier, state, client or token ever crosses Temporal. The Activity reads and unseals them itself.
+
+export const oauthExchangeInputSchema = z.strictObject({
+  organizationId: z.uuid(),
+  authorizationId: z.uuid(),
+});
+export type OAuthExchangeInput = z.infer<typeof oauthExchangeInputSchema>;
+/** One workflow per attempt, so a repeated event finds the first one and never sends a code twice. */
+export const oauthExchangeWorkflowIdFor = (input: OAuthExchangeInput) =>
+  `oauth-exchange-${input.organizationId}-${input.authorizationId}`;
+/** The suite upkeep's schedule, one per tenant (ADR-038 D1, D4). */
+export const suiteUpkeepScheduleIdFor = (organizationId: string) =>
+  `suite-upkeep-${organizationId}`;
+/** A run the web tier asked for by ending an attempt. One per attempt, so a repeated event finds it. */
+export const suiteUpkeepWorkflowIdFor = (organizationId: string, authorizationId: string) =>
+  `suite-upkeep-${organizationId}-${authorizationId}`;
+/** Where the attempt ended. `already_settled` means another run, or the expiry, got there first. */
+export type OAuthExchangeOutcome = {
+  outcome: 'connected' | 'failed' | 'expired' | 'already_settled';
+  connectionId: string | null;
+};
+
 // --- M6 (ADR-030). The same rule again: an archive's records, keys and names never come through here.
 
 export const organizationExportInputSchema = z.strictObject({

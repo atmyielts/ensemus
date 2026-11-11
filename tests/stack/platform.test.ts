@@ -269,7 +269,22 @@ describe('web tier isolation (ADR-024 D3, D5)', () => {
           },
         ),
       ) as Resolved;
-    const NEW_SERVICES = ['connector-worker', 'egress-gateway'];
+    // The relay's gateway, and one per provider route for Google Workspace and Microsoft 365 (ADR-038),
+    // each at its pinned address on `connectors` and with the setting that names its one target.
+    const ROUTE_GATEWAYS = {
+      'egress-google-api': { address: /\.5\.13$/, target: 'ENSEMUS_EGRESS_GOOGLE_API_TARGET' },
+      'egress-google-oauth': { address: /\.5\.14$/, target: 'ENSEMUS_EGRESS_GOOGLE_OAUTH_TARGET' },
+      'egress-ms-graph': { address: /\.5\.15$/, target: 'ENSEMUS_EGRESS_MS_GRAPH_TARGET' },
+      'egress-ms-login': { address: /\.5\.16$/, target: 'ENSEMUS_EGRESS_MS_LOGIN_TARGET' },
+      'egress-google-gmail': { address: /\.5\.17$/, target: 'ENSEMUS_EGRESS_GOOGLE_GMAIL_TARGET' },
+      'egress-google-docs': { address: /\.5\.18$/, target: 'ENSEMUS_EGRESS_GOOGLE_DOCS_TARGET' },
+      'egress-google-sheets': {
+        address: /\.5\.19$/,
+        target: 'ENSEMUS_EGRESS_GOOGLE_SHEETS_TARGET',
+      },
+    } as const;
+    const GATEWAYS = ['egress-gateway', ...Object.keys(ROUTE_GATEWAYS)].sort();
+    const NEW_SERVICES = ['connector-worker', ...GATEWAYS];
     const networksOf = (config: Resolved, service: string) =>
       Object.keys(config.services[service]?.networks ?? {}).sort();
     const pinsOf = (config: Resolved, service: string) => {
@@ -289,7 +304,7 @@ describe('web tier isolation (ADR-024 D3, D5)', () => {
       expect(config.networks).not.toHaveProperty('outbound');
     });
 
-    it('adds exactly the two services, each only under the profile', () => {
+    it('adds exactly the worker and its gateways, each only under the profile', () => {
       const without = Object.keys(resolved().services);
       const config = resolved('connectors');
       expect(Object.keys(config.services).sort()).toEqual([...without, ...NEW_SERVICES].sort());
@@ -308,10 +323,12 @@ describe('web tier isolation (ADR-024 D3, D5)', () => {
       expect(addressOn('postgres')).toMatch(/\.5\.10$/);
       expect(addressOn('temporal')).toMatch(/\.5\.11$/);
       expect(addressOn('egress-gateway')).toMatch(/\.5\.12$/);
+      for (const [gateway, { address }] of Object.entries(ROUTE_GATEWAYS))
+        expect(addressOn(gateway), gateway).toMatch(address);
       expect(pinsOf(config, 'connector-worker')).toEqual({
         postgres: addressOn('postgres'),
         temporal: addressOn('temporal'),
-        'egress-gateway': addressOn('egress-gateway'),
+        ...Object.fromEntries(GATEWAYS.map((gateway) => [gateway, addressOn(gateway)])),
       });
       const secrets = (config.services['connector-worker']?.secrets ?? []) as { source: string }[];
       expect(secrets.map(({ source }) => source).sort()).toEqual([
@@ -329,17 +346,19 @@ describe('web tier isolation (ADR-024 D3, D5)', () => {
       );
     });
 
-    it('lets only the gateway out, and gives it no secret', () => {
+    it('lets only the gateways out, and gives them no secret', () => {
       const config = resolved('connectors');
-      expect(networksOf(config, 'egress-gateway')).toEqual(['connectors', 'outbound']);
       expect(config.networks.outbound?.internal ?? false).toBe(false);
-      expect(config.services['egress-gateway']?.secrets ?? []).toEqual([]);
-      const onOutbound = Object.keys(config.services).filter((service) =>
-        networksOf(config, service).includes('outbound'),
-      );
-      expect(onOutbound).toEqual(['egress-gateway']);
-      const env = JSON.stringify(config.services['egress-gateway']?.environment ?? {});
-      expect(env).not.toMatch(/DATABASE|SECRET|KEY|PASSWORD/);
+      for (const gateway of GATEWAYS) {
+        expect(networksOf(config, gateway), gateway).toEqual(['connectors', 'outbound']);
+        expect(config.services[gateway]?.secrets ?? [], gateway).toEqual([]);
+        const env = JSON.stringify(config.services[gateway]?.environment ?? {});
+        expect(env, gateway).not.toMatch(/DATABASE|SECRET|KEY|PASSWORD/);
+      }
+      const onOutbound = Object.keys(config.services)
+        .filter((service) => networksOf(config, service).includes('outbound'))
+        .sort();
+      expect(onOutbound).toEqual(GATEWAYS);
     });
 
     it('holds web and everything else off the connectors network', () => {
@@ -347,7 +366,9 @@ describe('web tier isolation (ADR-024 D3, D5)', () => {
       const onConnectors = Object.keys(config.services)
         .filter((service) => networksOf(config, service).includes('connectors'))
         .sort();
-      expect(onConnectors).toEqual(['connector-worker', 'egress-gateway', 'postgres', 'temporal']);
+      expect(onConnectors).toEqual(
+        ['connector-worker', ...GATEWAYS, 'postgres', 'temporal'].sort(),
+      );
       expect(networksOf(config, 'web')).not.toContain('connectors');
     });
 
@@ -362,11 +383,32 @@ describe('web tier isolation (ADR-024 D3, D5)', () => {
       expect(publishing).toEqual(['proxy']);
     });
 
-    it('leaves the gateway no target unless an operator sets one', () => {
+    it('leaves every gateway no target unless an operator sets one', () => {
       const config = resolved('connectors');
       expect(config.services['egress-gateway']?.environment?.ENSEMUS_EGRESS_TARGET).toBe(
         process.env.ENSEMUS_EGRESS_TARGET ?? '',
       );
+      for (const [gateway, { target }] of Object.entries(ROUTE_GATEWAYS))
+        expect(config.services[gateway]?.environment?.ENSEMUS_EGRESS_TARGET, gateway).toBe(
+          process.env[target] ?? '',
+        );
+    });
+
+    it("keeps the operator's client secrets on the connector worker alone, and web to public IDs", () => {
+      const config = resolved('connectors');
+      const holding = Object.entries(config.services)
+        .filter(([, service]) =>
+          /CLIENT_SECRET/.test(Object.keys(service.environment ?? {}).join()),
+        )
+        .map(([name]) => name);
+      expect(holding).toEqual(['connector-worker']);
+      const web = config.services.web?.environment ?? {};
+      expect(web.ENSEMUS_GOOGLE_CLIENT_ID).toBe(process.env.ENSEMUS_GOOGLE_CLIENT_ID ?? '');
+      expect(web.ENSEMUS_MICROSOFT_CLIENT_ID).toBe(process.env.ENSEMUS_MICROSOFT_CLIENT_ID ?? '');
+      // The exchange has to name the app the consent URL named, so both read the one setting.
+      const worker = config.services['connector-worker']?.environment ?? {};
+      expect(worker.ENSEMUS_OAUTH_GOOGLE_CLIENT_ID).toBe(web.ENSEMUS_GOOGLE_CLIENT_ID);
+      expect(worker.ENSEMUS_OAUTH_MICROSOFT_CLIENT_ID).toBe(web.ENSEMUS_MICROSOFT_CLIENT_ID);
     });
   });
 

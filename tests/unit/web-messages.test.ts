@@ -3,6 +3,7 @@
 import { describe, expect, it } from 'vitest';
 import { messageFor } from '../../apps/web/src/lib/messages';
 import { AppError } from '@ensemus/application';
+import { OAUTH_ERROR_CODES } from '@ensemus/domain/workspace-suites';
 
 const GENERIC = 'Something went wrong. Please try again.';
 
@@ -34,5 +35,12 @@ describe('wording for an error code from the address bar', () => {
     expect(message).toBe(new AppError('EXPORT_SUPERSEDED').message);
     expect(message.toLowerCase()).toContain('data or access changed');
     expect(message).toContain('new export');
+  });
+  it.each(OAUTH_ERROR_CODES)('words %s plainly, saying nothing was connected', (code) => {
+    // A consent attempt shows these on the connections page and after the callback's redirect.
+    const message = messageFor(code);
+    expect(message).not.toBe(GENERIC);
+    expect(message).toContain('nothing was connected');
+    expect(message).not.toContain(code);
   });
 });

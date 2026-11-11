@@ -816,6 +816,9 @@ describe('tool gateway, as the real roles', () => {
           externalActionId: seeded.id,
           requestHash: seeded.requestHash,
         }),
+        recordDraft: async () => {
+          throw new Error('No draft tool here');
+        },
         recheck: async () => ({ ok: true }),
       };
       return { connectionId, seeded, approvals };
@@ -832,6 +835,7 @@ describe('tool gateway, as the real roles', () => {
         source: source(),
         externalActions: {
           propose: () => Promise.reject(new Error('TEST_DUPLICATE_SEND')),
+          proposeDraft: () => Promise.reject(new Error('The binder proposes')),
           readState: async () => {
             reads += 1;
             return { status: 'sent', approvalId: seeded.approvalId };
@@ -889,6 +893,7 @@ describe('tool gateway, as the real roles', () => {
       const gateway = gatewayOver(
         {
           propose: () => Promise.reject(new Error('The binder proposes')),
+          proposeDraft: () => Promise.reject(new Error('The binder proposes')),
           readState: async () => ({
             status: statuses[reads++] ?? 'sent',
             approvalId: seeded.approvalId,
@@ -929,6 +934,7 @@ describe('tool gateway, as the real roles', () => {
       const gateway = gatewayOver(
         {
           propose: () => Promise.reject(new Error('The binder proposes')),
+          proposeDraft: () => Promise.reject(new Error('The binder proposes')),
           readState: async () => {
             reads += 1;
             return { status: 'unknown', approvalId: seeded.approvalId };

@@ -8,6 +8,7 @@ import {
 import {
   GOOGLE_WORKSPACE_MANIFEST,
   KNOWLEDGE_CONNECTOR_MANIFESTS,
+  MCP_SERVER_MANIFEST,
 } from '@ensemus/connectors/knowledge-manifests';
 import { ROUTE_TLS_NAMES } from '@ensemus/connectors/knowledge';
 import {
@@ -17,6 +18,7 @@ import {
   mcpConnectorConfigSchema,
   reviewMcpToolSchema,
 } from '@ensemus/contracts/knowledge';
+import { actionToolsFor } from '@ensemus/domain/ai-tools';
 import { edgeAllowed, MAX_DOCUMENT_BYTES } from '@ensemus/domain/knowledge';
 import { can } from '@ensemus/domain/policy';
 import { createScriptedModelPort, deterministicVector } from '@ensemus/knowledge/testing';
@@ -147,13 +149,22 @@ describe('connectors', () => {
   it('fixes each provider host in code', () => {
     expect(ROUTE_TLS_NAMES.google_api).toBe('www.googleapis.com');
     expect(ROUTE_TLS_NAMES.ms_graph).toBe('graph.microsoft.com');
+    // ADR-038 D6's suite tools: Gmail, Docs and Sheets have hosts of their own.
+    expect(ROUTE_TLS_NAMES.google_gmail).toBe('gmail.googleapis.com');
+    expect(ROUTE_TLS_NAMES.google_docs).toBe('docs.googleapis.com');
+    expect(ROUTE_TLS_NAMES.google_sheets).toBe('sheets.googleapis.com');
   });
 
-  it('declares no action on any of them, and reads source permissions on the two that sync', () => {
+  it('declares only the suite changes its tools name, and reads source permissions on the two that sync', () => {
+    // ADR-038 D6: Google's and Microsoft's actions are exactly the suite tools bound to them. An MCP
+    // server still declares none: its writes go through a reviewed tool.
     for (const manifest of KNOWLEDGE_CONNECTOR_MANIFESTS) {
-      expect(manifest.capabilities.actions).toEqual([]);
+      expect([...manifest.capabilities.actions].sort()).toEqual(
+        [...actionToolsFor(manifest.type)].sort(),
+      );
       expect(manifest.type).toMatch(/^[a-z][a-z0-9_]{1,63}$/);
     }
+    expect(MCP_SERVER_MANIFEST.capabilities.actions).toEqual([]);
     expect(GOOGLE_WORKSPACE_MANIFEST.capabilities.aclMapping).toBe(true);
   });
 });

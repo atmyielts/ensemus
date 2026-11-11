@@ -16,6 +16,7 @@
     "./ai-binding": "./src/ai-binding.ts",
     "./ai-events": "./src/ai-events.ts",
     "./ai-tools": "./src/ai-tools.ts",
+    "./suite-tools": "./src/suite-tools.ts",
     "./knowledge": "./src/knowledge.ts",
     "./knowledge-models": "./src/knowledge-models.ts",
     "./knowledge-events": "./src/knowledge-events.ts",
@@ -33,7 +34,8 @@
     "./license": "./src/license.ts",
     "./portability": "./src/portability.ts",
     "./portable-definition": "./src/portable-definition.ts",
-    "./sovereign-events": "./src/sovereign-events.ts"
+    "./sovereign-events": "./src/sovereign-events.ts",
+    "./workspace-suites": "./src/workspace-suites.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"

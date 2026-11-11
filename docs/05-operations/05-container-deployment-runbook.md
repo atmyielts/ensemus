@@ -94,7 +94,7 @@ Set these in the environment Compose reads, and start the stack with the profile
 
 | Setting | What it does |
 |---|---|
-| `COMPOSE_PROFILES=connectors`, or `--profile connectors` | Starts `connector-worker` and `egress-gateway`. Use it on every Compose command, because a command without it does not see those two services |
+| `COMPOSE_PROFILES=connectors`, or `--profile connectors` | Starts `connector-worker`, `egress-gateway` and the four provider-route gateways below. Use it on every Compose command, because a command without it does not see those services |
 | `ENSEMUS_CONNECTORS_ENABLED=true` | Lets `web` create connections and answer the webhook route. Leave it false unless the worker is running, so that no row waits for a worker that is not coming |
 | `ENSEMUS_EGRESS_TARGET=host:port` | The one relay the gateway forwards to. The gateway refuses to start without it, and it is the only way out of the stack |
 | `ENSEMUS_SMTP_TLS` | Anything but `none` means TLS is required, and a relay that does not offer it is refused rather than used in the clear. Set `none` only for a relay on a trusted site network. The test overlay is the only place in this repository that sets it |
@@ -103,6 +103,22 @@ Set these in the environment Compose reads, and start the stack with the profile
 **Who can reach what.** `connector-worker` holds the credentials and sits on the `connectors` network alone, which is internal, so it reaches PostgreSQL, Temporal and the gateway and nothing else. `egress-gateway` holds no secrets and is on `connectors` and `outbound`. `web` is on neither. On a Sovereign site, make the target an on-site relay, and have the site's firewall limit `outbound` to it. An air-gapped install with no relay runs no profile.
 
 **Turning it off.** Remove the profile and set `ENSEMUS_CONNECTORS_ENABLED` back to false. Unsent actions stay `ready`, and they wait until it is on again. Nothing goes out.
+
+### Google Workspace and Microsoft 365
+
+An admin connects these by consent, from the connections page ([ADR-038](../00-foundation/adr/ADR-038-workspace-suites.md)). **That ADR, and migrations `0560` to `0562`, need an outside security review before any real Google or Microsoft account, client or token is used.** Until then, use generated values against local fakes only. The profile also starts one gateway per provider route, and each works like `egress-gateway`: no secret, no database, one target, ciphertext only.
+
+| Setting | Read by | What it does |
+|---|---|---|
+| `ENSEMUS_EGRESS_GOOGLE_API_TARGET`, `ENSEMUS_EGRESS_GOOGLE_OAUTH_TARGET` | `egress-google-api`, `egress-google-oauth` | `www.googleapis.com:443` and `oauth2.googleapis.com:443`, or a site relay to each. Empty means that gateway does not start, and requests on its route fail with a code |
+| `ENSEMUS_EGRESS_MS_GRAPH_TARGET`, `ENSEMUS_EGRESS_MS_LOGIN_TARGET` | `egress-ms-graph`, `egress-ms-login` | `graph.microsoft.com:443` and `login.microsoftonline.com:443`, or a site relay to each. The same rule |
+| `ENSEMUS_EGRESS_GOOGLE_GMAIL_TARGET`, `ENSEMUS_EGRESS_GOOGLE_DOCS_TARGET`, `ENSEMUS_EGRESS_GOOGLE_SHEETS_TARGET` | `egress-google-gmail`, `egress-google-docs`, `egress-google-sheets` | `gmail.googleapis.com:443`, `docs.googleapis.com:443` and `sheets.googleapis.com:443`, or a site relay to each, for agents' suite tools (ADR-038 D6). The same rule |
+| `ENSEMUS_GOOGLE_CLIENT_ID`, `ENSEMUS_MICROSOFT_CLIENT_ID` | `web`, `connector-worker` | Your own app's public client ID for each provider. Empty by default, and then admins can only connect with an app of their own. Compose hands the same value to the worker as `ENSEMUS_OAUTH_GOOGLE_CLIENT_ID` and `ENSEMUS_OAUTH_MICROSOFT_CLIENT_ID`, because the code exchange must name the app the consent screen named |
+| `ENSEMUS_OAUTH_GOOGLE_CLIENT_SECRET_FILE`, `ENSEMUS_OAUTH_MICROSOFT_CLIENT_SECRET_FILE` | `connector-worker` only | The path, inside the container, of a file holding that app's client secret. Mount the file into `connector-worker` with a Compose overlay of your own. Never put the secret in the environment and never give it to `web`. A client ID with no secret stops the worker at start |
+| `ENSEMUS_PUBLIC_URL` | `web`, `connector-worker` | Providers send the admin back to `ENSEMUS_PUBLIC_URL` followed by `/api/v1/oauth/callback`, for example `https://ensemus.example.com/api/v1/oauth/callback`. Register exactly that address as the redirect URI in each app. The worker names the same address when it redeems the code, and a provider refuses the exchange if the two differ |
+| `ENSEMUS_MAIL_ID_DOMAIN` | `connector-worker` | The domain in the Message-ID of each mail an agent sends or drafts through Gmail or Outlook, `<{intent}@{domain}>`. It is how a send that timed out is found again in Sent, and recipients' mail systems see it. Empty means the host of `ENSEMUS_PUBLIC_URL`. Set it to a domain you control, never a reserved one such as `.invalid`. A value that is not a host name stops the worker at start; with neither set, agents' mail is refused and nothing is sent |
+
+Turn on `ENSEMUS_CONNECTORS_ENABLED` as for any connector. Microsoft issues a new refresh token on every refresh; the worker reseals it in place under the connection's existing secret, and a refresh that loses a race to another one is refused rather than written.
 
 ### The `unknown` queue, and who watches it
 

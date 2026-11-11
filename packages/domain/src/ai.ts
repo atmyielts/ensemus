@@ -165,6 +165,10 @@ export const STEP_LABEL_CODES = [
   'WAITING_FOR_CHILD',
   'CHECKING_RESULT',
   'STOPPING',
+  // Suite tools (ADR-038 D6).
+  'READING_ACCOUNT',
+  'WRITING_DRAFT',
+  'PROPOSING_CHANGE',
 ] as const;
 export type StepLabelCode = (typeof STEP_LABEL_CODES)[number];
 
@@ -267,6 +271,10 @@ export const AI_REASON_CODES = [
   'DELEGATION_WIDENED',
   'DELEGATION_DEPTH',
   'DELEGATION_FANOUT',
+  // A tool's connection (ADR-038 D6). Each is audited with the tool's proposal.
+  'SCOPE_NOT_GRANTED',
+  'CONNECTION_NOT_YOURS',
+  'CONNECTION_TYPE_MISMATCH',
 ] as const;
 export type AiReasonCode = (typeof AI_REASON_CODES)[number];
 

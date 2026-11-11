@@ -61,6 +61,7 @@ import type {
   RunRef,
   StepInput,
   ToolCallResult,
+  ToolStepInput,
   ToolWaitState,
 } from './agent-schemas';
 
@@ -140,7 +141,7 @@ export interface AgentActivities {
   /** One model turn: compile, route, reserve, send, validate, record. */
   runModelTurn(input: StepInput): Promise<ModelTurnResult>;
   /** One tool call, from the proposal the last turn stored. */
-  runToolCall(input: StepInput): Promise<ToolCallResult>;
+  runToolCall(input: ToolStepInput): Promise<ToolCallResult>;
   /** Where a waiting tool step has got to. Reads PostgreSQL only, so it is safe to retry. */
   readToolWait(input: StepInput): Promise<ToolWaitState>;
   /** Moves the run to a waiting or running status with a recorded reason. */
@@ -603,6 +604,7 @@ export function createAgentActivities(deps: AgentActivityDeps): AgentActivities 
           stepNumber: input.stepNumber,
           workUnitId: input.workUnitId,
           agentVersionId: facts.agentVersionId,
+          ...(input.collect ? { collect: true } : {}),
         });
         const counters = await countToolSteps(database, context, {
           agentRunId: input.agentRunId,
@@ -616,6 +618,9 @@ export function createAgentActivities(deps: AgentActivityDeps): AgentActivities 
           delegation: handled.delegationRequested
             ? { organizationId: input.organizationId, workUnitId: input.workUnitId }
             : null,
+          ...(handled.suiteReadProposalId
+            ? { suiteRead: { proposalId: handled.suiteReadProposalId } }
+            : {}),
         };
       }),
 

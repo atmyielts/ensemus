@@ -51,23 +51,34 @@ export const isKnowledgeConnector = (connector: Connector): connector is Knowled
 export const PROVIDER_ROUTES = [
   'google_api',
   'google_oauth',
+  'google_gmail',
+  'google_docs',
+  'google_sheets',
   'ms_graph',
   'ms_login',
   'mcp_server',
 ] as const;
 export type ProviderRoute = (typeof PROVIDER_ROUTES)[number];
 
-/** The name TLS checks for each route. Code, not configuration, so a gateway cannot redirect a token. */
+/**
+ * The name TLS checks for each route. Code, not configuration, so a gateway cannot redirect a token. Gmail,
+ * Docs and Sheets have hosts of their own; Calendar and Drive are on www.googleapis.com; Graph covers all
+ * of Microsoft 365's mail, calendar, files, workbooks and Teams (ADR-038 D6, checked 2026-11-11).
+ */
 export const ROUTE_TLS_NAMES: Readonly<Record<Exclude<ProviderRoute, 'mcp_server'>, string>> = {
   google_api: 'www.googleapis.com',
   google_oauth: 'oauth2.googleapis.com',
+  google_gmail: 'gmail.googleapis.com',
+  google_docs: 'docs.googleapis.com',
+  google_sheets: 'sheets.googleapis.com',
   ms_graph: 'graph.microsoft.com',
   ms_login: 'login.microsoftonline.com',
 };
 
 export type ProviderRequest = {
   route: ProviderRoute;
-  method: 'GET' | 'POST' | 'DELETE';
+  /** PATCH and PUT are for suite changes: a calendar event, a sheet's values, a workbook range. */
+  method: 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE';
   /** Starts with `/`, with any query. A connector builds it from a provider's IDs, percent-encoded. */
   path: string;
   headers?: Readonly<Record<string, string>>;

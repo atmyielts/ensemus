@@ -1209,6 +1209,504 @@ paths:
           $ref: "#/components/responses/InternalError"
         "503":
           $ref: "#/components/responses/RestorePending"
+  /organizations/{organization_id}/oauth-authorizations:
+    parameters:
+      - $ref: "#/components/parameters/OrganizationID"
+    get:
+      tags:
+        - connections
+      summary: Recent attempts to connect Google Workspace or Microsoft 365 by consent, newest first
+      responses:
+        "200":
+          description: Consent attempts, without their state, verifier, code or client secret
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - items
+                properties:
+                  items:
+                    type: array
+                    maxItems: 50
+                    items:
+                      $ref: "#/components/schemas/OAuthAuthorization"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/RestorePending"
+    post:
+      tags:
+        - connections
+      summary: Start connecting by consent. Answers the provider's own page to send the browser to
+      description: Needs connection.manage and a recent second factor where the organization asks
+        for one. The admin chooses capabilities and the server maps them to scopes (ADR-038 D3). A
+        customer's own client secret is sealed on arrival and never returned. Each call is a new
+        attempt with a new state, which expires ten minutes after it starts, so there is no
+        Idempotency-Key. The response sets the __Host-ensemus_oauth cookie, which binds the callback
+        to this browser. The browser that opens authorize_url must be the one that received this
+        response, or the callback answers OAUTH_STATE_INVALID.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+                - connector_type
+                - display_name
+                - config
+                - capabilities
+                - client
+              properties:
+                connector_type:
+                  type: string
+                  enum:
+                    - google_workspace
+                    - microsoft_365
+                display_name:
+                  type: string
+                  minLength: 1
+                  maxLength: 120
+                config:
+                  type: object
+                  additionalProperties: true
+                  description: The drives to read, as drive_ids. Empty reads every drive the
+                    connected account can see. It can never name a host.
+                capabilities:
+                  type: array
+                  minItems: 1
+                  maxItems: 6
+                  items:
+                    type: string
+                    enum:
+                      - files
+                      - directory
+                      - mail
+                      - calendar
+                      - documents
+                      - chat
+                client:
+                  oneOf:
+                    - type: object
+                      additionalProperties: false
+                      required:
+                        - kind
+                      properties:
+                        kind:
+                          type: string
+                          const: platform
+                    - type: object
+                      additionalProperties: false
+                      required:
+                        - kind
+                        - client_id
+                        - client_secret
+                      properties:
+                        kind:
+                          type: string
+                          const: customer
+                        client_id:
+                          type: string
+                          minLength: 1
+                          maxLength: 512
+                        client_secret:
+                          type: string
+                          minLength: 1
+                          maxLength: 2048
+                        tenant:
+                          type: string
+                          description: Microsoft only, and required for it. The customer's own
+                            directory, as a GUID or a verified domain.
+      responses:
+        "201":
+          description: The attempt, and the provider's page. Nothing is connected until the admin
+            agrees there.
+          headers:
+            Cache-Control:
+              description: The provider's address carries this attempt's state, so nothing may keep
+                it.
+              required: true
+              schema:
+                type: string
+                const: no-store
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StartedOAuthAuthorization"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/RestorePending"
+  /organizations/{organization_id}/oauth-authorizations/{authorization_id}:
+    parameters:
+      - $ref: "#/components/parameters/OrganizationID"
+      - name: authorization_id
+        in: path
+        required: true
+        description: Visible to those who manage connections and to the person who started it. Anyone
+          else hears that it does not exist.
+        schema:
+          type: string
+          format: uuid
+    get:
+      tags:
+        - connections
+      summary: One consent attempt, and where it got to
+      responses:
+        "200":
+          description: The attempt, without its state, verifier, code or client secret
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OAuthAuthorization"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/RestorePending"
+  /organizations/{organization_id}/my-connections:
+    parameters:
+      - $ref: "#/components/parameters/OrganizationID"
+    get:
+      tags:
+        - connections
+      summary: The signed-in member's own Google and Microsoft connections, newest first
+      description: Only the caller's own. Another member's never appears, and neither do scopes or
+        credentials, only what each connection can do.
+      responses:
+        "200":
+          description: The caller's own connections
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - items
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/MyConnection"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/RestorePending"
+    post:
+      tags:
+        - connections
+      summary: Start connecting the member's own account by consent, for what the organization allows
+      description: Any member, for capabilities the organization allows members (ADR-038 D5; mail and
+        calendar unless an admin changed it). Always through Ensemus's own app, so there is no client
+        to choose and nothing secret in the body. A capability no member can own answers
+        OAUTH_CAPABILITY_UNAVAILABLE, and one the organization does not allow members answers
+        MEMBER_CAPABILITY_NOT_ALLOWED. The connection made is the caller's alone. As for an admin's
+        consent, the response sets the __Host-ensemus_oauth cookie, and the browser that opens
+        authorize_url must be the one that received it. There is no Idempotency-Key, because each
+        call is a new attempt that expires ten minutes after it starts.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+                - connector_type
+                - display_name
+                - capabilities
+              properties:
+                connector_type:
+                  type: string
+                  enum:
+                    - google_workspace
+                    - microsoft_365
+                display_name:
+                  type: string
+                  minLength: 1
+                  maxLength: 120
+                capabilities:
+                  type: array
+                  minItems: 1
+                  maxItems: 4
+                  items:
+                    type: string
+                    enum:
+                      - mail
+                      - calendar
+                      - documents
+                      - chat
+      responses:
+        "201":
+          description: The attempt, and the provider's page. Nothing is connected until the member
+            agrees there.
+          headers:
+            Cache-Control:
+              description: The provider's address carries this attempt's state, so nothing may keep
+                it.
+              required: true
+              schema:
+                type: string
+                const: no-store
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StartedOAuthAuthorization"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/RestorePending"
+  /organizations/{organization_id}/my-connections/{connection_id}:
+    parameters:
+      - $ref: "#/components/parameters/OrganizationID"
+      - $ref: "#/components/parameters/ConnectionID"
+    delete:
+      tags:
+        - connections
+      summary: Revoke a member's own connection, by that member or by an admin
+      description: The member who owns it may revoke it. So may someone with connection.manage, with a
+        recent second factor where the organization asks for one, and that revokes it without reading
+        anything through it. Anyone else, and any connection that is the organization's, hears that it
+        does not exist. Nothing not yet attempted goes out through it after this, and its sealed
+        credential is revoked.
+      responses:
+        "204":
+          description: Revoked
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/RestorePending"
+  /organizations/{organization_id}/member-connections:
+    parameters:
+      - $ref: "#/components/parameters/OrganizationID"
+    get:
+      tags:
+        - connections
+      summary: Every member's own connection, by owner and state, for those who manage connections
+      description: Whose each is and whether it is active, so an admin can revoke one. Never its name,
+        what it can do, its scopes or anything read through it.
+      responses:
+        "200":
+          description: Members' own connections
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - items
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/MemberConnection"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/RestorePending"
+  /organizations/{organization_id}/member-connection-capabilities:
+    parameters:
+      - $ref: "#/components/parameters/OrganizationID"
+    get:
+      tags:
+        - connections
+      summary: What members may connect with their own account
+      description: Anyone in the organization may read it. Mail and calendar until an admin changes it.
+      responses:
+        "200":
+          description: The capabilities members may connect
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MemberConnectionCapabilities"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/RestorePending"
+    put:
+      tags:
+        - connections
+      summary: Choose what members may connect with their own account
+      description: Needs connection.manage and a recent second factor where the organization asks for
+        one. Replaces the whole list; an empty list lets members connect nothing. Narrowing it stops
+        new consents for what was removed, and connections already made stay until revoked.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MemberConnectionCapabilities"
+      responses:
+        "200":
+          description: The capabilities members may now connect
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MemberConnectionCapabilities"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/RestorePending"
+  /oauth/callback:
+    get:
+      tags:
+        - connections
+      summary: Where Google and Microsoft send the admin back after consent
+      description: One fixed address, because providers require an exact registered redirect URI.
+        The tenant comes from the state, and the person from the session, who must be the one who
+        started the attempt (ADR-038 D1), in the browser that holds the __Host-ensemus_oauth cookie
+        the start set. It reads only these five parameters, and clears that cookie. A bad, used,
+        expired, foreign or tampered state, or a missing or mismatched cookie, is always
+        OAUTH_STATE_INVALID. A provider's error ends the attempt
+        denied with a code from a fixed list, and its text is never kept or shown. Neither the code
+        nor the state is ever echoed in a redirect or a log.
+      parameters:
+        - name: state
+          in: query
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 200
+        - name: code
+          in: query
+          required: false
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 4096
+        - name: error
+          in: query
+          required: false
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 256
+        - name: admin_consent
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - "True"
+              - "False"
+              - "true"
+              - "false"
+        - name: tenant
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "303":
+          description: To the connections page with the attempt's ID, which shows how it went. Also to
+            sign in when there is no session, and to the connections page with an error code when a
+            member's own attempt cannot be completed.
+          headers:
+            Location:
+              required: true
+              schema:
+                type: string
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/RestorePending"
   /organizations/{organization_id}/knowledge/search:
     parameters:
       - $ref: "#/components/parameters/OrganizationID"
@@ -7524,6 +8022,208 @@ components:
           type: string
           enum:
             - ensemus_hmac_sha256_v1
+    OAuthAuthorization:
+      type: object
+      additionalProperties: false
+      description: A consent attempt (ADR-038 D1). No state, verifier, code, client secret or provider
+        text, only what was asked for, where it got to, and a code from a fixed list if it stopped.
+      required:
+        - id
+        - connector_type
+        - display_name
+        - client_kind
+        - capabilities
+        - scopes
+        - status
+        - error_code
+        - connection_id
+        - owner_membership_id
+        - started_by_membership_id
+        - expires_at
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        connector_type:
+          type: string
+          enum:
+            - google_workspace
+            - microsoft_365
+        display_name:
+          type: string
+        client_kind:
+          type: string
+          enum:
+            - platform
+            - customer
+        capabilities:
+          type: array
+          items:
+            type: string
+            enum:
+              - files
+              - directory
+              - mail
+              - calendar
+              - documents
+              - chat
+        scopes:
+          type: array
+          description: What the admin was asked to consent to. Public.
+          items:
+            type: string
+        status:
+          type: string
+          enum:
+            - pending
+            - code_received
+            - exchanging
+            - connected
+            - denied
+            - failed
+            - expired
+        error_code:
+          type:
+            - string
+            - "null"
+          enum:
+            - OAUTH_DENIED
+            - OAUTH_CONSENT_REQUIRED
+            - OAUTH_SCOPE_REFUSED
+            - OAUTH_CLIENT_REJECTED
+            - OAUTH_PROVIDER_ERROR
+            - OAUTH_EXCHANGE_FAILED
+            - OAUTH_SCOPES_INSUFFICIENT
+            - OAUTH_IDENTITY_INVALID
+            - OAUTH_CLIENT_NOT_CONFIGURED
+            - null
+        connection_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        owner_membership_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        started_by_membership_id:
+          type: string
+          format: uuid
+        expires_at:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    StartedOAuthAuthorization:
+      type: object
+      additionalProperties: false
+      required:
+        - authorization
+        - authorize_url
+      properties:
+        authorization:
+          $ref: "#/components/schemas/OAuthAuthorization"
+        authorize_url:
+          type: string
+          format: uri
+          pattern: ^https://
+          description: The provider's own consent page. Send the admin's browser there.
+    MyConnection:
+      type: object
+      additionalProperties: false
+      description: One of the caller's own connections. What it can do, never its scopes or credential.
+      required:
+        - id
+        - connector_type
+        - display_name
+        - state
+        - capabilities
+        - created_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        connector_type:
+          type: string
+          enum:
+            - google_workspace
+            - microsoft_365
+        display_name:
+          type: string
+        state:
+          type: string
+          enum:
+            - active
+            - disabled
+            - revoked
+        capabilities:
+          type: array
+          items:
+            type: string
+            enum:
+              - mail
+              - calendar
+              - documents
+              - chat
+        created_at:
+          type: string
+          format: date-time
+    MemberConnection:
+      type: object
+      additionalProperties: false
+      description: A member's own connection as an admin sees it. Whose it is and its state, nothing
+        about what it reaches.
+      required:
+        - id
+        - connector_type
+        - owner_membership_id
+        - owner_name
+        - state
+        - created_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        connector_type:
+          type: string
+        owner_membership_id:
+          type: string
+          format: uuid
+        owner_name:
+          type: string
+        state:
+          type: string
+          enum:
+            - active
+            - disabled
+            - revoked
+        created_at:
+          type: string
+          format: date-time
+    MemberConnectionCapabilities:
+      type: object
+      additionalProperties: false
+      required:
+        - capabilities
+      properties:
+        capabilities:
+          type: array
+          maxItems: 4
+          uniqueItems: true
+          items:
+            type: string
+            enum:
+              - mail
+              - calendar
+              - documents
+              - chat
     Classification:
       type: string
       enum:

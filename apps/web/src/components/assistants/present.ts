@@ -59,6 +59,9 @@ const STEP_LABELS = new Map<string, string>([
   ['WAITING_FOR_CHILD', 'Waiting for another assistant to finish'],
   ['CHECKING_RESULT', 'Checking the result'],
   ['STOPPING', 'Winding down'],
+  ['READING_ACCOUNT', 'Reading from a connected account'],
+  ['WRITING_DRAFT', 'Saving a draft in a connected account'],
+  ['PROPOSING_CHANGE', 'Proposing a change for someone to approve'],
 ]);
 
 const STEP_STATES = new Map<string, string>([

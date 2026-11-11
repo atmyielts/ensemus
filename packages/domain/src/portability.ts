@@ -329,6 +329,14 @@ export const PORTABILITY_INVENTORY = [
     'knowledge',
     'operational_excluded',
   ),
+  // 0560 (ADR-038). A consent attempt names sealed verifiers, codes and clients, and an import must never
+  // replay one. Directory groups are the provider's, rebuilt by the next directory pass, never imported.
+  inventory('integrations.oauth_authorizations', 'connections', 'credentials_excluded'),
+  inventory('integrations.directory_groups', 'connections', 'operational_excluded'),
+  // 0563 (ADR-038 D6). A suite read holds a model's arguments and a provider's output for one step, and
+  // is never exported or replayed. Which capabilities members may connect is set again by an admin.
+  inventory('integrations.suite_reads', 'agents', 'private_excluded'),
+  inventory('integrations.suite_settings', 'connections', 'operational_excluded'),
 ] as const;
 
 export const PORTABILITY_INVENTORY_PROFILES = {

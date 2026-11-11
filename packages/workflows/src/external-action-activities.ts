@@ -16,6 +16,7 @@ import { NotSent, type ActionRequest, type Connector } from '@ensemus/connectors
 import { runReconcile, runSend } from '@ensemus/connectors/runtime';
 import type { AppDatabase } from '@ensemus/database';
 import { createServiceContext } from '@ensemus/database/service';
+import { toolManifest, type ToolConnectorType } from '@ensemus/domain/ai-tools';
 import type { AttemptResult, ReconcileResult } from '@ensemus/domain/external-action';
 import { createLogger, errorCode } from '@ensemus/telemetry';
 import type { ConnectorActivityDeps } from './connector-deps';
@@ -157,7 +158,10 @@ function connectorActivities(database: AppDatabase, gateway: ExternalActionGatew
           log.warn('external_action.reconcile_threw', { errorCode: errorCode(error) });
           result = { answer: 'cannot_answer' };
         }
-        return { result, lookup: gateway.lookupOf(attempt.connection.connectorType) };
+        return {
+          result,
+          lookup: gateway.lookupOf(attempt.connection.connectorType, attempt.toolName),
+        };
       });
     },
   };
@@ -222,6 +226,8 @@ export function createConnectorGateway(
   const callFor = (organizationId: string, attempt: PreparedAttempt) => {
     const connector = deps.registry.get(attempt.connection.connectorType);
     if (!connector?.actions) return null;
+    // A connector performs only what its manifest says it can (ADR-038 D6). Anything else contacts nobody.
+    if (!connector.manifest.capabilities.actions.includes(attempt.toolName)) return null;
     let config: unknown;
     try {
       config = connector.parseConfig(attempt.connection.config);
@@ -236,6 +242,8 @@ export function createConnectorGateway(
         organizationId,
         connectionId: attempt.connection.id,
         config,
+        // A suite tool's handler refuses unsent without the scopes it needs, so they go with every call.
+        grantedScopes: attempt.connection.grantedScopes,
         credentials: leaseFor(
           deps.secrets,
           organizationId,
@@ -264,8 +272,15 @@ export function createConnectorGateway(
       const call = callFor(organizationId, attempt);
       return call ? runReconcile(call) : { answer: 'cannot_answer' };
     },
-    lookupOf(connectorType) {
-      return deps.registry.get(connectorType)?.manifest.capabilities.reconcile ?? 'none';
+    lookupOf(connectorType, toolName) {
+      const manifest = deps.registry.get(connectorType)?.manifest;
+      if (!manifest) return 'none';
+      // The tool's own kind, for a tool this connector declares; the connector's otherwise, as before.
+      const binding =
+        toolName && manifest.capabilities.actions.includes(toolName)
+          ? toolManifest(toolName)?.connection?.bindings[connectorType as ToolConnectorType]
+          : undefined;
+      return binding?.reconcile ?? manifest.capabilities.reconcile;
     },
   };
 }

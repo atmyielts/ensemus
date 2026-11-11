@@ -15,7 +15,9 @@ import {
   agentVersions,
   approvalDecisions,
   approvals,
+  connections,
   externalActions,
+  externalResources,
   memberships,
   modelProfiles,
   toolProposals,
@@ -23,6 +25,7 @@ import {
   withTenantTx,
   workAssignments,
   workUnits,
+  type AgentContext,
   type AppDatabase,
   type TenantContext,
   type Tx,
@@ -32,7 +35,12 @@ import {
   type AiClassification,
   type ProviderKind,
 } from '@ensemus/domain/ai';
-import { toolManifest, type ToolManifest } from '@ensemus/domain/ai-tools';
+import {
+  isActionTool,
+  isSuiteRule,
+  toolManifest,
+  type ToolManifest,
+} from '@ensemus/domain/ai-tools';
 import {
   actionHash,
   checkExecution,
@@ -41,8 +49,8 @@ import {
 } from '@ensemus/domain/approval';
 import { connectionRef } from '@ensemus/domain/external-action';
 import { canChangeWork, canReadWork, type Classification } from '@ensemus/domain/policy';
-import { decideAction } from '@ensemus/policy';
-import { and, eq, inArray } from 'drizzle-orm';
+import { decideAction, resourceIdOf } from '@ensemus/policy';
+import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { AppError } from '../errors';
 import { onApprovalClosedInTx } from '../external-actions';
 import { canonicalId, idSchema } from '../ids';
@@ -54,6 +62,7 @@ import {
   notify,
 } from '../work';
 import type {
+  AgentActionRequest,
   ApprovalBinder,
   ApprovalRef,
   ExternalActionPort,
@@ -217,6 +226,32 @@ function policyPermits(
 
 const isExternalWrite = (manifest: ToolManifest | undefined): manifest is ToolManifest =>
   manifest !== undefined && manifest.class === 'external_write' && manifest.requiresApproval;
+
+/** A draft through a connection (ADR-038 D6). `artifact.draft.create` is a draft too, but stays here. */
+const isDraft = (manifest: ToolManifest | undefined): manifest is ToolManifest =>
+  isActionTool(manifest) && manifest.class === 'draft_only' && !manifest.requiresApproval;
+
+/** A draft has to come out as `allow`: anything else means the spec or a deny list says no. */
+function draftPermitted(
+  manifest: ToolManifest,
+  run: RunFacts,
+  work: { classification: string },
+  grants: AgentGrants,
+): boolean {
+  const dataClass = dataClassOf(run.effectiveClassification, work.classification);
+  if (dataClass === 'restricted') return false;
+  const decided = decideAction({
+    toolId: manifest.id,
+    toolClass: manifest.class,
+    allow: grants.allow,
+    deny: grants.deny,
+    delegated: delegatedTools(run.delegatedScopes),
+    dataClass,
+    destructive: false,
+    requiresApproval: manifest.requiresApproval,
+  });
+  return decided.decision === 'allow';
+}
 
 type RecheckFacts = {
   callerMembershipId: string;
@@ -384,6 +419,8 @@ export interface ApprovalStore {
   readGrants(tx: Tx, agentVersionId: string): Promise<AgentGrants>;
   readProviderKind(tx: Tx, profileId: string): Promise<ProviderKind | null>;
   bindProposal(tx: Tx, proposalId: string, ref: ApprovalRef): Promise<void>;
+  /** A draft's intent, with no approval. The proposal waits on M3 as a send's does. */
+  bindDraft(tx: Tx, proposalId: string, externalActionId: string): Promise<void>;
   closeForLostAccess(
     tx: Tx,
     context: TenantContext,
@@ -564,6 +601,14 @@ const postgresStore: ApprovalStore = {
       })
       .where(eq(toolProposals.id, proposalId));
   },
+  async bindDraft(tx, proposalId, externalActionId) {
+    // `approved` is what a ready intent reads as to the gateway: nobody is left to ask, and M3 has not
+    // made it yet.
+    await tx
+      .update(toolProposals)
+      .set({ externalActionId, status: 'approved', decisionCode: null, updatedAt: new Date() })
+      .where(eq(toolProposals.id, proposalId));
+  },
   async closeForLostAccess(tx, context, approval, work) {
     // M2's own path for an open one: it tells people, wakes the workflow and ends a plan that needed it.
     if (approval.status === 'pending') {
@@ -649,39 +694,84 @@ export function binderOver(
   store: ApprovalStore,
   deps: { externalActions: ExternalActionPort; halt: HaltCheck },
 ): ApprovalBinder {
+  /** Everything `request` and `recordDraft` check before they decide anything of their own. */
+  async function admit(
+    tx: Tx,
+    context: AgentContext,
+    input: AgentActionRequest,
+    isTool: (manifest: ToolManifest | undefined) => manifest is ToolManifest,
+  ) {
+    assertAgent(context);
+    if (canonicalId(input.runId) !== canonicalId(context.agentRunId)) {
+      throw new AppError('FORBIDDEN');
+    }
+    const proposal = await store.findProposal(tx, input.proposalId);
+    if (!proposal || proposal.runId !== canonicalId(input.runId)) {
+      throw new AppError('NOT_FOUND');
+    }
+    const manifest = toolManifest(input.toolId);
+    if (
+      !isTool(manifest) ||
+      manifest.version !== input.toolVersion ||
+      proposal.toolId !== input.toolId ||
+      proposal.toolVersion !== input.toolVersion
+    ) {
+      throw new AppError('TOOL_DENIED');
+    }
+    const found = await store.findRun(tx, proposal.runId);
+    if (!found || found.workUnitId !== canonicalId(input.workUnitId)) {
+      throw new AppError('NOT_FOUND');
+    }
+    if (found.initiatorMembershipId !== context.membershipId) throw new AppError('FORBIDDEN');
+
+    const work = await store.lockReadableWork(tx, context, found.workUnitId);
+    if (STOPPED_WORK_STATUSES.has(work.status)) throw new AppError('INVALID_STATE');
+    const run = await store.lockRun(tx, found.id);
+    if (!run || !LIVE_RUN_STATUSES.has(run.status)) throw new AppError('INVALID_STATE');
+    await deps.halt.assertRunning(tx, context, await haltTargetOf(store, tx, run));
+
+    const locked = await store.lockProposal(tx, proposal.id);
+    if (!locked) throw new AppError('NOT_FOUND');
+    return { proposal, manifest, work, run, locked };
+  }
+
   return {
+    async recordDraft(tx, context, input) {
+      const { proposal, manifest, work, run, locked } = await admit(tx, context, input, isDraft);
+      // A retry of the same step finds the intent it already made, and makes no second one.
+      if (locked.externalActionId) {
+        const intent = await store.lockIntent(tx, locked.externalActionId);
+        if (!intent || locked.approvalId) throw new AppError('INVALID_STATE');
+        return { externalActionId: intent.id, requestHash: intent.requestHash };
+      }
+      if (locked.status !== 'proposed') throw new AppError('INVALID_STATE');
+      // A draft still leaves Ensemus, into the person's own account, so restricted data stays here.
+      if (dataClassOf(run.effectiveClassification, work.classification) === 'restricted') {
+        throw new AppError('RESTRICTED_NOT_ALLOWED');
+      }
+      if (!draftPermitted(manifest, run, work, await store.readGrants(tx, run.agentVersionId))) {
+        throw new AppError('POLICY_DENIED');
+      }
+      // No approver: the manifest says a draft asks nobody, and M3 refuses any other tool here.
+      const proposed = await deps.externalActions.proposeDraft(tx, context, {
+        workUnitId: work.id,
+        connectionId: input.connectionId,
+        toolName: input.toolId,
+        toolVersion: input.toolVersion,
+        payload: input.payload,
+      });
+      // In this transaction, for the same reason as a send: 0101's trigger finds the run by this link.
+      await store.bindDraft(tx, proposal.id, proposed.externalActionId);
+      return { externalActionId: proposed.externalActionId, requestHash: proposed.requestHash };
+    },
+
     async request(tx, context, input) {
-      assertAgent(context);
-      if (canonicalId(input.runId) !== canonicalId(context.agentRunId)) {
-        throw new AppError('FORBIDDEN');
-      }
-      const proposal = await store.findProposal(tx, input.proposalId);
-      if (!proposal || proposal.runId !== canonicalId(input.runId)) {
-        throw new AppError('NOT_FOUND');
-      }
-      const manifest = toolManifest(input.toolId);
-      if (
-        !isExternalWrite(manifest) ||
-        manifest.version !== input.toolVersion ||
-        proposal.toolId !== input.toolId ||
-        proposal.toolVersion !== input.toolVersion
-      ) {
-        throw new AppError('TOOL_DENIED');
-      }
-      const found = await store.findRun(tx, proposal.runId);
-      if (!found || found.workUnitId !== canonicalId(input.workUnitId)) {
-        throw new AppError('NOT_FOUND');
-      }
-      if (found.initiatorMembershipId !== context.membershipId) throw new AppError('FORBIDDEN');
-
-      const work = await store.lockReadableWork(tx, context, found.workUnitId);
-      if (STOPPED_WORK_STATUSES.has(work.status)) throw new AppError('INVALID_STATE');
-      const run = await store.lockRun(tx, found.id);
-      if (!run || !LIVE_RUN_STATUSES.has(run.status)) throw new AppError('INVALID_STATE');
-      await deps.halt.assertRunning(tx, context, await haltTargetOf(store, tx, run));
-
-      const locked = await store.lockProposal(tx, proposal.id);
-      if (!locked) throw new AppError('NOT_FOUND');
+      const { proposal, manifest, work, run, locked } = await admit(
+        tx,
+        context,
+        input,
+        isExternalWrite,
+      );
       // A retry of the same step finds what it already asked for. A person agreed, or will agree, to what
       // that intent froze, so a retry can never change what they see, and nobody is asked twice.
       if (locked.approvalId || locked.externalActionId) {
@@ -822,7 +912,35 @@ export type AgentActionView = {
   email: EmailSendPayload | null;
   /** False if the stored rows disagree with each other. Nobody should approve that. */
   consistent: boolean;
+  /** For a change through a workspace suite (ADR-038 D6): what the page says beside the payload. */
+  suite: SuiteActionFacts | null;
 };
+
+/** Whose connection a suite change goes through, as the approval page names it. */
+export type SuiteActionConnection = {
+  connectorType: string;
+  /** What an administrator called it. Their words, shown as data. */
+  displayName: string;
+  ownerKind: 'organization' | 'member';
+  /** The member whose own account it is. Null for the organization's, or a name no longer here. */
+  ownerName: string | null;
+};
+
+/** What a reviewer needs beside a suite payload that only this organization's rows can say. */
+export type SuiteActionFacts = {
+  /** Null when the reviewer cannot see the connection, which the page then says. */
+  connection: SuiteActionConnection | null;
+  /** Of the payload's addresses, lower-cased, the ones that belong to an active member here. */
+  memberAddresses: readonly string[];
+  /**
+   * For a new file, the parent folder's name as the connection's own sync recorded it, as data. Null when
+   * the sync never saw that folder, or the change names none.
+   */
+  parentFolderName: string | null;
+};
+
+/** The tools that put a new file in a folder the payload names. */
+const NEW_FILE_TOOLS: readonly string[] = ['drive.create_file', 'onedrive.create_file'];
 
 /** Parsed to check its shape only. The schema trims text, and a reviewer has to see it as it would go. */
 function emailOf(action: ProposedAction): EmailSendPayload | null {
@@ -864,6 +982,7 @@ export async function readAgentAction(
     requestHash: approval.actionHash,
     action,
     email: emailOf(action),
+    suite: null,
     consistent:
       actionHash(action) === approval.actionHash &&
       action.toolName === row.toolId &&
@@ -872,15 +991,105 @@ export async function readAgentAction(
   };
 }
 
+/** Every address a suite payload names: recipients and attendees, lower-cased. */
+export function payloadAddresses(payload: unknown): string[] {
+  const found = new Set<string>();
+  const add = (list: unknown) => {
+    if (!Array.isArray(list)) return;
+    for (const each of list.slice(0, 200)) {
+      if (typeof each === 'string' && each.length <= 254) found.add(each.toLowerCase());
+    }
+  };
+  if (payload && typeof payload === 'object') {
+    const { message, attendees, changes } = payload as Record<string, unknown>;
+    if (message && typeof message === 'object') {
+      const mail = message as Record<string, unknown>;
+      add(mail.to);
+      add(mail.cc);
+      add(mail.bcc);
+    }
+    add(attendees);
+    if (changes && typeof changes === 'object') add((changes as Record<string, unknown>).attendees);
+  }
+  return [...found];
+}
+
+/**
+ * The connection a suite change names and which of its addresses are members here, read with the
+ * reviewer's own access. Nothing the provider said is read: only this organization's rows.
+ */
+async function readSuiteFacts(tx: Tx, view: AgentActionView): Promise<SuiteActionFacts> {
+  const ref = view.action.targetRef ?? '';
+  const connectionId = ref.startsWith('connection:') ? ref.slice('connection:'.length) : '';
+  const [row] = idSchema.safeParse(connectionId).success
+    ? await tx
+        .select({
+          connectorType: connections.connectorType,
+          displayName: connections.displayName,
+          ownerMembershipId: connections.ownerMembershipId,
+          ownerName: users.name,
+        })
+        .from(connections)
+        .leftJoin(memberships, eq(memberships.id, connections.ownerMembershipId))
+        .leftJoin(users, eq(users.id, memberships.userId))
+        .where(eq(connections.id, connectionId))
+    : [];
+  const addresses = payloadAddresses(view.action.payload);
+  const members = addresses.length
+    ? await tx
+        .select({ email: sql<string>`lower(${users.email})` })
+        .from(memberships)
+        .innerJoin(users, eq(users.id, memberships.userId))
+        .where(
+          and(eq(memberships.status, 'active'), inArray(sql`lower(${users.email})`, addresses)),
+        )
+    : [];
+  return {
+    connection: row
+      ? {
+          connectorType: row.connectorType,
+          displayName: row.displayName,
+          ownerKind: row.ownerMembershipId === null ? 'organization' : 'member',
+          ownerName: row.ownerMembershipId === null ? null : (row.ownerName ?? null),
+        }
+      : null,
+    memberAddresses: members.map((member) => member.email),
+    parentFolderName: row ? await parentFolderName(tx, view, connectionId) : null,
+  };
+}
+
+/** The synced name of the folder a new file goes in, keyed exactly as the rule checks it. */
+async function parentFolderName(tx: Tx, view: AgentActionView, connectionId: string) {
+  const rule = toolManifest(view.toolId)?.connection;
+  if (!rule || !NEW_FILE_TOOLS.includes(view.toolId)) return null;
+  const externalId = resourceIdOf(rule, view.action.payload);
+  if (externalId === null) return null;
+  const [folder] = await tx
+    .select({ displayName: externalResources.displayName })
+    .from(externalResources)
+    .where(
+      and(
+        eq(externalResources.connectionId, connectionId),
+        eq(externalResources.externalId, externalId),
+        isNull(externalResources.deletedAt),
+      ),
+    )
+    .limit(1);
+  return folder?.displayName ?? null;
+}
+
 /** Null when this approval is not an agent's. Needs the same access as reading the approval itself. */
 export function getAgentActionForApproval(
   database: AppDatabase,
   context: TenantContext,
   approvalId: string,
 ): Promise<AgentActionView | null> {
-  return withTenantTx(database, context, (tx) =>
-    readAgentAction(postgresStore, tx, context, approvalId),
-  );
+  return withTenantTx(database, context, async (tx) => {
+    const view = await readAgentAction(postgresStore, tx, context, approvalId);
+    const rule = view ? toolManifest(view.toolId)?.connection : undefined;
+    if (!view || !rule || !isSuiteRule(rule)) return view;
+    return { ...view, suite: await readSuiteFacts(tx, view) };
+  });
 }
 
 // Control characters other than tab and line breaks, soft hyphens, zero-width characters, and the marks that

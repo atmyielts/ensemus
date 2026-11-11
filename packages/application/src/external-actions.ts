@@ -7,11 +7,14 @@
 // two steps that record a provider's answer take only the intent, and never wait for the work.
 import { randomUUID } from 'node:crypto';
 import {
+  agentRuns,
   approvals,
   connections,
   externalActionAttempts,
   externalActionReceipts,
   externalActions,
+  memberships,
+  toolProposals,
   withTenantTx,
   workUnits,
   type AppDatabase,
@@ -19,15 +22,17 @@ import {
   type Tx,
 } from '@ensemus/database';
 import { emailSendPayloadSchema } from '@ensemus/contracts/external-actions';
+import { parseSuiteActionPayload } from '@ensemus/contracts/ai-tools';
+import { suiteFormulaRefusal, suitePayloadFits } from '@ensemus/contracts/suite-tools';
+import type { AiClassification } from '@ensemus/domain/ai';
+import { isActionTool, isSuiteRule, toolManifest } from '@ensemus/domain/ai-tools';
 import {
   ACTION_CONNECTOR_TYPES,
   checkBeforeSend,
   connectionRef,
   decideAfterAttempt,
   decideAfterReconcile,
-  EMAIL_CONNECTOR_TYPE,
   EMAIL_SEND_TOOL,
-  EMAIL_SEND_VERSION,
   idempotencyKeyFor,
   isSettledExternalAction,
   proposedActionFor,
@@ -52,12 +57,19 @@ import {
   NOTIFY_EXTERNAL_ACTION_SENT,
   NOTIFY_EXTERNAL_ACTION_UNKNOWN,
 } from '@ensemus/domain/integration-events';
+import {
+  changeNeedsApproval,
+  decideConnectionUse,
+  recheckSuiteSend,
+  resourceIdOf,
+} from '@ensemus/policy';
 import { and, asc, eq, inArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { createApprovalInTx, REVIEW_HOURS } from './approvals';
 import { AppError } from './errors';
 import { emit } from './events';
 import type { PreparedAttempt } from './integration-ports';
+import { resourceFacts } from './suite-connections';
 import {
   auditAction,
   clearApprovalNotifications,
@@ -84,6 +96,18 @@ export type ProposedExternalAction = {
   externalActionId: string;
   approvalId: string;
   requestHash: string;
+};
+
+/** A draft through a connection (ADR-038 D6). It asks nobody, so it has no approver and no expiry. */
+export type ProposeDraftActionInput = Omit<
+  ProposeExternalActionInput,
+  'approverMembershipId' | 'expiresAt' | 'supersedesId' | 'retryOfId'
+>;
+
+export type ProposedDraftAction = { externalActionId: string; requestHash: string };
+
+type IntentInput = Omit<ProposeExternalActionInput, 'approverMembershipId'> & {
+  approverMembershipId?: string;
 };
 
 type ActionRow = typeof externalActions.$inferSelect;
@@ -278,19 +302,57 @@ async function endAsSent(
 }
 
 /**
- * Writes the intent and its approval in the caller's transaction, with the same hash on both, and emits
- * external_action.proposed. Refuses restricted work and a connection that is not active.
+ * The exact payload for a tool. `email.send` freezes its sender from the connection, as M3 always has.
+ * A suite tool's payload is checked as its own arguments would be, and frozen as parsed.
  */
-export async function proposeExternalActionInTx(
+function freezePayload(
+  toolName: string,
+  connection: { id: string; connectorType: string; config: unknown },
+  payload: unknown,
+) {
+  if (toolName === EMAIL_SEND_TOOL) return freezeEmailPayload(payload, connection.config);
+  const frozen = parseSuiteActionPayload(toolName, connection.id, payload);
+  // A payload this provider cannot do exactly is refused before anyone is asked to approve it, and so is
+  // a cell formula that would fetch, link or import once the sheet is opened.
+  if (
+    !frozen ||
+    !suitePayloadFits(toolName, connection.connectorType, frozen) ||
+    suiteFormulaRefusal(toolName, frozen) !== null
+  ) {
+    throw new AppError('INVALID_INPUT');
+  }
+  return frozen;
+}
+
+/** What the connection rule's refusal means to a caller of M3's own service. */
+const USE_REFUSALS: Partial<Record<string, 'INVALID_INPUT' | 'RESTRICTED_NOT_ALLOWED'>> = {
+  CONNECTION_TYPE_MISMATCH: 'INVALID_INPUT',
+  SCOPE_NOT_GRANTED: 'INVALID_INPUT',
+  CLASS_DENIED: 'RESTRICTED_NOT_ALLOWED',
+};
+
+/**
+ * Writes the intent, and for an external write its approval, in the caller's transaction, with the same
+ * hash on both, and emits external_action.proposed. A draft asks nobody, so it starts ready and emits
+ * external_action.ready at once. Any tool whose manifest declares it a change through a connection may be
+ * proposed (ADR-038 D6), and only on a connection ADR-038 D5's rule lets the proposer use. Refuses
+ * restricted work and a connection that is not active.
+ */
+async function proposeIntentInTx(
   tx: Tx,
   context: TenantContext,
-  input: ProposeExternalActionInput,
-): Promise<ProposedExternalAction> {
+  input: IntentInput,
+): Promise<{ externalActionId: string; approvalId: string | null; requestHash: string }> {
   const work = await loadChangeable(tx, context, input.workUnitId);
   // Its data class denies leaving by default, and the check on the table holds this too.
   if (work.classification === 'restricted') throw new AppError('RESTRICTED_NOT_ALLOWED');
 
-  if (input.toolName !== EMAIL_SEND_TOOL || input.toolVersion !== EMAIL_SEND_VERSION) {
+  const manifest = toolManifest(input.toolName);
+  if (!isActionTool(manifest) || manifest.version !== input.toolVersion || !manifest.connection) {
+    throw new AppError('INVALID_INPUT');
+  }
+  const needsApproval = changeNeedsApproval(manifest);
+  if (needsApproval !== (input.approverMembershipId !== undefined)) {
     throw new AppError('INVALID_INPUT');
   }
   const [connection] = await tx
@@ -300,9 +362,20 @@ export async function proposeExternalActionInTx(
     .for('share');
   if (!connection) throw new AppError('NOT_FOUND');
   if (connection.state !== 'active') throw new AppError('CONNECTION_NOT_ACTIVE');
-  if (connection.connectorType !== EMAIL_CONNECTOR_TYPE) throw new AppError('INVALID_INPUT');
+  // The rule the agent gateway applies, so an intent made any other way meets it too. A service context
+  // is no person, so a member's own connection is never its to use. The source ACL of a named resource is
+  // checked where the run's initiator is known, in the gateway's own transaction, so it is granted here.
+  const use = decideConnectionUse({
+    rule: manifest.connection,
+    toolClass: manifest.class,
+    initiatorMembershipId: context.actorType === 'service' ? '' : context.membershipId,
+    dataClass: work.classification as AiClassification,
+    connection,
+    resource: { synced: true, access: ['owner'] },
+  });
+  if (!use.ok) throw new AppError(USE_REFUSALS[use.code] ?? 'FORBIDDEN');
 
-  const payload = freezeEmailPayload(input.payload, connection.config);
+  const payload = freezePayload(input.toolName, connection, input.payload);
   const proposal = {
     toolName: input.toolName,
     toolVersion: input.toolVersion,
@@ -310,12 +383,16 @@ export async function proposeExternalActionInTx(
     payload,
   };
   const action = proposedActionFor(proposal);
-  const approval = await createApprovalInTx(tx, context, {
-    workUnitId: work.id,
-    action,
-    approverMembershipId: input.approverMembershipId,
-    expiresAt: input.expiresAt ?? new Date(Date.now() + REVIEW_HOURS * 60 * 60 * 1000),
-  });
+  const approval =
+    needsApproval && input.approverMembershipId !== undefined
+      ? await createApprovalInTx(tx, context, {
+          workUnitId: work.id,
+          action,
+          approverMembershipId: input.approverMembershipId,
+          expiresAt: input.expiresAt ?? new Date(Date.now() + REVIEW_HOURS * 60 * 60 * 1000),
+        })
+      : null;
+  const requestHash = approval?.actionHash ?? requestHashFor(proposal);
 
   const id = randomUUID();
   const createdBy = context.actorType === 'service' ? null : context.membershipId;
@@ -330,20 +407,45 @@ export async function proposeExternalActionInTx(
       toolVersion: input.toolVersion,
       targetRef: connectionRef(connection.id),
       payload,
-      requestHash: approval.actionHash,
+      requestHash,
       idempotencyKey: idempotencyKeyFor(id),
       classification: work.classification,
-      requiresApproval: true,
-      approvalId: approval.id,
+      requiresApproval: needsApproval,
+      approvalId: approval?.id ?? null,
       supersedesId: input.supersedesId ?? null,
       retryOfId: input.retryOfId ?? null,
-      status: 'awaiting_approval',
+      status: needsApproval ? 'awaiting_approval' : 'ready',
       createdByMembershipId: createdBy,
     })
     .returning();
   await emitActionEvent(tx, context, row as ActionRow, EXTERNAL_ACTION_PROPOSED);
   await auditAction(tx, context, 'external_action.proposed', externalActionTargetRef(id));
-  return { externalActionId: id, approvalId: approval.id, requestHash: approval.actionHash };
+  if (!needsApproval) {
+    await emitActionEvent(tx, context, row as ActionRow, EXTERNAL_ACTION_READY);
+    await auditAction(tx, context, 'external_action.ready', externalActionTargetRef(id));
+  }
+  return { externalActionId: id, approvalId: approval?.id ?? null, requestHash };
+}
+
+/** An external write: an intent awaiting the approval this writes beside it. Refuses a draft tool. */
+export async function proposeExternalActionInTx(
+  tx: Tx,
+  context: TenantContext,
+  input: ProposeExternalActionInput,
+): Promise<ProposedExternalAction> {
+  const proposed = await proposeIntentInTx(tx, context, input);
+  if (proposed.approvalId === null) throw new AppError('INVALID_INPUT');
+  return { ...proposed, approvalId: proposed.approvalId };
+}
+
+/** A draft (ADR-038 D6): an intent that asks nobody and starts ready. Refuses any other tool. */
+export async function proposeDraftActionInTx(
+  tx: Tx,
+  context: TenantContext,
+  input: ProposeDraftActionInput,
+): Promise<ProposedDraftAction> {
+  const proposed = await proposeIntentInTx(tx, context, input);
+  return { externalActionId: proposed.externalActionId, requestHash: proposed.requestHash };
 }
 
 export function proposeExternalAction(
@@ -476,14 +578,16 @@ export function retryExternalAction(
         ),
       );
     if (live.length > 0) throw new AppError('EXTERNAL_ACTION_NOT_RETRYABLE');
-    // The sender is read from the connection again. What it was has no say in what goes out now.
+    // The sender is read from the connection again. What it was has no say in what goes out now. A suite
+    // tool's payload names no sender, so it is asked for again exactly as it was.
     const { from: _from, ...rest } = action.payload as Record<string, unknown>;
+    const payload = action.toolName === EMAIL_SEND_TOOL ? rest : action.payload;
     return proposeExternalActionInTx(tx, context, {
       workUnitId: action.workUnitId,
       connectionId: action.connectionId,
       toolName: action.toolName,
       toolVersion: action.toolVersion,
-      payload: rest,
+      payload,
       approverMembershipId: input.approverMembershipId,
       retryOfId: action.id,
     });
@@ -551,6 +655,81 @@ export async function onApprovalClosedInTx(
   if (action.status === 'awaiting_approval' || action.status === 'ready') {
     await cancelAction(tx, context, action, CLOSED_CODES[input.outcome]);
   }
+}
+
+type ConnectionRow = typeof connections.$inferSelect;
+
+/**
+ * Whose change a suite intent is: the initiator of the agent run that proposed it, found through the
+ * proposal 0101's trigger also follows, else the person who proposed it. Undefined for an intent no run
+ * and no person made, which is left to the checks every intent meets, as before. Null when the run that
+ * proposed it cannot be found, which nothing may send for.
+ */
+async function suiteInitiatorOf(tx: Tx, action: ActionRow): Promise<string | null | undefined> {
+  const [proposal] = await tx
+    .select({ runId: toolProposals.runId })
+    .from(toolProposals)
+    .where(eq(toolProposals.externalActionId, action.id))
+    .limit(1);
+  if (proposal) {
+    const [run] = await tx
+      .select({ initiatorMembershipId: agentRuns.initiatorMembershipId })
+      .from(agentRuns)
+      .where(eq(agentRuns.id, proposal.runId));
+    return run?.initiatorMembershipId ?? null;
+  }
+  return action.createdByMembershipId ?? undefined;
+}
+
+/**
+ * ADR-038 D5 and D6's rule, read again under this transaction's locks before a suite change is attempted.
+ * An approval says a person agreed to these bytes then; it does not keep the initiator a member, the
+ * connection theirs and its scopes granted, or the source granting them the file. A refusal is the code
+ * the intent is cancelled with, before any attempt row exists. `email.send` and any intent with no one
+ * behind it are left to `checkBeforeSend`, as they always were.
+ */
+async function recheckSuiteChange(
+  tx: Tx,
+  action: ActionRow,
+  connection: ConnectionRow | null,
+): Promise<ExternalActionCode | null> {
+  const manifest = toolManifest(action.toolName);
+  const rule = manifest?.connection;
+  if (!manifest || !rule || !isSuiteRule(rule)) return null;
+  const initiatorId = await suiteInitiatorOf(tx, action);
+  if (initiatorId === undefined) return null;
+  const [member] =
+    initiatorId === null
+      ? []
+      : await tx
+          .select({ status: memberships.status })
+          .from(memberships)
+          .where(eq(memberships.id, initiatorId));
+  const organizationContent =
+    connection?.ownerMembershipId === null &&
+    rule.resourceAccess !== null &&
+    rule.resourceArg !== null;
+  const resource =
+    organizationContent && connection && initiatorId !== null
+      ? await resourceFacts(tx, {
+          connectionId: connection.id,
+          membershipId: initiatorId,
+          externalId: resourceIdOf(rule, action.payload),
+        })
+      : null;
+  const checked = recheckSuiteSend({
+    rule,
+    toolClass: manifest.class,
+    initiator:
+      initiatorId === null
+        ? null
+        : { membershipId: initiatorId, active: member?.status === 'active' },
+    // The class it was frozen at. Proposing refused restricted, and the payload cannot have changed since.
+    dataClass: action.classification as AiClassification,
+    connection,
+    resource,
+  });
+  return checked.ok ? null : checked.code;
 }
 
 export type BeginAttemptResult =
@@ -643,6 +822,12 @@ export function beginAttempt(
       }
       return { kind: 'stop', status: 'cancelled' };
     }
+    const changed = await recheckSuiteChange(tx, action, connection ?? null);
+    if (changed) {
+      const moved = await cancelAction(tx, context, action, changed);
+      await tellPeople(tx, context, moved, NOTIFY_EXTERNAL_ACTION_FAILED);
+      return { kind: 'stop', status: 'cancelled' };
+    }
 
     const attemptId = randomUUID();
     const attemptNo = attempts.length + 1;
@@ -674,6 +859,8 @@ export function beginAttempt(
           connectorType: connection?.connectorType ?? '',
           config: connection?.config ?? {},
           credentialSecretId: connection?.credentialSecretId ?? null,
+          grantedScopes: connection?.grantedScopes ?? [],
+          ownerKind: connection?.ownerMembershipId ? 'member' : 'organization',
         },
       },
     };
@@ -887,6 +1074,8 @@ export function beginReconcile(
           connectorType: connection?.connectorType ?? '',
           config: connection?.config ?? {},
           credentialSecretId: connection?.credentialSecretId ?? null,
+          grantedScopes: connection?.grantedScopes ?? [],
+          ownerKind: connection?.ownerMembershipId ? 'member' : 'organization',
         },
       },
     };

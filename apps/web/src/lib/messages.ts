@@ -166,6 +166,53 @@ const MESSAGE_FOR = new Map<string, string>([
   ['OFFBOARDING_CONFIRMATION_MISMATCH', 'That does not match this organization’s name.'],
   ['BREAK_GLASS_DISABLED', 'Support access to content is turned off on this deployment.'],
   ['BREAK_GLASS_NOT_AUTHORIZABLE', 'This request can no longer be decided.'],
+  [
+    'OAUTH_STATE_INVALID',
+    'This sign-in link is not valid or has already been used. Start connecting again from the connections page.',
+  ],
+  ['OAUTH_DENIED', 'Access was not granted, so nothing was connected.'],
+  [
+    'OAUTH_CONSENT_REQUIRED',
+    'That account needs an administrator to agree first, so nothing was connected. Ask one of its administrators to connect it.',
+  ],
+  [
+    'OAUTH_SCOPE_REFUSED',
+    'The provider would not grant the access you chose, so nothing was connected. Choose less access, or ask an administrator of that account to allow it.',
+  ],
+  [
+    'OAUTH_CLIENT_REJECTED',
+    'The provider did not accept the app you connected through, so nothing was connected. If it is your own app, check its client ID, secret and redirect address.',
+  ],
+  [
+    'OAUTH_PROVIDER_ERROR',
+    'The provider stopped the sign-in with an error, so nothing was connected. Start again.',
+  ],
+  [
+    'OAUTH_IDENTITY_INVALID',
+    'The provider did not say which account was connected, so nothing was connected. Start again, signed in with a work account. If it was Microsoft 365, an administrator of that directory can remove the app’s consent under Enterprise applications in Microsoft Entra.',
+  ],
+  ['OAUTH_EXPIRED', 'This took longer than ten minutes, so nothing was connected. Start again.'],
+  [
+    'OAUTH_EXCHANGE_FAILED',
+    'The provider did not finish connecting, so nothing was connected. Start again. If it was Microsoft 365, an administrator of that directory can remove the app’s consent under Enterprise applications in Microsoft Entra.',
+  ],
+  [
+    'OAUTH_SCOPES_INSUFFICIENT',
+    'Some of the access you chose was not granted, so nothing was connected. Start again and allow all of it. If it was Microsoft 365, an administrator of that directory can remove the app’s consent under Enterprise applications in Microsoft Entra.',
+  ],
+  [
+    'OAUTH_CLIENT_NOT_CONFIGURED',
+    'The app chosen to connect through is not set up on this deployment, so nothing was connected. Start again with your own app’s details, or ask whoever runs Ensemus to set up its app.',
+  ],
+  ['OAUTH_CAPABILITY_UNAVAILABLE', 'That kind of access cannot be connected yet.'],
+  [
+    'MEMBER_CAPABILITY_NOT_ALLOWED',
+    'Your organization does not let members connect that kind of access, so nothing was connected. Ask an administrator to allow it.',
+  ],
+  [
+    'DIRECTORY_TEAM_READ_ONLY',
+    'This team comes from your directory, so it changes only there. Change the group at the provider.',
+  ],
   ['UNEXPECTED', 'Something went wrong on our side. Please try again.'],
 ]);
 

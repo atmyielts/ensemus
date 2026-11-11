@@ -22,6 +22,7 @@ import {
   organizations,
   runControls,
   stepPayloads,
+  suiteReads,
   toolProposals,
   usageLedger,
   withTenantTx,
@@ -41,6 +42,7 @@ import {
   type ToolOutcome,
 } from '@ensemus/domain/ai';
 import { toolManifest } from '@ensemus/domain/ai-tools';
+import type { ConnectionFacts, ResourceFacts } from '@ensemus/policy';
 import { canChangeContent, type WorkState } from '@ensemus/domain/work-unit';
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
@@ -64,6 +66,7 @@ import { claimGeneratedPut, settleGeneratedPut } from '../knowledge/generated-wr
 import { bindModelResultWriteInTx } from './model-admission';
 import { delegatedBodyProofFromProposal } from './delegated-title';
 import { loadAgentReadScopeInTx } from './read-scope';
+import { lockConnectionFacts, resourceFacts } from '../suite-connections';
 
 export type StoredProposal = {
   id: string;
@@ -146,8 +149,13 @@ const labelFor = (toolId: string): StepLabelCode => {
       return 'PROPOSING_EMAIL';
     case 'agent.delegate':
       return 'DELEGATING';
-    default:
-      return 'CHECKING_RESULT';
+    default: {
+      // A suite tool says what kind of step it is from its manifest, so a new one needs no case here.
+      const manifest = toolManifest(toolId);
+      if (!manifest?.connection) return 'CHECKING_RESULT';
+      if (manifest.class === 'read_only') return 'READING_ACCOUNT';
+      return manifest.class === 'draft_only' ? 'WRITING_DRAFT' : 'PROPOSING_CHANGE';
+    }
   }
 };
 
@@ -466,6 +474,12 @@ export type ToolRunFacts = {
   /** Metadata-only admission and fresh all-input access. False never permits loading arguments. */
   inputsOpen: boolean;
   classification: AiClassification;
+  /**
+   * The strongest class the agent's manifest lets it read (`data.<class>.read`, intersected down the
+   * delegation chain). Null when it declares none, or when the run was not admitted, so a caller that
+   * must refuse above a ceiling treats a non-admitted run as refused by its other facts first.
+   */
+  readCeiling: AiClassification | null;
   maxDelegationDepth: number;
   allow: readonly string[] | null;
   deny: readonly string[] | null;
@@ -484,6 +498,24 @@ export type ToolAudit = {
   decision: 'allow' | 'deny';
   safeReason?: string;
 };
+
+export type SuiteReadRequest = {
+  proposalId: string;
+  runId: string;
+  stepId: string;
+  connectionId: string;
+  toolId: string;
+  toolVersion: string;
+  args: unknown;
+  resourceExternalId: string | null;
+};
+
+/** Where a suite read has got to. Only `read` carries bytes, and only to the agent role. */
+export type SuiteReadAnswer =
+  | { status: 'requested' }
+  | { status: 'read'; output: Buffer; mediaType: string; classification: AiClassification }
+  | { status: 'refused'; code: string }
+  | { status: 'collected' };
 
 export interface ToolStepStore {
   /** One short transaction under the agent's tenant. Never held across a network call. */
@@ -551,6 +583,33 @@ export interface ToolStepStore {
     input: { runId: string; stepNumber: number; stepId: string; workUnitId: string },
   ): Promise<void>;
   audit(tx: Tx, context: AgentContext, entry: ToolAudit): Promise<void>;
+  /**
+   * What ADR-038 D5 and D6's rule decides from: the connection the arguments name, share-locked, and for
+   * the organization's connection the one resource the tool names, as the source's synced ACL grants it
+   * to the initiator. Both null when the tenant has no such connection.
+   */
+  readConnectionUse(
+    tx: Tx,
+    context: AgentContext,
+    input: {
+      connectionId: string;
+      initiatorMembershipId: string;
+      resourceExternalId: string | null;
+    },
+  ): Promise<{ connection: ConnectionFacts | null; resource: ResourceFacts | null }>;
+  /**
+   * Moves the proposal to `running` and writes the request the connector worker answers (migration
+   * 0563), in the gate's transaction. The arguments go with it; nothing else of the run does.
+   */
+  requestSuiteRead(tx: Tx, context: AgentContext, input: SuiteReadRequest): Promise<void>;
+  /** The request's row, locked, with the output only the agent role can read. Null if none was made. */
+  readSuiteRead(tx: Tx, context: AgentContext, proposalId: string): Promise<SuiteReadAnswer | null>;
+  /** Marks it collected, which clears the output, or refuses a request nobody answered. */
+  closeSuiteRead(
+    tx: Tx,
+    context: AgentContext,
+    input: { proposalId: string; refuse?: string },
+  ): Promise<void>;
   /** From the run and the step, so a retry writes the same object and the same row. */
   draftIdFor(context: AgentContext, input: { runId: string; stepNumber: number }): string;
   /** Checks the initiator may add to this work now, and notes the bytes that are about to exist. */
@@ -626,6 +685,7 @@ export function createToolStepStore(deps: {
         .where(and(eq(runControls.runId, runId), eq(runControls.kind, 'stop')))
         .limit(1);
       let admitted = false;
+      let readCeiling: AiClassification | null = null;
       if (
         initial.status === 'running' &&
         !initialStop &&
@@ -635,12 +695,13 @@ export function createToolStepStore(deps: {
         try {
           // Actual source/catalog closure first, then checkpoint and run locks. The helper uses
           // NOWAIT for the inverse run lock; taking it above the closure could deadlock revocation.
-          await loadAgentReadScopeInTx(
+          const scope = await loadAgentReadScopeInTx(
             tx,
             context,
             { workUnitId: initial.workUnitId, agentVersionId: initial.agentVersionId },
             { lockRun: options.lock },
           );
+          readCeiling = scope.ceiling;
           admitted = true;
         } catch (error) {
           // Only a pure application refusal leaves this transaction usable for metadata settlement.
@@ -706,6 +767,7 @@ export function createToolStepStore(deps: {
         workStopped: !work || STOPPED_WORK.includes(work.status),
         inputsOpen,
         classification: run.effectiveClassification as AiClassification,
+        readCeiling: admitted ? readCeiling : null,
         maxDelegationDepth: run.maxDelegationDepth,
         allow: spec.success ? spec.data.tools.allow : null,
         deny: spec.success ? (spec.data.tools.deny ?? []) : null,
@@ -805,6 +867,89 @@ export function createToolStepStore(deps: {
           ...(settled ? { endedAt: new Date() } : {}),
         })
         .where(eq(executionSteps.id, input.stepId));
+    },
+
+    // Row-level security makes another tenant's connection look absent, so it is refused like a missing one.
+    async readConnectionUse(tx, _context, input) {
+      const connection = await lockConnectionFacts(tx, input.connectionId);
+      const resource =
+        connection && connection.ownerMembershipId === null
+          ? await resourceFacts(tx, {
+              connectionId: input.connectionId,
+              membershipId: input.initiatorMembershipId,
+              externalId: input.resourceExternalId,
+            })
+          : null;
+      return { connection, resource };
+    },
+
+    async requestSuiteRead(tx, context, input) {
+      await moveProposal(tx, {
+        proposalId: input.proposalId,
+        status: 'running',
+        decisionCode: null,
+      });
+      await tx.insert(suiteReads).values({
+        organizationId: context.organizationId,
+        proposalId: input.proposalId,
+        runId: input.runId,
+        stepId: input.stepId,
+        connectionId: input.connectionId,
+        toolId: input.toolId,
+        toolVersion: input.toolVersion,
+        args: input.args,
+        resourceExternalId: input.resourceExternalId,
+      });
+    },
+
+    async readSuiteRead(tx, _context, proposalId) {
+      const [row] = await tx
+        .select({
+          status: suiteReads.status,
+          resultCode: suiteReads.resultCode,
+          output: suiteReads.output,
+          outputMediaType: suiteReads.outputMediaType,
+          outputClassification: suiteReads.outputClassification,
+        })
+        .from(suiteReads)
+        .where(eq(suiteReads.proposalId, proposalId))
+        .for('update');
+      if (!row) return null;
+      switch (row.status) {
+        case 'read':
+          if (!row.output || !row.outputMediaType || !row.outputClassification) {
+            return { status: 'refused', code: 'SUITE_READ_INVALID' };
+          }
+          return {
+            status: 'read',
+            output: row.output,
+            mediaType: row.outputMediaType,
+            classification: row.outputClassification as AiClassification,
+          };
+        case 'refused':
+          return { status: 'refused', code: row.resultCode ?? 'SUITE_READ_REFUSED' };
+        case 'collected':
+          return { status: 'collected' };
+        default:
+          return { status: 'requested' };
+      }
+    },
+
+    async closeSuiteRead(tx, _context, input) {
+      await tx
+        .update(suiteReads)
+        .set(
+          input.refuse
+            ? { status: 'refused', resultCode: input.refuse, updatedAt: new Date() }
+            : {
+                status: 'collected',
+                output: null,
+                outputMediaType: null,
+                outputClassification: null,
+                updatedAt: new Date(),
+              },
+        )
+        .where(eq(suiteReads.proposalId, input.proposalId));
     },
 
     async writeOutput(tx, context, input) {

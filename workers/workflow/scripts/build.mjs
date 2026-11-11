@@ -35,6 +35,8 @@ await build({
     'src/restore-reconcile.ts',
     'src/diagnostics-export.ts',
     'src/ops.ts',
+    // The operator's live suite check, run by hand against a test tenant. Its own entry, imported by none.
+    'src/live-suite-check.ts',
   ].map((e) => path.join(root, e)),
   outdir: dist,
   bundle: true,

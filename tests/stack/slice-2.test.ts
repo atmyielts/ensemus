@@ -7,8 +7,10 @@ import { Client, Connection } from '@temporalio/client';
 import pg from 'pg';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { externalActionTargetRef } from '@ensemus/domain/integration-events';
+import { OAUTH_BROWSER_COOKIE } from '@ensemus/domain/workspace-suites';
 import { externalActionWorkflowIdFor } from '@ensemus/workflows/schemas';
 import {
+  BASE,
   createOrganization,
   formOn,
   join,
@@ -19,7 +21,13 @@ import {
   submit,
 } from '../helpers/forms';
 import { locationOf, mainOf, membershipOf, move, sectionOf, workPage } from '../helpers/flows';
-import { operationName, operations, validatedOperations } from '../helpers/openapi';
+import { inFixtureTenant } from '../helpers/fixture-tenant';
+import {
+  contractProblems,
+  operationName,
+  operations,
+  validatedOperations,
+} from '../helpers/openapi';
 import {
   actionPage,
   actionsOnWork,
@@ -894,6 +902,185 @@ describe.skipIf(!connectorsEnabled())('Slice 2 and the M3 exit', () => {
         .filter(({ status, path }) => status === undefined && isOurs(path))
         .map(({ method, path }) => operationName(method, path));
       expect(ours).toHaveLength(2);
+      const { tested } = validatedOperations();
+      expect(ours.filter((name) => !tested.has(name))).toEqual([]);
+    });
+  });
+  // Connecting Google Workspace or Microsoft 365 by consent (ADR-038 D1, D5). Starting a consent needs
+  // connectors on, so this is where the consent operations are proven over HTTP and where API-12's coverage
+  // of them is asserted (tests/stack/api.test.ts shows the refusal where they are off, and covers what
+  // members may connect). No provider is contacted: the provider's answer is the callback this test makes,
+  // a refusal, so nothing is ever exchanged. The admin uses an app of their own with generated values; a
+  // member's own consent uses the deployment's app, whose generated public ID compose.test.yaml gives web.
+  // A tenant of its own.
+  describe('connecting by consent (API-12)', () => {
+    const base = (organization: string) => `/api/v1/organizations/${organization}`;
+    const isOurs = (path: string) =>
+      /\/(oauth-authorizations|my-connections)(\/|$)|^\/oauth\/callback$/.test(path);
+    let company: Tenant;
+    let member: Person;
+    let memberMembership: string;
+    type Started = {
+      authorization: { id: string; status: string; owner_membership_id: string | null };
+      authorize_url: string;
+    };
+    const bindingOf = (headers: Headers) => {
+      const cookie = headers.get('set-cookie') ?? '';
+      const match = new RegExp(`${OAUTH_BROWSER_COOKIE}=([^;]+)`).exec(cookie);
+      if (!match?.[1]) throw new Error('The start set no browser binding');
+      return match[1];
+    };
+
+    beforeAll(async () => {
+      company = await setUpTenant('Consent');
+      member = await join(company.owner, company.organization, 'Mo Member');
+      memberMembership = await membershipOf(su, member, company.organization);
+    });
+
+    it('starts an admin’s consent, reads it back, and records the provider’s refusal', async () => {
+      const path = `${base(company.organization)}/oauth-authorizations`;
+      const clientSecret = `generated-${randomUUID()}`;
+      const started = await api(company.owner, 'POST', path, {
+        body: {
+          connector_type: 'google_workspace',
+          display_name: 'Generated workspace',
+          config: {},
+          capabilities: ['files'],
+          client: {
+            kind: 'customer',
+            client_id: 'generated-customer.apps.example.invalid',
+            client_secret: clientSecret,
+          },
+        },
+      });
+      expect(started.status, started.text).toBe(201);
+      expect(started.headers.get('cache-control')).toContain('no-store');
+      const { authorization, authorize_url: authorizeUrl } = started.json as Started;
+      expect(authorization).toMatchObject({ status: 'pending', owner_membership_id: null });
+      // The secret goes in and does not come back.
+      expect(started.text).not.toContain(clientSecret);
+      const state = new URL(authorizeUrl).searchParams.get('state');
+      if (!state) throw new Error('The provider page names no state');
+      const binding = bindingOf(started.headers);
+
+      const listed = await api(company.owner, 'GET', path);
+      expect(listed.status, listed.text).toBe(200);
+      expect((listed.json as { items: { id: string }[] }).items.map((item) => item.id)).toContain(
+        authorization.id,
+      );
+      // A member who did not start it hears that it does not exist.
+      const byMember = await api(member, 'GET', `${path}/${authorization.id}`);
+      expect(byMember.status, byMember.text).toBe(404);
+
+      // The provider sends the admin back refusing, to the same session in the same browser.
+      const callbackPath = `/api/v1/oauth/callback?state=${encodeURIComponent(state)}&error=access_denied`;
+      const callback = () =>
+        fetch(`${BASE}${callbackPath}`, {
+          redirect: 'manual',
+          headers: { cookie: `${company.owner.jar.cookie}; ${OAUTH_BROWSER_COOKIE}=${binding}` },
+        });
+      const response = await callback();
+      const { problems } = contractProblems({
+        method: 'GET',
+        path: callbackPath,
+        status: response.status,
+        headers: response.headers,
+        text: await response.text(),
+      });
+      expect(problems).toEqual([]);
+      expect(response.status).toBe(303);
+      const location = response.headers.get('location') ?? '';
+      expect(location).toMatch(
+        new RegExp(`/o/${company.organization}/connections\\?authorization=${authorization.id}$`),
+      );
+      expect(location).not.toContain(state);
+
+      const read = await api(company.owner, 'GET', `${path}/${authorization.id}`);
+      expect(read.status, read.text).toBe(200);
+      expect(read.json).toMatchObject({
+        id: authorization.id,
+        status: 'denied',
+        error_code: 'OAUTH_DENIED',
+      });
+      // The state was used once: the same callback again is refused, and says nothing more.
+      const again = await callback();
+      expect(again.status).toBe(303);
+      expect(again.headers.get('location')).toMatch(/\?error=OAUTH_STATE_INVALID$/);
+    }, 120_000);
+
+    it('lets a member start a consent of their own, list their own and revoke it', async () => {
+      const own = `${base(company.organization)}/my-connections`;
+      const started = await api(member, 'POST', own, {
+        body: {
+          connector_type: 'google_workspace',
+          display_name: 'My mail',
+          capabilities: ['mail'],
+        },
+      });
+      expect(started.status, started.text).toBe(201);
+      expect((started.json as Started).authorization).toMatchObject({
+        status: 'pending',
+        owner_membership_id: memberMembership,
+      });
+      // What the organization does not allow members is refused in plain words.
+      const refused = await api(member, 'POST', own, {
+        body: {
+          connector_type: 'google_workspace',
+          display_name: 'My documents',
+          capabilities: ['documents'],
+        },
+      });
+      expect(refused.status, refused.text).toBe(403);
+      expect((refused.json as { code?: string }).code).toBe('MEMBER_CAPABILITY_NOT_ALLOWED');
+
+      // Consent never completes here, so the member's connection is written as the exchange leaves one.
+      const connectionId = randomUUID();
+      await inFixtureTenant(su, company.organization, () =>
+        su.query(
+          `insert into integrations.connections
+             (organization_id, id, connector_type, display_name, state, granted_scopes,
+              owner_membership_id, created_by_membership_id)
+           values ($1, $2, 'google_workspace', 'My mail', 'active', $3, $4, $4)`,
+          [
+            company.organization,
+            connectionId,
+            ['gmail.readonly', 'gmail.compose', 'gmail.send'].map(
+              (scope) => `https://www.googleapis.com/auth/${scope}`,
+            ),
+            memberMembership,
+          ],
+        ),
+      );
+      const listed = await api(member, 'GET', own);
+      expect(listed.status, listed.text).toBe(200);
+      expect(listed.text).not.toContain('googleapis.com/auth');
+      expect(listed.json).toMatchObject({
+        items: [{ id: connectionId, state: 'active', capabilities: ['mail'] }],
+      });
+      // Nobody else sees it as theirs, and another member may not revoke it.
+      expect((await api(company.owner, 'GET', own)).json).toEqual({ items: [] });
+      const other = await join(company.owner, company.organization, 'Sky Other Member');
+      const byOther = await api(other, 'DELETE', `${own}/${connectionId}`);
+      expect(byOther.status, byOther.text).toBe(404);
+
+      const revoked = await api(member, 'DELETE', `${own}/${connectionId}`);
+      expect(revoked.status, revoked.text).toBe(204);
+      const after = await api(
+        company.owner,
+        'GET',
+        `${base(company.organization)}/member-connections`,
+      );
+      expect(after.status, after.text).toBe(200);
+      expect(after.json).toMatchObject({
+        items: [{ id: connectionId, owner_membership_id: memberMembership, state: 'revoked' }],
+      });
+    }, 120_000);
+
+    it('has validated a real response from every consent operation, in a running test', () => {
+      const ours = operations()
+        .filter(({ status, path }) => status === undefined && isOurs(path))
+        .map(({ method, path }) => operationName(method, path));
+      expect(ours).toHaveLength(7);
       const { tested } = validatedOperations();
       expect(ours.filter((name) => !tested.has(name))).toEqual([]);
     });

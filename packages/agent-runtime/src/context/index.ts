@@ -18,6 +18,7 @@ import {
 import { canonicalJson } from '@ensemus/domain/approval';
 import type { CompiledTurn, ContextMessage } from '@ensemus/intelligence';
 import {
+  connectionsText,
   coverageText,
   evidenceText,
   policyText,
@@ -150,13 +151,16 @@ export function createMinimalContextCompiler(deps: {
         ),
       );
 
+      // Which connections a suite tool may name (ADR-038 D5). Only for runs that have one, so a run with
+      // none compiles to the same bytes it always did.
+      const connections = connectionsText(brief.usableConnections ?? []);
       const task = (coverage: string) =>
         taskText({
           agentObjective: brief.objective,
           workUnitId: work.id,
           title: work.title,
           objective: work.objective,
-          coverage,
+          coverage: connections ? `${coverage}\n\n${connections}` : coverage,
         });
       const policy = policyText(brief.instructions);
       // Room for the counts at their largest, since they are only known once the files have been read.

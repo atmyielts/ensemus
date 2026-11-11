@@ -65,6 +65,32 @@ export function coverageText(included: number, leftOut: LeftOut): string {
   ].join('\n');
 }
 
+/**
+ * The connections a suite tool may name, by ID, type and whose they are (ADR-038 D5). The name is an
+ * admin's words, so it is fenced as data. No scope, setting or credential is ever here. Empty when the
+ * run has none, so nothing changes for a run without them.
+ */
+export function connectionsText(
+  connections: readonly {
+    id: string;
+    connectorType: string;
+    owner: 'organization' | 'yours';
+    displayName: string;
+    toolIds: readonly string[];
+  }[],
+): string {
+  if (connections.length === 0) return '';
+  const lines = connections.map(
+    (connection) =>
+      `connection_id=${connection.id} type=${connection.connectorType} owner=${connection.owner} ` +
+      `tools=${[...connection.toolIds].sort().join(',')} name=${fenced('CONNECTION_NAME', connection.displayName)}`,
+  );
+  return [
+    'Connected accounts you may name as connection_id. Use only these, and only for the tools listed:',
+    ...lines,
+  ].join('\n');
+}
+
 export function taskText(input: {
   agentObjective: string;
   workUnitId: string;

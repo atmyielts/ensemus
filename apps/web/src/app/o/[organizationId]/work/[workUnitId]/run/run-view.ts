@@ -129,6 +129,9 @@ const STEP_LABEL = new Map<string, string>(
     WAITING_FOR_CHILD: 'Waiting for the other agent',
     CHECKING_RESULT: 'Checking the result',
     STOPPING: 'Stopping',
+    READING_ACCOUNT: 'Reading from a connected account',
+    WRITING_DRAFT: 'Saving a draft in a connected account',
+    PROPOSING_CHANGE: 'Proposing a change in a connected account',
   } satisfies Record<StepLabelCode, string>),
 );
 
@@ -217,6 +220,9 @@ const DECISION_NOTE = new Map<string, string>(
     DELEGATION_WIDENED: 'It asked another agent to have more than it has itself.',
     DELEGATION_DEPTH: 'Agents asking agents went too deep.',
     DELEGATION_FANOUT: 'It asked too many other agents.',
+    SCOPE_NOT_GRANTED: 'That connected account was not given permission for this.',
+    CONNECTION_NOT_YOURS: 'That connected account belongs to someone else.',
+    CONNECTION_TYPE_MISMATCH: 'That connected account cannot do this.',
   } satisfies Record<Exclude<AiReasonCode, 'ALLOWED'>, string>),
 );
 

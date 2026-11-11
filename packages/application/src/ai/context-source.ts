@@ -44,7 +44,9 @@ import {
 } from './read-scope';
 import { currentRunInputClassInTx } from './model-admission';
 import { lockReadAuthorityBeforeBody } from './read-authority';
+import { listUsableConnections, type UsableConnection } from '../suite-connections';
 export { loadAgentReadScope } from './read-scope';
+export type { UsableConnection } from '../suite-connections';
 
 export type LoadedWork = {
   id: string;
@@ -97,6 +99,11 @@ export type LoadedRunBrief = {
   classification: AiClassification;
   pinned: { profileId: string; profileVersion: number } | null;
   remaining: { tokens: number; activeMs: number };
+  /**
+   * The suite connections the initiator may name (ADR-038 D5): the organization's and their own, active,
+   * with the suite tools each could serve. Never scopes, settings or a credential. Absent means none.
+   */
+  usableConnections?: readonly UsableConnection[];
 };
 
 export interface ContextSource {
@@ -245,9 +252,9 @@ export function createContextSource(deps: {
       const workUnitId = idSchema.safeParse(run.workUnitId);
       const agentVersionId = idSchema.safeParse(run.agentVersionId);
       if (!workUnitId.success || !agentVersionId.success) throw new AppError('NOT_FOUND');
-      const [row] = await withTenantTx(database, context, async (tx) => {
+      const [[row], usableConnections] = await withTenantTx(database, context, async (tx) => {
         await assertRunInputsOpen(tx, context);
-        return tx
+        const rows = await tx
           .select({ run: agentRuns, spec: agentVersions.spec })
           .from(agentRuns)
           .innerJoin(agentVersions, eq(agentVersions.id, agentRuns.agentVersionId))
@@ -260,6 +267,7 @@ export function createContextSource(deps: {
               eq(agentRuns.initiatorMembershipId, context.membershipId),
             ),
           );
+        return [rows, await listUsableConnections(tx, context.membershipId)] as const;
       });
       if (!row) throw new AppError('NOT_FOUND');
       // Both were checked when written. A row that no longer parses stops the run rather than guessing.
@@ -286,6 +294,7 @@ export function createContextSource(deps: {
           tokens: stored.maxTotalTokens - stored.inputTokens - stored.outputTokens,
           activeMs: stored.timeoutSeconds * 1000 - stored.activeMs,
         },
+        usableConnections,
       };
     },
 

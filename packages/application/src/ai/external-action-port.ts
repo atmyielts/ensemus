@@ -5,11 +5,12 @@ import { externalActions } from '@ensemus/database';
 import type { ExternalActionStatus } from '@ensemus/domain/external-action';
 import { eq } from 'drizzle-orm';
 import { AppError } from '../errors';
-import { proposeExternalActionInTx } from '../external-actions';
+import { proposeDraftActionInTx, proposeExternalActionInTx } from '../external-actions';
 import type { ExternalActionPort } from './ports';
 
 export const externalActionPort: ExternalActionPort = {
   propose: (tx, context, input) => proposeExternalActionInTx(tx, context, input),
+  proposeDraft: (tx, context, input) => proposeDraftActionInTx(tx, context, input),
 
   async readState(tx, _context, externalActionId) {
     const [row] = await tx

@@ -21,16 +21,28 @@ import type {
   ToolStepStore,
 } from '@ensemus/application/ai-tool-steps';
 import {
+  actionPayloadOf,
   TOOL_ARGS_SCHEMAS,
   type agentDelegateArgsSchema,
   type artifactDraftCreateArgsSchema,
   type artifactReadTextArgsSchema,
-  type emailSendArgsSchema,
   type workReadArgsSchema,
 } from '@ensemus/contracts/ai-tools';
-import type { AiClassification, AiReasonCode, ToolOutcome } from '@ensemus/domain/ai';
-import { toolManifest, type ToolManifest } from '@ensemus/domain/ai-tools';
-import { decideAction, strongest } from '@ensemus/policy';
+import {
+  AI_REASON_CODES,
+  type AiClassification,
+  type AiReasonCode,
+  type ToolOutcome,
+} from '@ensemus/domain/ai';
+import { suiteFormulaRefusal, suitePayloadFits } from '@ensemus/contracts/suite-tools';
+import { toolManifest, type ConnectionRule, type ToolManifest } from '@ensemus/domain/ai-tools';
+import {
+  changeNeedsApproval,
+  decideAction,
+  decideConnectionUse,
+  resourceIdOf,
+  strongest,
+} from '@ensemus/policy';
 import type { z } from 'zod';
 
 export type ToolStepRef = {
@@ -38,6 +50,11 @@ export type ToolStepRef = {
   stepNumber: number;
   workUnitId: string;
   agentVersionId: string;
+  /**
+   * Set by the workflow when it comes back for a suite read after `runSuiteRead` ended. Without it, a
+   * request still unanswered is only a retry of the step that made it, and is handed back unchanged.
+   */
+  collect?: boolean;
 };
 
 /** In memory only. The tool's output goes to `ai.step_payloads`, and never crosses Temporal. */
@@ -46,6 +63,12 @@ export type ToolHandleResult = {
   decisionCode: AiReasonCode | null;
   /** Set for `agent.delegate` when the workflow should start a child. */
   delegationRequested: boolean;
+  /**
+   * Set when a suite read passed the gate and waits for the connector worker (ADR-038 D6). The workflow
+   * runs `runSuiteRead` on the connector queue with this proposal's ID, then this same step again, which
+   * collects the answer. Only the ID crosses Temporal.
+   */
+  suiteReadProposalId?: string;
 };
 
 export interface ToolGateway {
@@ -154,7 +177,12 @@ function principalStop(facts: ToolRunFacts, context: AgentContext): Stop | null 
  * only a wake-up: a stop committed with its signal lost is found here, and so is a run that ended or a
  * switch engaged while a slow read was going on. The run row stays locked until the effect commits.
  */
-async function gate(turn: Turn, tx: Tx): Promise<ToolRunFacts> {
+async function gate(
+  turn: Turn,
+  tx: Tx,
+  /** `running` only for collecting a suite read the connector worker has answered. */
+  expect: 'proposed' | 'running' = 'proposed',
+): Promise<ToolRunFacts> {
   const { deps, context, step, proposal } = turn;
   try {
     await deps.halt.assertRunning(tx, context, { agentVersionId: step.agentVersionId });
@@ -163,7 +191,7 @@ async function gate(turn: Turn, tx: Tx): Promise<ToolRunFacts> {
     throw new Stop('HALTED');
   }
   const locked = await deps.store.lockProposal(tx, proposal.id);
-  if (locked?.status !== 'proposed') throw new AlreadyHandled();
+  if (locked?.status !== expect) throw new AlreadyHandled();
   const facts = await deps.store.readRun(tx, context, step.runId, { lock: true });
   if (!facts) throw new Refusal('POLICY_UNREADABLE');
   const stop = principalStop(facts, context);
@@ -171,8 +199,12 @@ async function gate(turn: Turn, tx: Tx): Promise<ToolRunFacts> {
   return facts;
 }
 
-const inGate = <T>(turn: Turn, body: (tx: Tx, facts: ToolRunFacts) => Promise<T>): Promise<T> =>
-  turn.deps.store.withTx(turn.context, async (tx) => body(tx, await gate(turn, tx)));
+const inGate = <T>(
+  turn: Turn,
+  body: (tx: Tx, facts: ToolRunFacts) => Promise<T>,
+  expect: 'proposed' | 'running' = 'proposed',
+): Promise<T> =>
+  turn.deps.store.withTx(turn.context, async (tx) => body(tx, await gate(turn, tx, expect)));
 
 const proposalRef = (proposal: StoredProposal) => `tool_proposal:${proposal.id}`;
 
@@ -374,15 +406,61 @@ async function artifactDraftCreate(
   }
 }
 
+// --- Tools that work through a connection (ADR-038 D6). One rule for all of them, `email.send` first.
+
+type ConnectionArgs = { connection_id: string };
+
+/**
+ * ADR-038 D5 and D6's rule, in the gate's transaction: the connection the arguments name is active, of a
+ * type the tool lists, the organization's or the initiator's own and never another member's, granted the
+ * tool's scopes, and for the organization's content the source's synced ACL grants the initiator what the
+ * tool needs. Each refusal is a fixed code, recorded and audited by `recordEnd`.
+ */
+async function checkConnection(
+  turn: Turn,
+  tx: Tx,
+  facts: ToolRunFacts,
+  manifest: ToolManifest & { connection: ConnectionRule },
+  args: ConnectionArgs,
+  workClass: AiClassification,
+) {
+  const connectionId = args.connection_id.toLowerCase();
+  const resourceExternalId = resourceIdOf(manifest.connection, args);
+  const { connection, resource } = await turn.deps.store.readConnectionUse(tx, turn.context, {
+    connectionId,
+    initiatorMembershipId: facts.initiatorMembershipId,
+    resourceExternalId,
+  });
+  const decision = decideConnectionUse({
+    rule: manifest.connection,
+    toolClass: manifest.class,
+    initiatorMembershipId: facts.initiatorMembershipId,
+    dataClass: strongest(facts.classification, workClass),
+    connection,
+    resource,
+  });
+  if (!decision.ok) throw new Refusal(decision.code, decision.auditAs);
+  // What the shared schema allows but this provider cannot do exactly (a Microsoft event that tells
+  // nobody) is refused now, so nobody approves a change that could only be refused when it is sent.
+  if (!suitePayloadFits(manifest.id, connection!.connectorType, args)) {
+    throw new Refusal('TOOL_ARGS_INVALID', 'PROVIDER_CANNOT_HONOUR_PAYLOAD');
+  }
+  // A cell formula that fetches, links or imports would carry the sheet out once it is opened.
+  const formula = suiteFormulaRefusal(manifest.id, args);
+  if (formula) throw new Refusal('TOOL_ARGS_INVALID', formula);
+  return { connectionId, resourceExternalId, decision };
+}
+
 /**
  * Proposes only. M3's own workflow sends it, once a person approved these exact bytes (ADR-027 D1). The
  * intent, its approval and this proposal's link to them commit together, so a retry either finds all of it
- * and never proposes again, or finds nothing and proposes for the first time.
+ * and never proposes again, or finds nothing and proposes for the first time. `email.send` and every
+ * suite external write come through here.
  */
-async function emailSend(
+async function proposeChange(
   turn: Turn,
-  manifest: ToolManifest,
-  args: z.infer<typeof emailSendArgsSchema>,
+  manifest: ToolManifest & { connection: ConnectionRule },
+  args: ConnectionArgs,
 ) {
   const { deps, context, step, proposal, stepId } = turn;
   const work = await deps.source.loadWork(context, step.workUnitId);
@@ -390,14 +468,22 @@ async function emailSend(
     if (strongest(facts.classification, classOfWork(work)) === 'restricted') {
       throw new Refusal('CLASS_DENIED');
     }
+    const { connectionId } = await checkConnection(
+      turn,
+      tx,
+      facts,
+      manifest,
+      args,
+      classOfWork(work),
+    );
     const ref = await deps.approvals.request(tx, context, {
       proposalId: proposal.id,
       runId: step.runId,
       workUnitId: step.workUnitId,
-      connectionId: args.connection_id.toLowerCase(),
+      connectionId,
       toolId: manifest.id,
       toolVersion: manifest.version,
-      payload: args.email,
+      payload: actionPayloadOf(manifest.id, args),
     });
     await deps.store.attachExternalAction(tx, {
       proposalId: proposal.id,
@@ -424,6 +510,192 @@ async function emailSend(
       safeReason: 'APPROVAL_REQUIRED',
     });
     return result('needs_approval', 'APPROVAL_REQUIRED');
+  });
+}
+
+/**
+ * A draft in the person's own account (ADR-038 D6). Nobody is asked, but it is still an intent with a
+ * frozen payload and a receipt, and M3's workflow makes it. This step waits for that, as a send's does.
+ */
+async function recordDraft(
+  turn: Turn,
+  manifest: ToolManifest & { connection: ConnectionRule },
+  args: ConnectionArgs,
+) {
+  const { deps, context, step, proposal, stepId } = turn;
+  const work = await deps.source.loadWork(context, step.workUnitId);
+  return inGate(turn, async (tx, facts) => {
+    const { connectionId } = await checkConnection(
+      turn,
+      tx,
+      facts,
+      manifest,
+      args,
+      classOfWork(work),
+    );
+    await deps.approvals.recordDraft(tx, context, {
+      proposalId: proposal.id,
+      runId: step.runId,
+      workUnitId: step.workUnitId,
+      connectionId,
+      toolId: manifest.id,
+      toolVersion: manifest.version,
+      payload: actionPayloadOf(manifest.id, args),
+    });
+    await deps.store.updateStep(tx, {
+      stepId,
+      state: 'in_flight',
+      outcome: null,
+      decisionCode: null,
+      labelCode: 'WRITING_DRAFT',
+    });
+    await deps.store.recordToolCall(tx, context, {
+      runId: step.runId,
+      stepNumber: step.stepNumber,
+      stepId,
+      workUnitId: step.workUnitId,
+    });
+    await deps.store.audit(tx, context, {
+      action: 'ai.tool_proposed',
+      targetRef: proposalRef(proposal),
+      decision: 'allow',
+      safeReason: 'DRAFT_RECORDED',
+    });
+    // `needs_approval` is the one outcome that makes the workflow wait for M3. Nobody is asked: the
+    // code is null, and the intent is already ready.
+    return result('needs_approval');
+  });
+}
+
+/**
+ * A suite read, first half (ADR-038 D6). Credentials live only in the connector worker, so this checks
+ * the rule, then writes a request it can answer, in the gate's transaction. Nothing is read yet, nothing
+ * is counted, and the workflow is told only this proposal's ID.
+ */
+async function requestSuiteRead(
+  turn: Turn,
+  manifest: ToolManifest & { connection: ConnectionRule },
+  args: ConnectionArgs,
+) {
+  const { deps, context, step, proposal, stepId } = turn;
+  const work = await deps.source.loadWork(context, step.workUnitId);
+  return inGate(turn, async (tx, facts) => {
+    const { connectionId, resourceExternalId } = await checkConnection(
+      turn,
+      tx,
+      facts,
+      manifest,
+      args,
+      classOfWork(work),
+    );
+    await deps.store.requestSuiteRead(tx, context, {
+      proposalId: proposal.id,
+      runId: step.runId,
+      stepId,
+      connectionId,
+      toolId: manifest.id,
+      toolVersion: manifest.version,
+      args,
+      resourceExternalId,
+    });
+    await deps.store.updateStep(tx, {
+      stepId,
+      state: 'in_flight',
+      outcome: null,
+      decisionCode: null,
+      labelCode: 'READING_ACCOUNT',
+    });
+    await deps.store.audit(tx, context, {
+      action: 'ai.tool_proposed',
+      targetRef: proposalRef(proposal),
+      decision: 'allow',
+      safeReason: 'SUITE_READ_REQUESTED',
+    });
+    return { ...result('needs_approval'), suiteReadProposalId: proposal.id };
+  });
+}
+
+const REASON_CODES: ReadonlySet<string> = new Set(AI_REASON_CODES);
+
+/** A connector's refusal as a reason code. Anything not on the list reads as not permitted. */
+const readRefusal = (code: string): { code: AiReasonCode; auditAs: string } =>
+  REASON_CODES.has(code) && code !== 'ALLOWED'
+    ? { code: code as AiReasonCode, auditAs: code }
+    : { code: 'RESOURCE_NOT_PERMITTED', auditAs: code };
+
+/**
+ * A suite read, second half. The connector worker has answered or given up, so this moves its answer into
+ * the step's transcript at the class it came with, raising the run's class in the same commit, and clears
+ * it from the request. A request nobody answered is refused, so a late answer has nowhere to go.
+ */
+async function collectSuiteRead(
+  turn: Turn,
+  manifest: ToolManifest & { connection: ConnectionRule },
+): Promise<ToolHandleResult> {
+  const { deps, context, proposal } = turn;
+  const collected = await inGate(
+    turn,
+    async (tx, facts) => {
+      const answer = await deps.store.readSuiteRead(tx, context, proposal.id);
+      if (!answer || answer.status === 'collected') {
+        return {
+          refused: { code: 'POLICY_UNREADABLE' as AiReasonCode, auditAs: 'SUITE_READ_MISSING' },
+        };
+      }
+      if (answer.status === 'requested' && !turn.step.collect) return { pending: true as const };
+      if (answer.status === 'requested') {
+        await deps.store.closeSuiteRead(tx, context, {
+          proposalId: proposal.id,
+          refuse: 'SUITE_READ_UNANSWERED',
+        });
+        return { refused: readRefusal('SUITE_READ_UNANSWERED') };
+      }
+      if (answer.status === 'refused') return { refused: readRefusal(answer.code) };
+      let text: string;
+      try {
+        text = new TextDecoder('utf-8', { fatal: true }).decode(answer.output);
+      } catch {
+        await deps.store.closeSuiteRead(tx, context, { proposalId: proposal.id });
+        return { refused: readRefusal('SUITE_READ_NOT_TEXT') };
+      }
+      const content = JSON.stringify({
+        status: 'read',
+        media_type: answer.mediaType,
+        content: text,
+      });
+      const limit = Math.min(manifest.connection.maxOutputBytes, MAX_TOOL_OUTPUT_BYTES);
+      await deps.store.closeSuiteRead(tx, context, { proposalId: proposal.id });
+      if (Buffer.byteLength(content, 'utf8') > limit) {
+        return { refused: readRefusal('TOOL_OUTPUT_TOO_LARGE') };
+      }
+      // The agent's own read ceiling, as for a work or a file: content above it is refused, and the
+      // output was cleared above, so it is kept nowhere.
+      const ceiling = facts.readCeiling;
+      if (ceiling !== null && strongest(ceiling, answer.classification) !== ceiling) {
+        return {
+          refused: { code: 'CLASS_DENIED' as AiReasonCode, auditAs: 'ABOVE_READ_CEILING' },
+        };
+      }
+      const raised = await deps.store.raiseRunClass(tx, {
+        runId: turn.step.runId,
+        atLeast: answer.classification,
+      });
+      await finishDone(turn, tx, { classification: raised, content });
+      return { done: true as const };
+    },
+    'running',
+  );
+  if ('done' in collected) return result('done');
+  if ('pending' in collected) {
+    return { ...result('needs_approval'), suiteReadProposalId: proposal.id };
+  }
+  // The request is closed and committed, so nothing can be written to it now. The refusal goes on the
+  // step in its own transaction, as every other refusal does.
+  return recordEnd(turn, {
+    outcome: 'denied',
+    code: collected.refused.code,
+    auditAs: collected.refused.auditAs,
+    expect: 'running',
   });
 }
 
@@ -481,10 +753,29 @@ async function runPipeline(turn: Turn, facts: ToolRunFacts): Promise<ToolHandleR
   const stop = principalStop(facts, turn.context);
   if (stop) throw stop;
 
-  // Approval policy. `email.send` is the only path to a person, and it always takes it, even if a decision
-  // said `allow`: that tool can do nothing else. Anything else that has to ask has no way to, so it stops.
+  // Approval policy. An external write through a connection is the only path to a person, and it always
+  // takes it, even if a decision said `allow`: such a tool can do nothing else. Anything else that has to
+  // ask has no way to, so it stops.
   const mustAsk = manifest.requiresApproval || action.decision === 'require_approval';
-  if (mustAsk && manifest.id !== 'email.send') throw new Refusal('APPROVAL_REQUIRED');
+  const asksPerson = manifest.connection !== undefined && changeNeedsApproval(manifest);
+  if (mustAsk && !asksPerson) throw new Refusal('APPROVAL_REQUIRED');
+
+  // A tool that works through a connection is decided by its manifest's rule, never by its name
+  // (ADR-038 D6). Every such tool's arguments carry `connection_id`, which its schema requires.
+  if (manifest.connection) {
+    const withConnection = manifest as ToolManifest & { connection: ConnectionRule };
+    const args = parsed.data as ConnectionArgs;
+    switch (manifest.class) {
+      case 'external_write':
+        return proposeChange(turn, withConnection, args);
+      case 'draft_only':
+        return recordDraft(turn, withConnection, args);
+      case 'read_only':
+        return requestSuiteRead(turn, withConnection, args);
+      default:
+        throw new Refusal('TOOL_UNKNOWN');
+    }
+  }
 
   // Resource ACL, class, then the gated effect, tool by tool.
   switch (manifest.id) {
@@ -497,8 +788,6 @@ async function runPipeline(turn: Turn, facts: ToolRunFacts): Promise<ToolHandleR
         turn,
         parsed.data as z.infer<typeof artifactDraftCreateArgsSchema>,
       );
-    case 'email.send':
-      return emailSend(turn, manifest, parsed.data as z.infer<typeof emailSendArgsSchema>);
     case 'agent.delegate':
       return agentDelegate(turn, facts, parsed.data as z.infer<typeof agentDelegateArgsSchema>);
     default:
@@ -527,6 +816,24 @@ function storedResult(proposal: { toolId: string; status: string; decisionCode: 
 const isWaiting = (proposal: StoredProposal) =>
   proposal.externalActionId !== null || proposal.status !== 'proposed';
 
+/**
+ * A suite read the gate passed and the connector worker may have answered. It has no intent, so M3 has
+ * nothing to say about it: it is collected from its own request instead (migration 0563).
+ */
+function pendingSuiteRead(
+  proposal: Pick<StoredProposal, 'toolId' | 'status' | 'externalActionId'>,
+) {
+  if (proposal.status !== 'running' || proposal.externalActionId !== null) return null;
+  const manifest = toolManifest(proposal.toolId);
+  if (!manifest?.connection || manifest.class !== 'read_only') return null;
+  return manifest as ToolManifest & { connection: ConnectionRule };
+}
+
+/** Collects a pending suite read, with every refusal and stop recorded as any other step's. */
+function collect(turn: Turn, manifest: ToolManifest & { connection: ConnectionRule }) {
+  return finishWithDecision(turn, () => collectSuiteRead(turn, manifest), 'running');
+}
+
 /** A refusal or a stop, in one fresh transaction. Whatever tried to happen has already rolled back. */
 async function recordEnd(
   turn: Turn,
@@ -534,6 +841,8 @@ async function recordEnd(
     outcome: 'denied' | 'stopped';
     code: AiReasonCode | null;
     auditAs?: string | undefined;
+    /** The status the proposal is in while this step can still end it. `running` only for a suite read. */
+    expect?: 'proposed' | 'running';
   },
 ): Promise<ToolHandleResult> {
   const { deps, context, step, proposal, stepId } = turn;
@@ -544,7 +853,7 @@ async function recordEnd(
     const decisionCode = closed ? closed.code : ending.code;
     const denied = outcome === 'denied';
     const locked = await deps.store.lockProposal(tx, proposal.id);
-    if (locked?.status !== 'proposed') return null;
+    if (locked?.status !== (ending.expect ?? 'proposed')) return null;
     await deps.store.moveProposal(tx, {
       proposalId: proposal.id,
       status: denied ? 'denied' : 'cancelled',
@@ -588,29 +897,44 @@ async function resume(turn: Turn): Promise<ToolHandleResult> {
     stepNumber: turn.step.stepNumber,
   });
   if (!current) return result('denied', 'POLICY_UNREADABLE');
-  return storedResult(current) ?? reconcile({ ...turn, proposal: current });
+  const settled = storedResult(current);
+  if (settled) return settled;
+  const suiteRead = pendingSuiteRead(current);
+  return suiteRead
+    ? collect({ ...turn, proposal: current }, suiteRead)
+    : reconcile({ ...turn, proposal: current });
 }
 
 async function finishWithDecision(
   turn: Turn,
   run: () => Promise<ToolHandleResult>,
+  expect: 'proposed' | 'running' = 'proposed',
 ): Promise<ToolHandleResult> {
   try {
     return await run();
   } catch (error) {
     if (error instanceof Refusal) {
-      return recordEnd(turn, { outcome: 'denied', code: error.code, auditAs: error.auditAs });
+      return recordEnd(turn, {
+        outcome: 'denied',
+        code: error.code,
+        auditAs: error.auditAs,
+        expect,
+      });
     }
-    if (error instanceof Stop) return recordEnd(turn, { outcome: 'stopped', code: error.code });
+    if (error instanceof Stop) {
+      return recordEnd(turn, { outcome: 'stopped', code: error.code, expect });
+    }
     if (error instanceof AlreadyHandled) return resume(turn);
     if (errorName(error) === 'TenantAccessDenied') {
-      return recordEnd(turn, { outcome: 'stopped', code: 'INITIATOR_INACTIVE' });
+      return recordEnd(turn, { outcome: 'stopped', code: 'INITIATOR_INACTIVE', expect });
     }
     const code = appErrorCode(error);
-    if (code === 'AI_HALTED') return recordEnd(turn, { outcome: 'stopped', code: 'HALTED' });
+    if (code === 'AI_HALTED') {
+      return recordEnd(turn, { outcome: 'stopped', code: 'HALTED', expect });
+    }
     const reason = typeof code === 'string' ? APP_ERROR_REASONS[code] : undefined;
     if (typeof code === 'string' && reason) {
-      return recordEnd(turn, { outcome: 'denied', code: reason, auditAs: code });
+      return recordEnd(turn, { outcome: 'denied', code: reason, auditAs: code, expect });
     }
     // Not a decision: the database went away, say. Nothing was committed, so the Activity's retry is safe.
     throw error;
@@ -797,6 +1121,8 @@ export function createToolGateway(deps: Deps): ToolGateway {
       if (!opened) return refuseUnrecorded(deps, context, step);
 
       const turn: Turn = { deps, context, step, proposal, stepId: opened.stepId };
+      const suiteRead = pendingSuiteRead(proposal);
+      if (suiteRead) return collect(turn, suiteRead);
       if (isWaiting(proposal)) return reconcile(turn);
       return finishWithDecision(turn, () => runPipeline(turn, facts));
     },

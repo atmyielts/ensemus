@@ -7,6 +7,14 @@ export const PLATFORM_TASK_QUEUE = 'ensemus-platform';
 export const CONNECTOR_TASK_QUEUE = 'ensemus-connectors';
 
 /**
+ * The code exchange holds a client secret and reaches the provider's token route, so it runs where every
+ * other credential does (ADR-038 D1). It is tried once: a code is single use, and a retry could only
+ * fail at the provider or, worse, look like a replay.
+ */
+export const OAUTH_EXCHANGE_TASK_QUEUE = CONNECTOR_TASK_QUEUE;
+export const OAUTH_EXCHANGE_MAX_ATTEMPTS = 1;
+
+/**
  * Model calls and tool steps (ADR-028 FD-2). Only agent-worker polls this, and only it holds the sealing
  * key, the agent database role and any route to a model. Workflow code stays on the platform queue.
  */
@@ -14,6 +22,13 @@ export const AGENT_TASK_QUEUE = 'ensemus-agent';
 
 /** A wake-up to look at `ai.run_controls`. It carries nothing: PostgreSQL has the answer. */
 export const AGENT_RUN_CONTROL_SIGNAL = 'agentRunControl';
+
+/**
+ * The agent run's suite read (ADR-038 D6): after the gate passes one, the workflow runs it on the connector
+ * queue and then collects it. A history written before this has no suite read, so it never reaches the
+ * branch, and the marker keeps any later change to that branch replay-safe.
+ */
+export const SUITE_READ_PATCH = 'agent-suite-read-v1';
 /** How often a workflow re-checks a send M3 is carrying out, on a durable timer. */
 export const TOOL_WAIT_POLL = '30 seconds';
 /** How long an Activity waits for agent-worker to pick it up before the run says so (FD-2). */

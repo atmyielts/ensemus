@@ -197,15 +197,36 @@ export const mcpConnectorConfigSchema = z.strictObject({
 });
 export type McpConnectorConfig = z.infer<typeof mcpConnectorConfigSchema>;
 
-/** What a sealed OAuth credential holds, inside a lease only. Never crosses a process in the clear. */
-export const oauthCredentialSchema = z.strictObject({
+/** Microsoft's directory, or absent for Google. Goes in a path, so it is held to this shape. */
+const credentialTenant = z
+  .string()
+  .regex(/^(?!\.+$)[A-Za-z0-9.-]{1,128}$/)
+  .optional();
+
+/** A customer's own app (ADR-038 D2): its client ID and secret are sealed with the token. */
+export const customerOauthCredentialSchema = z.strictObject({
   client_id: z.string().min(1).max(512),
   client_secret: z.string().min(1).max(2048),
   refresh_token: z.string().min(1).max(4096),
-  /** Microsoft's directory, or absent for Google. Goes in a path, so it is held to this shape. */
-  tenant: z
-    .string()
-    .regex(/^(?!\.+$)[A-Za-z0-9.-]{1,128}$/)
-    .optional(),
+  tenant: credentialTenant,
 });
+
+/**
+ * The operator's app (ADR-038 D2). Its secret lives only in the connector worker's configuration and
+ * never in a tenant's row, so the credential names the app and holds nothing of it.
+ */
+export const platformOauthCredentialSchema = z.strictObject({
+  client: z.literal('platform'),
+  refresh_token: z.string().min(1).max(4096),
+  tenant: credentialTenant,
+});
+
+/**
+ * What a sealed OAuth credential holds, inside a lease only. Never crosses a process in the clear. Both
+ * shapes are strict, so no credential can be read as the other.
+ */
+export const oauthCredentialSchema = z.union([
+  customerOauthCredentialSchema,
+  platformOauthCredentialSchema,
+]);
 export type OauthCredential = z.infer<typeof oauthCredentialSchema>;

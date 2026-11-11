@@ -63,6 +63,11 @@ services:
       ENSEMUS_PUBLIC_URL: ${ENSEMUS_PUBLIC_URL:-https://localhost:8443}
       ENSEMUS_ALLOW_SIGNUP: ${ENSEMUS_ALLOW_SIGNUP:-false}
       ENSEMUS_CONNECTORS_ENABLED: ${ENSEMUS_CONNECTORS_ENABLED:-false}
+      # The operator's own Google and Microsoft apps, by public client ID only, to build the consent URL
+      # (ADR-038 D2). Unset offers only an admin's own app. The secrets go to the connector worker alone.
+      # Providers send the admin back to ENSEMUS_PUBLIC_URL/api/v1/oauth/callback, which must be registered.
+      ENSEMUS_GOOGLE_CLIENT_ID: ${ENSEMUS_GOOGLE_CLIENT_ID:-}
+      ENSEMUS_MICROSOFT_CLIENT_ID: ${ENSEMUS_MICROSOFT_CLIENT_ID:-}
       # Billing is for a hosted mode that names it on, and a Sovereign deployment refuses to start with it
       # (ADR-032 D1). Off unless set, here and in the worker, which must agree.
       ENSEMUS_BILLING_ENABLED: ${ENSEMUS_BILLING_ENABLED:-false}
@@ -262,6 +267,13 @@ services:
       - postgres:${ENSEMUS_NETWORK_PREFIX:-172.30}.5.10
       - temporal:${ENSEMUS_NETWORK_PREFIX:-172.30}.5.11
       - egress-gateway:${ENSEMUS_NETWORK_PREFIX:-172.30}.5.12
+      - egress-google-api:${ENSEMUS_NETWORK_PREFIX:-172.30}.5.13
+      - egress-google-oauth:${ENSEMUS_NETWORK_PREFIX:-172.30}.5.14
+      - egress-ms-graph:${ENSEMUS_NETWORK_PREFIX:-172.30}.5.15
+      - egress-ms-login:${ENSEMUS_NETWORK_PREFIX:-172.30}.5.16
+      - egress-google-gmail:${ENSEMUS_NETWORK_PREFIX:-172.30}.5.17
+      - egress-google-docs:${ENSEMUS_NETWORK_PREFIX:-172.30}.5.18
+      - egress-google-sheets:${ENSEMUS_NETWORK_PREFIX:-172.30}.5.19
     environment:
       TEMPORAL_ADDRESS: temporal:7233
       TEMPORAL_NAMESPACE: default
@@ -273,6 +285,30 @@ services:
       # `none` is for a relay on a trusted site network, and only if an operator says so.
       ENSEMUS_SMTP_TLS: ${ENSEMUS_SMTP_TLS:-required}
       ENSEMUS_SMTP_MESSAGE_ID_DOMAIN: ${ENSEMUS_SMTP_MESSAGE_ID_DOMAIN:-ensemus.invalid}
+      # One gateway per provider route (ADR-038, ADR-029 D11). TLS names are fixed in code, so a gateway
+      # can only ever carry a request to the host its route names.
+      ENSEMUS_EGRESS_GOOGLE_API: egress-google-api:2525
+      ENSEMUS_EGRESS_GOOGLE_OAUTH: egress-google-oauth:2525
+      ENSEMUS_EGRESS_MS_GRAPH: egress-ms-graph:2525
+      ENSEMUS_EGRESS_MS_LOGIN: egress-ms-login:2525
+      # Suite tools for agents (ADR-038 D6). Gmail, Docs and Sheets have hosts of their own.
+      ENSEMUS_EGRESS_GOOGLE_GMAIL: egress-google-gmail:2525
+      ENSEMUS_EGRESS_GOOGLE_DOCS: egress-google-docs:2525
+      ENSEMUS_EGRESS_GOOGLE_SHEETS: egress-google-sheets:2525
+      # Connecting by consent (ADR-038 D1). The exchange names the same redirect URI the web tier did.
+      ENSEMUS_PUBLIC_URL: ${ENSEMUS_PUBLIC_URL:-https://localhost:8443}
+      # The domain in the Message-ID of mail agents send through Gmail or Outlook (ADR-038 D6). Empty
+      # means the host of ENSEMUS_PUBLIC_URL. A value that is not a host name stops the worker.
+      ENSEMUS_MAIL_ID_DOMAIN: ${ENSEMUS_MAIL_ID_DOMAIN:-}
+      # The operator's own apps (ADR-038 D2). Unset means none: an admin connects with their own app.
+      # The client ID comes from the same setting web reads, because the code exchange must name the app
+      # the consent URL named. The secret is a file an operator mounts with an overlay, and only this
+      # service ever reads it. A client ID with no secret stops this worker at start, rather than failing
+      # every connection later.
+      ENSEMUS_OAUTH_GOOGLE_CLIENT_ID: ${ENSEMUS_GOOGLE_CLIENT_ID:-}
+      ENSEMUS_OAUTH_GOOGLE_CLIENT_SECRET_FILE: ${ENSEMUS_OAUTH_GOOGLE_CLIENT_SECRET_FILE:-}
+      ENSEMUS_OAUTH_MICROSOFT_CLIENT_ID: ${ENSEMUS_MICROSOFT_CLIENT_ID:-}
+      ENSEMUS_OAUTH_MICROSOFT_CLIENT_SECRET_FILE: ${ENSEMUS_OAUTH_MICROSOFT_CLIENT_SECRET_FILE:-}
     secrets:
       - db_app_url
       - db_secrets_url
@@ -302,6 +338,149 @@ services:
       outbound: {}
     environment:
       ENSEMUS_EGRESS_TARGET: ${ENSEMUS_EGRESS_TARGET:-}
+    deploy:
+      resources: { limits: { memory: 128M } }
+
+  # Google Workspace and Microsoft 365 (ADR-038). One gateway per route, each with no target until an
+  # operator sets one, so an install that uses neither has no way out through them. The connector worker
+  # does not wait for them: a route whose gateway is not running fails that request with a code.
+  # The www.googleapis.com route. Same image, same rules: no secret, no database, one target, ciphertext only.
+  egress-google-api:
+    <<: *restart
+    profiles: ['connectors']
+    build:
+      context: ../..
+      dockerfile: infrastructure/containers/Dockerfile.worker
+    image: ${ENSEMUS_WORKER_IMAGE:-ensemus/worker:local}
+    command: ['node', 'dist/egress-gateway.js']
+    read_only: true
+    tmpfs: ['/tmp']
+    networks:
+      connectors: { ipv4_address: '${ENSEMUS_NETWORK_PREFIX:-172.30}.5.13' }
+      outbound: {}
+    environment:
+      # Empty refuses to start. www.googleapis.com:443, or a site's relay to it.
+      ENSEMUS_EGRESS_TARGET: ${ENSEMUS_EGRESS_GOOGLE_API_TARGET:-}
+    deploy:
+      resources: { limits: { memory: 128M } }
+
+  # The oauth2.googleapis.com route. Same image, same rules: no secret, no database, one target, ciphertext only.
+  egress-google-oauth:
+    <<: *restart
+    profiles: ['connectors']
+    build:
+      context: ../..
+      dockerfile: infrastructure/containers/Dockerfile.worker
+    image: ${ENSEMUS_WORKER_IMAGE:-ensemus/worker:local}
+    command: ['node', 'dist/egress-gateway.js']
+    read_only: true
+    tmpfs: ['/tmp']
+    networks:
+      connectors: { ipv4_address: '${ENSEMUS_NETWORK_PREFIX:-172.30}.5.14' }
+      outbound: {}
+    environment:
+      # Empty refuses to start. oauth2.googleapis.com:443, or a site's relay to it.
+      ENSEMUS_EGRESS_TARGET: ${ENSEMUS_EGRESS_GOOGLE_OAUTH_TARGET:-}
+    deploy:
+      resources: { limits: { memory: 128M } }
+
+  # The graph.microsoft.com route. Same image, same rules: no secret, no database, one target, ciphertext only.
+  egress-ms-graph:
+    <<: *restart
+    profiles: ['connectors']
+    build:
+      context: ../..
+      dockerfile: infrastructure/containers/Dockerfile.worker
+    image: ${ENSEMUS_WORKER_IMAGE:-ensemus/worker:local}
+    command: ['node', 'dist/egress-gateway.js']
+    read_only: true
+    tmpfs: ['/tmp']
+    networks:
+      connectors: { ipv4_address: '${ENSEMUS_NETWORK_PREFIX:-172.30}.5.15' }
+      outbound: {}
+    environment:
+      # Empty refuses to start. graph.microsoft.com:443, or a site's relay to it.
+      ENSEMUS_EGRESS_TARGET: ${ENSEMUS_EGRESS_MS_GRAPH_TARGET:-}
+    deploy:
+      resources: { limits: { memory: 128M } }
+
+  # The login.microsoftonline.com route. Same image, same rules: no secret, no database, one target, ciphertext only.
+  egress-ms-login:
+    <<: *restart
+    profiles: ['connectors']
+    build:
+      context: ../..
+      dockerfile: infrastructure/containers/Dockerfile.worker
+    image: ${ENSEMUS_WORKER_IMAGE:-ensemus/worker:local}
+    command: ['node', 'dist/egress-gateway.js']
+    read_only: true
+    tmpfs: ['/tmp']
+    networks:
+      connectors: { ipv4_address: '${ENSEMUS_NETWORK_PREFIX:-172.30}.5.16' }
+      outbound: {}
+    environment:
+      # Empty refuses to start. login.microsoftonline.com:443, or a site's relay to it.
+      ENSEMUS_EGRESS_TARGET: ${ENSEMUS_EGRESS_MS_LOGIN_TARGET:-}
+    deploy:
+      resources: { limits: { memory: 128M } }
+
+  # The gmail.googleapis.com route (ADR-038 D6). Same image, same rules: no secret, no database, one target, ciphertext only.
+  egress-google-gmail:
+    <<: *restart
+    profiles: ['connectors']
+    build:
+      context: ../..
+      dockerfile: infrastructure/containers/Dockerfile.worker
+    image: ${ENSEMUS_WORKER_IMAGE:-ensemus/worker:local}
+    command: ['node', 'dist/egress-gateway.js']
+    read_only: true
+    tmpfs: ['/tmp']
+    networks:
+      connectors: { ipv4_address: '${ENSEMUS_NETWORK_PREFIX:-172.30}.5.17' }
+      outbound: {}
+    environment:
+      # Empty refuses to start. gmail.googleapis.com:443, or a site's relay to it.
+      ENSEMUS_EGRESS_TARGET: ${ENSEMUS_EGRESS_GOOGLE_GMAIL_TARGET:-}
+    deploy:
+      resources: { limits: { memory: 128M } }
+
+  # The docs.googleapis.com route (ADR-038 D6). Same image, same rules: no secret, no database, one target, ciphertext only.
+  egress-google-docs:
+    <<: *restart
+    profiles: ['connectors']
+    build:
+      context: ../..
+      dockerfile: infrastructure/containers/Dockerfile.worker
+    image: ${ENSEMUS_WORKER_IMAGE:-ensemus/worker:local}
+    command: ['node', 'dist/egress-gateway.js']
+    read_only: true
+    tmpfs: ['/tmp']
+    networks:
+      connectors: { ipv4_address: '${ENSEMUS_NETWORK_PREFIX:-172.30}.5.18' }
+      outbound: {}
+    environment:
+      # Empty refuses to start. docs.googleapis.com:443, or a site's relay to it.
+      ENSEMUS_EGRESS_TARGET: ${ENSEMUS_EGRESS_GOOGLE_DOCS_TARGET:-}
+    deploy:
+      resources: { limits: { memory: 128M } }
+
+  # The sheets.googleapis.com route (ADR-038 D6). Same image, same rules: no secret, no database, one target, ciphertext only.
+  egress-google-sheets:
+    <<: *restart
+    profiles: ['connectors']
+    build:
+      context: ../..
+      dockerfile: infrastructure/containers/Dockerfile.worker
+    image: ${ENSEMUS_WORKER_IMAGE:-ensemus/worker:local}
+    command: ['node', 'dist/egress-gateway.js']
+    read_only: true
+    tmpfs: ['/tmp']
+    networks:
+      connectors: { ipv4_address: '${ENSEMUS_NETWORK_PREFIX:-172.30}.5.19' }
+      outbound: {}
+    environment:
+      # Empty refuses to start. sheets.googleapis.com:443, or a site's relay to it.
+      ENSEMUS_EGRESS_TARGET: ${ENSEMUS_EGRESS_GOOGLE_SHEETS_TARGET:-}
     deploy:
       resources: { limits: { memory: 128M } }
 

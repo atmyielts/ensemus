@@ -1,0 +1,17 @@
+# Live-run overlay for the Google Workspace and Microsoft 365 suites (docs/06-delivery/suites-live-run.md).
+# Only for a local stack against dedicated test tenants holding generated data. Never used in a deployment:
+# it turns on the operator-only live check and mounts client secrets from the ignored .local folder.
+services:
+  web:
+    environment:
+      ENSEMUS_CONNECTORS_ENABLED: 'true'
+  connector-worker:
+    environment:
+      # Lets `node dist/live-suite-check.js` run in this container. It still refuses any connection whose
+      # name does not start with "TEST ".
+      ENSEMUS_LIVE_CHECK: '1'
+      ENSEMUS_OAUTH_GOOGLE_CLIENT_SECRET_FILE: ${ENSEMUS_OAUTH_GOOGLE_CLIENT_SECRET_FILE:-/run/oauth/google_client_secret}
+      ENSEMUS_OAUTH_MICROSOFT_CLIENT_SECRET_FILE: ${ENSEMUS_OAUTH_MICROSOFT_CLIENT_SECRET_FILE:-/run/oauth/microsoft_client_secret}
+    volumes:
+      # Read only, and only this service. The files hold nothing but each app's client secret.
+      - ../../.local/secrets/oauth:/run/oauth:ro

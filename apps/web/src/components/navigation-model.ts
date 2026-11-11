@@ -276,15 +276,17 @@ export function workspaceNavigation(input: {
             `${base}/data`,
             `${base}/get-started`,
           ],
-          excludes: [`${base}/settings/agents`],
+          excludes: [`${base}/settings/agents`, `${base}/settings/connections`],
         },
       ],
     });
+  // Every member may connect their own mail and calendar (ADR-038 D5), so every member sees where.
+  const account: NavItem[] = isRole(role)
+    ? [{ href: `${base}/settings/connections`, label: 'My connections', icon: 'connections' }]
+    : [];
   if (can(role, 'support.use'))
-    groups.push({
-      label: 'Account',
-      items: [{ href: `${base}/account`, label: 'Account and support', icon: 'usage' }],
-    });
+    account.push({ href: `${base}/account`, label: 'Account and support', icon: 'usage' });
+  if (account.length > 0) groups.push({ label: 'Account', items: account });
   return groups;
 }
 

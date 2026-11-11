@@ -54,6 +54,11 @@ import {
   ORGANIZATION_EXPORT_REQUESTED,
 } from '@ensemus/domain/sovereign-events';
 import { TOMBSTONE_RECORDED } from '@ensemus/domain/tombstone-ledger';
+import {
+  AGGREGATE_OAUTH_AUTHORIZATION,
+  OAUTH_AUTHORIZATION_CODE_RECEIVED,
+  OAUTH_AUTHORIZATION_ENDED,
+} from '@ensemus/domain/workspace-suites';
 import { MODEL_JOB_REQUESTED, AGGREGATE_MODEL_JOB } from '@ensemus/domain/knowledge-models';
 import {
   knowledgeModelJobInputSchema,
@@ -114,9 +119,14 @@ import {
   connectorSyncWorkflowIdFor,
   externalActionInputSchema,
   externalActionWorkflowIdFor,
+  oauthExchangeInputSchema,
+  oauthExchangeWorkflowIdFor,
   organizationExportInputSchema,
   organizationExportWorkflowIdFor,
   reminderScheduleIdFor,
+  suiteUpkeepScheduleIdFor,
+  suiteUpkeepWorkflowIdFor,
+  tenantInputSchema,
   webhookDeliveryInputSchema,
   webhookWorkflowIdFor,
   workflowIdFor,
@@ -143,6 +153,11 @@ const IDLE_MS = 500;
 const REMINDER_INTERVAL = '15 minutes';
 /** How often a tenant's connector content is looked at. A revoke does not wait for this (ADR-029 D1). */
 const KNOWLEDGE_SWEEP_INTERVAL = '15 minutes';
+/**
+ * How often a tenant's consent attempts and directories are looked after (ADR-038 D1, D4). Ending an
+ * attempt does not wait for this, and a directory goes stale over a day, so this is well inside both.
+ */
+const SUITE_UPKEEP_INTERVAL = '15 minutes';
 /** One Temporal call may never hold up the signals behind it for longer than this. */
 const CALL_DEADLINE_MS = 10_000;
 /** How often to try checking the reminder schedules again if Temporal was down at startup. */
@@ -211,6 +226,21 @@ async function main() {
     } catch (error) {
       if (!(error instanceof ScheduleAlreadyRunning)) throw error;
     }
+    try {
+      await client.schedule.create({
+        scheduleId: suiteUpkeepScheduleIdFor(organizationId),
+        spec: { intervals: [{ every: SUITE_UPKEEP_INTERVAL }] },
+        policies: { overlap: ScheduleOverlapPolicy.SKIP },
+        action: {
+          type: 'startWorkflow',
+          workflowType: 'suiteUpkeepWorkflow',
+          args: [scheduleInput],
+          taskQueue: PLATFORM_TASK_QUEUE,
+        },
+      });
+    } catch (error) {
+      if (!(error instanceof ScheduleAlreadyRunning)) throw error;
+    }
   };
 
   /** A per-tenant schedule, carrying only the organization ID. Finding it there already is success. */
@@ -243,6 +273,7 @@ async function main() {
     for (const scheduleId of [
       reminderScheduleIdFor(organizationId),
       knowledgeSweepScheduleIdFor(organizationId),
+      suiteUpkeepScheduleIdFor(organizationId),
       billingScheduleIdFor(organizationId),
       retentionScheduleIdFor(organizationId),
     ]) {
@@ -414,6 +445,30 @@ async function main() {
             deliveryId: event.aggregateId,
           }),
           workflowIdFor: webhookWorkflowIdFor,
+        });
+        return;
+
+      // ADR-038 D1. A code is single use, so its exchange runs once, ever: a repeated event finds the
+      // first run, started or finished, and never sends the code again.
+      case OAUTH_AUTHORIZATION_CODE_RECEIVED:
+        if (event.aggregateType !== AGGREGATE_OAUTH_AUTHORIZATION) return;
+        await startOnce('oauthExchangeWorkflow', {
+          input: oauthExchangeInputSchema.parse({
+            organizationId: event.organizationId,
+            authorizationId: event.aggregateId,
+          }),
+          workflowIdFor: oauthExchangeWorkflowIdFor,
+        });
+        return;
+
+      // The web tier ended an attempt early. Its sealed values are revoked now, not at the next sweep. One
+      // run per attempt, so a repeated event finds it, started or finished.
+      case OAUTH_AUTHORIZATION_ENDED:
+        if (event.aggregateType !== AGGREGATE_OAUTH_AUTHORIZATION) return;
+        await startOnce('suiteUpkeepWorkflow', {
+          input: tenantInputSchema.parse({ organizationId: event.organizationId }),
+          workflowIdFor: (tenant) =>
+            suiteUpkeepWorkflowIdFor(tenant.organizationId, event.aggregateId),
         });
         return;
 

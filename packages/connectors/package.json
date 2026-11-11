@@ -12,8 +12,12 @@
     "./testing": "./src/testing/index.ts",
     "./knowledge": "./src/knowledge.ts",
     "./knowledge-manifests": "./src/knowledge-manifests.ts",
+    "./suites": "./src/suites.ts",
     "./provider-http": "./src/runtime/provider-http.ts",
+    "./provider-oauth": "./src/runtime/provider-oauth.ts",
     "./google": "./src/google/index.ts",
+    "./google/tools": "./src/google/tools.ts",
+    "./microsoft/tools": "./src/microsoft/tools.ts",
     "./microsoft": "./src/microsoft/index.ts",
     "./mcp": "./src/mcp/index.ts",
     "./payment": "./src/payment/index.ts"
