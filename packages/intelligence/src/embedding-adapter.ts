@@ -2,8 +2,10 @@
 // fallback, environment credential lookup or provider error text crosses this boundary.
 import { createOpenAI } from '@ai-sdk/openai';
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
+import { kindServesPurpose } from '@ensemus/domain/ai-providers';
 import { validEmbedding } from '@ensemus/domain/knowledge-models';
 import { failureOf, type WireState } from './adapters';
+import { geminiEmbeddingModel } from './adapters/gemini';
 import { EndpointRefused } from './net/errors';
 import type { AdapterCall, AdapterResult, AdapterUsage } from './types';
 
@@ -62,12 +64,29 @@ export function indexedEmbeddings(
     : null;
 }
 
+/**
+ * Gemini's protocol has no index on a row: embedContent answers one vector, and batchEmbedContents answers
+ * one per request in request order. So the count has to match exactly, and every vector has the size asked
+ * for, or nothing is taken.
+ */
+export function orderedEmbeddings(
+  vectors: unknown,
+  count: number,
+  dimension: number,
+): readonly (readonly number[])[] | null {
+  return Array.isArray(vectors) &&
+    vectors.length === count &&
+    vectors.every((vector) => validEmbedding(vector, dimension))
+    ? (vectors as readonly (readonly number[])[])
+    : null;
+}
+
 export function createEmbeddingAdapter(): EmbeddingAdapter {
   return {
     async embed(call, signal) {
       if (signal.aborted) return failed('cancelled', false);
       if (
-        call.providerKind === 'anthropic_hosted' ||
+        !kindServesPurpose(call.providerKind, 'embed') ||
         !Number.isInteger(call.dimension) ||
         call.dimension < 1 ||
         call.dimension > 8192 ||
@@ -105,8 +124,10 @@ export function createEmbeddingAdapter(): EmbeddingAdapter {
           fetch: once,
           ...(call.apiKey?.length ? { apiKey: call.apiKey.toString('utf8') } : {}),
         };
-        const model =
-          call.providerKind === 'openai_hosted'
+        const gemini = call.providerKind === 'gemini_hosted';
+        const model = gemini
+          ? geminiEmbeddingModel(call, once)
+          : call.providerKind === 'openai_hosted'
             ? createOpenAI(options).embeddingModel(call.modelId)
             : createOpenAICompatible({ ...options, name: 'compatible' }).embeddingModel(
                 call.modelId,
@@ -127,11 +148,9 @@ export function createEmbeddingAdapter(): EmbeddingAdapter {
           typeof tokens === 'number' && Number.isSafeInteger(tokens) && tokens >= 0
             ? { inputTokens: tokens, outputTokens: 0 }
             : null;
-        const vectors = indexedEmbeddings(
-          result.response?.body,
-          call.inputs.length,
-          call.dimension,
-        );
+        const vectors = gemini
+          ? orderedEmbeddings(result.embeddings, call.inputs.length, call.dimension)
+          : indexedEmbeddings(result.response?.body, call.inputs.length, call.dimension);
         if (!vectors || result.warnings.some((warning) => warning.type === 'unsupported'))
           return failed('malformed_response', true, usage);
         return { kind: 'embedded', vectors, usage };
