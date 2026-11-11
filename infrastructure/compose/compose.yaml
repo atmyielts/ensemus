@@ -309,6 +309,9 @@ services:
       ENSEMUS_OAUTH_GOOGLE_CLIENT_SECRET_FILE: ${ENSEMUS_OAUTH_GOOGLE_CLIENT_SECRET_FILE:-}
       ENSEMUS_OAUTH_MICROSOFT_CLIENT_ID: ${ENSEMUS_MICROSOFT_CLIENT_ID:-}
       ENSEMUS_OAUTH_MICROSOFT_CLIENT_SECRET_FILE: ${ENSEMUS_OAUTH_MICROSOFT_CLIENT_SECRET_FILE:-}
+      # Activities at once (worker-limits.ts). Whole number from 1 to 32; anything else stops the worker.
+      # Its database pool is this plus two, so raise PostgreSQL's max_connections with it.
+      ENSEMUS_CONNECTOR_ACTIVITY_SLOTS: ${ENSEMUS_CONNECTOR_ACTIVITY_SLOTS:-8}
     secrets:
       - db_app_url
       - db_secrets_url
@@ -569,11 +572,14 @@ services:
       TEMPORAL_NAMESPACE: default
       DATABASE_URL_APP_FILE: /run/secrets/db_app_url
       DATABASE_URL_DISPATCHER_FILE: /run/secrets/db_dispatcher_url
+      # The two M4 contributors fence and purge private transcripts, which only the agent role may do
+      # (ADR-026, ADR-028). Without it they stay unbound and report attention, so nobody is admitted.
+      DATABASE_URL_AGENT_FILE: /run/secrets/db_agent_url
       OBJECT_STORAGE_ENDPOINT: http://objects:8333
       OBJECT_STORAGE_BUCKET: ensemus
       OBJECT_STORAGE_ACCESS_KEY_FILE: /run/secrets/objects_access_key
       OBJECT_STORAGE_SECRET_KEY_FILE: /run/secrets/objects_secret_key
-    secrets: [db_app_url, db_dispatcher_url, objects_access_key, objects_secret_key]
+    secrets: [db_app_url, db_dispatcher_url, db_agent_url, objects_access_key, objects_secret_key]
 
   postgres:
     <<: *restart
@@ -655,6 +661,11 @@ services:
     image: temporalio/admin-tools@sha256:4a95866efba29d7e17ab012df5232795e8b0ad0f7d5f9d1ec4df321f7792a754
     entrypoint: ['/bin/sh', '/provision/setup-namespace.sh']
     networks: [temporal]
+    environment:
+      # How long a closed run's history stays (ADR-037 D6). Whole hours of at least 24, written <n>h. The
+      # job applies it to an existing namespace too, and refuses anything else before touching Temporal.
+      # A technical default, not a promise: no safety property depends on it.
+      ENSEMUS_TEMPORAL_RETENTION: ${ENSEMUS_TEMPORAL_RETENTION:-72h}
     extra_hosts:
       - temporal:${ENSEMUS_NETWORK_PREFIX:-172.30}.3.10
     volumes:

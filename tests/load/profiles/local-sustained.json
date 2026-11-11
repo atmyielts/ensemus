@@ -1,0 +1,6 @@
+{
+  "concurrencyPerTenant": 8,
+  "requestsPerTenant": 2000,
+  "workUnits": 100,
+  "requestTimeoutMs": 15000
+}

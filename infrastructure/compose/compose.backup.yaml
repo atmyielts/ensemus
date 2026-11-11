@@ -1,0 +1,171 @@
+# Scheduled PostgreSQL backups with WAL archiving, for point-in-time recovery (OPS-02, LIFE-02). An overlay, for
+# Cloud and for anyone who wants it; a default install does not change. docs/05-operations/11-postgres-backup-and-pitr.md
+# says how to run it, what each setting means and what it does not cover.
+#
+#   docker compose -f compose.yaml -f compose.backup.yaml up -d
+#   node infrastructure/scripts/pg-pitr-drill.mjs --record <new file> -f compose.yaml -f compose.backup.yaml
+#
+# Every number below is the operator's, and Compose refuses to start without it: LIFE-02 says numeric retention
+# defaults come from legal sign-off, not code, and how often to back up is a recovery-point decision for the
+# owner. The docs give examples, and they are only examples.
+#
+# Written and checked by unit tests on a machine without Docker. Nothing here has run in a container yet:
+# tests/stack/pg-backup.test.ts is the first run, and it is skipped unless ENSEMUS_TEST_BACKUP_OVERLAY=1.
+
+x-postgres-image: &postgres-image pgvector/pgvector:pg17@sha256:7d0a41464797aeb9862dfdc0bbf1526b82cfd324cdd8036df19e3545f4a9ccb8
+
+services:
+  # One-shot. A new volume's folder belongs to root, and PostgreSQL and the backup job run as postgres.
+  pg-backup-init:
+    image: *postgres-image
+    user: root
+    entrypoint:
+      - /bin/sh
+      - -c
+      - >-
+        mkdir -p /wal-archive /backups/base /backups/work /backups/state &&
+        chown postgres:postgres /wal-archive /backups /backups/base /backups/work /backups/state &&
+        chmod 700 /wal-archive /backups/base /backups/work
+    network_mode: none
+    volumes:
+      - pg-wal-archive:/wal-archive
+      - pg-backups:/backups
+
+  # The same server, with every finished WAL file copied to the archive volume. archive_timeout closes a quiet
+  # segment after this many seconds, which bounds how much a quiet hour can lose. The command replaces any
+  # other overlay's, compose.test.yaml's included.
+  postgres:
+    command:
+      - postgres
+      - -c
+      - wal_level=replica
+      - -c
+      - archive_mode=on
+      - -c
+      - archive_command=sh /backup-scripts/archive-wal.sh "%p" "%f"
+      - -c
+      - archive_timeout=${ENSEMUS_BACKUP_ARCHIVE_TIMEOUT_SECONDS:?set ENSEMUS_BACKUP_ARCHIVE_TIMEOUT_SECONDS (see 11-postgres-backup-and-pitr.md)}
+    volumes:
+      - pg-wal-archive:/wal-archive
+      - ./postgres/backup:/backup-scripts:ro
+    depends_on:
+      pg-backup-init: { condition: service_completed_successfully }
+
+  # Base backups on a schedule, each with its own WAL, verified against its manifest before it is named. It
+  # shares the server's network namespace and reaches it on 127.0.0.1, so it is on no network of its own.
+  pg-backup:
+    restart: unless-stopped
+    image: *postgres-image
+    user: postgres
+    entrypoint: ['/bin/bash', '/backup-scripts/base-backup.sh']
+    network_mode: service:postgres
+    read_only: true
+    tmpfs: ['/tmp']
+    environment:
+      PGHOST: 127.0.0.1
+      PGUSER: postgres
+      ENSEMUS_BACKUP_INTERVAL_SECONDS: ${ENSEMUS_BACKUP_INTERVAL_SECONDS:?set ENSEMUS_BACKUP_INTERVAL_SECONDS}
+      ENSEMUS_BACKUP_LOCAL_KEEP: ${ENSEMUS_BACKUP_LOCAL_KEEP:?set ENSEMUS_BACKUP_LOCAL_KEEP}
+      # `off` lets archived WAL go once no kept local backup needs it. `on` also waits for the offsite copy.
+      ENSEMUS_BACKUP_OFFSITE: ${ENSEMUS_BACKUP_OFFSITE:-on}
+    volumes:
+      - pg-wal-archive:/wal-archive
+      - pg-backups:/backups
+      - ./postgres/backup:/backup-scripts:ro
+    secrets: [db_superuser_password]
+    depends_on:
+      postgres: { condition: service_healthy }
+
+  # Copies the archive and finished backups to their own bucket, and never deletes from it. rclone is
+  # MIT-licensed, pinned by digest like every other image here (check:pins). To move it, change the digest
+  # in this file, after pulling and checking it.
+  pg-backup-offsite:
+    restart: unless-stopped
+    image: rclone/rclone:1.75.2@sha256:2687085f718d3c628f7fdfb77c52a1d344332aed543110bb88088f2c70d43eb5
+    entrypoint: ['/bin/sh', '/backup-scripts/offsite.sh']
+    command: ['ship']
+    read_only: true
+    tmpfs: ['/tmp']
+    networks: [data]
+    extra_hosts:
+      - objects:${ENSEMUS_NETWORK_PREFIX:-172.30}.2.12
+    environment:
+      ENSEMUS_BACKUP_BUCKET: ${ENSEMUS_BACKUP_BUCKET:-ensemus-backups}
+      ENSEMUS_BACKUP_OBJECT_ENDPOINT: ${ENSEMUS_BACKUP_OBJECT_ENDPOINT:-http://objects:8333}
+      ENSEMUS_BACKUP_SHIP_INTERVAL_SECONDS: ${ENSEMUS_BACKUP_SHIP_INTERVAL_SECONDS:?set ENSEMUS_BACKUP_SHIP_INTERVAL_SECONDS}
+    volumes:
+      - pg-wal-archive:/wal-archive:ro
+      - pg-backups:/backups
+      - pg-drill-fetch:/drill-fetch
+      - ./postgres/backup:/backup-scripts:ro
+    secrets: [objects_backup_access_key, objects_backup_secret_key]
+    depends_on:
+      pg-backup-init: { condition: service_completed_successfully }
+      objects: { condition: service_healthy }
+
+  # The drill's scratch server: a restored copy on its own empty data folder, never the live one. It reads the
+  # archive and backups read-only and archives nothing. pg-pitr-drill.mjs starts it, and removes it with its data.
+  pg-drill:
+    profiles: ['drill']
+    image: *postgres-image
+    user: root
+    entrypoint: ['/bin/bash', '/backup-scripts/restore-drill.sh']
+    networks:
+      data: { ipv4_address: '${ENSEMUS_NETWORK_PREFIX:-172.30}.2.20' }
+    environment:
+      ENSEMUS_DRILL_BACKUP_ID: ${ENSEMUS_DRILL_BACKUP_ID:-latest}
+      ENSEMUS_DRILL_SOURCE: ${ENSEMUS_DRILL_SOURCE:-local}
+      ENSEMUS_DRILL_TARGET_TIME: ${ENSEMUS_DRILL_TARGET_TIME:-}
+      ENSEMUS_DRILL_HOLD: '1'
+      # How long the drill waits for replay before it gives up. A tuning value, not a recovery-time objective.
+      ENSEMUS_DRILL_RECOVERY_TIMEOUT_SECONDS: ${ENSEMUS_DRILL_RECOVERY_TIMEOUT_SECONDS:-3600}
+    volumes:
+      - pg-wal-archive:/wal-archive:ro
+      - pg-backups:/backups:ro
+      - pg-drill-fetch:/drill-fetch:ro
+      - ./postgres/backup:/backup-scripts:ro
+      - /drill-data
+    secrets: [db_superuser_password]
+    healthcheck:
+      test: ['CMD', 'test', '-f', '/tmp/drill-ready']
+      interval: 5s
+      timeout: 3s
+      retries: 720
+      start_period: 10s
+
+  # restore-reconcile's report, against the scratch server: `postgres` resolves to pg-drill here, so the same
+  # URL secrets reach the restored copy and never the live one. The command is fixed to the report, which reads
+  # and counts and changes nothing, the ledger included. The drill script passes it no arguments.
+  restore-reconcile-drill:
+    profiles: ['drill']
+    image: ${ENSEMUS_WORKER_IMAGE:-ensemus/worker:local}
+    # Built or loaded locally with the rest of the stack, never pulled.
+    pull_policy: never
+    command: ['node', 'dist/restore-reconcile.js']
+    read_only: true
+    tmpfs: ['/tmp']
+    networks: [data, temporal]
+    extra_hosts:
+      - postgres:${ENSEMUS_NETWORK_PREFIX:-172.30}.2.20
+      - objects:${ENSEMUS_NETWORK_PREFIX:-172.30}.2.12
+      - temporal:${ENSEMUS_NETWORK_PREFIX:-172.30}.3.10
+    environment:
+      TEMPORAL_ADDRESS: temporal:7233
+      TEMPORAL_NAMESPACE: default
+      DATABASE_URL_APP_FILE: /run/secrets/db_app_url
+      DATABASE_URL_DISPATCHER_FILE: /run/secrets/db_dispatcher_url
+      OBJECT_STORAGE_ENDPOINT: http://objects:8333
+      OBJECT_STORAGE_BUCKET: ensemus
+      OBJECT_STORAGE_ACCESS_KEY_FILE: /run/secrets/objects_access_key
+      OBJECT_STORAGE_SECRET_KEY_FILE: /run/secrets/objects_secret_key
+    secrets: [db_app_url, db_dispatcher_url, objects_access_key, objects_secret_key]
+
+volumes:
+  pg-wal-archive:
+  pg-backups:
+  pg-drill-fetch:
+
+secrets:
+  # The backup bucket's own credential: read, write and list on that bucket only (see the docs).
+  objects_backup_access_key: { file: ../../.local/secrets/objects_backup_access_key }
+  objects_backup_secret_key: { file: ../../.local/secrets/objects_backup_secret_key }
