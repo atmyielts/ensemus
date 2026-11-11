@@ -23,6 +23,10 @@ services:
       # default install.
       ENSEMUS_ALLOW_SIGNUP: ${ENSEMUS_ALLOW_SIGNUP:-true}
       ENSEMUS_PRIVATE_MODEL_ENDPOINTS: http://fake-model:8000
+      # A generated public client ID for the deployment's own Google app, so a member's own consent can start
+      # (tests/stack/slice-2.test.ts). Web only: the connector worker keeps compose.yaml's empty default, so it
+      # needs no client secret, and no code is ever exchanged here. The live run's own value still wins.
+      ENSEMUS_GOOGLE_CLIENT_ID: ${ENSEMUS_GOOGLE_CLIENT_ID:-generated-test-client.apps.example.invalid}
       # The generated test trust root (ADR-030 D3), so signed documents can be checked and installed.
       # tests/stack/sovereign-api.test.ts signs with the key it names, which never enters a container.
       ENSEMUS_LICENSE_TRUST_ROOT_FILE: /run/secrets/license_trust_root
@@ -95,6 +99,7 @@ services:
       ENSEMUS_ALLOW_SIGNUP: ${ENSEMUS_ALLOW_SIGNUP:-true}
       ENSEMUS_CONNECTORS_ENABLED: ${ENSEMUS_CONNECTORS_ENABLED:-false}
       ENSEMUS_PRIVATE_MODEL_ENDPOINTS: http://fake-model:8000
+      ENSEMUS_GOOGLE_CLIENT_ID: ${ENSEMUS_GOOGLE_CLIENT_ID:-generated-test-client.apps.example.invalid}
       ENSEMUS_LICENSE_TRUST_ROOT_FILE: /run/secrets/license_trust_root
       # The same hosted-phase settings as web above, so both replicas answer alike.
       ENSEMUS_PAYMENT_PROCESSOR:
