@@ -1,7 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { getObjectType } from '@ensemus/application/custom-objects';
-import Link from 'next/link';
-import { PageHead, Empty } from '@/components/ui';
+import { PageHead, Empty, BackLink } from '@/components/ui';
 import { ObjectRecordForm } from '@/components/objects/record-form';
 import { requireTenant, orNotFound } from '@/server/tenant';
 export const metadata = { title: 'Create record | Ensemus' };
@@ -15,10 +14,12 @@ export default async function NewObjectRecord({
     type = await orNotFound(getObjectType(database, context, typeId));
   return (
     <>
-      <Link href={`/o/${organizationId}/objects/types/${type.id}`}>Back to {type.displayName}</Link>
+      <BackLink href={`/o/${organizationId}/objects/types/${type.id}`}>
+        Back to {type.displayName}
+      </BackLink>
       <PageHead
         title={`New ${type.displayName} record`}
-        description={`Schema version ${type.currentVersionNumber}. New records belong to you and cannot be less sensitive than this type.`}
+        description="The record will be yours. You choose who else can see it, within the limits of this type."
       />
       {type.state === 'active' ? (
         <ObjectRecordForm
@@ -29,7 +30,9 @@ export default async function NewObjectRecord({
           requestKey={randomUUID()}
         />
       ) : (
-        <Empty>This type has been archived. It cannot accept new records.</Empty>
+        <Empty title="This type is archived">
+          It no longer takes new records. Its existing records are still there to read.
+        </Empty>
       )}
     </>
   );

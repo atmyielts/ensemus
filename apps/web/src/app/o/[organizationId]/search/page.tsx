@@ -5,6 +5,14 @@ import { PageHead, Empty, ErrorNotice } from '@/components/ui';
 import { SubmitButton } from '@/components/submit-button';
 import { requireTenant } from '@/server/tenant';
 export const metadata = { title: 'Search the company | Ensemus' };
+const KIND: Record<string, string> = {
+  work_unit: 'Work',
+  client: 'Client',
+  project: 'Project',
+  person: 'Person',
+  team: 'Team',
+  document: 'Source passage',
+};
 export default async function SearchPage({
   params,
   searchParams,
@@ -25,47 +33,54 @@ export default async function SearchPage({
       })
     : [];
   return (
-    <>
+    <div className="stack">
       <PageHead
         title="Search the company"
-        description="Find work, people, teams, clients, projects and readable source passages."
+        description="Find work, people, teams, clients, projects and passages in documents. You only see what you are allowed to see."
       />
       <ErrorNotice code={error} />
-      <form method="get" className="card fields">
+      <form method="get" role="search" className="card inline-form company-search-form">
         <label>
           Search
-          <input type="search" name="q" required maxLength={200} defaultValue={q.slice(0, 200)} />
+          <input
+            type="search"
+            name="q"
+            required
+            maxLength={200}
+            defaultValue={q.slice(0, 200)}
+            placeholder="A name, a word or a phrase"
+          />
         </label>
-        <div className="row">
-          <SubmitButton>Search</SubmitButton>
-        </div>
+        <SubmitButton>Search</SubmitButton>
       </form>
-      {q.trim() && !hits.length ? (
-        <Empty>No matching records are available to you.</Empty>
-      ) : (
-        <div className="stack">
-          {hits.map((hit) => (
-            <article className="card" key={`${hit.kind}:${hit.id}`}>
-              <h2>
-                <Link href={hit.path}>{hit.title}</Link>
-              </h2>
-              <p className="muted">
-                {
-                  {
-                    work_unit: 'Work',
-                    client: 'Client',
-                    project: 'Project',
-                    person: 'Person',
-                    team: 'Team',
-                    document: 'Source passage',
-                  }[hit.kind]
-                }
+      {q.trim() &&
+        (!hits.length ? (
+          <Empty title="Nothing matches that search">
+            Try a shorter word, or part of a name. Results only include things you have access to.
+          </Empty>
+        ) : (
+          <section className="stack" aria-labelledby="results-heading">
+            <div className="section-heading">
+              <h2 id="results-heading">Results</h2>
+              <p>
+                {hits.length} {hits.length === 1 ? 'match' : 'matches'}
               </p>
-              {hit.excerpt && <p>{hit.excerpt}</p>}
-            </article>
-          ))}
-        </div>
-      )}
-    </>
+            </div>
+            <div className="card">
+              <ol className="list result-list">
+                {hits.map((hit) => (
+                  <li key={`${hit.kind}:${hit.id}`}>
+                    <div className="result-title">
+                      <Link href={hit.path}>{hit.title}</Link>
+                      <span className="badge tag">{KIND[hit.kind] ?? 'Record'}</span>
+                    </div>
+                    {hit.excerpt && <p className="result-snippet">{hit.excerpt}</p>}
+                  </li>
+                ))}
+              </ol>
+            </div>
+          </section>
+        ))}
+    </div>
   );
 }

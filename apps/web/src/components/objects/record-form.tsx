@@ -11,6 +11,8 @@ import {
   objectEditorPermalink,
   type ObjectEditorScope,
 } from '@/lib/object-editor';
+import { DescribedChoices } from '../knowledge-view';
+import { levelName, recordLevelChoices } from './record-levels';
 import { ObjectSignInHold } from './sign-in-hold';
 
 type RecordFormProps = { organizationId: string } & (
@@ -44,6 +46,20 @@ export function ObjectRecordForm(props: RecordFormProps) {
   const { typeId, fields, floor, requestKey, canLowerSensitivity = false } = props;
   const classes = ['public', 'internal', 'confidential', 'restricted'],
     value = (key: string, initial = '') => state.values?.[key] ?? initial;
+  // The levels this record may take. A type's minimum can be raised after a record was saved, so a record
+  // may sit below it; then its own level is not offered, and the most open allowed level is chosen for
+  // it, as the old dropdown did, with a sentence saying why.
+  const allowedLevels = classes.filter(
+    (_, i) =>
+      i >=
+      Math.max(
+        classes.indexOf(floor),
+        record && !canLowerSensitivity ? classes.indexOf(record.classification) : 0,
+      ),
+  );
+  const wanted = value('classification', record?.classification ?? 'restricted');
+  const belowFloor = Boolean(record) && !allowedLevels.includes(record?.classification ?? '');
+  const chosenLevel = allowedLevels.includes(wanted) ? wanted : (allowedLevels[0] ?? wanted);
   const contents = (
     <>
       <div tabIndex={-1} ref={notice}>
@@ -86,119 +102,110 @@ export function ObjectRecordForm(props: RecordFormProps) {
             defaultValue={value('displayName', record?.displayName)}
           />
         </label>
-        <label htmlFor={`${prefix}-class`}>
-          <span id={`${prefix}-class-label`}>Sensitivity</span>
-          <select
-            id={`${prefix}-class`}
-            aria-labelledby={`${prefix}-class-label`}
-            aria-describedby={`${prefix}-class-help`}
-            name="classification"
-            defaultValue={value('classification', record?.classification ?? 'restricted')}
-          >
-            {classes
-              .filter(
-                (_, i) =>
-                  i >=
-                  Math.max(
-                    classes.indexOf(floor),
-                    record && !canLowerSensitivity ? classes.indexOf(record.classification) : 0,
-                  ),
-              )
-              .map((c) => (
-                <option key={c} value={c}>
-                  {c[0]?.toUpperCase() + c.slice(1)}
-                </option>
-              ))}
-          </select>
-          <span className="muted" id={`${prefix}-class-help`}>
-            Restricted records are available only to their owner.{' '}
-            {record && !canLowerSensitivity
-              ? 'Your role can raise sensitivity. Lowering is limited to organization administrators who already have access.'
-              : 'Lowering is limited to organization administrators with access, requires identity confirmation, and cannot go below the type’s minimum.'}
-          </span>
-        </label>
-        {fields.map((f, index) => {
-          const fieldName = `attribute_${f.key}`,
-            fieldId = `${prefix}-attribute-${index}`,
-            raw =
-              record && Object.hasOwn(record.attributes, f.key)
-                ? record.attributes[f.key]
-                : undefined,
-            initial = raw === undefined || raw === null ? '' : String(raw),
-            current = value(fieldName, initial);
-          return (
-            <label key={f.key} htmlFor={fieldId}>
-              <span id={`${fieldId}-label`}>
-                {f.label}
-                {f.required ? ' (required)' : ''}
-              </span>
-              {f.kind === 'boolean' ? (
-                <select
-                  id={fieldId}
-                  aria-labelledby={`${fieldId}-label`}
-                  name={fieldName}
-                  required={f.required}
-                  defaultValue={current}
-                >
-                  <option value="">Not specified</option>
-                  <option value="true">Yes</option>
-                  <option value="false">No</option>
-                </select>
-              ) : f.kind === 'enum' ? (
-                <select
-                  id={fieldId}
-                  aria-labelledby={`${fieldId}-label`}
-                  name={fieldName}
-                  required={f.required}
-                  defaultValue={current}
-                >
-                  <option value="">Choose a value</option>
-                  {f.options?.map((o) => (
-                    <option key={o} value={o}>
-                      {o}
-                    </option>
-                  ))}
-                </select>
-              ) : f.kind === 'long_text' ? (
-                <textarea
-                  id={fieldId}
-                  aria-labelledby={`${fieldId}-label`}
-                  name={fieldName}
-                  required={f.required}
-                  maxLength={f.maxLength ?? 50000}
-                  rows={5}
-                  defaultValue={current}
-                />
-              ) : (
-                <input
-                  id={fieldId}
-                  aria-labelledby={`${fieldId}-label`}
-                  aria-describedby={f.kind === 'date' ? `${fieldId}-help` : undefined}
-                  name={fieldName}
-                  type={
-                    f.kind === 'number'
-                      ? 'number'
-                      : f.kind === 'email'
-                        ? 'email'
-                        : f.kind === 'url'
-                          ? 'url'
-                          : 'text'
-                  }
-                  step={f.kind === 'number' ? 'any' : undefined}
-                  maxLength={f.maxLength ?? 2000}
-                  required={f.required}
-                  defaultValue={current}
-                />
-              )}
-              {f.kind === 'date' && (
-                <span className="muted" id={`${fieldId}-help`}>
-                  Use YYYY-MM-DD or an ISO date and time with a timezone.
-                </span>
-              )}
-            </label>
-          );
-        })}
-        <SubmitButton working="Saving">{record ? 'Save record' : 'Create record'}</SubmitButton>
+        <DescribedChoices
+          id={`${prefix}-class`}
+          name="classification"
+          legend="Who can see this"
+          help={
+            belowFloor
+              ? `This record is less private than its type now asks for, so saving it raises it to at least ${levelName(allowedLevels[0] ?? floor)}.`
+              : !record
+                ? 'It can be more private than this type asks for, but not less.'
+                : !canLowerSensitivity
+                  ? 'You can make it more private. Only an administrator who can see it can make it less private.'
+                  : 'Making it less private asks you to confirm it is you, and it cannot go below what this type asks for.'
+          }
+          options={recordLevelChoices(allowedLevels)}
+          defaultValue={chosenLevel}
+        />
+        {fields.length > 0 && (
+          <div className="form-section">
+            {fields.map((f, index) => {
+              const fieldName = `attribute_${f.key}`,
+                fieldId = `${prefix}-attribute-${index}`,
+                raw =
+                  record && Object.hasOwn(record.attributes, f.key)
+                    ? record.attributes[f.key]
+                    : undefined,
+                initial = raw === undefined || raw === null ? '' : String(raw),
+                current = value(fieldName, initial);
+              return (
+                <label key={f.key} htmlFor={fieldId}>
+                  <span id={`${fieldId}-label`}>
+                    {f.label}
+                    {f.required ? ' (required)' : ''}
+                  </span>
+                  {f.kind === 'date' && (
+                    <small id={`${fieldId}-help`}>
+                      For example 2026-03-31, or a date and time with its time zone.
+                    </small>
+                  )}
+                  {f.kind === 'boolean' ? (
+                    <select
+                      id={fieldId}
+                      aria-labelledby={`${fieldId}-label`}
+                      name={fieldName}
+                      required={f.required}
+                      defaultValue={current}
+                    >
+                      <option value="">Not specified</option>
+                      <option value="true">Yes</option>
+                      <option value="false">No</option>
+                    </select>
+                  ) : f.kind === 'enum' ? (
+                    <select
+                      id={fieldId}
+                      aria-labelledby={`${fieldId}-label`}
+                      name={fieldName}
+                      required={f.required}
+                      defaultValue={current}
+                    >
+                      <option value="">Choose a value</option>
+                      {f.options?.map((o) => (
+                        <option key={o} value={o}>
+                          {o}
+                        </option>
+                      ))}
+                    </select>
+                  ) : f.kind === 'long_text' ? (
+                    <textarea
+                      id={fieldId}
+                      aria-labelledby={`${fieldId}-label`}
+                      name={fieldName}
+                      required={f.required}
+                      maxLength={f.maxLength ?? 50000}
+                      rows={5}
+                      defaultValue={current}
+                    />
+                  ) : (
+                    <input
+                      id={fieldId}
+                      aria-labelledby={`${fieldId}-label`}
+                      aria-describedby={f.kind === 'date' ? `${fieldId}-help` : undefined}
+                      name={fieldName}
+                      type={
+                        f.kind === 'number'
+                          ? 'number'
+                          : f.kind === 'email'
+                            ? 'email'
+                            : f.kind === 'url'
+                              ? 'url'
+                              : 'text'
+                      }
+                      step={f.kind === 'number' ? 'any' : undefined}
+                      maxLength={f.maxLength ?? 2000}
+                      required={f.required}
+                      defaultValue={current}
+                    />
+                  )}
+                </label>
+              );
+            })}
+          </div>
+        )}
+        <div className="row">
+          <SubmitButton working="Saving">{record ? 'Save record' : 'Create record'}</SubmitButton>
+        </div>
       </form>
     </>
   );

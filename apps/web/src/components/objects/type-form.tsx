@@ -9,6 +9,8 @@ import {
   objectEditorPermalink,
   type ObjectEditorScope,
 } from '@/lib/object-editor';
+import { DescribedChoices } from '../knowledge-view';
+import { recordLevelChoices } from './record-levels';
 import { ObjectSignInHold } from './sign-in-hold';
 import { OBJECT_LIMITS } from '@ensemus/domain/custom-object';
 import { SubmitButton } from '../submit-button';
@@ -74,7 +76,7 @@ export function ObjectTypeForm(props: TypeFormProps) {
       name = `field_${index}_`,
       base = `${prefix}-field-${index}`;
     return (
-      <fieldset className="fields" key={index}>
+      <fieldset className="object-part" key={index}>
         <legend>Field {index + 1}</legend>
         <label htmlFor={`${base}-label`}>
           Label
@@ -98,7 +100,9 @@ export function ObjectTypeForm(props: TypeFormProps) {
               readOnly={Boolean(f)}
             />
           </label>
-          <p className="muted">A stable key is generated from the label. Saved keys stay fixed.</p>
+          <p className="muted">
+            Ensemus makes a key from the label for you. Once saved, a key never changes.
+          </p>
         </details>
         <label htmlFor={`${base}-kind`}>
           Field type
@@ -116,7 +120,7 @@ export function ObjectTypeForm(props: TypeFormProps) {
           </select>
         </label>
         {f && <input type="hidden" name={name + 'kind'} value={value(name + 'kind', f.kind)} />}
-        <label>
+        <label className="check">
           <input
             type="checkbox"
             name={name + 'required'}
@@ -126,16 +130,21 @@ export function ObjectTypeForm(props: TypeFormProps) {
           />
           Required
         </label>
-        <label>
+        <label className="check">
           <input
             type="checkbox"
             name={name + 'indexed'}
             defaultChecked={state.values ? value(name + 'indexed') === 'on' : (f?.indexed ?? false)}
           />
-          Allow filtering (up to eight fields; long text cannot be filtered)
+          <span>
+            Allow filtering by this field
+            <br />
+            <small>Up to eight fields. Long text cannot be filtered.</small>
+          </span>
         </label>
         <label htmlFor={`${base}-options`}>
-          Choices, one per line (Choice fields only)
+          Choices, one per line
+          <small>Only for a Choice field.</small>
           <textarea
             id={`${base}-options`}
             name={name + 'options'}
@@ -162,7 +171,7 @@ export function ObjectTypeForm(props: TypeFormProps) {
       name = `relation_${index}_`,
       base = `${prefix}-relation-${index}`;
     return (
-      <fieldset className="fields" key={index}>
+      <fieldset className="object-part" key={index}>
         <legend>Relation {index + 1}</legend>
         <label htmlFor={`${base}-label`}>
           Relation label
@@ -185,7 +194,7 @@ export function ObjectTypeForm(props: TypeFormProps) {
               readOnly={Boolean(r)}
             />
           </label>
-          <p className="muted">A stable key is generated from the label.</p>
+          <p className="muted">Ensemus makes a key from the label for you.</p>
         </details>
         <label htmlFor={`${base}-target`}>
           Related type
@@ -288,47 +297,41 @@ export function ObjectTypeForm(props: TypeFormProps) {
                 </span>
               </label>
             </details>
-            <label htmlFor={`${prefix}-class`}>
-              Minimum sensitivity
-              <select
-                id={`${prefix}-class`}
-                name="classification"
-                aria-describedby={`${prefix}-class-help`}
-                defaultValue={value('classification', 'restricted')}
-              >
-                {['public', 'internal', 'confidential', 'restricted'].map((c) => (
-                  <option key={c} value={c}>
-                    {c[0]?.toUpperCase() + c.slice(1)}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <small className="muted" id={`${prefix}-class-help`}>
-              Every record keeps at least this protection. You can raise the minimum later; a lower
-              minimum needs a different record type.
-            </small>
+            <DescribedChoices
+              id={`${prefix}-class`}
+              name="classification"
+              legend="Who can see its records"
+              help="Every record of this type is at least this private. You can make it stricter later, but not looser."
+              options={recordLevelChoices(['public', 'internal', 'confidential', 'restricted'])}
+              defaultValue={value('classification', 'restricted')}
+            />
           </>
         )}
-        <p className="muted">
-          Add the fields your team needs. Saved fields keep their type and key; you can add fields
-          and choices later. Turn on filtering for the fields people will search.
-        </p>
-        {Array.from({ length: rows.fields }, (_, i) => field(i))}
-        {rows.relations > 0 && (
-          <section className="fields" aria-label="Connections to other records">
-            <h2>Connections to other records</h2>
-            <p className="muted">
-              Choose the other records this type can connect to. A connection keeps each record’s
-              access rules.
+        <section className="form-section" aria-labelledby={`${prefix}-fields-heading`}>
+          <div className="section-intro">
+            <h2 id={`${prefix}-fields-heading`}>Fields</h2>
+            <p>
+              The details your team fills in for each record. A saved field keeps its kind; you can
+              add fields and choices later. Allow filtering on the fields people look things up by.
             </p>
-            <div className="stack">
-              {Array.from({ length: rows.relations }, (_, i) => relation(i))}
+          </div>
+          {Array.from({ length: rows.fields }, (_, i) => field(i))}
+        </section>
+        {rows.relations > 0 && (
+          <section className="form-section" aria-labelledby={`${prefix}-relations-heading`}>
+            <div className="section-intro">
+              <h2 id={`${prefix}-relations-heading`}>Connections to other records</h2>
+              <p>
+                Choose the other kinds of record this type can connect to. Each record keeps its own
+                rules about who can see it.
+              </p>
             </div>
+            {Array.from({ length: rows.relations }, (_, i) => relation(i))}
           </section>
         )}
         <div className="row">
           <SubmitButton name="intent" value="save" working="Saving">
-            {type ? 'Save a new version' : 'Create type'}
+            {type ? 'Save a new version' : 'Create record type'}
           </SubmitButton>
           {rows.fields < OBJECT_LIMITS.maxFields && (
             <SubmitButton

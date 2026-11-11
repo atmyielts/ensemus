@@ -1,7 +1,14 @@
 import { AppError } from '@ensemus/application';
 import { listFacts } from '@ensemus/application/knowledge/facts';
 import Link from 'next/link';
-import { PageHead, Empty, ErrorNotice, ClassificationBadge, StatusBadge } from '@/components/ui';
+import {
+  PageHead,
+  Empty,
+  ErrorNotice,
+  ClassificationBadge,
+  StatusBadge,
+  ActionLink,
+} from '@/components/ui';
 import { requireTenant } from '@/server/tenant';
 export const metadata = { title: 'Company facts | Ensemus' };
 export default async function FactsPage({
@@ -22,45 +29,57 @@ export default async function FactsPage({
     error = 'INVALID_INPUT';
     return listFacts(database, context, {});
   });
+  const search = `/o/${organizationId}/knowledge/search`,
+    empty = !page.items.length;
   return (
     <>
       <PageHead
         title="Company facts"
-        description="Claims supported by source passages. Only verified, current facts can be treated as trusted knowledge."
-        actions={
-          <Link className="button" href={`/o/${organizationId}/knowledge/search`}>
-            Propose from a passage
-          </Link>
-        }
+        description="Short statements, such as a deadline or a contact, each backed by a passage from your documents. A fact is trusted once a second person has checked it."
+        actions={empty ? undefined : <ActionLink href={search}>Propose from a passage</ActionLink>}
       />
       <ErrorNotice code={error} />
-      {!page.items.length ? (
-        <Empty>No facts are available to you. Find a source passage to propose one.</Empty>
+      {empty ? (
+        <Empty title="No facts yet" action={<ActionLink href={search}>Find a passage</ActionLink>}>
+          Every fact starts from a passage in one of your documents. Find the passage, then propose
+          the fact from it.
+        </Empty>
       ) : (
-        <div className="stack">
-          {page.items.map((fact) => (
-            <article className="card" key={fact.id}>
-              <h2>
-                <Link href={`/o/${organizationId}/knowledge/facts/${fact.id}`}>
-                  {typeof fact.claim === 'string' ? fact.claim : 'Structured claim'}
-                </Link>
-              </h2>
-              <div className="row">
-                <StatusBadge status={fact.trustState} />
-                <ClassificationBadge value={fact.classification} />
-              </div>
-              <p className="muted">
-                {fact.origin === 'model' ? 'Proposed by an assistant' : 'Proposed by a person'} ·{' '}
-                {fact.evidence.length} source {fact.evidence.length === 1 ? 'passage' : 'passages'}
-              </p>
-              {fact.evidence.some((e) => e.stale) && (
-                <p>A source has a newer version. Review the supporting passage.</p>
-              )}
-            </article>
-          ))}
-        </div>
+        <section className="card" aria-labelledby="facts-heading">
+          <h2 id="facts-heading" className="visually-hidden">
+            Facts
+          </h2>
+          <ul className="list">
+            {page.items.map((fact) => (
+              <li key={fact.id}>
+                <div>
+                  <Link href={`/o/${organizationId}/knowledge/facts/${fact.id}`}>
+                    {typeof fact.claim === 'string' ? fact.claim : 'Structured claim'}
+                  </Link>
+                  <br />
+                  <small>
+                    {fact.origin === 'model' ? 'Proposed by an assistant' : 'Proposed by a person'}{' '}
+                    · backed by {fact.evidence.length}{' '}
+                    {fact.evidence.length === 1 ? 'passage' : 'passages'}
+                    {fact.evidence.some((e) => e.stale) && (
+                      <> · A document has a newer version. Check the passage again.</>
+                    )}
+                  </small>
+                </div>
+                <div className="row">
+                  <ClassificationBadge value={fact.classification} />
+                  <StatusBadge status={fact.trustState} />
+                </div>
+              </li>
+            ))}
+          </ul>
+        </section>
       )}
-      {page.next && <Link href={`?cursor=${encodeURIComponent(page.next)}`}>More facts</Link>}
+      {page.next && (
+        <p className="link-line">
+          <Link href={`?cursor=${encodeURIComponent(page.next)}`}>More facts</Link>
+        </p>
+      )}
     </>
   );
 }
