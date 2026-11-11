@@ -1490,7 +1490,14 @@ details.confirm > summary:hover {
 details.confirm[open] {
   flex-basis: 100%;
 }
+/* A confirmation can repeat a long address or name; it shrinks with its row and breaks such words,
+   rather than setting a minimum width wider than a phone. */
+details.confirm {
+  min-width: 0;
+  max-width: 100%;
+}
 details.confirm > form {
+  overflow-wrap: anywhere;
   margin-top: var(--space-3);
   padding: var(--space-4) var(--space-5);
   border-radius: var(--radius-small);
@@ -2219,6 +2226,7 @@ dl.approval-pairs dt {
   overflow-wrap: anywhere;
 }
 .person-access {
+  min-width: 0;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
