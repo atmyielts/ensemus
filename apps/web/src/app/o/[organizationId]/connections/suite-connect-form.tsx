@@ -71,7 +71,7 @@ export function SuiteConnectForm({
               <span>
                 {capability.label}. {capability.description}
                 <br />
-                <small className="muted">
+                <small className="muted technical-reference">
                   {providerName} will ask you to allow: {capability.scopes.join(', ')}
                 </small>
               </span>
@@ -107,7 +107,8 @@ export function SuiteConnectForm({
         <fieldset className="group">
           <legend>Only for your own app</legend>
           <p className="muted">
-            Register this address as the redirect address in your app: <code>{redirectUri}</code>
+            Register this address as the redirect address in your app:{' '}
+            <code className="technical-reference">{redirectUri}</code>
           </p>
           <label htmlFor={`${prefix}-client-id`}>Client ID</label>
           <input

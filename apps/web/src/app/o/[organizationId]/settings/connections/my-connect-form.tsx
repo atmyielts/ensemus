@@ -64,7 +64,7 @@ export function MyConnectForm({
               <span>
                 {capability.label}. {capability.description}
                 <br />
-                <small className="muted">
+                <small className="muted technical-reference">
                   {providerName} will ask you to allow: {capability.scopes.join(', ')}
                 </small>
               </span>
