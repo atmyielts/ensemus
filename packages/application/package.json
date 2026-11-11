@@ -31,6 +31,7 @@
     "./suite-connections": "./src/suite-connections.ts",
     "./suite-reads": "./src/suite-reads.ts",
     "./suite-settings": "./src/suite-settings.ts",
+    "./suite-live-check": "./src/suite-live-check.ts",
     "./knowledge/ports": "./src/knowledge/ports.ts",
     "./knowledge/model-jobs": "./src/knowledge/model-jobs.ts",
     "./knowledge/sources": "./src/knowledge/sources.ts",

@@ -29,6 +29,7 @@ import {
 import { and, eq, inArray, lt, sql } from 'drizzle-orm';
 import {
   diffMembers,
+  directoryEmail,
   directoryGraphOf,
   directoryTeamName,
   flattenDirectoryGroup,
@@ -85,6 +86,25 @@ async function membershipsByEmail(
     for (const row of rows) found.set(row.email, row.membershipId);
   }
   return found;
+}
+
+/**
+ * The worker's service context only. How many of these addresses belong to an active membership here,
+ * compared exactly as a directory pass compares them. For the operator's live suite check, which reports
+ * the count and nothing about who.
+ */
+export async function countDirectoryMatches(
+  database: AppDatabase,
+  context: TenantContext,
+  emails: readonly string[],
+): Promise<number> {
+  requireWorker(context);
+  const unique = [...new Set(emails.flatMap((email) => directoryEmail(email) ?? []))];
+  if (unique.length === 0) return 0;
+  return withTenantTx(database, context, async (tx) => {
+    const found = await membershipsByEmail(tx, context, unique);
+    return found.size;
+  });
 }
 
 /**
