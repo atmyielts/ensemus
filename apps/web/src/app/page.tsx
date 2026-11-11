@@ -34,19 +34,23 @@ const RESPONSIBILITY: Record<CommercialMode, { name: string; points: string[] }>
   sovereign: {
     name: 'Ensemus Sovereign',
     points: [
-      'Your organization runs this deployment on infrastructure it controls, including the database, the file storage and the AI models.',
-      'It does not rely on services hosted by Ensemus to keep running. Diagnostics leave only if you choose to send them.',
-      'Your organization is responsible for operating, securing and backing up this deployment, and for what its models cost.',
+      'Your organization runs Ensemus on infrastructure it controls, including the database, the file storage and the AI models.',
+      'It keeps running without any service hosted by Ensemus. Diagnostic reports leave only if you choose to send them.',
+      'Your organization is responsible for operating, securing and backing up this installation, and for what its AI models cost.',
     ],
   },
 };
 
-const ROLE_LABEL: Record<string, string> = { owner: 'Owner', admin: 'Admin', member: 'Member' };
+const ROLE_LABEL: Record<string, string> = {
+  owner: 'You are an owner',
+  admin: 'You are an admin',
+  member: 'You are a member',
+};
 
 function Account({ email }: { email: string }) {
   return (
     <div className="account-bar">
-      <span>{email}</span>
+      <span>Signed in as {email}</span>
       <form action={signOutAction}>
         <button className="link" type="submit">
           Sign out
@@ -87,12 +91,29 @@ export default async function HomePage({
   if (only) {
     return (
       <Page actor={actor}>
-        <h1>Your organizations</h1>
-        <ul className="list">
+        <h1 id="organizations-heading">Your organizations</h1>
+        <p className="lede">
+          An organization is the shared space for one company: its work, people and approvals.
+          Choose the one you want to open.
+        </p>
+        <ul
+          className="destination-list organization-choices"
+          aria-labelledby="organizations-heading"
+        >
           {organizations.map((organization) => (
             <li key={organization.id}>
-              <Link href={`/o/${organization.id}`}>{organization.name}</Link>
-              <span className="badge">{ROLE_LABEL[organization.role] ?? organization.role}</span>
+              <Link className="destination-row" href={`/o/${organization.id}`}>
+                <span className="destination-icon organization-initial" aria-hidden="true">
+                  {Array.from(organization.name.trim())[0]?.toUpperCase() ?? ''}
+                </span>
+                <span className="destination-copy">
+                  <strong>{organization.name}</strong>
+                  <span>{ROLE_LABEL[organization.role] ?? organization.role}</span>
+                </span>
+                <span className="destination-arrow" aria-hidden="true">
+                  →
+                </span>
+              </Link>
             </li>
           ))}
         </ul>
@@ -105,9 +126,9 @@ export default async function HomePage({
   return (
     <Page actor={actor}>
       <h1>Set up your organization</h1>
-      <p className="muted">
-        Your organization is where your work, people and approvals live. You can invite people as
-        soon as it exists.
+      <p className="lede">
+        An organization is your company’s shared space in Ensemus. Your work, people and approvals
+        live there, and you can invite colleagues as soon as it exists.
       </p>
       {error === 'name' ? (
         <p className="notice error" role="alert">
@@ -131,10 +152,12 @@ export default async function HomePage({
         </label>
         <section className="panel" aria-labelledby="responsibility-heading">
           <h2 id="responsibility-heading">Who is responsible for your data</h2>
-          <p>This deployment is {responsibility.name}.</p>
-          {responsibility.points.map((point) => (
-            <p key={point}>{point}</p>
-          ))}
+          <p>You are using {responsibility.name}.</p>
+          <ul className="responsibility-points">
+            {responsibility.points.map((point) => (
+              <li key={point}>{point}</li>
+            ))}
+          </ul>
           <p>
             AI features are not active yet, so nothing in your organization is sent to an AI model
             today.

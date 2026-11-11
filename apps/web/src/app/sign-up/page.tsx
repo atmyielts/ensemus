@@ -22,6 +22,10 @@ export default async function SignUpPage({
       <Wordmark />
       <div className="sheet">
         <h1>Create your account</h1>
+        <p className="lede">
+          Your account is how you sign in. Next, you set up your organization or accept an
+          invitation to join one.
+        </p>
         {error && (
           <p className="notice error" role="alert">
             {error === 'rate'
@@ -48,16 +52,18 @@ export default async function SignUpPage({
               minLength={12}
               required
             />
-            <small>At least 12 characters.</small>
+            <small>At least 12 characters. A short sentence is easy to remember.</small>
           </label>
           <div>
             <SubmitButton working="Creating your account">Create account</SubmitButton>
           </div>
         </form>
       </div>
-      <p className="below-sheet">
-        Already have an account? <Link href={withReturnPath('/sign-in', next)}>Sign in</Link>
-      </p>
+      <ul className="sheet-links" aria-label="Other ways in">
+        <li>
+          Already have an account? <Link href={withReturnPath('/sign-in', next)}>Sign in</Link>
+        </li>
+      </ul>
     </main>
   );
 }

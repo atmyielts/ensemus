@@ -26,14 +26,17 @@ export default async function SsoSignInPage({
       <Wordmark />
       <div className="sheet">
         <h1>Sign in through your company</h1>
-        <p>Enter your work email to continue with your company’s identity provider.</p>
+        <p className="lede">
+          Enter your work email. We take you to your company’s own sign-in page, then bring you back
+          here.
+        </p>
         {query.error && (
           <p className="notice error" role="alert">
             {query.error === 'rate'
-              ? 'Too many attempts. Wait a minute before trying again.'
+              ? 'Too many attempts from here. Wait a minute, then try again.'
               : query.error === 'connect'
-                ? 'We could not connect company sign-in. Check your password, or sign in again before trying. Your administrator may need to check your company access.'
-                : 'Company sign-in could not be completed. Check your work email or ask your company administrator.'}
+                ? 'We could not connect company sign-in to this account. Check your password, or sign in again, then try once more. If it still does not work, ask your company administrator to check your access.'
+                : 'Company sign-in could not be completed. Check your work email, or ask your company administrator for help.'}
           </p>
         )}
         <form className="fields" action={startSsoSignInAction}>
@@ -50,8 +53,9 @@ export default async function SsoSignInPage({
           <section aria-labelledby="connect-company-heading" className="stack">
             <h2 id="connect-company-heading">Connect company sign-in to this account</h2>
             <p>
-              Already use this Ensemus account? Confirm that you want your company identity provider
-              to sign you in as {current.user.email}. Your name and email stay the same.
+              Want to use company sign-in for the account you are signed in to now? Confirm below,
+              and your company will sign you in as {current.user.email} from now on. Your name and
+              email stay the same.
             </p>
             <form className="fields" action={startSsoSelfLinkAction}>
               {next && <input type="hidden" name="next" value={next} />}
@@ -66,8 +70,8 @@ export default async function SsoSignInPage({
                 />
               </label>
               <p className="muted" id="connect-password-help">
-                Enter your password if this account has one. If you use another identity provider
-                instead, verify with it again within the last five minutes.
+                Enter your password if this account has one. If you sign in another way, sign in
+                that way again first. It counts for five minutes.
               </p>
               <label className="check">
                 <input type="checkbox" name="consent" value="yes" required />I want to connect
@@ -80,12 +84,19 @@ export default async function SsoSignInPage({
           </section>
         )}
       </div>
-      <p className="below-sheet">
-        <Link href={withReturnPath('/sign-in', next)}>Sign in with a password</Link>
-        {!current && (
-          <> to connect company sign-in to an existing account. Then return to this page.</>
+      <ul className="sheet-links" aria-label="Other ways in">
+        {current ? (
+          <li>
+            <Link href={withReturnPath('/sign-in', next)}>Sign in with a password instead</Link>
+          </li>
+        ) : (
+          <li>
+            Want company sign-in on an account you already have?{' '}
+            <Link href={withReturnPath('/sign-in', next)}>Sign in with a password</Link> first, then
+            come back to this page.
+          </li>
         )}
-      </p>
+      </ul>
     </main>
   );
 }

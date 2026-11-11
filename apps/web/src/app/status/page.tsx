@@ -7,9 +7,9 @@ export const dynamic = 'force-dynamic';
 export const metadata = { title: 'Service status | Ensemus' };
 const origins = {
   ensemus: 'Ensemus',
-  model_provider: 'Model provider',
-  connector_provider: 'Connected service provider',
-  unknown: 'Cause not yet confirmed',
+  model_provider: 'AI model service',
+  connector_provider: 'A connected service',
+  unknown: 'Cause not confirmed yet',
 };
 const states = {
   investigating: 'Investigating',
@@ -18,10 +18,10 @@ const states = {
   resolved: 'Resolved',
 };
 const headlines = {
-  operational: 'No open published incidents',
-  provider_degraded: 'A provider is experiencing problems',
-  degraded: 'Ensemus is experiencing problems',
-  unknown: 'Status not fully confirmed',
+  operational: 'No known problems right now',
+  provider_degraded: 'A service Ensemus relies on is having problems',
+  degraded: 'Ensemus is having problems',
+  unknown: 'We could not confirm the current status',
 };
 export default async function Status() {
   let page: StatusPage;
@@ -82,7 +82,7 @@ export default async function Status() {
       <div className="sheet stack">
         <PageHead
           title="Service status"
-          description="Published service incidents and updates. Provider incidents identify whose service is affected."
+          description="Problems we know about, and what is being done about them. When the cause is a service Ensemus relies on, this page says which."
           actions={<Link href="/security">Security and reporting</Link>}
         />
         <section className="stack" aria-labelledby="current-status">
@@ -93,8 +93,8 @@ export default async function Status() {
             </p>
           ) : (
             <p>
-              This view reflects published incidents. It does not measure uptime or guarantee
-              availability.
+              This page lists the problems that have been published. It does not measure uptime or
+              promise availability.
             </p>
           )}
           {page.open.length > 0 && history(page.open)}
@@ -104,12 +104,12 @@ export default async function Status() {
           {page.recent.length ? (
             history(page.recent)
           ) : (
-            <Empty>No resolved incidents to show.</Empty>
+            <Empty>Nothing has been resolved recently. Past problems appear here once fixed.</Empty>
           )}
         </section>
         <nav className="row" aria-label="Status links">
           <Link href="/status">Refresh status</Link>
-          <Link href="/">Your organizations</Link>
+          <Link href="/">Go to your organizations</Link>
         </nav>
       </div>
     </main>
