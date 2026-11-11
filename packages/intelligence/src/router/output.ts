@@ -31,6 +31,23 @@ function holdsSecret(text: string, canaries: readonly string[]): boolean {
   return scanForSecrets([{ id: 'output', text }], canaries).hits.length > 0;
 }
 
+/**
+ * Markup that makes whatever shows it fetch an address on its own, before anyone clicks: a markdown image,
+ * and the HTML elements that load. A model told by a document to "add this image" can put anything it has
+ * read into the address, and the first renderer that shows the text sends it there. Ensemus shows model text
+ * as text, but drafts, messages and documents leave Ensemus for places that render it. A plain link is not
+ * matched: it waits for a person, who can see where it goes. Every repeat is bounded, so this stays linear.
+ */
+const FETCHES_ON_DISPLAY: readonly RegExp[] = [
+  // ![alt](https://host/...) or ![alt](//host/...). A relative address stays on the reader's own site.
+  /!\[[^\]\n]{0,2000}\]\(\s{0,8}<?\s{0,8}(?:[a-z][a-z0-9+.-]{0,20}:)?\/\//i,
+  // ![alt][ref], whose address is defined somewhere else in the text.
+  /!\[[^\]\n]{0,2000}\]\[[^\]\n]{0,200}\]/,
+  /<\s{0,8}(?:img|image|iframe|frame|script|link|object|embed|video|audio|source|track|style)\b/i,
+];
+
+const fetchesOnDisplay = (text: string) => FETCHES_ON_DISPLAY.some((pattern) => pattern.test(text));
+
 export function checkOutput(
   result: Exclude<AdapterResult, { kind: 'failure' }>,
   tools: readonly AdapterTool[],
@@ -51,6 +68,8 @@ export function checkOutput(
     if (args !== undefined && holdsSecret(args, canaries)) {
       return { ok: false, decisionCode: 'SECRET_FOUND_IN_PAYLOAD' };
     }
+    // Arguments become a message, a document or a draft somewhere that may render them.
+    if (args !== undefined && fetchesOnDisplay(args)) return INVALID;
     return { ok: true };
   }
 
@@ -58,6 +77,7 @@ export function checkOutput(
   if (holdsSecret(result.text, canaries)) {
     return { ok: false, decisionCode: 'SECRET_FOUND_IN_PAYLOAD' };
   }
+  if (fetchesOnDisplay(result.text)) return INVALID;
   if (schema) {
     let parsed: unknown;
     try {
