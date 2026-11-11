@@ -136,6 +136,11 @@ export const securityPolicies = orgSchema.table(
     mfaForAdministration: boolean().notNull().default(false),
     mfaMaxAgeSeconds: integer().notNull(),
     ssoEnforcement: text().notNull().default('optional'),
+    /**
+     * Migration 0712, ADR-029 D2 addendum. Off by default. When on, a provider's share with a domain this
+     * organization verified reaches its active members with a verified email in that domain.
+     */
+    knowledgeDomainGrants: boolean().notNull().default(false),
     version: bigint({ mode: 'number' }).notNull().default(1),
     updatedByMembershipId: uuid(),
     updatedAt: updatedAt(),

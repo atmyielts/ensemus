@@ -855,6 +855,27 @@
       "when": 1794201807523,
       "tag": "0565_suite_review_fixes",
       "breakpoints": true
+    },
+    {
+      "idx": 122,
+      "version": "7",
+      "when": 1794201807524,
+      "tag": "0710_knowledge_scan_states",
+      "breakpoints": true
+    },
+    {
+      "idx": 123,
+      "version": "7",
+      "when": 1794201807525,
+      "tag": "0711_knowledge_vector_index",
+      "breakpoints": true
+    },
+    {
+      "idx": 124,
+      "version": "7",
+      "when": 1794201807526,
+      "tag": "0712_knowledge_domain_grants",
+      "breakpoints": true
     }
   ]
 }

@@ -34,9 +34,31 @@ export const DOCUMENT_TRANSITIONS: Readonly<Record<DocumentState, readonly Docum
 export const EMBEDDING_STATES = ['pending', 'embedding', 'embedded', 'denied', 'failed'] as const;
 export type EmbeddingState = (typeof EMBEDDING_STATES)[number];
 
-/** `not_scanned` is honest: no scanner ships yet, and nothing here claims one ran (ADR-029 D4). */
-export const SCAN_STATES = ['not_scanned', 'clean', 'flagged'] as const;
+/**
+ * A malware check of a document's original bytes (ADR-029 D4 addendum). `not_scanned` is honest: no
+ * scanner was configured, and nothing claims one ran. `infected` is final: the bytes are quarantined,
+ * never parsed and never searchable. `scan_failed` means a scanner was asked and could not answer.
+ */
+export const SCAN_STATES = ['not_scanned', 'clean', 'infected', 'scan_failed'] as const;
 export type ScanState = (typeof SCAN_STATES)[number];
+
+/** The same moves migration 0710's trigger allows. Nothing returns to `not_scanned` or leaves `infected`. */
+export const SCAN_TRANSITIONS: Readonly<Record<ScanState, readonly ScanState[]>> = {
+  not_scanned: ['not_scanned', 'clean', 'infected', 'scan_failed'],
+  scan_failed: ['clean', 'infected', 'scan_failed'],
+  clean: ['clean', 'infected', 'scan_failed'],
+  infected: ['infected'],
+};
+
+export const scanTransitionAllowed = (from: ScanState, to: ScanState) =>
+  SCAN_TRANSITIONS[from].includes(to);
+
+/**
+ * Whether a document must be scanned clean before it is indexed. `required` is the default whenever a
+ * scanner is configured; `optional` indexes what the scanner could not check, and says so.
+ */
+export const SCAN_POLICIES = ['required', 'optional'] as const;
+export type ScanPolicy = (typeof SCAN_POLICIES)[number];
 
 export const FACT_STATES = ['proposed', 'verified', 'disputed', 'superseded', 'rejected'] as const;
 export type FactState = (typeof FACT_STATES)[number];
@@ -116,7 +138,16 @@ export const KNOWLEDGE_CODES = [
   'UNREADABLE_ENCODING',
   'PARSE_TIMEOUT',
   'PARSE_FAILED',
+  /** A PDF that needs a password, or whose author forbade copying its text. Never guessed at. */
+  'ENCRYPTED_DOCUMENT',
+  /** A PDF with pages and no text layer, such as a scan. Nothing is invented for it. */
+  'NEEDS_OCR',
+  /** A container that is not what it claims, or breaks a safety limit of its structure. */
+  'MALFORMED_DOCUMENT',
+  /** The malware scanner found something. The bytes are quarantined and never parsed. */
   'SCAN_FLAGGED',
+  /** Scanning is required and the scanner could not answer. Retried; never indexed meanwhile. */
+  'SCAN_FAILED',
   // Model calls.
   'EGRESS_DENIED',
   'NO_APPROVED_MODEL',
@@ -160,15 +191,48 @@ export function grantAllowedFor(principal: GrantPrincipal, classification: Class
   return classification === 'public' || classification === 'internal';
 }
 
-/** A file's text-family formats. A format not here is refused with UNSUPPORTED_FORMAT (ADR-029 D4). */
-export const INGESTIBLE_MEDIA_TYPES = [
+/** Formats read as text, with no container around them. */
+export const TEXT_MEDIA_TYPES = [
   'text/plain',
   'text/markdown',
   'text/csv',
   'text/html',
   'application/json',
 ] as const;
+
+export const PDF_MEDIA_TYPE = 'application/pdf';
+export const DOCX_MEDIA_TYPE =
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+export const PPTX_MEDIA_TYPE =
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation';
+export const XLSX_MEDIA_TYPE = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+
+/**
+ * Every format the knowledge worker parses (ADR-029 D4 and its addendum). A format not here is refused
+ * with UNSUPPORTED_FORMAT. Only text comes out: nothing is rendered, run or followed.
+ */
+export const INGESTIBLE_MEDIA_TYPES = [
+  ...TEXT_MEDIA_TYPES,
+  PDF_MEDIA_TYPE,
+  DOCX_MEDIA_TYPE,
+  PPTX_MEDIA_TYPE,
+  XLSX_MEDIA_TYPE,
+] as const;
 export type IngestibleMediaType = (typeof INGESTIBLE_MEDIA_TYPES)[number];
+
+/** The extension a browser may leave unlabelled, for each format, so an upload can still be named. */
+export const INGESTIBLE_EXTENSIONS: Readonly<Record<string, IngestibleMediaType>> = {
+  txt: 'text/plain',
+  md: 'text/markdown',
+  csv: 'text/csv',
+  html: 'text/html',
+  htm: 'text/html',
+  json: 'application/json',
+  pdf: PDF_MEDIA_TYPE,
+  docx: DOCX_MEDIA_TYPE,
+  pptx: PPTX_MEDIA_TYPE,
+  xlsx: XLSX_MEDIA_TYPE,
+};
 
 export const MAX_DOCUMENT_BYTES = 26_214_400;
 /** Stops a small file becoming millions of rows. Past this, a document is refused and not truncated. */
@@ -186,6 +250,50 @@ export const MAX_EVIDENCE_TOKENS = 12_000;
 export const MAX_QUESTION_CHARS = 4_000;
 /** Candidates each of lexical and vector search gets before fusion. */
 export const RETRIEVAL_CANDIDATES = 50;
+
+/**
+ * Approximate vector search (ADR-029 D6 addendum, migration 0711). Each dimension here has a partial HNSW
+ * index on `knowledge.embeddings`, cast to a fixed width. A space of another dimension is always searched
+ * exactly. The index name is checked against the migration by a test.
+ */
+export const HNSW_INDEXED_DIMENSIONS: Readonly<
+  Record<number, { type: 'vector' | 'halfvec'; index: string }>
+> = {
+  384: { type: 'vector', index: 'knowledge_embeddings_hnsw_384' },
+  768: { type: 'vector', index: 'knowledge_embeddings_hnsw_768' },
+  1024: { type: 'vector', index: 'knowledge_embeddings_hnsw_1024' },
+  1536: { type: 'vector', index: 'knowledge_embeddings_hnsw_1536' },
+  // HNSW indexes `vector` up to 2,000 dimensions; wider spaces use half precision in the index only.
+  3072: { type: 'halfvec', index: 'knowledge_embeddings_hnsw_3072' },
+};
+
+/**
+ * Below this many authorized vectors in a space, search is exact: perfect recall, and cheaper than an
+ * index walk that would have to skip most of a shared graph to find a small tenant's rows.
+ */
+export const EXACT_VECTOR_SEARCH_MAX_ROWS = 20_000;
+
+/** pgvector settings for a filtered HNSW walk, set per transaction. Measured by knowledge-recall. */
+export const HNSW_SEARCH_SETTINGS = {
+  iterativeScan: 'strict_order',
+  efSearch: 200,
+  maxScanTuples: 200_000,
+  scanMemMultiplier: 4,
+} as const;
+
+/** The recall@10 an approximate search must reach against exact, under every measured ACL. */
+export const TARGET_FILTERED_RECALL_AT_10 = 0.95;
+
+/** Which vector search a query used. `exact` is chosen whenever approximate cannot be shown safe. */
+export type VectorSearchMode = 'exact' | 'approximate';
+
+export function vectorSearchMode(input: {
+  dimension: number;
+  authorizedRows: number;
+}): VectorSearchMode {
+  if (!Object.hasOwn(HNSW_INDEXED_DIMENSIONS, input.dimension)) return 'exact';
+  return input.authorizedRows > EXACT_VECTOR_SEARCH_MAX_ROWS ? 'approximate' : 'exact';
+}
 
 /** A tool's effect, as a named admin set it. An MCP server's own annotations never set this. */
 export const MCP_SIDE_EFFECTS = ['read_only', 'external_write'] as const;

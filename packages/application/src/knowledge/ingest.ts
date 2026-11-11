@@ -20,6 +20,7 @@ import {
   knowledgeObjectKey,
   MAX_DOCUMENT_BYTES,
   strongestClass,
+  type ScanState,
 } from '@ensemus/domain/knowledge';
 import {
   AGGREGATE_KNOWLEDGE_DOCUMENT,
@@ -46,8 +47,12 @@ export type IngestDeps = {
   /** Runs the parser in a worker thread with a memory limit and a deadline, and never in this thread. */
   parse: ParseRunner;
   contentScan: ContentScanPort;
-  /** Optional, and no scanner ships. Without one, `scan_state` stays `not_scanned`. */
+  /** A malware scanner, run on the original bytes before any parser sees them. Without one, a document
+   * says `not_scanned`, honestly (ADR-029 D4 addendum). */
   malware?: MalwareScanPort;
+  /** Whether a document must scan clean before it is indexed. Defaults to true whenever `malware` is
+   * set. When true, a scanner that cannot answer leaves the document `failed`, retried and unindexed. */
+  malwareScanRequired?: boolean;
 };
 
 export type IngestStep = {
@@ -205,6 +210,22 @@ export async function ingestDocument(
     return fail('STORE_UNAVAILABLE');
   }
 
+  // Before parsing: an infected file is quarantined, never opened by a parser, never indexed.
+  const required = deps.malwareScanRequired ?? deps.malware !== undefined;
+  let scanState: ScanState = 'not_scanned';
+  if (deps.malware || required) {
+    try {
+      if (!deps.malware) throw new Error('SCAN_FAILED');
+      const verdict = await deps.malware.scan(body);
+      if (verdict !== 'clean' && verdict !== 'infected') throw new Error('SCAN_FAILED');
+      scanState = verdict;
+    } catch {
+      scanState = 'scan_failed';
+    }
+    if (scanState === 'infected') return fail('SCAN_FLAGGED', true, 'infected');
+    if (scanState === 'scan_failed' && required) return fail('SCAN_FAILED', false, 'scan_failed');
+  }
+
   let parsed: ParsedDocument;
   try {
     parsed = await deps.parse(body, doc.mediaType);
@@ -213,8 +234,7 @@ export async function ingestDocument(
       (error as { code?: unknown }).code === 'PARSE_TIMEOUT' ? 'PARSE_TIMEOUT' : 'PARSE_FAILED',
     );
   }
-  if (!parsed.ok) return fail(parsed.code, true);
-  let scanState: 'not_scanned' | 'clean' | 'flagged' = 'not_scanned';
+  if (!parsed.ok) return fail(parsed.code, true, scanState);
   let classification: Classification;
   try {
     const scan = deps.contentScan.scan(parsed.text);
@@ -228,9 +248,6 @@ export async function ingestDocument(
       doc.classification as Classification,
       ...(scan.raiseTo ? [scan.raiseTo] : []),
     ]);
-    scanState = deps.malware ? await deps.malware.scan(body) : 'not_scanned';
-    if (!['not_scanned', 'clean', 'flagged'].includes(scanState)) throw new Error('SCAN_FAILED');
-    if (scanState === 'flagged') return fail('SCAN_FLAGGED', true, scanState);
   } catch {
     return fail('PARSE_FAILED');
   }
@@ -240,7 +257,7 @@ export async function ingestDocument(
   } catch {
     return fail('TOO_LARGE', true);
   }
-  if (chunks.length === 0) return fail('EMPTY_DOCUMENT', true);
+  if (chunks.length === 0) return fail('EMPTY_DOCUMENT', true, scanState);
   try {
     const result = await withTenantTx(database, context, async (tx): Promise<IngestStep> => {
       const [currentSource] = await tx
@@ -303,7 +320,8 @@ export async function ingestDocument(
         .set({
           state: 'searchable',
           classification: effectiveClass,
-          scanState,
+          // Nothing returns to `not_scanned`: with no scanner this time, an earlier answer stands.
+          ...(scanState !== 'not_scanned' ? { scanState } : {}),
           rejectCode: null,
           parserVersion: parsed.parserVersion,
           chunkerVersion: CHUNKER_VERSION,
@@ -333,7 +351,7 @@ export async function ingestDocument(
   async function fail(
     code: KnowledgeCode,
     rejected = false,
-    state?: 'flagged',
+    state?: ScanState,
   ): Promise<IngestStep> {
     const result = await withTenantTx(database, context, async (tx): Promise<IngestStep> => {
       const [currentSource] = await tx
@@ -356,7 +374,8 @@ export async function ingestDocument(
         .set({
           state: rejected ? 'rejected' : 'failed',
           rejectCode: code,
-          ...(state ? { scanState: state } : {}),
+          // A file that was never scanned this attempt keeps whatever an earlier attempt found.
+          ...(state && state !== 'not_scanned' ? { scanState: state } : {}),
           version: current.version + 1,
           updatedAt: new Date(),
         })
@@ -407,7 +426,9 @@ export function listStaleConnectorResources(
         and(
           eq(connections.state, 'active'),
           isNull(externalResources.deletedAt),
-          ne(externalResources.aclState, 'unmapped'),
+          // An `unmapped` resource reaches nobody, unless it is shared with a domain this organization
+          // verified and has chosen to map (0712). Fetching it grants nothing: readable_source_ids decides.
+          sql`(${externalResources.aclState} <> 'unmapped' or knowledge.resource_domain_shared(${externalResources.id}))`,
           inArray(connections.connectorType, ['google_workspace', 'microsoft_365']),
           inArray(externalResources.resourceType, [
             'file',
@@ -432,7 +453,8 @@ export function listStaleConnectorResources(
 /**
  * What a connector fetched: finds or creates the resource's source, writes a `received` document, stages
  * the bytes and emits, in one transaction. Null when the resource or its connection has gone, or nothing
- * changed. The class is the resource's, and defaults no lower than `internal`.
+ * changed. The class is the resource's, and defaults no lower than `internal`. An `unmapped` resource is
+ * recorded only when it is shared with a domain this organization verified and maps (ADR-029 D2 addendum).
  */
 export function recordConnectorContent(
   database: AppDatabase,
@@ -463,7 +485,13 @@ export function recordConnectorContent(
       .from(externalResources)
       .where(eq(externalResources.id, externalResourceId))
       .for('share');
-    if (!resource || resource.deletedAt || resource.aclState === 'unmapped') return null;
+    if (!resource || resource.deletedAt) return null;
+    if (resource.aclState === 'unmapped') {
+      const shared = await tx.execute<{ shared: boolean }>(
+        sql`select knowledge.resource_domain_shared(${resource.id}::uuid) as shared`,
+      );
+      if (shared.rows[0]?.shared !== true) return null;
+    }
     const [connection] = await tx
       .select()
       .from(connections)
@@ -609,7 +637,11 @@ const safeCode = (value: string | null, fallback: KnowledgeCode): KnowledgeCode 
     'UNREADABLE_ENCODING',
     'PARSE_TIMEOUT',
     'PARSE_FAILED',
+    'ENCRYPTED_DOCUMENT',
+    'NEEDS_OCR',
+    'MALFORMED_DOCUMENT',
     'SCAN_FLAGGED',
+    'SCAN_FAILED',
     'STORE_UNAVAILABLE',
   ];
   return value && codes.includes(value) ? (value as KnowledgeCode) : fallback;

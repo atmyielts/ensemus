@@ -1,6 +1,10 @@
 import { AppError } from '@ensemus/application';
 import { addSourceSchema } from '@ensemus/contracts/knowledge';
-import { INGESTIBLE_MEDIA_TYPES, MAX_DOCUMENT_BYTES } from '@ensemus/domain/knowledge';
+import {
+  INGESTIBLE_EXTENSIONS,
+  INGESTIBLE_MEDIA_TYPES,
+  MAX_DOCUMENT_BYTES,
+} from '@ensemus/domain/knowledge';
 
 /** Counts actual bytes, including chunked requests. Coalescing bounds allocation count even when a
  * client sends one byte per chunk; no parser sees more than the documented file + metadata budget. */
@@ -46,20 +50,16 @@ export async function readBoundedBody(request: Request, maximum: number): Promis
 export function uploadMediaType(file: File): string {
   const stated = file.type.toLowerCase().split(';')[0]?.trim() ?? '';
   if ((INGESTIBLE_MEDIA_TYPES as readonly string[]).includes(stated)) return stated;
-  // Browsers often send no MIME for Markdown/CSV. This only selects a parser; its worker must still
-  // validate UTF-8 and reject binary bytes. A filename never becomes a storage path.
+  // Browsers often send no MIME for Markdown/CSV, and some send none for Office files. This only selects
+  // a parser; the isolated worker still checks the bytes are what the type claims, and refuses them
+  // otherwise. A filename never becomes a storage path.
   if (stated && stated !== 'application/octet-stream')
     throw new AppError('KNOWLEDGE_FORMAT_UNSUPPORTED');
   const extension = file.name.toLowerCase().split('.').at(-1);
-  const types: Record<string, string> = {
-    txt: 'text/plain',
-    md: 'text/markdown',
-    csv: 'text/csv',
-    html: 'text/html',
-    htm: 'text/html',
-    json: 'application/json',
-  };
-  const selected = extension ? types[extension] : undefined;
+  const selected =
+    extension && Object.hasOwn(INGESTIBLE_EXTENSIONS, extension)
+      ? INGESTIBLE_EXTENSIONS[extension]
+      : undefined;
   if (!selected) throw new AppError('KNOWLEDGE_FORMAT_UNSUPPORTED');
   return selected;
 }

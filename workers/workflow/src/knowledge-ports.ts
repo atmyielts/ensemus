@@ -21,6 +21,7 @@ import type { DelegatedWorkPurge } from '@ensemus/application/knowledge/ports';
 import type { DelegatedRecordPurge } from '@ensemus/application/knowledge/ports';
 import { scanForSecrets } from '@ensemus/policy';
 import { loadAgentCanaries } from './agent-settings';
+import { loadMalwareScanConfig } from './clamd';
 import { createParseRunner } from './parse-thread';
 
 export function createKnowledgeRuntimePorts(env: NodeJS.ProcessEnv = process.env): {
@@ -29,11 +30,15 @@ export function createKnowledgeRuntimePorts(env: NodeJS.ProcessEnv = process.env
   recordWorks: Pick<DelegatedRecordPurge, 'confirmRecordInTx'>;
 } {
   const canaries = loadAgentCanaries(env);
+  const malware = loadMalwareScanConfig(env);
   return {
     delegatedWorks: { confirmInTx: confirmDelegatedWorkPurgeInTx },
     recordWorks: { confirmRecordInTx: confirmRecordWorkPurgeInTx },
     ingest: {
       parse: createParseRunner(),
+      // Scanned before parsing, so an infected file is never opened by a parser (ADR-029 D4 addendum).
+      ...(malware.scanner ? { malware: malware.scanner } : {}),
+      malwareScanRequired: malware.policy === 'required',
       contentScan: {
         scan: (text) => {
           const { hits } = scanForSecrets([{ id: 'document', text }], canaries);

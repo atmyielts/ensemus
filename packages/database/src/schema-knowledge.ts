@@ -238,9 +238,14 @@ export const knowledgeDocuments = knowledgeSchema.table(
       'knowledge_documents_embedding_check',
       sql`${t.embeddingState} in ('pending','embedding','embedded','denied','failed')`,
     ),
+    // Migration 0710. `infected` is quarantined: only ever rejected or purged, never searchable.
     check(
       'knowledge_documents_scan_check',
-      sql`${t.scanState} in ('not_scanned','clean','flagged')`,
+      sql`${t.scanState} in ('not_scanned','clean','infected','scan_failed')`,
+    ),
+    check(
+      'knowledge_documents_infected_quarantined',
+      sql`${t.scanState} <> 'infected' or ${t.state} in ('rejected','purged')`,
     ),
     check(
       'knowledge_documents_classification_check',

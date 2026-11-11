@@ -1,10 +1,22 @@
 // Owned by the ingest slice (KNOW-01). See docs/06-delivery/m5-slices.md. Turns untrusted bytes into plain
-// text. Pure and synchronous, so the knowledge worker can run it in a worker thread with a memory limit
-// and a deadline. Refuses what it does not recognize, and never truncates to fit.
+// text. No I/O beyond pdf.js's own character maps, so the knowledge worker runs it in a worker thread with
+// a memory limit and a deadline, with no credential and no route out (ADR-029 D4 and its addendum).
+// Refuses what it does not recognize, and never truncates to fit.
 import type { KnowledgeCode } from '@ensemus/domain/knowledge';
-import { INGESTIBLE_MEDIA_TYPES, MAX_DOCUMENT_BYTES } from '@ensemus/domain/knowledge';
+import {
+  DOCX_MEDIA_TYPE,
+  INGESTIBLE_MEDIA_TYPES,
+  MAX_DOCUMENT_BYTES,
+  PDF_MEDIA_TYPE,
+  PPTX_MEDIA_TYPE,
+  TEXT_MEDIA_TYPES,
+  XLSX_MEDIA_TYPE,
+} from '@ensemus/domain/knowledge';
+import { extractOfficeText } from '@ensemus/knowledge/ooxml';
+import { extractPdfText } from '@ensemus/knowledge/pdf';
 
-export const PARSER_VERSION = 'v1';
+/** v2 reads PDF, Word, PowerPoint and Excel as well. Text formats parse exactly as in v1. */
+export const PARSER_VERSION = 'v2';
 
 export type ParsedDocument =
   | { ok: true; text: string; parserVersion: string }
@@ -12,19 +24,42 @@ export type ParsedDocument =
       ok: false;
       code: Extract<
         KnowledgeCode,
-        'UNSUPPORTED_FORMAT' | 'EMPTY_DOCUMENT' | 'UNREADABLE_ENCODING' | 'TOO_LARGE'
+        | 'UNSUPPORTED_FORMAT'
+        | 'EMPTY_DOCUMENT'
+        | 'UNREADABLE_ENCODING'
+        | 'TOO_LARGE'
+        | 'ENCRYPTED_DOCUMENT'
+        | 'NEEDS_OCR'
+        | 'MALFORMED_DOCUMENT'
+        | 'PARSE_FAILED'
       >;
     };
 
 /**
- * Decodes and extracts text from one of `INGESTIBLE_MEDIA_TYPES`. HTML keeps its visible text only, with
- * scripts, styles and comments gone, which is not a sanitizer: the output is never rendered as HTML.
+ * Extracts text from one of `INGESTIBLE_MEDIA_TYPES`. HTML keeps its visible text only, with scripts,
+ * styles and comments gone, which is not a sanitizer: the output is never rendered as HTML. PDF and
+ * Office files give their text layer only.
  */
-export function parseDocument(bytes: Uint8Array, mediaType: string): ParsedDocument {
+export async function parseDocument(bytes: Uint8Array, mediaType: string): Promise<ParsedDocument> {
   if (!(INGESTIBLE_MEDIA_TYPES as readonly string[]).includes(mediaType)) {
     return { ok: false, code: 'UNSUPPORTED_FORMAT' };
   }
   if (bytes.byteLength > MAX_DOCUMENT_BYTES) return { ok: false, code: 'TOO_LARGE' };
+  if ((TEXT_MEDIA_TYPES as readonly string[]).includes(mediaType))
+    return parseText(bytes, mediaType);
+  const extracted =
+    mediaType === PDF_MEDIA_TYPE
+      ? await extractPdfText(bytes, { maxBytes: MAX_DOCUMENT_BYTES })
+      : extractOfficeText(
+          bytes,
+          mediaType as typeof DOCX_MEDIA_TYPE | typeof PPTX_MEDIA_TYPE | typeof XLSX_MEDIA_TYPE,
+          MAX_DOCUMENT_BYTES,
+        );
+  if (!extracted.ok) return extracted;
+  return finish(extracted.text);
+}
+
+function parseText(bytes: Uint8Array, mediaType: string): ParsedDocument {
   let text: string;
   try {
     text = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
@@ -35,7 +70,13 @@ export function parseDocument(bytes: Uint8Array, mediaType: string): ParsedDocum
   } catch {
     return { ok: false, code: 'UNREADABLE_ENCODING' };
   }
-  text = text.replace(/\r\n?/g, '\n').trim();
+  return finish(text);
+}
+
+function finish(raw: string): ParsedDocument {
+  // PostgreSQL text cannot hold NUL, and an extractor can meet one in a stranger's file.
+  if (raw.includes('\0')) return { ok: false, code: 'UNREADABLE_ENCODING' };
+  const text = raw.replace(/\r\n?/g, '\n').trim();
   if (!text) return { ok: false, code: 'EMPTY_DOCUMENT' };
   if (Buffer.byteLength(text) > MAX_DOCUMENT_BYTES) return { ok: false, code: 'TOO_LARGE' };
   return { ok: true, text, parserVersion: PARSER_VERSION };

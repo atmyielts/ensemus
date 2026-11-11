@@ -57,8 +57,8 @@
     },
     {
       "path": "00-foundation/adr/ADR-029-company-knowledge.md",
-      "size_bytes": 34188,
-      "sha256": "a275d3107e1da5983a51b4849b8fd1d014fe92f39d61d345f3a69f4f79f27627"
+      "size_bytes": 43701,
+      "sha256": "25198b7d6cf30d20ede4010e0d46c4ffdf54f50d387f104fcac8c74289aa8550"
     },
     {
       "path": "00-foundation/adr/ADR-030-sovereign-license-and-bundle.md",
@@ -304,6 +304,11 @@
       "path": "05-operations/10-vulnerability-disclosure.md",
       "size_bytes": 3193,
       "sha256": "80111177746b98adfbc50b970cd08d9b03b2bb323abd597ab0eb036bb70c97dd"
+    },
+    {
+      "path": "05-operations/malware-scanning.md",
+      "size_bytes": 4725,
+      "sha256": "9f9c8ab7c9a77c58d5bb854679dfc6fc1938275ea7fe4c19ccb611cd5d6eb2d5"
     },
     {
       "path": "05-operations/sovereign/advisories.md",
@@ -684,6 +689,11 @@
       "path": "06-delivery/evidence/m5/model-response-stream.md",
       "size_bytes": 1443,
       "sha256": "e0c8734452ec21e13726b94cbffb6113327c6e1333b9641446f74a371dfccf37"
+    },
+    {
+      "path": "06-delivery/evidence/m5/rc-know-readiness.md",
+      "size_bytes": 2245,
+      "sha256": "3b10334935f6b1fe437a15cb08a0b9a513f845fc027eea9d714ec8744ed992d8"
     },
     {
       "path": "06-delivery/evidence/m5/read-time-authority.md",
@@ -1072,8 +1082,8 @@
     },
     {
       "path": "specifications/implementation-backlog.csv",
-      "size_bytes": 26762,
-      "sha256": "7b2521a6b9dd2cbd77c4d244748eaf599a494b07ef2562c088e70c5b75ea5c82"
+      "size_bytes": 26722,
+      "sha256": "71b2716c066c8aa5fcbe41996c06d8c6e152ed07c0050bb5f2852bed2f31b10d"
     },
     {
       "path": "specifications/model-conformance-matrix.csv",
@@ -1082,8 +1092,8 @@
     },
     {
       "path": "specifications/openapi.yaml",
-      "size_bytes": 399211,
-      "sha256": "e46f39f08bfb3516bd7fa1bde33ddc8afc9b11001bc8a680e8d7566b9b2e49c9"
+      "size_bytes": 399437,
+      "sha256": "d51abd190d5ba97cd97fe3ddff5062ef3681db1a42680f5fff6ab4a26f70f24b"
     },
     {
       "path": "specifications/qa-scenarios.csv",

@@ -247,6 +247,121 @@ marker is unresolved. A missing adapter, absent object alone, timeout or elapsed
 This is an additive migration and source-level regression coverage. Migration, real-role restore,
 provider-writer fencing and hosted restore acceptance remain unverified until their actual gates run.
 
+### D4 addendum. PDF and Office files, and malware scanning (0710)
+
+This proposes answers to questions 1 and 2. They are defaults in code, and the owner can still say no.
+
+**Formats.** PDF, Word (`.docx`), PowerPoint (`.pptx`) and Excel (`.xlsx`) join the text formats in
+`INGESTIBLE_MEDIA_TYPES`. Legacy binary Office (`.doc`, `.xls`, `.ppt`), RTF and OpenDocument are still
+refused with `UNSUPPORTED_FORMAT`. Only text comes out, and it is never rendered.
+
+**Libraries.** PDF uses `pdfjs-dist` 6.4.299 (Apache-2.0, already allowed by `check-licenses`), its legacy
+Node build. Its optional native canvas, `@napi-rs/canvas`, is excluded by `ignoredOptionalDependencies`, so
+no native module reads an untrusted PDF. Office files need no new dependency: Office Open XML is a ZIP of
+XML parts, read by a small ZIP reader over Node's own `zlib` and a bounded XML tokenizer, both in
+`@ensemus/knowledge`. `mammoth` and `jszip` were rejected: `jszip` is dual MIT or GPL-3.0, which the policy
+does not list, and both bring a general parser where a narrow one is enough to review.
+
+**Where it runs.** Unchanged from D4: the knowledge worker, no credential, no route out, each file in its own
+worker thread. The thread now also replaces `fetch`, `WebSocket`, `EventSource` and `XMLHttpRequest` with
+refusals and silences the console before any parser loads, so neither a request nor a document's words can
+leave by them. The heap is 320 MiB, the deadline 15 s for text and 60 s for PDF and Office, with two parses
+at a time. `pdfjs-dist` stays outside the esbuild bundle and ships in the worker image's `node_modules`, so
+it can read its own character maps and font metrics from disk. It is never given a URL.
+
+**Defences, each with a generated-fixture test.**
+
+| Threat | Answer |
+|---|---|
+| ZIP bomb | Each entry is inflated with `maxOutputLength` set to its declared size, a CRC check, at most 32 MiB an entry and 64 MiB actually inflated a file, 4,000 entries, and a 200:1 ratio ceiling over 64 KiB |
+| Lying or ambiguous archive | ZIP64, multiple disks, duplicate names, `..` or absolute names, a local header disagreeing with the directory, and methods other than stored or deflate are `MALFORMED_DOCUMENT` |
+| Entity expansion, external entities | Any `<!DOCTYPE` or other `<!` declaration is refused. Only the five predefined entities and character references are decoded |
+| Deep nesting | 256 levels |
+| External references, embedded files, macros | Relationships marked External are dropped unread, and an internal target escaping the package is ignored. Only the main part, its footnotes and endnotes, slides, sheets and shared strings are opened. `vbaProject.bin`, `embeddings/`, OLE objects and media are never read |
+| Encrypted files | A password-protected Office file is an OLE container, refused with `ENCRYPTED_DOCUMENT`. A PDF needing a password, or whose author forbade copying text, gets the same code. One with only an owner password that allows copying is read |
+| Huge pages | 5,000 pages, 200,000 text items a page, and the 25 MiB output ceiling, each refused rather than truncated |
+| Scanned PDFs | Pages with no text layer give `NEEDS_OCR`. Nothing is invented. OCR is not built |
+
+Output is not faithful layout. Word headers, footers, comments and tracked deletions are not indexed, and
+field codes are skipped. Excel cells give their cached values, never their formulas, and dates appear as
+Excel's serial numbers. `PARSER_VERSION` is `v2`. Text formats parse exactly as before.
+
+**Malware scanning.** `scan_state` is now `not_scanned`, `clean`, `infected` or `scan_failed`. `flagged`
+became `infected`. Migration 0710 holds the transitions (nothing returns to `not_scanned`, nothing leaves
+`infected`), and a check means an infected document can only be `rejected` or `purged`. Retrieval serves
+only `searchable` documents, so no passage of an infected file can be served, even if code tried.
+
+The scan runs on the original bytes **before any parser**. An infected file is quarantined: rejected with
+`SCAN_FLAGGED`, never parsed, never chunked. Its bytes stay where they are under the source's normal
+lifecycle, no route serves them, and the source's deletion removes them. The scanner is ClamAV's `clamd`
+over TCP (`INSTREAM`) with no file name, tenant or title sent. A reply that is not `OK` or `FOUND`, a size
+limit, a timeout or a closed socket is a failed scan, never a clean one.
+
+`ENSEMUS_CLAMD_ADDRESS` names the scanner. `ENSEMUS_KNOWLEDGE_SCAN_POLICY` is `required` by default
+whenever a scanner is configured, and `optional` otherwise. When required, a failed scan leaves the
+document `failed` with `SCAN_FAILED`, unindexed, and retried. When optional, the document is indexed with
+`scan_failed` showing. `required` with no scanner stops the worker at start.
+
+`infrastructure/compose/compose.malware-scan.yaml` adds `clamav` under the `malware-scan` profile, on a new
+`scanning` network with no gateway, pinned by digest, and points the knowledge worker at its fixed address.
+It is a separate file because the offline bundle carries every image `compose.yaml` pins, and ClamAV is
+GPL-2.0: redistributing it in a Sovereign bundle is for counsel (LEGAL-05). It runs as its own process and
+is never linked. Signature updates are an operator task, online or carried in for Sovereign, in
+`docs/05-operations/malware-scanning.md`.
+
+**Not verified here.** The real-role tests for scanning and the 0710 check are written and have not run in
+this branch. No built image has parsed a real file, and no real document or malware sample was used: every
+fixture is generated in the test.
+
+### D6 addendum. Approximate vector search (0711)
+
+**Indexes.** `knowledge.embeddings.embedding` has no fixed width, and HNSW needs one, so 0711 adds a partial
+expression index per common width: 384, 768, 1,024 and 1,536 as `vector`, and 3,072 as `halfvec` (HNSW
+indexes `vector` only up to 2,000). `HNSW_INDEXED_DIMENSIONS` names them, and a test holds the two together.
+Any other width is searched exactly.
+
+**The ACL stays in the statement.** The approximate query names `knowledge.readable_source_ids` and every
+visibility rule in its `WHERE`, so pgvector's iterative scan (0.8 and later) keeps walking the graph past
+rows this person may not read instead of returning fewer. Settings are transaction-local: `strict_order`,
+`ef_search` 200, `max_scan_tuples` 200,000, `scan_mem_multiplier` 4. With pgvector older than 0.8 the
+approximate path is never taken.
+
+**Exact when small.** Retrieval first counts the person's authorized vectors in the space, stopping at
+20,001. At or below 20,000 (`EXACT_VECTOR_SEARCH_MAX_ROWS`) search is exact, with perfect recall, which also
+covers a small tenant inside a large shared index, the case iterative scans handle worst. The result says
+which ran, in `vectorSearch`.
+
+**Target recall.** Recall@10 against exact search of at least **0.95**
+(`TARGET_FILTERED_RECALL_AT_10`), at every ACL selectivity and tenant size where production would choose
+the approximate path. `tests/measure/knowledge-recall.measure.ts` mirrors production (the same partial
+index and cast, a second tenant in the index, the ACL as a hashed subquery, the same settings), runs at
+0.5% to 100% of sources readable and 10,000 to 200,000 vectors a tenant, writes
+`docs/06-delivery/evidence/M5-recall.json`, and fails below the target. It is run with
+`ENSEMUS_RECALL_DATABASE_URL=... ENSEMUS_RECALL_ALLOW_SCRATCH=1 pnpm measure:knowledge-recall` against a
+disposable database. **It has not run.** Until it has, the threshold and settings are a reasoned starting
+point, not a measured one. If it fails, dropping an index returns that width to exact search with no code
+change, because the query stays correct without it.
+
+### D2 addendum. Shares with a whole domain (0712)
+
+This proposes an answer to question 4. "Anyone with the link" still maps to nobody.
+
+`org.security_policies.knowledge_domain_grants`, **off by default**, lets a provider's grant to a whole email
+domain reach the members who are all of: active here, with a verified email address whose domain is exactly
+the granted one (no subdomains), in an organization that has itself verified that domain (only the
+operator can, and a verified domain has one tenant at a time). It applies to `public` and `internal`
+sources only, as an `organization` grant on an upload does. It is a third branch of
+`knowledge.readable_source_ids`, evaluated live like every other branch, so turning it off stops every
+such read in that commit. Another tenant with people at the same domain gets nothing from it.
+
+Changing it needs `security_policy.manage` and a recent second factor, and 0404's guard holds that in SQL,
+because widening access is a security decision. The sweep also fetches a domain-only (`unmapped`)
+resource while the mapping applies. Fetching grants no read.
+
+Microsoft's "people in your organization" links arrive as the domain `organization`, which names no
+domain, so they still map to nobody. Mapping them would need the Microsoft tenant's verified domains, which
+the connector does not read yet.
+
 ## Trade-offs
 
 - **A shared role, again.** RLS on a shared role is bug-proofing and not a boundary against a compromised web tier. A separate knowledge-worker role would make `chunks` unwritable from web. It needs the same provisioning work as M4's `ensemus_agent`, and could be the same change. The outside review should decide.
@@ -271,10 +386,10 @@ provider-writer fencing and hosted restore acceptance remain unverified until th
 
 Each has a safe default already in place, and can change without a data migration, unless it says otherwise.
 
-1. **Which parser for PDF and Word, and in what sandbox?** Default: refused with `UNSUPPORTED_FORMAT`. This blocks most real documents, so decide before the BYOM pilot.
-2. **Is a virus scanner required before a pilot?** Default: none, and the page says `not_scanned`.
+1. **Which parser for PDF and Word, and in what sandbox?** Default: refused with `UNSUPPORTED_FORMAT`. This blocks most real documents, so decide before the BYOM pilot. *Proposed in the D4 addendum: `pdfjs-dist` and a narrow built-in Office reader, in the existing parse thread. Awaiting the owner.*
+2. **Is a virus scanner required before a pilot?** Default: none, and the page says `not_scanned`. *Proposed in the D4 addendum: optional ClamAV, required before indexing whenever it is configured. Whether a pilot must run it is still the owner's call.*
 3. **Should a team grant reach teams nested inside it?** Default: direct members only.
-4. **Does a provider's "anyone with the link" or "everyone in the domain" mean anyone in this tenant?** Default: no, it maps to nothing, as ADR-027 D3 left it. A shared drive open to the whole domain will look empty until this is decided.
+4. **Does a provider's "anyone with the link" or "everyone in the domain" mean anyone in this tenant?** Default: no, it maps to nothing, as ADR-027 D3 left it. A shared drive open to the whole domain will look empty until this is decided. *Proposed in the D2 addendum: an organization setting, off by default, for verified domains only. "Anyone with the link" stays unmapped.*
 5. **May an owner or admin read every document?** Default: no. M2 lets them read confidential work, and this is stricter.
 6. **May one person review their own fact, on a one-person pilot?** Default: no, as M2's `SELF_APPROVAL`, so a second member account is needed.
 7. **Is deal won to client onboarding the flagship?** Default: yes, as the plan recommends.

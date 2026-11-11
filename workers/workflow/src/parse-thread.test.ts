@@ -7,12 +7,12 @@ describe('the isolated parser', () => {
     expect(await createParseRunner()(bytes, 'text/plain')).toEqual({
       ok: true,
       text: 'Thread-owned text',
-      parserVersion: 'v1',
+      parserVersion: 'v2',
     });
     expect(bytes.toString()).toBe('Thread-owned text');
   });
   it('refuses unsupported formats in the worker', async () => {
-    expect(await createParseRunner()(Buffer.from('bytes'), 'application/pdf')).toEqual({
+    expect(await createParseRunner()(Buffer.from('bytes'), 'application/rtf')).toEqual({
       ok: false,
       code: 'UNSUPPORTED_FORMAT',
     });

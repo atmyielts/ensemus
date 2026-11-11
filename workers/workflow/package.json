@@ -12,7 +12,8 @@
     "@temporalio/client": "1.25.0",
     "@temporalio/common": "1.25.0",
     "@temporalio/proto": "1.25.0",
-    "@temporalio/worker": "1.25.0"
+    "@temporalio/worker": "1.25.0",
+    "pdfjs-dist": "6.4.299"
   },
   "devDependencies": {
     "@ensemus/agent-runtime": "workspace:*",

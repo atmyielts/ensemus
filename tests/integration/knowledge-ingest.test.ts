@@ -69,6 +69,15 @@ describe('knowledge ingestion, retries and closure', () => {
     });
   const ingest = (documentId: string, overrides: Partial<IngestDeps> = {}) =>
     ingestDocument(database.db, store, service(), { ...deps, ...overrides }, { documentId });
+  const scanStateOf = async (id: string) =>
+    (
+      await withTenantTx(database.db, service(), (tx) =>
+        tx
+          .select({ scanState: knowledgeDocuments.scanState })
+          .from(knowledgeDocuments)
+          .where(eq(knowledgeDocuments.id, id)),
+      )
+    )[0]?.scanState;
   const chunksFor = (id: string) =>
     withTenantTx(database.db, service(), (tx) =>
       tx.select().from(knowledgeChunks).where(eq(knowledgeChunks.documentId, id)),
@@ -156,10 +165,76 @@ describe('knowledge ingestion, retries and closure', () => {
       'restricted',
     );
     const flagged = await upload();
+    let parsed = false;
     expect(
-      await ingest(flagged.documentId, { malware: { scan: async () => 'flagged' } }),
+      await ingest(flagged.documentId, {
+        malware: { scan: async () => 'infected' },
+        parse: async (bytes, type) => {
+          parsed = true;
+          return parseDocument(bytes, type);
+        },
+      }),
     ).toMatchObject({ outcome: 'rejected', code: 'SCAN_FLAGGED' });
+    // Quarantined: never parsed, never chunked, and `infected` for good.
+    expect(parsed).toBe(false);
     expect(await chunksFor(flagged.documentId)).toHaveLength(0);
+    expect(await scanStateOf(flagged.documentId)).toBe('infected');
+    await expect(
+      withTenantTx(database.db, service(), (tx) =>
+        tx
+          .update(knowledgeDocuments)
+          .set({ scanState: 'clean' })
+          .where(eq(knowledgeDocuments.id, flagged.documentId)),
+      ),
+    ).rejects.toThrow();
+  });
+  it('keeps a document unindexed while a required scanner cannot answer, then indexes it clean', async () => {
+    const source = await upload();
+    const down = {
+      malware: {
+        scan: async (): Promise<'clean'> => {
+          throw new Error('Generated scanner outage');
+        },
+      },
+    };
+    expect(await ingest(source.documentId, down)).toMatchObject({
+      outcome: 'failed',
+      code: 'SCAN_FAILED',
+    });
+    expect(await chunksFor(source.documentId)).toHaveLength(0);
+    expect(await scanStateOf(source.documentId)).toBe('scan_failed');
+    expect(
+      await ingest(source.documentId, { malware: { scan: async () => 'clean' } }),
+    ).toMatchObject({ outcome: 'searchable' });
+    expect(await scanStateOf(source.documentId)).toBe('clean');
+  });
+  it('indexes an unanswered scan when scanning is optional, and says it was not checked', async () => {
+    const source = await upload();
+    expect(
+      await ingest(source.documentId, {
+        malwareScanRequired: false,
+        malware: {
+          scan: async () => {
+            throw new Error('Generated scanner outage');
+          },
+        },
+      }),
+    ).toMatchObject({ outcome: 'searchable' });
+    expect(await scanStateOf(source.documentId)).toBe('scan_failed');
+    const unscanned = await upload();
+    expect(await ingest(unscanned.documentId)).toMatchObject({ outcome: 'searchable' });
+    expect(await scanStateOf(unscanned.documentId)).toBe('not_scanned');
+  });
+  it('refuses to make an infected document searchable, whatever the code does', async () => {
+    const source = await upload();
+    await expect(
+      withTenantTx(database.db, service(), (tx) =>
+        tx
+          .update(knowledgeDocuments)
+          .set({ scanState: 'infected', state: 'searchable' })
+          .where(eq(knowledgeDocuments.id, source.documentId)),
+      ),
+    ).rejects.toThrow();
   });
   it('repairs a stale failed ingest without a new provider revision, excluding closed sources and unsettled writers', async () => {
     const source = await upload();

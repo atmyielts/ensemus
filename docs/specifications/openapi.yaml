@@ -9084,9 +9084,13 @@ components:
           enum:
             - not_scanned
             - clean
-            - flagged
+            - infected
+            - scan_failed
             - null
-          description: No scanner ships, and `not_scanned` says so.
+          description: >-
+            The malware check of the original file. `not_scanned` means no scanner is configured;
+            `infected` means it is quarantined and never searchable; `scan_failed` means a scanner was
+            asked and could not answer.
         reject_code:
           type:
             - string
