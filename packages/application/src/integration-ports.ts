@@ -37,8 +37,11 @@ export type PreparedAttempt = {
 export interface ExternalActionGateway {
   send(organizationId: string, attempt: PreparedAttempt): Promise<AttemptResult>;
   reconcile(organizationId: string, attempt: PreparedAttempt): Promise<ReconcileResult>;
-  /** How far this connector's lookup can be believed. */
-  lookupOf(connectorType: string): 'none' | 'best_effort' | 'authoritative';
+  /**
+   * How far this connector's lookup can be believed, for this tool. A suite tool declares its own
+   * (ADR-038 D6), so a Google calendar create is authoritative while a Gmail send is best effort.
+   */
+  lookupOf(connectorType: string, toolName?: string): 'none' | 'best_effort' | 'authoritative';
 }
 
 /** What a stored delivery looks like to the worker that verifies it. */

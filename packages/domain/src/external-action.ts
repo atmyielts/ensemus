@@ -1,5 +1,6 @@
 // External action intents (ADR-027 D1, D2). Pure rules: no framework, database or SDK here.
 import { actionHash, type ProposedAction } from './approval';
+import { TOOL_CONNECTOR_TYPES } from './suite-tools';
 
 export const EXTERNAL_ACTION_STATUSES = [
   'awaiting_approval',
@@ -107,9 +108,13 @@ export const EMAIL_CONNECTOR_TYPE = 'email_smtp';
 
 /**
  * Connector types that can perform an action, and so can produce a receipt. Work may only ask for an
- * outside system's receipt if its tenant has an active connection of one of these (ADR-027 D6).
+ * outside system's receipt if its tenant has an active connection of one of these (ADR-027 D6). Every
+ * type a tool can be bound to has at least one action (ADR-038 D6), and a test holds that true.
  */
-export const ACTION_CONNECTOR_TYPES: readonly string[] = [EMAIL_CONNECTOR_TYPE];
+export const ACTION_CONNECTOR_TYPES: readonly string[] = TOOL_CONNECTOR_TYPES;
+
+/** The ones that send email from a sender written in the connection's settings: M3's form and receipts. */
+export const EMAIL_SENDER_CONNECTOR_TYPES: readonly string[] = [EMAIL_CONNECTOR_TYPE];
 
 /** How many tries an intent gets, and only while each one definitely did not send. */
 export const MAX_SEND_ATTEMPTS = 5;

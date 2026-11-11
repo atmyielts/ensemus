@@ -38,6 +38,17 @@ export const CONNECTABLE_CAPABILITIES = [
   'directory',
 ] as const satisfies readonly SuiteCapability[];
 
+/**
+ * What a member may connect with their own account, at most (ADR-038 D5): the capabilities a member can
+ * own. Each organization narrows this further (`integrations.suite_settings`, default mail and calendar).
+ */
+export const MEMBER_CONNECTABLE_CAPABILITIES = [
+  'mail',
+  'calendar',
+  'documents',
+  'chat',
+] as const satisfies readonly SuiteCapability[];
+
 /** Whose connection a capability belongs on (ADR-038 D3, D5). */
 export const CAPABILITY_OWNER: Readonly<
   Record<SuiteCapability, 'organization' | 'member' | 'either'>
@@ -103,11 +114,13 @@ export const IDENTITY_SCOPES: Readonly<Record<SuiteConnectorType, readonly strin
 export function scopesFor(
   connectorType: SuiteConnectorType,
   capabilities: readonly SuiteCapability[],
+  /** The organization's list unless a member's own consent names its own. */
+  connectable: readonly SuiteCapability[] = CONNECTABLE_CAPABILITIES,
 ): readonly string[] | null {
   if (capabilities.length === 0 || new Set(capabilities).size !== capabilities.length) return null;
   const scopes = new Set<string>(IDENTITY_SCOPES[connectorType]);
   for (const capability of capabilities) {
-    if (!(CONNECTABLE_CAPABILITIES as readonly string[]).includes(capability)) return null;
+    if (!connectable.includes(capability)) return null;
     const own = CAPABILITY_SCOPES[connectorType][capability];
     if (own.length === 0) return null;
     for (const scope of own) scopes.add(scope);

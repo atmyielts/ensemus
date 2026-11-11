@@ -6,3 +6,13 @@ export { strongest } from './classification';
 export { decideEgress } from './egress';
 export { decideAction } from './action';
 export { scanForSecrets } from './secret-scan';
+export {
+  changeNeedsApproval,
+  decideConnectionUse,
+  resourceIdOf,
+  type ConnectionFacts,
+  type ConnectionUseDecision,
+  type ConnectionUseInput,
+  type ResourceFacts,
+  type SourceAccess,
+} from './suite-access';

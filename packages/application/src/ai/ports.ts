@@ -16,7 +16,12 @@ import type {
   UsageMeter,
 } from '@ensemus/domain/ai';
 import type { ExternalActionStatus } from '@ensemus/domain/external-action';
-import type { ProposedExternalAction, ProposeExternalActionInput } from '../external-actions';
+import type {
+  ProposeDraftActionInput,
+  ProposedDraftAction,
+  ProposedExternalAction,
+  ProposeExternalActionInput,
+} from '../external-actions';
 
 // So agent code, which may not import the database package at all, can name these.
 export type { AgentContext, TenantContext, Tx };
@@ -191,6 +196,12 @@ export interface ExternalActionPort {
     context: AgentContext,
     input: ProposeExternalActionInput,
   ): Promise<ProposedExternalAction>;
+  /** M3's `proposeDraftActionInTx`: a draft's intent, which asks nobody and starts ready (ADR-038 D6). */
+  proposeDraft(
+    tx: Tx,
+    context: AgentContext,
+    input: ProposeDraftActionInput,
+  ): Promise<ProposedDraftAction>;
   /** Reads where M3's workflow has got to. Sending is M3's own workflow, started by its own event. */
   readState(tx: Tx, context: AgentContext, externalActionId: string): Promise<ExternalActionState>;
 }
@@ -213,21 +224,28 @@ export type RecheckResult =
         | 'POLICY_DENIED';
     };
 
+/** One change an agent asks for through a connection. The payload is frozen exactly as given. */
+export type AgentActionRequest = {
+  proposalId: string;
+  runId: string;
+  workUnitId: string;
+  connectionId: string;
+  toolId: string;
+  toolVersion: string;
+  payload: unknown;
+};
+
+/** A draft's intent. It has no approval, and starts ready (ADR-038 D6). */
+export type DraftRef = { externalActionId: string; requestHash: string };
+
 export interface ApprovalBinder {
   /** Picks the approver by policy, never from anything a model said, and proposes the intent. */
-  request(
-    tx: Tx,
-    context: AgentContext,
-    input: {
-      proposalId: string;
-      runId: string;
-      workUnitId: string;
-      connectionId: string;
-      toolId: string;
-      toolVersion: string;
-      payload: unknown;
-    },
-  ): Promise<ApprovalRef>;
+  request(tx: Tx, context: AgentContext, input: AgentActionRequest): Promise<ApprovalRef>;
+  /**
+   * The same checks as `request` for a `draft_only` tool, then an intent that asks nobody and starts
+   * ready, with a receipt when M3's workflow has made it. Refuses any tool that is not a draft.
+   */
+  recordDraft(tx: Tx, context: AgentContext, input: AgentActionRequest): Promise<DraftRef>;
   /** In the same transaction as the step that acts on the approval. */
   recheck(tx: Tx, context: AgentContext, input: { proposalId: string }): Promise<RecheckResult>;
 }

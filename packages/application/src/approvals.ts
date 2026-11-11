@@ -22,7 +22,7 @@ import {
   WORK_REVIEW_VERSION,
   type ProposedAction,
 } from '@ensemus/domain/approval';
-import { EMAIL_SEND_TOOL } from '@ensemus/domain/external-action';
+import { isActionTool, toolManifest } from '@ensemus/domain/ai-tools';
 import { isTerminal, type WorkState } from '@ensemus/domain/work-unit';
 import { and, asc, eq, gt, inArray, lte, sql } from 'drizzle-orm';
 import { AppError, pgCode, type ErrorCode } from './errors';
@@ -256,8 +256,11 @@ export async function decideApproval(
       const current = await currentReviewAction(tx, work);
       if (actionHash(current) !== approval.actionHash) throw new AppError('APPROVAL_STALE');
     }
-    // The same for a send: what was shown has to be what would go, and it is the intent that would go.
-    if (action.toolName === EMAIL_SEND_TOOL) await assertIntentMatchesApproval(tx, approval);
+    // The same for a send or any other change through a connection (ADR-038 D6): what was shown has to be
+    // what would go, and it is the intent that would go.
+    if (isActionTool(toolManifest(action.toolName))) {
+      await assertIntentMatchesApproval(tx, approval);
+    }
 
     const reason = input.reason?.trim().slice(0, MAX_REASON_LENGTH) || undefined;
     const holdingWork = approval.holdsWork && work.status === 'awaiting_approval';

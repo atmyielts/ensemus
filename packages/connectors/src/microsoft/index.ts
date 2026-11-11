@@ -30,7 +30,13 @@ import {
   type OAuthScopesPort,
 } from '../runtime/provider-oauth';
 import { createHash } from 'node:crypto';
-import type { DirectoryCapableConnector, PlatformOAuthClients } from '../suites';
+import {
+  createSuiteToolDispatch,
+  type DirectoryCapableConnector,
+  type PlatformOAuthClients,
+  type SuiteCapableConnector,
+} from '../suites';
+import { MICROSOFT_ACTION_HANDLERS, MICROSOFT_READ_HANDLERS } from './tools';
 import { createMicrosoftDirectory } from './directory';
 import { graphLink } from './graph-link';
 
@@ -57,7 +63,9 @@ export function createMicrosoft365Connector(deps: {
   platformClients?: PlatformOAuthClients;
   /** Hears the scopes each refresh reports, so a narrowing at the provider narrows the row (D3). */
   scopes?: OAuthScopesPort;
-}): KnowledgeConnector<Microsoft365Config> & DirectoryCapableConnector<Microsoft365Config> {
+}): KnowledgeConnector<Microsoft365Config> &
+  DirectoryCapableConnector<Microsoft365Config> &
+  SuiteCapableConnector<Microsoft365Config> {
   const auth = createProviderAuth({
     http: deps.http,
     provider: 'microsoft',
@@ -160,8 +168,17 @@ export function createMicrosoft365Connector(deps: {
     }
     return [];
   };
+  // Suite tools for agents (ADR-038 D6): reads through `suiteReads`, changes as M3 intents through
+  // `actions`. The handlers are microsoft-tools' to write, in ./tools.ts.
+  const tools = createSuiteToolDispatch({
+    deps: { http: deps.http, withToken: auth.withToken },
+    reads: MICROSOFT_READ_HANDLERS,
+    actions: MICROSOFT_ACTION_HANDLERS,
+  });
   return {
     manifest: MICROSOFT_365_MANIFEST,
+    suiteReads: tools.suiteReads,
+    actions: tools.actions,
     parseConfig(raw) {
       const parsed = driveConnectorConfigSchema.safeParse(raw);
       if (!parsed.success) throw new SyncUnavailable('CONFIG_INVALID');

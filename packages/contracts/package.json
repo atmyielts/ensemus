@@ -8,6 +8,7 @@
     "./external-actions": "./src/external-actions.ts",
     "./ai": "./src/ai.ts",
     "./ai-tools": "./src/ai-tools.ts",
+    "./suite-tools": "./src/suite-tools.ts",
     "./openapi": "./generated/openapi.d.ts",
     "./knowledge": "./src/knowledge.ts",
     "./knowledge-models": "./src/knowledge-models.ts",

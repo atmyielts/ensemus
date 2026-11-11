@@ -30,7 +30,13 @@ import {
   type OAuthScopesPort,
 } from '../runtime/provider-oauth';
 import { createHash } from 'node:crypto';
-import type { DirectoryCapableConnector, PlatformOAuthClients } from '../suites';
+import {
+  createSuiteToolDispatch,
+  type DirectoryCapableConnector,
+  type PlatformOAuthClients,
+  type SuiteCapableConnector,
+} from '../suites';
+import { GOOGLE_ACTION_HANDLERS, GOOGLE_READ_HANDLERS } from './tools';
 import { createGoogleDirectory, directoryKey } from './directory';
 
 export { DIRECTORY_SCOPES } from './directory';
@@ -70,7 +76,9 @@ export function createGoogleWorkspaceConnector(deps: {
   platformClients?: PlatformOAuthClients;
   /** Hears the scopes each refresh reports, so a narrowing at the provider narrows the row (D3). */
   scopes?: OAuthScopesPort;
-}): KnowledgeConnector<GoogleWorkspaceConfig> & DirectoryCapableConnector<GoogleWorkspaceConfig> {
+}): KnowledgeConnector<GoogleWorkspaceConfig> &
+  DirectoryCapableConnector<GoogleWorkspaceConfig> &
+  SuiteCapableConnector<GoogleWorkspaceConfig> {
   const auth = createProviderAuth({
     http: deps.http,
     provider: 'google',
@@ -185,8 +193,17 @@ export function createGoogleWorkspaceConnector(deps: {
       acl: await permissions(context, token, externalId),
     };
   };
+  // Suite tools for agents (ADR-038 D6): reads through `suiteReads`, changes as M3 intents through
+  // `actions`. The handlers are google-tools' to write, in ./tools.ts.
+  const tools = createSuiteToolDispatch({
+    deps: { http: deps.http, withToken: auth.withToken },
+    reads: GOOGLE_READ_HANDLERS,
+    actions: GOOGLE_ACTION_HANDLERS,
+  });
   return {
     manifest: GOOGLE_WORKSPACE_MANIFEST,
+    suiteReads: tools.suiteReads,
+    actions: tools.actions,
     parseConfig(raw) {
       const parsed = driveConnectorConfigSchema.safeParse(raw);
       if (!parsed.success) throw new SyncUnavailable('CONFIG_INVALID');

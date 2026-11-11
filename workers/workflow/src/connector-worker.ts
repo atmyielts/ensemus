@@ -35,6 +35,7 @@ import {
   createOAuthExchangeActivities,
 } from '@ensemus/workflows/oauth-exchange-activities';
 import { createPaymentConnectorActivities } from '@ensemus/workflows/payment-activities';
+import { createSuiteReadActivities } from '@ensemus/workflows/suite-read-activities';
 import { createSuiteUpkeepActivities } from '@ensemus/workflows/suite-upkeep-activities';
 import { createTemporalLogger } from '@ensemus/workflows/safe-logger';
 import { createTaxActivities } from '@ensemus/workflows/tax-activities';
@@ -53,6 +54,9 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const ROUTE_GATEWAYS: Readonly<Record<Exclude<ProviderRoute, 'mcp_server'>, string>> = {
   google_api: 'ENSEMUS_EGRESS_GOOGLE_API',
   google_oauth: 'ENSEMUS_EGRESS_GOOGLE_OAUTH',
+  google_gmail: 'ENSEMUS_EGRESS_GOOGLE_GMAIL',
+  google_docs: 'ENSEMUS_EGRESS_GOOGLE_DOCS',
+  google_sheets: 'ENSEMUS_EGRESS_GOOGLE_SHEETS',
   ms_graph: 'ENSEMUS_EGRESS_MS_GRAPH',
   ms_login: 'ENSEMUS_EGRESS_MS_LOGIN',
 };
@@ -171,6 +175,9 @@ async function main() {
           : '',
       }),
       ...createSuiteUpkeepActivities({ database: app.db, secrets }),
+      // Agents' suite reads (ADR-038 D6). The agent workflow schedules this here by IDs, because only this
+      // process holds the credential; the agent worker collects the output it writes.
+      ...createSuiteReadActivities(deps),
       // No native processor is selected. The composition supplies real standing/broker ports while
       // dispatch stays unavailable; it never fills origin/merchant identity from manifest or empty config.
       ...createPaymentConnectorActivities(

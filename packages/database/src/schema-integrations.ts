@@ -690,3 +690,91 @@ export const webhookDeliveries = integrationsSchema.table(
     ),
   ],
 );
+
+/**
+ * One suite read an agent asked for (ADR-038 D6, migration 0563). The agent role writes the request, the
+ * connector worker answers it, and the agent role collects the answer into the step's transcript, which
+ * clears `output` here. Only the agent role and the worker's service context see a row, and only the agent
+ * role reads `output`.
+ */
+export const suiteReads = integrationsSchema.table(
+  'suite_reads',
+  {
+    organizationId: uuid().notNull(),
+    proposalId: uuid().notNull(),
+    runId: uuid().notNull(),
+    stepId: uuid().notNull(),
+    connectionId: uuid().notNull(),
+    toolId: text().notNull(),
+    toolVersion: text().notNull(),
+    /** A model's arguments. Data for the connector, never instructions. */
+    args: jsonb().notNull(),
+    resourceExternalId: text(),
+    status: text().notNull().default('requested'),
+    resultCode: text(),
+    output: bytea(),
+    outputMediaType: text(),
+    outputClassification: text(),
+    createdAt: createdAt(),
+    updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.organizationId, t.proposalId] }),
+    foreignKey({
+      columns: [t.organizationId, t.connectionId],
+      foreignColumns: [connections.organizationId, connections.id],
+    }),
+    index('suite_reads_run_idx').on(t.organizationId, t.runId),
+    check(
+      'suite_reads_status_check',
+      sql`${t.status} in ('requested','read','refused','collected')`,
+    ),
+    check(
+      'suite_reads_result_format',
+      sql`${t.resultCode} IS NULL OR ${t.resultCode} ~ '^[A-Z][A-Z0-9_]{1,63}$'`,
+    ),
+    check(
+      'suite_reads_output_size',
+      sql`${t.output} IS NULL OR octet_length(${t.output}) <= 1048576`,
+    ),
+    check(
+      'suite_reads_output_class',
+      sql`${t.outputClassification} IS NULL OR ${t.outputClassification} in ('public','internal','confidential','restricted')`,
+    ),
+    check(
+      'suite_reads_output_only_when_read',
+      sql`(${t.output} IS NOT NULL) = (${t.status} = 'read')`,
+    ),
+    check('suite_reads_tool_format', sql`${t.toolId} ~ '^[a-z][a-z0-9_.]{1,63}$'`),
+  ],
+);
+
+/**
+ * What members may connect with their own account (ADR-038 D5, migration 0563). No row means the default,
+ * mail and calendar. Only a person with connection.manage changes it.
+ */
+export const suiteSettings = integrationsSchema.table(
+  'suite_settings',
+  {
+    organizationId: uuid()
+      .notNull()
+      .references(() => organizations.id),
+    memberCapabilities: text()
+      .array()
+      .notNull()
+      .default(sql`'{mail,calendar}'::text[]`),
+    updatedByMembershipId: uuid().notNull(),
+    updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.organizationId] }),
+    foreignKey({
+      columns: [t.organizationId, t.updatedByMembershipId],
+      foreignColumns: [memberships.organizationId, memberships.id],
+    }).onDelete('no action'),
+    check(
+      'suite_settings_member_capabilities',
+      sql`${t.memberCapabilities} <@ ARRAY['mail','calendar','documents','chat']::text[]`,
+    ),
+  ],
+);

@@ -166,6 +166,24 @@ export function toolFixture(input: {
     async audit(_tx, _context, row) {
       state.audits.push(row);
     },
+    // M3's SMTP connection, which every send in this fixture names (ADR-038 D6's rule, email.send first).
+    readConnectionUse: async (_tx, _context, request) => ({
+      connection: {
+        id: request.connectionId,
+        state: 'active',
+        connectorType: 'email_smtp',
+        ownerMembershipId: null,
+        grantedScopes: [],
+      },
+      resource: null,
+    }),
+    requestSuiteRead: async () => {
+      throw new Error('No suite reads in this fixture.');
+    },
+    readSuiteRead: async () => null,
+    closeSuiteRead: async () => {
+      throw new Error('No suite reads in this fixture.');
+    },
     draftIdFor: () => '00000000-0000-4000-8000-00000000000d',
     noteDraftUpload: async (_tx, _context, input) => ({
       artifactId: input.draftId,
@@ -219,6 +237,10 @@ export function toolFixture(input: {
       calls.externalProposals += 1;
       throw new Error('No test may directly propose or send through the external action port.');
     },
+    async proposeDraft() {
+      calls.externalProposals += 1;
+      throw new Error('No test may directly propose or send through the external action port.');
+    },
     async readState() {
       calls.externalReads += 1;
       return { status: 'awaiting_approval', approvalId: IDS.approval };
@@ -232,6 +254,10 @@ export function toolFixture(input: {
         externalActionId: IDS.action,
         requestHash: 'a'.repeat(64),
       };
+    },
+    async recordDraft() {
+      calls.approvalRequests += 1;
+      throw new Error('No draft tool in this fixture.');
     },
     async recheck() {
       calls.approvalRechecks += 1;

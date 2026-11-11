@@ -276,6 +276,12 @@ describe('web tier isolation (ADR-024 D3, D5)', () => {
       'egress-google-oauth': { address: /\.5\.14$/, target: 'ENSEMUS_EGRESS_GOOGLE_OAUTH_TARGET' },
       'egress-ms-graph': { address: /\.5\.15$/, target: 'ENSEMUS_EGRESS_MS_GRAPH_TARGET' },
       'egress-ms-login': { address: /\.5\.16$/, target: 'ENSEMUS_EGRESS_MS_LOGIN_TARGET' },
+      'egress-google-gmail': { address: /\.5\.17$/, target: 'ENSEMUS_EGRESS_GOOGLE_GMAIL_TARGET' },
+      'egress-google-docs': { address: /\.5\.18$/, target: 'ENSEMUS_EGRESS_GOOGLE_DOCS_TARGET' },
+      'egress-google-sheets': {
+        address: /\.5\.19$/,
+        target: 'ENSEMUS_EGRESS_GOOGLE_SHEETS_TARGET',
+      },
     } as const;
     const GATEWAYS = ['egress-gateway', ...Object.keys(ROUTE_GATEWAYS)].sort();
     const NEW_SERVICES = ['connector-worker', ...GATEWAYS];

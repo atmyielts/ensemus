@@ -19,7 +19,7 @@ import {
   type Tx,
 } from '@ensemus/database';
 import {
-  ACTION_CONNECTOR_TYPES,
+  EMAIL_SENDER_CONNECTOR_TYPES,
   MAX_RESOLUTION_REASON_LENGTH,
   RESOLUTIONS,
   type ExternalActionStatus,
@@ -543,7 +543,7 @@ export function listActionConnections(
       .where(
         and(
           eq(connections.state, 'active'),
-          inArray(connections.connectorType, [...ACTION_CONNECTOR_TYPES]),
+          inArray(connections.connectorType, [...EMAIL_SENDER_CONNECTOR_TYPES]),
         ),
       )
       .orderBy(asc(connections.displayName), asc(connections.id));
@@ -562,7 +562,7 @@ async function loadSender(tx: Tx, connectionId: string) {
     .where(eq(connections.id, connectionId));
   if (!connection) throw new AppError('NOT_FOUND');
   if (connection.state !== 'active') throw new AppError('CONNECTION_NOT_ACTIVE');
-  if (!ACTION_CONNECTOR_TYPES.includes(connection.connectorType)) {
+  if (!EMAIL_SENDER_CONNECTOR_TYPES.includes(connection.connectorType)) {
     throw new AppError('INVALID_INPUT');
   }
   const { fromAddress, fromName } = senderOf(connection.config);

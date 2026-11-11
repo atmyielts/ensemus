@@ -16,6 +16,7 @@
     "./ai-binding": "./src/ai-binding.ts",
     "./ai-events": "./src/ai-events.ts",
     "./ai-tools": "./src/ai-tools.ts",
+    "./suite-tools": "./src/suite-tools.ts",
     "./knowledge": "./src/knowledge.ts",
     "./knowledge-models": "./src/knowledge-models.ts",
     "./knowledge-events": "./src/knowledge-events.ts",

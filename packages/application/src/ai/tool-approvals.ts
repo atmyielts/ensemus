@@ -23,6 +23,7 @@ import {
   withTenantTx,
   workAssignments,
   workUnits,
+  type AgentContext,
   type AppDatabase,
   type TenantContext,
   type Tx,
@@ -32,7 +33,7 @@ import {
   type AiClassification,
   type ProviderKind,
 } from '@ensemus/domain/ai';
-import { toolManifest, type ToolManifest } from '@ensemus/domain/ai-tools';
+import { isActionTool, toolManifest, type ToolManifest } from '@ensemus/domain/ai-tools';
 import {
   actionHash,
   checkExecution,
@@ -54,6 +55,7 @@ import {
   notify,
 } from '../work';
 import type {
+  AgentActionRequest,
   ApprovalBinder,
   ApprovalRef,
   ExternalActionPort,
@@ -217,6 +219,32 @@ function policyPermits(
 
 const isExternalWrite = (manifest: ToolManifest | undefined): manifest is ToolManifest =>
   manifest !== undefined && manifest.class === 'external_write' && manifest.requiresApproval;
+
+/** A draft through a connection (ADR-038 D6). `artifact.draft.create` is a draft too, but stays here. */
+const isDraft = (manifest: ToolManifest | undefined): manifest is ToolManifest =>
+  isActionTool(manifest) && manifest.class === 'draft_only' && !manifest.requiresApproval;
+
+/** A draft has to come out as `allow`: anything else means the spec or a deny list says no. */
+function draftPermitted(
+  manifest: ToolManifest,
+  run: RunFacts,
+  work: { classification: string },
+  grants: AgentGrants,
+): boolean {
+  const dataClass = dataClassOf(run.effectiveClassification, work.classification);
+  if (dataClass === 'restricted') return false;
+  const decided = decideAction({
+    toolId: manifest.id,
+    toolClass: manifest.class,
+    allow: grants.allow,
+    deny: grants.deny,
+    delegated: delegatedTools(run.delegatedScopes),
+    dataClass,
+    destructive: false,
+    requiresApproval: manifest.requiresApproval,
+  });
+  return decided.decision === 'allow';
+}
 
 type RecheckFacts = {
   callerMembershipId: string;
@@ -384,6 +412,8 @@ export interface ApprovalStore {
   readGrants(tx: Tx, agentVersionId: string): Promise<AgentGrants>;
   readProviderKind(tx: Tx, profileId: string): Promise<ProviderKind | null>;
   bindProposal(tx: Tx, proposalId: string, ref: ApprovalRef): Promise<void>;
+  /** A draft's intent, with no approval. The proposal waits on M3 as a send's does. */
+  bindDraft(tx: Tx, proposalId: string, externalActionId: string): Promise<void>;
   closeForLostAccess(
     tx: Tx,
     context: TenantContext,
@@ -564,6 +594,14 @@ const postgresStore: ApprovalStore = {
       })
       .where(eq(toolProposals.id, proposalId));
   },
+  async bindDraft(tx, proposalId, externalActionId) {
+    // `approved` is what a ready intent reads as to the gateway: nobody is left to ask, and M3 has not
+    // made it yet.
+    await tx
+      .update(toolProposals)
+      .set({ externalActionId, status: 'approved', decisionCode: null, updatedAt: new Date() })
+      .where(eq(toolProposals.id, proposalId));
+  },
   async closeForLostAccess(tx, context, approval, work) {
     // M2's own path for an open one: it tells people, wakes the workflow and ends a plan that needed it.
     if (approval.status === 'pending') {
@@ -649,39 +687,84 @@ export function binderOver(
   store: ApprovalStore,
   deps: { externalActions: ExternalActionPort; halt: HaltCheck },
 ): ApprovalBinder {
+  /** Everything `request` and `recordDraft` check before they decide anything of their own. */
+  async function admit(
+    tx: Tx,
+    context: AgentContext,
+    input: AgentActionRequest,
+    isTool: (manifest: ToolManifest | undefined) => manifest is ToolManifest,
+  ) {
+    assertAgent(context);
+    if (canonicalId(input.runId) !== canonicalId(context.agentRunId)) {
+      throw new AppError('FORBIDDEN');
+    }
+    const proposal = await store.findProposal(tx, input.proposalId);
+    if (!proposal || proposal.runId !== canonicalId(input.runId)) {
+      throw new AppError('NOT_FOUND');
+    }
+    const manifest = toolManifest(input.toolId);
+    if (
+      !isTool(manifest) ||
+      manifest.version !== input.toolVersion ||
+      proposal.toolId !== input.toolId ||
+      proposal.toolVersion !== input.toolVersion
+    ) {
+      throw new AppError('TOOL_DENIED');
+    }
+    const found = await store.findRun(tx, proposal.runId);
+    if (!found || found.workUnitId !== canonicalId(input.workUnitId)) {
+      throw new AppError('NOT_FOUND');
+    }
+    if (found.initiatorMembershipId !== context.membershipId) throw new AppError('FORBIDDEN');
+
+    const work = await store.lockReadableWork(tx, context, found.workUnitId);
+    if (STOPPED_WORK_STATUSES.has(work.status)) throw new AppError('INVALID_STATE');
+    const run = await store.lockRun(tx, found.id);
+    if (!run || !LIVE_RUN_STATUSES.has(run.status)) throw new AppError('INVALID_STATE');
+    await deps.halt.assertRunning(tx, context, await haltTargetOf(store, tx, run));
+
+    const locked = await store.lockProposal(tx, proposal.id);
+    if (!locked) throw new AppError('NOT_FOUND');
+    return { proposal, manifest, work, run, locked };
+  }
+
   return {
+    async recordDraft(tx, context, input) {
+      const { proposal, manifest, work, run, locked } = await admit(tx, context, input, isDraft);
+      // A retry of the same step finds the intent it already made, and makes no second one.
+      if (locked.externalActionId) {
+        const intent = await store.lockIntent(tx, locked.externalActionId);
+        if (!intent || locked.approvalId) throw new AppError('INVALID_STATE');
+        return { externalActionId: intent.id, requestHash: intent.requestHash };
+      }
+      if (locked.status !== 'proposed') throw new AppError('INVALID_STATE');
+      // A draft still leaves Ensemus, into the person's own account, so restricted data stays here.
+      if (dataClassOf(run.effectiveClassification, work.classification) === 'restricted') {
+        throw new AppError('RESTRICTED_NOT_ALLOWED');
+      }
+      if (!draftPermitted(manifest, run, work, await store.readGrants(tx, run.agentVersionId))) {
+        throw new AppError('POLICY_DENIED');
+      }
+      // No approver: the manifest says a draft asks nobody, and M3 refuses any other tool here.
+      const proposed = await deps.externalActions.proposeDraft(tx, context, {
+        workUnitId: work.id,
+        connectionId: input.connectionId,
+        toolName: input.toolId,
+        toolVersion: input.toolVersion,
+        payload: input.payload,
+      });
+      // In this transaction, for the same reason as a send: 0101's trigger finds the run by this link.
+      await store.bindDraft(tx, proposal.id, proposed.externalActionId);
+      return { externalActionId: proposed.externalActionId, requestHash: proposed.requestHash };
+    },
+
     async request(tx, context, input) {
-      assertAgent(context);
-      if (canonicalId(input.runId) !== canonicalId(context.agentRunId)) {
-        throw new AppError('FORBIDDEN');
-      }
-      const proposal = await store.findProposal(tx, input.proposalId);
-      if (!proposal || proposal.runId !== canonicalId(input.runId)) {
-        throw new AppError('NOT_FOUND');
-      }
-      const manifest = toolManifest(input.toolId);
-      if (
-        !isExternalWrite(manifest) ||
-        manifest.version !== input.toolVersion ||
-        proposal.toolId !== input.toolId ||
-        proposal.toolVersion !== input.toolVersion
-      ) {
-        throw new AppError('TOOL_DENIED');
-      }
-      const found = await store.findRun(tx, proposal.runId);
-      if (!found || found.workUnitId !== canonicalId(input.workUnitId)) {
-        throw new AppError('NOT_FOUND');
-      }
-      if (found.initiatorMembershipId !== context.membershipId) throw new AppError('FORBIDDEN');
-
-      const work = await store.lockReadableWork(tx, context, found.workUnitId);
-      if (STOPPED_WORK_STATUSES.has(work.status)) throw new AppError('INVALID_STATE');
-      const run = await store.lockRun(tx, found.id);
-      if (!run || !LIVE_RUN_STATUSES.has(run.status)) throw new AppError('INVALID_STATE');
-      await deps.halt.assertRunning(tx, context, await haltTargetOf(store, tx, run));
-
-      const locked = await store.lockProposal(tx, proposal.id);
-      if (!locked) throw new AppError('NOT_FOUND');
+      const { proposal, manifest, work, run, locked } = await admit(
+        tx,
+        context,
+        input,
+        isExternalWrite,
+      );
       // A retry of the same step finds what it already asked for. A person agreed, or will agree, to what
       // that intent froze, so a retry can never change what they see, and nobody is asked twice.
       if (locked.approvalId || locked.externalActionId) {

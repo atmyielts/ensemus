@@ -260,6 +260,36 @@ describe('starting a consent, refused before anything is sealed or written', () 
     }
   });
 
+  it('keeps a member’s own consent to capabilities a member can own, before anything is sealed', async () => {
+    for (const capabilities of [['files'], ['directory'], ['mail', 'files']] as const) {
+      const { web, seal } = webSide();
+      await expect(
+        startAuthorization(
+          untouchable,
+          contextFor('member'),
+          googleStart({ owner: 'member', capabilities }),
+          web,
+        ),
+      ).rejects.toEqual(code('OAUTH_CAPABILITY_UNAVAILABLE'));
+      expect(seal).not.toHaveBeenCalled();
+    }
+  });
+
+  it('lets only a person start their own consent, never an agent or a worker', async () => {
+    for (const context of [contextFor('admin', 'agent'), contextFor('admin', 'service')]) {
+      const { web, seal } = webSide();
+      await expect(
+        startAuthorization(
+          untouchable,
+          context,
+          googleStart({ owner: 'member', capabilities: ['mail'] }),
+          web,
+        ),
+      ).rejects.toEqual(code('FORBIDDEN'));
+      expect(seal).not.toHaveBeenCalled();
+    }
+  });
+
   it('says so when the operator’s app is not configured', async () => {
     const { web, seal } = webSide(null);
     await expect(

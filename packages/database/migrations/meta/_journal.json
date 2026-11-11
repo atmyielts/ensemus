@@ -834,6 +834,13 @@
       "when": 1794201807520,
       "tag": "0562_credential_rotation",
       "breakpoints": true
+    },
+    {
+      "idx": 119,
+      "version": "7",
+      "when": 1794201807521,
+      "tag": "0563_suite_tools",
+      "breakpoints": true
     }
   ]
 }

@@ -40,9 +40,32 @@ Google: Admin SDK Directory groups and members, full pass with generations. Micr
 
 ## Stage 2: suite tools for agents (`CONNECT-09`, after stage 1)
 
-1. **gateway:** replace the tool `switch` and the `email_smtp`-only intent path with ADR-038 D6's rule: connector types, scopes, owner and side-effect level from the manifest. `email.send` moves onto the rule unchanged in behaviour. Wire MCP through it.
-2. **google-tools:** Gmail (search, read thread, draft, send), Calendar (list, create with a client-chosen ID, update), Docs (read, edit with `requiredRevisionId`), Sheets (read range, write range), Drive (search, create file).
-3. **microsoft-tools:** Outlook mail, calendar with `transactionId`, Word and Excel through Graph files and workbook, Teams channel message.
-4. **personal connections:** connecting one's own account, and the run's choice of connection.
+Design: ADR-038 "D6 in detail". Read it first.
 
-Each tool lists its reconcile kind as ADR-038 D6's table does, and has a denied test for: missing scope, another member's connection, restricted class, and a changed payload after approval.
+### 2a. Foundation (one builder, done before the three below)
+
+Built: the tool manifests as data (`packages/domain/src/suite-tools.ts`, `ai-tools.ts`), strict argument schemas (`packages/contracts/src/suite-tools.ts`), the pure rule `decideConnectionUse` (`packages/policy/src/suite-access.ts`), the gateway's dispatch by class and its suite read halves (`packages/agent-runtime/src/tools/index.ts`), the generalized intent path and `proposeDraftActionInTx` (`packages/application/src/external-actions.ts`), the binder's `recordDraft`, the connector worker's `claimSuiteRead`/`finishSuiteRead` (`packages/application/src/suite-reads.ts`) and `runSuiteRead` (`packages/workflows/src/suite-read-activities.ts`, registered in `connector-worker.ts`), the agent workflow's `patched('agent-suite-read-v1')` branch, the usable-connection list in the model's task, the `google_gmail`, `google_docs` and `google_sheets` routes with their Compose gateways, migration `0563_suite_tools.sql` (FLAGGED FOR HUMAN SECURITY REVIEW), the member consent path in `startAuthorization`, and stubs for every handler.
+
+Owed from 2a, for whichever builder reaches them first, by agreement: an approval-page view per suite payload (`apps/web/src/app/o/[organizationId]/approvals/[approvalId]/agent-action.tsx`), the run-end purge of uncollected `suite_reads` output, MCP through the rule, a replay history that exercises the suite read branch, and `tests/integration/suite-tools.test.ts` run against the stack.
+
+### 2b. Three builders at once, after 2a is committed
+
+Every handler is `(deps, context, args, access) => Promise<SuiteReadResult>` for a read, and `{ send(deps, context, request), reconcile(deps, context, request) }` for a change, over arguments and a payload already re-parsed by the tool's schema (`createSuiteToolDispatch` in `packages/connectors/src/suites.ts`). Reads throw `SuiteReadRefused(code)` for a final answer and `SyncUnavailable(code)` for one worth retrying, never with provider text. Sends follow ActionConnector's rules: `NotSent` only when certain nothing happened. Each read returns the resource IDs of the organization's content it contains; a search through the organization's connection drops what `access.permitted(ids)` leaves out. Each tool has a denied test for: missing scope, another member's connection, restricted class, and a changed payload after approval (the binder's recheck catches the last; add a connector test that a payload not matching the schema is `NotSent('PAYLOAD_CHANGED')`).
+
+#### google-tools
+
+**Owns:** the bodies in `packages/connectors/src/google/tools.ts` and their tests (`packages/connectors/src/google/tools.test.ts`, new), and any Google-only helpers beside it. Nothing else.
+
+Read handlers: `gmailSearch`, `gmailReadThread`, `calendarListEvents`, `driveSearch`, `docsRead`, `sheetsReadRange`. Change handlers: `gmailCreateDraft`, `gmailSend`, `calendarCreateEvent` (event ID derived from `idempotencyKey`, reconcile authoritative: a 404 for that ID is `not_found`), `calendarUpdateEvent`, `driveCreateFile` (app property carrying the intent ID), `docsEdit` (`writeControl.requiredRevisionId` from the payload; Docs refusing it is `rejected`), `sheetsWriteRange` (`valueInputOption` from `value_input`). `GoogleToolDeps` is `{ http, withToken }`. Routes: `google_gmail`, `google_api` (Calendar, Drive), `google_docs`, `google_sheets`.
+
+#### microsoft-tools
+
+**Owns:** the bodies in `packages/connectors/src/microsoft/tools.ts` and their tests (`packages/connectors/src/microsoft/tools.test.ts`, new). Nothing else.
+
+Read handlers: `outlookSearch`, `outlookReadThread`, `calendarListEvents`, `onedriveSearch`, `wordRead`, `excelReadRange`. Change handlers: `outlookCreateDraft`, `outlookSend` (Message-ID header from the intent; reconcile by searching Sent Items), `calendarCreateEvent` (`transactionId` from `idempotencyKey`, reconcile best effort), `calendarUpdateEvent`, `onedriveCreateFile`, `excelWriteRange`, `teamsPostMessage`. `MicrosoftToolDeps` is `{ http, withToken }`. Route: `ms_graph` only.
+
+#### personal-connections
+
+**Owns:** the pages and routes for a member to connect, see and revoke their own account (`apps/web/src/app/o/[organizationId]/settings/connections/**`, new), the admin control for `setMemberCapabilities` on the connections page, `revokeMyConnection` in `packages/application/src/suite-settings.ts` (stub today), its API routes and their `docs/specifications/openapi.yaml` entries, and `tests/integration/personal-connections.test.ts`.
+
+Built for you: `startAuthorization(…, { owner: 'member', … })`, `getMemberCapabilities`, `setMemberCapabilities`, `listMyConnections`, `listMyUsableConnections`, and 0563's checks. A member's consent asks only for `MEMBER_CONNECTABLE_CAPABILITIES` the organization allows; refuse in plain words, never provider text.

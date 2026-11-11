@@ -8,6 +8,7 @@ import { randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import {
   appendAudit,
   oauthAuthorizations,
+  withTenantTx,
   type AppDatabase,
   type TenantContext,
   type Tx,
@@ -23,6 +24,7 @@ import {
   GOOGLE_AUTHORIZE_URL,
   isOAuthErrorCode,
   isSuiteConnectorType,
+  MEMBER_CONNECTABLE_CAPABILITIES,
   MICROSOFT_PLATFORM_AUTHORITY,
   MICROSOFT_TENANT_PATTERN,
   microsoftAuthorizeUrl,
@@ -54,6 +56,7 @@ import { AppError, foreignReference, pgCode } from './errors';
 import { emit } from './events';
 import { idSchema } from './ids';
 import { assertInteractivePrivilege, withPrivilegeTx } from './product/privileged';
+import { memberCapabilitiesInTx } from './suite-settings';
 
 export type OAuthAuthorizationView = {
   id: string;
@@ -80,6 +83,11 @@ export type StartAuthorizationInput = {
   /** Checked against the connector's own settings. Never a secret and never a host. */
   config: unknown;
   capabilities: readonly SuiteCapability[];
+  /**
+   * Whose connection this makes (ADR-038 D5). `organization`, the default, needs connection.manage.
+   * `member` makes the signed-in member's own, for capabilities the organization allows members.
+   */
+  owner?: 'organization' | 'member';
   client:
     | { kind: 'platform' }
     /** Sealed at once as one value, with SECRET_PURPOSE_OAUTH_CUSTOMER_CLIENT. */
@@ -336,7 +344,9 @@ export async function startAuthorization(
   input: StartAuthorizationInput,
   web: OAuthWebSide,
 ): Promise<StartedAuthorization> {
-  requireStarter(context);
+  const owner = input.owner ?? 'organization';
+  if (owner === 'organization') requireStarter(context);
+  else if (owner !== 'member' || context.actorType !== 'user') throw new AppError('FORBIDDEN');
   if (!isSuiteConnectorType(input.connectorType)) throw new AppError('INVALID_INPUT');
   const name = displayNameSchema.safeParse(input.displayName);
   if (!name.success) throw new AppError('INVALID_INPUT');
@@ -351,11 +361,25 @@ export async function startAuthorization(
   ) {
     throw new AppError('INVALID_INPUT');
   }
-  const scopes = scopesFor(input.connectorType, capabilities);
-  // A member's own mail and calendar arrive with personal connections (ADR-038 D5). Until then every
-  // consent here makes the organization's connection, so it can never carry a member's capability.
-  if (!scopes || capabilities.some((capability) => CAPABILITY_OWNER[capability] === 'member')) {
+  // An organization's connection never carries a member's own capability, and a member's never carries
+  // the organization's (ADR-038 D3, D5). A member may ask only for what the organization allows members,
+  // read in the transaction that inserts, and 0563's trigger checks the same again.
+  const scopes =
+    owner === 'member'
+      ? scopesFor(input.connectorType, capabilities, MEMBER_CONNECTABLE_CAPABILITIES)
+      : scopesFor(input.connectorType, capabilities);
+  const ownerFits = (capability: SuiteCapability) =>
+    owner === 'member'
+      ? CAPABILITY_OWNER[capability] !== 'organization'
+      : CAPABILITY_OWNER[capability] !== 'member';
+  if (!scopes || !capabilities.every(ownerFits)) {
     throw new AppError('OAUTH_CAPABILITY_UNAVAILABLE');
+  }
+  if (owner === 'member') {
+    const allowed = await withTenantTx(database, context, memberCapabilitiesInTx);
+    if (!capabilities.every((capability) => allowed.includes(capability))) {
+      throw new AppError('FORBIDDEN');
+    }
   }
   const client = resolveClient(SUITE_PROVIDER[input.connectorType], input.client, web);
   if (new URL(web.redirectUri).pathname !== OAUTH_CALLBACK_PATH) {
@@ -364,10 +388,12 @@ export async function startAuthorization(
   }
 
   // Before anything is sealed, so someone refused leaves nothing behind. The insert checks again in its
-  // own transaction, and 0561's trigger a third time.
-  await withPrivilegeTx(database, context, (tx) =>
-    assertInteractivePrivilege(tx, context, 'connection.manage'),
-  );
+  // own transaction, and 0561's trigger a third time. A member's own needs no privilege beyond being one.
+  if (owner === 'organization') {
+    await withPrivilegeTx(database, context, (tx) =>
+      assertInteractivePrivilege(tx, context, 'connection.manage'),
+    );
+  }
 
   const id = randomUUID();
   const state = formatOAuthState(context.organizationId, id, randomBytes(32));
@@ -394,8 +420,14 @@ export async function startAuthorization(
         );
 
   try {
-    await withPrivilegeTx(database, context, async (tx) => {
-      await assertInteractivePrivilege(tx, context, 'connection.manage');
+    const inStartTx = (body: (tx: Tx) => Promise<void>) =>
+      owner === 'organization'
+        ? withPrivilegeTx(database, context, async (tx) => {
+            await assertInteractivePrivilege(tx, context, 'connection.manage');
+            await body(tx);
+          })
+        : withTenantTx(database, context, body);
+    await inStartTx(async (tx) => {
       await tx.insert(oauthAuthorizations).values({
         organizationId: context.organizationId,
         id,
@@ -407,7 +439,7 @@ export async function startAuthorization(
         customerClientSecretId,
         requestedCapabilities: [...capabilities],
         requestedScopes: [...scopes],
-        ownerMembershipId: null,
+        ownerMembershipId: owner === 'member' ? context.membershipId : null,
         startedByMembershipId: context.membershipId,
         stateSha256: oauthStateSha256(state),
         verifierSecretId,

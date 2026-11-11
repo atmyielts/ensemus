@@ -22,6 +22,13 @@ export const AGENT_TASK_QUEUE = 'ensemus-agent';
 
 /** A wake-up to look at `ai.run_controls`. It carries nothing: PostgreSQL has the answer. */
 export const AGENT_RUN_CONTROL_SIGNAL = 'agentRunControl';
+
+/**
+ * The agent run's suite read (ADR-038 D6): after the gate passes one, the workflow runs it on the connector
+ * queue and then collects it. A history written before this has no suite read, so it never reaches the
+ * branch, and the marker keeps any later change to that branch replay-safe.
+ */
+export const SUITE_READ_PATCH = 'agent-suite-read-v1';
 /** How often a workflow re-checks a send M3 is carrying out, on a durable timer. */
 export const TOOL_WAIT_POLL = '30 seconds';
 /** How long an Activity waits for agent-worker to pick it up before the run says so (FD-2). */

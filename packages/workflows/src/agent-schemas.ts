@@ -64,6 +64,24 @@ export const stepInputSchema = runRefSchema.extend({
 });
 export type StepInput = z.infer<typeof stepInputSchema>;
 
+/** A tool step, and whether this call comes back for a suite read the connector worker has finished. */
+export const toolStepInputSchema = stepInputSchema.extend({
+  collect: z.literal(true).optional(),
+});
+export type ToolStepInput = z.infer<typeof toolStepInputSchema>;
+
+/** What the connector worker is told about a suite read: IDs, and nothing a model or a provider wrote. */
+export const suiteReadInputSchema = z.strictObject({
+  organizationId: z.uuid(),
+  runId: z.uuid(),
+  proposalId: z.uuid(),
+});
+export type SuiteReadInput = z.infer<typeof suiteReadInputSchema>;
+
+/** How a suite read ended, as a code. The output itself stays in PostgreSQL. */
+export const SUITE_READ_STATUSES = ['read', 'refused', 'gone'] as const;
+export type SuiteReadStatus = (typeof SUITE_READ_STATUSES)[number];
+
 export const modelTurnResultSchema = z.strictObject({
   outcome: z.enum(MODEL_OUTCOMES),
   stopCode: z
@@ -83,6 +101,11 @@ export const toolCallResultSchema = z.strictObject({
   counters: runCountersSchema,
   /** Set for `agent.delegate` when a child must be started. */
   delegation: z.strictObject({ organizationId: z.uuid(), workUnitId: z.uuid() }).nullable(),
+  /**
+   * Set when a suite read passed the gate and the connector worker has to do it (ADR-038 D6). An ID only.
+   * Absent from every result written before suite tools, which is what keeps old histories replaying.
+   */
+  suiteRead: z.strictObject({ proposalId: z.uuid() }).nullable().optional(),
 });
 export type ToolCallResult = z.infer<typeof toolCallResultSchema>;
 

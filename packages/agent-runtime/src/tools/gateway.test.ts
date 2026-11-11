@@ -242,6 +242,22 @@ function fakeStore(db: {
     async audit(_tx, _context, entry) {
       db.state.audit.push(entry);
     },
+    // M3's SMTP connection, as every email test here names: the organization's, active, with no scopes.
+    async readConnectionUse(_tx, _context, input) {
+      return {
+        connection: {
+          id: input.connectionId,
+          state: 'active',
+          connectorType: 'email_smtp',
+          ownerMembershipId: null,
+          grantedScopes: [],
+        },
+        resource: null,
+      };
+    },
+    requestSuiteRead: () => Promise.reject(new Error('No suite reads in these tests')),
+    readSuiteRead: () => Promise.resolve(null),
+    closeSuiteRead: () => Promise.reject(new Error('No suite reads in these tests')),
     draftIdFor: (_context, input) => `draft-${input.runId}-${input.stepNumber}`,
     async noteDraftUpload(_tx, _context, input) {
       db.state.uploadsNoted.push(input.draftId);
@@ -369,6 +385,8 @@ describe('tool gateway', () => {
     approvalFailure = null;
     const externalActions: ExternalActionPort = {
       propose: () => Promise.reject(new Error('The binder proposes, and the gateway does not')),
+      proposeDraft: () =>
+        Promise.reject(new Error('The binder proposes, and the gateway does not')),
       async readState() {
         reads += 1;
         const next = externalStates.shift();
@@ -387,6 +405,7 @@ describe('tool gateway', () => {
           requestHash: 'c'.repeat(64),
         };
       },
+      recordDraft: () => Promise.reject(new Error('unused')),
       recheck: () => Promise.resolve({ ok: true }),
     };
     const halt: HaltCheck = {
@@ -401,6 +420,194 @@ describe('tool gateway', () => {
       approvals,
       halt,
       store: fakeStore(db),
+    });
+  });
+
+  describe('a suite tool and the connection it names (ADR-038 D5, D6)', () => {
+    const GMAIL_SEND = 'https://www.googleapis.com/auth/gmail.send';
+    const GMAIL_READ = 'https://www.googleapis.com/auth/gmail.readonly';
+    const message = { to: ['someone@example.invalid'], subject: 'Hello', text_body: 'Synthetic.' };
+    const suiteRequests: unknown[] = [];
+
+    /** The gateway over this test's world, with the connection and resource the store reports. */
+    const withConnection = (
+      connection: {
+        connectorType: string;
+        ownerMembershipId: string | null;
+        grantedScopes: string[];
+        state?: string;
+      } | null,
+      resource: { synced: boolean; access: ('read' | 'write' | 'owner')[] } | null = null,
+    ) => {
+      const store = fakeStore(db);
+      return createToolGateway({
+        source: fakeSource(world),
+        externalActions: {
+          propose: () => Promise.reject(new Error('unused')),
+          proposeDraft: () => Promise.reject(new Error('unused')),
+          readState: () => Promise.reject(new Error('unused')),
+        },
+        approvals: {
+          async request(_tx, _context, input) {
+            requests.push(input);
+            return { approvalId: 'approval-1', externalActionId: 'action-1', requestHash: 'c' };
+          },
+          recordDraft: () => Promise.reject(new Error('unused')),
+          recheck: () => Promise.resolve({ ok: true }),
+        },
+        halt: { assertRunning: async () => undefined },
+        store: {
+          ...store,
+          readConnectionUse: async (_tx, _context, input) => ({
+            connection: connection && {
+              id: input.connectionId,
+              state: connection.state ?? 'active',
+              connectorType: connection.connectorType,
+              ownerMembershipId: connection.ownerMembershipId,
+              grantedScopes: connection.grantedScopes,
+            },
+            resource,
+          }),
+          requestSuiteRead: async (_tx, _context, input) => {
+            suiteRequests.push(input);
+          },
+        },
+      });
+    };
+
+    const grant = (...tools: string[]) => {
+      db.state.facts.allow = [...(db.state.facts.allow ?? []), ...tools];
+      db.state.facts.delegated = [...(db.state.facts.delegated ?? []), ...tools];
+    };
+
+    beforeEach(() => {
+      suiteRequests.length = 0;
+    });
+
+    it('proposes the initiator’s own send with exactly what was asked, as a person must approve', async () => {
+      grant('gmail.send');
+      propose('gmail.send', { connection_id: CONNECTION, message });
+      const suite = withConnection({
+        connectorType: 'google_workspace',
+        ownerMembershipId: MEMBER,
+        grantedScopes: [GMAIL_SEND],
+      });
+      await expect(suite.handle(context, step)).resolves.toMatchObject({
+        outcome: 'needs_approval',
+        decisionCode: 'APPROVAL_REQUIRED',
+      });
+      expect(requests).toEqual([
+        expect.objectContaining({
+          toolId: 'gmail.send',
+          connectionId: CONNECTION.toLowerCase(),
+          payload: { message },
+        }),
+      ]);
+    });
+
+    it.each([
+      [
+        'another member’s connection',
+        {
+          connectorType: 'google_workspace',
+          ownerMembershipId: randomUUID(),
+          grantedScopes: [GMAIL_SEND],
+        },
+        'CONNECTION_NOT_YOURS',
+      ],
+      [
+        'the organization’s connection for a member’s own capability',
+        { connectorType: 'google_workspace', ownerMembershipId: null, grantedScopes: [GMAIL_SEND] },
+        'CONNECTION_NOT_YOURS',
+      ],
+      [
+        'a scope the provider did not grant',
+        {
+          connectorType: 'google_workspace',
+          ownerMembershipId: MEMBER,
+          grantedScopes: [GMAIL_READ],
+        },
+        'SCOPE_NOT_GRANTED',
+      ],
+      [
+        'a connection of another type',
+        { connectorType: 'microsoft_365', ownerMembershipId: MEMBER, grantedScopes: ['Mail.Send'] },
+        'CONNECTION_TYPE_MISMATCH',
+      ],
+      [
+        'a revoked connection',
+        {
+          connectorType: 'google_workspace',
+          ownerMembershipId: MEMBER,
+          grantedScopes: [GMAIL_SEND],
+          state: 'revoked',
+        },
+        'RESOURCE_NOT_PERMITTED',
+      ],
+    ])('refuses %s, records why, and asks nobody', async (_name, connection, code) => {
+      grant('gmail.send');
+      propose('gmail.send', { connection_id: CONNECTION, message });
+      await expect(withConnection(connection).handle(context, step)).resolves.toMatchObject({
+        outcome: 'denied',
+        decisionCode: code,
+      });
+      expectNoEffect();
+      expect(db.state.audit.at(-1)).toMatchObject({ action: 'ai.tool_denied', decision: 'deny' });
+    });
+
+    it('refuses an external write on restricted data, even on the initiator’s own account', async () => {
+      grant('gmail.send');
+      db.state.facts.classification = 'restricted';
+      propose('gmail.send', { connection_id: CONNECTION, message });
+      const suite = withConnection({
+        connectorType: 'google_workspace',
+        ownerMembershipId: MEMBER,
+        grantedScopes: [GMAIL_SEND],
+      });
+      await expect(suite.handle(context, step)).resolves.toMatchObject({
+        outcome: 'denied',
+        decisionCode: 'CLASS_DENIED',
+      });
+      expectNoEffect();
+    });
+
+    it('refuses a document the organization’s connection reaches but the sync never mapped', async () => {
+      grant('docs.read');
+      propose('docs.read', { connection_id: CONNECTION, document_id: 'doc-1' });
+      const scopes = ['https://www.googleapis.com/auth/documents'];
+      for (const resource of [null, { synced: false, access: ['read' as const] }]) {
+        await expect(
+          withConnection(
+            { connectorType: 'google_workspace', ownerMembershipId: null, grantedScopes: scopes },
+            resource,
+          ).handle(context, step),
+        ).resolves.toMatchObject({ outcome: 'denied', decisionCode: 'RESOURCE_NOT_PERMITTED' });
+        propose('docs.read', { connection_id: CONNECTION, document_id: 'doc-1' });
+      }
+      expect(suiteRequests).toEqual([]);
+    });
+
+    it('hands a passed read to the connector worker by ID, and reads nothing itself', async () => {
+      grant('gmail.search');
+      const args = { connection_id: CONNECTION, query: 'from:someone', max_results: 5 };
+      propose('gmail.search', args);
+      const suite = withConnection({
+        connectorType: 'google_workspace',
+        ownerMembershipId: MEMBER,
+        grantedScopes: [GMAIL_READ],
+      });
+      const handled = await suite.handle(context, step);
+      expect(handled).toMatchObject({ outcome: 'needs_approval', decisionCode: null });
+      expect(handled.suiteReadProposalId).toBe(db.state.proposal?.id);
+      expect(suiteRequests).toEqual([
+        expect.objectContaining({
+          toolId: 'gmail.search',
+          connectionId: CONNECTION.toLowerCase(),
+          args,
+        }),
+      ]);
+      expect(db.state.outputs).toEqual([]);
+      expect(db.state.ledger).toEqual([]);
     });
   });
 
@@ -706,8 +913,8 @@ describe('tool gateway', () => {
       const store = fakeStore(db);
       const blind = createToolGateway({
         source: fakeSource(world),
-        externalActions: { propose: vi.fn(), readState: vi.fn() },
-        approvals: { request: vi.fn(), recheck: vi.fn() },
+        externalActions: { propose: vi.fn(), proposeDraft: vi.fn(), readState: vi.fn() },
+        approvals: { request: vi.fn(), recordDraft: vi.fn(), recheck: vi.fn() },
         halt: { assertRunning: vi.fn() },
         store: { ...store, readRun: async () => null },
       });
@@ -777,6 +984,7 @@ describe('tool gateway', () => {
       source: fakeSource(world),
       externalActions: {
         propose: () => Promise.reject(new Error('unused')),
+        proposeDraft: () => Promise.reject(new Error('unused')),
         readState: () => Promise.reject(new Error('unused')),
       },
       approvals: {
@@ -788,6 +996,7 @@ describe('tool gateway', () => {
             requestHash: 'c'.repeat(64),
           };
         },
+        recordDraft: () => Promise.reject(new Error('unused')),
         recheck: () => Promise.resolve({ ok: true }),
       },
       halt: {
@@ -845,8 +1054,8 @@ describe('tool gateway', () => {
             return source.loadArtifactText(c, input);
           },
         },
-        externalActions: { propose: vi.fn(), readState: vi.fn() },
-        approvals: { request: vi.fn(), recheck: vi.fn() },
+        externalActions: { propose: vi.fn(), proposeDraft: vi.fn(), readState: vi.fn() },
+        approvals: { request: vi.fn(), recordDraft: vi.fn(), recheck: vi.fn() },
         halt: { assertRunning: async () => undefined },
         store: fakeStore(db),
       });
@@ -922,8 +1131,8 @@ describe('tool gateway', () => {
             throw appError('POLICY_DENIED');
           },
         },
-        externalActions: { propose: vi.fn(), readState: vi.fn() },
-        approvals: { request: vi.fn(), recheck: vi.fn() },
+        externalActions: { propose: vi.fn(), proposeDraft: vi.fn(), readState: vi.fn() },
+        approvals: { request: vi.fn(), recordDraft: vi.fn(), recheck: vi.fn() },
         halt: { assertRunning: async () => undefined },
         store: fakeStore(db),
       });
@@ -953,8 +1162,8 @@ describe('tool gateway', () => {
       let transactions = 0;
       const flaky = createToolGateway({
         source: fakeSource(world),
-        externalActions: { propose: vi.fn(), readState: vi.fn() },
-        approvals: { request: vi.fn(), recheck: vi.fn() },
+        externalActions: { propose: vi.fn(), proposeDraft: vi.fn(), readState: vi.fn() },
+        approvals: { request: vi.fn(), recordDraft: vi.fn(), recheck: vi.fn() },
         halt: { assertRunning: async () => undefined },
         store: {
           ...store,
@@ -976,8 +1185,8 @@ describe('tool gateway', () => {
       const store = fakeStore(db);
       const broken = createToolGateway({
         source: fakeSource(world),
-        externalActions: { propose: vi.fn(), readState: vi.fn() },
-        approvals: { request: vi.fn(), recheck: vi.fn() },
+        externalActions: { propose: vi.fn(), proposeDraft: vi.fn(), readState: vi.fn() },
+        approvals: { request: vi.fn(), recordDraft: vi.fn(), recheck: vi.fn() },
         halt: { assertRunning: async () => undefined },
         store: {
           ...store,
@@ -1000,8 +1209,8 @@ describe('tool gateway', () => {
       const closed = createToolGateway({
         source: fakeSource(world),
         store: { ...store, loadProposal: load },
-        externalActions: { propose: vi.fn(), readState: vi.fn() },
-        approvals: { request: vi.fn(), recheck: vi.fn() },
+        externalActions: { propose: vi.fn(), proposeDraft: vi.fn(), readState: vi.fn() },
+        approvals: { request: vi.fn(), recordDraft: vi.fn(), recheck: vi.fn() },
         halt: { assertRunning: async () => undefined },
       });
       await expect(closed.handle(context, step)).resolves.toMatchObject({ outcome: 'stopped' });
@@ -1070,8 +1279,8 @@ describe('tool gateway', () => {
       const store = fakeStore(db);
       const stopping = createToolGateway({
         source: fakeSource(world),
-        externalActions: { propose: vi.fn(), readState: vi.fn() },
-        approvals: { request: vi.fn(), recheck: vi.fn() },
+        externalActions: { propose: vi.fn(), proposeDraft: vi.fn(), readState: vi.fn() },
+        approvals: { request: vi.fn(), recordDraft: vi.fn(), recheck: vi.fn() },
         halt: { assertRunning: async () => undefined },
         store: {
           ...store,
@@ -1204,8 +1413,8 @@ describe('tool gateway', () => {
       const store = fakeStore(db);
       const readOnly = createToolGateway({
         source: fakeSource(world),
-        externalActions: { propose: vi.fn(), readState: vi.fn() },
-        approvals: { request: vi.fn(), recheck: vi.fn() },
+        externalActions: { propose: vi.fn(), proposeDraft: vi.fn(), readState: vi.fn() },
+        approvals: { request: vi.fn(), recordDraft: vi.fn(), recheck: vi.fn() },
         halt: { assertRunning: async () => undefined },
         store: { ...store, noteDraftUpload: () => Promise.reject(appError('FORBIDDEN')) },
       });
@@ -1223,8 +1432,8 @@ describe('tool gateway', () => {
       let transactions = 0;
       const flaky = createToolGateway({
         source: fakeSource(world),
-        externalActions: { propose: vi.fn(), readState: vi.fn() },
-        approvals: { request: vi.fn(), recheck: vi.fn() },
+        externalActions: { propose: vi.fn(), proposeDraft: vi.fn(), readState: vi.fn() },
+        approvals: { request: vi.fn(), recordDraft: vi.fn(), recheck: vi.fn() },
         halt: { assertRunning: async () => undefined },
         store: {
           ...store,
@@ -1366,12 +1575,14 @@ describe('tool gateway', () => {
           requests.push(input);
           return { approvalId: 'approval-1', externalActionId: 'action-1', requestHash: 'c' };
         },
+        recordDraft: () => Promise.reject(new Error('unused')),
         recheck: () => Promise.resolve({ ok: true }),
       };
       const flaky = createToolGateway({
         source: fakeSource(world),
         externalActions: {
           propose: vi.fn(),
+          proposeDraft: () => Promise.reject(new Error('unused')),
           readState: async () => ({ status: 'awaiting_approval', approvalId: 'approval-1' }),
         },
         approvals,
@@ -1397,12 +1608,13 @@ describe('tool gateway', () => {
       const store = fakeStore(db);
       const failing = createToolGateway({
         source: fakeSource(world),
-        externalActions: { propose: vi.fn(), readState: vi.fn() },
+        externalActions: { propose: vi.fn(), proposeDraft: vi.fn(), readState: vi.fn() },
         approvals: {
           async request(_tx, _context, input) {
             requests.push(input);
             return { approvalId: 'approval-1', externalActionId: 'action-1', requestHash: 'c' };
           },
+          recordDraft: vi.fn(),
           recheck: vi.fn(),
         },
         halt: { assertRunning: async () => undefined },
