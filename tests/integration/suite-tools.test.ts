@@ -658,10 +658,9 @@ describe('suite tools (ADR-038 D6)', () => {
     it('refuses the exchange making a member’s connection owned by anyone but its creator', async () => {
       const t = await tenant();
       const own = await startOwn(t);
-      // An attempt 0563 now refuses, written past the application roles and moved on to the exchange,
-      // so only 0565's added condition stands between it and a connection.
-      const forged = randomUUID();
-      await fixture(
+      // An attempt owned by Sam but started by Alex cannot be written at all, not even past the
+      // application roles: 0560's check holds the owner to the starter for every role.
+      const forged = await fixture(
         t.organizationId,
         `insert into integrations.oauth_authorizations
            (organization_id, id, connector_type, display_name, config, client_kind, client_id,
@@ -671,21 +670,24 @@ describe('suite tools (ADR-038 D6)', () => {
                 requested_capabilities, requested_scopes, $3, started_by_membership_id,
                 $4, verifier_secret_id, expires_at
            from integrations.oauth_authorizations where id = $1`,
-        [own.id, forged, t.sam.membershipId, 'b'.repeat(64)],
+        [own.id, randomUUID(), t.sam.membershipId, 'b'.repeat(64)],
+      ).catch((error: unknown) => error);
+      expect(forged).toMatchObject({
+        code: '23514',
+        constraint: 'oauth_authorizations_owner_self',
+      });
+      // So the exchange of Alex's own attempt is the one to try: it may not make the connection Sam's.
+      await fixture(
+        t.organizationId,
+        `update integrations.oauth_authorizations
+            set status = 'code_received', code_secret_id = verifier_secret_id where id = $1`,
+        [own.id],
       );
-      for (const id of [forged, own.id]) {
-        await fixture(
-          t.organizationId,
-          `update integrations.oauth_authorizations
-              set status = 'code_received', code_secret_id = verifier_secret_id where id = $1`,
-          [id],
-        );
-        await fixture(
-          t.organizationId,
-          `update integrations.oauth_authorizations set status = 'exchanging' where id = $1`,
-          [id],
-        );
-      }
+      await fixture(
+        t.organizationId,
+        `update integrations.oauth_authorizations set status = 'exchanging' where id = $1`,
+        [own.id],
+      );
       const exchange = (authorizationId: string, ownerMembershipId: string) =>
         withTenantTx(db(), createServiceContext(t.organizationId), async (tx) => {
           await tx.execute(
@@ -703,7 +705,7 @@ describe('suite tools (ADR-038 D6)', () => {
             ownerMembershipId,
           });
         }).catch((error: unknown) => error);
-      expect(pgCode(await exchange(forged, t.sam.membershipId))).toBe('EN121');
+      expect(pgCode(await exchange(own.id, t.sam.membershipId))).toBe('EN121');
       // The same exchange for the member who started it still connects.
       expect(await exchange(own.id, t.alex.membershipId)).toBeUndefined();
     });
