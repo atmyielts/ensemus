@@ -273,6 +273,13 @@ time {
   scrollbar-gutter: stable;
   scrollbar-width: thin;
   scroll-padding: var(--space-2);
+  /* A soft shadow at the bottom while more of the menu is below; the first layer scrolls with the content
+     and covers the shadow once the end is reached. */
+  background:
+    linear-gradient(to top, var(--sidebar-bg) 40%, transparent) center bottom / 100% 1.5rem
+      no-repeat local,
+    linear-gradient(to top, var(--line-soft), transparent) center bottom / 100% 0.75rem no-repeat
+      scroll;
   /* Space for the current item's light and the shared focus ring inside the scroller. */
   padding: var(--space-1) var(--space-1) var(--space-1) var(--space-2);
   margin: calc(-1 * var(--space-1)) calc(-1 * var(--space-1)) calc(-1 * var(--space-1))
@@ -339,7 +346,9 @@ time {
   background: var(--nav-active);
   color: var(--fg);
   font-weight: 560;
-  box-shadow: var(--shadow-sm), 0 0 0 1px var(--line-soft);
+  box-shadow:
+    var(--shadow-sm),
+    0 0 0 1px var(--line-soft);
 }
 /* The light beside the page you are on: the one place the accent marks navigation. */
 .nav a[aria-current='page']::before {
@@ -447,7 +456,9 @@ textarea[aria-invalid='true'] {
   padding: var(--space-2) var(--space-3);
   border-radius: var(--radius-md);
   background: var(--surface);
-  box-shadow: var(--shadow-sm), 0 0 0 1px var(--line-soft);
+  box-shadow:
+    var(--shadow-sm),
+    0 0 0 1px var(--line-soft);
   font-size: var(--text-small);
 }
 .account-avatar {
@@ -593,7 +604,9 @@ a.workspace-search {
   padding: var(--space-1) var(--space-3);
   border-radius: 999px;
   background: var(--surface);
-  box-shadow: var(--shadow-sm), 0 0 0 1px var(--line-soft);
+  box-shadow:
+    var(--shadow-sm),
+    0 0 0 1px var(--line-soft);
   color: var(--muted);
 }
 .workspace-search > a:hover,
@@ -1817,9 +1830,846 @@ details.confirm > form {
 /* ---- Area sections. Each page area adds only what the shared rules above cannot express, under its own
    heading, using the shared tokens. Anything two areas need moves up into the shared rules. ---- */
 /* Area: sign-in, sign-up, invitations and error pages */
+/* The other ways in, gathered quietly under the card: one short line each, links in the sentence. */
+.sheet-links {
+  list-style: none;
+  display: grid;
+  gap: var(--space-2);
+  margin: var(--space-5) 0 0;
+  padding: 0 var(--space-2);
+  color: var(--muted);
+  font-size: var(--text-small);
+}
+.sheet-links a {
+  color: var(--fg);
+}
+/* The organizations to choose from sit flush inside the card, as rows rather than a second box. */
+.sheet .organization-choices {
+  margin: 0 calc(-1 * var(--space-4));
+  padding: 0;
+  border: 0;
+  background: none;
+  box-shadow: none;
+}
+.organization-initial {
+  font-family: var(--font-display);
+  font-size: 1.25rem;
+  line-height: 1;
+}
+.responsibility-points {
+  margin: 0 0 var(--space-3);
+  padding-left: var(--space-5);
+  font-size: var(--text-small);
+}
+.responsibility-points li + li {
+  margin-top: var(--space-2);
+}
+.error-reference {
+  color: var(--muted);
+  font-size: var(--text-small);
+}
+.error-reference > p {
+  margin-top: var(--space-2);
+}
 /* Area: home, work, outcome drafts and inbox */
+/* A work list's quiet line under each title: who owns it, and who can see it when that is narrower. */
+.work-table .work-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-2);
+  margin-top: 0.125rem;
+}
+.work-table td:first-child {
+  min-width: 14rem;
+}
+/* A piece of work: the summary comes first in the page, so a phone shows it under the title, and wide
+   screens put it beside the story. */
+@media (min-width: 1100px) {
+  .work-detail > aside {
+    grid-column: 2;
+    grid-row: 1;
+  }
+  .work-detail > .work-story {
+    grid-column: 1;
+    grid-row: 1;
+  }
+  /* It holds the next step and the forms that go with it, which can be taller than the window, so it
+     scrolls with the page rather than hiding its lower half while it sticks. */
+  .work-detail > aside {
+    position: static;
+  }
+}
+.work-summary dl {
+  gap: var(--space-3) var(--space-4);
+  font-size: 0.9375rem;
+}
+.work-summary dt {
+  font-size: var(--text-small);
+  padding-top: 0.0625rem;
+}
+.work-summary-note {
+  display: block;
+  margin-top: var(--space-1);
+  font-size: var(--text-tiny);
+  line-height: 1.45;
+}
+.work-summary .link-line {
+  display: grid;
+  justify-items: start;
+}
+/* Stopping is final, so it sits last and quieter than the next step. */
+.work-stop details.confirm > summary {
+  min-height: 2.25rem;
+  padding: var(--space-1) var(--space-3);
+  font-size: var(--text-small);
+}
+@media (max-width: 760px) {
+  .work-table td:first-child {
+    min-width: 0;
+  }
+}
 /* Area: approvals, external actions and Company Pulse */
+.pulse-signal h3 a {
+  color: inherit;
+  text-decoration: none;
+}
+.pulse-signal h3 a:hover {
+  text-decoration: underline;
+}
+.pulse-also {
+  margin: var(--space-1) 0 0;
+  font-size: var(--text-small);
+  color: var(--muted);
+}
+/* What an approval changes, as readable pairs: each label above its value, short ones side by side. */
+dl.approval-pairs {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 13rem), 1fr));
+  gap: var(--space-5) var(--space-6);
+}
+dl.approval-pairs > div {
+  min-width: 0;
+}
+dl.approval-pairs > .wide {
+  grid-column: 1 / -1;
+}
+dl.approval-pairs dt {
+  margin-bottom: var(--space-1);
+  font-size: var(--text-small);
+}
+.approval-pairs .plain-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+/* One note box at a time, sized for a sentence or two rather than a letter. */
+.approval-decision textarea {
+  min-height: 4.75rem;
+}
+/* Pulse: the numbers as one calm strip, then each signal as a compact row. */
+.pulse-summary {
+  margin-bottom: var(--space-8);
+}
+.pulse-summary dl {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 9rem), 1fr));
+  gap: var(--space-1);
+  padding: var(--space-2);
+  background: var(--surface);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow);
+}
+.pulse-summary dl > div {
+  padding: var(--space-3) var(--space-4);
+}
+.pulse-summary dt {
+  font-size: var(--text-small);
+}
+.pulse-summary dd {
+  font-family: var(--font-display);
+  font-size: 1.875rem;
+  line-height: 1.2;
+  font-variant-numeric: tabular-nums;
+}
+.pulse-summary > p {
+  margin-top: var(--space-3);
+}
+.pulse-list.card {
+  padding: var(--space-2) var(--space-6);
+}
+@media (max-width: 760px) {
+  .pulse-list.card {
+    padding-inline: var(--space-4);
+  }
+}
+.pulse-list > li {
+  display: block;
+}
+.pulse-signal {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-5);
+}
+.pulse-signal-text {
+  flex: 1 1 20rem;
+  min-width: 0;
+}
+.pulse-signal h3 {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.pulse-signal-text > p {
+  margin-top: var(--space-1);
+  font-size: var(--text-small);
+}
+.pulse-open {
+  display: inline-flex;
+  align-items: center;
+  min-height: 1.5rem;
+  white-space: nowrap;
+}
+.pulse-controls > summary {
+  color: var(--muted);
+  font-size: var(--text-small);
+  font-weight: 500;
+}
+.pulse-controls[open] {
+  flex-basis: 100%;
+}
+.pulse-control-forms {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3) var(--space-6);
+  margin-top: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-small);
+  background: var(--surface-2);
+}
+.pulse-control-forms .inline-form {
+  align-items: center;
+}
+.pulse-control-forms .inline-form > label {
+  flex: none;
+}
+.pulse-control-forms select {
+  width: auto;
+}
+.pulse-control-forms > small {
+  flex-basis: 100%;
+}
 /* Area: knowledge, search and custom records */
+/* A form's error holder takes no room until there is something to say. */
+.form-notice:empty {
+  display: none;
+}
+/* Levels of privacy, described, side by side where there is room. */
+.described-choices .choice-list {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 15rem), 1fr));
+}
+.described-choices .choice {
+  align-content: start;
+}
+.described-choices > small {
+  margin-bottom: var(--space-1);
+}
+/* Asking a question: one generous box to write in. */
+.ask-form textarea {
+  min-height: 8.5rem;
+  font-size: 1.0625rem;
+}
+/* A search box takes the line, with its button beside it. */
+.knowledge-search-form > label,
+.company-search-form > label,
+.graph-form > label {
+  flex: 1 1 18rem;
+  max-width: none;
+}
+/* Results: the words first, then where they came from. */
+.result-list > li {
+  display: grid;
+  gap: var(--space-1);
+  justify-content: stretch;
+}
+.result-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-1) var(--space-3);
+}
+.result-snippet {
+  margin: 0;
+  max-width: var(--reading);
+}
+.result-meta {
+  font-size: var(--text-small);
+  color: var(--muted);
+}
+.result-list .result-action {
+  margin-inline-start: auto;
+  font-weight: 400;
+  color: var(--fg);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, currentColor 38%, transparent);
+}
+/* A quoted passage, set like a quotation in a book, with its source under it. */
+.citation {
+  display: grid;
+  gap: var(--space-4);
+}
+.citation > h2 {
+  margin: 0;
+}
+.citation blockquote {
+  margin: 0;
+  padding-left: var(--space-4);
+  border-left: 3px solid var(--line);
+  font-family: var(--font-display);
+  font-size: 1.0625rem;
+  line-height: 1.65;
+}
+.citation-source {
+  display: grid;
+  gap: var(--space-1);
+  font-size: var(--text-small);
+}
+.citation-source h3 {
+  margin: 0;
+}
+.citation-source h3 a {
+  text-decoration: none;
+}
+.citation-source h3 a:hover {
+  text-decoration: underline;
+}
+.citation-source .notice {
+  margin-top: var(--space-2);
+}
+.answer-text,
+.fact-claim {
+  font-size: 1.0625rem;
+  line-height: 1.7;
+  max-width: var(--reading);
+}
+/* One field or connection of a record type, as a quiet group inside the form. */
+.object-part {
+  display: grid;
+  gap: var(--space-4);
+  min-width: 0;
+  margin: 0;
+  padding: var(--space-4) var(--space-5) var(--space-5);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+}
+.object-part > legend {
+  padding: 0 var(--space-2);
+  margin-left: calc(-1 * var(--space-2));
+  font-weight: 600;
+}
+.object-part details {
+  display: grid;
+  gap: var(--space-3);
+}
+.type-summary {
+  margin-bottom: var(--space-2);
+}
+/* The record editor opened from a link outside the workspace: wide enough for its form. */
+.centered.object-editor {
+  max-width: 46rem;
+}
+.object-editor .sheet .card {
+  padding: 0;
+  border: 0;
+  box-shadow: none;
+}
+@media (max-width: 760px) {
+  .object-part {
+    padding-inline: var(--space-4);
+  }
+}
 /* Area: people, clients, onboarding and assistants */
+/* A person in a directory: their initial in a circle, their name and address, and their access to the
+   right, with the controls kept small so the names lead. The circle matches the account circle. */
+.person-avatar {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: 50%;
+  background: var(--surface-2);
+  color: var(--fg);
+  font-family: var(--font-display);
+  font-size: 1.125rem;
+  line-height: 1;
+}
+.person-avatar.small {
+  width: 1.75rem;
+  height: 1.75rem;
+  font-size: 0.9375rem;
+}
+.people-list > li {
+  padding-block: var(--space-3);
+}
+.person {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-4);
+}
+.person-who {
+  display: grid;
+  flex: 1 1 14rem;
+  min-width: 0;
+}
+.person-name {
+  font-weight: 550;
+  overflow-wrap: anywhere;
+}
+.person-who > small {
+  margin-top: 0;
+  overflow-wrap: anywhere;
+}
+.person-access {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  margin-inline-start: auto;
+}
+.person-access:has(details[open]) {
+  flex-basis: 100%;
+}
+.person-role {
+  display: grid;
+  justify-items: end;
+  text-align: right;
+}
+.person-role > small {
+  margin-top: 0;
+}
+/* The controls beside a name, and a link that acts on a row: smaller than a form's own buttons. */
+.person-access select {
+  height: 2.25rem;
+  padding-block: 0.25rem;
+  font-size: var(--text-small);
+}
+.person-access button,
+.person-access details.confirm > summary,
+.button.compact-action {
+  min-height: 2.25rem;
+  padding: 0.25rem 0.75rem;
+  font-size: var(--text-small);
+}
+.person-access details.confirm > summary {
+  border-color: transparent;
+}
+.person-access details.confirm > summary:hover {
+  border-color: color-mix(in srgb, var(--danger) 70%, transparent);
+}
+@media (max-width: 760px) {
+  .person-access {
+    flex-basis: 100%;
+    justify-content: flex-start;
+    margin-inline-start: 0;
+    padding-inline-start: calc(2.25rem + var(--space-4));
+  }
+  .person-role {
+    justify-items: start;
+    text-align: left;
+  }
+}
+
+/* The invitation link, ready to copy, in its own labelled box. */
+.invite-link {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-5);
+}
+.invite-link p {
+  color: var(--fg);
+  font-size: var(--text-small);
+}
+.invite-link-field {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--space-2) var(--space-3);
+}
+.invite-link-field > label {
+  flex: 1 1 18rem;
+  min-width: 0;
+}
+.invite-link-field input {
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+}
+.invite-link-field > .pending:not(:empty) {
+  flex-basis: 100%;
+  margin-inline-start: 0;
+  color: var(--fg);
+}
+
+/* Teams: a name, the people on it, and the changes an admin can make, quieter underneath. */
+.team-list > li {
+  padding-block: var(--space-4);
+}
+.team-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-1) var(--space-3);
+}
+.team-members {
+  list-style: none;
+  margin: var(--space-3) 0 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+.team-members > li {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 2.25rem;
+  padding: 0.125rem 0.25rem;
+  border-radius: 999px;
+  background: var(--surface-2);
+  font-size: var(--text-small);
+}
+.team-members > li > span:not(.person-avatar) {
+  padding-inline-end: var(--space-1);
+}
+.team-members > li .person-avatar {
+  background: var(--surface);
+}
+.team-members button {
+  min-height: 1.75rem;
+  padding: 0 0.625rem;
+  font-size: var(--text-tiny);
+  border-radius: 999px;
+}
+.team-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3) var(--space-6);
+  margin-top: var(--space-4);
+}
+.team-controls > form {
+  flex: 0 1 26rem;
+  min-width: 0;
+}
+.team-controls label {
+  font-size: var(--text-small);
+}
+.team-controls select {
+  height: 2.25rem;
+  padding-block: 0.25rem;
+  font-size: var(--text-small);
+}
+.team-controls button {
+  min-height: 2.25rem;
+  padding: 0.25rem 0.75rem;
+  font-size: var(--text-small);
+}
+.team-list.nested {
+  margin-top: var(--space-3);
+  padding-left: var(--space-4);
+  border-left: 2px solid var(--line);
+}
+.team-list.nested > li:last-child {
+  padding-bottom: 0;
+}
+
+/* Clients: a name, who can see it, and its owner's way to change that. */
+.client-who {
+  display: grid;
+  min-width: 0;
+}
+.client-name {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  font-weight: 550;
+  overflow-wrap: anywhere;
+}
+.client-who > small {
+  margin-top: 0;
+}
+
+/* Client onboarding: what starting it sets going, as numbered steps. */
+.onboarding-steps {
+  list-style: none;
+  counter-reset: onboarding-step;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-5);
+}
+@media (min-width: 640px) {
+  .onboarding-steps {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (min-width: 1100px) {
+  .onboarding-steps {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+.onboarding-steps > li {
+  counter-increment: onboarding-step;
+  display: grid;
+  align-content: start;
+  gap: var(--space-1);
+  font-size: var(--text-small);
+  color: var(--muted);
+}
+.onboarding-steps > li::before {
+  content: counter(onboarding-step);
+  display: grid;
+  place-items: center;
+  width: 2rem;
+  height: 2rem;
+  margin-bottom: var(--space-2);
+  border-radius: 50%;
+  background: var(--surface-2);
+  color: var(--fg);
+  font-family: var(--font-display);
+  font-size: 1.0625rem;
+  line-height: 1;
+}
+.onboarding-steps strong {
+  color: var(--fg);
+  font-size: var(--text-body);
+  font-weight: 560;
+}
+
+/* A run or an onboarding as a timeline: one dot per step, joined by a line, the current one lit. */
+.step-timeline {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.step-timeline > li {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: var(--space-1) var(--space-4);
+  padding: 0 0 var(--space-5) var(--space-8);
+}
+.step-timeline > li:last-child {
+  padding-bottom: 0;
+}
+.step-timeline > li::before {
+  content: '';
+  position: absolute;
+  left: 0.3125rem;
+  top: 0.4375rem;
+  width: 0.75rem;
+  height: 0.75rem;
+  border-radius: 50%;
+  background: var(--surface);
+  box-shadow: inset 0 0 0 2px var(--line-strong);
+}
+.step-timeline > li::after {
+  content: '';
+  position: absolute;
+  left: calc(0.6875rem - 1px);
+  top: 1.375rem;
+  bottom: 0.25rem;
+  width: 2px;
+  border-radius: 2px;
+  background: var(--line);
+}
+.step-timeline > li:last-child::after {
+  display: none;
+}
+.step-timeline > li.is-done::before {
+  background: var(--muted);
+  box-shadow: none;
+}
+.step-timeline > li.is-current::before,
+.step-timeline > li.is-active::before {
+  background: var(--accent-fill);
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent),
+    0 0 0 4px var(--accent-soft);
+}
+.step-timeline > li.is-bad::before {
+  background: var(--danger);
+  box-shadow: none;
+}
+.step-what {
+  display: grid;
+  gap: 0.125rem;
+  flex: 1 1 16rem;
+  min-width: 0;
+}
+.step-what > small {
+  margin-top: 0;
+}
+.step-what > .row {
+  font-size: var(--text-small);
+}
+.step-timeline > li.is-current .step-what {
+  font-weight: 560;
+}
+.step-timeline > li > small {
+  flex: none;
+}
+
+/* Assistants: what it is working on, a plain sentence of where it is, and when. */
+.run-summary {
+  display: grid;
+  gap: 0.125rem;
+  flex: 1 1 20rem;
+  min-width: 0;
+}
+.run-sentence {
+  font-size: var(--text-small);
+}
+.run-summary > small {
+  margin-top: 0;
+}
+.run-side {
+  flex: none;
+}
+.run-state {
+  font-size: 1.03125rem;
+  line-height: 1.5;
+}
+@media (forced-colors: active) {
+  .step-timeline > li::before {
+    border: 2px solid CanvasText;
+  }
+}
 /* Area: Automation Studio and packs */
+/* The way something is built, as four numbered stops joined by a hairline. Across on wide screens,
+   down on narrow ones. It explains a path; it is not progress, so it carries no accent. */
+.studio-path {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-5);
+  counter-reset: studio-step;
+}
+.studio-path > li {
+  position: relative;
+  display: grid;
+  align-content: start;
+  gap: var(--space-1);
+  counter-increment: studio-step;
+}
+.studio-path > li::before {
+  content: counter(studio-step);
+  position: relative;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  width: 2rem;
+  height: 2rem;
+  margin-bottom: var(--space-2);
+  border-radius: 50%;
+  background: var(--surface-2);
+  box-shadow: 0 0 0 4px var(--surface);
+  color: var(--fg);
+  font-size: var(--text-small);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.studio-path > li:not(:last-child)::after {
+  content: '';
+  position: absolute;
+  top: 1rem;
+  left: 2.5rem;
+  right: calc(-1 * var(--space-5) + 0.5rem);
+  border-top: 1px solid var(--line);
+}
+.studio-path strong {
+  font-weight: 600;
+}
+.studio-path span {
+  color: var(--muted);
+  font-size: var(--text-small);
+}
+@media (max-width: 760px) {
+  .studio-path {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-4);
+  }
+  .studio-path > li {
+    grid-template-columns: 2rem minmax(0, 1fr);
+    column-gap: var(--space-3);
+    row-gap: 0;
+  }
+  .studio-path > li::before {
+    grid-row: span 2;
+    margin-bottom: 0;
+  }
+  .studio-path > li:not(:last-child)::after {
+    top: 2.25rem;
+    bottom: calc(-1 * var(--space-4) + 0.25rem);
+    left: 1rem;
+    right: auto;
+    border-top: 0;
+    border-left: 1px solid var(--line);
+  }
+}
+/* Limits and other short number fields, side by side where there is room. */
+.studio-field-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 14rem), 1fr));
+  gap: var(--space-4) var(--space-5);
+  align-items: start;
+}
+/* A few related links stacked in a summary panel, and a list whose items are cards. */
+.studio-links,
+.studio-cards {
+  list-style: none;
+  margin: 0;
+  padding-left: 0;
+}
+.studio-links {
+  display: grid;
+  gap: var(--space-1);
+}
+.studio-links.divided {
+  margin-top: var(--space-5);
+}
 /* Area: administration, connections, security, account and billing */
+/* Short checkbox options, such as what a model can do, sit side by side instead of in a long column. */
+.option-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 13rem), 1fr));
+  gap: 0 var(--space-4);
+}
+/* A numbered how-to above a setup form, such as adding an authenticator app. */
+.setup-steps {
+  display: grid;
+  gap: var(--space-2);
+  margin: var(--space-2) 0 0;
+  padding-inline-start: 1.25rem;
+}
+.setup-steps > li::marker {
+  color: var(--muted);
+  font-weight: 600;
+}
+/* In these tables a row's own name is the row's title, not a small column label. */
+.row-titled tbody th[scope='row'] {
+  font-size: 0.9375rem;
+  font-weight: 540;
+  color: var(--fg);
+  white-space: normal;
+}
+.row-titled tr:last-child th {
+  border-bottom: 0;
+}
