@@ -67,6 +67,9 @@ export function createProviderAuth(options: {
             } catch {
               throw new SyncUnavailable('CREDENTIAL_INVALID');
             }
+            // The operator's app (ADR-038 D2) needs its secret from the PlatformOAuthClients port, which
+            // this does not take yet, so such a credential reads as no operator app configured.
+            if (!('client_id' in credential)) throw new SyncUnavailable('CREDENTIAL_INVALID');
             const tenant = credential.tenant;
             if (
               options.provider === 'microsoft' &&

@@ -7,6 +7,14 @@ export const PLATFORM_TASK_QUEUE = 'ensemus-platform';
 export const CONNECTOR_TASK_QUEUE = 'ensemus-connectors';
 
 /**
+ * The code exchange holds a client secret and reaches the provider's token route, so it runs where every
+ * other credential does (ADR-038 D1). It is tried once: a code is single use, and a retry could only
+ * fail at the provider or, worse, look like a replay.
+ */
+export const OAUTH_EXCHANGE_TASK_QUEUE = CONNECTOR_TASK_QUEUE;
+export const OAUTH_EXCHANGE_MAX_ATTEMPTS = 1;
+
+/**
  * Model calls and tool steps (ADR-028 FD-2). Only agent-worker polls this, and only it holds the sealing
  * key, the agent database role and any route to a model. Workflow code stays on the platform queue.
  */

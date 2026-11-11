@@ -329,6 +329,10 @@ export const PORTABILITY_INVENTORY = [
     'knowledge',
     'operational_excluded',
   ),
+  // 0560 (ADR-038). A consent attempt names sealed verifiers, codes and clients, and an import must never
+  // replay one. Directory groups are the provider's, rebuilt by the next directory pass, never imported.
+  inventory('integrations.oauth_authorizations', 'connections', 'credentials_excluded'),
+  inventory('integrations.directory_groups', 'connections', 'operational_excluded'),
 ] as const;
 
 export const PORTABILITY_INVENTORY_PROFILES = {

@@ -12,6 +12,7 @@
     "./testing": "./src/testing/index.ts",
     "./knowledge": "./src/knowledge.ts",
     "./knowledge-manifests": "./src/knowledge-manifests.ts",
+    "./suites": "./src/suites.ts",
     "./provider-http": "./src/runtime/provider-http.ts",
     "./google": "./src/google/index.ts",
     "./microsoft": "./src/microsoft/index.ts",

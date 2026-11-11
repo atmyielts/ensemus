@@ -92,7 +92,7 @@ A capability is a bundle an admin can understand. The code maps each to scopes, 
 | Capability | Google | Microsoft | Owner |
 |---|---|---|---|
 | Files (read) | `drive.readonly`, `drive.metadata.readonly` | `Files.Read.All`, `Sites.Read.All` | Organization |
-| Directory (read) | `admin.directory.group.readonly` | `GroupMember.Read.All` | Organization |
+| Directory (read) | `admin.directory.group.readonly` | `GroupMember.Read.All`, `User.ReadBasic.All` (a member's email needs it) | Organization |
 | Mail (read, draft, send) | `gmail.readonly`, `gmail.compose`, `gmail.send` | `Mail.ReadWrite`, `Mail.Send` | Member |
 | Calendar | `calendar.events` | `Calendars.ReadWrite` | Member |
 | Documents and sheets (edit) | `drive.file`, `documents`, `spreadsheets` | `Files.ReadWrite` | Either |
@@ -114,7 +114,7 @@ New table `integrations.directory_groups` (organization, connection, external ID
 - A directory team carries no role and appears in the Teams list marked "From Google" or "From Microsoft", read only. Assigning work to it is allowed, and the page says its members change with the provider.
 - `resolveSourcePrincipal` resolves a group by the connection's `directory_groups` row. Google groups are keyed by email, which is what a Drive permission carries. Microsoft groups are keyed by object ID, which is what Graph permissions carry. A group not yet synced still resolves to nothing.
 - A pass that does not finish changes nothing: membership is replaced per group in one transaction, and a group missing from a completed full pass loses its members and then its team.
-- Revoking the connection removes every team it made, in the same transaction that marks it revoked.
+- Revoking the connection stops its resources being served at once, as today. The worker's revoke cleanup then removes every team it made, in the sync's service context. The guard refuses everyone else, because web and workers share `ensemus_app` and a setting alone proves nothing.
 
 ### D5. Organization and member connections
 

@@ -18,7 +18,8 @@
     "./identity-admin": "./src/identity-admin.ts",
     "./sovereign": "./src/sovereign.ts",
     "./portability-records": "./src/portability-records.ts",
-    "./saas": "./src/saas.ts"
+    "./saas": "./src/saas.ts",
+    "./workspace-suites": "./src/workspace-suites.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

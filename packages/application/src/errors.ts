@@ -108,7 +108,16 @@ export type ErrorCode =
   | 'OFFBOARDING_NOT_CANCELLABLE'
   | 'OFFBOARDING_CONFIRMATION_MISMATCH'
   | 'BREAK_GLASS_DISABLED'
-  | 'BREAK_GLASS_NOT_AUTHORIZABLE';
+  | 'BREAK_GLASS_NOT_AUTHORIZABLE'
+  // Workspace suites (ADR-038).
+  | 'OAUTH_STATE_INVALID'
+  | 'OAUTH_DENIED'
+  | 'OAUTH_EXPIRED'
+  | 'OAUTH_EXCHANGE_FAILED'
+  | 'OAUTH_SCOPES_INSUFFICIENT'
+  | 'OAUTH_CLIENT_NOT_CONFIGURED'
+  | 'OAUTH_CAPABILITY_UNAVAILABLE'
+  | 'DIRECTORY_TEAM_READ_ONLY';
 
 const MESSAGES: Record<ErrorCode, string> = {
   IDEMPOTENCY_KEY_REUSED: 'This request key was already used with different details.',
@@ -236,6 +245,19 @@ const MESSAGES: Record<ErrorCode, string> = {
   OFFBOARDING_CONFIRMATION_MISMATCH: 'That does not match this organization’s name.',
   BREAK_GLASS_DISABLED: 'Support access to content is turned off on this deployment.',
   BREAK_GLASS_NOT_AUTHORIZABLE: 'This request can no longer be decided.',
+  OAUTH_STATE_INVALID:
+    'This sign-in link is not valid or has already been used. Start connecting again from the connections page.',
+  OAUTH_DENIED: 'Access was not granted, so nothing was connected.',
+  OAUTH_EXPIRED: 'This took longer than ten minutes, so nothing was connected. Start again.',
+  OAUTH_EXCHANGE_FAILED:
+    'The provider did not finish connecting, so nothing was connected. Start again.',
+  OAUTH_SCOPES_INSUFFICIENT:
+    'Some of the access you chose was not granted, so nothing was connected. Start again and allow all of it.',
+  OAUTH_CLIENT_NOT_CONFIGURED:
+    'Connecting through Ensemus’s own app is not set up on this deployment. Use your own app instead.',
+  OAUTH_CAPABILITY_UNAVAILABLE: 'That kind of access cannot be connected yet.',
+  DIRECTORY_TEAM_READ_ONLY:
+    'This team comes from your directory, so it changes only there. Change the group at the provider.',
 };
 
 export class AppError extends Error {
@@ -365,6 +387,14 @@ export const HTTP_STATUS: Record<ErrorCode, number> = {
   OFFBOARDING_CONFIRMATION_MISMATCH: 400,
   BREAK_GLASS_DISABLED: 409,
   BREAK_GLASS_NOT_AUTHORIZABLE: 409,
+  OAUTH_STATE_INVALID: 400,
+  OAUTH_DENIED: 409,
+  OAUTH_EXPIRED: 409,
+  OAUTH_EXCHANGE_FAILED: 409,
+  OAUTH_SCOPES_INSUFFICIENT: 409,
+  OAUTH_CLIENT_NOT_CONFIGURED: 409,
+  OAUTH_CAPABILITY_UNAVAILABLE: 400,
+  DIRECTORY_TEAM_READ_ONLY: 409,
 };
 
 /**

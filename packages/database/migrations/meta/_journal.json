@@ -813,6 +813,20 @@
       "when": 1794201807517,
       "tag": "0555_record_purge_completion_attest_r13purge",
       "breakpoints": true
+    },
+    {
+      "idx": 116,
+      "version": "7",
+      "when": 1794201807518,
+      "tag": "0560_workspace_suites",
+      "breakpoints": true
+    },
+    {
+      "idx": 117,
+      "version": "7",
+      "when": 1794201807519,
+      "tag": "0561_workspace_suites_security",
+      "breakpoints": true
     }
   ]
 }

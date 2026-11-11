@@ -1,5 +1,6 @@
 // M3 tables: connections, sync, verified external actions and webhooks (ADR-027). Roles, grants, RLS and
-// the triggers that hold the at-most-one-effect rule are in reviewed SQL, migration 0013.
+// the triggers that hold the at-most-one-effect rule are in reviewed SQL, migration 0013. Workspace suites'
+// consent attempts and directory groups (ADR-038) are in 0560, and their rules in 0561.
 import { sql } from 'drizzle-orm';
 import {
   bigint,
@@ -55,6 +56,11 @@ export const connections = integrationsSchema.table(
     lastErrorCode: text(),
     lastErrorAt: timestamp({ withTimezone: true }),
     createdByMembershipId: uuid(),
+    /**
+     * Null for the organization's connection, set for one member's own (ADR-038 D5, migration 0560).
+     * Fixed once written, and only that member's consent can set it.
+     */
+    ownerMembershipId: uuid(),
     createdAt: createdAt(),
     updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
     revokedAt: timestamp({ withTimezone: true }),
@@ -69,7 +75,14 @@ export const connections = integrationsSchema.table(
       columns: [t.organizationId, t.createdByMembershipId],
       foreignColumns: [memberships.organizationId, memberships.id],
     }),
+    foreignKey({
+      columns: [t.organizationId, t.ownerMembershipId],
+      foreignColumns: [memberships.organizationId, memberships.id],
+    }),
     index('connections_type_idx').on(t.organizationId, t.connectorType, t.state),
+    index('connections_owner_idx')
+      .on(t.organizationId, t.ownerMembershipId)
+      .where(sql`${t.ownerMembershipId} is not null`),
     check('connections_state_check', sql`${t.state} in ('active','disabled','revoked')`),
     check('connections_type_format', sql`${t.connectorType} ~ '^[a-z][a-z0-9_]{1,63}$'`),
     check('connections_version_check', sql`${t.version} > 0`),
@@ -205,6 +218,169 @@ export const syncCursors = integrationsSchema.table(
       sql`${t.state} in ('idle','running','failed','resync_required')`,
     ),
     check('sync_cursors_stream_format', sql`${t.stream} ~ '^[a-z0-9_.-]{1,64}$'`),
+  ],
+);
+
+/**
+ * One consent attempt at Google or Microsoft (ADR-038 D1, migrations 0560 and 0561). It holds references to
+ * sealed values and the SHA-256 of the state, never the values. Everything but its progress is fixed once
+ * written, a trigger holds the status to OAUTH_TRANSITIONS, and the database sets its ten-minute expiry.
+ */
+export const oauthAuthorizations = integrationsSchema.table(
+  'oauth_authorizations',
+  {
+    organizationId: tenantId(),
+    id: uuid().notNull().defaultRandom(),
+    connectorType: text().notNull(),
+    displayName: text().notNull(),
+    /** The connection's settings, checked like any connection's. Never a secret and never a host. */
+    config: jsonb().notNull().default({}),
+    /** `platform` is the operator's app, whose secret only the connector worker holds (ADR-038 D2). */
+    clientKind: text().notNull(),
+    /** Public. The web tier needs it to build the provider's authorize URL. */
+    clientId: text().notNull(),
+    /** Sealed `{client_id, client_secret}` of a customer's own app. Null for the operator's. */
+    customerClientSecretId: uuid(),
+    requestedCapabilities: text().array().notNull(),
+    requestedScopes: text().array().notNull(),
+    ownerMembershipId: uuid(),
+    startedByMembershipId: uuid().notNull(),
+    /** Hex SHA-256 of the state parameter. The state itself is never stored. */
+    stateSha256: text().notNull(),
+    verifierSecretId: uuid().notNull(),
+    codeSecretId: uuid(),
+    status: text().notNull().default('pending'),
+    /** A code from OAUTH_ERROR_CODES. Provider text never goes here. */
+    errorCode: text(),
+    connectionId: uuid(),
+    /** Set by the database to ten minutes after the row is written, whatever the caller sends. */
+    expiresAt: timestamp({ withTimezone: true }).notNull(),
+    createdAt: createdAt(),
+    updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.organizationId, t.id] }),
+    foreignKey({
+      columns: [t.organizationId, t.customerClientSecretId],
+      foreignColumns: [sealedSecrets.organizationId, sealedSecrets.id],
+    }),
+    foreignKey({
+      columns: [t.organizationId, t.verifierSecretId],
+      foreignColumns: [sealedSecrets.organizationId, sealedSecrets.id],
+    }),
+    foreignKey({
+      columns: [t.organizationId, t.codeSecretId],
+      foreignColumns: [sealedSecrets.organizationId, sealedSecrets.id],
+    }),
+    foreignKey({
+      columns: [t.organizationId, t.ownerMembershipId],
+      foreignColumns: [memberships.organizationId, memberships.id],
+    }),
+    foreignKey({
+      columns: [t.organizationId, t.startedByMembershipId],
+      foreignColumns: [memberships.organizationId, memberships.id],
+    }),
+    foreignKey({
+      columns: [t.organizationId, t.connectionId],
+      foreignColumns: [connections.organizationId, connections.id],
+    }),
+    index('oauth_authorizations_status_idx').on(t.organizationId, t.status, t.expiresAt),
+    index('oauth_authorizations_started_by_idx').on(
+      t.organizationId,
+      t.startedByMembershipId,
+      t.createdAt,
+    ),
+    uniqueIndex('oauth_authorizations_one_per_connection')
+      .on(t.organizationId, t.connectionId)
+      .where(sql`${t.connectionId} is not null`),
+    check(
+      'oauth_authorizations_connector_type',
+      sql`${t.connectorType} in ('google_workspace','microsoft_365')`,
+    ),
+    check(
+      'oauth_authorizations_display_name',
+      sql`char_length(${t.displayName}) between 1 and 200`,
+    ),
+    check(
+      'oauth_authorizations_config_size',
+      sql`jsonb_typeof(${t.config}) = 'object' and octet_length(${t.config}::text) <= 4096`,
+    ),
+    check('oauth_authorizations_client_kind', sql`${t.clientKind} in ('platform','customer')`),
+    check('oauth_authorizations_client_id', sql`char_length(${t.clientId}) between 1 and 512`),
+    check(
+      'oauth_authorizations_customer_secret',
+      sql`(${t.clientKind} = 'customer') = (${t.customerClientSecretId} is not null)`,
+    ),
+    check(
+      'oauth_authorizations_capabilities',
+      sql`cardinality(${t.requestedCapabilities}) between 1 and 6 and ${t.requestedCapabilities} <@ array['files','directory','mail','calendar','documents','chat']::text[]`,
+    ),
+    check('oauth_authorizations_scopes', sql`cardinality(${t.requestedScopes}) between 1 and 64`),
+    check(
+      'oauth_authorizations_owner_self',
+      sql`${t.ownerMembershipId} is null or ${t.ownerMembershipId} = ${t.startedByMembershipId}`,
+    ),
+    check('oauth_authorizations_state_sha256', sql`${t.stateSha256} ~ '^[0-9a-f]{64}$'`),
+    check(
+      'oauth_authorizations_status',
+      sql`${t.status} in ('pending','code_received','exchanging','connected','denied','failed','expired')`,
+    ),
+    check(
+      'oauth_authorizations_error_code',
+      sql`${t.errorCode} is null or ${t.errorCode} ~ '^[A-Z][A-Z0-9_]{2,63}$'`,
+    ),
+    check(
+      'oauth_authorizations_error_when_refused',
+      sql`(${t.status} in ('denied','failed')) = (${t.errorCode} is not null)`,
+    ),
+    check(
+      'oauth_authorizations_connection_when_connected',
+      sql`(${t.status} = 'connected') = (${t.connectionId} is not null)`,
+    ),
+    check(
+      'oauth_authorizations_code_when_received',
+      sql`${t.status} not in ('code_received','exchanging','connected') or ${t.codeSecretId} is not null`,
+    ),
+    check(
+      'oauth_authorizations_expiry',
+      sql`${t.expiresAt} > ${t.createdAt} and ${t.expiresAt} <= ${t.createdAt} + interval '10 minutes'`,
+    ),
+  ],
+);
+
+/**
+ * A provider group mirrored as a team (ADR-038 D4, migrations 0560 and 0561). Only the directory sync for
+ * this connection may write it, or change the team and its members. Google groups are keyed by email and
+ * Microsoft groups by object ID, which is what each one's file permissions carry.
+ */
+export const directoryGroups = integrationsSchema.table(
+  'directory_groups',
+  {
+    organizationId: tenantId(),
+    connectionId: uuid().notNull(),
+    externalId: text().notNull(),
+    teamId: uuid().notNull(),
+    displayName: text().notNull(),
+    /** The directory pass that last saw it. A completed full pass removes groups it did not see. */
+    seenGeneration: bigint({ mode: 'number' }).notNull().default(0),
+    createdAt: createdAt(),
+    updatedAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.organizationId, t.connectionId, t.externalId] }),
+    unique('directory_groups_team').on(t.organizationId, t.teamId),
+    foreignKey({
+      columns: [t.organizationId, t.connectionId],
+      foreignColumns: [connections.organizationId, connections.id],
+    }),
+    foreignKey({
+      columns: [t.organizationId, t.teamId],
+      foreignColumns: [teams.organizationId, teams.id],
+    }).onDelete('cascade'),
+    index('directory_groups_generation_idx').on(t.organizationId, t.connectionId, t.seenGeneration),
+    check('directory_groups_external_id', sql`char_length(${t.externalId}) between 1 and 1024`),
+    check('directory_groups_display_name', sql`char_length(${t.displayName}) between 1 and 500`),
+    check('directory_groups_generation', sql`${t.seenGeneration} >= 0`),
   ],
 );
 
