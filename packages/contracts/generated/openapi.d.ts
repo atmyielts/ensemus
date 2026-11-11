@@ -9642,7 +9642,7 @@ export interface components {
         PublishAgentVersionRequest: {
             /** @description An agent spec, per schemas/agent-definition.schema.json */
             spec: Record<string, never>;
-            /** @description A report bound to this spec's SHA-256 and the policy version */
+            /** @description A version 2 evaluation report and an Ed25519 signature over it ({report, signature}), made by an evaluator whose public key the deployment names in ENSEMUS_EVALUATION_PUBLIC_KEYS. It must be bound to this spec's SHA-256 and the current policy version, agree with itself, and be recent. A report from a scripted model publishes only a sandbox agent. Refusals: AGENT_EVALUATION_UNVERIFIED, AGENT_EVALUATION_STALE, AGENT_EVALUATION_SCRIPTED and AGENT_EVALUATION_REQUIRED. */
             evaluation_report: Record<string, never>;
         };
         AgentVersion: {

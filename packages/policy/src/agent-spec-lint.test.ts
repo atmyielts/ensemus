@@ -186,6 +186,48 @@ describe('lintAgentSpec', () => {
     });
   });
 
+  describe('a sandbox agent', () => {
+    const sandbox = (allow: unknown, execution: Execution = {}) => ({
+      ...spec({ allow, execution }),
+      sandbox: true,
+    });
+
+    it('may read and draft inside Ensemus', () => {
+      expect(
+        lintAgentSpec(
+          sandbox(['work.read', 'artifact.read_text', 'artifact.draft.create']),
+          LIMITS,
+        ),
+      ).toEqual({ ok: true });
+    });
+
+    it.each([
+      ['an external write that a person approves', 'email.send'],
+      [
+        'a draft in a connected mailbox, which is an action through a connection',
+        'gmail.create_draft',
+      ],
+      ['a suite write', 'sheets.write_range'],
+      ['delegation', 'agent.delegate'],
+    ])('may not have %s', (_label, tool) => {
+      expect(codesOf(sandbox(['work.read', tool]))).toEqual(['SANDBOX_GRANT_TOO_WIDE']);
+    });
+
+    it('may not delegate even where policy would allow it', () => {
+      expect(codesOf(sandbox(['work.read'], { max_delegation_depth: 1 }))).toEqual([
+        'SANDBOX_GRANT_TOO_WIDE',
+      ]);
+    });
+
+    it('does not count an unknown tool as narrow', () => {
+      expect(codesOf(sandbox(['web.search']))).toEqual(['UNKNOWN_TOOL', 'SANDBOX_GRANT_TOO_WIDE']);
+    });
+
+    it('refuses a sandbox field it cannot read rather than taking it as "not a sandbox"', () => {
+      expect(codesOf({ ...spec(), sandbox: 'yes' })).toEqual(['NOT_LINTED']);
+    });
+  });
+
   describe('what it cannot read, it refuses', () => {
     it.each<[string, unknown]>([
       ['nothing', undefined],

@@ -80,6 +80,22 @@ When you set it:
 
 `node infrastructure/scripts/check-proxy.mjs` runs the deployed `Caddyfile` in containers with no network and proves what this proxy does with both settings and with a forged address, whether or not the connection is listed. It cannot prove what your own proxy does. It runs in CI.
 
+## Publishing agents: signed evaluation reports
+
+An agent version publishes only with an evaluation report that an evaluator signed (AGENT-16). The evaluator, which is CI's harness today and the agent worker later, holds an Ed25519 private key. `web` holds only public keys, so it can check a report and never make one. With no public key set, no report is accepted and nothing can be published.
+
+| Setting | Read by | What it does |
+|---|---|---|
+| `ENSEMUS_EVALUATION_PUBLIC_KEYS`, or `ENSEMUS_EVALUATION_PUBLIC_KEYS_FILE` | `web` | The evaluators this deployment trusts, as `key-id:<public key>` separated by commas or lines. The public key is the 32-byte Ed25519 key in base64url (a JWK's `x`). A file wins over the variable. A value that cannot be read stops publishing with an error, and never means "trust anything" |
+| `ENSEMUS_EVALUATION_REPORT_MAX_AGE_HOURS` | `web` | How old a report may be. 168 (a week) when unset, at most 8784. A change of policy already voids a report. This also bounds how long a retired key's reports still count |
+| `ENSEMUS_EVALUATION_SIGNING_KEY_ID`, `ENSEMUS_EVALUATION_SIGNING_KEY_FILE` | CI, and later `agent-worker` | The signer's key id and its PKCS#8 PEM private key, as a mounted file. Never give either to `web` |
+
+**Rotating a key.** Add the new key to `ENSEMUS_EVALUATION_PUBLIC_KEYS` beside the old one, switch the signer to it, and remove the old key once its last reports are older than the maximum age. Removing a key refuses every report it signed, at once.
+
+**Scripted reports.** A report from a scripted model proves the gates and not a model. It can publish only an agent whose spec says `sandbox: true`, and publish lint holds a sandbox agent to tools that read or draft inside Ensemus, with no delegation. Refusals are `AGENT_EVALUATION_UNVERIFIED` (unsigned, unknown key, changed or inconsistent), `AGENT_EVALUATION_STALE`, `AGENT_EVALUATION_SCRIPTED` and `AGENT_EVALUATION_REQUIRED` (not passing, or bound to another spec, suite or policy).
+
+The test stack generates its own evaluator key with `pnpm stack:secrets` and mounts only the public half into `web`.
+
 ## Outbox and stuck work
 
 An outage of Temporal costs events no attempts, so they wait and are delivered when it returns. An event at fault itself goes dead after 12 attempts. One that keeps getting gRPC UNKNOWN or INTERNAL could be either, so it is given 288 attempts, about a day, before it goes dead the same way. The dispatcher logs each failure as an error code. Once the cause is fixed, put dead events back in the queue with `docker compose exec dispatcher node dist/redrive.js [organization-id]`, which prints a count and no content. The dispatcher also checks every tenant's reminder schedule when it starts. Each tenant's 15-minute upkeep expires overdue approvals, finishes byte deletions the object store refused, removes uploads whose row never arrived, marks work failed when Temporal says the run holding it has closed, and asks again for any plan run nothing has claimed after 5 minutes. Byte deletions that keep failing wait longer each time, up to a day, so they cannot keep others waiting.

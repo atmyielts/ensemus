@@ -10,14 +10,11 @@ import {
   unassign,
   setMemberRole,
 } from '@ensemus/application';
-import {
-  agentSpecSha256,
-  pinAgentVersion,
-  publishAgentVersion,
-} from '@ensemus/application/ai-agents';
+import { pinAgentVersion, publishAgentVersion } from '@ensemus/application/ai-agents';
 import { requestProcessAgentRun } from '@ensemus/application/ai-run-control';
 import { createRuntimeProductPorts } from '@ensemus/application/product-runtime';
 import { advanceProcessRun, startProcessRun } from '@ensemus/application/process-runs';
+import { signedReportFor, TEST_TRUST } from '../helpers/ai/evaluation';
 import { publishReviewedProcess } from '../helpers/studio';
 import { agentSpecV1Schema } from '@ensemus/contracts/ai';
 import {
@@ -155,18 +152,8 @@ describe('real product runtime adapters', () => {
     return publishAgentVersion(app.db, context, {
       spec,
       policyVersion: 'default',
-      evaluationReport: {
-        report_version: 1,
-        spec_sha256: agentSpecSha256(spec),
-        policy_version: 'default',
-        suite_ref: spec.evaluation.suite_ref,
-        dataset_version: 'generated-product-adapter-1',
-        model_label: 'scripted',
-        pass_rate: 1,
-        cases: 1,
-        passed: true,
-        scripted_model: true,
-      },
+      evaluationReport: signedReportFor(spec, 'default'),
+      evaluationTrust: TEST_TRUST,
     });
   }
 

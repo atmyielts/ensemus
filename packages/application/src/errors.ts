@@ -45,6 +45,9 @@ export type ErrorCode =
   | 'POLICY_DENIED'
   | 'AGENT_SPEC_INVALID'
   | 'AGENT_EVALUATION_REQUIRED'
+  | 'AGENT_EVALUATION_UNVERIFIED'
+  | 'AGENT_EVALUATION_STALE'
+  | 'AGENT_EVALUATION_SCRIPTED'
   | 'AGENT_RUN_ACTIVE'
   | 'AGENT_RUN_NOT_CONTROLLABLE'
   | 'AI_HALTED'
@@ -172,6 +175,11 @@ const MESSAGES: Record<ErrorCode, string> = {
   AGENT_SPEC_INVALID: 'This agent definition is not valid.',
   AGENT_EVALUATION_REQUIRED:
     'This agent version needs a passing evaluation before it can be published.',
+  AGENT_EVALUATION_UNVERIFIED:
+    'This evaluation report is not signed by an evaluator this deployment trusts, or it was changed.',
+  AGENT_EVALUATION_STALE: 'This evaluation report is too old. Run the evaluation again.',
+  AGENT_EVALUATION_SCRIPTED:
+    'A scripted evaluation can only publish a sandbox agent. This agent needs an evaluation against a model.',
   AGENT_RUN_ACTIVE: 'An agent is already running on this work.',
   AGENT_RUN_NOT_CONTROLLABLE: 'This run has finished, so it cannot be changed.',
   AI_HALTED: 'Agents are stopped on this deployment right now.',
@@ -327,6 +335,9 @@ export const HTTP_STATUS: Record<ErrorCode, number> = {
   POLICY_DENIED: 403,
   AGENT_SPEC_INVALID: 400,
   AGENT_EVALUATION_REQUIRED: 409,
+  AGENT_EVALUATION_UNVERIFIED: 409,
+  AGENT_EVALUATION_STALE: 409,
+  AGENT_EVALUATION_SCRIPTED: 409,
   AGENT_RUN_ACTIVE: 409,
   AGENT_RUN_NOT_CONTROLLABLE: 409,
   AI_HALTED: 503,

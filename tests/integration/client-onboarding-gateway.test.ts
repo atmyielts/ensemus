@@ -11,7 +11,7 @@ import {
   unassign,
   type ObjectStore,
 } from '@ensemus/application';
-import { agentSpecSha256, publishAgentVersion } from '@ensemus/application/ai-agents';
+import { publishAgentVersion } from '@ensemus/application/ai-agents';
 import { createContextSource } from '@ensemus/application/ai-context-source';
 import {
   createEgressLog,
@@ -51,6 +51,7 @@ import { createDelegatedContext, createServiceContext } from '@ensemus/database/
 import { withRunLookupTx } from '@ensemus/database/agent';
 import { AGENT_RUN_REQUESTED } from '@ensemus/domain/ai-events';
 import { EMAIL_CONNECTOR_TYPE } from '@ensemus/domain/external-action';
+import { signedReportFor, TEST_TRUST } from '../helpers/ai/evaluation';
 import {
   makeTestUser,
   openAgentTestDatabase,
@@ -149,18 +150,8 @@ describe('onboarding uses one authorized actual M4 run', () => {
         : await publishAgentVersion(app.db, owner, {
             spec,
             policyVersion: 'default',
-            evaluationReport: {
-              report_version: 1,
-              spec_sha256: agentSpecSha256(spec),
-              policy_version: 'default',
-              suite_ref: spec.evaluation.suite_ref,
-              dataset_version: 'synthetic-gateway-1',
-              model_label: 'scripted',
-              pass_rate: 1,
-              cases: 3,
-              passed: true,
-              scripted_model: true,
-            },
+            evaluationReport: signedReportFor(spec, 'default'),
+            evaluationTrust: TEST_TRUST,
           });
     const delegated = await createDelegatedContext(
       app.db,

@@ -4,7 +4,7 @@ import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createMinimalContextCompiler } from '@ensemus/agent-runtime/context';
 import { AppError, getWorkDetail, listWorkOverview } from '@ensemus/application';
-import { agentSpecSha256, publishAgentVersion } from '@ensemus/application/ai-agents';
+import { publishAgentVersion } from '@ensemus/application/ai-agents';
 import { createContextSource } from '@ensemus/application/ai-context-source';
 import {
   createEgressLog,
@@ -19,6 +19,7 @@ import { agentSpecV1Schema } from '@ensemus/contracts/ai';
 import { createModelRouter } from '@ensemus/intelligence';
 import { createScriptedModelPort } from '@ensemus/knowledge/testing';
 import { createAgentContextAuthorizer } from '../../workers/workflow/src/agent-context-authorizer';
+import { signedReportFor, TEST_TRUST } from '../helpers/ai/evaluation';
 import {
   openAgentTestDatabase,
   prepareRunInputContext,
@@ -131,18 +132,8 @@ describe('deal won to one verified onboarding', () => {
     await publishAgentVersion(database.db, owner, {
       spec,
       policyVersion: 'default',
-      evaluationReport: {
-        report_version: 1,
-        spec_sha256: agentSpecSha256(spec),
-        policy_version: 'default',
-        suite_ref: spec.evaluation.suite_ref,
-        dataset_version: 'synthetic-onboarding-1',
-        model_label: 'scripted',
-        pass_rate: 1,
-        cases: 3,
-        passed: true,
-        scripted_model: true,
-      },
+      evaluationReport: signedReportFor(spec, 'default'),
+      evaluationTrust: TEST_TRUST,
     });
   });
   afterAll(async () => {

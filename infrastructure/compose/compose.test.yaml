@@ -26,6 +26,9 @@ services:
       # The generated test trust root (ADR-030 D3), so signed documents can be checked and installed.
       # tests/stack/sovereign-api.test.ts signs with the key it names, which never enters a container.
       ENSEMUS_LICENSE_TRUST_ROOT_FILE: /run/secrets/license_trust_root
+      # The generated evaluator's public key (AGENT-16). The stack tests sign scripted reports with its
+      # private half, which never enters a container.
+      ENSEMUS_EVALUATION_PUBLIC_KEYS_FILE: /run/secrets/evaluation_public_keys
       # Hosted settings, for the air-gap gate's hosted phase only (infrastructure/scripts/air-gap-gate.mjs), which
       # sets them while it recreates web and web-2 as a hosted deployment. No value here: unset in the shell and in
       # .env, each is unset in the container, which is every other phase, every other job and every deployment
@@ -35,7 +38,7 @@ services:
       ENSEMUS_PAYMENT_PROCESSOR:
       ENSEMUS_BREAK_GLASS_ENABLED:
       ENSEMUS_BREAK_GLASS_MAX_MINUTES:
-    secrets: [license_trust_root]
+    secrets: [license_trust_root, evaluation_public_keys]
   worker:
     environment:
       # The operator's sovereign-license command runs from this image, with the same trust root as web.
@@ -96,12 +99,13 @@ services:
       ENSEMUS_CONNECTORS_ENABLED: ${ENSEMUS_CONNECTORS_ENABLED:-false}
       ENSEMUS_PRIVATE_MODEL_ENDPOINTS: http://fake-model:8000
       ENSEMUS_LICENSE_TRUST_ROOT_FILE: /run/secrets/license_trust_root
+      ENSEMUS_EVALUATION_PUBLIC_KEYS_FILE: /run/secrets/evaluation_public_keys
       # The same hosted-phase settings as web above, so both replicas answer alike.
       ENSEMUS_PAYMENT_PROCESSOR:
       ENSEMUS_BREAK_GLASS_ENABLED:
       ENSEMUS_BREAK_GLASS_MAX_MINUTES:
     # Added to what it extends from web, like the variable above.
-    secrets: [license_trust_root]
+    secrets: [license_trust_root, evaluation_public_keys]
   proxy:
     extra_hosts: ['web-2:${ENSEMUS_NETWORK_PREFIX:-172.30}.1.11']
     volumes:
@@ -154,3 +158,4 @@ services:
 secrets:
   # Public keys only, written by infrastructure/scripts/generate-test-secrets.mjs (pnpm stack:secrets).
   license_trust_root: { file: ../../.local/sovereign-test/trust-root.json }
+  evaluation_public_keys: { file: ../../.local/evaluation-test/public-keys }

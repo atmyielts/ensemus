@@ -1,14 +1,10 @@
 // Owned by the agents slice (AGENT-01, AGENT-16). Publishing is an upload with `agent.publish`: the server
 // checks the spec, lints its grants, requires a passing evaluation bound to this exact spec and policy,
 // and then writes a row nobody can change (ADR-028 FD-19, threat SEC-007). "Signer" means the publishing
-// membership plus the SHA-256. See docs/06-delivery/m4-slices.md.
+// membership plus the SHA-256. The report itself must carry an evaluator's signature, which web can check
+// and never make (evaluation-attestation.ts). See docs/06-delivery/m4-slices.md.
 import { createHash, randomUUID } from 'node:crypto';
-import {
-  agentSpecV1Schema,
-  evaluationReportSchema,
-  type AgentSpecV1,
-  type AgentVersionView,
-} from '@ensemus/contracts/ai';
+import { agentSpecV1Schema, type AgentSpecV1, type AgentVersionView } from '@ensemus/contracts/ai';
 import {
   actorOf,
   agentDefinitions,
@@ -38,6 +34,17 @@ import { AppError, pgCode } from '../errors';
 import { emit } from '../events';
 import { idSchema } from '../ids';
 import {
+  NO_EVALUATION_TRUST,
+  verifyEvaluationAttestation,
+  type EvaluationTrust,
+} from './evaluation-attestation';
+
+export {
+  evaluationTrust,
+  NO_EVALUATION_TRUST,
+  type EvaluationTrust,
+} from './evaluation-attestation';
+import {
   assertInteractivePrivilege,
   lockInteractivePolicy,
   withPrivilegeTx as withTenantTx,
@@ -65,6 +72,9 @@ export class AgentSpecRefused extends AppError {
 const GATE_CODES: ReadonlySet<string> = new Set([
   'AGENT_SPEC_INVALID',
   'AGENT_EVALUATION_REQUIRED',
+  'AGENT_EVALUATION_UNVERIFIED',
+  'AGENT_EVALUATION_STALE',
+  'AGENT_EVALUATION_SCRIPTED',
   'POLICY_DENIED',
 ]);
 
@@ -113,19 +123,23 @@ function parseSpec(raw: unknown): AgentSpecV1 {
   throw new AgentSpecRefused(lintCodes, fields);
 }
 
+/** What a publish checks a report's signature and age against. */
+export type EvaluationCheck = { trust: EvaluationTrust; now: Date };
+
 /**
- * The gate. A report only counts for the exact spec, suite and policy it was made against, so one that
- * passed for a narrower agent cannot be reused for a wider one, nor survive a change of policy.
+ * The gate. A report counts only when a trusted evaluator signed it, recently, and only for the exact
+ * spec, suite and policy it was made against, so one that passed for a narrower agent cannot be reused
+ * for a wider one, nor survive a change of policy. A scripted model proves the gates and not a model, so
+ * its report can publish only a sandbox agent, whose grants lint has held to reading and drafting.
  */
 function checkEvaluation(
   raw: unknown,
   spec: AgentSpecV1,
   specSha256: string,
   policyVersions: readonly string[],
+  check: EvaluationCheck,
 ): string {
-  const parsed = evaluationReportSchema.safeParse(raw);
-  if (!parsed.success) throw new AppError('AGENT_EVALUATION_REQUIRED');
-  const report = parsed.data;
+  const report = verifyEvaluationAttestation(raw, check.trust, check.now);
   const holds =
     report.passed &&
     report.spec_sha256 === specSha256 &&
@@ -133,6 +147,8 @@ function checkEvaluation(
     report.suite_ref === spec.evaluation.suite_ref &&
     report.pass_rate >= spec.evaluation.min_pass_rate;
   if (!holds) throw new AppError('AGENT_EVALUATION_REQUIRED');
+  if (report.scripted_model && spec.sandbox !== true)
+    throw new AppError('AGENT_EVALUATION_SCRIPTED');
   return sha256(canonicalJson(report));
 }
 
@@ -145,15 +161,19 @@ export function preparePublication(
   input: { spec: unknown; evaluationReport: unknown; policyVersion: string },
   limits: OrgAgentLimits,
   currentPolicyVersion: string,
+  check: EvaluationCheck,
 ): PreparedPublication {
   const spec = parseSpec(input.spec);
   const lint = lintAgentSpec(spec, limits);
   if (!lint.ok) throw new AgentSpecRefused(lint.codes);
   const specSha256 = agentSpecSha256(spec);
-  const reportSha256 = checkEvaluation(input.evaluationReport, spec, specSha256, [
-    input.policyVersion,
-    currentPolicyVersion,
-  ]);
+  const reportSha256 = checkEvaluation(
+    input.evaluationReport,
+    spec,
+    specSha256,
+    [input.policyVersion, currentPolicyVersion],
+    check,
+  );
   return {
     spec,
     specSha256,
@@ -312,6 +332,11 @@ export async function publishAgentVersion(
     evaluationReport: unknown;
     policyVersion: string;
     ownerMembershipId?: string;
+    /**
+     * The evaluator keys this deployment trusts, from ENSEMUS_EVALUATION_PUBLIC_KEYS. A caller that names
+     * none trusts none, so every report is refused rather than taken on trust.
+     */
+    evaluationTrust?: EvaluationTrust;
   },
 ): Promise<AgentVersionView> {
   requirePublisher(context);
@@ -322,7 +347,10 @@ export async function publishAgentVersion(
       await assertInteractivePrivilege(tx, context, 'agent.publish');
       const bundle = await readActiveBundle(tx, organizationId);
       const policyVersion = policyVersionOf(bundle);
-      const prepared = preparePublication(input, limitsOf(bundle), policyVersion);
+      const prepared = preparePublication(input, limitsOf(bundle), policyVersion, {
+        trust: input.evaluationTrust ?? NO_EVALUATION_TRUST,
+        now: new Date(),
+      });
       const { spec } = prepared;
 
       const ownerInput =

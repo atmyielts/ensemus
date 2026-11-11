@@ -12,7 +12,6 @@ import {
   listAgentVersions,
   publishAgentVersion,
 } from '@ensemus/application/ai-agents';
-import { agentSpecV1Schema, type EvaluationReport } from '@ensemus/contracts/ai';
 import {
   agentDefinitions,
   agentPublications,
@@ -42,6 +41,7 @@ import {
   testAgentSpec,
   type AiTenant,
 } from '../helpers/ai/fixtures';
+import { signedReportFor, TEST_TRUST } from '../helpers/ai/evaluation';
 import { inFixtureTenant } from '../helpers/fixture-tenant';
 import { urls } from '../helpers/stack';
 
@@ -50,25 +50,8 @@ function freshSpec(overrides: Record<string, unknown> = {}) {
   return testAgentSpec({ id: `brief-${randomUUID().slice(0, 8)}`, ...overrides });
 }
 
-function reportFor(
-  spec: unknown,
-  policyVersion: string,
-  overrides: Partial<EvaluationReport> = {},
-): EvaluationReport {
-  return {
-    report_version: 1,
-    spec_sha256: agentSpecSha256(agentSpecV1Schema.parse(spec)),
-    policy_version: policyVersion,
-    suite_ref: 'evaluations/agents/work-brief',
-    dataset_version: 'synthetic-1',
-    model_label: 'scripted',
-    pass_rate: 1,
-    cases: 3,
-    passed: true,
-    scripted_model: true,
-    ...overrides,
-  };
-}
+/** A report a trusted evaluator signed for this spec (tests/helpers/ai/evaluation.ts). */
+const reportFor = signedReportFor;
 
 describe('publishing an agent, as the real roles', () => {
   let app: ReturnType<typeof openAppDatabase>;
@@ -95,7 +78,13 @@ describe('publishing an agent, as the real roles', () => {
     spec: unknown,
     report: unknown = reportFor(spec, DEFAULT_AGENT_POLICY_VERSION),
     policyVersion = DEFAULT_AGENT_POLICY_VERSION,
-  ) => publishAgentVersion(app.db, context, { spec, evaluationReport: report, policyVersion });
+  ) =>
+    publishAgentVersion(app.db, context, {
+      spec,
+      evaluationReport: report,
+      policyVersion,
+      evaluationTrust: TEST_TRUST,
+    });
 
   const versionCount = (context: TenantContext) =>
     withTenantTx(app.db, context, async (tx) => (await tx.select().from(agentVersions)).length);
@@ -168,7 +157,8 @@ describe('publishing an agent, as the real roles', () => {
       const spec = freshSpec();
       const report = reportFor(spec, DEFAULT_AGENT_POLICY_VERSION);
       const view = await publish(a.owner, spec, report);
-      expect(view.evaluation_report_sha256).toBe(sha256Of(canonicalJson(report)));
+      // The report under the signature, not the envelope: the signature proves it, the hash names it.
+      expect(view.evaluation_report_sha256).toBe(sha256Of(canonicalJson(report.report)));
     });
 
     it('emits one fact, with IDs and hashes only, and audits it', async () => {
@@ -392,17 +382,40 @@ describe('publishing an agent, as the real roles', () => {
     });
 
     it('no report', async () => {
-      // Not through the helper: its default would fill the report in.
+      // Not through the helper: its default would fill the report in. Nothing signed is unverified.
       await refused(
         () =>
           publishAgentVersion(app.db, a.owner, {
             spec: freshSpec(),
             evaluationReport: undefined,
             policyVersion: DEFAULT_AGENT_POLICY_VERSION,
+            evaluationTrust: TEST_TRUST,
           }),
-        'AGENT_EVALUATION_REQUIRED',
+        'AGENT_EVALUATION_UNVERIFIED',
       );
-      await refused(() => publish(a.owner, freshSpec(), null), 'AGENT_EVALUATION_REQUIRED');
+      await refused(() => publish(a.owner, freshSpec(), null), 'AGENT_EVALUATION_UNVERIFIED');
+    });
+
+    it('a report under no trusted signature, or with none trusted at all', async () => {
+      const spec = freshSpec();
+      const report = reportFor(spec, DEFAULT_AGENT_POLICY_VERSION);
+      await refused(() => publish(a.owner, spec, report.report), 'AGENT_EVALUATION_UNVERIFIED');
+      // A caller that names no keys trusts none, so even a genuine report is refused.
+      await refused(
+        () =>
+          publishAgentVersion(app.db, a.owner, {
+            spec,
+            evaluationReport: report,
+            policyVersion: DEFAULT_AGENT_POLICY_VERSION,
+          }),
+        'AGENT_EVALUATION_UNVERIFIED',
+      );
+    });
+
+    it('a scripted report for a production agent', async () => {
+      const spec = freshSpec();
+      const report = reportFor(spec, DEFAULT_AGENT_POLICY_VERSION, { scripted_model: true });
+      await refused(() => publish(a.owner, spec, report), 'AGENT_EVALUATION_SCRIPTED');
     });
 
     it('a failing report', async () => {
