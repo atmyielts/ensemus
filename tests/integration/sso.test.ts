@@ -56,10 +56,18 @@ import { urls } from '../helpers/stack';
 // non-HTTPS installation (saml-browser-flow bindStart), so this runtime uses an HTTPS origin.
 const baseURL = 'https://generated-ensemus-sso.example.invalid',
   secret = 'generated-sso-auth-key-that-is-never-a-real-installation';
+// Each request comes from an address of its own. better-auth lets one address make three /sign-in
+// requests in ten seconds, so addresses drawn at random from 200 now and then repeated and the
+// start was refused with 429. 198.18.0.0/16, in the benchmarking range, is used by no other suite.
+let addresses = 0;
+const nextAddress = () => {
+  addresses += 1;
+  return `198.18.${Math.floor(addresses / 254) % 256}.${(addresses % 254) + 1}`;
+};
 const incoming = (cookie = '') =>
   new Headers({
     cookie,
-    'x-forwarded-for': `192.0.2.${1 + Math.floor(Math.random() * 200)}`,
+    'x-forwarded-for': nextAddress(),
     'user-agent': 'Generated SAML conformance',
   });
 describe('SAML admission, company isolation and SCIM on actual roles', () => {
