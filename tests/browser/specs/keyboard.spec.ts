@@ -227,7 +227,21 @@ test('focus is never trapped: every page can be walked through and out, both way
           ...document.querySelectorAll<HTMLElement>(
             'a[href], button:not([disabled]), input:not([type="hidden"]), select, textarea, summary, [tabindex="0"]',
           ),
-        ].filter((element) => element.getClientRects().length > 0).length,
+        ].filter((element) => {
+          if (element.getClientRects().length === 0) return false;
+          // A group of radio buttons is one tab stop, as browsers make it: its checked button, or the
+          // first one while none is checked. Arrow keys move inside the group.
+          if (element instanceof HTMLInputElement && element.type === 'radio') {
+            const group = [
+              ...(element.form ?? document).querySelectorAll<HTMLInputElement>(
+                `input[type="radio"][name="${CSS.escape(element.name)}"]`,
+              ),
+            ].filter((radio) => radio.getClientRects().length > 0);
+            const checked = group.find((radio) => radio.checked);
+            return checked ? element === checked : element === group[0];
+          }
+          return true;
+        }).length,
     );
     expect(total, `${path} has something to tab to`).toBeGreaterThan(3);
     expect(await walk(page, 'Tab', 300), `${path} forwards`).toBe(total);
