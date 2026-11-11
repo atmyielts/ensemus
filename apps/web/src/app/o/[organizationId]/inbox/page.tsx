@@ -4,9 +4,8 @@ import {
   listMyNotifications,
   listMyPendingApprovals,
 } from '@ensemus/application';
-import Link from 'next/link';
 import { SubmitButton } from '@/components/submit-button';
-import { Empty, ErrorNotice, formatDateTime, PageHead } from '@/components/ui';
+import { ActionLink, Empty, ErrorNotice, formatDateTime, PageHead } from '@/components/ui';
 import { requireTenant } from '@/server/tenant';
 import { openNotificationAction } from '@/server/work-actions';
 
@@ -73,7 +72,7 @@ export default async function InboxPage({
     <>
       <PageHead
         title="Inbox"
-        description="What needs you. Reminders come first, then anything else you have not opened. Reminders appear here, and nothing is sent by email yet."
+        description="Updates and decisions for you. Reminders come first, then anything you have not opened. For now nothing is sent by email yet, so this is the place to check."
       />
       <ErrorNotice code={error} />
       {unread > INBOX_SIZE && (
@@ -83,8 +82,15 @@ export default async function InboxPage({
         </p>
       )}
       {ordered.length === 0 ? (
-        <Empty action={<Link href={`${base}/work`}>Go to your work</Link>}>
-          Nothing here. When an approval needs your decision, it appears here.
+        <Empty
+          title="You are all caught up"
+          action={
+            <ActionLink href={`${base}/work`} variant="secondary">
+              Go to your work
+            </ActionLink>
+          }
+        >
+          Nothing here. When a decision needs you, or something you own changes, it appears here.
         </Empty>
       ) : (
         <div className="card">

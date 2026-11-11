@@ -14,7 +14,14 @@ import { Suspense } from 'react';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { SubmitButton } from '@/components/submit-button';
-import { ClassificationBadge, Empty, ErrorNotice, formatDateTime, PageHead } from '@/components/ui';
+import {
+  BackLink,
+  ClassificationBadge,
+  Empty,
+  ErrorNotice,
+  formatDateTime,
+  PageHead,
+} from '@/components/ui';
 import { orNotFound, requireTenant } from '@/server/tenant';
 import { controlRunAction, startRunAction } from './actions';
 import {
@@ -33,7 +40,7 @@ import { RunLoading } from './run-loading';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-export const metadata: Metadata = { title: 'Agent run | Ensemus' };
+export const metadata: Metadata = { title: 'Assistant activity | Ensemus' };
 
 const CONTROL_LABEL: Record<RunControlKind, string> = {
   stop: 'Stop this run',
@@ -65,7 +72,7 @@ function StartForm({
       <input type="hidden" name="workUnitId" value={workUnitId} />
       <input type="hidden" name="requestKey" value={randomUUID()} />
       <label>
-        Agent
+        Assistant
         <select name="agentVersionId" required>
           {agents.map((agent) => (
             <option key={agent.versionId} value={agent.versionId}>
@@ -97,7 +104,7 @@ function RunFacts({ run, startedBy }: { run: RunSummary; startedBy: string }) {
         </dd>
       </div>
       <div>
-        <dt>Agent</dt>
+        <dt>Assistant</dt>
         <dd>
           {run.agentName} (version {run.versionNumber})
         </dd>
@@ -107,23 +114,9 @@ function RunFacts({ run, startedBy }: { run: RunSummary; startedBy: string }) {
         <dd>{startedBy}</dd>
       </div>
       <div>
-        <dt>Sensitivity of what it has read</dt>
+        <dt>Who can see what it has read</dt>
         <dd>
           <ClassificationBadge value={view.effective_classification} />
-        </dd>
-      </div>
-      <div>
-        <dt>Steps</dt>
-        <dd>{view.model_turns}</dd>
-      </div>
-      <div>
-        <dt>Tool uses</dt>
-        <dd>{view.tool_calls}</dd>
-      </div>
-      <div>
-        <dt>Tokens in and out</dt>
-        <dd>
-          {view.input_tokens} in, {view.output_tokens} out
         </dd>
       </div>
       <div>
@@ -144,6 +137,32 @@ function RunFacts({ run, startedBy }: { run: RunSummary; startedBy: string }) {
         </div>
       )}
     </dl>
+  );
+}
+
+/** Counts a builder looks for, kept out of the way of everyone else. */
+function RunCounts({ run }: { run: RunSummary }) {
+  const { view } = run;
+  return (
+    <details className="gap-above">
+      <summary>Technical details</summary>
+      <dl className="facts gap-above">
+        <div>
+          <dt>Model steps</dt>
+          <dd>{view.model_turns}</dd>
+        </div>
+        <div>
+          <dt>Tool uses</dt>
+          <dd>{view.tool_calls}</dd>
+        </div>
+        <div>
+          <dt>Tokens in and out</dt>
+          <dd>
+            {view.input_tokens} in, {view.output_tokens} out
+          </dd>
+        </div>
+      </dl>
+    </details>
   );
 }
 
@@ -229,18 +248,19 @@ async function AgentRunContent({
       />
     ) : (
       <p className="muted">
-        No agent has been published yet, so there is nothing to start. Someone who manages agents
-        has to publish one first.
+        No assistant has been published yet, so there is nothing to start. Someone who manages
+        assistants has to publish one first.
       </p>
     )
   ) : null;
 
   return (
     <>
-      <p className="back">
-        <Link href={`/o/${organizationId}/work/${work.id}`}>Back to the work</Link>
-      </p>
-      <PageHead title={`Agent on ${work.title}`} />
+      <BackLink href={`/o/${organizationId}/work/${work.id}`}>Back to the work</BackLink>
+      <PageHead
+        title="Assistant activity"
+        description={`What assistants have done on “${work.title}”, and starting a new run.`}
+      />
       <ErrorNotice code={error} />
       <div className="stack">
         {selected && words ? (
@@ -263,6 +283,7 @@ async function AgentRunContent({
               </p>
             )}
             <RunFacts run={selected} startedBy={startedBy} />
+            <RunCounts run={selected} />
             {controls.length > 0 && (
               <div className="row gap-above">
                 {controls.map((kind) => (
@@ -272,7 +293,7 @@ async function AgentRunContent({
                     <input type="hidden" name="agentRunId" value={selected.view.id} />
                     <input type="hidden" name="kind" value={kind} />
                     <SubmitButton
-                      className={kind === 'stop' ? 'danger' : 'quiet'}
+                      className={kind === 'stop' ? 'danger' : 'secondary'}
                       working="Recording that"
                     >
                       {CONTROL_LABEL[kind]}
@@ -288,7 +309,10 @@ async function AgentRunContent({
             )}
           </section>
         ) : (
-          <Empty>No agent has run on this work yet.</Empty>
+          <Empty title="Nothing has run yet">
+            No assistant has run on this work yet.
+            {start ? ' You can start one below.' : ''}
+          </Empty>
         )}
 
         {selected && (

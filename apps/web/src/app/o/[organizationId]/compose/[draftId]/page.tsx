@@ -3,7 +3,7 @@ import { getOutcomeDraft } from '@ensemus/application/outcomes';
 import { BUNDLED_WORKFLOWS } from '@ensemus/packs/bundled';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { PageHead, ClassificationBadge, Empty } from '@/components/ui';
+import { BackLink, ClassificationBadge, Empty, PageHead } from '@/components/ui';
 import { OneActionAtATime } from '@/components/one-action-at-a-time';
 import { PreviewForm } from '@/components/experience/preview-form';
 import { ExperienceActionForm } from '@/components/experience/action-form';
@@ -57,10 +57,10 @@ export default async function OutcomePage({
     'The selected person is no longer active';
   return (
     <OneActionAtATime>
-      <Link href={`${base}/compose`}>Your drafts</Link>
+      <BackLink href={`${base}/compose`}>Your drafts</BackLink>
       <PageHead
         title="Review your outcome"
-        description="Only you can read this preview. Fixed rules suggest a starting point; you make the final decision."
+        description="Only you can read this preview. Simple rules suggested a starting point; check it, change what you need, and you decide whether to create the work."
       />
       {(await searchParams).saved === '1' && (
         <p role="status" className="notice">
@@ -81,7 +81,7 @@ export default async function OutcomePage({
             <dd>{p.dueAt ?? 'No date chosen'}</dd>
           </div>
           <div>
-            <dt>Sensitivity</dt>
+            <dt>Who can see this</dt>
             <dd>
               <ClassificationBadge value={p.classification} />
             </dd>
@@ -114,8 +114,8 @@ export default async function OutcomePage({
           </div>
         </dl>
         <p className="notice">
-          Creating this Work starts no assistant, workflow, model call or external action. The owner
-          can choose how to do it later.
+          Creating this work starts nothing by itself: no assistant, workflow or AI model, and
+          nothing is sent outside Ensemus. Its owner chooses how to do it later.
         </p>
         {(p.dataAccess.usesAgent || p.dataAccess.reachesExternalService) && (
           <p className="muted">
@@ -159,8 +159,8 @@ export default async function OutcomePage({
           <section className="card fields" aria-labelledby="confirm-outcome">
             <h2 id="confirm-outcome">Create this Work</h2>
             <p>
-              Confirmation uses the saved preview above. Save edits first; unsaved form changes are
-              not part of your confirmation.
+              This creates the work exactly as the saved preview above shows it. Save any edits
+              first: changes you have not saved are not included.
             </p>
             <ExperienceActionForm
               action={confirmOutcomeAction}
@@ -174,13 +174,14 @@ export default async function OutcomePage({
             >
               <label className="check">
                 <input type="checkbox" name="confirmed" value="yes" required />I have reviewed the
-                saved owner, sensitivity, date and success requirements.
+                saved owner, who can see it, date and success requirements.
               </label>
             </ExperienceActionForm>
             <ExperienceActionForm
               action={discardOutcomeAction}
               hidden={{ organizationId, draftId: draft.id, version: draft.version }}
               label="Discard this draft"
+              buttonClass="secondary"
             />
           </section>
         </>

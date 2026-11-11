@@ -23,12 +23,11 @@ export default async function NewWorkPage({
 
   return (
     <>
-      <PageHead title="New work" description="Describe the outcome you want." />
+      <PageHead
+        title="New work"
+        description="Describe the outcome you want. Saving it starts nothing: it records the work, with you as its owner, and you can hand it to someone else later."
+      />
       <ErrorNotice code={error} />
-      <p className="notice form-width">
-        Nothing runs until someone starts it. Creating this only records the outcome, with you as
-        the accountable owner. You can hand it to someone else later.
-      </p>
       <NewWorkForm
         organizationId={organizationId}
         projects={projects}

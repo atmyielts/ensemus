@@ -104,13 +104,13 @@ export function EditWorkForm({
           <dl>
             <dt>Title</dt>
             <dd>{conflict.title}</dd>
-            <dt>Objective</dt>
+            <dt>Details</dt>
             <dd className="pre-wrap">{conflict.objective || 'None'}</dd>
             <dt>Due date</dt>
             <dd>{conflict.dueAt || 'None'}</dd>
           </dl>
           {changedUnderneath && (
-            <button className="quiet" type="button" onClick={() => setBase(current)}>
+            <button className="secondary" type="button" onClick={() => setBase(current)}>
               Keep my text
             </button>
           )}
@@ -134,7 +134,7 @@ export function EditWorkForm({
         />
       </label>
       <label>
-        Objective
+        Details
         <textarea
           name="objective"
           maxLength={10000}
@@ -144,7 +144,7 @@ export function EditWorkForm({
       </label>
       <label>
         Due date
-        <small>The whole of that day, in UTC.</small>
+        <small>Optional.</small>
         {state.field === 'dueAt' && (
           <small className="field-error" id="edit-due-error">
             That is not a date.

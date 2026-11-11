@@ -2,7 +2,7 @@ import { getArtifactVerification } from '@ensemus/application/knowledge/verifica
 import Link from 'next/link';
 import { OneActionAtATime } from '@/components/one-action-at-a-time';
 import { KnowledgeForm } from '@/components/knowledge-form';
-import { PageHead, StatusBadge } from '@/components/ui';
+import { BackLink, PageHead, StatusBadge } from '@/components/ui';
 import { decideKnowledgeArtifactAction } from '@/server/knowledge-actions';
 import { requireTenant } from '@/server/tenant';
 import { knowledgeOrNotFound as orNotFound } from '@/server/knowledge-page';
@@ -17,20 +17,18 @@ export default async function VerificationPage({
     proof = await orNotFound(getArtifactVerification(database, context, p));
   return (
     <OneActionAtATime>
+      <BackLink href={`/o/${p.organizationId}/work/${p.workUnitId}`}>Back to the work</BackLink>
+      <PageHead
+        title="Review this deliverable"
+        description="Read the file in its work, check the passages it relies on, and compare it with what the work asks for. Then record your decision."
+      />
       <div className="stack">
-        <Link href={`/o/${p.organizationId}/work/${p.workUnitId}`}>
-          Back to work and deliverables
-        </Link>
-        <PageHead
-          title="Review this deliverable"
-          description="Read the file in its work, check the supporting passages and compare it with the current objective."
-        />
         <p className="notice">
           {proof.grounding?.verdict === 'passed'
-            ? 'Structural citation checks passed. This does not prove the claims are true; a person must still review them.'
+            ? 'Every claim points to a real passage. That does not prove the claims are true, so a person still has to read them.'
             : proof.grounding?.verdict === 'failed'
-              ? 'Citation checks did not pass. This deliverable cannot be accepted until a new valid check is recorded.'
-              : 'A background citation check has not been recorded. Acceptance is unavailable until it passes.'}
+              ? 'Some claims do not point to a real passage, so this cannot be accepted until a new check passes.'
+              : 'The check that each claim points to a real passage has not run yet. It can be accepted once that check passes.'}
         </p>
         {proof.human && (
           <p>
@@ -39,9 +37,9 @@ export default async function VerificationPage({
           </p>
         )}
         <section className="stack">
-          <h2>Supporting passages</h2>
+          <h2>Passages it relies on</h2>
           {!proof.citations.length ? (
-            <p>No supporting passages are recorded.</p>
+            <p className="muted">No passages are recorded for this deliverable.</p>
           ) : (
             proof.citations.map((citation) => (
               <article key={citation.ordinal} className="card">
@@ -99,7 +97,7 @@ export default async function VerificationPage({
           ]}
         />
         <details>
-          <summary>Exact review identifiers</summary>
+          <summary>Technical details</summary>
           <dl className="facts">
             <dt>File digest</dt>
             <dd>{proof.artifactSha256}</dd>

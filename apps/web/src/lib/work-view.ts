@@ -33,6 +33,23 @@ export function planNote(
   }
 }
 
+/** The one line under Home's greeting: how much needs this person, in words, never "0 things". */
+export function homeSummary(facts: {
+  needsYou: number;
+  moreNeedYou: boolean;
+  onWork: boolean;
+}): string {
+  if (facts.needsYou === 0) {
+    return facts.onWork
+      ? 'Nothing needs you right now. Here is what you are on.'
+      : 'Nothing is waiting for you yet.';
+  }
+  if (facts.moreNeedYou) return `More than ${facts.needsYou} things need you today.`;
+  return facts.needsYou === 1
+    ? 'One thing needs you today.'
+    : `${facts.needsYou} things need you today.`;
+}
+
 /** What Home says under Your work. It only says everything is listed when nothing was left out. */
 export function homeListNotes(facts: {
   shown: boolean;
@@ -50,13 +67,30 @@ export function homeListNotes(facts: {
   return { allListed: facts.shown ? null : 'Everything you are on is listed above.', more: null };
 }
 
-/** How a work list says where evidence stands, by the same rule the work's own page uses. */
+/** What "done" means for a piece of work, as one plain sentence. */
+export function doneWhenSentence(criteria: readonly CompletionCriterion[]): string {
+  if (criteria.length === 0) return 'Owner confirms';
+  const parts = criteria.map((criterion) => DONE_WHEN[criterion.kind]);
+  const joined =
+    parts.length === 1
+      ? (parts[0] ?? '')
+      : `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}`;
+  return joined.charAt(0).toUpperCase() + joined.slice(1);
+}
+
+const DONE_WHEN: Record<CompletionCriterion['kind'], string> = {
+  artifact_exists: 'a file is attached',
+  reviewer_approved: 'a reviewer approves',
+  external_receipt: 'the outside system confirms it',
+};
+
+/** How a work list says where its "done when" checks stand, by the same rule the work's page uses. */
 export function evidenceSummary(
   status: WorkState,
   criteria: readonly CompletionCriterion[],
   evidence: CompletionEvidence,
 ): { text: string; tone: 'attention' | 'done' | null } {
-  if (criteria.length === 0) return { text: 'None asked for', tone: null };
+  if (criteria.length === 0) return { text: 'Owner confirms', tone: null };
   // A review can run out after the work is done. Finishing needed the evidence, so it was there then.
   if (status === 'completed') return { text: 'Met when done', tone: 'done' };
   const missing = unmetCriteria(criteria, evidence).length;
