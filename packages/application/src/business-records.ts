@@ -5,15 +5,34 @@ import { createHash } from 'node:crypto';
 import {
   withTenantTx,
   businessRecords,
+  businessRecordActions,
+  externalActions,
   connections,
   externalResources,
   externalResourceAcl,
   teamMemberships,
   memberships,
+  users,
   type AppDatabase,
   type TenantContext,
   type Tx,
 } from '@ensemus/database';
+import {
+  proposeExternalActionInTx,
+  reviseExternalAction,
+  retryExternalAction,
+} from './external-actions';
+import { createWorkUnitInTx, assignContributor } from './work';
+import { databaseInTransaction } from './transaction-database';
+import {
+  businessConnectorTypeForTool,
+  BUSINESS_TOOL_VERSION,
+  CRM_RECORD_UPDATE_TOOL,
+  TICKETING_RECORD_UPDATE_TOOL,
+  ACCOUNTING_RECORD_UPDATE_TOOL,
+  TICKETING_COMMENT_ADD_TOOL,
+  ACCOUNTING_INVOICE_DRAFT_TOOL,
+} from '@ensemus/domain/business-connector';
 import { canonicalJson } from '@ensemus/domain/approval';
 import {
   canReadBusinessRecord,
@@ -388,15 +407,11 @@ export async function getBusinessRecord(
   });
 }
 
-/**
- * Writes an intent and its approval in the caller's transaction, as proposeExternalActionInTx does for email.
- * That one takes email only, so this is its twin for BUSINESS_TOOLS, and the triggers in migration 0013 hold
- * them to the same rules. Refuses restricted work and a connection without the write scope.
- */
-export function proposeBusinessActionInTx(
-  _tx: Tx,
-  _context: TenantContext,
-  _input: {
+/** Business changes share M3's immutable intent, review, revision and retry kernel. */
+export async function proposeBusinessActionInTx(
+  tx: Tx,
+  context: TenantContext,
+  input: {
     workUnitId: string;
     connectionId: string;
     toolName: string;
@@ -409,17 +424,42 @@ export function proposeBusinessActionInTx(
     businessRecordId?: string;
   },
 ): Promise<ProposedBusinessAction> {
-  throw new Error('NOT_IMPLEMENTED');
+  await person(tx, context);
+  if (!businessConnectorTypeForTool(input.toolName)) throw new AppError('INVALID_INPUT');
+  // An optional source identifier cannot disagree with the actual payload target. The shared kernel
+  // derives and records the source association from the locked, permitted stored record.
+  if (input.businessRecordId) {
+    const [record] = await tx
+      .select()
+      .from(businessRecords)
+      .where(eq(businessRecords.id, parsedId(input.businessRecordId)));
+    if (!record || record.connectionId !== input.connectionId) throw new AppError('NOT_FOUND');
+    const payload = input.payload as {
+      record?: { external_id?: unknown; stream?: unknown };
+      ticket?: { external_id?: unknown };
+    };
+    if (
+      !payload ||
+      (payload.record?.external_id ?? payload.ticket?.external_id) !== record.externalId ||
+      (payload.record && payload.record.stream !== record.stream)
+    )
+      throw new AppError('INVALID_INPUT');
+  }
+  return proposeExternalActionInTx(tx, context, input);
 }
-
-/**
- * Proposes changing writable fields on a record this person can read. `expectedVersion` must match what is
- * stored, or RECORD_VERSION_STALE, so nobody asks for approval on something they did not see.
- */
+async function recordForProposal(tx: Tx, context: TenantContext, id: string) {
+  await person(tx, context);
+  const [row] = await tx
+    .select()
+    .from(businessRecords)
+    .where(eq(businessRecords.id, parsedId(id)));
+  if (!row) throw new AppError('NOT_FOUND');
+  return row;
+}
 export function proposeRecordUpdate(
-  _database: AppDatabase,
-  _context: TenantContext,
-  _input: {
+  database: AppDatabase,
+  context: TenantContext,
+  input: {
     recordId: string;
     workUnitId: string;
     expectedVersion: string | null;
@@ -427,51 +467,229 @@ export function proposeRecordUpdate(
     approverMembershipId: string;
   },
 ): Promise<ProposedBusinessAction> {
-  throw new Error('NOT_IMPLEMENTED');
+  return withTenantTx(database, context, async (tx) => {
+    const record = await recordForProposal(tx, context, input.recordId);
+    if (record.externalVersion !== input.expectedVersion)
+      throw new AppError('RECORD_VERSION_STALE');
+    const type = connectorTypeOfStream(record.stream);
+    const toolName =
+      type === 'crm_http'
+        ? CRM_RECORD_UPDATE_TOOL
+        : type === 'ticketing_http'
+          ? TICKETING_RECORD_UPDATE_TOOL
+          : ACCOUNTING_RECORD_UPDATE_TOOL;
+    return proposeBusinessActionInTx(tx, context, {
+      workUnitId: parsedId(input.workUnitId),
+      connectionId: record.connectionId,
+      toolName,
+      toolVersion: BUSINESS_TOOL_VERSION,
+      payload: {
+        record: {
+          stream: record.stream,
+          external_id: record.externalId,
+          expected_version: input.expectedVersion,
+        },
+        changes: input.changes,
+      },
+      approverMembershipId: parsedId(input.approverMembershipId),
+      businessRecordId: record.id,
+    });
+  });
 }
-
 export function proposeTicketComment(
-  _database: AppDatabase,
-  _context: TenantContext,
-  _input: { recordId: string; workUnitId: string; body: string; approverMembershipId: string },
+  database: AppDatabase,
+  context: TenantContext,
+  input: { recordId: string; workUnitId: string; body: string; approverMembershipId: string },
 ): Promise<ProposedBusinessAction> {
-  throw new Error('NOT_IMPLEMENTED');
+  return withTenantTx(database, context, async (tx) => {
+    const record = await recordForProposal(tx, context, input.recordId);
+    if (record.stream !== 'ticketing.tickets') throw new AppError('INVALID_INPUT');
+    return proposeBusinessActionInTx(tx, context, {
+      workUnitId: parsedId(input.workUnitId),
+      connectionId: record.connectionId,
+      toolName: TICKETING_COMMENT_ADD_TOOL,
+      toolVersion: BUSINESS_TOOL_VERSION,
+      payload: {
+        ticket: { external_id: record.externalId },
+        visibility: 'internal',
+        body: input.body,
+      },
+      approverMembershipId: parsedId(input.approverMembershipId),
+      businessRecordId: record.id,
+    });
+  });
 }
-
 export function proposeInvoiceDraft(
-  _database: AppDatabase,
-  _context: TenantContext,
-  _input: {
+  database: AppDatabase,
+  context: TenantContext,
+  input: {
     workUnitId: string;
     connectionId: string;
     invoice: unknown;
     approverMembershipId: string;
   },
 ): Promise<ProposedBusinessAction> {
-  throw new Error('NOT_IMPLEMENTED');
+  return withTenantTx(database, context, (tx) =>
+    proposeBusinessActionInTx(tx, context, {
+      workUnitId: parsedId(input.workUnitId),
+      connectionId: parsedId(input.connectionId),
+      toolName: ACCOUNTING_INVOICE_DRAFT_TOOL,
+      toolVersion: BUSINESS_TOOL_VERSION,
+      payload: input.invoice,
+      approverMembershipId: parsedId(input.approverMembershipId),
+    }),
+  );
 }
-
-/** QA-007 for these tools: a new intent and a new approval, and the old one can never be spent. */
+async function businessIntent(tx: Tx, context: TenantContext, id: string) {
+  await person(tx, context);
+  const [row] = await tx
+    .select({ toolName: externalActions.toolName })
+    .from(externalActions)
+    .where(eq(externalActions.id, parsedId(id)));
+  if (!row) throw new AppError('NOT_FOUND');
+  if (!businessConnectorTypeForTool(row.toolName)) throw new AppError('INVALID_INPUT');
+}
 export function reviseBusinessAction(
-  _database: AppDatabase,
-  _context: TenantContext,
-  _input: {
+  database: AppDatabase,
+  context: TenantContext,
+  input: {
     externalActionId: string;
     expectedVersion: number;
     payload: unknown;
     approverMembershipId: string;
   },
 ): Promise<ProposedBusinessAction> {
-  throw new Error('NOT_IMPLEMENTED');
+  return withTenantTx(database, context, async (tx) => {
+    await businessIntent(tx, context, input.externalActionId);
+    return reviseExternalAction(databaseInTransaction(tx), context, input);
+  });
+}
+export function retryBusinessAction(
+  database: AppDatabase,
+  context: TenantContext,
+  input: { externalActionId: string; approverMembershipId: string },
+): Promise<ProposedBusinessAction> {
+  return withTenantTx(database, context, async (tx) => {
+    await businessIntent(tx, context, input.externalActionId);
+    return retryExternalAction(databaseInTransaction(tx), context, input);
+  });
 }
 
-/** A new intent for a failed one, with `retry_of_id`, needing its own approval. */
-export function retryBusinessAction(
-  _database: AppDatabase,
-  _context: TenantContext,
-  _input: { externalActionId: string; approverMembershipId: string },
-): Promise<ProposedBusinessAction> {
-  throw new Error('NOT_IMPLEMENTED');
+/** Internal UI link, readable only with both the current Work and source-record grants. */
+export function getBusinessActionRecordId(
+  database: AppDatabase,
+  context: TenantContext,
+  externalActionId: string,
+): Promise<string | null> {
+  return withTenantTx(database, context, async (tx) => {
+    await person(tx, context);
+    const [row] = await tx
+      .select({ id: businessRecords.id })
+      .from(businessRecordActions)
+      .innerJoin(
+        externalActions,
+        and(
+          eq(externalActions.organizationId, businessRecordActions.organizationId),
+          eq(externalActions.id, businessRecordActions.externalActionId),
+        ),
+      )
+      .innerJoin(
+        businessRecords,
+        and(
+          eq(businessRecords.organizationId, businessRecordActions.organizationId),
+          eq(businessRecords.id, businessRecordActions.businessRecordId),
+        ),
+      )
+      .where(eq(externalActions.id, parsedId(externalActionId)));
+    return row?.id ?? null;
+  });
+}
+
+/** Eligible independent source readers, filtered before the bounded picker limit. */
+export function listBusinessRecordReviewers(
+  database: AppDatabase,
+  context: TenantContext,
+  recordId: string,
+) {
+  return withTenantTx(database, context, async (tx) => {
+    const record = await recordForProposal(tx, context, recordId);
+    const [connection] = await tx
+      .select({ owner: connections.ownerMembershipId })
+      .from(connections)
+      .where(eq(connections.id, record.connectionId));
+    if (!connection || connection.owner !== null) return [];
+    return tx
+      .select({ membershipId: memberships.id, name: users.name })
+      .from(memberships)
+      .innerJoin(users, eq(users.id, memberships.userId))
+      .where(
+        and(
+          eq(memberships.status, 'active'),
+          sql`${memberships.id}<>${context.membershipId}::uuid`,
+          sql`exists(select 1 from ${externalResources} resource join ${externalResourceAcl} grant_row on grant_row.organization_id=resource.organization_id and grant_row.resource_id=resource.id where resource.organization_id=${context.organizationId}::uuid and resource.connection_id=${record.connectionId}::uuid and resource.external_id=${record.externalId} and resource.stream=${record.stream} and resource.deleted_at is null and resource.acl_state in ('mapped','partial') and grant_row.access in ('read','write','owner') and (grant_row.membership_id=${memberships.id} or exists(select 1 from ${teamMemberships} team where team.organization_id=grant_row.organization_id and team.team_id=grant_row.team_id and team.membership_id=${memberships.id})))`,
+        ),
+      )
+      .orderBy(asc(users.name), asc(memberships.id))
+      .limit(200);
+  });
+}
+
+/** One human form creates accountable Work and its exact proposal atomically. A refusal leaves neither. */
+export function createBusinessRecordProposal(
+  database: AppDatabase,
+  context: TenantContext,
+  input: { recordId: string; title: string; approverMembershipId: string } & (
+    | {
+        kind: 'update';
+        expectedVersion: string | null;
+        changes: Readonly<Record<string, string | number | boolean | null>>;
+      }
+    | { kind: 'note'; body: string }
+    | { kind: 'invoice'; invoice: unknown }
+  ),
+): Promise<ProposedBusinessAction & { workUnitId: string }> {
+  return withTenantTx(database, context, async (tx) => {
+    const record = await recordForProposal(tx, context, input.recordId);
+    if (record.classification === 'restricted') throw new AppError('RESTRICTED_NOT_ALLOWED');
+    if (input.kind === 'update' && record.externalVersion !== input.expectedVersion)
+      throw new AppError('RECORD_VERSION_STALE');
+    const work = await createWorkUnitInTx(tx, context, {
+      title: input.title,
+      classification: record.classification as 'public' | 'internal' | 'confidential',
+      completionCriteria: [{ kind: 'external_receipt' }],
+    });
+    const joined = databaseInTransaction(tx);
+    await assignContributor(joined, context, {
+      id: work.id,
+      membershipId: parsedId(input.approverMembershipId),
+      responsibility: 'reviewer',
+    });
+    let proposed: ProposedBusinessAction;
+    if (input.kind === 'update')
+      proposed = await proposeRecordUpdate(joined, context, {
+        recordId: record.id,
+        workUnitId: work.id,
+        expectedVersion: input.expectedVersion,
+        changes: input.changes,
+        approverMembershipId: input.approverMembershipId,
+      });
+    else if (input.kind === 'note')
+      proposed = await proposeTicketComment(joined, context, {
+        recordId: record.id,
+        workUnitId: work.id,
+        body: input.body,
+        approverMembershipId: input.approverMembershipId,
+      });
+    else if (input.kind === 'invoice')
+      proposed = await proposeInvoiceDraft(joined, context, {
+        connectionId: record.connectionId,
+        workUnitId: work.id,
+        invoice: input.invoice,
+        approverMembershipId: input.approverMembershipId,
+      });
+    else throw new AppError('INVALID_INPUT');
+    return { ...proposed, workUnitId: work.id };
+  });
 }
 
 /** Tenant upkeep clears content only on revoked connections, using the native platform worker. */

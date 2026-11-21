@@ -8155,7 +8155,6 @@ paths:
       - $ref: "#/components/parameters/OrganizationID"
       - $ref: "#/components/parameters/RecordID"
     post:
-      x-ensemus-status: planned
       tags:
         - business-records
       summary: Propose changing writable fields. It waits for approval and is then a
@@ -8198,7 +8197,6 @@ paths:
       - $ref: "#/components/parameters/OrganizationID"
       - $ref: "#/components/parameters/RecordID"
     post:
-      x-ensemus-status: planned
       tags:
         - business-records
       summary: Propose an internal note on a ticket. There is no customer-facing form
@@ -8255,7 +8253,6 @@ paths:
     parameters:
       - $ref: "#/components/parameters/OrganizationID"
     post:
-      x-ensemus-status: planned
       tags:
         - business-records
       summary: Propose a draft invoice in the accounting system. It posts and pays
@@ -8298,7 +8295,6 @@ paths:
       - $ref: "#/components/parameters/OrganizationID"
       - $ref: "#/components/parameters/ExternalActionID"
     post:
-      x-ensemus-status: planned
       tags:
         - business-records
       summary: Replace what a business action will do. The old one can never be spent,
@@ -8355,7 +8351,6 @@ paths:
       - $ref: "#/components/parameters/OrganizationID"
       - $ref: "#/components/parameters/ExternalActionID"
     post:
-      x-ensemus-status: planned
       tags:
         - business-records
       summary: Ask again for a business action that was not sent. It needs its own

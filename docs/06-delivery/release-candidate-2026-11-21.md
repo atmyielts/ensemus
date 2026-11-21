@@ -592,3 +592,56 @@ configuration was added. These SQL paths are shared by Cloud, BYOM and Sovereign
 contact. Hosted acceptance, built workers/Temporal, load and independent security acceptance remain
 open. The business write-proposal/review service, customer business-connection setup and the broader
 platform gaps listed above remain unfinished.
+
+
+## Reviewed business changes through the production web/API (EXP-02)
+
+This slice implements the five previously planned proposal, revision and retry operations. CRM and
+accounting record updates, internal ticket notes and manually entered invoice drafts now use the
+existing immutable M3 external-action/approval kernel. Each proposal has the exact canonical payload,
+request hash and independent approver; revisions cancel the old proposal atomically and retries need
+a proven failed action and a new approval. These business operations are not added to the AI tool
+manifest. Payment/posting and customer-facing ticket replies remain refused.
+
+Admission checks the actual web login, active proposer and reviewer, readable Work, connection type,
+configuration and granted scopes, selected stream, source version, classification and direct/team
+source grants for both people. An update without a source version is refused. A record-backed
+proposal loses readable payload when the current reader loses source access. New invoice drafts have
+no existing target record: their manually entered content follows Work, connection and classification
+access. The source page does not copy source names or customer facts automatically into new Work or
+invoice drafts. A single idempotent transaction creates Work, explicitly assigns its reviewer, and
+creates the approval; refusal rolls these effects back together.
+
+Migrations 0747–0749 add source-bound read restrictions and narrowly scoped record/team fact locks.
+Native connector dispatch repeats permission, version, scope and classification checks before
+creating an attempt. Team-grant deletion races return VERSION_CONFLICT without an attempt or a
+permanent cancellation. A subsequent committed loss cancels the action before contact. The lock
+helpers do not grant the web role UPDATE access to source records or team memberships. All SQL
+changes are marked for human security review, which is still pending. A fresh ordinary-migrator
+installation applied 159 migrations, matched all 159 source hashes, and verified fixed search paths,
+function ownership, execution grants and restrictive policies. No applied migration was rewritten.
+
+The production source page now offers proposal forms, exact review previews, receipt history and
+source-filtered retry reviewers. Mobile field values survive a refusal; the actual no-JavaScript
+320-pixel journey also preserved invalid invoice values, corrected them and created the review.
+Generated browser journeys exercised CRM approval, ticket-note denial, invoice validation and review,
+a person finding after a generated uncertain outcome, and a new retry awaiting its own approval.
+The uncertainty fixture used actual native state-machine functions and contacted no adapter. Its
+receipt is local test evidence, not provider acceptance. Widths 320, 768, 1024 and 1440 had no horizontal
+overflow; source script-shaped text stayed literal. Final mobile screenshots were inspected. No
+independent accessibility or customer walkthrough is claimed; the guide remains written_untested.
+
+The final native business-action file passed all 12 cases, including the concurrent team-grant race.
+A combined business/source-reader/native-TLS regression passed 25 cases before the final race addition;
+the existing M3 external-action regression passed all 124 cases. The final production HTTP file passed
+all five cases against the final build. The complete unit suite passed 9,669 cases with two failing
+release gates, four expected failures and 43 skips across 379 files in 56.78 seconds. The gates now
+identify 66 planned API operations and the 30-table complete portability inventory. Application,
+connector, web and test TypeScript, repository lint, guide generation and the production build passed.
+Exact source, fresh-database proof and local-log/image hashes are recorded in
+`evidence/rc-business-actions-20261121.json`.
+
+Customer business-connection catalog/setup, the browser revision editor, real provider adapters and
+credentials, Cloud routing, durable built-worker/Temporal acceptance, hosted/human/load/offline,
+restore/upgrade acceptance and the broader platform backlog remain open. There was no production
+deployment, provider contact, original-source deletion or volume cleanup. About 28.6 GiB remained free.

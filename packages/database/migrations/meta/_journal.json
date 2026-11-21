@@ -1093,6 +1093,27 @@
       "when": 1794201807628,
       "tag": "0746_work_history_material_readers",
       "breakpoints": true
+    },
+    {
+      "idx": 156,
+      "version": "7",
+      "when": 1794201807629,
+      "tag": "0747_business_change_authority",
+      "breakpoints": true
+    },
+    {
+      "idx": 157,
+      "version": "7",
+      "when": 1794201807630,
+      "tag": "0748_business_lock_source_facts",
+      "breakpoints": true
+    },
+    {
+      "idx": 158,
+      "version": "7",
+      "when": 1794201807631,
+      "tag": "0749_business_team_grant_lock",
+      "breakpoints": true
     }
   ]
 }

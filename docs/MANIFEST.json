@@ -77,8 +77,8 @@
     },
     {
       "path": "00-foundation/adr/ADR-033-expansion-packs-connectors-meetings.md",
-      "size_bytes": 27878,
-      "sha256": "bd843c872e0ebed259e7a5c0fc17366010f313780cfd321a529a2324e466c2ef"
+      "size_bytes": 28202,
+      "sha256": "3519f32c754ea2220852e7c02451a6ee2ad5e51a0c48bd75b687ed7cf36bf799"
     },
     {
       "path": "00-foundation/adr/ADR-034-skills-sandbox-marketplace.md",
@@ -916,6 +916,11 @@
       "sha256": "646f9006ddb5022f07e6e387076373606538df6f25187c521c136e5189c9a66a"
     },
     {
+      "path": "06-delivery/evidence/rc-business-actions-20261121.json",
+      "size_bytes": 11864,
+      "sha256": "45e70ddcaec17517095bfae2060c0826102721881a1278c0f428d60cbac26878"
+    },
+    {
       "path": "06-delivery/evidence/rc-business-connectors-20261121.json",
       "size_bytes": 5442,
       "sha256": "84a6018f455c3667063117e525cf13b19586d7bbc8a8f33acb493011063b722a"
@@ -1007,8 +1012,8 @@
     },
     {
       "path": "06-delivery/release-candidate-2026-11-21.md",
-      "size_bytes": 47150,
-      "sha256": "a08b7ad733e13eb8964e8a67e2ece41f29ec7c2887062b67ed6c3f67611a5194"
+      "size_bytes": 51455,
+      "sha256": "affec50879649157f13e313d75803901167653ef3bbfc5115b8e229416770956"
     },
     {
       "path": "06-delivery/release-candidate-source-ledger.json",
@@ -1467,8 +1472,8 @@
     },
     {
       "path": "guides/user/source-records.md",
-      "size_bytes": 2004,
-      "sha256": "3602027d84a37c23177094d12d584c1f0255eff091b47a93fac0787f47ef0371"
+      "size_bytes": 4909,
+      "sha256": "caef69c15d37a7e8f1bd58d2a6fc7d2e8acbc1325a0b08fe44c5fcdfcb04b8c4"
     },
     {
       "path": "guides/user/sovereign-license-status.md",
@@ -1632,8 +1637,8 @@
     },
     {
       "path": "specifications/openapi.yaml",
-      "size_bytes": 564387,
-      "sha256": "62f248b9ba0583533b13e12fcc1c3062a51f61a010f14d704c924dfb9950edb0"
+      "size_bytes": 564227,
+      "sha256": "4f45f2ced343117b27cdcbb5ae1de1dd62908a52511ec1aa634ac5fbc3f6189d"
     },
     {
       "path": "specifications/qa-scenarios.csv",

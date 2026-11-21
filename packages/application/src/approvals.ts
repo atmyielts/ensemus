@@ -22,6 +22,7 @@ import {
   WORK_REVIEW_VERSION,
   type ProposedAction,
 } from '@ensemus/domain/approval';
+import { businessConnectorTypeForTool } from '@ensemus/domain/business-connector';
 import { isActionTool, toolManifest } from '@ensemus/domain/ai-tools';
 import { isTerminal, type WorkState } from '@ensemus/domain/work-unit';
 import { and, asc, eq, gt, inArray, lte, sql } from 'drizzle-orm';
@@ -258,7 +259,10 @@ export async function decideApproval(
     }
     // The same for a send or any other change through a connection (ADR-038 D6): what was shown has to be
     // what would go, and it is the intent that would go.
-    if (isActionTool(toolManifest(action.toolName))) {
+    if (
+      isActionTool(toolManifest(action.toolName)) ||
+      businessConnectorTypeForTool(action.toolName)
+    ) {
       await assertIntentMatchesApproval(tx, approval);
     }
 

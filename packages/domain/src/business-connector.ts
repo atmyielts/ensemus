@@ -178,6 +178,11 @@ export const BUSINESS_TOOLS: Readonly<Record<BusinessConnectorType, readonly str
 export const isToolOf = (connectorType: string, toolName: string): boolean =>
   isBusinessConnectorType(connectorType) && BUSINESS_TOOLS[connectorType].includes(toolName);
 
+/** Business effects are explicitly reviewed actions; this does not add an assistant-callable tool. */
+export function businessConnectorTypeForTool(toolName: string): BusinessConnectorType | undefined {
+  return BUSINESS_CONNECTOR_TYPES.find((type) => BUSINESS_TOOLS[type].includes(toolName));
+}
+
 /** The provider scope each kind asks for. `granted_scopes` on the connection says what it was given. */
 export const readScopeFor = (type: BusinessConnectorType) => `${type}.read`;
 export const writeScopeFor = (type: BusinessConnectorType) => `${type}.write`;
@@ -200,7 +205,7 @@ const CLASSIFICATION_FLOOR: Readonly<Record<BusinessConnectorType, Classificatio
   [ACCOUNTING_CONNECTOR_TYPE]: 'confidential',
 };
 
-/** A source can raise a record's class and cannot lower it past the floor (security blueprint §3). */
+/** A source can raise a record's class and cannot lower it past the floor (security blueprint Â§3). */
 export function recordClassification(
   type: BusinessConnectorType,
   reported: Classification | undefined,

@@ -332,6 +332,10 @@ const MESSAGE_FOR = new Map<string, string>([
     'This team comes from your directory, so it changes only there. Change the group at the provider.',
   ],
   ['RESTRICTED_NOT_ALLOWED', 'Restricted work cannot be sent outside this deployment.'],
+  [
+    'RECORD_VERSION_REQUIRED',
+    'The source did not provide a record version, so changes cannot be safely proposed here. Make the change in the source system.',
+  ],
   ['RECORD_VERSION_STALE', 'This record changed at its source. Check the latest version first.'],
   ['CONNECTION_SCOPE_MISSING', 'This connection was not given permission to change records.'],
   ['MEETINGS_NOT_ENABLED', 'Meetings are not turned on for this organization.'],

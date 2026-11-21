@@ -11334,7 +11334,7 @@ export const GUIDE_PAGES: readonly GuidePage[] = [
   },
   {
     "slug": "source-records",
-    "title": "Reading source records",
+    "title": "Source records and reviewed changes",
     "section": "connections",
     "modes": [
       "cloud",
@@ -11361,7 +11361,7 @@ export const GUIDE_PAGES: readonly GuidePage[] = [
         "inline": [
           {
             "t": "text",
-            "v": "This guide covers the read pages. Full connector setup and provider acceptance remain unfinished."
+            "v": "Generated local API and browser checks are recorded in the release candidate report. This guide still awaits the required CI-backed checks and independent user walkthrough. Full customer connector setup and provider acceptance remain unfinished."
           }
         ]
       },
@@ -11433,11 +11433,168 @@ export const GUIDE_PAGES: readonly GuidePage[] = [
         ]
       },
       {
+        "b": "h",
+        "level": 2,
+        "inline": [
+          {
+            "t": "text",
+            "v": "Propose a change"
+          }
+        ]
+      },
+      {
         "b": "p",
         "inline": [
           {
             "t": "text",
-            "v": "Changes cannot be proposed from this view yet. Accounting values are read only; nothing on these pages posts an invoice or moves money. Installing a department pack does not grant source access or make a connector available. Full connector setup, live synchronization and reviewed external changes have separate release gates."
+            "v": "If connected actions are enabled, "
+          },
+          {
+            "t": "strong",
+            "v": "Propose a field change"
+          },
+          {
+            "t": "text",
+            "v": " lists the fields this source allows you to change. Choose a field, enter its new value, or select "
+          },
+          {
+            "t": "strong",
+            "v": "Clear this field"
+          },
+          {
+            "t": "text",
+            "v": ". Dates use YYYY-MM-DD. The source must provide a record version; a missing or changed version prevents an update."
+          }
+        ]
+      },
+      {
+        "b": "p",
+        "inline": [
+          {
+            "t": "text",
+            "v": "Enter a "
+          },
+          {
+            "t": "strong",
+            "v": "Work title"
+          },
+          {
+            "t": "text",
+            "v": ", choose an "
+          },
+          {
+            "t": "strong",
+            "v": "Independent reviewer"
+          },
+          {
+            "t": "text",
+            "v": " who already has source access, and press "
+          },
+          {
+            "t": "strong",
+            "v": "Request review"
+          },
+          {
+            "t": "text",
+            "v": ". The request creates Work, shares that Work with the reviewer, and asks them to review the exact proposed values. It grants no source access. Invalid input leaves no new Work or approval; your form values remain so you can correct them. The forms also work without JavaScript."
+          }
+        ]
+      },
+      {
+        "b": "p",
+        "inline": [
+          {
+            "t": "text",
+            "v": "The review page shows exactly which source record, version and fields the proposal covers. The requester cannot approve it. After approval, the receipt on the Work page says whether Ensemus has tried, whether the connected system accepted it, or whether the outcome is unknown. Approval alone does not mean the source changed. Current connection scopes, source grants and the source version are checked again before an attempt."
+          }
+        ]
+      },
+      {
+        "b": "h",
+        "level": 2,
+        "inline": [
+          {
+            "t": "text",
+            "v": "Ticket notes and invoice drafts"
+          }
+        ]
+      },
+      {
+        "b": "p",
+        "inline": [
+          {
+            "t": "text",
+            "v": "On a ticket, "
+          },
+          {
+            "t": "strong",
+            "v": "Propose an internal ticket note"
+          },
+          {
+            "t": "text",
+            "v": " offers an internal note only. It cannot send a customer-facing reply."
+          }
+        ]
+      },
+      {
+        "b": "p",
+        "inline": [
+          {
+            "t": "text",
+            "v": "On an accounting record, "
+          },
+          {
+            "t": "strong",
+            "v": "Propose an invoice draft"
+          },
+          {
+            "t": "text",
+            "v": " accepts a customer reference, currency, line description, quantity and unit price. Enter amounts as decimal text. A draft posts and pays nothing; someone reviews it in the accounting system. Payment record fields remain read only. Restricted records cannot be proposed as external changes."
+          }
+        ]
+      },
+      {
+        "b": "h",
+        "level": 2,
+        "inline": [
+          {
+            "t": "text",
+            "v": "Check the outcome"
+          }
+        ]
+      },
+      {
+        "b": "p",
+        "inline": [
+          {
+            "t": "text",
+            "v": "An uncertain result stays "
+          },
+          {
+            "t": "strong",
+            "v": "unknown"
+          },
+          {
+            "t": "text",
+            "v": ". Ensemus does not silently retry an action that may already have happened. Check the connected system using the Ensemus request key on the receipt, then record what you found. A person's finding is shown as that person's finding, separately from confirmation by the connected system."
+          }
+        ]
+      },
+      {
+        "b": "p",
+        "inline": [
+          {
+            "t": "text",
+            "v": "Changing a pending proposal needs a new approval; the old one cannot be spent. A proven failed action can be asked for again with its own new approval. The business APIs support revisions and retries. The record forms create proposals; the receipt view offers retries, while editing a business proposal in the browser is still unfinished."
+          }
+        ]
+      },
+      {
+        "b": "p",
+        "inline": [
+          {
+            "t": "text",
+            "v": "Removing a source grant hides record-backed proposals and their reviews on the next request. Invoice drafts name no existing target record: their manually entered content remains protected by their Work and connection access. Installing a department pack grants no source access or connector. Customer connection setup, built-worker execution and real provider acceptance remain separate release gates."
           }
         ]
       }

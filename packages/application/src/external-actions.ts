@@ -8,6 +8,7 @@
 import { randomUUID } from 'node:crypto';
 import {
   agentRuns,
+  businessRecordActions,
   approvals,
   connections,
   externalActionAttempts,
@@ -21,6 +22,11 @@ import {
   type TenantContext,
   type Tx,
 } from '@ensemus/database';
+import {
+  businessConnectorTypeForTool,
+  BUSINESS_TOOL_VERSION,
+} from '@ensemus/domain/business-connector';
+import { admitBusinessChangeInTx, recheckBusinessChangeInTx } from './business-action-admission';
 import { emailSendPayloadSchema } from '@ensemus/contracts/external-actions';
 import { parseSuiteActionPayload } from '@ensemus/contracts/ai-tools';
 import { suiteFormulaRefusal, suitePayloadFits } from '@ensemus/contracts/suite-tools';
@@ -347,14 +353,17 @@ async function proposeIntentInTx(
   // Its data class denies leaving by default, and the check on the table holds this too.
   if (work.classification === 'restricted') throw new AppError('RESTRICTED_NOT_ALLOWED');
 
+  const businessType = businessConnectorTypeForTool(input.toolName);
   const manifest = toolManifest(input.toolName);
-  if (!isActionTool(manifest) || manifest.version !== input.toolVersion || !manifest.connection) {
+  if (
+    businessType
+      ? input.toolVersion !== BUSINESS_TOOL_VERSION
+      : !isActionTool(manifest) || manifest.version !== input.toolVersion || !manifest.connection
+  )
     throw new AppError('INVALID_INPUT');
-  }
-  const needsApproval = changeNeedsApproval(manifest);
-  if (needsApproval !== (input.approverMembershipId !== undefined)) {
+  const needsApproval = businessType ? true : changeNeedsApproval(manifest!);
+  if (needsApproval !== (input.approverMembershipId !== undefined))
     throw new AppError('INVALID_INPUT');
-  }
   const [connection] = await tx
     .select()
     .from(connections)
@@ -362,20 +371,24 @@ async function proposeIntentInTx(
     .for('share');
   if (!connection) throw new AppError('NOT_FOUND');
   if (connection.state !== 'active') throw new AppError('CONNECTION_NOT_ACTIVE');
-  // The rule the agent gateway applies, so an intent made any other way meets it too. A service context
-  // is no person, so a member's own connection is never its to use. The source ACL of a named resource is
-  // checked where the run's initiator is known, in the gateway's own transaction, so it is granted here.
-  const use = decideConnectionUse({
-    rule: manifest.connection,
-    toolClass: manifest.class,
-    initiatorMembershipId: context.actorType === 'service' ? '' : context.membershipId,
-    dataClass: work.classification as AiClassification,
-    connection,
-    resource: { synced: true, access: ['owner'] },
-  });
-  if (!use.ok) throw new AppError(USE_REFUSALS[use.code] ?? 'FORBIDDEN');
-
-  const payload = freezePayload(input.toolName, connection, input.payload);
+  let businessRecordId: string | null = null;
+  let payload: unknown;
+  if (businessType) {
+    const admitted = await admitBusinessChangeInTx(tx, context, work, connection, input);
+    payload = admitted.payload;
+    businessRecordId = admitted.recordId;
+  } else {
+    const use = decideConnectionUse({
+      rule: manifest!.connection!,
+      toolClass: manifest!.class,
+      initiatorMembershipId: context.actorType === 'service' ? '' : context.membershipId,
+      dataClass: work.classification as AiClassification,
+      connection,
+      resource: { synced: true, access: ['owner'] },
+    });
+    if (!use.ok) throw new AppError(USE_REFUSALS[use.code] ?? 'FORBIDDEN');
+    payload = freezePayload(input.toolName, connection, input.payload);
+  }
   const proposal = {
     toolName: input.toolName,
     toolVersion: input.toolVersion,
@@ -418,6 +431,10 @@ async function proposeIntentInTx(
       createdByMembershipId: createdBy,
     })
     .returning();
+  if (businessRecordId)
+    await tx
+      .insert(businessRecordActions)
+      .values({ organizationId: context.organizationId, businessRecordId, externalActionId: id });
   await emitActionEvent(tx, context, row as ActionRow, EXTERNAL_ACTION_PROPOSED);
   await auditAction(tx, context, 'external_action.proposed', externalActionTargetRef(id));
   if (!needsApproval) {
@@ -822,7 +839,9 @@ export function beginAttempt(
       }
       return { kind: 'stop', status: 'cancelled' };
     }
-    const changed = await recheckSuiteChange(tx, action, connection ?? null);
+    const changed =
+      (await recheckBusinessChangeInTx(tx, action, connection ?? null)) ??
+      (await recheckSuiteChange(tx, action, connection ?? null));
     if (changed) {
       const moved = await cancelAction(tx, context, action, changed);
       await tellPeople(tx, context, moved, NOTIFY_EXTERNAL_ACTION_FAILED);

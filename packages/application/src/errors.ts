@@ -122,6 +122,7 @@ export type ErrorCode =
   | 'OAUTH_CAPABILITY_UNAVAILABLE'
   | 'MEMBER_CAPABILITY_NOT_ALLOWED'
   | 'DIRECTORY_TEAM_READ_ONLY'
+  | 'RECORD_VERSION_REQUIRED'
   | 'RECORD_VERSION_STALE'
   | 'CONNECTION_SCOPE_MISSING'
   | 'MEETINGS_NOT_ENABLED'
@@ -309,6 +310,8 @@ const MESSAGES: Record<ErrorCode, string> = {
     'Your organization does not let members connect that kind of access, so nothing was connected. Ask an administrator to allow it.',
   DIRECTORY_TEAM_READ_ONLY:
     'This team comes from your directory, so it changes only there. Change the group at the provider.',
+  RECORD_VERSION_REQUIRED:
+    'The source did not provide a record version, so this update cannot be safely proposed. Make the change in the source system.',
   RECORD_VERSION_STALE: 'This record changed at its source. Reload to see the latest version.',
   CONNECTION_SCOPE_MISSING: 'This connection was not given permission to change records.',
   MEETINGS_NOT_ENABLED: 'Meetings are not turned on for this organization.',
@@ -496,6 +499,7 @@ export const HTTP_STATUS: Record<ErrorCode, number> = {
   OAUTH_CAPABILITY_UNAVAILABLE: 400,
   MEMBER_CAPABILITY_NOT_ALLOWED: 403,
   DIRECTORY_TEAM_READ_ONLY: 409,
+  RECORD_VERSION_REQUIRED: 409,
   RECORD_VERSION_STALE: 409,
   CONNECTION_SCOPE_MISSING: 409,
   MEETINGS_NOT_ENABLED: 409,

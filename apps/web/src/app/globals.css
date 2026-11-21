@@ -2744,3 +2744,7 @@ dl.approval-pairs dt {
   overflow-wrap: anywhere;
   white-space: pre-wrap;
 }
+
+.source-reference {
+  overflow-wrap: anywhere;
+}

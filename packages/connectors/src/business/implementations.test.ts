@@ -218,6 +218,20 @@ for (const row of rows)
       ).rejects.toMatchObject({ code: 'PAYLOAD_CHANGED' });
       expect(f.adapter.opened()).toBe(0);
     });
+    it('refuses a missing source version before lending a credential or contacting the adapter', async () => {
+      const f = fixture(row);
+      await expect(
+        f.connector.actions!.send(f.context, {
+          ...f.request,
+          payload: {
+            record: { stream: row.stream, external_id: 'generated-record', expected_version: null },
+            changes: row.changes,
+          },
+        }),
+      ).rejects.toMatchObject({ code: 'PAYLOAD_CHANGED' });
+      expect(f.adapter.opened()).toBe(0);
+      expect(f.adapter.effects()).toHaveLength(0);
+    });
     it('keeps the exact expected version, refuses a foreign stream and applies a repeated key once', async () => {
       const f = fixture(row);
       await expect(

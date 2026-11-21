@@ -32,6 +32,7 @@ export function parseBusinessActionPayload(
     const parsed = recordUpdatePayloadSchema.safeParse(raw);
     if (
       !parsed.success ||
+      parsed.data.record.expected_version === null ||
       connectorTypeOfStream(parsed.data.record.stream) !== type ||
       !checkRecordChange(parsed.data.record.stream, parsed.data.changes).ok
     )

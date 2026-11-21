@@ -1,5 +1,14 @@
+import { businessActionWords, BusinessActionPayload } from '@/components/business-action-payload';
+import { businessStatusExplanation } from '@/lib/business-receipt-words';
+import { idempotencyKeyFor } from '@ensemus/domain/external-action';
 import { randomUUID } from 'node:crypto';
-import { getExternalActionDetail, getWorkDetail, listDirectory } from '@ensemus/application';
+import {
+  getExternalActionDetail,
+  getWorkDetail,
+  listDirectory,
+  getBusinessActionRecordId,
+  listBusinessRecordReviewers,
+} from '@ensemus/application';
 import { emailSendPayloadSchema } from '@ensemus/contracts/external-actions';
 import { canReadWork, type Classification } from '@ensemus/domain/policy';
 import Link from 'next/link';
@@ -39,6 +48,7 @@ export default async function ExternalActionPage({
     statusReason: action.statusReason,
     resolvedByName: action.resolvedByName,
   };
+  const business = businessActionWords(action.toolName);
   const hint = messageIdHint(action);
   const connectorsEnabled = getRuntime().config.connectorsEnabled;
   const mayAsk = connectorsEnabled && (action.canRetry || action.canRevise);
@@ -50,6 +60,15 @@ export default async function ExternalActionPage({
         listDirectory(database, context),
       ])
     : [null, []];
+  const sourceRecord =
+    business && mayAsk ? await getBusinessActionRecordId(database, context, action.id) : null;
+  const sourceReviewers = sourceRecord
+    ? new Set(
+        (await listBusinessRecordReviewers(database, context, sourceRecord)).map(
+          (person) => person.membershipId,
+        ),
+      )
+    : null;
   const onWork = new Set(work?.people.map((person) => person.membershipId));
   const approvers = work
     ? members
@@ -57,6 +76,7 @@ export default async function ExternalActionPage({
           (member) =>
             member.status === 'active' &&
             member.membershipId !== context.membershipId &&
+            (sourceReviewers === null || sourceReviewers.has(member.membershipId)) &&
             canReadWork(
               {
                 classification: work.work.classification as Classification,
@@ -73,7 +93,7 @@ export default async function ExternalActionPage({
   return (
     <DraftScope account={actor.userId}>
       <BackLink href={`${base}/external-actions`}>Back to external actions</BackLink>
-      <PageHead title={action.subject ?? 'External action'} />
+      <PageHead title={business ?? action.subject ?? 'External action'} />
       <ErrorNotice code={error} />
       <div className="stack">
         <section className="card" aria-labelledby="what-happened-heading">
@@ -102,10 +122,16 @@ export default async function ExternalActionPage({
           </dl>
           {action.status === 'unknown' ? (
             <div className="notice unknown gap-above flush">
-              <p>{statusExplanation(facts)}</p>
+              <p>{business ? businessStatusExplanation(facts) : statusExplanation(facts)}</p>
               <p className="gap-above">
-                {hint.whole ? 'Message-ID: ' : 'The Message-ID starts with: '}
-                <code>{hint.value}</code>
+                {business
+                  ? 'Ensemus request key: '
+                  : hint.whole
+                    ? 'Message-ID: '
+                    : 'The Message-ID starts with: '}
+                <code className="source-reference">
+                  {business ? idempotencyKeyFor(action.id) : hint.value}
+                </code>
               </p>
               {!action.canResolve && (
                 <p className="gap-above">
@@ -114,11 +140,14 @@ export default async function ExternalActionPage({
               )}
             </div>
           ) : (
-            <p className="gap-above">{statusExplanation(facts)}</p>
+            <p className="gap-above">
+              {business ? businessStatusExplanation(facts) : statusExplanation(facts)}
+            </p>
           )}
           {action.status === 'sent' && action.externalId && (
             <p className="muted">
-              Message-ID: <code>{action.externalId}</code>
+              {business ? 'Source reference' : 'Message-ID'}:{' '}
+              <code className="source-reference">{action.externalId}</code>
             </p>
           )}
           {action.resolutionReason && (
@@ -193,34 +222,42 @@ export default async function ExternalActionPage({
           </section>
         )}
 
-        <section className="card" aria-labelledby="exact-heading">
-          <h2 id="exact-heading">Exactly what this covers</h2>
-          <ExactEmail payload={action.payload} />
-          {action.canRevise && connectorsEnabled && mail.success && (
-            <details className="gap-above">
-              <summary>Change what would be sent</summary>
-              {approvers.length === 0 ? (
-                <p className="muted">Nobody else who can see this work is able to approve it.</p>
-              ) : (
-                <NewEmailForm
-                  organizationId={organizationId}
-                  target={{ kind: 'revise', externalActionId: action.id, version: action.version }}
-                  connections={[]}
-                  approvers={approvers}
-                  requestKey={randomUUID()}
-                  defaults={{
-                    to: mail.data.to.join(', '),
-                    cc: mail.data.cc?.join(', ') ?? '',
-                    bcc: mail.data.bcc?.join(', ') ?? '',
-                    replyTo: mail.data.reply_to ?? '',
-                    subject: mail.data.subject,
-                    textBody: mail.data.text_body,
-                  }}
-                />
-              )}
-            </details>
-          )}
-        </section>
+        {business ? (
+          <BusinessActionPayload tool={action.toolName} payload={action.payload} />
+        ) : (
+          <section className="card" aria-labelledby="exact-heading">
+            <h2 id="exact-heading">Exactly what this covers</h2>
+            <ExactEmail payload={action.payload} />
+            {action.canRevise && connectorsEnabled && mail.success && (
+              <details className="gap-above">
+                <summary>Change what would be sent</summary>
+                {approvers.length === 0 ? (
+                  <p className="muted">Nobody else who can see this work is able to approve it.</p>
+                ) : (
+                  <NewEmailForm
+                    organizationId={organizationId}
+                    target={{
+                      kind: 'revise',
+                      externalActionId: action.id,
+                      version: action.version,
+                    }}
+                    connections={[]}
+                    approvers={approvers}
+                    requestKey={randomUUID()}
+                    defaults={{
+                      to: mail.data.to.join(', '),
+                      cc: mail.data.cc?.join(', ') ?? '',
+                      bcc: mail.data.bcc?.join(', ') ?? '',
+                      replyTo: mail.data.reply_to ?? '',
+                      subject: mail.data.subject,
+                      textBody: mail.data.text_body,
+                    }}
+                  />
+                )}
+              </details>
+            )}
+          </section>
+        )}
 
         <section className="card" aria-labelledby="receipts-heading">
           <h2 id="receipts-heading">Receipts</h2>
@@ -231,7 +268,7 @@ export default async function ExternalActionPage({
                 ? 'Ensemus has tried to send this once.'
                 : `Ensemus has tried ${action.attemptCount} times, and every earlier try definitely did not go.`}
           </p>
-          <ReceiptList receipts={action.receipts} />
+          <ReceiptList receipts={action.receipts} business={business !== null} />
         </section>
 
         <details className="card">

@@ -751,10 +751,10 @@ export default async function WorkDetailPage({
       </section>
 
       <section className="card" aria-labelledby="external-heading">
-        <h2 id="external-heading">Emails from this work</h2>
+        <h2 id="external-heading">Changes outside Ensemus</h2>
         {externalActions.items.length === 0 ? (
           <p className="muted">
-            Nothing has been proposed from this work. An email from here goes out only after someone
+            Nothing has been proposed from this work. An external change goes out only after someone
             else approves it.
           </p>
         ) : (

@@ -1,3 +1,8 @@
+import {
+  businessActionWords,
+  businessPayload,
+  BusinessActionPayload,
+} from '@/components/business-action-payload';
 import { getApproval, listDirectory } from '@ensemus/application';
 import { getAgentActionForApproval } from '@ensemus/application/ai-tool-approvals';
 import { effectiveApprovalStatus } from '@ensemus/domain/approval';
@@ -48,6 +53,13 @@ function riskOf(toolName: string, classification: string, holdsWork: boolean) {
       : '';
     return `This leaves your organization, and it cannot be taken back once it goes. Your approval covers exactly what is shown here, so changing any of it needs a new approval.${sensitivity}`;
   }
+  if (businessActionWords(toolName))
+    return (
+      'Approval lets Ensemus attempt exactly the change shown below in the connected system. Changing the proposal needs a new approval.' +
+      (toolName === 'accounting.invoice_draft.create'
+        ? ' Invoice drafts post and pay nothing.'
+        : '')
+    );
   if (toolName !== 'work.review') {
     return 'Not assessed. Ensemus has no description of this action, so read its technical details before deciding.';
   }
@@ -89,7 +101,11 @@ export default async function ApprovalPage({
   const status = effectiveApprovalStatus(approval);
   const pending = status === 'pending';
   const requestedByMe = approval.requestedByMembershipId === context.membershipId;
-  const canDecide = isMine && pending && !requestedByMe;
+  const businessWords = businessActionWords(approval.toolName);
+  const businessValid =
+    !businessWords ||
+    businessPayload(approval.toolName, (approval.action as { payload?: unknown }).payload) !== null;
+  const canDecide = isMine && pending && !requestedByMe && businessValid;
   const requesterName = approval.requestedByMembershipId
     ? (members.find((m) => m.membershipId === approval.requestedByMembershipId)?.name ??
       'Someone no longer here')
@@ -106,13 +122,15 @@ export default async function ApprovalPage({
   // The title names the decision itself, in the words someone would use for it.
   const title = isReview
     ? `Review “${work.title}”`
-    : agentWords
-      ? `${agentWords} for “${work.title}”`
-      : isEmail
-        ? subject
-          ? `Send the email “${subject}”`
-          : `Send an email for “${work.title}”`
-        : `Approve an action on “${work.title}”`;
+    : businessWords
+      ? `${businessWords} for “${work.title}”`
+      : agentWords
+        ? `${agentWords} for “${work.title}”`
+        : isEmail
+          ? subject
+            ? `Send the email “${subject}”`
+            : `Send an email for “${work.title}”`
+          : `Approve an action on “${work.title}”`;
 
   // One sentence: who asked, whom, and by when (or how it ended).
   const asker = requestedByMe
@@ -155,25 +173,29 @@ export default async function ApprovalPage({
     </>
   );
 
-  const affects = isReview
-    ? ({
-        0: 'This work. No files are attached to it.',
-        1: 'This work, and one file.',
-      }[files.length + missingFileCount] ??
-      `This work, and ${files.length + missingFileCount} files.`)
-    : isEmail
-      ? 'Everyone listed in the email below.'
-      : suite || agent?.email
-        ? 'Exactly what is shown below, and nothing else.'
-        : 'Described in the technical details.';
+  const affects = businessWords
+    ? 'Exactly the source record or draft shown below.'
+    : isReview
+      ? ({
+          0: 'This work. No files are attached to it.',
+          1: 'This work, and one file.',
+        }[files.length + missingFileCount] ??
+        `This work, and ${files.length + missingFileCount} files.`)
+      : isEmail
+        ? 'Everyone listed in the email below.'
+        : suite || agent?.email
+          ? 'Exactly what is shown below, and nothing else.'
+          : 'Described in the technical details.';
 
-  const ifApproved = isEmail
-    ? 'If you approve, Ensemus sends exactly this, once, through your mail server.'
-    : agent
-      ? 'If you approve, the assistant makes exactly this change, once.'
-      : holdingWork
-        ? 'If you approve, the work carries on from where it paused.'
-        : 'If you approve, it is recorded as the review of this work.';
+  const ifApproved = businessWords
+    ? 'If you approve, Ensemus queues the change. Check its receipt on the Work page to learn whether the connected system accepted it.'
+    : isEmail
+      ? 'If you approve, Ensemus sends exactly this, once, through your mail server.'
+      : agent
+        ? 'If you approve, the assistant makes exactly this change, once.'
+        : holdingWork
+          ? 'If you approve, the work carries on from where it paused.'
+          : 'If you approve, it is recorded as the review of this work.';
 
   const stateNotice =
     isMine && pending && requestedByMe ? (
@@ -236,7 +258,8 @@ export default async function ApprovalPage({
               <div className="wide">
                 <dt>Asked for</dt>
                 <dd>
-                  {agentWords ??
+                  {businessWords ??
+                    agentWords ??
                     TOOL_WORDS[approval.toolName] ??
                     'An action Ensemus has no description for'}
                 </dd>
@@ -306,6 +329,12 @@ export default async function ApprovalPage({
           )}
 
           {agent && <AgentPayload view={agent} suite={suite} />}
+          {businessWords && (
+            <BusinessActionPayload
+              tool={approval.toolName}
+              payload={(approval.action as { payload?: unknown }).payload}
+            />
+          )}
           {isEmail && (
             <section className="card" aria-labelledby="email-heading">
               <h2 id="email-heading">The exact email</h2>
@@ -350,7 +379,7 @@ export default async function ApprovalPage({
                     <form className="fields" action={decideApprovalAction}>
                       {bound('deny')}
                       <p>
-                        {isEmail
+                        {isEmail || businessWords
                           ? 'If you deny it, it is not sent, and it will not be without a new approval.'
                           : agent
                             ? 'If you deny it, the assistant does not make this change.'
