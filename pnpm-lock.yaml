@@ -330,6 +330,9 @@ importers:
 
   packages/packs:
     dependencies:
+      '@ensemus/department-packs':
+        specifier: workspace:*
+        version: link:../department-packs
       '@ensemus/domain':
         specifier: workspace:*
         version: link:../domain

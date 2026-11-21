@@ -201,3 +201,36 @@ are the instrumented processes. Previously setting them in the operator shell ne
 containers. Defaults stay empty and all exporters remain off. Agent, connector, Knowledge, mail and
 sandbox processes receive none of these settings. The deployment-boundary, native-role wiring and
 actual OTLP exporter checks passed 46 focused tests after this correction.
+
+## Full integration baseline and Marketing continuation
+
+The frozen `ba8d03c` full integration run finished: 2,754 passed, 164 failed and 22 skipped across
+167 files (28 failed, 138 passed, one skipped), in 5,131.67 seconds. Many failures share the newly
+recovered tables' missing portability and erasure treatment. Other groups include restore/refusal
+ordering, native provider/checkout expectations, two agent-evaluation fixtures and Knowledge retrieval
+timeouts. These results are a baseline for repairs, not a successful release gate. The detailed local
+log remains `.local/rc-integration-full.log` in the canonical checkout.
+
+The verified publisher-trust and telemetry commits have been fast-forwarded into the canonical release
+candidate. Marketing continues from that same source in the managed working checkout.
+
+EXP-01 now uses M7's actual `PackManifest` types instead of a duplicate contract. Its conformance helper
+also runs the real installer validator and upgrade planner. Marketing 1.0.0/1.1.0 are offered through the
+existing catalog and review UI: Campaign and Claim source types, Campaign planner and Claims checker
+drafts, and a proposed campaign-review workflow with source evidence and a human approval before email.
+The next version adds an optional review-note field; it changes no permission or capability.
+
+Three real-role integration cases passed with the actual metadata catalog, including denied members
+and cross-tenant IDs, pending-review refusal, materializing the actual drafts/types, optional-field
+upgrade, retaining entered review data through rollback, and leaving the process out when email is
+declined. All 200 focused pack tests and 32 source-boundary/audit tests passed; department, pack and test
+TypeScript checks and changed-source lint passed. Dependency installation used the offline cache and
+added only a first-party workspace dependency. The license inventory check passed at 247 components;
+its counsel-review status remains a draft.
+
+The production-build browser journey reviewed each capability, declined email, enrolled and confirmed a
+generated authenticator through the real UI, and installed two record types and two inactive assistant
+drafts. The send process remained in Left out. This used generated local data and made no external call.
+The stale workflows/packs guide now describes these actual review and rollback controls, remains
+written_untested, and adds the 28th Help page. Its 184 focused guide/help checks passed. HR, finance and
+learning packs, and the remaining full-platform operations, are still incomplete.

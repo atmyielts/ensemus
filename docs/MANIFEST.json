@@ -77,8 +77,8 @@
     },
     {
       "path": "00-foundation/adr/ADR-033-expansion-packs-connectors-meetings.md",
-      "size_bytes": 26725,
-      "sha256": "564c73028c452e900adcf00268065fcb5417e96bb2cf7bddea1bc74889512762"
+      "size_bytes": 27327,
+      "sha256": "c59434dda6b1583c028101759eafdce83586539b953799fc5063370a4f1001d1"
     },
     {
       "path": "00-foundation/adr/ADR-034-skills-sandbox-marketplace.md",
@@ -977,8 +977,8 @@
     },
     {
       "path": "06-delivery/release-candidate-2026-11-21.md",
-      "size_bytes": 15235,
-      "sha256": "2a30b1282d0b78a8d82041d237516a92739c50860e5bee816c286d4e532d6945"
+      "size_bytes": 17814,
+      "sha256": "475495868fcb50cf1c290c74a049404071674b1385b88c7b370e645aa6e2d547"
     },
     {
       "path": "06-delivery/release-candidate-source-ledger.json",
@@ -1472,8 +1472,8 @@
     },
     {
       "path": "guides/user/workflows-and-packs.md",
-      "size_bytes": 297,
-      "sha256": "5c95ab32225438f89980d4642276864e3ea4431da7d3fdd50998990d1b393f5d"
+      "size_bytes": 3943,
+      "sha256": "6a9e30fd885286208d286152550b5a4f50c55734fdad0ce5bfeff23aa4365d65"
     },
     {
       "path": "guides/user/your-own-models.md",

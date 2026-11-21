@@ -1,119 +1,16 @@
-// The remaining department packs (EXP-01, ADR-033 D1). AGENT-14 in M7 owns the pack format and installing one,
-// in `@ensemus/domain/pack`, which is not on this branch. These types repeat its `PackManifest` field for field,
-// taken from m7-foundation, so a pack written here is already in that format, and the final merge deletes
-// the copies below and imports M7's. Then the rules at the bottom are what is left of this file: what every
-// pack here has to pass, on top of M7's own `validatePackManifest` and `planPackUpgrade`.
+// Additional department review rules (EXP-01, ADR-033 D1), on the same format the actual installer reads.
 
-export type PackCapabilityKind =
-  'object_type' | 'agent_tool' | 'data_class' | 'knowledge_source' | 'external_effect';
-
-export type PackCapability = {
-  key: string;
-  kind: PackCapabilityKind;
-  subject: string;
-  reasonCode: string;
-  risk: 'low' | 'elevated';
-  requiredBy: readonly string[];
-};
-
-export type PackClassification = 'public' | 'internal' | 'confidential' | 'restricted';
-
-export type PackObjectField = {
-  key: string;
-  label: string;
-  kind: 'text' | 'long_text' | 'number' | 'boolean' | 'date' | 'enum' | 'email' | 'url';
-  required: boolean;
-  indexed: boolean;
-  options?: readonly string[];
-  maxLength?: number;
-};
-
-export type PackObjectRelation = {
-  key: string;
-  label: string;
-  toTypeSlug: string;
-  cardinality: 'one' | 'many';
-};
-
-export type PackAgentAnswers = {
-  role: string;
-  intendedOutcome: string;
-  boundaries: readonly string[];
-  toolIds: readonly string[];
-  triggerKind: 'manual';
-  /** No default: nothing means no run. Whoever activates it sets a limit, so a manifest never does. */
-  maxCostMicros: number | null;
-  maxTurns: number;
-  maxToolCalls: number;
-  maxTotalTokens: number;
-  timeoutSeconds: number;
-  qualityTier: 'economy' | 'balanced' | 'high';
-  autonomy: 'suggest_only' | 'draft_for_review' | 'act_with_approval';
-  memoryWrite: 'none' | 'propose_only';
-  outputFormat: 'markdown_brief' | 'structured_report';
-  dataClasses: readonly ('public' | 'internal' | 'confidential')[];
-};
-
-export type PackGraphNode = {
-  id: string;
-  kind:
-    | 'start'
-    | 'work_item'
-    | 'agent_task'
-    | 'human_approval'
-    | 'external_action'
-    | 'evidence_check'
-    | 'end';
-  label: string;
-  agentDefinitionId?: string;
-  toolId?: string;
-  approverRole?: 'process_owner' | 'starter_manager' | 'named_reviewer';
-  evidence?: 'artifact_attached' | 'external_receipt' | 'reviewer_approved';
-  x: number;
-  y: number;
-};
-
-export type PackGraph = {
-  schemaVersion: 1;
-  nodes: readonly PackGraphNode[];
-  edges: readonly { from: string; to: string }[];
-};
-
-export type PackScenario = {
-  /** By this file's convention, `{item key}.{case}`, and `{item key}.denied_{case}` proves a guardrail. */
-  key: string;
-  turns: readonly (
-    | { kind: 'tool'; toolId: string; dataClass: PackClassification }
-    | { kind: 'finish'; citesEvidence: boolean }
-  )[];
-  processPath?: readonly string[];
-};
-
-export type DepartmentPackManifest = {
-  schemaVersion: 1;
-  key: string;
-  version: string;
-  name: string;
-  description: string;
-  publisher: 'ensemus';
-  capabilities: readonly PackCapability[];
-  objectTypes: readonly {
-    slug: string;
-    displayName: string;
-    classification: PackClassification;
-    fields: readonly PackObjectField[];
-    relations: readonly PackObjectRelation[];
-  }[];
-  agentDrafts: readonly { key: string; name: string; answers: PackAgentAnswers }[];
-  processes: readonly {
-    key: string;
-    name: string;
-    classification: PackClassification;
-    graph: PackGraph;
-  }[];
-  scenarios: readonly PackScenario[];
-  strings: Readonly<Record<string, string>>;
-};
+// Use the installer's actual format, so later changes cannot silently fork the pack contract.
+import type { PackManifest, PackCapabilityKind } from './pack';
+export type { PackCapability, PackCapabilityKind } from './pack';
+export type DepartmentPackManifest = PackManifest;
+export type PackClassification = PackManifest['objectTypes'][number]['classification'];
+export type PackObjectField = PackManifest['objectTypes'][number]['fields'][number];
+export type PackObjectRelation = PackManifest['objectTypes'][number]['relations'][number];
+export type PackAgentAnswers = PackManifest['agentDrafts'][number]['answers'];
+export type PackGraph = PackManifest['processes'][number]['graph'];
+export type PackGraphNode = PackGraph['nodes'][number];
+export type PackScenario = PackManifest['scenarios'][number];
 
 export type PackFinding = {
   /** A fixed code, so a test can name exactly which rule a pack broke. */
@@ -167,7 +64,9 @@ const toolsOf = (pack: DepartmentPackManifest): ReadonlySet<string> =>
 
 function checkTools(pack: DepartmentPackManifest, add: Add) {
   const subjects = pack.capabilities
-    .filter((capability) => capability.kind === 'agent_tool' || capability.kind === 'external_effect')
+    .filter(
+      (capability) => capability.kind === 'agent_tool' || capability.kind === 'external_effect',
+    )
     .map((capability) => capability.subject);
   for (const tool of new Set([...toolsOf(pack), ...subjects])) {
     if (MONEY_MOVEMENT.test(tool)) add('TOOL_MOVES_MONEY', tool);
@@ -181,14 +80,16 @@ const hasCapability = (
   kind: PackCapabilityKind,
   subject: string,
 ): boolean =>
-  pack.capabilities.some((capability) => capability.kind === kind && capability.subject === subject);
+  pack.capabilities.some(
+    (capability) => capability.kind === kind && capability.subject === subject,
+  );
 
 /** Everything an administrator is asked about, and everything it could cover, has to line up. */
 function checkCapabilities(pack: DepartmentPackManifest, add: Add) {
   const items = new Set([
-    ...pack.objectTypes.map((object) => object.slug),
-    ...pack.agentDrafts.map((agent) => agent.key),
-    ...pack.processes.map((process) => process.key),
+    ...pack.objectTypes.flatMap((object) => [object.slug, `object_type:${object.slug}`]),
+    ...pack.agentDrafts.flatMap((agent) => [agent.key, `agent_draft:${agent.key}`]),
+    ...pack.processes.flatMap((process) => [process.key, `process_draft:${process.key}`]),
   ]);
   const keys = new Set<string>();
   for (const capability of pack.capabilities) {
@@ -231,7 +132,8 @@ function checkCapabilities(pack: DepartmentPackManifest, add: Add) {
   for (const process of pack.processes) {
     for (const node of process.graph.nodes) {
       if (node.kind === 'external_action' && node.toolId) {
-        if (!hasCapability(pack, 'external_effect', node.toolId)) add('EFFECT_NOT_ASKED', node.toolId);
+        if (!hasCapability(pack, 'external_effect', node.toolId))
+          add('EFFECT_NOT_ASKED', node.toolId);
       }
     }
   }
@@ -445,7 +347,8 @@ export function checkPackUpgrade(
     for (const field of object.fields) {
       const kept = next.fields.find((candidate) => candidate.key === field.key);
       if (!kept) add('UPGRADE_REMOVES_FIELD', `${object.slug}.${field.key}`);
-      else if (kept.kind !== field.kind) add('UPGRADE_CHANGES_FIELD', `${object.slug}.${field.key}`);
+      else if (kept.kind !== field.kind)
+        add('UPGRADE_CHANGES_FIELD', `${object.slug}.${field.key}`);
     }
   }
   for (const agent of from.agentDrafts) {

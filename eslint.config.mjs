@@ -501,7 +501,22 @@ export default tseslint.config(
     ['packages/database/**', 'packages/auth/**', 'tests/**', 'apps/web/**'],
   ),
   restrict(['packages/auth/**/*.ts'], [rawDatabase, temporal, broker, ssoOperator, vendorIssuer]),
-  restrict(['packages/packs/**/*.ts'], [packReach], ['**/*.test.ts']),
+  restrict(
+    ['packages/packs/**/*.ts'],
+    [packReach],
+    ['**/*.test.ts', 'packages/packs/src/index.ts'],
+  ),
+  // The catalog may aggregate the other data-only pack package. Its suppliers keep packReach.
+  restrict(
+    ['packages/packs/src/index.ts'],
+    [
+      {
+        ...packReach,
+        regex:
+          '^(?!@ensemus/domain/|@ensemus/department-packs$)(@ensemus/|pg|drizzle-orm|@temporalio/|better-auth|node:)',
+      },
+    ],
+  ),
   restrict(
     ['apps/web/**/*.{ts,tsx}'],
     [

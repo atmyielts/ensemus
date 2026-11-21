@@ -8,6 +8,7 @@ import {
   type DepartmentPackManifest,
 } from '@ensemus/domain/department-pack';
 import { describe, expect, it } from 'vitest';
+import { validatePackManifest, planPackUpgrade } from '@ensemus/domain/pack';
 
 export type PackConformanceOptions = {
   /** The tools this department must never have, on top of what every pack is refused. */
@@ -33,6 +34,7 @@ export function describePackConformance(
       'passes every review rule at %s',
       (_version, pack) => {
         expect(checkDepartmentPack(pack)).toEqual([]);
+        expect(validatePackManifest(pack)).toEqual([]);
       },
     );
 
@@ -57,6 +59,7 @@ export function describePackConformance(
         const from = versions[index - 1] as DepartmentPackManifest;
         const to = versions[index] as DepartmentPackManifest;
         expect(checkPackUpgrade(from, to)).toEqual([]);
+        expect(planPackUpgrade(from, to).refused).toBe(false);
         expect(newCapabilitiesIn(from, to)).toEqual(
           options.expectedNewCapabilities?.[to.version] ?? [],
         );

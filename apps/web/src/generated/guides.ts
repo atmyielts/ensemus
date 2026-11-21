@@ -16938,6 +16938,401 @@ export const GUIDE_PAGES: readonly GuidePage[] = [
     ]
   },
   {
+    "slug": "workflows-and-packs",
+    "title": "Bundled workflows and packs",
+    "section": "agents",
+    "modes": [
+      "cloud",
+      "byom",
+      "sovereign"
+    ],
+    "status": "written_untested",
+    "blocks": [
+      {
+        "b": "quote",
+        "inline": [
+          {
+            "t": "strong",
+            "v": "Not yet tested end to end."
+          },
+          {
+            "t": "text",
+            "v": " This page was written from the code, and nobody has followed it on a running system yet."
+          }
+        ]
+      },
+      {
+        "b": "p",
+        "inline": [
+          {
+            "t": "text",
+            "v": "A pack supplies record types, assistant drafts and workflow drafts. It comes with the release and downloads nothing. Installing a pack does not run its assistants or workflows and gives nobody new permissions."
+          }
+        ]
+      },
+      {
+        "b": "h",
+        "level": 2,
+        "inline": [
+          {
+            "t": "text",
+            "v": "Review a pack"
+          }
+        ]
+      },
+      {
+        "b": "p",
+        "inline": [
+          {
+            "t": "text",
+            "v": "An owner or administrator opens "
+          },
+          {
+            "t": "strong",
+            "v": "Automation Studio"
+          },
+          {
+            "t": "text",
+            "v": ", then "
+          },
+          {
+            "t": "strong",
+            "v": "Packs"
+          },
+          {
+            "t": "text",
+            "v": ". This release offers "
+          },
+          {
+            "t": "strong",
+            "v": "Sales operations"
+          },
+          {
+            "t": "text",
+            "v": " and "
+          },
+          {
+            "t": "strong",
+            "v": "Marketing operations"
+          },
+          {
+            "t": "text",
+            "v": ", each at versions "
+          },
+          {
+            "t": "strong",
+            "v": "1.0.0"
+          },
+          {
+            "t": "text",
+            "v": " and "
+          },
+          {
+            "t": "strong",
+            "v": "1.1.0"
+          },
+          {
+            "t": "text",
+            "v": ". HR, finance and learning packs are still being developed and are not offered."
+          }
+        ]
+      },
+      {
+        "b": "ol",
+        "items": [
+          [
+            {
+              "t": "text",
+              "v": "Choose "
+            },
+            {
+              "t": "strong",
+              "v": "Review what it asks for"
+            },
+            {
+              "t": "text",
+              "v": " on the version you want."
+            }
+          ],
+          [
+            {
+              "t": "text",
+              "v": "Read "
+            },
+            {
+              "t": "strong",
+              "v": "What this pack asks for"
+            },
+            {
+              "t": "text",
+              "v": ". Each request explains why it is needed, what it may read and what it may change."
+            }
+          ],
+          [
+            {
+              "t": "text",
+              "v": "Choose "
+            },
+            {
+              "t": "strong",
+              "v": "Accept"
+            },
+            {
+              "t": "text",
+              "v": " or "
+            },
+            {
+              "t": "strong",
+              "v": "Decline"
+            },
+            {
+              "t": "text",
+              "v": " for each request. There is no decision that accepts them all."
+            }
+          ],
+          [
+            {
+              "t": "text",
+              "v": "Check "
+            },
+            {
+              "t": "strong",
+              "v": "What it would make"
+            },
+            {
+              "t": "text",
+              "v": " and "
+            },
+            {
+              "t": "strong",
+              "v": "Left out"
+            },
+            {
+              "t": "text",
+              "v": ". Declining a request leaves its dependent items out. A missing tool also leaves the item out; accepting its request does not create a tool or a connection."
+            }
+          ],
+          [
+            {
+              "t": "text",
+              "v": "Once every request is decided, open "
+            },
+            {
+              "t": "strong",
+              "v": "Install this version"
+            },
+            {
+              "t": "text",
+              "v": ", read and tick the confirmation, and press "
+            },
+            {
+              "t": "strong",
+              "v": "Install"
+            },
+            {
+              "t": "text",
+              "v": ". If asked, complete the security check and return to the review."
+            }
+          ]
+        ]
+      },
+      {
+        "b": "p",
+        "inline": [
+          {
+            "t": "strong",
+            "v": "What it made"
+          },
+          {
+            "t": "text",
+            "v": " links to the record types and drafts. Each assistant and workflow still needs its own settings, rehearsal, review and publication before it can run. A cost limit, permissions, model and external connection are separate settings; the pack chooses none of them for you."
+          }
+        ]
+      },
+      {
+        "b": "h",
+        "level": 2,
+        "inline": [
+          {
+            "t": "text",
+            "v": "Marketing operations"
+          }
+        ]
+      },
+      {
+        "b": "p",
+        "inline": [
+          {
+            "t": "text",
+            "v": "This pack creates "
+          },
+          {
+            "t": "strong",
+            "v": "Campaign"
+          },
+          {
+            "t": "text",
+            "v": " and "
+          },
+          {
+            "t": "strong",
+            "v": "Claim source"
+          },
+          {
+            "t": "text",
+            "v": " record types, plus "
+          },
+          {
+            "t": "strong",
+            "v": "Campaign planner"
+          },
+          {
+            "t": "text",
+            "v": " and "
+          },
+          {
+            "t": "strong",
+            "v": "Claims checker"
+          },
+          {
+            "t": "text",
+            "v": " assistant drafts. The assistants read only separately permitted work and artifacts, prepare drafts and contact nobody. Missing sources remain unchecked for a person to review."
+          }
+        ]
+      },
+      {
+        "b": "p",
+        "inline": [
+          {
+            "t": "text",
+            "v": "The proposed "
+          },
+          {
+            "t": "strong",
+            "v": "Review a campaign message"
+          },
+          {
+            "t": "text",
+            "v": " workflow puts the attached claim/source review and a person's approval before a proposed email. The email still needs its own configured connection and approval. Declining "
+          },
+          {
+            "t": "strong",
+            "v": "email.send"
+          },
+          {
+            "t": "text",
+            "v": " leaves that workflow out while the record types and assistant drafts can still be made. The pack offers no bulk send."
+          }
+        ]
+      },
+      {
+        "b": "p",
+        "inline": [
+          {
+            "t": "text",
+            "v": "Version "
+          },
+          {
+            "t": "strong",
+            "v": "1.1.0"
+          },
+          {
+            "t": "text",
+            "v": " adds an optional "
+          },
+          {
+            "t": "strong",
+            "v": "Review note"
+          },
+          {
+            "t": "text",
+            "v": " field to Campaign. It introduces no new capability."
+          }
+        ]
+      },
+      {
+        "b": "h",
+        "level": 2,
+        "inline": [
+          {
+            "t": "text",
+            "v": "Upgrade and roll back"
+          }
+        ]
+      },
+      {
+        "b": "p",
+        "inline": [
+          {
+            "t": "text",
+            "v": "Open "
+          },
+          {
+            "t": "strong",
+            "v": "Packs"
+          },
+          {
+            "t": "text",
+            "v": " and review the newer version the same way. New capabilities always require a new decision. Installing the newer version supersedes the old installation."
+          }
+        ]
+      },
+      {
+        "b": "p",
+        "inline": [
+          {
+            "t": "text",
+            "v": "Where an installed version offers "
+          },
+          {
+            "t": "strong",
+            "v": "Roll back this version"
+          },
+          {
+            "t": "text",
+            "v": ", read and confirm the action. Rollback restores the earlier pack's drafts and retains entered records and additive fields. It does not undo an external action or erase record data. Anything already published needs its own review and cannot silently become an older draft."
+          }
+        ]
+      },
+      {
+        "b": "h",
+        "level": 2,
+        "inline": [
+          {
+            "t": "text",
+            "v": "When an item is unavailable"
+          }
+        ]
+      },
+      {
+        "b": "p",
+        "inline": [
+          {
+            "t": "text",
+            "v": "If the tool list cannot be read, the page says so and leaves tool-dependent items out. If a capability was declined or a tool is missing, "
+          },
+          {
+            "t": "strong",
+            "v": "Left out"
+          },
+          {
+            "t": "text",
+            "v": " states the reason. Review these results before treating an installation as ready for use."
+          }
+        ]
+      },
+      {
+        "b": "p",
+        "inline": [
+          {
+            "t": "text",
+            "v": "A workflow starter is also a draft. In particular, a meeting or accounting step shown in a starter does not mean its provider connection or the underlying feature has been completed."
+          }
+        ]
+      }
+    ]
+  },
+  {
     "slug": "sign-in",
     "title": "Signing in",
     "section": "admin",
