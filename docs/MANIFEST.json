@@ -77,8 +77,8 @@
     },
     {
       "path": "00-foundation/adr/ADR-033-expansion-packs-connectors-meetings.md",
-      "size_bytes": 28202,
-      "sha256": "3519f32c754ea2220852e7c02451a6ee2ad5e51a0c48bd75b687ed7cf36bf799"
+      "size_bytes": 28314,
+      "sha256": "0bdb46077a01274eca9b692af8c29cb8c98c221517346fcd590795b4907d53f4"
     },
     {
       "path": "00-foundation/adr/ADR-034-skills-sandbox-marketplace.md",
@@ -931,6 +931,11 @@
       "sha256": "b89ba0addd1bdf30e7a9485702b7a70e95984e1b80f2802f3e298bb459e2b773"
     },
     {
+      "path": "06-delivery/evidence/rc-business-revision-browser-20261121.json",
+      "size_bytes": 5589,
+      "sha256": "db9590a3f584d9baad5ec50cad1e0b180e642f5095020fe805f0058eba64f67d"
+    },
+    {
       "path": "06-delivery/evidence/rc-hr-native-privacy-20261121.json",
       "size_bytes": 7153,
       "sha256": "78d72e63b1332bcd8b194892296b6515078184b4b1283b186cd80f2d3e8f035b"
@@ -1017,8 +1022,8 @@
     },
     {
       "path": "06-delivery/release-candidate-2026-11-21.md",
-      "size_bytes": 54210,
-      "sha256": "a5dfd0a40aed816929f1fafeed77d3348cc95f41d51678bf84c35fbfd813cc3c"
+      "size_bytes": 57212,
+      "sha256": "fdfa0c825643b3bccabae57d4025447610d9765cdbced41f7293b64d635d0826"
     },
     {
       "path": "06-delivery/release-candidate-source-ledger.json",
@@ -1477,8 +1482,8 @@
     },
     {
       "path": "guides/user/source-records.md",
-      "size_bytes": 4909,
-      "sha256": "caef69c15d37a7e8f1bd58d2a6fc7d2e8acbc1325a0b08fe44c5fcdfcb04b8c4"
+      "size_bytes": 5386,
+      "sha256": "badd80e564412a95d658b226cce7f7168f2f266913d469d2a407a8c6cd93654b"
     },
     {
       "path": "guides/user/sovereign-license-status.md",

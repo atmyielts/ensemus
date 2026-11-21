@@ -681,3 +681,40 @@ expected failures and 43 skips across 379 files, in 53.48 seconds. A catalog-onl
 content tables without erasure reach across business records, federation, marketplace, meetings,
 sandbox, skills and residency requirements; this needs deliberate lifecycle integration, not a blanket
 grant. No real content or tenant rows were read by that inventory query.
+
+
+## Browser value revisions (EXP-02, QA-007)
+
+Unattempted pending/approved business receipts now offer Change the proposal. The form edits existing
+field values, an internal note, and every existing invoice line and optional terms. The authorized
+stored proposal supplies the target, tool and source version; posted values cannot replace them.
+Changing the target, selected field set or invoice line count still requires a new proposal. The
+server resolves the actual tenant/person again, validates bounded known fields, then uses the shared
+idempotent native revision service. A successful revision atomically closes the earlier approval and
+creates a new immutable action/hash/review. Invalid values preserve the earlier action and entered
+form values. These controls grant no new source access and make no provider contact in any mode.
+
+Five focused parser cases cover target/version retention, other-field preservation, null versus empty
+text, internal-only notes, all 200 invoice lines with exact decimal text and malformed/read-only
+refusals. The first complete unit run caught direct ID form reads outside the required normalization
+helper; those reads were fixed without weakening the guard. All eight parser/ID cases passed, then
+the final complete run passed 9,674 cases with the same two release gates, four expected failures and
+43 skips across 380 files in 66.74 seconds. Both production builds and web/test TypeScript passed;
+focused final lint and 30-page guide generation passed. The five production API cases passed on the
+first revision build before the form-ID helper correction; those API handlers did not change.
+
+Generated production-browser journeys covered CRM revision, invoice decimal refusal with every value
+and reviewer retained, corrected replacement review at 320 pixels with JavaScript disabled, and the
+original reviewer seeing the old approval closed with no Approve button. A final-build browser request
+submitted uppercase organization/action IDs and preserved exact six-decimal quantity/price, due date,
+reference and memo in the new review. Inspected mobile screenshots showed no horizontal overflow.
+The guide remains written_untested pending its independent/CI acceptance. Exact final source and
+local evidence hashes are in evidence/rc-business-revision-browser-20261121.json. No migration, secret,
+configuration, API/event contract or actual provider result was introduced.
+
+GitHub inspection found PR #3's 14 checks green at 50bc1567f79d8a615d74e22ee87370a631ef77e8,
+already an ancestor of this candidate. PR #2's historical failure was the member-owned consent
+connection case in suite-tools on 2026-11-11. These are historical branch results, not current candidate
+CI acceptance. The repository is currently public; no new candidate source was pushed or published.
+The candidate still needs current joined integration/CI, complete portability and erasure coverage,
+customer connector setup and the wider implementation and external acceptance gates above.

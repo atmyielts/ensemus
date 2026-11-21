@@ -11585,7 +11585,31 @@ export const GUIDE_PAGES: readonly GuidePage[] = [
         "inline": [
           {
             "t": "text",
-            "v": "Changing a pending proposal needs a new approval; the old one cannot be spent. A proven failed action can be asked for again with its own new approval. The business APIs support revisions and retries. The record forms create proposals; the receipt view offers retries, while editing a business proposal in the browser is still unfinished."
+            "v": "Changing a pending proposal needs a new approval; the old one cannot be spent. A proven failed action can be asked for again with its own new approval. Open the receipt of an unattempted pending or approved proposal. "
+          },
+          {
+            "t": "strong",
+            "v": "Change the proposal"
+          },
+          {
+            "t": "text",
+            "v": " lets you edit its existing values, choose "
+          },
+          {
+            "t": "strong",
+            "v": "Who approves the replacement?"
+          },
+          {
+            "t": "text",
+            "v": ", and press "
+          },
+          {
+            "t": "strong",
+            "v": "Request a replacement review"
+          },
+          {
+            "t": "text",
+            "v": ". The source record and source version stay fixed. The replacement cancels the old approval and asks for a new independent review; invalid values leave the earlier proposal intact. You can edit every existing invoice line, including its decimal values and terms. To change the target, selected fields or number of invoice lines, create a new proposal. The receipt also offers a new approval for a proven failed action. These forms work without JavaScript."
           }
         ]
       },

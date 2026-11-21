@@ -1,3 +1,5 @@
+import { BusinessRevisionForm } from '@/components/business-revision-form';
+import { businessRevisionFields } from '@/lib/business-revision-input';
 import { businessActionWords, BusinessActionPayload } from '@/components/business-action-payload';
 import { businessStatusExplanation } from '@/lib/business-receipt-words';
 import { idempotencyKeyFor } from '@ensemus/domain/external-action';
@@ -35,7 +37,7 @@ export default async function ExternalActionPage({
   searchParams,
 }: {
   params: Promise<{ organizationId: string; externalActionId: string }>;
-  searchParams: Promise<{ error?: string }>;
+  searchParams: Promise<{ error?: string; edit?: string }>;
 }) {
   const { organizationId, externalActionId } = await params;
   const { error } = await searchParams;
@@ -223,7 +225,26 @@ export default async function ExternalActionPage({
         )}
 
         {business ? (
-          <BusinessActionPayload tool={action.toolName} payload={action.payload} />
+          <>
+            <BusinessActionPayload tool={action.toolName} payload={action.payload} />
+            {action.canRevise &&
+              connectorsEnabled &&
+              businessRevisionFields(action.toolName, action.payload) &&
+              (approvers.length === 0 ? (
+                <p className="muted">
+                  No independent reviewer with the required access is available.
+                </p>
+              ) : (
+                <BusinessRevisionForm
+                  organizationId={organizationId}
+                  externalActionId={action.id}
+                  version={action.version}
+                  requestKey={randomUUID()}
+                  fields={businessRevisionFields(action.toolName, action.payload)!}
+                  approvers={approvers}
+                />
+              ))}
+          </>
         ) : (
           <section className="card" aria-labelledby="exact-heading">
             <h2 id="exact-heading">Exactly what this covers</h2>
