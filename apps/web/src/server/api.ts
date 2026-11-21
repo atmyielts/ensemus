@@ -291,7 +291,23 @@ export async function readJson<S extends z.ZodType>(
 ): Promise<z.output<S>> {
   const mediaType = request.headers.get('content-type')?.split(';')[0]?.trim().toLowerCase();
   if (mediaType !== 'application/json') throw wrongMediaType();
+  return parseJsonBytes(await readLimited(request), schema);
+}
+
+/** An empty stream is also an absent optional body in Next's production request adapter. */
+export async function readOptionalJson<S extends z.ZodType>(
+  request: Request,
+  schema: S,
+): Promise<z.output<S> | undefined> {
+  if (request.body === null) return undefined;
   const bytes = await readLimited(request);
+  if (bytes.byteLength === 0) return undefined;
+  const mediaType = request.headers.get('content-type')?.split(';')[0]?.trim().toLowerCase();
+  if (mediaType !== 'application/json') throw wrongMediaType();
+  return parseJsonBytes(bytes, schema);
+}
+
+function parseJsonBytes<S extends z.ZodType>(bytes: Uint8Array, schema: S): z.output<S> {
   let raw: unknown;
   try {
     raw = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));

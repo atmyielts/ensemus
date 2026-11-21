@@ -264,6 +264,24 @@ export default async function PublishReviewPage({
                   <input type="hidden" name="reviewId" value={review.id} />
                   <input type="hidden" name="version" value={review.version} />
                   <input type="hidden" name="requestKey" value={randomUUID()} />
+                  {review.subjectKind === 'agent_draft' && (
+                    <label>
+                      Signed evaluation report
+                      <small>
+                        Paste the signed report from your configured evaluator for this exact
+                        revision and current policy. The rehearsal above does not replace a model
+                        evaluation. Maximum 256 KiB.
+                      </small>
+                      <textarea
+                        name="evaluationReport"
+                        required
+                        rows={8}
+                        maxLength={256 * 1024}
+                        spellCheck={false}
+                        autoComplete="off"
+                      />
+                    </label>
+                  )}
                   <label className="check">
                     <input type="checkbox" required />
                     Publish only this reviewed version, with its responsible person and what it may

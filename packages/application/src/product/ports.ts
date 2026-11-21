@@ -19,22 +19,8 @@ export type PublishedAgentVersion = {
 
 export type AgentVersionSummary = PublishedAgentVersion & { publishedAt: Date };
 
-/**
- * M4's `evaluationReportSchema`, which its publish route requires. A simulation fills it with
- * `scripted_model: true`, which says plainly that it proves the gates and not the model (ADR-031 D5).
- */
-export type EvaluationReportInput = {
-  report_version: 1;
-  spec_sha256: string;
-  policy_version: string;
-  suite_ref: string;
-  dataset_version: string;
-  model_label: string;
-  pass_rate: number;
-  cases: number;
-  passed: boolean;
-  scripted_model: boolean;
-};
+/** An independently signed evaluation. A Studio rehearsal is not evaluator authority. */
+export type EvaluationReportInput = import('@ensemus/contracts/ai').SignedEvaluationReport;
 
 /**
  * M4's `publishAgentVersion` and `listAgentVersions`. Publishing commits in M4's own transaction, so

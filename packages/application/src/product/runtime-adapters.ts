@@ -1,3 +1,4 @@
+import type { EvaluationTrust } from '../ai/evaluation-attestation';
 // Real M4/M5 metadata and effect adapters. Neither model transport nor credentials live here.
 import {
   agentPublications,
@@ -156,14 +157,20 @@ async function delegatedRun(tx: Tx, context: TenantContext, rawId: string): Prom
   };
 }
 
-export function createRuntimeProductPorts(database: AppDatabase): ProductPorts {
+export function createRuntimeProductPorts(
+  database: AppDatabase,
+  options: { evaluationTrust?: EvaluationTrust } = {},
+): ProductPorts {
   return {
     agentRegistry: {
       async publishInTransaction(tx, context, input) {
         const joined = inTx(tx);
         const version = await publishAgentVersion(joined, context, {
-          ...input,
+          spec: input.spec,
+          evaluationReport: input.evaluationReport,
+          ...(input.ownerMembershipId ? { ownerMembershipId: input.ownerMembershipId } : {}),
           policyVersion: await getAgentPolicyVersion(joined, context),
+          ...(options.evaluationTrust ? { evaluationTrust: options.evaluationTrust } : {}),
         });
         return {
           definitionId: version.definition_id,
@@ -174,8 +181,11 @@ export function createRuntimeProductPorts(database: AppDatabase): ProductPorts {
       },
       async publish(context, input) {
         const version = await publishAgentVersion(database, context, {
-          ...input,
+          spec: input.spec,
+          evaluationReport: input.evaluationReport,
+          ...(input.ownerMembershipId ? { ownerMembershipId: input.ownerMembershipId } : {}),
           policyVersion: await getAgentPolicyVersion(database, context),
+          ...(options.evaluationTrust ? { evaluationTrust: options.evaluationTrust } : {}),
         });
         return {
           definitionId: version.definition_id,

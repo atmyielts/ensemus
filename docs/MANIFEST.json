@@ -977,8 +977,8 @@
     },
     {
       "path": "06-delivery/release-candidate-2026-11-21.md",
-      "size_bytes": 19750,
-      "sha256": "357465a2ac197460293b35c4b51af418a749677ef7c55ec310bf4a94b2f6a572"
+      "size_bytes": 22125,
+      "sha256": "b724e85f8913805535004cb7a9533566ec491501b9f8ba297131604303473d60"
     },
     {
       "path": "06-delivery/release-candidate-source-ledger.json",
@@ -1217,8 +1217,8 @@
     },
     {
       "path": "guides/user/agent-studio.md",
-      "size_bytes": 278,
-      "sha256": "44786d517c3a1def1c95408844db0677881e48ea4a2a8dc5cbabeeac53865514"
+      "size_bytes": 3122,
+      "sha256": "2e5f0ffd9c8117c342ae9e9be82b1687561674a8de378d73d5f72c11846aaa98"
     },
     {
       "path": "guides/user/agent-tools-and-approvals.md",
@@ -1597,8 +1597,8 @@
     },
     {
       "path": "specifications/openapi.yaml",
-      "size_bytes": 563843,
-      "sha256": "52eb620fc53623a6cb1d7142145a888b2e8f4ba38e2647e2d1a2e0625828c44a"
+      "size_bytes": 564451,
+      "sha256": "6c52060fa40fa4b36f671681da109dadd58d1c49c03cbd8b6b15c8e533304e76"
     },
     {
       "path": "specifications/qa-scenarios.csv",

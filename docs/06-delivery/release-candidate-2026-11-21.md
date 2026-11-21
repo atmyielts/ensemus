@@ -260,3 +260,32 @@ The two Studio evaluation failures are a product integration gap, not merely sta
 constructs an unsigned v1 simulation report while M4 correctly requires an independently signed v2
 report, and the runtime adapter does not pass the deployment's public evaluator trust. That path must
 be repaired while retaining M4's signed-report, exact-revision, policy, age and scripted-model gates.
+
+## Studio evaluator integration
+
+Studio no longer manufactures an unsigned v1 rehearsal report. Assistant publication requires a signed
+v2 evaluator report, handed unchanged to M4's existing signature, exact-spec, current-policy, age, suite,
+threshold and scripted-model gates. Runtime product ports accept deployment-owned public trust as a
+composition option; web loads the existing evaluator public-key configuration. The port copies only its
+explicit input fields, so a request cannot supply its own evaluator trust. No signing key enters web.
+
+The approved assistant-review page now has a bounded report field. The publication API accepts the same
+optional JSON body; assistant publication requires its evidence, while process publication keeps its
+bodyless contract. A real Next production empty POST arrives as an empty stream, so the optional JSON
+reader counts actual bytes and handles that case. Its regression cases retain the required-body,
+non-JSON, malformed/invalid UTF-8 and size refusals, including a false zero Content-Length.
+
+The real-role Studio suite passed all nine cases, including missing, unsigned, changed and untrusted
+report refusal without publication, and atomic genuine-report publication with its immutable receipt.
+The production standalone build then passed two actual HTTP cases, covering the rendered report field,
+outsider/missing/malformed/tampered refusal, genuine signed publication and idempotent receipt replay.
+These reports use a generated test evaluator and model facts; they qualify the protocol, not a provider
+or model's quality. Focused evaluation/contract checks passed 288 tests, the optional-body regression
+passed three, and guide/source checks passed 195. Web and test TypeScript checks and changed-source lint
+passed. The newly written Agent Studio guide stays written_untested; Help now contains 29 pages.
+
+The isolated HNSW regression did not reproduce the baseline timeout: it passed with the original large
+authorized set and hidden nearest-neighbor source in 70.852 seconds (78.89 seconds including setup).
+Only that one case was selected; five others were skipped by the filter. Neither its ACL checks nor its
+dataset/timeout were weakened. The original whole-run timeout remains a final-suite qualification item.
+PostgreSQL statement statistics were enabled in the generated test database to profile that case.

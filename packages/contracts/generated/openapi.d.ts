@@ -5311,7 +5311,15 @@ export interface paths {
                 };
                 cookie?: never;
             };
-            requestBody?: never;
+            /** @description Assistant publication requires independent signed evaluator evidence for the exact reviewed revision and current policy. A process publication needs no body. */
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        /** @description The signed version 2 report and signature accepted by the agent publication gate. Studio rehearsals are not evaluator authority. */
+                        evaluation_report?: Record<string, never>;
+                    };
+                };
+            };
             responses: {
                 /** @description Done */
                 200: {

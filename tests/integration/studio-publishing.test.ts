@@ -1,3 +1,10 @@
+import { getAgentPolicyVersion } from '@ensemus/application/ai-agents';
+import { STUDIO_SUITE_REF } from '@ensemus/domain/agent-draft';
+import {
+  reportV2,
+  signedReport,
+  TEST_TRUST,
+} from '../../packages/application/src/ai/evaluation-attestation.test-support';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
   openAppDatabase,
@@ -37,7 +44,7 @@ describe('Studio publishes only the actually rehearsed and reviewed revision', (
   });
   async function fixture(elevated = false) {
     const { a, b } = await makeTwoTenants(app.db),
-      ports = createRuntimeProductPorts(app.db),
+      ports = createRuntimeProductPorts(app.db, { evaluationTrust: TEST_TRUST }),
       answers = testAnswers(
         a.owner.context.membershipId,
         elevated ? { dataClasses: ['confidential'] } : {},
@@ -277,6 +284,49 @@ describe('Studio publishes only the actually rehearsed and reviewed revision', (
       await withTenantTx(app.db, f.a.owner.context, (tx) => tx.select().from(agentVersions)),
     ).toEqual([]);
   });
+  async function evaluationFor(context: Parameters<typeof getAgentPolicyVersion>[1], hash: string) {
+    return signedReport(
+      reportV2(hash, await getAgentPolicyVersion(app.db, context), {
+        suite_ref: STUDIO_SUITE_REF,
+      }),
+    );
+  }
+  it('never treats a rehearsal as evaluator authority and refuses unsigned, tampered or untrusted evidence', async () => {
+    const f = await fixture();
+    await proveSecondFactor(f.a.owner);
+    const proof = { sessionId: f.a.owner.sessionId };
+    const review = await requestPublishReview(app.db, f.a.owner.context, {
+      subjectKind: 'agent_draft',
+      subjectId: f.draft.id,
+      simulationRunId: f.simulation.id,
+    });
+    const approved = await decidePublishReview(app.db, f.a.owner.context, proof, {
+      reviewId: review.id,
+      expectedVersion: 1,
+      decision: 'approved',
+    });
+    const input = { reviewId: review.id, expectedVersion: approved.version };
+    const genuine = await evaluationFor(f.a.owner.context, f.draft.specSha256!);
+    await expect(
+      publishApproved(app.db, f.a.owner.context, f.ports, proof, input),
+    ).rejects.toMatchObject({ code: 'AGENT_EVALUATION_REQUIRED' });
+    for (const evaluationReport of [
+      { report_version: 1, passed: true },
+      { ...genuine, report: { ...genuine.report, spec_sha256: '0'.repeat(64) } },
+    ])
+      await expect(
+        publishApproved(app.db, f.a.owner.context, f.ports, proof, { ...input, evaluationReport }),
+      ).rejects.toMatchObject({ code: 'AGENT_EVALUATION_UNVERIFIED' });
+    await expect(
+      publishApproved(app.db, f.a.owner.context, createRuntimeProductPorts(app.db), proof, {
+        ...input,
+        evaluationReport: genuine,
+      }),
+    ).rejects.toMatchObject({ code: 'AGENT_EVALUATION_UNVERIFIED' });
+    expect(
+      await withTenantTx(app.db, f.a.owner.context, (tx) => tx.select().from(agentVersions)),
+    ).toEqual([]);
+  });
   it('atomically commits one actual M4 immutable version and an idempotent published receipt', async () => {
     const f = await fixture();
     await proveSecondFactor(f.a.owner);
@@ -294,6 +344,7 @@ describe('Studio publishes only the actually rehearsed and reviewed revision', (
       result = await publishApproved(app.db, f.a.owner.context, f.ports, proof, {
         reviewId: review.id,
         expectedVersion: approved.version,
+        evaluationReport: await evaluationFor(f.a.owner.context, f.draft.specSha256!),
       });
     const versions = await withTenantTx(app.db, f.a.owner.context, (tx) =>
       tx.select().from(agentVersions),
@@ -313,7 +364,7 @@ describe('Studio publishes only the actually rehearsed and reviewed revision', (
   });
   it('publishes with the actual reviewed responsible person while retaining the native human signer', async () => {
     const { a } = await makeTwoTenants(app.db),
-      ports = createRuntimeProductPorts(app.db),
+      ports = createRuntimeProductPorts(app.db, { evaluationTrust: TEST_TRUST }),
       draft = await createAgentDraft(app.db, a.owner.context, ports, {
         name: `Generated accountable ${a.organizationId}`,
         answers: testAnswers(a.member.context.membershipId),
@@ -340,6 +391,7 @@ describe('Studio publishes only the actually rehearsed and reviewed revision', (
     await publishApproved(app.db, a.owner.context, ports, proof, {
       reviewId: review.id,
       expectedVersion: approved.version,
+      evaluationReport: await evaluationFor(a.owner.context, draft.specSha256!),
     });
     expect(
       await withTenantTx(app.db, a.owner.context, (tx) =>

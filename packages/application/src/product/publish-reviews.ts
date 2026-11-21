@@ -18,11 +18,10 @@ import {
 import { decidePublishReviewSchema, requestPublishReviewSchema } from '@ensemus/contracts/studio';
 import { agentDraftAnswersSchema } from '@ensemus/contracts/studio';
 import { processSpecSchema } from '@ensemus/contracts/studio';
-import { agentSpecV1Schema } from '@ensemus/contracts/ai';
+import { agentSpecV1Schema, signedEvaluationReportSchema } from '@ensemus/contracts/ai';
 import {
   assessDraft,
   compileBoundSpec,
-  STUDIO_SUITE_REF,
   type AgentDraftAnswers,
   type RiskFinding,
 } from '@ensemus/domain/agent-draft';
@@ -567,7 +566,7 @@ export async function publishApproved(
   context: TenantContext,
   ports: Pick<ProductPorts, 'agentRegistry'>,
   proof: SessionProof | null,
-  input: { reviewId: string; expectedVersion: number },
+  input: { reviewId: string; expectedVersion: number; evaluationReport?: unknown },
 ): Promise<PublicationReceipt> {
   return withTenantTx(database, context, async (tx): Promise<PublicationReceipt> => {
     const actor = await studioPerson(tx, context, 'studio.publish');
@@ -590,24 +589,20 @@ export async function publishApproved(
     if (current.hash !== review.subjectSha256) throw new AppError('SIMULATION_STALE');
     if (!review.decidedByMembershipId) throw new AppError('REVIEW_NOT_APPROVED');
     await currentReviewer(tx, review.decidedByMembershipId);
-    const simulation = await passedSimulation(tx, review.simulationRunId, current);
+    await passedSimulation(tx, review.simulationRunId, current);
     let publishedRef: string;
     if (current.kind === 'agent_draft') {
       const version = await ports.agentRegistry.publishInTransaction(tx, actor, {
         spec: current.spec,
         ownerMembershipId: current.row.ownerMembershipId,
-        evaluationReport: {
-          report_version: 1,
-          spec_sha256: current.hash,
-          policy_version: current.policyVersion,
-          suite_ref: STUDIO_SUITE_REF,
-          dataset_version: 'studio-synthetic-v1',
-          model_label: 'synthetic-rules-no-model',
-          pass_rate: 1,
-          cases: simulation.report.steps.length,
-          passed: true,
-          scripted_model: true,
-        },
+        // M4 verifies the independent signature, exact revision, policy, freshness and quality gate.
+        // A human review and a scripted Studio rehearsal cannot manufacture this authority.
+        evaluationReport: (() => {
+          if (input.evaluationReport === undefined) throw new AppError('AGENT_EVALUATION_REQUIRED');
+          const parsed = signedEvaluationReportSchema.safeParse(input.evaluationReport);
+          if (!parsed.success) throw new AppError('AGENT_EVALUATION_UNVERIFIED');
+          return parsed.data;
+        })(),
       });
       const [actual] = await tx
         .select()

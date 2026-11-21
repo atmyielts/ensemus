@@ -4698,6 +4698,18 @@ paths:
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
         - $ref: "#/components/parameters/IfMatch"
+      requestBody:
+        required: false
+        description: Assistant publication requires independent signed evaluator evidence for the exact reviewed revision and current policy. A process publication needs no body.
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                evaluation_report:
+                  type: object
+                  description: The signed version 2 report and signature accepted by the agent publication gate. Studio rehearsals are not evaluator authority.
       responses:
         "200":
           description: Done
