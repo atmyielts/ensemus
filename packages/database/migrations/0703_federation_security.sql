@@ -280,7 +280,7 @@ BEGIN
   END IF;
 
   IF NEW.status = 'active' THEN
-    -- The second consent: the sharing side has now seen who accepted, and says that is who it meant.
+    -- The third step: the sharing side has now seen who accepted, and says that is who it meant.
     IF bound <> OLD.sharing_organization_id THEN
       RAISE EXCEPTION 'FEDERATION_NOT_A_PARTY' USING ERRCODE = 'EN711';
     END IF;
