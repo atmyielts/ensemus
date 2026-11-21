@@ -4,6 +4,10 @@
 CREATE ROLE ensemus_migrator LOGIN PASSWORD :'migrator_password' NOSUPERUSER NOCREATEROLE NOBYPASSRLS;
 CREATE ROLE ensemus_app LOGIN PASSWORD :'app_password' NOSUPERUSER NOCREATEROLE NOBYPASSRLS;
 CREATE ROLE ensemus_agent LOGIN PASSWORD :'agent_password' NOSUPERUSER NOCREATEROLE NOBYPASSRLS IN ROLE ensemus_app;
+-- ADR-039 D1. Each worker logs in as itself, a member of ensemus_app and nothing else.
+CREATE ROLE ensemus_worker LOGIN PASSWORD :'worker_password' NOSUPERUSER NOCREATEROLE NOBYPASSRLS IN ROLE ensemus_app;
+CREATE ROLE ensemus_connector LOGIN PASSWORD :'connector_password' NOSUPERUSER NOCREATEROLE NOBYPASSRLS IN ROLE ensemus_app;
+CREATE ROLE ensemus_knowledge LOGIN PASSWORD :'knowledge_password' NOSUPERUSER NOCREATEROLE NOBYPASSRLS IN ROLE ensemus_app;
 CREATE ROLE ensemus_auth LOGIN PASSWORD :'auth_password' NOSUPERUSER NOCREATEROLE NOBYPASSRLS;
 CREATE ROLE ensemus_dispatcher LOGIN PASSWORD :'dispatcher_password' NOSUPERUSER NOCREATEROLE NOBYPASSRLS;
 CREATE ROLE ensemus_secrets LOGIN PASSWORD :'secrets_password' NOSUPERUSER NOCREATEROLE NOBYPASSRLS;
@@ -22,6 +26,7 @@ REVOKE ALL ON DATABASE ensemus FROM PUBLIC;
 REVOKE ALL ON DATABASE temporal FROM PUBLIC;
 REVOKE ALL ON DATABASE temporal_visibility FROM PUBLIC;
 GRANT CONNECT ON DATABASE ensemus TO ensemus_app, ensemus_agent, ensemus_auth, ensemus_dispatcher, ensemus_secrets;
+GRANT CONNECT ON DATABASE ensemus TO ensemus_worker, ensemus_connector, ensemus_knowledge;
 GRANT CONNECT ON DATABASE ensemus TO ensemus_operator, ensemus_support, ensemus_eraser;
 
 \connect ensemus

@@ -34,7 +34,8 @@ const RUNTIME = [
 ] as const;
 
 describe('runtime restore contributors (ADR-030 D11)', () => {
-  const app = openAppDatabase(urls.app(), { max: 4 }),
+  // restore-reconcile runs in the platform worker's image, under its login (ADR-039).
+  const app = openAppDatabase(urls.worker(), { max: 4 }),
     agent = openAgentTestDatabase(4),
     su = new pg.Client({ connectionString: urls.superuser() });
   beforeAll(async () => {

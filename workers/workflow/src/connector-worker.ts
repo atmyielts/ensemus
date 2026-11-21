@@ -13,6 +13,7 @@ import { createMicrosoft365Connector } from '@ensemus/connectors/microsoft';
 import { createProviderHttpClient } from '@ensemus/connectors/provider-http';
 import { createConnectorRegistry } from '@ensemus/connectors/runtime';
 import { openAppDatabase } from '@ensemus/database';
+import { assertLoginRole } from '@ensemus/database/service';
 import { openSecretsDatabase } from '@ensemus/database/secrets';
 import { OAUTH_CALLBACK_PATH } from '@ensemus/domain/workspace-suites';
 import { FileKeyProvider, SecretBroker } from '@ensemus/secrets/broker';
@@ -63,6 +64,8 @@ async function main() {
     address: process.env.TEMPORAL_ADDRESS ?? 'temporal:7233',
   });
   const app = openAppDatabase(readSecret('DATABASE_URL_APP'), { max: databasePool });
+  // Its own login, never the web tier's (ADR-039 D1).
+  await assertLoginRole(app.db, 'ensemus_connector');
   const secretsDb = openSecretsDatabase(readSecret('DATABASE_URL_SECRETS'));
   const sealingKey = readSecret('SECRET_SEALING_PRIVATE_KEY');
   const secrets = new SecretBroker(secretsDb.db, new FileKeyProvider([sealingKey]));

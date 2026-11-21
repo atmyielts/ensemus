@@ -152,13 +152,13 @@ services:
     environment:
       TEMPORAL_ADDRESS: temporal:7233
       TEMPORAL_NAMESPACE: default
-      DATABASE_URL_APP_FILE: /run/secrets/db_app_url
+      DATABASE_URL_APP_FILE: /run/secrets/db_worker_url
       DATABASE_URL_DISPATCHER_FILE: /run/secrets/db_dispatcher_url
       OBJECT_STORAGE_ENDPOINT: http://objects:8333
       OBJECT_STORAGE_BUCKET: ensemus
       OBJECT_STORAGE_ACCESS_KEY_FILE: /run/secrets/objects_access_key
       OBJECT_STORAGE_SECRET_KEY_FILE: /run/secrets/objects_secret_key
-    secrets: [db_app_url, db_dispatcher_url, objects_access_key, objects_secret_key]
+    secrets: [db_worker_url, db_dispatcher_url, objects_access_key, objects_secret_key]
 
 volumes:
   pg-wal-archive:

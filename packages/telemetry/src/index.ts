@@ -73,6 +73,9 @@ const SAFE_FIELDS = new Set([
   'examined',
   'removed',
   'held',
+  // Names from our own code, never from a request. They say which span or activity this is (ADR-037 D3).
+  'eventType',
+  'activityType',
 ]);
 
 // Safe values are short and machine-shaped. Free text is refused even under a safe field name.
@@ -81,7 +84,14 @@ const SAFE_VALUE = /^[A-Za-z0-9._:-]{1,128}$/;
 export type Level = 'debug' | 'info' | 'warn' | 'error';
 export type Fields = Record<string, unknown>;
 
-function sanitize(fields: Fields): { kept: Fields; dropped: number } {
+/** Whether a value is short and machine-shaped. A span name has to pass this too (ADR-037 D3). */
+export const isSafeValue = (value: string) => SAFE_VALUE.test(value);
+
+/** Whether a field may leave in a log line, a span or a metric. One list for all three. */
+export const isSafeField = (name: string) => SAFE_FIELDS.has(name);
+
+/** One allowlist for logs, spans and metrics, so that a field cannot be safe in one and not another. */
+export function sanitize(fields: Fields): { kept: Fields; dropped: number } {
   const kept: Fields = {};
   let dropped = 0;
   for (const [key, value] of Object.entries(fields)) {

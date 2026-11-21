@@ -109,3 +109,53 @@ export function loadModelEgressSettings(env: NodeJS.ProcessEnv = process.env) {
   const reviewed = env.ENSEMUS_MODEL_CREDENTIALS_REVIEWED?.trim();
   return { privateEndpoints, credentialsReviewed: reviewed ? reviewed : null };
 }
+
+export type TelemetryConfig =
+  | { enabled: false }
+  | { enabled: true; endpoint: string; sampleRatio: number; metricIntervalMs: number };
+
+const DEFAULT_SAMPLE_RATIO = 1;
+const DEFAULT_METRIC_INTERVAL_SECONDS = 60;
+
+/**
+ * Traces and metrics go nowhere unless an operator names their own OpenTelemetry collector (ADR-037 D3),
+ * so an install that says nothing loads no exporter and makes no outbound attempt. The endpoint is the
+ * collector's OTLP/HTTP base, such as `http://otel-collector:4318`; the signal paths are added to it, and
+ * nothing else in the environment can redirect them. A collector address is not a place for a credential,
+ * and there is no setting for headers, because the only thing to put there is a secret. A bad value stops
+ * the process, because telemetry that looks on and is not would be a false reading. Errors name the
+ * setting, never its value.
+ */
+export function loadTelemetryConfig(env: NodeJS.ProcessEnv = process.env): TelemetryConfig {
+  const endpoint = env.ENSEMUS_OTEL_ENDPOINT;
+  if (!endpoint) {
+    for (const name of ['ENSEMUS_OTEL_SAMPLE_RATIO', 'ENSEMUS_OTEL_METRIC_INTERVAL_SECONDS'])
+      if (env[name]) throw new ConfigError(`${name} is set without ENSEMUS_OTEL_ENDPOINT`);
+    return { enabled: false };
+  }
+  let url: URL;
+  try {
+    url = new URL(endpoint);
+  } catch {
+    throw new ConfigError('ENSEMUS_OTEL_ENDPOINT is not a URL');
+  }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:')
+    throw new ConfigError('ENSEMUS_OTEL_ENDPOINT must be http or https');
+  if (url.username || url.password || url.search || url.hash)
+    throw new ConfigError(
+      'ENSEMUS_OTEL_ENDPOINT must not carry credentials, a query or a fragment',
+    );
+  if (url.pathname !== '/')
+    throw new ConfigError('ENSEMUS_OTEL_ENDPOINT must be the collector base, with no path');
+  const ratio = env.ENSEMUS_OTEL_SAMPLE_RATIO;
+  const sampleRatio = ratio ? Number(ratio) : DEFAULT_SAMPLE_RATIO;
+  if (!(sampleRatio >= 0 && sampleRatio <= 1))
+    throw new ConfigError('ENSEMUS_OTEL_SAMPLE_RATIO must be between 0 and 1');
+  const interval = env.ENSEMUS_OTEL_METRIC_INTERVAL_SECONDS;
+  const seconds = interval ? Number(interval) : DEFAULT_METRIC_INTERVAL_SECONDS;
+  if (!Number.isInteger(seconds) || seconds < 5 || seconds > 3600)
+    throw new ConfigError(
+      'ENSEMUS_OTEL_METRIC_INTERVAL_SECONDS must be a whole number from 5 to 3600',
+    );
+  return { enabled: true, endpoint: url.origin, sampleRatio, metricIntervalMs: seconds * 1000 };
+}

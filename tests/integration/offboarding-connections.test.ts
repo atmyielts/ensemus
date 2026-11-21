@@ -2,7 +2,8 @@
 // member's own suite connection (ADR-038), reaches ready_for_erasure through the worker's offboarding
 // ports, each connection revoked as a person's revoke would leave it, and connection.revoked emitted so
 // the connector worker revokes the sealed secrets. The connection guard admits a service revoke only
-// while the tenant's offboarding is at that step (0700, FLAGGED FOR HUMAN SECURITY REVIEW).
+// while the tenant's offboarding is at that step, and only under the platform worker's own login (0701,
+// FLAGGED FOR HUMAN SECURITY REVIEW).
 // Generated values only. Written, not yet run: owed to the first stack run.
 import { randomUUID } from 'node:crypto';
 import {
@@ -27,7 +28,8 @@ import { offboardingPorts, readyToErase } from './saas-offboarding-fixture';
 import { urls } from '../helpers/stack';
 
 describe('offboarding revokes every connection (LIFE-04)', () => {
-  const database = openAppDatabase(urls.app()),
+  // The offboarding revoke is the platform worker's, under its own login (0701).
+  const database = openAppDatabase(urls.worker()),
     auth = new pg.Client({ connectionString: urls.auth() }),
     // Writes connections the way consent and setup leave them, which a service may not.
     superuser = new pg.Client({ connectionString: urls.superuser() });

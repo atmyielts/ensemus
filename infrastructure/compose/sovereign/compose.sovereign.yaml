@@ -137,6 +137,12 @@ secrets:
     { file: '${ENSEMUS_SECRETS_DIR:?the folder of secrets for this site}/db_app_password' }
   db_agent_password:
     { file: '${ENSEMUS_SECRETS_DIR:?the folder of secrets for this site}/db_agent_password' }
+  db_worker_password:
+    { file: '${ENSEMUS_SECRETS_DIR:?the folder of secrets for this site}/db_worker_password' }
+  db_connector_password:
+    { file: '${ENSEMUS_SECRETS_DIR:?the folder of secrets for this site}/db_connector_password' }
+  db_knowledge_password:
+    { file: '${ENSEMUS_SECRETS_DIR:?the folder of secrets for this site}/db_knowledge_password' }
   db_auth_password:
     { file: '${ENSEMUS_SECRETS_DIR:?the folder of secrets for this site}/db_auth_password' }
   db_dispatcher_password:
@@ -149,6 +155,9 @@ secrets:
     { file: '${ENSEMUS_SECRETS_DIR:?the folder of secrets for this site}/db_migrator_url' }
   db_app_url: { file: '${ENSEMUS_SECRETS_DIR:?the folder of secrets for this site}/db_app_url' }
   db_agent_url: { file: '${ENSEMUS_SECRETS_DIR:?the folder of secrets for this site}/db_agent_url' }
+  db_worker_url: { file: '${ENSEMUS_SECRETS_DIR:?the folder of secrets for this site}/db_worker_url' }
+  db_connector_url: { file: '${ENSEMUS_SECRETS_DIR:?the folder of secrets for this site}/db_connector_url' }
+  db_knowledge_url: { file: '${ENSEMUS_SECRETS_DIR:?the folder of secrets for this site}/db_knowledge_url' }
   db_auth_url: { file: '${ENSEMUS_SECRETS_DIR:?the folder of secrets for this site}/db_auth_url' }
   db_dispatcher_url:
     { file: '${ENSEMUS_SECRETS_DIR:?the folder of secrets for this site}/db_dispatcher_url' }
