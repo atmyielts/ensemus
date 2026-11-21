@@ -17169,11 +17169,19 @@ export const GUIDE_PAGES: readonly GuidePage[] = [
           },
           {
             "t": "text",
-            "v": " and "
+            "v": ", "
           },
           {
             "t": "strong",
             "v": "Marketing operations"
+          },
+          {
+            "t": "text",
+            "v": " and "
+          },
+          {
+            "t": "strong",
+            "v": "HR operations"
           },
           {
             "t": "text",
@@ -17193,7 +17201,7 @@ export const GUIDE_PAGES: readonly GuidePage[] = [
           },
           {
             "t": "text",
-            "v": ". HR, finance and learning packs are still being developed and are not offered."
+            "v": ". Finance and learning packs are still being developed and are not offered."
           }
         ]
       },
@@ -17407,6 +17415,115 @@ export const GUIDE_PAGES: readonly GuidePage[] = [
           {
             "t": "text",
             "v": " field to Campaign. It introduces no new capability."
+          }
+        ]
+      },
+      {
+        "b": "h",
+        "level": 2,
+        "inline": [
+          {
+            "t": "text",
+            "v": "HR operations"
+          }
+        ]
+      },
+      {
+        "b": "p",
+        "inline": [
+          {
+            "t": "text",
+            "v": "This pack creates "
+          },
+          {
+            "t": "strong",
+            "v": "Employee onboarding"
+          },
+          {
+            "t": "text",
+            "v": ", "
+          },
+          {
+            "t": "strong",
+            "v": "Employment record"
+          },
+          {
+            "t": "text",
+            "v": " and "
+          },
+          {
+            "t": "strong",
+            "v": "Policy acknowledgement"
+          },
+          {
+            "t": "text",
+            "v": " record types, all "
+          },
+          {
+            "t": "strong",
+            "v": "Restricted"
+          },
+          {
+            "t": "text",
+            "v": ", for people to manage manually. Installing gives no additional readers access to personal records. The "
+          },
+          {
+            "t": "strong",
+            "v": "Onboarding coordinator"
+          },
+          {
+            "t": "text",
+            "v": " assistant drafts only from separately permitted public and internal work; it receives no employment record tool."
+          }
+        ]
+      },
+      {
+        "b": "p",
+        "inline": [
+          {
+            "t": "text",
+            "v": "Declining "
+          },
+          {
+            "t": "strong",
+            "v": "restricted"
+          },
+          {
+            "t": "text",
+            "v": " leaves all three personal record types out. The assistant and "
+          },
+          {
+            "t": "strong",
+            "v": "Review an onboarding checklist"
+          },
+          {
+            "t": "text",
+            "v": " workflow drafts can still be made when their own requests are accepted. The workflow asks a person to decide access requests; it does not grant roles or apply those decisions automatically."
+          }
+        ]
+      },
+      {
+        "b": "p",
+        "inline": [
+          {
+            "t": "text",
+            "v": "Version "
+          },
+          {
+            "t": "strong",
+            "v": "1.1.0"
+          },
+          {
+            "t": "text",
+            "v": " adds an optional "
+          },
+          {
+            "t": "strong",
+            "v": "Private custody note"
+          },
+          {
+            "t": "text",
+            "v": " field to Employment record. Rollback retains entered notes and the records' restricted protection."
           }
         ]
       },

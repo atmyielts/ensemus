@@ -72,7 +72,7 @@ export const ITEM_KIND_WORDS: Record<string, string> = {
 export function itemHref(base: string, item: { kind: string; id: string }): string | null {
   switch (item.kind) {
     case 'object_type':
-      return `${base}/objects`;
+      return `${base}/objects/types/${item.id}`;
     case 'agent_draft':
       return `${base}/studio/agents/${item.id}`;
     case 'process_draft':

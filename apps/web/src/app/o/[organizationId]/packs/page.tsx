@@ -75,9 +75,9 @@ export default async function PacksPage({
       />
       <ErrorNotice code={error} />
       <p className="notice">
-        Installing a pack gives nobody new permissions. You decide on each thing it asks for, and
-        everything it makes starts as a draft that does nothing until it has been rehearsed,
-        reviewed and published.
+        Installing a pack gives nobody new permissions. You decide on each thing it asks for. Record
+        types can be used manually. Assistants and workflows stay inactive until they have been
+        rehearsed, reviewed and published.
       </p>
       <div className="stack">
         <section className="card" aria-labelledby="catalog-heading">

@@ -76,7 +76,7 @@ describe('migrations 0700 and 0701', () => {
     );
   });
 
-  it('later tier checks use the mapped role; signer administration explicitly requires the native web login', () => {
+  it('later tier checks use the mapped role; human-only boundaries require the native web login', () => {
     const later = readdirSync(migrations)
       .filter((file) => /^\d{4}_.*\.sql$/.test(file))
       .filter((file) => Number(file.slice(0, 4)) >= 701 && Number(file.slice(0, 4)) < 999);
@@ -86,10 +86,16 @@ describe('migrations 0700 and 0701', () => {
         .split(/\r?\n/)
         .filter((line) => !line.trimStart().startsWith('--'))
         .join('\n');
-      if (file === '0733_skill_signer_administration.sql') {
-        // Trust administration is deliberately narrower than the shared application tier. The
-        // native-role integration test proves every worker and the agent fail this exact check.
-        const nativeBoundary = "session_user<>'ensemus_app' OR current_user<>'ensemus_app'";
+      if (
+        file === '0733_skill_signer_administration.sql' ||
+        file === '0737_object_native_actors.sql'
+      ) {
+        // These human-only paths are deliberately narrower than the shared application tier.
+        // Native-role cases prove workers and agents cannot impersonate the person with SET ROLE.
+        const nativeBoundary =
+          file === '0733_skill_signer_administration.sql'
+            ? "session_user<>'ensemus_app' OR current_user<>'ensemus_app'"
+            : "session_user='ensemus_app'";
         expect(text.split(nativeBoundary)).toHaveLength(2);
         expect(RAW_TIER_CHECK.test(text.replace(nativeBoundary, 'false')), file).toBe(false);
       } else {

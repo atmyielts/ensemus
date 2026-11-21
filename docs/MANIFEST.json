@@ -916,6 +916,11 @@
       "sha256": "646f9006ddb5022f07e6e387076373606538df6f25187c521c136e5189c9a66a"
     },
     {
+      "path": "06-delivery/evidence/rc-hr-native-privacy-20261121.json",
+      "size_bytes": 7153,
+      "sha256": "78d72e63b1332bcd8b194892296b6515078184b4b1283b186cd80f2d3e8f035b"
+    },
+    {
       "path": "06-delivery/evidence/rc-pending-module-portability-20261121.json",
       "size_bytes": 4188,
       "sha256": "9da0ee4827c6128b7a037c6457416adbb4d25d65e34a7641f4b30ac6768cea4c"
@@ -982,8 +987,8 @@
     },
     {
       "path": "06-delivery/release-candidate-2026-11-21.md",
-      "size_bytes": 26054,
-      "sha256": "6d251bd4758595590615705ed7d0674e5751ec25419c922cd132402ac618d567"
+      "size_bytes": 30622,
+      "sha256": "f5b19faebc6b3a8ec36b3c3c599ecb0a740347ce60f5cf49483f155d68440757"
     },
     {
       "path": "06-delivery/release-candidate-source-ledger.json",
@@ -1477,8 +1482,8 @@
     },
     {
       "path": "guides/user/workflows-and-packs.md",
-      "size_bytes": 3943,
-      "sha256": "6a9e30fd885286208d286152550b5a4f50c55734fdad0ce5bfeff23aa4365d65"
+      "size_bytes": 4900,
+      "sha256": "d31cc7eed6fded283f495bbfa8028c58fda3c4de27a251316d8fc7be061ea91c"
     },
     {
       "path": "guides/user/your-own-models.md",

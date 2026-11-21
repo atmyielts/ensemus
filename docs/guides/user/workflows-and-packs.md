@@ -5,7 +5,7 @@ area: agents
 tickets: [AGENT-12, AGENT-13, AGENT-14, EXP-01]
 modes: [cloud, byom, sovereign]
 status: written_untested
-sources: [apps/web/src/app/o/[organizationId]/studio/page.tsx, apps/web/src/app/o/[organizationId]/packs/page.tsx, apps/web/src/app/o/[organizationId]/packs/installations/[installationId]/page.tsx, apps/web/src/server/pack-actions.ts, packages/application/src/product/packs.ts, packages/packs/src/index.ts, packages/department-packs/src/marketing/index.ts, tests/integration/marketing-pack.test.ts]
+sources: [apps/web/src/app/o/[organizationId]/studio/page.tsx, apps/web/src/app/o/[organizationId]/packs/page.tsx, apps/web/src/app/o/[organizationId]/packs/installations/[installationId]/page.tsx, apps/web/src/server/pack-actions.ts, packages/application/src/product/packs.ts, packages/packs/src/index.ts, packages/department-packs/src/marketing/index.ts, packages/department-packs/src/hr/index.ts, tests/integration/marketing-pack.test.ts, tests/integration/hr-pack.test.ts]
 tests: []
 ---
 
@@ -17,7 +17,7 @@ A pack supplies record types, assistant drafts and workflow drafts. It comes wit
 
 ## Review a pack
 
-An owner or administrator opens **Automation Studio**, then **Packs**. This release offers **Sales operations** and **Marketing operations**, each at versions **1.0.0** and **1.1.0**. HR, finance and learning packs are still being developed and are not offered.
+An owner or administrator opens **Automation Studio**, then **Packs**. This release offers **Sales operations**, **Marketing operations** and **HR operations**, each at versions **1.0.0** and **1.1.0**. Finance and learning packs are still being developed and are not offered.
 
 1. Choose **Review what it asks for** on the version you want.
 2. Read **What this pack asks for**. Each request explains why it is needed, what it may read and what it may change.
@@ -34,6 +34,14 @@ This pack creates **Campaign** and **Claim source** record types, plus **Campaig
 The proposed **Review a campaign message** workflow puts the attached claim/source review and a person's approval before a proposed email. The email still needs its own configured connection and approval. Declining **email.send** leaves that workflow out while the record types and assistant drafts can still be made. The pack offers no bulk send.
 
 Version **1.1.0** adds an optional **Review note** field to Campaign. It introduces no new capability.
+
+## HR operations
+
+This pack creates **Employee onboarding**, **Employment record** and **Policy acknowledgement** record types, all **Restricted**, for people to manage manually. Installing gives no additional readers access to personal records. The **Onboarding coordinator** assistant drafts only from separately permitted public and internal work; it receives no employment record tool.
+
+Declining **restricted** leaves all three personal record types out. The assistant and **Review an onboarding checklist** workflow drafts can still be made when their own requests are accepted. The workflow asks a person to decide access requests; it does not grant roles or apply those decisions automatically.
+
+Version **1.1.0** adds an optional **Private custody note** field to Employment record. Rollback retains entered notes and the records' restricted protection.
 
 ## Upgrade and roll back
 

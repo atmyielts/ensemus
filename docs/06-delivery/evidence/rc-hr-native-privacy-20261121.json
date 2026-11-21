@@ -1,0 +1,216 @@
+{
+  "schema_version": 1,
+  "scope": "EXP-01 HR pack; KNOW-07 native human/migration actor privacy",
+  "base_revision": "2805d9a",
+  "acceptance": "local protocol/UI qualification; wider platform release gates remain open",
+  "human_security_review": "pending",
+  "sources": [
+    {
+      "path": "packages/domain/src/pack.ts",
+      "sha256": "ddf9fcac8c0fef726b81fd045f7be853098bfbccd2b6b56c6dc924ef62c45a73"
+    },
+    {
+      "path": "packages/domain/src/pack.test.ts",
+      "sha256": "f1ad39a2171618fc69be97dad98fbc7833522e6f126ca661feb3fc7f50edfe2a"
+    },
+    {
+      "path": "packages/department-packs/src/hr/index.ts",
+      "sha256": "69cea1c377c761c90f91f633e87315a14e0ed120b80ae1e992549b889f8c7956"
+    },
+    {
+      "path": "packages/department-packs/src/hr/hr.test.ts",
+      "sha256": "b4bf47f70d1b26edcfc61f2066a2e9fa52e8f579ec04fe1c4719febd9b779dd1"
+    },
+    {
+      "path": "packages/department-packs/src/index.ts",
+      "sha256": "560b98bad3455364f0ccd4b4da6a23633ee25a7908ac021b84f9a3836b2e692e"
+    },
+    {
+      "path": "packages/database/migrations/0737_object_native_actors.sql",
+      "sha256": "297f249677dd41cba60bf217f03f704da97f2d2653639fb1adfba9dbad61c73a"
+    },
+    {
+      "path": "packages/database/migrations/meta/_journal.json",
+      "sha256": "c4007fd3b7c2dd4ae40f1e9a9d1d6da8d132ef46164ac1530ff27340c200d8b9"
+    },
+    {
+      "path": "tests/integration/hr-pack.test.ts",
+      "sha256": "90fd91f84a2d459ed6e2f11d305088ab2a7cefa3723a64de26c44592dc5cb04b"
+    },
+    {
+      "path": "tests/integration/custom-object-native-actors.test.ts",
+      "sha256": "d543e080d2f7879c2f1d3115338c4ae6444aab4ce12285150c2ff507f175cec6"
+    },
+    {
+      "path": "tests/integration/custom-objects.test.ts",
+      "sha256": "99d464dd4786e2dbeb86a5ddb6b974247c1a0a30946fe8e9adf1bfcf4e6c3862"
+    },
+    {
+      "path": "tests/integration/worker-login-roles.test.ts",
+      "sha256": "dee600f917b177118e6c9be8b166647538361be9e1dc90fb75bee2ebf6a05486"
+    },
+    {
+      "path": "tests/unit/worker-login-roles.test.ts",
+      "sha256": "4c038df600d2314fbd1c4b693a2157a5b54543df143896102bf4e12df7fba46f"
+    },
+    {
+      "path": "apps/web/src/app/o/[organizationId]/packs/page.tsx",
+      "sha256": "40db696b9636271dfe20de23b217bd078957bdc7745f619e308ac5547bd8404e"
+    },
+    {
+      "path": "apps/web/src/app/o/[organizationId]/packs/installations/[installationId]/page.tsx",
+      "sha256": "410efb9ca0784dc8a6197b022b9bc8fdc268ecfe7a8e75ed068b7d1f75af4bea"
+    },
+    {
+      "path": "apps/web/src/components/packs/words.tsx",
+      "sha256": "96711ff2c12c9b63ddb945b6000e0f08fb3d445e6867acab912c4837059e4f06"
+    },
+    {
+      "path": "docs/guides/user/workflows-and-packs.md",
+      "sha256": "d31cc7eed6fded283f495bbfa8028c58fda3c4de27a251316d8fc7be061ea91c"
+    },
+    {
+      "path": "apps/web/src/generated/guides.ts",
+      "sha256": "f861c057bcf426682d887c1ea2a6a02c4687adcec8e78c8aa79588a53ffec12a"
+    }
+  ],
+  "results": {
+    "native_regression": {
+      "passed": 21,
+      "failed": 0,
+      "files": 4
+    },
+    "private_index_native_case_after_final_assertions": {
+      "passed": 1,
+      "failed": 0
+    },
+    "focused_unit_checks": {
+      "passed": 259,
+      "failed": 0,
+      "files": 9
+    },
+    "full_unit": {
+      "passed": 9534,
+      "failed": 2,
+      "expected_fail": 4,
+      "skipped": 43,
+      "files": 374
+    },
+    "fresh_database": {
+      "database": "ensemus_rc_hr_20261121170605941",
+      "appliedMigrations": 147,
+      "functions": [
+        {
+          "name": "objects.active_person(boolean)",
+          "prosecdef": false,
+          "proconfig": [
+            "search_path=pg_catalog"
+          ],
+          "owner": "ensemus_migrator",
+          "public_execute": false
+        },
+        {
+          "name": "objects.migration_worker()",
+          "prosecdef": false,
+          "proconfig": [
+            "search_path=pg_catalog"
+          ],
+          "owner": "ensemus_migrator",
+          "public_execute": false
+        },
+        {
+          "name": "objects.pending_migration(uuid)",
+          "prosecdef": false,
+          "proconfig": [
+            "search_path=pg_catalog"
+          ],
+          "owner": "ensemus_migrator",
+          "public_execute": false
+        }
+      ],
+      "completedAt": "2026-11-21T17:06:10.566Z"
+    },
+    "browser": {
+      "build": "production standalone",
+      "mode": "sovereign",
+      "data": "generated",
+      "viewport_width": 375,
+      "document_width": 375,
+      "note_retained_after_rollback": true,
+      "restricted_after_rollback": true,
+      "capabilities_reviewed_separately": 8,
+      "authenticator": "generated; actual UI enrollment and native verification",
+      "temporal_dispatch": "not run by browser harness"
+    },
+    "full_lint": "passed",
+    "guide_checks": {
+      "passed": 184,
+      "failed": 0,
+      "files": 2
+    },
+    "license_inventory": {
+      "components": 247,
+      "check": "passed",
+      "review": "draft_not_reviewed_by_counsel"
+    }
+  },
+  "open_gates": [
+    "73 planned API operations",
+    "30-table complete portability inventory gap",
+    "M11 service and lifecycle implementation",
+    "full joined integration on final source",
+    "built-worker/Temporal/replay and hosted/provider/human acceptance"
+  ],
+  "local_logs": [
+    {
+      "path": ".local/rc-hr-review-red.log",
+      "sha256": "23ececb2817ee4048473e7fc8f0709bade11b134b583f4f4e973f675cdf9704a"
+    },
+    {
+      "path": ".local/rc-hr-native-red.log",
+      "sha256": "9b1d4a4a5c2f9d8fbd09e4b40578235a17853b74f11c10f7e4b0b8119ba85c89"
+    },
+    {
+      "path": ".local/rc-private-record-native-red.log",
+      "sha256": "f98025a0bbbf8957051c4f407317a4335285c8d2416d657424e0b423c28dbc98"
+    },
+    {
+      "path": ".local/rc-hr-native-boundary-fixed.log",
+      "sha256": "6e8dcab85be1a59b42a502f3bfd1786c2882e59a9beb616da59834fae6db46e4"
+    },
+    {
+      "path": ".local/rc-hr-private-index-fixed.log",
+      "sha256": "ef5fdee2f9b9c92ca851a440aa531d05742fb03151c58fea37f1fb79c74a15b3"
+    },
+    {
+      "path": ".local/rc-hr-boundary-units.log",
+      "sha256": "49baa643543bea947d272c89719b2196deef6caadadf4bb3459b862dc3e59e6d"
+    },
+    {
+      "path": ".local/rc-hr-web-build-final.log",
+      "sha256": "c9f1534d503c3bc34f54047e727c471e26930a5341e5e2fceba8cec7dfaf6469"
+    },
+    {
+      "path": ".local/rc-hr-full-unit.log",
+      "sha256": "3f2cbb28f5b3031c2cd9fe92b6ddab6924d92e2cccf561fbd2c6991f010f4462"
+    },
+    {
+      "path": ".local/rc-hr-browser-rollback-result.log",
+      "sha256": "68b048b1264ff215fae45b36a488ac65861a34edcd2bc2a3b4c6293ed7800685"
+    }
+  ],
+  "local_screenshots": [
+    {
+      "path": "output/playwright/hr-declined-mobile.png",
+      "sha256": "40aaddd302d8b6a4240223ae2d32dec722c93c14b07177cdc020b12f8556a4a0"
+    },
+    {
+      "path": "output/playwright/hr-installed-mobile.png",
+      "sha256": "2534652a3912c39e384a216a25e68290cca82b637afad1a85537454337167e35"
+    },
+    {
+      "path": "output/playwright/hr-private-record-after-rollback-mobile.png",
+      "sha256": "4d26701d93aaea6e4e0b1c1bcd65ce3e00e03c2a491115823a9e84cf22a55fe2"
+    }
+  ]
+}

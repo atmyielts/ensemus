@@ -86,7 +86,13 @@ describe('worker login roles (ADR-039)', () => {
         .filter((row) => rawTierCheck.test(row.definition))
         .map((row) => row.name)
         .sort(),
-    ).toEqual(['platform.check_new_tenant_mail()', 'skills.guard_signer_administration()'].sort());
+    ).toEqual(
+      [
+        'platform.check_new_tenant_mail()',
+        'skills.guard_signer_administration()',
+        'objects.active_person(boolean)',
+      ].sort(),
+    );
   });
 
   it('lets a worker login do what ensemus_app may, and no more', async () => {

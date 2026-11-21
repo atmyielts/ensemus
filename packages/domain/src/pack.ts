@@ -341,7 +341,18 @@ export function validatePackManifest(manifest: PackManifest): readonly PackIssue
       add(`${path}.risk`, 'EFFECT_MUST_BE_ELEVATED');
     }
     if (capability.kind === 'data_class') {
-      if (capability.subject === 'restricted') add(`${path}.subject`, 'RESTRICTED_NOT_OFFERED');
+      if (capability.subject === 'restricted') {
+        // Restricted is offered only for manually managed record types. A review is a disclosure,
+        // never permission for an assistant/process to read or act on those records.
+        const manualTypes = new Set(
+          manifest.objectTypes
+            .filter((type) => type.classification === 'restricted')
+            .map((type) => packItemRef('object_type', type.slug)),
+        );
+        if (capability.risk !== 'elevated') add(`${path}.risk`, 'RESTRICTED_MUST_BE_ELEVATED');
+        if (capability.requiredBy.some((ref) => !manualTypes.has(ref)))
+          add(`${path}.subject`, 'RESTRICTED_NOT_OFFERED');
+      }
       if (capability.subject === 'confidential' && capability.risk !== 'elevated') {
         add(`${path}.risk`, 'CONFIDENTIAL_MUST_BE_ELEVATED');
       }
@@ -377,6 +388,12 @@ export function validatePackManifest(manifest: PackManifest): readonly PackIssue
     if (!type.displayName.trim()) add(`${path}.displayName`, 'REQUIRED');
     if (!covered(['object_type'], type.slug, packItemRef('object_type', type.slug))) {
       add(`${path}.slug`, 'MISSING_CAPABILITY');
+    }
+    if (
+      type.classification === 'restricted' &&
+      !covered(['data_class'], 'restricted', packItemRef('object_type', type.slug))
+    ) {
+      add(`${path}.classification`, 'MISSING_CAPABILITY');
     }
     for (const issue of validateObjectSchema(type)) {
       add(`${path}.${issue.path}`, `OBJECT_${issue.code}`);

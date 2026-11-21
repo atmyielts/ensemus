@@ -134,7 +134,7 @@ export default async function PackInstallationPage({
                 action={activatePackAction}
                 fields={hidden}
                 summary="Install this version"
-                consequence="Make the record types and drafts listed above. I understand they do nothing until each is rehearsed, reviewed and published."
+                consequence="Create the listed record types and inactive drafts. I understand assistants and workflows need their own rehearsal, review and publication before running."
                 confirmLabel="Install"
                 confirmFullLabel={`Install ${review.name} ${installation.packVersion}`}
               />

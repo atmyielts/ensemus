@@ -338,3 +338,59 @@ leaves unknown/missing schema refusal distinct. The import and seven-case native
 then passed all 26 cases; the 121 focused unit checks and application/test types and changed-source lint
 passed again. The broad unit count above predates this final admission mapping. This repair does not
 complete M11 portability or erasure; neither release gate was relaxed.
+
+## HR pack and native private-record authority
+
+EXP-01 now offers HR operations 1.0.0/1.1.0 through the actual catalog and installer. Employee onboarding,
+Employment record and Policy acknowledgement are all restricted manual record types. The Onboarding
+coordinator drafts only from separately permitted public/internal work, and the checklist workflow puts
+an actual human decision before fulfilment. No employment record tool, permission grant, external action
+or field that rates a person is proposed. The later version adds an optional private custody note.
+
+M7's restricted-data capability is now accepted only for elevated review of actual restricted manual
+record types. It still refuses assistant/process references, mixed references and low-risk requests;
+every restricted type must be explicitly covered. Declining it leaves all three personal types out.
+This is an installer disclosure and dependency decision, never a data-access grant.
+
+The native denied tests found a real underlying privacy issue: an agent login could supply user-shaped
+bindings and SET ROLE ensemus_app, then pass objects.active_person and read an owner's restricted row.
+Migration 0737 makes that human path native-web-only. It also confines a pending migration's service
+path and progress writes to the native platform worker. Agents, connector/knowledge workers and web
+service bindings cannot borrow that authority while a migration is queued. The real platform worker
+still migrates the admitted private type and loses that record-read path once the migration closes.
+Private indexed values have the same human boundary. No table read/write grant was added, and these
+helpers remain invokers with a fixed search path; human security review remains pending.
+
+The native HR/custom-object/worker-role regression passed 21 cases. A subsequent complete native-actor
+case also checked the actual derived private index after migration and passed. These exercise other
+companies, ordinary members and administrators, native agent/worker impersonation, classification
+floor refusal, declined review, actual record migration, upgrade and non-destructive rollback. Legacy
+migration fixtures now use the real worker login instead of treating the web login as a service worker.
+All 259 focused pack/role/security-source checks passed. Domain, department and test TypeScript checks,
+changed-source lint and the production standalone web build passed. A fresh generated database applied
+all 147 migrations and verified the three native-actor helpers' ownership, invoker status, fixed search
+path and revoked public execution.
+
+The production browser journey reviewed each capability, observed all three personal types left out
+when restricted data was declined, then accepted it explicitly. It enrolled a generated authenticator
+through the actual UI, installed 1.0.0, reviewed and upgraded to 1.1.0, created a restricted employment
+reference with a private custody note, rolled back, and reopened that same protected record with its
+note retained. At 375 pixels the review and record pages had no horizontal overflow. Local screenshots
+are in output/playwright/hr-*.png; authentication state, setup keys and recovery material stay ignored.
+No real HR data, external effect, model call or production deployment was used. The browser's generated
+upgrade migration remained queued because this browser harness runs web, PostgreSQL and object storage;
+the actual batch implementation was qualified separately on the native platform-worker connection.
+Temporal dispatch and replay remain wider-platform gates.
+
+Pack record-type links now go directly to the type. Catalog and confirmation copy distinguish usable
+manual record types from inactive assistant/workflow drafts. The existing workflows/packs guide includes
+HR, remains written_untested, and Help still has 29 pages. Finance and learning packs are not offered yet.
+
+Full repository lint and 184 guide/help checks also passed. The license inventory check still accounts
+for 247 components; its review remains draft_not_reviewed_by_counsel.
+
+The full bounded unit run on this source reached 9,534 passes, two failures, four expected failures and
+43 skips in 133.59 seconds across 374 files (371 passed, two failed, one skipped). The remaining source
+release failures still name 73 planned API operations and the same 30-table portability inventory gap.
+The previous full joined integration baseline has not been rerun, and M11 services, complete lifecycle
+handling, built-worker/Temporal, hosted/provider and human acceptance remain open.
