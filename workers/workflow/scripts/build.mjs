@@ -25,6 +25,8 @@ await build({
     'src/reapply-ledger.ts',
     'src/connector-worker.ts',
     'src/egress-gateway.ts',
+    // Platform email (0571): queues only in the web tier, sent from here alone.
+    'src/mail-worker.ts',
     'src/agent-main.ts',
     'src/halt-global.ts',
     'src/knowledge-worker.ts',

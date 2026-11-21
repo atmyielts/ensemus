@@ -35,7 +35,10 @@
     "./portability": "./src/portability.ts",
     "./portable-definition": "./src/portable-definition.ts",
     "./sovereign-events": "./src/sovereign-events.ts",
-    "./workspace-suites": "./src/workspace-suites.ts"
+    "./workspace-suites": "./src/workspace-suites.ts",
+    "./mail": "./src/mail.ts",
+    "./mail-templates": "./src/mail-templates.ts",
+    "./notification-copy": "./src/notification-copy.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"

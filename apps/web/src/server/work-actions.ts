@@ -403,9 +403,16 @@ export async function inviteAction(
   const role = text(form, 'role') === 'admin' ? 'admin' : 'member';
   const email = text(form, 'email');
   try {
-    const { token } = await createInvitation(database, context, { email, role });
+    const { config, invitationMail } = getRuntime();
+    const { token, emailed } = await createInvitation(
+      database,
+      context,
+      { email, role },
+      invitationMail ? { mail: invitationMail } : {},
+    );
     revalidatePath(`/o/${org}/people`);
-    return { link: `${getRuntime().config.publicUrl}/invite/${encodeURIComponent(token)}` };
+    // The link is still handed back when it was emailed, for anyone whose mail does not arrive.
+    return { link: `${config.publicUrl}/invite/${encodeURIComponent(token)}`, emailed };
   } catch (error) {
     return { code: await codeOf({ context, database }, error), values: { email, role } };
   }

@@ -277,8 +277,8 @@
     },
     {
       "path": "05-operations/05-container-deployment-runbook.md",
-      "size_bytes": 34794,
-      "sha256": "13ecc0886ed8bcdfe12781fee0fc23f3a0779d943741ef5c85b1eb0fbe4247d6"
+      "size_bytes": 38634,
+      "sha256": "21afc0577a6d2fc0663f9978972d154f97a78b317948e19395fb37cd2575cd0f"
     },
     {
       "path": "05-operations/06-performance-and-load-plan.md",
@@ -1082,8 +1082,8 @@
     },
     {
       "path": "specifications/openapi.yaml",
-      "size_bytes": 399211,
-      "sha256": "e46f39f08bfb3516bd7fa1bde33ddc8afc9b11001bc8a680e8d7566b9b2e49c9"
+      "size_bytes": 403195,
+      "sha256": "b8ebbbf8b75c325b9dfeb3299c6bad50bddc20d599d45f7883aa1a6b246bc994"
     },
     {
       "path": "specifications/qa-scenarios.csv",

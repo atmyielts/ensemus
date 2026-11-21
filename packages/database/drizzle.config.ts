@@ -27,6 +27,7 @@ export default defineConfig({
     './src/schema-process-authority.ts',
     './src/schema-sovereign.ts',
     './src/schema-saas.ts',
+    './src/schema-mail.ts',
   ],
   out: './migrations',
   casing: 'snake_case',

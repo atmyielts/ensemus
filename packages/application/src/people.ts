@@ -26,6 +26,7 @@ import { idSchema } from './ids';
 import { idFromRequest } from './request-id';
 import { assertActiveMember, closeReviewsForLostAccess } from './work';
 import { assertInteractivePrivilege, withPrivilegeTx as withTenantTx } from './product/privileged';
+import { queueInvitationMail, type InvitationMail } from './platform-mail';
 
 const FOREIGN_KEY_VIOLATION = '23503';
 const name = z.string().trim().min(1).max(200);
@@ -373,11 +374,16 @@ export async function disableMember(
 const INVITATION_DAYS = 7;
 const hashToken = (token: string) => createHash('sha256').update(token).digest('hex');
 
-/** Returns the token once. Only its hash is stored, so it can never be read back. */
+/**
+ * Returns the token once. Only its hash is stored, so it can never be read back. Where the mail worker
+ * runs, the invitation is also emailed, its link sealed to the worker's key, and `emailed` says whether it
+ * will go; the token is still returned, so the person inviting can copy the link if it does not.
+ */
 export async function createInvitation(
   database: AppDatabase,
   context: TenantContext,
   raw: { email: string; role?: 'admin' | 'member' },
+  options: { mail?: InvitationMail } = {},
 ) {
   requireCapability(context, 'member.invite');
   const input = parse(
@@ -408,7 +414,15 @@ export async function createInvitation(
       targetRef: `invitation:${id}`,
       decision: 'allow',
     });
-    return { id, token };
+    const emailed = options.mail
+      ? await queueInvitationMail(
+          tx,
+          context,
+          { invitationId: id, email: input.email, token },
+          options.mail,
+        )
+      : false;
+    return { id, token, emailed };
   });
 }
 

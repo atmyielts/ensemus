@@ -17,6 +17,13 @@ export {
 export { invalidateRestoredAuthentication, type AuthRestoreInvalidation } from './auth-restore';
 export { createVerifiedInteractiveIdentity } from './interactive-identity';
 export {
+  clearMailSuppression,
+  queueAccountMail,
+  reserveReauthentication,
+  type AccountMailKind,
+} from './auth-mail';
+export type { SealedLink } from './mailer';
+export {
   prepareNativeSamlLinkSource,
   storeNativeSamlBrowserIntent,
   type SamlLinkPrimaryProof,

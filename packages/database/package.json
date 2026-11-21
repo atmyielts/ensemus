@@ -20,7 +20,8 @@
     "./payment-routing": "./src/payment-routing.ts",
     "./operator": "./src/operator.ts",
     "./support": "./src/support.ts",
-    "./eraser": "./src/eraser.ts"
+    "./eraser": "./src/eraser.ts",
+    "./mailer": "./src/mailer.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

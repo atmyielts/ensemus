@@ -25,6 +25,7 @@ export const urls = {
   app: () => dbUrl('ensemus_app', 'db_app_password'),
   auth: () => dbUrl('ensemus_auth', 'db_auth_password'),
   dispatcher: () => dbUrl('ensemus_dispatcher', 'db_dispatcher_password'),
+  mailer: () => dbUrl('ensemus_mailer', 'db_mailer_password'),
   secrets: () => dbUrl('ensemus_secrets', 'db_secrets_password'),
   // Needs the provisioning step recorded in ADR-028 under "Role provisioning".
   agent: () => dbUrl('ensemus_agent', 'db_agent_password'),

@@ -20,7 +20,9 @@
     "./microsoft/tools": "./src/microsoft/tools.ts",
     "./microsoft": "./src/microsoft/index.ts",
     "./mcp": "./src/mcp/index.ts",
-    "./payment": "./src/payment/index.ts"
+    "./payment": "./src/payment/index.ts",
+    "./email/smtp": "./src/email/smtp.ts",
+    "./email/message": "./src/email/message.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"

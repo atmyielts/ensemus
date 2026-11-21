@@ -16,6 +16,10 @@
 # Sending email adds a way out, and only for installs that ask for it (ADR-027 D5). One service has
 # credentials and no route out, one has a route out and no credentials, and neither exists without
 # the `connectors` profile. With no profile nothing here can make an outbound attempt.
+#
+# Ensemus's own email (account recovery, invitations, notifications) follows the same rule under the
+# `mail` profile: the mail worker holds the relay credential and has no route out, and its gateway has a
+# route to one relay and no credential. The web tier only queues mail in PostgreSQL.
 name: ensemus
 
 x-secret-file: &restart
@@ -63,6 +67,10 @@ services:
       ENSEMUS_PUBLIC_URL: ${ENSEMUS_PUBLIC_URL:-https://localhost:8443}
       ENSEMUS_ALLOW_SIGNUP: ${ENSEMUS_ALLOW_SIGNUP:-false}
       ENSEMUS_CONNECTORS_ENABLED: ${ENSEMUS_CONNECTORS_ENABLED:-false}
+      # On only when the mail worker runs (the `mail` profile). Off, nobody is promised an email: password
+      # reset by email is not offered and an invitation is a link to copy. Mail queued either way waits
+      # in PostgreSQL and expires unsent if no worker comes.
+      ENSEMUS_MAIL_ENABLED: ${ENSEMUS_MAIL_ENABLED:-false}
       # The operator's own Google and Microsoft apps, by public client ID only, to build the consent URL
       # (ADR-038 D2). Unset offers only an admin's own app. The secrets go to the connector worker alone.
       # Providers send the admin back to ENSEMUS_PUBLIC_URL/api/v1/oauth/callback, which must be registered.
@@ -484,6 +492,70 @@ services:
     deploy:
       resources: { limits: { memory: 128M } }
 
+  # Ensemus's own email (0571). Holds the relay credential and the private sealing key, which opens the
+  # links in account and invitation mail, and reads every tenant's member names and addresses through the
+  # ensemus_mailer role. So it gets no route anywhere: the internal `mail` network alone, with PostgreSQL
+  # and its own gateway. It runs no Temporal worker: each message's row is its durable state.
+  mail-worker:
+    <<: *restart
+    profiles: ['mail']
+    build:
+      context: ../..
+      dockerfile: infrastructure/containers/Dockerfile.worker
+    image: ${ENSEMUS_WORKER_IMAGE:-ensemus/worker:local}
+    command: ['node', 'dist/mail-worker.js']
+    read_only: true
+    tmpfs: ['/tmp']
+    networks: [mail]
+    extra_hosts:
+      - postgres:${ENSEMUS_NETWORK_PREFIX:-172.30}.8.10
+      - mail-gateway:${ENSEMUS_NETWORK_PREFIX:-172.30}.8.12
+    environment:
+      DATABASE_URL_MAILER_FILE: /run/secrets/db_mailer_url
+      SECRET_SEALING_PRIVATE_KEY_FILE: /run/secrets/sealing_private_key.pem
+      ENSEMUS_MAIL_GATEWAY: mail-gateway:2525
+      ENSEMUS_PUBLIC_URL: ${ENSEMUS_PUBLIC_URL:-https://localhost:8443}
+      # The relay's TLS certificate name. `none` is for a relay on a trusted site network only.
+      ENSEMUS_MAIL_TLS: ${ENSEMUS_MAIL_TLS:-required}
+      ENSEMUS_MAIL_TLS_SERVER_NAME: ${ENSEMUS_MAIL_TLS_SERVER_NAME:-}
+      ENSEMUS_MAIL_FROM_ADDRESS: ${ENSEMUS_MAIL_FROM_ADDRESS:-}
+      ENSEMUS_MAIL_FROM_NAME: ${ENSEMUS_MAIL_FROM_NAME:-Ensemus}
+      # Who to log in to the relay as, when that is not the sender.
+      ENSEMUS_MAIL_USERNAME: ${ENSEMUS_MAIL_USERNAME:-}
+      ENSEMUS_MAIL_PASSWORD_FILE: /run/secrets/mail_relay_password
+      # Empty means the host of ENSEMUS_PUBLIC_URL.
+      ENSEMUS_MAIL_MESSAGE_ID_DOMAIN: ${ENSEMUS_MAIL_MESSAGE_ID_DOMAIN:-}
+    secrets:
+      - db_mailer_url
+      - sealing_private_key.pem
+      - mail_relay_password
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      mail-gateway: { condition: service_healthy }
+    deploy:
+      resources: { limits: { memory: 256M } }
+
+  # Forwards bytes to the one relay an operator set, and refuses to start without one. No secret, no
+  # database. TLS runs through it, so it sees only ciphertext.
+  mail-gateway:
+    <<: *restart
+    profiles: ['mail']
+    build:
+      context: ../..
+      dockerfile: infrastructure/containers/Dockerfile.worker
+    image: ${ENSEMUS_WORKER_IMAGE:-ensemus/worker:local}
+    command: ['node', 'dist/egress-gateway.js']
+    read_only: true
+    tmpfs: ['/tmp']
+    networks:
+      mail: { ipv4_address: '${ENSEMUS_NETWORK_PREFIX:-172.30}.8.12' }
+      outbound: {}
+    environment:
+      # Empty refuses to start. The relay's submission port, such as smtp.example.com:587.
+      ENSEMUS_EGRESS_TARGET: ${ENSEMUS_MAIL_RELAY_TARGET:-}
+    deploy:
+      resources: { limits: { memory: 128M } }
+
   provision-roles:
     image: pgvector/pgvector:pg17@sha256:7d0a41464797aeb9862dfdc0bbf1526b82cfd324cdd8036df19e3545f4a9ccb8
     user: postgres
@@ -496,7 +568,8 @@ services:
       - ./postgres/upgrade-roles.sh:/provision/upgrade-roles.sh:ro
       - ./postgres/upgrade-roles.sql:/provision/upgrade-roles.sql:ro
       - ./postgres/upgrade-roles-m8.sql:/provision/upgrade-roles-m8.sql:ro
-    secrets: [db_superuser_password, db_agent_password]
+      - ./postgres/upgrade-roles-mail.sql:/provision/upgrade-roles-mail.sql:ro
+    secrets: [db_superuser_password, db_agent_password, db_mailer_password]
     depends_on:
       postgres: { condition: service_healthy }
 
@@ -590,6 +663,7 @@ services:
       temporal-db: { ipv4_address: '${ENSEMUS_NETWORK_PREFIX:-172.30}.4.10' }
       connectors: { ipv4_address: '${ENSEMUS_NETWORK_PREFIX:-172.30}.5.10' }
       agents: { ipv4_address: '${ENSEMUS_NETWORK_PREFIX:-172.30}.7.10' }
+      mail: { ipv4_address: '${ENSEMUS_NETWORK_PREFIX:-172.30}.8.10' }
     secrets:
       - db_superuser_password
       - db_migrator_password
@@ -758,7 +832,16 @@ networks:
             subnet: '${ENSEMUS_NETWORK_PREFIX:-172.30}.7.0/24',
             ip_range: '${ENSEMUS_NETWORK_PREFIX:-172.30}.7.128/25',
           }
-  # The way out, and only the gateway is on it. A sovereign site's firewall limits it to the relay.
+  # No gateway, so nothing on it has a route out. Only the mail worker, PostgreSQL and the mail gateway.
+  mail:
+    internal: true
+    ipam:
+      config:
+        - {
+            subnet: '${ENSEMUS_NETWORK_PREFIX:-172.30}.8.0/24',
+            ip_range: '${ENSEMUS_NETWORK_PREFIX:-172.30}.8.128/25',
+          }
+  # The way out, and only the gateways are on it. A sovereign site's firewall limits it to the relays.
   outbound:
     ipam:
       config:
@@ -786,6 +869,11 @@ secrets:
   db_agent_url: { file: ../../.local/secrets/db_agent_url }
   db_auth_url: { file: ../../.local/secrets/db_auth_url }
   db_dispatcher_url: { file: ../../.local/secrets/db_dispatcher_url }
+  db_mailer_password: { file: ../../.local/secrets/db_mailer_password }
+  db_mailer_url: { file: ../../.local/secrets/db_mailer_url }
+  # The relay's password, which an operator mounts. Only the mail worker reads it.
+  mail_relay_password:
+    { file: '${ENSEMUS_MAIL_PASSWORD_FILE:-../../.local/secrets/mail_relay_password}' }
   objects_access_key: { file: ../../.local/secrets/objects_access_key }
   objects_secret_key: { file: ../../.local/secrets/objects_secret_key }
   objects_ledger_access_key: { file: ../../.local/secrets/objects_ledger_access_key }
